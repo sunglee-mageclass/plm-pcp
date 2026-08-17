@@ -35,7 +35,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
+import { normalizeKanbanStatuses, APROVADO_KEY, podeEnviarExplosao } from "@/lib/kanban-status";
 import { requisitosOk, CONDICOES_POR_SECAO } from "@/lib/kanban-condicoes";
 
 import {
@@ -244,7 +244,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos").eq("tenant_id", tenantId).maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -1263,6 +1263,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
   const isAprovado = curStatus === APROVADO_KEY;
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
+  // Gate de "Enviar à Explosão" (materializa CAD, `enviado_cad=true`) configurável por
+  // loja: o modelo pode ser enviado A PARTIR da etapa `tenant_config.explosao_envio_status`
+  // (ou de qualquer etapa POSTERIOR na ordem do board). Ausente ⇒ 'aprovado'. Espelha o
+  // gate do servidor (`_explosao_envio_gate`). `reqLabel` alimenta o tooltip do desabilitado.
+  const envioGate = useMemo(
+    () => podeEnviarExplosao((tenantCfg as any)?.status_kanban, (tenantCfg as any)?.explosao_envio_status, curStatus),
+    [tenantCfg, curStatus],
+  );
+  const podeEnviarEtapa = envioGate.ok;
   const hasTecidoComVariante = blocks.some(
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
   );
@@ -1342,7 +1351,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
   // Cada pendência aponta a SEÇÃO do accordion onde se resolve (o rodapé vira link que abre a seção).
   const cadMissing: { label: string; sec: string }[] = [];
-  if (isAprovado) {
+  if (podeEnviarEtapa) {
     if ((draft?.ref ?? "").trim() === "") cadMissing.push({ label: fl("ref"), sec: "s1" });
     if ((draft?.nome ?? "").trim() === "") cadMissing.push({ label: "Nome", sec: "s1" });
     if (!(modelo as any)?.estilista_id) cadMissing.push({ label: "Estilista", sec: "s1" });
@@ -1355,8 +1364,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 2", sec: "s1" });
     if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 3", sec: "s1" });
   }
-  // Enviar é sempre visível quando aprovado e sem itens faltando (idempotente: reenviar é ok).
-  const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
+  // Enviar habilita quando o modelo está na etapa configurada (ou posterior) e sem itens
+  // faltando (idempotente: reenviar é ok).
+  const canEnviarCad = podeEnviarEtapa && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
   // Revenda (`modelos.origem`, fora do `draft` — nunca editado aqui): a MO por serviço não se
@@ -2845,7 +2855,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
         {/* Pendências p/ enviar — VISÍVEL no mobile (no desktop ficam no rodapé). Cada uma
             é um link que abre a seção onde se resolve. */}
-        {isAprovado && cadMissing.length > 0 && (
+        {podeEnviarEtapa && cadMissing.length > 0 && (
           <p className="sm:hidden mt-4 text-xs text-amber-700 dark:text-amber-300">
             Para enviar, falta:{" "}
             {cadMissing.map((m, i) => (
@@ -2865,7 +2875,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           <span className="max-sm:sr-only">Voltar</span>
         </Button>
         {/* Grupo direito: ml-auto empurra para a direita. */}
-        {isAprovado && cadMissing.length > 0 && (
+        {podeEnviarEtapa && cadMissing.length > 0 && (
           <span className="text-xs text-muted-foreground ml-auto max-sm:hidden">
             Para enviar, falta:{" "}
             {cadMissing.map((m, i) => (
@@ -2879,7 +2889,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className={!(isAprovado && cadMissing.length > 0) ? "ml-auto" : "max-sm:ml-auto"}>
+              <span className={!(podeEnviarEtapa && cadMissing.length > 0) ? "ml-auto" : "max-sm:ml-auto"}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -2897,11 +2907,31 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             )}
           </Tooltip>
         </TooltipProvider>
-        {canEnviarCad && (
-          <Button variant="secondary" onClick={() => setConfirmEnviarCad(true)} disabled={enviarCad.isPending}>
-            {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            <Send className="h-4 w-4 mr-2" /> Enviar
-          </Button>
+        {!draft.enviado_cad && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* span: botão desabilitado não dispara hover — o wrapper deixa o tooltip aparecer. */}
+                <span>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setConfirmEnviarCad(true)}
+                    disabled={!canEnviarCad || enviarCad.isPending}
+                  >
+                    {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    <Send className="h-4 w-4 mr-2" /> Enviar
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!canEnviarCad && (
+                <TooltipContent>
+                  {!podeEnviarEtapa
+                    ? `Disponível a partir da etapa "${envioGate.reqLabel}".`
+                    : "Preencha os itens pendentes para enviar."}
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         )}
         {locked ? (
           <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar">

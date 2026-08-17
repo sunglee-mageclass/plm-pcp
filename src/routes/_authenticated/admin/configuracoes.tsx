@@ -48,7 +48,7 @@ import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { resolveStatusKey } from "@/lib/kanban-status";
+import { resolveStatusKey, normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 
@@ -100,6 +100,10 @@ const DEFAULTS = {
   modo_oc_rolo: "ambos" as "oc" | "rolo" | "ambos",
   // Requisitos de entrada por status do kanban: { status_key: [chave_condicao] }.
   kanban_requisitos: {} as Record<string, string[]>,
+  // Etapa (KEY snake da coluna do kanban) A PARTIR da qual um modelo pode ser enviado à
+  // Explosão. "" ⇒ ausente ⇒ 'aprovado' (histórico). Semântica "a partir da etapa": na
+  // etapa escolhida OU em qualquer posterior. Ver kanban-status.ts `podeEnviarExplosao`.
+  explosao_envio_status: "" as string,
   // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
   // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
   // slaServico = etapa cujo prazo (na matriz do Leadtime) vem do "SLA de Serviços" da
@@ -181,6 +185,7 @@ function ConfiguracoesLojaPage() {
         (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
           ? ((r as any).kanban_requisitos as Record<string, string[]>)
           : DEFAULTS.kanban_requisitos,
+      explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
       leadtime:
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
@@ -197,7 +202,8 @@ function ConfiguracoesLojaPage() {
       // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
       // foi editado nesses outros lugares.
       const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, ...cfgRest } = cfg;
-      const payload = { tenant_id: data.tenantId, ...cfgRest };
+      // "" (Aprovado / ausência) → null, p/ manter o default histórico sem gravar valor.
+      const payload = { tenant_id: data.tenantId, ...cfgRest, explosao_envio_status: cfg.explosao_envio_status || null };
       const { error } = await supabase
         .from("tenant_config")
         .upsert(payload as any, { onConflict: "tenant_id" });
@@ -303,6 +309,12 @@ function ConfiguracoesLojaPage() {
             />
           );
         }}
+      />
+
+      <EnvioExplosaoCard
+        statusKanban={cfg.status_kanban}
+        value={cfg.explosao_envio_status}
+        onChange={(v) => setCfg((c) => ({ ...c, explosao_envio_status: v }))}
       />
 
       <LeadtimeConfigCard
@@ -478,6 +490,60 @@ type LtTipo = "macro" | "kanban" | "servico";
 type LtEtapa = { key: string; tipo: LtTipo; idealDias: number };
 type LtConfig = { etapas: LtEtapa[]; slaServico: string | null };
 type LtItem = { key: string; tipo?: LtTipo; label?: string; indent?: boolean; caption?: string };
+
+// Envio à Explosão: a partir de qual coluna do kanban (DA LOJA) um modelo pode ser
+// enviado à Explosão (materializa o CAD, `enviado_cad=true`). Default (ausência) =
+// Aprovado. Espelha `podeEnviarExplosao`/`_explosao_envio_gate` (front+RPC).
+function EnvioExplosaoCard({
+  statusKanban,
+  value,
+  onChange,
+}: {
+  statusKanban: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const options = normalizeKanbanStatuses(statusKanban); // {key,label}[] em ordem do board
+  const optionKeys = new Set(options.map((o) => o.key));
+  const cfgSet = !!(value ?? "").trim();
+  const effectiveKey = cfgSet ? (value as string).trim() : APROVADO_KEY;
+  const isOrphan = !optionKeys.has(effectiveKey);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Envio à Explosão</CardTitle>
+        <CardDescription>
+          Modelos podem ser enviados à Explosão a partir desta etapa (ou de qualquer etapa
+          posterior). Padrão: <span className="font-medium">Aprovado</span>.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Label>Enviar à Explosão a partir de</Label>
+        <Select value={isOrphan ? "" : effectiveKey} onValueChange={onChange}>
+          <SelectTrigger className="w-full md:w-96">
+            <SelectValue placeholder="Selecione uma etapa" />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((o) => (
+              <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {isOrphan && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            {cfgSet
+              ? `A etapa configurada ("${effectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não escolher outra, o envio volta a exigir "Aprovado".`
+              : `Esta loja não tem a coluna "Aprovado" no kanban. Escolha a etapa a partir da qual liberar o envio à Explosão.`}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          No card de Desenvolvimento, o botão <span className="font-medium">Enviar</span> só
+          habilita quando o modelo está nesta etapa (ou posterior).
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function LeadtimeConfigCard({
   tenantId,

@@ -52,6 +52,49 @@ export function resolveStatusKey(labelOrKey: string): string {
   return LABEL_TO_KEY.get(norm) ?? slugify(labelOrKey);
 }
 
+export type ExplosaoEnvioGate = { ok: boolean; reqKey: string; reqLabel: string };
+
+/** Decide se um modelo pode ser enviado à Explosão (materializa o CAD, `enviado_cad=true`)
+ *  conforme a etapa configurada por loja em `tenant_config.explosao_envio_status`.
+ *
+ *  Semântica "a partir da etapa": libera se o status atual está NA etapa configurada OU
+ *  em QUALQUER etapa POSTERIOR (pela ordem das colunas do board da loja).
+ *   - config ausente/'' ⇒ 'aprovado' (comportamento histórico).
+ *   - config ÓRFÃ (etapa fora do board atual) ⇒ fallback 'aprovado'.
+ *   - board sem a etapa exigida (nem 'aprovado'), ou status do modelo fora do board ⇒
+ *     conservador: só a igualdade EXATA de chave libera.
+ *
+ *  ⚠️ ESPELHO EXATO de `_explosao_envio_gate` (SQL, migration 20260817120000). Ao mudar a
+ *  regra aqui, atualizar o `_core` no banco (e vice-versa). */
+export function podeEnviarExplosao(
+  statusKanbanRaw: any,
+  explosaoEnvioStatus: string | null | undefined,
+  statusDesenvolvimento: string | null | undefined,
+): ExplosaoEnvioGate {
+  const rows = normalizeKanbanStatuses(statusKanbanRaw); // {key,label}[] em ordem
+  const keys = rows.map((r) => r.key);
+  const labelOf = (k: string) =>
+    rows.find((r) => r.key === k)?.label ??
+    DEFAULT_STATUSES.find((s) => s.key === k)?.label ??
+    k;
+
+  let reqKey = String(explosaoEnvioStatus ?? "").trim() || APROVADO_KEY;
+  let cfgIdx = keys.indexOf(reqKey);
+  if (cfgIdx < 0 && reqKey !== APROVADO_KEY) {
+    reqKey = APROVADO_KEY; // órfã → fallback 'aprovado'
+    cfgIdx = keys.indexOf(APROVADO_KEY);
+  }
+  const reqLabel = labelOf(reqKey);
+  const status = String(statusDesenvolvimento ?? "").trim().toLowerCase();
+  const curIdx = keys.indexOf(status);
+
+  let ok: boolean;
+  if (cfgIdx < 0) ok = status === reqKey; // board sem a etapa exigida nem 'aprovado'
+  else if (curIdx < 0) ok = status === reqKey; // status do modelo fora do board
+  else ok = curIdx >= cfgIdx;
+  return { ok, reqKey, reqLabel };
+}
+
 /** Normaliza o status_kanban do tenant_config (strings-label OU objetos) para
  *  {key snake, label, color}. */
 export function normalizeKanbanStatuses(raw: any): KanbanStatus[] {
