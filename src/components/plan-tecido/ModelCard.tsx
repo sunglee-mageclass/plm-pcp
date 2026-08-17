@@ -66,6 +66,7 @@ export function ModelCard({
   maoObraServico,
   versao,
   origem,
+  fase,
   onEnsureSaved,
   defaultOpen,
   open: openProp,
@@ -94,6 +95,8 @@ export function ModelCard({
   versao?: number | null;
   /** `modelos.origem` ("interno"|"revenda") — espelho de revenda: badge + esconde controles de tecido. */
   origem?: string | null;
+  /** Fase do modelo no fluxo (item 10) — badge/3ª linha ao lado da foto; a fase MAIS avançada verdadeira. */
+  fase?: { label: string; tone: "success" | "warning" | "info" | "neutral" } | null;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
   /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
@@ -283,6 +286,12 @@ export function ModelCard({
               {!isRevenda && <span className="tabular-nums">{pieces} pç</span>}
               {!isRevenda && <span className="tabular-nums">{total ? `${fmtInt(total)} m` : "0 m"}</span>}
             </div>
+            {/* Fase no fluxo (item 10) — 3ª linha ao lado da foto; só p/ modelo real com fase resolvida. */}
+            {slot.modelo_id && fase && (
+              <div className="mt-1 flex" title={`Etapa atual: ${fase.label}`}>
+                <StatusBadge tone={fase.tone} className="max-w-full truncate normal-case tracking-normal">{fase.label}</StatusBadge>
+              </div>
+            )}
           </div>
           {!isRevenda && fornecTotal ? (
             fornecCom === fornecTotal
