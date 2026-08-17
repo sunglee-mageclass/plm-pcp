@@ -44,6 +44,8 @@ import {
   recomputeAviamento,
   recomputeBlock,
   recomputeEtiqueta,
+  removerVarianteDoBloco,
+  remapGradesAposRemocao,
   type AviamentoRow,
   type EtiquetaInfo,
   type GradeRow,
@@ -2241,46 +2243,47 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     const applyChange = () => {
       setBlocks((bs) => bs.map((b, i) => {
         if (i !== idx) return b;
+        if (!value) {
+          // Remove SÓ a variante alvo, deslocando as posteriores p/ cima (sem cascata —
+          // ver `removerVarianteDoBloco`). Recalcula o custo (maior preço do pool restante).
+          return recomputeBlock(removerVarianteDoBloco(b, vIdx), artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
+        }
+        // Troca de variante numa posição existente: mantém a posição; se mudou de
+        // variante, invalida os vínculos de OC (eram de outra variante).
         const variantes = [...b.variantes];
         const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
         while (oc_links.length < 10) oc_links.push([]);
         const prev = variantes[vIdx];
         variantes[vIdx] = value;
-        if (!value) {
-          oc_links[vIdx] = [];
-          for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = []; }
-        } else if (prev !== value) {
-          // variante mudou: invalida os vínculos de OC (eram de outra variante)
-          oc_links[vIdx] = [];
-        }
+        if (prev !== value) oc_links[vIdx] = [];
         // Recalcula: o custo usa o maior preço entre os artigos das variantes
         // escolhidas (substitutos podem ter preços diferentes).
         return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
       }));
     };
     if (isTecido1 && !value) {
-      // Verifica se há grade preenchida nesta variante ou nas que serão removidas em cascata
-      const affected: number[] = [];
-      for (let k = vIdx; k < target.variantes.length; k++) {
-        const n = k + 1;
-        const g = grades.find((x) => x.variante_numero === n);
-        const hasGrade = !!g && (g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0));
-        if (hasGrade) affected.push(n);
-      }
-      if (affected.length > 0) {
-        const lista = affected.map((n) => `Variante ${n}`).join(", ");
-        const msg = affected.length === 1
-          ? `A ${lista} possui grade preenchida. Remover mesmo assim?`
-          : `As variantes ${lista} possuem grade preenchida. Remover mesmo assim?`;
+      // Remover uma variante do Tecido 1 renumera as cores: a grade de cada variante
+      // POSTERIOR precisa SEGUIR a variante (a antiga v3 vira v2), não o número. Só a
+      // grade da PRÓPRIA variante removida é descartada; as demais são remapeadas.
+      const numeroRemovido = vIdx + 1;
+      const remapEAplicar = () => {
+        // Grade mudou (renumeração/descarte) → marca revisão (#Erro) nas etapas de peça
+        // downstream (CQ/Serviços/Direcionamento) via `marcar_revisao_por_mudanca` no save.
+        setGrades((gs) => remapGradesAposRemocao(gs, numeroRemovido));
+        setGradeAlterada(true);
+        applyChange();
+      };
+      const alvo = grades.find((g) => g.variante_numero === numeroRemovido);
+      const alvoTemGrade = !!alvo && (alvo.grade_total > 0 || Object.values(alvo.grades || {}).some((v) => (v ?? 0) > 0));
+      if (alvoTemGrade) {
         setConfirmGrade({
-          msg,
-          onConfirm: () => {
-            setGrades((gs) => gs.filter((g) => !affected.includes(g.variante_numero)));
-            applyChange();
-          },
+          msg: `A Variante ${numeroRemovido} possui grade preenchida. Remover mesmo assim? As variantes seguintes mantêm suas grades (renumeradas).`,
+          onConfirm: remapEAplicar,
         });
         return;
       }
+      remapEAplicar();
+      return;
     }
     applyChange();
   };

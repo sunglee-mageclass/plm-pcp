@@ -117,6 +117,41 @@ export function recomputeBlock(
   return { ...b, custo_previsto: Math.round(custo * 100) / 100 };
 }
 
+/**
+ * Remove APENAS a variante na posição `vIdx` de um bloco, deslocando as
+ * posteriores uma posição para cima (splice) — NÃO cascateia (não zera as
+ * seguintes). Mantém o array com o mesmo comprimento (cauda preenchida com
+ * null / 1 / []), pois `variantes`/`multiplicadores`/`oc_links` são acoplados
+ * POR POSIÇÃO (a posição vira `modelo_tecido_variantes.ordem`) e o render exige
+ * contiguidade (uma posição vazia no meio esconderia as seguintes — a raiz do
+ * bug do "remover a variante do meio some com as posteriores").
+ */
+export function removerVarianteDoBloco(b: TecidoBlock, vIdx: number): TecidoBlock {
+  const len = b.variantes.length;
+  const variantes = [...b.variantes];
+  const multiplicadores = [...(b.multiplicadores ?? [])];
+  while (multiplicadores.length < len) multiplicadores.push(1);
+  const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
+  while (oc_links.length < len) oc_links.push([]);
+  variantes.splice(vIdx, 1); variantes.push(null);
+  multiplicadores.splice(vIdx, 1); multiplicadores.push(1);
+  oc_links.splice(vIdx, 1); oc_links.push([]);
+  return { ...b, variantes, multiplicadores, oc_links };
+}
+
+/**
+ * Remapeia `modelo_grades` após remover a variante de número `numeroRemovido`
+ * (1-based, = posição+1 no Tecido 1): descarta a grade dessa variante e
+ * DECREMENTA o `variante_numero` das de número maior, para que a grade SIGA a
+ * variante (a grade da antiga v3 vira v2), casando com a renumeração do bloco.
+ */
+export function remapGradesAposRemocao(grades: GradeRow[], numeroRemovido: number): GradeRow[] {
+  return grades
+    .filter((g) => g.variante_numero !== numeroRemovido)
+    .map((g) => (g.variante_numero > numeroRemovido ? { ...g, variante_numero: g.variante_numero - 1 } : g))
+    .sort((a, b) => a.variante_numero - b.variante_numero);
+}
+
 export function recomputeAviamento(
   r: AviamentoRow,
   aviamentoMap: Record<string, { preco?: number | null }>,
