@@ -30,7 +30,7 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -321,6 +321,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
   const [previaLoading, setPreviaLoading] = useState(false);
+  // Auto-aplicar (bug #9): slots pré-explosão cujo "Aplicar ao modelo" bateu na guarda vazio-sobre-
+  // preenchido (esvaziar cores/zerar grade) — o save já gravou o plano; aqui pedimos confirmação p/
+  // espelhar no BOM. `null` = sem pendência; array = diálogo aberto listando os modelos.
+  const [sobrescritaPendentes, setSobrescritaPendentes] = useState<{ slotId: string; nome: string; materiais: unknown }[] | null>(null);
 
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
@@ -725,6 +729,70 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   };
   const rotuloDoConflitoSlot = (path: string): string => rotuloConflitoSlot(conflitosSlot.find((x) => x.path === path));
 
+  // Invalida o BOM VIVO da coleção (é a fonte da EXIBIÇÃO do card via merge) + caches do Dev, p/ o
+  // resultado do auto-aplicar aparecer na hora (senão o card seguiria mostrando o BOM antigo).
+  const invalidarBomVivo = (modeloIds: string[]) => {
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    for (const mid of new Set(modeloIds)) {
+      void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-tecidos", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-grades", mid] });
+    }
+  };
+
+  // Espelha 1 slot pré-explosão no BOM do modelo — MESMA RPC do botão "Aplicar ao modelo".
+  const aplicarSlotNoModelo = async (slotId: string, materiais: unknown, confirmar = false) => {
+    const { error } = await supabase.rpc("plan_tecido_aplicar_ao_modelo" as any, {
+      _slot_id: slotId, _materiais: materiais, ...(confirmar ? { _confirmar_sobrescrita: true } : {}),
+    });
+    return (error as any) ?? null;
+  };
+
+  // AUTO-APLICAR (regra do dono, bug #9): logo após um save bem-sucedido, espelha no BOM os slots que
+  // EU editei nesta sessão (`touchedIds`) cujo modelo NÃO está enviado à Explosão (nem lançado/revenda).
+  // Assim o BOM vivo — fonte da EXIBIÇÃO do card (mergeArvore) — passa a conter a cor/pç/consumo salvos
+  // e o reload deixa de "reverter". Pós-explosão fica de fora (trava, item 2). Esvaziar cores/zerar grade
+  // dispara a guarda vazio-sobre-preenchido (P0001) → junta em `pendentes` → diálogo de confirmação.
+  // Fonte única preservada: o BOM do Dev continua sendo a fonte; o card só passa a ESCREVER nele.
+  async function autoAplicarDirty(touchedIds: Set<string>) {
+    const arv = arvoreLiveRef.current;
+    if (!arv || touchedIds.size === 0) return;
+    const alvos: { slotId: string; modeloId: string; nome: string; materiais: unknown }[] = [];
+    for (const sub of arv.subcolecoes)
+      for (const ln of sub.linhas)
+        for (const slot of ln.slots) {
+          if (!slot.id || !slot.modelo_id || !touchedIds.has(slot.id)) continue;
+          if (lancadoSet.has(slot.modelo_id)) continue;                    // lançado: BOM imutável
+          if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
+          if ((origemMap[slot.modelo_id] ?? null) === "revenda") continue; // revenda: sem BOM de tecido
+          if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
+          alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: buildMateriaisAplicar(slot) });
+        }
+    if (alvos.length === 0) return;
+    const pendentes: { slotId: string; nome: string; materiais: unknown }[] = [];
+    for (const a of alvos) {
+      const err = await aplicarSlotNoModelo(a.slotId, a.materiais);
+      if (err) {
+        if (err.hint === "plan_tecido_sobrescrita") pendentes.push({ slotId: a.slotId, nome: a.nome, materiais: a.materiais });
+        else toast.error(mensagemErro(err, `Não foi possível espelhar "${a.nome}" no modelo.`));
+      }
+    }
+    invalidarBomVivo(alvos.map((a) => a.modeloId));
+    if (pendentes.length > 0) setSobrescritaPendentes(pendentes);
+  }
+
+  // Confirma a sobrescrita (esvaziar/zerar) dos slots pendentes → re-aplica com _confirmar_sobrescrita.
+  const confirmarSobrescrita = async () => {
+    const pend = sobrescritaPendentes ?? [];
+    setSobrescritaPendentes(null);
+    for (const p of pend) {
+      const err = await aplicarSlotNoModelo(p.slotId, p.materiais, true);
+      if (err) toast.error(mensagemErro(err, `Não foi possível aplicar "${p.nome}".`));
+    }
+    invalidarBomVivo([]);
+  };
+
   const salvarMut = useMutation({
     mutationFn: async () => {
       // Colab: com conflitos de slot pendentes na tela, o save NÃO pode passar — mesmo que
@@ -739,6 +807,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       if (error) throw error;
     },
     onSuccess: () => {
+      // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)
+      // usa exatamente esse conjunto (dirty por card; NUNCA a coleção inteira em massa).
+      const touched = new Set(touchedSlotIdsRef.current);
       setDirty(false);
       // O que acabei de salvar já É a base "servidor" — evita que o eco do Realtime (meu próprio
       // UPDATE) apareça como conflito ou "alguém atualizou N slots" no banner.
@@ -751,6 +822,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo
+      // Espelha as edições pré-explosão no BOM vivo (fim do "reverteu"). Fire-and-forget: o save já
+      // committou; o auto-aplicar refaz o BOM vivo e invalida a query que alimenta a exibição do card.
+      void autoAplicarDirty(touched);
     },
     onError: async (e: any) => {
       // Colab: conflito de versão (P0409) — outra pessoa salvou entre a última carga e agora.
@@ -1378,6 +1452,27 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         {previaOpen && previaData && (
           <FazerPedidoWizard previa={previaData} colecaoId={colecaoId} onClose={() => setPreviaOpen(false)} />
         )}
+
+        {/* Auto-aplicar (bug #9): o save já gravou o plano, mas espelhar no BOM ESVAZIARIA cores/grade
+            já cadastradas (guarda vazio-sobre-preenchido). Confirma antes de sobrescrever o BOM. */}
+        <AlertDialog open={!!sobrescritaPendentes} onOpenChange={(o) => { if (!o) setSobrescritaPendentes(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sobrescrever o BOM do modelo?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Aplicar as edições do card apagaria cores/grade já cadastradas em{" "}
+                {(sobrescritaPendentes?.length ?? 0) === 1
+                  ? <b>{sobrescritaPendentes?.[0]?.nome}</b>
+                  : <><b>{sobrescritaPendentes?.length}</b> modelo(s) ({sobrescritaPendentes?.map((p) => p.nome).join(", ")})</>}.
+                O plano já foi salvo. Cancelar mantém o BOM atual (o card volta a exibi-lo). Aplicar substitui o BOM de tecido pelo do card.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { void confirmarSobrescrita(); }}>Aplicar mesmo assim</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );

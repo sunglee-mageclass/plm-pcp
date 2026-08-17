@@ -6,7 +6,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock } from "lucide-react";
 import type { DragHandle } from "./dnd";
-import { necessidadePorTecido, distribuirGrade, fmtMetros } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
 import { fmtInt } from "@/lib/format";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -119,16 +119,9 @@ export function ModelCard({
   // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
   const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
 
-  // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar)
-  const buildMateriais = () =>
-    slot.materiais.map((m) => ({
-      tipo: m.tipo, numero: m.numero, artigo_id: m.artigo_id, consumo: m.consumo, loss_percent: m.loss_percent,
-      variantes: m.variantes.map((v) => ({
-        variante_tecido_id: v.variante_tecido_id, ordem: v.ordem, multiplicador: v.multiplicador,
-        grades: v.grades && Object.keys(v.grades).length ? v.grades : distribuirGrade(v.grade_total, slot.proporcoes),
-        grade_total: v.grade_total,
-      })),
-    }));
+  // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar + auto-aplicar
+  // do save — fonte única em `buildMateriaisAplicar`, @/lib/plan-tecido/calc).
+  const buildMateriais = () => buildMateriaisAplicar(slot);
 
   const invalidarModelo = () => {
     void qc.invalidateQueries({ queryKey: ["modelo"] });
@@ -315,13 +308,22 @@ export function ModelCard({
         )}
         {open && (
           <>
+            {/* Pós-explosão (enviado_cad): o BOM já foi explodido pelo CAD — o card TRAVA a edição de
+                tecido (cor/pç/consumo/tecido). A régua do dono: até a Explosão, o card manda; a partir
+                dela, ajuste no PCP/CAD. (O gate real está no servidor — aqui é só o aviso + inputs off.) */}
+            {!isRevenda && travado && (
+              <div className="flex items-start gap-1.5 border-t bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                <span><b>Enviado à Explosão</b> — edição de tecido pelo PCP/CAD. O card está travado aqui.</span>
+              </div>
+            )}
             {/* Proporção por tamanho (fixa no topo, não colapsável) — só a DISTRIBUIÇÃO; a quantidade
                 (peças) é o 'pç' por cor no bloco do tecido. Antes chamava "Grade" e colidia com a badge.
                 Revenda: não há tecido a planejar — controle escondido (card informativo). */}
             {!isRevenda && (
               <div className="border-t bg-muted/20 pb-1">
                 <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
-                <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
+                <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} readOnly={!!travado} />
               </div>
             )}
             <div className="border-t px-2 py-1 flex items-center gap-2">
@@ -416,6 +418,7 @@ export function ModelCard({
                       <MaterialBlock
                         key={m.id ?? i}
                         material={m}
+                        readOnly={!!travado}
                         laneCategoriaId={slot.categoria_tecido_id ?? null}
                         paleta={paleta}
                         onChange={(nm) => {
@@ -428,32 +431,36 @@ export function ModelCard({
                         }
                       />
                     ))}
-                    <div className="mt-2 flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          onChange({
-                            ...slot,
-                            materiais: [...slot.materiais, novoMaterial(slot.materiais, "tecido")],
-                          })
-                        }
-                      >
-                        + tecido
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          onChange({
-                            ...slot,
-                            materiais: [...slot.materiais, novoMaterial(slot.materiais, "forro")],
-                          })
-                        }
-                      >
-                        + forro
-                      </Button>
-                    </div>
+                    {/* Adicionar tecido/forro some quando travado (enviado à Explosão) — o BOM já foi
+                        explodido; qualquer novo material teria que ir pelo PCP/CAD. */}
+                    {!travado && (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            onChange({
+                              ...slot,
+                              materiais: [...slot.materiais, novoMaterial(slot.materiais, "tecido")],
+                            })
+                          }
+                        >
+                          + tecido
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            onChange({
+                              ...slot,
+                              materiais: [...slot.materiais, novoMaterial(slot.materiais, "forro")],
+                            })
+                          }
+                        >
+                          + forro
+                        </Button>
+                      </div>
+                    )}
                   </AccordionContent>
                 </AccordionItem>
               )}

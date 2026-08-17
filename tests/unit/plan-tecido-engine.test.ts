@@ -352,6 +352,36 @@ describe("plan-tecido/engine", () => {
     });
   });
 
+  // BUG #9 (causa raiz do "reverteu"): quando o BOM VIVO do Dev JÁ TEM variantes, comVariantesDoPlano
+  // faz o BOM vencer — uma cor NOVA digitada no card e salva SÓ no plano NÃO aparece no reload (o merge
+  // re-deriva do BOM vivo, que não a tem). É por isso que editar pelo card "revertia". O fix é o
+  // AUTO-APLICAR no save (Sheet): espelha a edição no BOM vivo, aí o merge passa a exibi-la. Este teste
+  // DOCUMENTA o mecanismo do merge (que é correto — o BOM é a fonte da exibição — desde que o auto-aplicar
+  // mantenha o BOM em dia).
+  it("mergeArvore: cor NOVA só-no-plano é DROPADA quando o BOM vivo já tem cor (mecanismo do 'reverteu')", () => {
+    const modelo: ModeloReal = {
+      id: "m1", ref: "REF", nome: "Blusa", subcolecao: null, subcolecao_id: "s1",
+      linha_id: "l1", categoria_id: null, proporcoes: null, grade: { 1: { grades: { M: 5 }, grade_total: 5 } },
+      // BOM VIVO do Dev já tem a cor "corA"
+      materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1.4, loss_percent: 0,
+        variantes: [{ variante_tecido_id: "corA", ordem: 1, multiplicador: 1 }] }],
+    };
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+      buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [modelo] });
+    // plano SALVO com a cor extra "corB" (digitada no card, sem "Aplicar ao modelo")
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "m1", slot_index: 0, materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1.4, loss_percent: 0, ordem: 0,
+        variantes: [
+          { variante_tecido_id: "corA", ordem: 1, multiplicador: 1, grades: { M: 5 }, grade_total: 5 },
+          { variante_tecido_id: "corB", ordem: 2, multiplicador: 1, grades: { M: 3 }, grade_total: 3 },
+        ] }] }] }] }] };
+    const merged = mergeArvore(seed, salvo as never);
+    const mm = merged.subcolecoes[0].linhas[0].slots[0].materiais[0];
+    // a cor NOVA some no reload (BOM vivo só tem corA) → é o que o dono via como "reverteu".
+    // (O auto-aplicar do save conserta ISSO gravando corB no BOM vivo — coberto na integração.)
+    expect(mm.variantes.map((v) => v.variante_tecido_id)).toEqual(["corA"]);
+  });
+
   it("mergeArvore: variantes salvas no plano sobrevivem quando o BOM vivo tem 0 variantes (FIX 2)", () => {
     // Card real com BOM vivo SEM variantes (Dev não recebeu cores); o usuário digitou cores no card
     // do Plan. Tecido e Salvou (sem Aplicar). No reload o BOM vivo não pode apagar as variantes salvas.

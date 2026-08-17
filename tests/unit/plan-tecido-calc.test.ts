@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -418,5 +418,38 @@ describe("plan-tecido/calc dedupVariantes (espelho do dedup do servidor)", () =>
     expect(out).toHaveLength(1);
     expect(out[0].ordem).toBe(1);
     expect(out[0].grade_total).toBe(12);
+  });
+});
+
+describe("buildMateriaisAplicar (payload do 'Aplicar ao modelo' / auto-aplicar do save)", () => {
+  const slot = (over: Partial<PtSlot>): PtSlot => ({ modelo_id: "m", materiais: [], ...over } as PtSlot);
+
+  it("variante COM grades próprias mantém as grades (não redistribui)", () => {
+    const s = slot({ proporcoes: { "40|M": 1 }, materiais: [
+      { artigo_id: "A", tipo: "tecido", numero: 1, consumo: 1.4, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: "v1", ordem: 1, multiplicador: 1, grades: { "40|M": 7 }, grade_total: 7 }] }] });
+    const out = buildMateriaisAplicar(s);
+    expect(out[0].variantes[0].grades).toEqual({ "40|M": 7 });
+    expect(out[0].variantes[0].grade_total).toBe(7);
+  });
+
+  it("variante SEM grades distribui grade_total pela proporção do slot", () => {
+    const s = slot({ proporcoes: { PP: 1, M: 2, G: 1 }, materiais: [
+      { artigo_id: "A", tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: "v1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 100 }] }] });
+    const out = buildMateriaisAplicar(s);
+    // 100 distribuído: PP=25, M=50, G=25 (soma = grade_total)
+    expect(Object.values(out[0].variantes[0].grades).reduce((a, b) => a + b, 0)).toBe(100);
+    expect(out[0].variantes[0].grades["M"]).toBe(50);
+  });
+
+  it("preserva tipo/numero/artigo/consumo/loss e a identidade da variante", () => {
+    const s = slot({ materiais: [
+      { artigo_id: "A", tipo: "forro", numero: 2, consumo: 0.8, loss_percent: 5, ordem: 0,
+        variantes: [{ variante_tecido_id: "vX", ordem: 3, multiplicador: 2, grades: { M: 4 }, grade_total: 4 }] }] });
+    const [m] = buildMateriaisAplicar(s);
+    expect({ tipo: m.tipo, numero: m.numero, artigo_id: m.artigo_id, consumo: m.consumo, loss_percent: m.loss_percent })
+      .toEqual({ tipo: "forro", numero: 2, artigo_id: "A", consumo: 0.8, loss_percent: 5 });
+    expect(m.variantes[0]).toMatchObject({ variante_tecido_id: "vX", ordem: 3, multiplicador: 2, grade_total: 4 });
   });
 });

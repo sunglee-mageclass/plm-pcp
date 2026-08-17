@@ -233,6 +233,28 @@ export function rateioDeficitSub(deficitColecao: number, necSub: number, necCole
   return Math.min(ns, (d * ns) / nc);
 }
 
+/** Monta o payload `_materiais` das RPCs que gravam o BOM do modelo a partir de um slot do plano
+ *  (`plan_tecido_aplicar_ao_modelo` / `plan_tecido_criar_card`): tecido/forro + variantes +
+ *  consumo + grade, com a grade distribuída por PROPORÇÃO quando a variante não tem grade própria
+ *  (mesma regra do `distribuirGrade`). FONTE ÚNICA usada pelo card ("Aplicar ao modelo"/"Criar
+ *  card") e pelo AUTO-APLICAR do save da coleção no Plan. Tecido — não duplicar a montagem. */
+export function buildMateriaisAplicar(slot: PtSlot) {
+  return (slot.materiais ?? []).map((m) => ({
+    tipo: m.tipo,
+    numero: m.numero,
+    artigo_id: m.artigo_id,
+    consumo: m.consumo,
+    loss_percent: m.loss_percent,
+    variantes: (m.variantes ?? []).map((v) => ({
+      variante_tecido_id: v.variante_tecido_id,
+      ordem: v.ordem,
+      multiplicador: v.multiplicador,
+      grades: v.grades && Object.keys(v.grades).length ? v.grades : distribuirGrade(v.grade_total, slot.proporcoes),
+      grade_total: v.grade_total,
+    })),
+  }));
+}
+
 /**
  * Distribui gradeTotal pelos tamanhos de proporcoes, proporcional ao peso.
  * Resto de arredondamento vai pro tamanho de maior peso.

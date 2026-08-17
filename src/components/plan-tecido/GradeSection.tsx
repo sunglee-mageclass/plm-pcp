@@ -7,7 +7,7 @@ import type { PtSlot } from "@/lib/plan-tecido/types";
 const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
 const FALLBACK = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 
-export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onChange: (s: PtSlot) => void; tamanhos?: string[] }) {
+export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { slot: PtSlot; onChange: (s: PtSlot) => void; tamanhos?: string[]; readOnly?: boolean }) {
   const { data: prop } = useQuery({
     queryKey: ["plan-tecido-proporcoes", slot.modelo_id],
     enabled: !!slot.modelo_id,
@@ -35,6 +35,7 @@ export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onCha
             <NumberInput
               integer
               blankZero
+              disabled={readOnly}
               placeholder="0"
               className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
               value={valorDe(t)}

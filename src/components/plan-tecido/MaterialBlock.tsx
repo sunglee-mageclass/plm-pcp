@@ -16,7 +16,7 @@ type VarRow = { id: string; nome_variante: string | null; codigo_variante: strin
 
 const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
 
-export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[] }) {
+export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean }) {
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
@@ -56,6 +56,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
 
   // ao escolher o tecido, cada cor do plano que casa (por cor base) vira a variante REAL do artigo
   useEffect(() => {
+    if (readOnly) return; // travado (enviado à Explosão): não emite onChange (evita sujar o card)
     if (!material.artigo_id || variantesArtigo.length === 0) return;
     let changed = false;
     const next = material.variantes.map((v) => {
@@ -163,11 +164,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       <div className="bg-muted/60 p-2">
         <div className="flex items-center gap-2">
           <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
-          <select className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs max-md:h-11 max-md:text-base" value={material.artigo_id ?? ""} onChange={(e) => escolherArtigo(e.target.value)}>
+          <select disabled={readOnly} className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs max-md:h-11 max-md:text-base disabled:cursor-not-allowed disabled:opacity-60" value={material.artigo_id ?? ""} onChange={(e) => escolherArtigo(e.target.value)}>
             <option value="">{`Escolher ${rotulo}…`}</option>
             {artigosVisiveis.map((a) => { const f = fornecedorDe(a.id); return (<option key={a.id} value={a.id}>{a.nome}{f ? ` · ${f}` : ""}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>); })}
           </select>
-          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}><X className="h-3 w-3" /></Button>
+          {!readOnly && <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}><X className="h-3 w-3" /></Button>}
         </div>
         <div className="mt-1.5 flex items-center gap-2">
           {categoriaNome && (
@@ -175,7 +176,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
           )}
           <div className="ml-auto flex items-center gap-1 text-xs">
             <span className="text-muted-foreground">consumo</span>
-            <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
+            <NumberInput disabled={readOnly} blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
             <span className="text-muted-foreground">m/pç</span>
           </div>
         </div>
@@ -214,22 +215,24 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
                 ) : planejada ? (
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
-                <NumberInput integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
+                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
                 <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (v.grade_total || 0))} m</span>
-                <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>
+                {!readOnly && <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>}
               </div>
             );
           })
         )}
 
-        {/* ações */}
-        <div className="mt-1.5 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setMenuOpen((o) => !o)}><Plus className="h-3 w-3" />adicionar cor</Button>
-          {temDivergentes && (
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-[11px] text-red-600 hover:text-red-700" onClick={removerDivergentes}><AlertTriangle className="h-3 w-3" />remover divergentes</Button>
-          )}
-        </div>
+        {/* ações — escondidas quando travado (enviado à Explosão) */}
+        {!readOnly && (
+          <div className="mt-1.5 flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setMenuOpen((o) => !o)}><Plus className="h-3 w-3" />adicionar cor</Button>
+            {temDivergentes && (
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-[11px] text-red-600 hover:text-red-700" onClick={removerDivergentes}><AlertTriangle className="h-3 w-3" />remover divergentes</Button>
+            )}
+          </div>
+        )}
 
         {/* menu de cores (in-flow p/ não recortar) */}
         {menuOpen && (
