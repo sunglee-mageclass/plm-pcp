@@ -21,8 +21,10 @@ type OcRow = {
 };
 
 /**
- * "Aplicar OC" (Fase C, atribuição): escolhe OCs reais cujo consumo é DESTACADO no Resumo
- * como "coberto por estas OCs". NÃO altera a "falta" (a OC já está no previsto do estoque).
+ * "Vincular OC / Rolo" (Fase C): liga OCs/rolos reais à coleção para ACOMPANHAMENTO no Resumo.
+ * Cobertura do "A comprar" segue USO REAL (decisão do dono ago/2026, opção B): uma OC aplicada só
+ * abate o "A comprar" quando há um card desta coleção vinculado a ela (ou quando a OC foi gerada
+ * pelo Fazer pedido desta coleção); um rolo abate sempre pelo seu SALDO (estoque físico).
  */
 export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
   const qc = useQueryClient();
@@ -112,9 +114,10 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
           <DialogHeader>
             <DialogTitle>Vincular OC / Rolo ao plano</DialogTitle>
             <DialogDescription>
-              Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). O Resumo destaca quanto cada um
-              cobre por variante. Um <b>rolo</b> abate o "a comprar" pelo seu <b>saldo</b> (metragem
-              não separada); a OC é informativa (já está no estoque previsto).
+              Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). Uma <b>OC aplicada</b> é
+              acompanhamento: só abate o "a comprar" quando há um <b>card desta coleção vinculado</b>{" "}
+              a ela (ou quando foi gerada pelo Fazer pedido). Um <b>rolo</b> abate o "a comprar" pelo
+              seu <b>saldo</b> (metragem não separada).
             </DialogDescription>
           </DialogHeader>
           <div className="relative">

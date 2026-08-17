@@ -121,7 +121,8 @@ export function PaletaColecao({ colecaoId, emUso = [] }: { colecaoId: string; em
         {linhaAdd("Forros", "forro", forroArtigos, addFor, setAddFor)}
         <div className="border-t pt-2">
           <div className="mb-1 text-[11px] font-medium text-muted-foreground">OCs</div>
-          {/* OCs que cobrem a coleção, com status (encomendado × em casa) */}
+          {/* OCs vinculadas à coleção (acompanhamento), com status (encomendado × em casa).
+              Cobrem o "a comprar" só com card vinculado ou se geradas pelo Fazer pedido (opção B). */}
           {ocsCobertura.length > 0 && (
             <div className="mb-2 space-y-0.5">
               {ocsCobertura.map((o, i) => (
