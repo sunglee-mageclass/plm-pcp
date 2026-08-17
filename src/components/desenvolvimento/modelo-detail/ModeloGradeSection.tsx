@@ -37,9 +37,11 @@ export function ModeloGradeSection({
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
 
-  // Com auto ligado E proporções definidas, a Grade Total vira editável (distribui pela proporção).
+  // Com cálculo automático ligado, a Grade Total é editável: COM proporções distribui na proporção;
+  // SEM proporções divide IGUALMENTE entre os tamanhos (mantém Σ células == total). Antes exigia
+  // proporção > 0, o que travava o total logo após "Aplicar ao modelo" (Plan. Tecido) sem proporção.
   const somaProp = tamanhos.reduce((s, t) => s + (Number(proporcoes?.[t]) || 0), 0);
-  const totalEditavel = gradeAuto && somaProp > 0;
+  const totalEditavel = gradeAuto;
 
   return (
     <div className="space-y-3">
@@ -79,7 +81,7 @@ export function ModeloGradeSection({
         <p className="text-[11px] text-muted-foreground -mt-1">
           {somaProp > 0
             ? "Digite a Grade Total ou um tamanho, e os demais preenchem na proporção acima."
-            : "Defina as proporções acima para destrinchar a Grade Total."}
+            : "Digite a Grade Total (divide igualmente entre os tamanhos) ou defina proporções acima para destrinchar."}
         </p>
       )}
       <Separator />

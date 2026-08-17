@@ -19,6 +19,9 @@ export type ModeloRealMaterial = {
   artigo_rendimento?: number | null;
   preco_por_metro?: number | null;
   consumo: number;
+  // consumo confirmado no CAD (cad_tecidos.consumo_cad), quando > 0 — só MARCADOR de exibição
+  // (item 3c): o `consumo` efetivo já traz o CAD quando ele vence; este campo alimenta o tooltip.
+  consumo_cad?: number | null;
   loss_percent: number;
   // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador + cor_nome
   variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null }[];
@@ -92,6 +95,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
       tipo: mat.tipo,
       numero,
       consumo: Number(mat.consumo) || 0,
+      consumo_cad: mat.consumo_cad ?? null, // marcador de exibição (item 3c)
       loss_percent: Number(mat.loss_percent) || 0,
       ordem: mi,
       variantes,

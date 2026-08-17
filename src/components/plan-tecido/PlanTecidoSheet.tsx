@@ -400,7 +400,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, origem, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
+          // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
+          // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
+          "id, ref, nome, versao, origem, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad))",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -531,6 +534,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       // vir penduradas num bloco (mecanismo de "substitutos"). Aqui cada variante vai pro material do
       // SEU artigo (Malha Tessa com as dela, Fiore num material próprio) — sem lumpar/duplicar cor.
       const blocks = (m.modelo_tecidos ?? []).filter((t: any) => t.tipo === "tecido" || t.tipo === "forro");
+      // Consumo confirmado no CAD por (tipo, numero) — fonte MAIS adiantada (item 3c). `cad` é to-many
+      // (1:1 por trigger): pega o 1º. Só entra se > 0 ("vence se preenchido"), casado por tipo+numero.
+      const cadConsumo = new Map<string, number>();
+      for (const ct of (m.cad?.[0]?.cad_tecidos ?? []) as any[]) {
+        const c = Number(ct?.consumo_cad) || 0;
+        if (c > 0) cadConsumo.set(`${ct.tipo ?? "tecido"}|${Number(ct.numero) || 1}`, c);
+      }
       const matByArtigo = new Map<string, ModeloRealMaterial>();
       const materialFor = (artigoId: string | null, artigoDet: any, refBlock: any): ModeloRealMaterial => {
         const key = artigoId ?? `__null_${refBlock?.numero ?? "x"}`;
@@ -539,15 +549,23 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           const ownBlock = blocks.find((b: any) => (b.artigo_id ?? null) === artigoId); // bloco do próprio artigo (consumo/tipo/numero)
           const block = ownBlock ?? refBlock;
           const det = ownBlock?.artigo ?? artigoDet ?? refBlock?.artigo ?? null;
+          const tipo = (block?.tipo ?? "tecido") as "tecido" | "forro";
+          const numero = Number(block?.numero) || 1;
+          // Hierarquia do consumo (item 3c): CAD preenchido (>0) VENCE o BOM Dev; senão o BOM; o
+          // fallback p/ o plano salvo (0 aqui) segue no merge (comConsumoDoPlano). `consumo_cad` é só
+          // marcador de EXIBIÇÃO (tooltip "consumo do CAD") — não é gravado no plano.
+          const consumoBom = Number(block?.consumo) || 0;
+          const consumoCad = cadConsumo.get(`${tipo}|${numero}`) ?? 0;
           mat = {
-            tipo: (block?.tipo ?? "tecido") as "tecido" | "forro",
-            numero: Number(block?.numero) || 1,
+            tipo,
+            numero,
             artigo_id: artigoId,
             artigo_nome: (det?.nome ?? null) as string | null,
             artigo_unidade_medida: (det?.unidade_medida ?? null) as string | null,
             artigo_rendimento: det?.rendimento != null ? Number(det.rendimento) : null,
             preco_por_metro: det?.preco_por_metro != null ? Number(det.preco_por_metro) : null,
-            consumo: Number(block?.consumo) || 0,
+            consumo: consumoCad > 0 ? consumoCad : consumoBom,
+            consumo_cad: consumoCad > 0 ? consumoCad : null,
             loss_percent: Number(block?.loss_percent) || 0,
             variantes: [],
           };

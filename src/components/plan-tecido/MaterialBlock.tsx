@@ -175,6 +175,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
             <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground" title="Categoria do tecido (cadastro)">{categoriaNome}</span>
           )}
           <div className="ml-auto flex items-center gap-1 text-xs">
+            {/* Fonte do consumo (item 3c): quando o CAD tem consumo preenchido (>0) ele VENCE o BOM
+                do Dev e o plano — marcador "CAD" com tooltip, sem poluir. */}
+            {(Number(material.consumo_cad) || 0) > 0 && (
+              <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary" title="Consumo do CAD (fonte mais adiantada — vence o BOM do Desenvolvimento)">CAD</span>
+            )}
             <span className="text-muted-foreground">consumo</span>
             <NumberInput disabled={readOnly} blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
             <span className="text-muted-foreground">m/pç</span>

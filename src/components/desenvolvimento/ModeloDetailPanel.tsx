@@ -2343,6 +2343,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           });
           next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
         }
+      } else if (total > 0 && tamanhos.length > 0) {
+        // Sem proporções definidas: distribui IGUALMENTE entre os tamanhos (resto nos primeiros),
+        // mantendo Σ células == total. Assim a Grade Total é editável mesmo sem proporção (ex.: grade
+        // veio do "Aplicar ao modelo" do Plan. Tecido sem proporção). O usuário refina por célula ou
+        // definindo proporções depois. (Antes zerava as células, o que travava a edição do total.)
+        const base = Math.floor(total / tamanhos.length);
+        const resto = total - base * tamanhos.length;
+        tamanhos.forEach((t, i) => { next[t] = base + (i < resto ? 1 : 0); });
       } else {
         tamanhos.forEach((t) => { next[t] = 0; });
       }
