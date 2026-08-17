@@ -59,14 +59,16 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
 
   // OCs GERADAS pelo "Fazer pedido" DESTA coleção (plan_tecido_ocs) → selo "do plano" no seletor;
   // as demais (avulsas/de outra coleção) recebem "já existia" (decisão do dono 17/ago/2026).
-  const { data: geradasSet = new Set<string>() } = useQuery({
+  // ⚠️ MESMA queryKey do ResumoPanel → OBRIGATÓRIO o MESMO formato (string[] de ids) — cachear um
+  // Set aqui envenenava o `.includes` do Resumo e derrubava a tela (bug de queryKey compartilhada,
+  // ver CLAUDE.md). O Set é derivado localmente.
+  const { data: geradas = [] } = useQuery<string[]>({
     queryKey: ["plan-tecido-ocs-geradas", colecaoId],
     queryFn: async () =>
-      new Set(
-        (((await supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[])
-          .map((r) => r.oc_tecido_id),
-      ),
+      (((await supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[])
+        .map((r) => r.oc_tecido_id),
   });
+  const geradasSet = new Set(geradas);
 
   // seleção já aplicada (persistida)
   const { data: aplicadas = [] } = useQuery({
