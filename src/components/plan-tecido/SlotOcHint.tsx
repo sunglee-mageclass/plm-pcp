@@ -8,7 +8,7 @@ import { OcRoloCombobox } from "./OcRoloCombobox";
 type OcLite = {
   id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[];
   categorias?: string[]; artigos?: string[]; fornecedor?: string | null;
-  /** OC gerada pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → selo "do plano"; senão "já existia". */
+  /** OC comprada pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → selo "comprado"; senão "existente". */
   owned?: boolean;
 };
 

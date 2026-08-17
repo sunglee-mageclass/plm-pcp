@@ -8,8 +8,8 @@ import { ocSearchValue, type OcBuscavel } from "@/lib/plan-tecido/oc-busca";
 import { OcHoverInfo } from "@/components/plan-tecido/OcPreview";
 import { OcOrigemBadge } from "@/components/plan-tecido/OcOrigemBadge";
 
-/** `owned` = OC gerada pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → selo "do plano"; senão
- *  "já existia" (undefined = origem desconhecida → sem selo de OC). */
+/** `owned` = OC comprada pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → selo "comprado"; senão
+ *  "existente" (undefined = origem desconhecida → sem selo de OC). */
 export type OcComboOption = OcBuscavel & { id: string; is_rolo?: boolean | null; owned?: boolean };
 
 /**

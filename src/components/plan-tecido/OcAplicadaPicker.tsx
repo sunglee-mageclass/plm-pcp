@@ -57,8 +57,8 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
     );
   }, [ocs, busca]);
 
-  // OCs GERADAS pelo "Fazer pedido" DESTA coleção (plan_tecido_ocs) → selo "do plano" no seletor;
-  // as demais (avulsas/de outra coleção) recebem "já existia" (decisão do dono 17/ago/2026).
+  // OCs COMPRADAS pelo "Fazer pedido" DESTA coleção (plan_tecido_ocs) → selo "comprado" no seletor;
+  // as demais (avulsas/de outra coleção) recebem "existente" (decisão do dono 17/ago/2026).
   // ⚠️ MESMA queryKey do ResumoPanel → OBRIGATÓRIO o MESMO formato (string[] de ids) — cachear um
   // Set aqui envenenava o `.includes` do Resumo e derrubava a tela (bug de queryKey compartilhada,
   // ver CLAUDE.md). O Set é derivado localmente.
@@ -129,9 +129,9 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
             <DialogTitle>Vincular OC / Rolo ao plano</DialogTitle>
             <DialogDescription>
               Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). O selo mostra a origem:{" "}
-              <b>do plano</b> (gerada pelo Fazer pedido desta coleção) ou <b>já existia</b> (avulsa /
+              <b>comprado</b> (comprada pelo Fazer pedido desta coleção) ou <b>existente</b> (avulsa /
               de outra coleção). Uma <b>OC aplicada</b> é acompanhamento: só abate o "a comprar"
-              quando há um <b>card desta coleção vinculado</b> a ela (ou quando foi <b>do plano</b>).
+              quando há um <b>card desta coleção vinculado</b> a ela (ou quando foi <b>comprado</b>).
               Um <b>rolo</b> abate o "a comprar" pelo seu <b>saldo</b> (metragem não separada).
             </DialogDescription>
           </DialogHeader>

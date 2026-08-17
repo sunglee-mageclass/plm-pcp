@@ -440,7 +440,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           .eq("modelos.colecao_id", colecaoId),
         supabase.from("plan_tecido_slot_oc" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
       ]);
-      // GERADAS pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → `owned` p/ o selo "do plano" dos
+      // COMPRADAS pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → `owned` p/ o selo "comprado" dos
       // seletores (decisão do dono 17/ago/2026). Reusa `ger` (já buscado acima), sem query extra.
       const gerSet = new Set((ger.data ?? []).map((r: any) => r.oc_tecido_id as string));
       const ids = [...new Set([

@@ -186,7 +186,7 @@ export function OcPreviewCard({ ocId, owned }: { ocId: string; owned?: boolean }
  * ref/props — ex. um `<span>`/`<div>`).
  */
 export function OcHoverInfo({ ocId, owned, isRolo, children, className }: { ocId: string; owned?: boolean; isRolo?: boolean | null; children: ReactNode; className?: string }) {
-  // rolo nunca é "do plano" — não passa owned pro preview (o próprio card também detecta is_rolo).
+  // rolo nunca é "comprado" — não passa owned pro preview (o próprio card também detecta is_rolo).
   const ownedPreview = isRolo ? undefined : owned;
   return (
     <>
