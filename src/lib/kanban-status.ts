@@ -95,6 +95,22 @@ export function podeEnviarExplosao(
   return { ok, reqKey, reqLabel };
 }
 
+/** Decide se o campo REF deve APARECER no card de Desenvolvimento, conforme a etapa
+ *  configurada por loja em `tenant_config.ref_exibir_status` (mesma régua "a partir da
+ *  etapa" do Envio à Explosão: na etapa OU em qualquer posterior; ausente/'' ⇒ 'aprovado';
+ *  órfã ⇒ fallback 'aprovado').
+ *
+ *  ⚠️ ESPELHO de `_ref_exibir_gate` (SQL, migration 20260817180000), que por sua vez
+ *  espelha `_explosao_envio_gate`. Reusa `podeEnviarExplosao` (mesma lógica de ordem/órfã/
+ *  fallback) — ao mudar a régua, alinhar os dois lados. */
+export function refCampoVisivel(
+  statusKanbanRaw: any,
+  refExibirStatus: string | null | undefined,
+  statusDesenvolvimento: string | null | undefined,
+): boolean {
+  return podeEnviarExplosao(statusKanbanRaw, refExibirStatus, statusDesenvolvimento).ok;
+}
+
 /** Rótulo da coluna do kanban de Desenvolvimento onde a LOJA VÊ o modelo, dado o
  *  `modelos.status_desenvolvimento` cru. ESPELHA o board (`criacao.desenvolvimento.tsx`): o board
  *  calcula um status EFETIVO = `status_desenvolvimento` se ele é uma chave do board atual, senão a

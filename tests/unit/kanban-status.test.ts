@@ -5,6 +5,7 @@ import {
   DEFAULT_STATUSES,
   APROVADO_KEY,
   podeEnviarExplosao,
+  refCampoVisivel,
   labelColunaKanban,
 } from "@/lib/kanban-status";
 
@@ -87,6 +88,30 @@ describe("podeEnviarExplosao", () => {
     expect(podeEnviarExplosao(board, "aprovacao_da_cad", "aprovacao_da_cad").ok).toBe(true);
     expect(podeEnviarExplosao(board, "aprovacao_da_cad", "explosao").ok).toBe(true);
     expect(podeEnviarExplosao(board, "aprovacao_da_cad", "em_modelagem").reqLabel).toBe("Aprovação da CAD");
+  });
+});
+
+// Item 14 — REF configurável: refCampoVisivel usa a MESMA régua "a partir da etapa" do
+// Envio à Explosão (ausente ⇒ 'aprovado'; órfã ⇒ fallback aprovado).
+describe("refCampoVisivel (item 14)", () => {
+  const boardDefault = DEFAULT_STATUSES.map((s) => s.label);
+
+  it("config AUSENTE ⇒ só 'aprovado' mostra a REF (histórico)", () => {
+    expect(refCampoVisivel(boardDefault, null, "aprovado")).toBe(true);
+    expect(refCampoVisivel(boardDefault, "", "em_modelagem")).toBe(false);
+    expect(refCampoVisivel(boardDefault, undefined, "prova_roupa_1")).toBe(false);
+  });
+
+  it("'a partir da etapa': na etapa OU posterior mostra; antes esconde", () => {
+    const cfg = "em_pilotagem";
+    expect(refCampoVisivel(boardDefault, cfg, "corte_piloto_1")).toBe(false); // antes
+    expect(refCampoVisivel(boardDefault, cfg, "em_pilotagem")).toBe(true); // na etapa
+    expect(refCampoVisivel(boardDefault, cfg, "aprovado")).toBe(true); // posterior
+  });
+
+  it("config ÓRFÃ (etapa fora do board) ⇒ fallback 'aprovado'", () => {
+    expect(refCampoVisivel(boardDefault, "nao_existe_xyz", "aprovado")).toBe(true);
+    expect(refCampoVisivel(boardDefault, "nao_existe_xyz", "em_modelagem")).toBe(false);
   });
 });
 

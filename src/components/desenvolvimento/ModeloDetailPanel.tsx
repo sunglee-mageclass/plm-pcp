@@ -35,7 +35,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { normalizeKanbanStatuses, APROVADO_KEY, podeEnviarExplosao } from "@/lib/kanban-status";
+import { normalizeKanbanStatuses, podeEnviarExplosao, refCampoVisivel } from "@/lib/kanban-status";
 import { requisitosOk, CONDICOES_POR_SECAO } from "@/lib/kanban-condicoes";
 
 import {
@@ -246,7 +246,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status").eq("tenant_id", tenantId).maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status, ref_exibir_status").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -1263,7 +1263,6 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   }, [blocks, aviamentosState, etiquetasState, maoObraPorServico, draft?.custos_adicionais]);
 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
-  const isAprovado = curStatus === APROVADO_KEY;
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
   // Gate de "Enviar à Explosão" (materializa CAD, `enviado_cad=true`) configurável por
   // loja: o modelo pode ser enviado A PARTIR da etapa `tenant_config.explosao_envio_status`
@@ -1274,6 +1273,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     [tenantCfg, curStatus],
   );
   const podeEnviarEtapa = envioGate.ok;
+  // Exibição do campo REF no card configurável por loja (`tenant_config.ref_exibir_status`):
+  // aparece A PARTIR da etapa configurada (ausente ⇒ 'aprovado' — histórico). Mesma régua do
+  // trigger `_ref_exibir_gate` que revela `ref_auto → ref` (invariante #11).
+  const refVis = useMemo(
+    () => refCampoVisivel((tenantCfg as any)?.status_kanban, (tenantCfg as any)?.ref_exibir_status, curStatus),
+    [tenantCfg, curStatus],
+  );
   const hasTecidoComVariante = blocks.some(
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
   );
@@ -2592,7 +2598,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 anos={anos.data ?? []}
                 sub1Opts={sub1Opts.data ?? []}
                 sub2Opts={sub2Opts.data ?? []}
-                isAprovado={isAprovado}
+                refVisivel={refVis}
                 isReprovado={isReprovado}
                 statusOptions={statusOptions}
                 podeEntrarStatus={podeEntrarStatus}

@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -104,6 +104,10 @@ const DEFAULTS = {
   // Explosão. "" ⇒ ausente ⇒ 'aprovado' (histórico). Semântica "a partir da etapa": na
   // etapa escolhida OU em qualquer posterior. Ver kanban-status.ts `podeEnviarExplosao`.
   explosao_envio_status: "" as string,
+  // Etapa (KEY snake) A PARTIR da qual o campo REF passa a APARECER no card de
+  // Desenvolvimento (e a REF automática é revelada `ref_auto → ref`). "" ⇒ ausente ⇒
+  // 'aprovado' (histórico). Mesma régua de `refCampoVisivel`/`_ref_exibir_gate`.
+  ref_exibir_status: "" as string,
   // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
   // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
   // slaServico = etapa cujo prazo (na matriz do Leadtime) vem do "SLA de Serviços" da
@@ -186,6 +190,7 @@ function ConfiguracoesLojaPage() {
           ? ((r as any).kanban_requisitos as Record<string, string[]>)
           : DEFAULTS.kanban_requisitos,
       explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
+      ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
       leadtime:
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
@@ -203,7 +208,11 @@ function ConfiguracoesLojaPage() {
       // foi editado nesses outros lugares.
       const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, ...cfgRest } = cfg;
       // "" (Aprovado / ausência) → null, p/ manter o default histórico sem gravar valor.
-      const payload = { tenant_id: data.tenantId, ...cfgRest, explosao_envio_status: cfg.explosao_envio_status || null };
+      const payload = {
+        tenant_id: data.tenantId, ...cfgRest,
+        explosao_envio_status: cfg.explosao_envio_status || null,
+        ref_exibir_status: cfg.ref_exibir_status || null,
+      };
       const { error } = await supabase
         .from("tenant_config")
         .upsert(payload as any, { onConflict: "tenant_id" });
@@ -237,6 +246,11 @@ function ConfiguracoesLojaPage() {
   const explosaoCfgSet = !!(cfg.explosao_envio_status ?? "").trim();
   const explosaoEffectiveKey = explosaoCfgSet ? (cfg.explosao_envio_status as string).trim() : APROVADO_KEY;
   const explosaoOrphan = !explosaoOptionKeys.has(explosaoEffectiveKey);
+
+  // Exibir REF: 2º marcador POR LINHA no mesmo bloco (mesma régua/fallback do Envio à Explosão).
+  const refCfgSet = !!(cfg.ref_exibir_status ?? "").trim();
+  const refEffectiveKey = refCfgSet ? (cfg.ref_exibir_status as string).trim() : APROVADO_KEY;
+  const refOrphan = !explosaoOptionKeys.has(refEffectiveKey);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
@@ -298,7 +312,7 @@ function ConfiguracoesLojaPage() {
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
       <SortableListCard
         title="Status do Kanban"
-        description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos (o que um card precisa ter preenchido para ENTRAR nele) e, se for a etapa a partir da qual libera o Envio à Explosão, marque-a."
+        description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos (o que um card precisa ter preenchido para ENTRAR nele) e marque, se for o caso, a etapa a partir da qual libera o Envio à Explosão e a etapa a partir da qual o campo REF aparece no card."
         items={cfg.status_kanban}
         // Updater FUNCIONAL (não `{ ...cfg, ... }` sobre o `cfg` capturado no closure):
         // `onItemRemoved` (abaixo) já dispara um `setCfg` funcional pra limpar o Envio à
@@ -311,6 +325,8 @@ function ConfiguracoesLojaPage() {
           const key = resolveStatusKey(label);
           const checked = !explosaoOrphan && key === explosaoEffectiveKey;
           const ghost = checked && !explosaoCfgSet;
+          const refChecked = !refOrphan && key === refEffectiveKey;
+          const refGhost = refChecked && !refCfgSet;
           return (
             <>
               <RequisitosStatusButton
@@ -335,16 +351,34 @@ function ConfiguracoesLojaPage() {
                   }))
                 }
               />
+              <RefExibirToggle
+                label={label}
+                checked={refChecked}
+                ghost={refGhost}
+                onToggle={(nextOn) =>
+                  setCfg((c) => ({
+                    ...c,
+                    ref_exibir_status: nextOn ? (key === APROVADO_KEY ? "" : key) : "",
+                  }))
+                }
+              />
             </>
           );
         }}
         onItemRemoved={(label) => {
           const removedKey = resolveStatusKey(label);
-          const cfgValue = (cfg.explosao_envio_status ?? "").trim();
-          if (cfgValue && removedKey === cfgValue) {
+          const explVal = (cfg.explosao_envio_status ?? "").trim();
+          if (explVal && removedKey === explVal) {
             setCfg((c) => ({ ...c, explosao_envio_status: "" }));
             toast.warning(
               'Etapa marcada para Envio à Explosão foi excluída — a marcação voltou ao padrão (Aprovado).',
+            );
+          }
+          const refVal = (cfg.ref_exibir_status ?? "").trim();
+          if (refVal && removedKey === refVal) {
+            setCfg((c) => ({ ...c, ref_exibir_status: "" }));
+            toast.warning(
+              'Etapa marcada para exibir a REF foi excluída — a marcação voltou ao padrão (Aprovado).',
             );
           }
         }}
@@ -360,6 +394,18 @@ function ConfiguracoesLojaPage() {
                 {explosaoCfgSet
                   ? `A etapa marcada para Envio à Explosão ("${explosaoEffectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não marcar outra, o envio volta a exigir "Aprovado".`
                   : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual liberar o envio à Explosão.`}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              <Tag className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+              O campo <span className="font-medium">REF</span> aparece no card a partir da
+              etapa marcada (ou de etapas posteriores). Padrão: <span className="font-medium">Aprovado</span>.
+            </p>
+            {refOrphan && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                {refCfgSet
+                  ? `A etapa marcada para exibir a REF ("${refEffectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não marcar outra, a REF volta a aparecer só em "Aprovado".`
+                  : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual exibir a REF no card.`}
               </p>
             )}
           </div>
@@ -575,6 +621,41 @@ function EnvioExplosaoToggle({
     >
       <Send className="h-4 w-4 sm:mr-1" />
       <span className="max-sm:sr-only">{ghost ? "Padrão" : "Explosão"}</span>
+    </Button>
+  );
+}
+
+// Exibir REF: 2º marcador POR LINHA no bloco "Status do Kanban" — a partir de qual etapa o
+// campo REF aparece no card de Desenvolvimento (e a REF automática é revelada). Escolha
+// ÚNICA (semântica "a partir DESTA etapa"), mesmo mecânica do EnvioExplosaoToggle, com ícone
+// Tag p/ distinguir do Send. Espelha `refCampoVisivel`/`_ref_exibir_gate` (front+trigger).
+function RefExibirToggle({
+  label,
+  checked,
+  ghost,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  ghost: boolean;
+  onToggle: (nextOn: boolean) => void;
+}) {
+  const stateTxt = ghost ? "padrão — Aprovado" : checked ? "marcado" : "desmarcado";
+  return (
+    <Button
+      type="button"
+      variant={checked ? (ghost ? "outline" : "default") : "outline"}
+      size="sm"
+      className={
+        "h-8 shrink-0 max-md:h-11 max-md:w-11 max-md:p-0" +
+        (ghost ? " border-primary text-primary" : "")
+      }
+      aria-pressed={checked}
+      aria-label={`Exibir REF a partir de "${label}" (${stateTxt})`}
+      onClick={() => onToggle(!checked)}
+    >
+      <Tag className="h-4 w-4 sm:mr-1" />
+      <span className="max-sm:sr-only">{ghost ? "Padrão" : "REF"}</span>
     </Button>
   );
 }

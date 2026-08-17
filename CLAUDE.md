@@ -439,6 +439,13 @@ e verifique** — o repo muda rápido.
     `ref` vazio). Assim toda exibição lê `modelos.ref` (vazio até aprovar = "só exibida quando aprovado")
     e o campo segue editável (REF manual, fora do padrão `[A-Za-z]+[0-9]{8}`, nunca é re-sincronizada nem
     sobrescrita). Helpers `_ref_norm`/`_modelo_ref_sigla`/`_modelo_ref_next_num` com EXECUTE revogado (#9).
+    **Etapa de revelação CONFIGURÁVEL (ago/2026, `20260817180000`):** a cópia `ref_auto → ref`
+    (e a exibição do campo no card) já não é fixa em 'aprovado' — acontece quando o modelo ATINGE a
+    etapa `tenant_config.ref_exibir_status` (ou posterior na ordem do board; ausente/órfã ⇒ 'aprovado').
+    Mesma régua "a partir da etapa" do Envio à Explosão: SQL `_ref_exibir_gate` (usado pelo trigger) +
+    front `refCampoVisivel` (`src/lib/kanban-status.ts`, delega a `podeEnviarExplosao`) que gate a
+    exibição; Config da Loja tem o 2º marcador (ícone Tag) por linha no bloco "Status do Kanban".
+    TODO o resto da invariante segue: nº fixo, sigla re-sincroniza, REF manual nunca sobrescrita.
     Ver memória `project_modelo_ref_auto`.
 12. **Permissão por SEÇÃO** (camada abaixo de "página"; jul/2026) — `PageDef.sections[]` no
     `permissions-catalog.ts` (as keys entram em `ALL_PAGE_KEYS`; o `PermissoesModal` renderiza

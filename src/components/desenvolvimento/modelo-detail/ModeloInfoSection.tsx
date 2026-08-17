@@ -29,7 +29,7 @@ export function ModeloInfoSection({
   anos,
   sub1Opts,
   sub2Opts,
-  isAprovado,
+  refVisivel,
   isReprovado,
   statusOptions,
   podeEntrarStatus,
@@ -52,7 +52,9 @@ export function ModeloInfoSection({
   anos: Opt[];
   sub1Opts: SubOpt[];
   sub2Opts: SubOpt[];
-  isAprovado: boolean;
+  /** O campo REF só aparece a partir da etapa configurada em `tenant_config.ref_exibir_status`
+   *  (ausente ⇒ 'aprovado' — histórico). Mesma régua do trigger que revela `ref_auto → ref`. */
+  refVisivel: boolean;
   isReprovado: boolean;
   statusOptions?: StatusOpt[];
   podeEntrarStatus?: (statusKey: string) => { ok: boolean; faltando: { label: string }[] };
@@ -123,8 +125,9 @@ export function ModeloInfoSection({
             className={colabField("nome").className}
           />
         </Field>
-        {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel). */}
-        {isAprovado && (
+        {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel).
+            REF: aparece a partir da etapa configurada (Config da Loja › Status do Kanban). */}
+        {refVisivel && (
           <Field label={fl("ref")}>
             <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
           </Field>
