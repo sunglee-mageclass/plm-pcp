@@ -262,7 +262,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
+  const { reservPorOc, comprometidoPorOc, estoquePorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -416,6 +416,7 @@ export function ResumoPanel({
             {g.itens.map((o) => {
               const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
               const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
+              const doEstoque = estoquePorOc.get(o.oc_tecido_id) ?? 0; // parcela "usar estoque existente" (consome físico, não gera compra)
               // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
               const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
               return (
@@ -446,6 +447,11 @@ export function ResumoPanel({
                     </span>
                   </div>
                   <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
+                  {doEstoque > 0 && (
+                    <div className="flex justify-between pl-2.5 text-muted-foreground" title="Parcela da demanda que sairá do estoque existente — não entra no 'A comprar'">
+                      <span>do estoque</span><span className="font-medium text-sky-700">{nMet(doEstoque)} m</span>
+                    </div>
+                  )}
                   <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
                 </div>
               );
@@ -454,7 +460,7 @@ export function ResumoPanel({
         )) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
-        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = em produção + reservada (livre). <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra do que já chegou) — negativa = ainda não chegou tecido suficiente.</div>
+        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = tudo que consome o físico (em produção + reservada livre), <b className="font-semibold">incluindo</b> os cards "usar estoque existente" (a linha <b className="font-semibold">do estoque</b>) — eles não geram compra, mas consomem o entregue. <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra de fato) — negativa = ainda não chegou tecido suficiente.</div>
       </Secao>
     </div>
   );

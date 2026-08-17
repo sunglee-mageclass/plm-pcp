@@ -315,3 +315,72 @@ describe("plan-tecido/calc — auditoria jul/2026 (Ave Rara)", () => {
     expect(det.reservPorOcVar.get("OC1|VB")).toBe(30);
   });
 });
+
+// Regressão do report do dono (ago/2026): "Usar estoque existente" NÃO pode sumir da Demanda dos
+// painéis de OC — o card em estoque consome o FÍSICO entregue do mesmo jeito (só não gera compra).
+// A Demanda sobre o físico deve contar encomenda + estoque; a Sobra = Entregue − Demanda.
+describe("plan-tecido/calc — usar_estoque NÃO some da Demanda (report ago/2026)", () => {
+  const mat = (consumo: number, grade: number, vid = "VBEGO") => ({
+    artigo_id: "MALHA", artigo_nome: "MALHA BEGÔNIA", unidade_medida: "metro", rendimento: null,
+    tipo: "tecido", numero: 1, consumo, loss_percent: 0, ordem: 0,
+    variantes: [{ variante_tecido_id: vid, label: "VERMELHO - BORDO", ordem: 1, multiplicador: 1, grades: {}, grade_total: grade }],
+  });
+  // 1 card VESTIDO: 60 pç × 3,05 m = 183 m em VBEGO; vinculado à OC 000003093 (tem MALHA + VBEGO).
+  const arv = (usarEstoque: boolean) => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: "R1", ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+    slots: [{ id: "sVest", modelo_id: "mVest", slot_index: 0, usar_estoque: usarEstoque, custos_adicionais: [], materiais: [mat(3.05, 60)] }] }] }] }) as any;
+  const ocArtigos = new Map([["OC3093", new Set(["MALHA"])]]);
+  const ocVariantes = new Map([["OC3093", new Set(["VBEGO"])]]);
+
+  it("detalheOc: reservPorOc conta o card MESMO com usar_estoque=true (183 nos dois casos)", () => {
+    const off = detalheOc(arv(false), { mVest: ["OC3093"] }, {}, new Set(), ocArtigos, ocVariantes);
+    const on = detalheOc(arv(true), { mVest: ["OC3093"] }, {}, new Set(), ocArtigos, ocVariantes);
+    expect(off.reservPorOc.get("OC3093")).toBeCloseTo(183, 2);
+    expect(on.reservPorOc.get("OC3093")).toBeCloseTo(183, 2);      // NÃO some
+    expect(off.reservPorOcVar.get("OC3093|VBEGO")).toBeCloseTo(183, 2);
+    expect(on.reservPorOcVar.get("OC3093|VBEGO")).toBeCloseTo(183, 2);
+  });
+
+  it("detalheOc: split 'do estoque' = 183 só quando usar_estoque=true; 0 quando false", () => {
+    const off = detalheOc(arv(false), { mVest: ["OC3093"] }, {}, new Set(), ocArtigos, ocVariantes);
+    const on = detalheOc(arv(true), { mVest: ["OC3093"] }, {}, new Set(), ocArtigos, ocVariantes);
+    expect(off.estoquePorOc.get("OC3093") ?? 0).toBe(0);
+    expect(on.estoquePorOc.get("OC3093")).toBeCloseTo(183, 2);
+    expect(off.estoquePorOcVar.get("OC3093|VBEGO") ?? 0).toBe(0);
+    expect(on.estoquePorOcVar.get("OC3093|VBEGO")).toBeCloseTo(183, 2);
+  });
+
+  // RÉGUA FINAL do drawer 'oc' (Detalhe por variante), report do dono ago/2026:
+  //  Demanda FÍSICA (abate Sobra) = cards VINCULADOS a OC OU marcados usar_estoque.
+  //  Card SEM vínculo E SEM estoque = "a comprar" (intenção de compra) — NÃO abate; fica à parte.
+  const somaVBEGO = (a: any, filtro?: (s: any) => boolean) =>
+    necessidadePorTecido(a, filtro).flatMap((t) => t.variantes).filter((v) => v.variante_tecido_id === "VBEGO").reduce((s, v) => s + v.metros, 0);
+  // predicados que o drawer usa (fisico depende do vínculo, aqui simulado por vinc):
+  const fisico = (vinc: Record<string, string[]>) => (s: any) => ((s.modelo_id && (vinc[s.modelo_id]?.length ?? 0) > 0) || !!s.usar_estoque);
+  const naoFisico = (vinc: Record<string, string[]>) => (s: any) => !fisico(vinc)(s);
+
+  it("os 5 cenários do dono (Entregue 555,55; card VESTIDO 60pç=183m) — célula por célula", () => {
+    const ENTREGUE = 555.55;
+    const vincOC = { mVest: ["OC3093"] };   // vinculado à OC 3093
+    const vincNENHUM = {} as Record<string, string[]>; // sem vínculo
+    // helper: Demanda física + split estoque + a-comprar + Sobra, dado (vínculo, usar_estoque)
+    const cell = (vinc: Record<string, string[]>, usarEstoque: boolean, pecas = 60) => {
+      const a = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "R1", ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+        slots: [{ id: "sVest", modelo_id: "mVest", slot_index: 0, usar_estoque: usarEstoque, custos_adicionais: [], materiais: [mat(3.05, pecas)] }] }] }] } as any;
+      const fisMetros = somaVBEGO(a, fisico(vinc));
+      const estMetros = somaVBEGO(a, (s: any) => !!s.usar_estoque);
+      const comprarMetros = somaVBEGO(a, naoFisico(vinc));
+      const demanda = Math.max(fisMetros, 0);          // usada=0 no exemplo
+      return { demanda, estoque: estMetros, aComprar: comprarMetros, sobra: contabilizarOc(demanda, 0, 0, ENTREGUE).sobra };
+    };
+    // 1) OC vinculada + estoque OFF → Demanda 183 · do estoque 0 · a comprar 0 · Sobra +372,55
+    expect(cell(vincOC, false)).toEqual({ demanda: 183, estoque: 0, aComprar: 0, sobra: expect.closeTo(372.55, 2) });
+    // 2) OC vinculada + estoque ON → Demanda 183 · do estoque 183 · a comprar 0 · Sobra +372,55
+    expect(cell(vincOC, true)).toEqual({ demanda: 183, estoque: 183, aComprar: 0, sobra: expect.closeTo(372.55, 2) });
+    // 3) card 0 pç → Demanda 0 · Sobra +555,55 (baseline)
+    expect(cell(vincOC, false, 0)).toEqual({ demanda: 0, estoque: 0, aComprar: 0, sobra: expect.closeTo(555.55, 2) });
+    // 4) SEM OC + estoque OFF → Demanda 0 · a comprar 183 (à parte) · Sobra +555,55 (NÃO abate!)
+    expect(cell(vincNENHUM, false)).toEqual({ demanda: 0, estoque: 0, aComprar: 183, sobra: expect.closeTo(555.55, 2) });
+    // 5) SEM OC + estoque ON → Demanda 183 · do estoque 183 · Sobra +372,55
+    expect(cell(vincNENHUM, true)).toEqual({ demanda: 183, estoque: 183, aComprar: 0, sobra: expect.closeTo(372.55, 2) });
+  });
+});

@@ -190,12 +190,16 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
         ) : (
           // Variantes em ordem ALFABÉTICA (cor base → apelido) só na EXIBIÇÃO (dono, jul/2026) —
           // copia p/ ordenar, sem mexer no material.variantes salvo (não suja o form nem renumera).
-          [...material.variantes].sort(cmpVar).map((v) => {
+          [...material.variantes].sort(cmpVar).map((v, vi) => {
             const div = divergente(v);
             const planejada = !v.variante_tecido_id;
             const { cor, apelido } = corEApelido(v);
             return (
-              <div key={varKey(v)} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
+              // key com índice de exibição: uma cor pode aparecer DUPLICADA no material (anomalia de
+              // dado — variante repetida no plano/BOM); `varKey(v)` sozinho colidia e disparava o
+              // warning "two children with the same key" do React. O índice garante unicidade no
+              // render sem mascarar o dado (as duas linhas continuam visíveis).
+              <div key={`${varKey(v)}-${vi}`} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
                 {/* 1ª linha cor base, 2ª linha cor apelido (dono ago/2026 — igual aos painéis) */}
                 <span className="min-w-0 flex-1" title={nomeVariante(v)}>

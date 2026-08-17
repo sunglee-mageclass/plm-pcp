@@ -119,10 +119,16 @@ export function contabilizarOc(total: number, comprometido: number, baixa: numbe
 export type DetalheOc = {
   reservPorOc: Map<string, number>;
   comprometidoPorOc: Map<string, number>;
+  /** Parcela da reserva vinda de cards "usar estoque existente" (SUBCONJUNTO de reservPorOc): a
+   *  demanda existe e consome o FÍSICO da OC do mesmo jeito (por isso segue na reserva/Demanda),
+   *  mas NÃO gera compra ("A comprar" a exclui, no servidor). Serve só p/ o split informativo
+   *  "X do estoque" na UI — como o "em produção" do comprometido. */
+  estoquePorOc: Map<string, number>;
   nPorOc: Map<string, number>;
   /** key = `${ocId}|${variante_tecido_id}` */
   reservPorOcVar: Map<string, number>;
   comprometidoPorOcVar: Map<string, number>;
+  estoquePorOcVar: Map<string, number>;
 };
 
 export function detalheOc(
@@ -143,9 +149,11 @@ export function detalheOc(
 ): DetalheOc {
   const reservPorOc = new Map<string, number>();
   const comprometidoPorOc = new Map<string, number>();
+  const estoquePorOc = new Map<string, number>();
   const nPorOc = new Map<string, number>();
   const reservPorOcVar = new Map<string, number>();
   const comprometidoPorOcVar = new Map<string, number>();
+  const estoquePorOcVar = new Map<string, number>();
   const pertence = (ocId: string, artigoId: string | null | undefined): boolean => {
     const s = ocArtigos?.get(ocId);
     return !s ? true : (!!artigoId && s.has(artigoId));
@@ -160,6 +168,7 @@ export function detalheOc(
     const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
     const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
+    const usaEstoque = !!(slot.usar_estoque ?? false); // "usar estoque existente" — split informativo
     // metros por parcela: COM variante (perVar) e SEM variante (por artigo) — a atribuição por OC
     // filtra pelo artigo da OC e, quando há o mapa, pela COR da OC (parcela com variante).
     const semVarPorArtigo = new Map<string, number>();
@@ -182,15 +191,17 @@ export function detalheOc(
       reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mOc);
       nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
       if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mOc);
+      if (usaEstoque) estoquePorOc.set(ocId, (estoquePorOc.get(ocId) ?? 0) + mOc);
       for (const [vid, pv] of perVar) {
         if (!pertence(ocId, pv.artigoId) || !varPertence(ocId, vid)) continue;
         const k = `${ocId}|${vid}`;
         reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + pv.metros);
         if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + pv.metros);
+        if (usaEstoque) estoquePorOcVar.set(k, (estoquePorOcVar.get(k) ?? 0) + pv.metros);
       }
     }
   }
-  return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
+  return { reservPorOc, comprometidoPorOc, estoquePorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar, estoquePorOcVar };
 }
 
 /** Rateio do déficit da COLEÇÃO para uma SUBCOLEÇÃO, por artigo: parte proporcional à necessidade
