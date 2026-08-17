@@ -263,14 +263,17 @@ export function ModelCard({
             />
           </div>
         )}
-        <button
-          className={`flex w-full items-center gap-2 p-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
-          onClick={toggleOpen}
-          {...(dragHandle?.attributes ?? {})}
-          {...(dragHandle?.listeners ?? {})}
-          title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
-        >
-          <ModeloThumb path={slot.thumb_path} className="h-16 w-16" />
+        {/* Foto FORA do <button> (não aninhar interativos): clicar abre o lightbox (item 12); o resto
+            do header segue sendo o toggle/handle de arraste. */}
+        <div className="flex w-full items-center gap-2 p-2">
+          <ModeloThumb path={slot.thumb_path} className="h-16 w-16" zoom alt={slot.nome ?? "Modelo"} />
+          <button
+            className={`flex min-w-0 flex-1 items-center gap-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
+            onClick={toggleOpen}
+            {...(dragHandle?.attributes ?? {})}
+            {...(dragHandle?.listeners ?? {})}
+            title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
+          >
           <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
@@ -300,7 +303,8 @@ export function ModelCard({
           ) : null}
           {!isRevenda && !temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'.">⚠ sem peças</span>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-        </button>
+          </button>
+        </div>
         {!open && necTecidos.length > 0 && (
           <div className="space-y-1.5 border-t px-2 py-1.5">
             {necTecidos.map((t, ti) => (
