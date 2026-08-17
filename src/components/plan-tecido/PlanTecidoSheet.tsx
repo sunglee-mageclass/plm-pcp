@@ -31,7 +31,7 @@ import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
-import { normalizeKanbanStatuses } from "@/lib/kanban-status";
+import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -643,13 +643,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     queryFn: async () =>
       (((await supabase.rpc("plan_tecido_fases" as any, { _colecao_id: colecaoId })).data ?? {}) as Record<string, { fase: string; detalhe: string | null }>),
   });
-  // status_kanban do tenant → resolve o KEY (status_desenvolvimento, ex.: "em_ajuste") no RÓTULO da
-  // coluna ("Em Ajuste") p/ a fase 'dev'. Fonte única = normalizeKanbanStatuses (a mesma do board).
-  const { data: kanbanLabelMap = {} } = useQuery({
-    queryKey: ["plan-tecido-kanban-labels"],
+  // Colunas do kanban do tenant (ORDENADAS) → p/ resolver o `status_desenvolvimento` da fase 'dev' no
+  // RÓTULO da coluna que a LOJA VÊ. Fonte única = normalizeKanbanStatuses (a MESMA do board). Guardamos
+  // a lista ordenada (não só o mapa) porque `labelColunaKanban` precisa da 1ª coluna: NULL (recém-chegado)
+  // e chave órfã (coluna removida) caem na 1ª coluna — exatamente como o board os exibe (senão o badge
+  // dizia o genérico "Desenvolvimento" enquanto o card aparece em "Em Modelagem"/"Desenvolvimento de
+  // Produto"; bug reportado pelo dono — o badge não descrevia QUAL kanban).
+  const { data: kanbanCols = [] } = useQuery({
+    queryKey: ["plan-tecido-kanban-cols"],
     queryFn: async () => {
       const raw = ((await supabase.from("tenant_config").select("status_kanban").maybeSingle()).data as any)?.status_kanban;
-      return Object.fromEntries(normalizeKanbanStatuses(raw).map((s) => [s.key, s.label])) as Record<string, string>;
+      return normalizeKanbanStatuses(raw);
     },
   });
   // {label, tone} do badge de fase por modelo — mostra a fase MAIS avançada verdadeira (a RPC já
@@ -662,7 +666,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       case "direcionamento": return { label: "Direcionamento", tone: "info" };
       case "pcp":            return { label: f.detalhe ? `PCP — ${f.detalhe}` : "PCP", tone: "warning" };
       case "explosao":       return { label: "Explosão", tone: "info" };
-      case "dev":            return { label: (f.detalhe && kanbanLabelMap[f.detalhe]) || "Desenvolvimento", tone: "info" };
+      case "dev":            return { label: labelColunaKanban(f.detalhe, kanbanCols), tone: "info" };
       case "planejamento":   return { label: "Em planejamento", tone: "neutral" };
       default:               return null;
     }

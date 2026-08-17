@@ -95,6 +95,22 @@ export function podeEnviarExplosao(
   return { ok, reqKey, reqLabel };
 }
 
+/** Rótulo da coluna do kanban de Desenvolvimento onde a LOJA VÊ o modelo, dado o
+ *  `modelos.status_desenvolvimento` cru. ESPELHA o board (`criacao.desenvolvimento.tsx`): o board
+ *  calcula um status EFETIVO = `status_desenvolvimento` se ele é uma chave do board atual, senão a
+ *  PRIMEIRA coluna (`firstStatusKey`). Assim NULL (modelo recém-chegado, nunca arrastado) e chave
+ *  ÓRFÃ (coluna renomeada/removida) caem na 1ª coluna — que é onde o card de fato aparece. Usar isto
+ *  (e não um fallback genérico "Desenvolvimento") faz o badge de fase descrever a coluna REAL.
+ *   - `cols` = `normalizeKanbanStatuses(status_kanban)` (mesma fonte do board, JÁ em ordem);
+ *     vazio → DEFAULT_STATUSES (mesma degradação do board).
+ *   - retorna o label da 1ª coluna se a chave não casar; "Desenvolvimento" só se não há coluna alguma. */
+export function labelColunaKanban(statusDesenvolvimento: string | null | undefined, cols: KanbanStatus[]): string {
+  const efetivas = cols.length ? cols : DEFAULT_STATUSES;
+  const s = String(statusDesenvolvimento ?? "").trim();
+  const hit = s ? efetivas.find((c) => c.key === s) : undefined;
+  return hit?.label ?? efetivas[0]?.label ?? "Desenvolvimento";
+}
+
 /** Normaliza o status_kanban do tenant_config (strings-label OU objetos) para
  *  {key snake, label, color}. */
 export function normalizeKanbanStatuses(raw: any): KanbanStatus[] {
