@@ -410,7 +410,7 @@ export function ResumoPanel({
           colapsável (chevron, header inteiro clicável), RECOLHIDO por padrão — evita a rolagem
           longa de todas as OCs abertas de uma vez. A conta de cada OC (Pedida/Entregue/Demanda/
           Sobra) continua EXATAMENTE a mesma de antes, só a apresentação foi reorganizada. */}
-      <Secao title="Situação da OC — por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
+      <Secao title="Situação por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
         {ocs.length ? gruposTecidoOc.map((g) => (
           <GrupoTecidoOc key={g.tecido} tecido={g.tecido} count={g.itens.length} open={tecidosAbertos.has(g.tecido)} onToggle={() => toggleTecidoOc(g.tecido)}>
             {g.itens.map((o) => {

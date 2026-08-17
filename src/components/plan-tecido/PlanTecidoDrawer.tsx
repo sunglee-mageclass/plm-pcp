@@ -132,11 +132,11 @@ export function PlanTecidoDrawer({
   const titulo =
     kind === "comprar" ? "A comprar — por tecido e variante"
       : kind === "ocnum" ? `${(arg && ocNumeroDe(arg)) || "OC"} — por tecido e variante`
-        : "Situação da OC — por tecido e variante";
+        : "Detalhe por variante";
   const sub =
     kind === "comprar" ? `coleção · mesma conta do Fazer pedido — a comprar ${nMet(total)} m`
       : kind === "ocnum" ? `${grupos.reduce((a, g) => a + g.variantes.length, 0)} item(ns) da OC`
-        : "coleção · valores das OCs (m)";
+        : "coleção · cobertura das OCs por tecido e variante (m)";
 
   return (
     <div className="flex h-full w-full flex-col">
