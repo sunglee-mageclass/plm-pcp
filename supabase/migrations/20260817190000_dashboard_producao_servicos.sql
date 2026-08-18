@@ -156,3 +156,9 @@ $function$;
 
 -- Invariante #9: revogar dos TRÊS (PUBLIC + anon + authenticated herdam de PUBLIC).
 REVOKE EXECUTE ON FUNCTION public._dashboard_producao_servicos_core(date,date,text,uuid,text) FROM PUBLIC, anon, authenticated;
+
+-- Wrapper: anon não deve nem invocar (o gate interno já barra, mas mantém a paridade com
+-- os demais wrappers de dashboard, todos com anon revogado — sweep revoke_anon_restante).
+-- Revoga de PUBLIC (senão anon HERDA); authenticated/service_role já têm grant próprio
+-- (default privileges do Supabase), então continuam podendo chamar.
+REVOKE EXECUTE ON FUNCTION public.dashboard_producao_servicos(date,date,text,uuid,text) FROM PUBLIC;
