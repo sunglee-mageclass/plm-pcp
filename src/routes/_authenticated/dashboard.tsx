@@ -29,7 +29,7 @@ import {
 } from "@/lib/leadtime";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-  Cell, FunnelChart, Funnel, LabelList,
+  Cell, LabelList,
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -164,10 +164,14 @@ function ColecaoTab() {
 
   const kpis = data?.kpis ?? { total: 0, planejamento: 0, desenvolvimento: 0, producao: 0, lancados: 0 };
   const funnelBase = Number((data?.funnel ?? [])[0]?.value) || 0;
-  const funnel = (data?.funnel ?? []).map((f: any, i: number) => {
-    const pct = funnelBase > 0 ? Math.round((Number(f.value) / funnelBase) * 100) : 0;
+  const funnel = (data?.funnel ?? []).map((f: any, i: number, arr: any[]) => {
+    const val = Number(f.value) || 0;
+    const prev = i > 0 ? Number(arr[i - 1].value) || 0 : val;
+    // pctBase = retenção acumulada vs o topo do funil; conv = conversão do estágio anterior (P1 #4b).
+    const pctBase = funnelBase > 0 ? Math.round((val / funnelBase) * 100) : 0;
+    const conv = i === 0 ? null : prev > 0 ? Math.round((val / prev) * 100) : 0;
     // Estágios ordinais do funil → rampa sequencial navy (§R), por posição de etapa.
-    return { ...f, fill: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)], labelDir: `${f.name} · ${f.value} · ${pct}%` };
+    return { ...f, value: val, fill: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)], pctBase, conv };
   });
   const pieData = data?.pie ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
@@ -200,20 +204,32 @@ function ColecaoTab() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
-          <h3 className="font-semibold mb-3">Funil de progresso</h3>
+          {/* §R P1 #4b: funil (segmentos difíceis de comparar) → barras de estágio com a % de
+              CONVERSÃO etapa-a-etapa (comprimento = retenção vs o topo; rampa navy sequencial). */}
+          <h3 className="font-semibold mb-3">Funil de progresso <span className="text-sm font-normal text-muted-foreground">· conversão etapa a etapa</span></h3>
           {funnelBase === 0 ? (
             <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
           ) : (
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
-              <FunnelChart>
-                <Tooltip />
-                <Funnel dataKey="value" data={funnel} isAnimationActive>
-                  {/* Nome + valor fora do funil (à direita): legível mesmo quando o segmento é fino. */}
-                  <LabelList position="right" dataKey="labelDir" stroke="none" fill="var(--foreground)" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
+          <div className="space-y-1">
+            {funnel.map((f: any) => (
+              <div key={f.name}>
+                {f.conv != null && (
+                  <div className="flex items-center gap-1.5 py-0.5 pl-1 text-[11px] font-semibold text-muted-foreground">
+                    <ArrowDown className="h-3 w-3" aria-hidden />
+                    <span className="tabular-nums">{f.conv}%</span>
+                    <span className="font-normal">de conversão</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <div className="w-32 shrink-0 truncate text-sm font-medium" title={f.name}>{f.name}</div>
+                  <div className="relative h-7 flex-1 overflow-hidden rounded bg-muted" title={`${f.name}: ${fmtInt(f.value)} (${f.pctBase}% do topo)`}>
+                    <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${Math.max(f.pctBase, f.value > 0 ? 2 : 0)}%`, background: f.fill }} />
+                    <span className="absolute inset-y-0 left-2 flex items-center text-xs font-semibold tabular-nums text-foreground">{fmtInt(f.value)}</span>
+                    <span className="absolute inset-y-0 right-2 flex items-center text-[11px] font-medium tabular-nums text-muted-foreground">{f.pctBase}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
           )}
         </Card>
