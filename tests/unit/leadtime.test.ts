@@ -11,6 +11,9 @@ import {
   bulletScaleMax,
   metaConfig,
   splitFaseSub,
+  promoverExtintos,
+  detalharOutros,
+  PROMO_HISTORICO_FRAC,
 } from "@/lib/leadtime";
 
 describe("leadtime · fases (colapso de 18 etapas → 6 fases)", () => {
@@ -201,6 +204,106 @@ describe("leadtime · split por sub-etapa (grupos expansíveis: Σ sub ≡ agreg
     expect(s.valores["kanban:em_ajuste"]).toBeUndefined();
     expect(s.outros).toBe(3);
     expect(s.total).toBe(3);
+  });
+});
+
+describe("leadtime · promoção de status extinto + CAD→Corte fora do balde (Σ fecha)", () => {
+  const lookup = idealLookup([
+    { etapa: "kanban:em_ajuste", idealDias: 5 },
+    { etapa: "cad_corte", idealDias: 7 },
+  ]);
+  // Board = só em_ajuste + stand_by. "aprovado"/"reprovado" são EXTINTOS (fora do board).
+  const devBoardKeys = ["kanban:em_ajuste", "kanban:stand_by"];
+  const A = {
+    duracoes: {
+      "kanban:em_ajuste": 6,
+      "kanban:aprovado": 30, // extinto pesado
+      "kanban:stand_by": 2,
+      cad_corte: 10,
+      servicos: 18, // macro
+      "servico_cat:corte": 11,
+      "servico_cat:oficina": 5,
+    },
+    sub1_sla: null,
+  };
+  const B = {
+    duracoes: {
+      "kanban:em_ajuste": 4,
+      "kanban:aprovado": 2, // extinto leve
+      "kanban:reprovado": 1, // extinto raro
+    },
+    sub1_sla: null,
+  };
+
+  it("promoverExtintos: só o extinto RELEVANTE (Σ ≥ 20% da fase) vira coluna; leves ficam no balde", () => {
+    // Dev fase total = A(6+30+2) + B(4+2+1) = 45; limite = 0,2×45 = 9.
+    // aprovado Σ = 32 ≥ 9 → promovido; reprovado Σ = 1 < 9 → fica em Histórico.
+    expect(promoverExtintos([A, B], "desenvolvimento", devBoardKeys)).toEqual(["kanban:aprovado"]);
+  });
+
+  it("promoverExtintos: nada passa do limiar ⇒ [] (balde intacto)", () => {
+    // Só extintos LEVES: aprovado 2 + reprovado 1 numa fase de 4+2+1=7; limite 1,4. Ambos pequenos
+    // vs board dominante em_ajuste 4… aprovado 2 ≥ 1,4 → NA verdade passa. Ajuste: board grande.
+    const big = { duracoes: { "kanban:em_ajuste": 100, "kanban:aprovado": 5 }, sub1_sla: null };
+    // fase = 105; limite = 21; aprovado 5 < 21 → não promove.
+    expect(promoverExtintos([big], "desenvolvimento", devBoardKeys)).toEqual([]);
+  });
+
+  it("promoverExtintos: fase sem tempo ⇒ [] (empty-state honesto)", () => {
+    expect(promoverExtintos([{ duracoes: {} }], "desenvolvimento", devBoardKeys)).toEqual([]);
+    expect(promoverExtintos([], "desenvolvimento", devBoardKeys)).toEqual([]);
+  });
+
+  it("PROMO_HISTORICO_FRAC é o critério REGISTRADO (20%)", () => {
+    expect(PROMO_HISTORICO_FRAC).toBe(0.2);
+  });
+
+  it("Dev: com o extinto PROMOVIDO em devKeys, ele sai do Histórico e Σ continua fechando", () => {
+    const devKeys = [...devBoardKeys, "kanban:aprovado"]; // aprovado promovido
+    const s = splitFaseSub(A, "desenvolvimento", devKeys);
+    expect(s.valores["kanban:aprovado"]).toBe(30); // agora coluna própria
+    expect(s.outros).toBe(0); // nada sobra em Histórico
+    const agg = itemTotais(A, lookup, null).porFase.desenvolvimento!;
+    expect(s.valores["kanban:em_ajuste"] + s.valores["kanban:stand_by"] + s.valores["kanban:aprovado"] + s.outros).toBe(agg.valor);
+    expect(s.total).toBe(agg.valor); // 38
+    // e o extinto leve de B continua no Histórico (não foi promovido)
+    const sB = splitFaseSub(B, "desenvolvimento", devKeys);
+    expect(sB.valores["kanban:aprovado"]).toBe(2);
+    expect(sB.outros).toBe(1); // reprovado, não-promovido
+  });
+
+  it("Serviços: CAD→Corte em servKeys vira coluna própria; Outros fica só com macro/inativas; Σ fecha", () => {
+    const servKeys = ["cad_corte", "servico_cat:corte", "servico_cat:oficina"];
+    const s = splitFaseSub(A, "servicos", servKeys);
+    expect(s.valores["cad_corte"]).toBe(10); // fora do balde
+    expect(s.valores["servico_cat:corte"]).toBe(11);
+    expect(s.valores["servico_cat:oficina"]).toBe(5);
+    expect(s.outros).toBe(18); // SÓ o macro "servicos" (antigo) — cad_corte não está mais aqui
+    const agg = itemTotais(A, lookup, null).porFase.servicos!;
+    expect(10 + 11 + 5 + s.outros).toBe(agg.valor);
+    expect(s.total).toBe(agg.valor); // 44
+  });
+
+  it("detalharOutros: itemiza o resíduo por chave (célula = 1 item), ordenado por valor desc", () => {
+    // Dev, sem promover: resíduo de A = aprovado 30.
+    expect(detalharOutros(A, "desenvolvimento", devBoardKeys)).toEqual([{ key: "kanban:aprovado", valor: 30 }]);
+    // Serviços, cad_corte já é coluna: resíduo = só macro servicos 18.
+    expect(detalharOutros(A, "servicos", ["cad_corte", "servico_cat:corte", "servico_cat:oficina"])).toEqual([
+      { key: "servicos", valor: 18 },
+    ]);
+  });
+
+  it("detalharOutros: agregado do FILTRO (header) soma os itens e ordena por peso", () => {
+    // Dev, sem promover: aprovado 30+2=32, reprovado 1 → ordenado desc.
+    expect(detalharOutros([A, B], "desenvolvimento", devBoardKeys)).toEqual([
+      { key: "kanban:aprovado", valor: 32 },
+      { key: "kanban:reprovado", valor: 1 },
+    ]);
+  });
+
+  it("detalharOutros: sem resíduo ⇒ [] (Histórico/Outros não aparece)", () => {
+    const devKeys = [...devBoardKeys, "kanban:aprovado", "kanban:reprovado"];
+    expect(detalharOutros([A, B], "desenvolvimento", devKeys)).toEqual([]);
   });
 });
 

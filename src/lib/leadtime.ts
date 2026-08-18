@@ -166,11 +166,17 @@ export function metaConfig(key: string, lookup: Map<string, number>): number | n
   return v != null && v > 0 ? v : null;
 }
 
-// Particiona a fase de um item nas SUB-colunas próprias (`subKeys`) + o resíduo "Outros". `outros`
-// captura as chaves da fase que NÃO viraram coluna própria — em Desenvolvimento os status de kanban
-// FORA do board (ex. "aprovado", histórico); em Serviços o `cad_corte`, o macro "servicos" e as
-// categorias sem coluna. INVARIANTE: Σ(valores) + outros ≡ o `porFase[fase].valor` de itemTotais —
-// a soma das sub-colunas fecha SEMPRE com a coluna agregada (nada some, "Outros" segura o resto).
+// Particiona a fase de um item nas SUB-colunas próprias (`subKeys`) + o resíduo do balde. `outros`
+// captura as chaves da fase que NÃO viraram coluna própria. Quais chaves entram em `subKeys` é
+// decisão do chamador (dashboard):
+//  • Desenvolvimento — o board (status atuais) + os status EXTINTOS relevantes PROMOVIDOS
+//    (ver `promoverExtintos`); o resíduo é o balde "Histórico" (status extintos leves, fora do
+//    board — ex. "aprovado" quando não domina).
+//  • Serviços — `cad_corte` (marco CAD→Corte, sempre coluna própria quando presente) + as
+//    categorias ATIVAS; o resíduo "Outros" fica só com o macro "servicos" (antigo) + categorias
+//    inativas/removidas.
+// INVARIANTE: Σ(valores) + outros ≡ o `porFase[fase].valor` de itemTotais — a soma das sub-colunas
+// fecha SEMPRE com a coluna agregada (nada some; o balde segura o resto, seja Histórico ou Outros).
 export function splitFaseSub(
   item: any,
   fase: FaseKey,
@@ -190,4 +196,69 @@ export function splitFaseSub(
     else outros += v;
   }
   return { valores, outros, total };
+}
+
+// Fração MÍNIMA do tempo agregado da fase (Σ sobre os itens filtrados) para uma chave FORA de
+// `boardKeys` deixar o balde e virar sub-coluna própria. 0.20 = 20% da fase. Critério REGISTRADO:
+// um status extinto (fora do board atual) só vira "<Label> (antigo)" quando de fato pesa — evita
+// poluir o heatmap com colunas de status raros; o resto continua somado no balde "Histórico".
+export const PROMO_HISTORICO_FRAC = 0.2;
+
+/** Chaves da fase FORA de `boardKeys` (ex.: status extintos do kanban) cujo tempo AGREGADO
+ *  (Σ sobre os itens filtrados) é ≥ `frac`×(Σ da fase) — as "relevantes", que ganham coluna
+ *  própria fora do balde. Retorna ordenado por peso desc (a mais pesada primeiro). Puro/testável.
+ *  Fase sem tempo nenhum ⇒ []. Não confia em nada além de `duracoes`/`faseDeEtapa`. */
+export function promoverExtintos(
+  itens: any[],
+  fase: FaseKey,
+  boardKeys: readonly string[],
+  frac: number = PROMO_HISTORICO_FRAC,
+): string[] {
+  const board = new Set(boardKeys);
+  const agg = new Map<string, number>();
+  let faseTotal = 0;
+  for (const it of itens ?? []) {
+    const dur = (it?.duracoes ?? {}) as Record<string, unknown>;
+    for (const [k, vRaw] of Object.entries(dur)) {
+      const v = Number(vRaw);
+      if (!Number.isFinite(v)) continue;
+      if (faseDeEtapa(k) !== fase) continue;
+      faseTotal += v;
+      if (!board.has(k)) agg.set(k, (agg.get(k) ?? 0) + v);
+    }
+  }
+  if (faseTotal <= 0) return [];
+  const limite = frac * faseTotal;
+  return [...agg.entries()]
+    .filter(([, s]) => s >= limite)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k]) => k);
+}
+
+/** Detalha o RESÍDUO do balde de uma fase (o que sobra fora de `subKeys`): cada chave com o Σ do
+ *  seu tempo. Aceita 1 item (tooltip da célula) OU um array (tooltip do header = agregado do
+ *  filtro). Ordena por valor desc; descarta zeros. Puro — o chamador resolve os rótulos (precisa
+ *  do board/cadastro). Espelha a partição de `splitFaseSub` (mesma régua de fase/finitude). */
+export function detalharOutros(
+  itensOrItem: any | any[],
+  fase: FaseKey,
+  subKeys: readonly string[],
+): { key: string; valor: number }[] {
+  const want = new Set(subKeys);
+  const arr = Array.isArray(itensOrItem) ? itensOrItem : [itensOrItem];
+  const agg = new Map<string, number>();
+  for (const it of arr) {
+    const dur = (it?.duracoes ?? {}) as Record<string, unknown>;
+    for (const [k, vRaw] of Object.entries(dur)) {
+      const v = Number(vRaw);
+      if (!Number.isFinite(v)) continue;
+      if (faseDeEtapa(k) !== fase) continue;
+      if (want.has(k)) continue;
+      agg.set(k, (agg.get(k) ?? 0) + v);
+    }
+  }
+  return [...agg.entries()]
+    .filter(([, s]) => s > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, valor]) => ({ key, valor }));
 }

@@ -25,7 +25,7 @@ import {
 } from "@/lib/chart-colors";
 import {
   FASES, idealLookup, itemTotais, heroStats, seqIndexRatio, seqTextToken, bulletScaleMax,
-  metaConfig, splitFaseSub,
+  metaConfig, splitFaseSub, promoverExtintos, detalharOutros,
   type HeroStats, type FaseTotais,
 } from "@/lib/leadtime";
 import {
@@ -1821,15 +1821,17 @@ function FaseAggCell({ fase, label, edge, strong, groupEnd }: { fase: FaseTotais
 // sub-etapa tem meta na config (R2); sem meta configurada = NEUTRA (valor sem cor de razão — não
 // inventa ideal, R3/honestidade). Sem dado no item = "—" (não zera à toa). `edge` = borda-esquerda
 // que delimita o início do grupo expandido.
-function SubCell({ valor, meta, label, edge, strong }: { valor: number | undefined; meta: number | null; label: string; edge?: boolean; strong?: boolean }) {
+// `tip` (opcional) SUBSTITUI o title auto-montado — usado no balde (Histórico/Outros) p/ ITEMIZAR
+// o conteúdo daquela célula ("Aprovado (antigo): 31,90d · …", §R). Sem `tip` = title padrão.
+function SubCell({ valor, meta, label, edge, strong, tip }: { valor: number | undefined; meta: number | null; label: string; edge?: boolean; strong?: boolean; tip?: string }) {
   const cls = "py-2 px-2 text-center align-middle" + (edge ? (strong ? " border-l-2" : " border-l") : "");
-  if (valor == null) return <td className={cls + " text-muted-foreground/50"}>—</td>;
+  if (valor == null) return <td className={cls + " text-muted-foreground/50"} title={tip}>—</td>;
   if (meta == null) {
     return (
       <td className={cls}>
         <span
           className="inline-flex min-w-[36px] items-center justify-center rounded bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground"
-          title={`${label}: ${fmtNum(valor)}d · sem meta na config`}
+          title={tip ?? `${label}: ${fmtNum(valor)}d · sem meta na config`}
         >
           {fmtInt(valor)}
         </span>
@@ -1844,7 +1846,7 @@ function SubCell({ valor, meta, label, edge, strong }: { valor: number | undefin
       <span
         className="inline-flex min-w-[36px] items-center justify-center gap-0.5 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
         style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
-        title={`${label}: ${fmtNum(valor)}d · meta ${fmtNum(meta)}d · ${fmtNum(ratio)}×`}
+        title={tip ?? `${label}: ${fmtNum(valor)}d · meta ${fmtNum(meta)}d · ${fmtNum(ratio)}×`}
       >
         {fmtInt(valor)}
         {over && <span aria-hidden>▲</span>}
@@ -1879,26 +1881,68 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
     .sort((a, b) => b.total - a.total); // pior (maior lead time) primeiro
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
 
-  // Sub-colunas de Desenvolvimento = TODO status do board na ORDEM (mesmo sem dado); status
-  // histórico FORA do board (ex. "aprovado") cai em "Outros" (Σ preservada).
-  const devCols = normalizeKanbanStatuses(kanbanOrder).map((s) => ({
-    key: "kanban:" + s.key, label: s.label, meta: metaConfig("kanban:" + s.key, lookup),
+  // ——— Rótulos das sub-colunas / balde ———
+  // Status do kanban: label EXATO do board → DEFAULT_STATUSES → key humanizada (só 1ª letra, SEM
+  // title-case — lição do 7ad7f2b: title-case corrompe acento/conector "Aprovação"→"AprovaçãO").
+  const board = normalizeKanbanStatuses(kanbanOrder);
+  const labelKanban = (k: string) => {
+    const hit = board.find((s) => s.key === k) ?? DEFAULT_STATUSES.find((s) => s.key === k);
+    if (hit) return hit.label;
+    const h = k.replace(/_/g, " ");
+    return h.charAt(0).toUpperCase() + h.slice(1);
+  };
+  const catById = new Map(categorias.map((c) => [c.id, c]));
+  // Rótulo de UMA chave de duração (p/ tooltip itemizado do balde): kanban / categoria de serviço
+  // (com "(inativa)" quando desativada) / macro "servicos" / cad_corte.
+  const labelDaKey = (key: string): string => {
+    if (key.startsWith("kanban:")) return labelKanban(key.slice("kanban:".length));
+    if (key.startsWith("servico_cat:")) {
+      const cat = catById.get(key.slice("servico_cat:".length));
+      return cat ? cat.nome + (cat.ativo ? "" : " (inativa)") : "Categoria removida";
+    }
+    if (key === "servicos") return "Produção (macro)";
+    if (key === "cad_corte") return "CAD→Corte";
+    return key;
+  };
+
+  // ——— Sub-colunas de Desenvolvimento ———
+  // Board (status atuais, SEMPRE — mesmo sem dado, na ordem) + status EXTINTOS PROMOVIDOS (peso ≥
+  // PROMO_HISTORICO_FRAC da fase → rótulo "<Label> (antigo)"). O resíduo cai no balde "Histórico".
+  const devBoardCols = board.map((s) => ({
+    key: "kanban:" + s.key, label: s.label, meta: metaConfig("kanban:" + s.key, lookup), antigo: false,
   }));
+  const devBoardKeys = devBoardCols.map((c) => c.key);
+  const devPromoCols = promoverExtintos(itens, "desenvolvimento", devBoardKeys).map((key) => ({
+    key, label: labelDaKey(key) + " (antigo)", meta: metaConfig(key, lookup), antigo: true,
+  }));
+  const devCols = [...devBoardCols, ...devPromoCols];
   const devKeys = devCols.map((c) => c.key);
   const devOutros = rows.some((r) => splitFaseSub(r.it, "desenvolvimento", devKeys).outros > 1e-9);
 
-  // Sub-colunas de Serviços = categoria ATIVA com dado no filtro (ordem do cadastro); cad_corte, o
-  // macro "servicos" e categoria inativa/desconhecida caem em "Outros".
-  const catById = new Map(categorias.map((c) => [c.id, c]));
+  // ——— Sub-colunas de Serviços ———
+  // CAD→Corte (marco configurável — colore pela razão QUANDO há ideal na config) vira coluna
+  // PRÓPRIA quando presente no filtro, seguida das categorias ATIVAS com dado (ordem do cadastro).
+  // O balde "Outros" fica só com o macro "servicos" (antigo) + categorias inativas/removidas.
+  const cadCortePresente = rows.some((r) => Number((r.it?.duracoes ?? {})["cad_corte"]) > 0);
+  const cadCorteCol = { key: "cad_corte", label: "CAD→Corte", meta: metaConfig("cad_corte", lookup) };
   const servPresent = new Set<string>();
   for (const r of rows) for (const k of Object.keys(r.it?.duracoes ?? {})) if (k.startsWith("servico_cat:")) servPresent.add(k);
-  const servCols = [...servPresent]
+  const servCatCols = [...servPresent]
     .map((k) => ({ k, cat: catById.get(k.slice("servico_cat:".length)) }))
     .filter((x): x is { k: string; cat: { id: string; nome: string; ativo: boolean; ordem: number } } => !!x.cat && x.cat.ativo)
     .sort((a, b) => (a.cat.ordem - b.cat.ordem) || a.cat.nome.localeCompare(b.cat.nome))
     .map((x) => ({ key: x.k, label: x.cat.nome, meta: metaConfig(x.k, lookup) }));
+  const servCols = [...(cadCortePresente ? [cadCorteCol] : []), ...servCatCols];
   const servKeys = servCols.map((c) => c.key);
   const servOutros = rows.some((r) => splitFaseSub(r.it, "servicos", servKeys).outros > 1e-9);
+
+  // ——— Tooltips ITEMIZADOS do balde (header = agregado do filtro; célula = 1 item; §R) ———
+  const devHistItens = (det: { key: string; valor: number }[]) =>
+    det.map((d) => `${labelDaKey(d.key)} (antigo): ${fmtNum(d.valor)}d`).join(" · ") || "sem tempo no filtro";
+  const servOutrosItens = (det: { key: string; valor: number }[]) =>
+    det.map((d) => `${labelDaKey(d.key)}: ${fmtNum(d.valor)}d`).join(" · ") || "sem tempo no filtro";
+  const devHistHeadTip = "Histórico — status fora do board atual: " + devHistItens(detalharOutros(itens, "desenvolvimento", devKeys));
+  const servOutrosHeadTip = "Outros — macro de Produção + categorias inativas/removidas: " + servOutrosItens(detalharOutros(itens, "servicos", servKeys));
 
   const anyExpanded = expand.desenvolvimento || expand.servicos;
   // nº de leaf-colunas de um grupo expandido = sub-colunas + Outros? + Total.
@@ -1957,6 +2001,9 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
         acumulada da fase (mais intenso = mais acima da meta); <span aria-hidden>▲</span> = acima da meta.
         Ordenado pelo maior lead time. Toque no <span aria-hidden>▸</span> em <strong>Desenvolvimento</strong> ou
         {" "}<strong>Serviços</strong> para destrinchar em sub-colunas (a soma fecha na coluna <strong>Total</strong> do grupo).
+        {" "}Em Desenvolvimento, um status extinto que ainda pesa vira coluna <strong>"(antigo)"</strong> própria e o resto
+        soma em <strong>Histórico</strong>; em Serviços, <strong>CAD→Corte</strong> tem coluna própria e{" "}
+        <strong>Outros</strong> guarda o macro de Produção + categorias inativas (passe o mouse no cabeçalho ou na célula p/ o detalhamento).
       </p>
       {/* Legenda da rampa (sequencial = magnitude) + o marcador de atraso (R5). */}
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -1997,11 +2044,11 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                   {expand.desenvolvimento && (
                     <>
                       {devCols.map((c, i) => (
-                        <th key={c.key} style={subTop} className={subHeadCell + (i === 0 ? " border-l-2" : "")} title={c.label}>
+                        <th key={c.key} style={subTop} className={subHeadCell + (i === 0 ? " border-l-2" : "")} title={c.antigo ? c.label + " · status fora do board atual (histórico promovido)" : c.label}>
                           <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
                         </th>
                       ))}
-                      {devOutros && <th style={subTop} className={subHeadCell} title="Status históricos fora do board (Σ preservada)">Outros</th>}
+                      {devOutros && <th style={subTop} className={subHeadCell} title={devHistHeadTip}>Histórico</th>}
                       <th style={subTop} className={subHeadCell + " border-l border-r-2 font-semibold text-foreground"}>Total</th>
                     </>
                   )}
@@ -2012,7 +2059,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                           <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
                         </th>
                       ))}
-                      {servOutros && <th style={subTop} className={subHeadCell} title="CAD→Corte + Produção (macro) + categorias sem coluna (Σ preservada)">Outros</th>}
+                      {servOutros && <th style={subTop} className={subHeadCell} title={servOutrosHeadTip}>Outros</th>}
                       <th style={subTop} className={subHeadCell + " border-l border-r-2 font-semibold text-foreground"}>Total</th>
                     </>
                   )}
@@ -2038,7 +2085,14 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                         {devCols.map((c, i) => (
                           <SubCell key={c.key} edge={i === 0} strong={i === 0} valor={devSplit!.valores[c.key]} meta={c.meta} label={c.label} />
                         ))}
-                        {devOutros && <SubCell valor={devSplit!.outros || undefined} meta={null} label="Outros / histórico (fora do board)" />}
+                        {devOutros && (
+                          <SubCell
+                            valor={devSplit!.outros || undefined}
+                            meta={null}
+                            label="Histórico"
+                            tip={"Histórico (fora do board): " + devHistItens(detalharOutros(it, "desenvolvimento", devKeys))}
+                          />
+                        )}
                         <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento (total)" edge groupEnd />
                       </>
                     ) : (
@@ -2049,7 +2103,14 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                         {servCols.map((c, i) => (
                           <SubCell key={c.key} edge={i === 0} strong={i === 0} valor={servSplit!.valores[c.key]} meta={c.meta} label={c.label} />
                         ))}
-                        {servOutros && <SubCell valor={servSplit!.outros || undefined} meta={null} label="Outros: CAD→Corte + Produção (macro)" />}
+                        {servOutros && (
+                          <SubCell
+                            valor={servSplit!.outros || undefined}
+                            meta={null}
+                            label="Outros"
+                            tip={"Outros: " + servOutrosItens(detalharOutros(it, "servicos", servKeys))}
+                          />
+                        )}
                         <FaseAggCell fase={porFase.servicos} label="Serviços (total)" edge groupEnd />
                       </>
                     ) : (
