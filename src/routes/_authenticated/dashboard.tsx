@@ -125,6 +125,16 @@ function DashError({ show }: { show?: boolean }) {
 
 const nfInt = (n: any) => Number(n ?? 0).toLocaleString("pt-BR");
 
+// Estágios do destrinche por LINHA — MESMOS rótulos dos KPI cards da aba (a soma dos 4 =
+// total da linha). Ordem de matiz FIXA (categórico, §Q/dataviz). Drive tanto a barra
+// empilhada quanto as colunas da tabela (DRY). Casa com os campos de porLinha da RPC.
+const LINHA_STAGES = [
+  { key: "planejamento", label: "Em Planejamento", color: PIE_COLORS[0] },
+  { key: "desenvolvimento", label: "Em Desenvolvimento", color: PIE_COLORS[1] },
+  { key: "producao", label: "Em Produção", color: PIE_COLORS[2] },
+  { key: "lancados", label: "Lançados", color: PIE_COLORS[3] },
+] as const;
+
 function ColecaoTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
@@ -157,6 +167,8 @@ function ColecaoTab() {
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
+  const porLinha: any[] = data?.porLinha ?? [];
+  const linhaSort = useSort<any>(porLinha, { key: "total", dir: "desc" });
 
   return (
     <div className="space-y-4">
@@ -216,6 +228,62 @@ function ColecaoTab() {
             </ResponsiveContainer>
           </div>
           )}
+        </Card>
+      </div>
+
+      {/* Destrinche por LINHA (item 7) — mesmas métricas dos KPIs, quebradas por linha
+          (modelos sem linha = "Sem linha"). Respeita o filtro global da aba. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Modelos por linha <span className="text-sm font-normal text-muted-foreground">· por estágio</span></h3>
+          {porLinha.length === 0 ? (
+            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
+          ) : (
+          <div style={{ width: "100%", height: 320 }}>
+            <ResponsiveContainer>
+              <BarChart data={porLinha}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="nome" tick={{ fontSize: 11 }} interval={0} />
+                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Legend />
+                {LINHA_STAGES.map((s) => (
+                  <Bar key={s.key} dataKey={s.key} name={s.label} stackId="linha" fill={s.color} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          )}
+        </Card>
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Detalhe por linha</h3>
+          <div className="overflow-auto max-h-[360px]">
+            <table className="w-full text-sm card-table">
+              <thead className="text-left text-muted-foreground sticky top-0 bg-card">
+                <tr className="border-b">
+                  <SortTh label="Linha" sortKey="nome" sortState={linhaSort} className="py-2 pr-3" />
+                  <SortTh label="Total" sortKey="total" sortState={linhaSort} className="py-2 pr-3 text-right" />
+                  {LINHA_STAGES.map((s) => (
+                    <SortTh key={s.key} label={s.label} sortKey={s.key} sortState={linhaSort} className="py-2 pr-3 text-right" />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {linhaSort.sorted.map((r: any) => (
+                  <tr key={r.linha_id ?? "sem-linha"} className="border-b last:border-0">
+                    <td className="py-2 pr-3" data-label="Linha">{r.nome}</td>
+                    <td className="py-2 pr-3 text-right font-medium" data-label="Total">{nfInt(r.total)}</td>
+                    {LINHA_STAGES.map((s) => (
+                      <td key={s.key} className="py-2 pr-3 text-right" data-label={s.label}>{nfInt(r[s.key])}</td>
+                    ))}
+                  </tr>
+                ))}
+                {!isLoading && linhaSort.sorted.length === 0 && (
+                  <tr><td colSpan={2 + LINHA_STAGES.length} className="py-4 text-center text-muted-foreground">Sem modelos.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       </div>
 
