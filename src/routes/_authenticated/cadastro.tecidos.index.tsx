@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   Select,
   SelectTrigger,
@@ -483,7 +484,7 @@ function TecidoCard({
           <div className="p-3 flex h-[204px] flex-col gap-1 overflow-hidden">
             <h3 className="font-medium leading-tight line-clamp-3">{artigo.nome}</h3>
             {(semCategoria || semFornecedor) && (
-              <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              <StatusBadge tone="warning" className="w-full justify-start gap-1 normal-case tracking-normal">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 <span className="line-clamp-1">
                   {semCategoria && semFornecedor
@@ -492,7 +493,7 @@ function TecidoCard({
                       ? "Sem categoria"
                       : "Sem fornecedor"}
                 </span>
-              </div>
+              </StatusBadge>
             )}
             {categorias.length > 0 && (
               <div className="flex flex-wrap gap-1">

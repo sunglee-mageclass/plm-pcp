@@ -32,6 +32,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -569,7 +570,7 @@ function AviamentoCard({
               </div>
             )}
             {(!categoria || !fornecedor) && (
-              <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              <StatusBadge tone="warning" className="w-full justify-start gap-1 normal-case tracking-normal">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 <span className="line-clamp-1">
                   {!categoria && !fornecedor
@@ -578,7 +579,7 @@ function AviamentoCard({
                       ? "Sem categoria"
                       : "Sem fornecedor"}
                 </span>
-              </div>
+              </StatusBadge>
             )}
             <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
             {aviamento.ncm && (

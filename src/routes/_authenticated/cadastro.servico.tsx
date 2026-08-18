@@ -9,6 +9,8 @@ import {
   Trash2,
   Loader2,
   ArrowLeft,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -23,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronsUpDown } from "lucide-react";
@@ -367,11 +370,10 @@ function EmpresaFiscalFields({
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Situação cadastral</Label>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className={isSituacaoAtiva(value.situacao_cadastral)
-              ? "bg-emerald-500 hover:bg-emerald-500"
-              : "bg-red-500 hover:bg-red-500"}>
+            <StatusBadge tone={isSituacaoAtiva(value.situacao_cadastral) ? "success" : "danger"}>
+              {isSituacaoAtiva(value.situacao_cadastral) ? <Check className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
               {value.situacao_cadastral}
-            </Badge>
+            </StatusBadge>
             {!isSituacaoAtiva(value.situacao_cadastral) && (
               <span className="text-xs text-red-600">
                 Empresa não está ATIVA na Receita — confira antes de operar.
