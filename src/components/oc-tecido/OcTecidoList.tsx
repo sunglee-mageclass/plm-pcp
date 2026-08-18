@@ -77,12 +77,12 @@ export function OcTecidoList({
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OcTecidoTab)}>
-      {/* Ordem = FLUXO (encomendar → receber → estoque → rolos); contagem viva por aba. */}
+      {/* Ordem = Recebidas · Encomendadas (dono ago/2026, mesma ordem da OC P. Acabado) → estoque → rolos. */}
       <TabsList>
+        <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
         <TabsTrigger value="encomendado" className="relative">
           Encomendadas{tabCounts ? ` ${tabCounts.encomendado}` : ""}<AtrasadasBadge chave="oc_tecido_atrasada" />
         </TabsTrigger>
-        <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
         <TabsTrigger value="estoque">Estoque</TabsTrigger>
         <TabsTrigger value="rolos">Rolos{tabCounts ? ` ${tabCounts.rolos}` : ""}</TabsTrigger>
       </TabsList>

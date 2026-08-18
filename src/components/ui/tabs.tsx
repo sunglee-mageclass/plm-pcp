@@ -37,6 +37,8 @@ const TabsList = React.forwardRef<
     return () => ro.disconnect();
   }, [medirFade]);
 
+  // max-md:justify-start no List: com overflow, flex CENTRALIZADO clipa o início da lista
+  // (1ª aba cortada e inalcançável — report do dono, OC Tecido mobile); mobile alinha ao início.
   return (
     <div className={cn("relative inline-flex max-w-full", className)}>
       <TabsPrimitive.List
@@ -46,7 +48,7 @@ const TabsList = React.forwardRef<
           else if (forwardedRef) (forwardedRef as React.MutableRefObject<typeof node>).current = node;
         }}
         onScroll={medirFade}
-        className="inline-flex h-9 max-w-full items-center justify-center overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground max-md:h-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="inline-flex h-9 max-w-full items-center justify-center overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground max-md:h-auto max-md:justify-start [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         {...props}
       />
       {fade.left && (
