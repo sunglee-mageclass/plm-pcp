@@ -14,6 +14,7 @@ import {
   Sun,
   Moon,
   KeyRound,
+  ArrowLeft,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
@@ -50,7 +51,7 @@ import { PAGE_URLS, MODULE_META, BADGE_CLS, pageBadgeCounts } from "@/lib/nav";
 import { NavBadge } from "@/components/shared/NavBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -385,7 +386,7 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
       variant="ghost"
       size="icon"
       onClick={toggleTheme}
-      className="h-7 w-7 shrink-0"
+      className="h-7 w-7 shrink-0 max-md:h-11 max-md:w-11"
       aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
     >
       {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
@@ -447,10 +448,14 @@ function TrocarSenhaDialog() {
               <Input id="conf-senha" type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={requestClose}>Cancelar</Button>
-            <Button onClick={submit} disabled={busy}>{busy ? "Salvando…" : "Salvar"}</Button>
-          </DialogFooter>
+          {/* Rodapé §G: Voltar à esquerda (nunca "Cancelar"), Salvar à direita (ml-auto);
+              flex items-center gap-2 — NÃO justify-end (espelha ColecaoSheet.tsx/cadastro.lojas.tsx). */}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={requestClose}>
+              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+            </Button>
+            <Button className="ml-auto" onClick={submit} disabled={busy}>{busy ? "Salvando…" : "Salvar"}</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>

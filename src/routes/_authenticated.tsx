@@ -112,7 +112,7 @@ function AuthenticatedLayout() {
           {/* sticky: o header (botão do sidebar + breadcrumb + relógio) acompanha a rolagem.
               NAVY no MOBILE (Navy Trust v2 — como o mockup); claro no desktop. z abaixo de overlays. */}
           <header className="sticky top-0 z-30 h-14 flex items-center gap-2 border-b px-4 bg-card max-md:border-transparent max-md:bg-sidebar max-md:text-sidebar-foreground">
-            <SidebarTrigger className="max-md:text-sidebar-foreground max-md:hover:bg-white/10 max-md:hover:text-sidebar-foreground" />
+            <SidebarTrigger className="max-md:h-11 max-md:w-11 max-md:text-sidebar-foreground max-md:hover:bg-white/10 max-md:hover:text-sidebar-foreground" />
             {/* Breadcrumb SEÇÃO › Página (dono, jul/2026). No DESKTOP mostra a cadeia inteira;
                 no MOBILE só a PÁGINA (o breadcrumb completo trunca os dois lados e não cabe — dono).
                 Sem página (hub/home) → a seção / nome do sistema vira o título único. */}
