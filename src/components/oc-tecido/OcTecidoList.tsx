@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,7 +28,7 @@ export function OcTecidoList({
   onDelete?: (oc: OC) => void;
   qtdRecebidaByOc?: Record<string, string>;
   tecidosByOc?: Record<string, string>;
-  alertaBadgeByOc?: Record<string, { label: string; cls: string } | null>;
+  alertaBadgeByOc?: Record<string, { label: string; tone: StatusTone } | null>;
   // Estado da aba Estoque (consulta + filtros) vive na PÁGINA — os controles ficam no header.
   estoque: ReturnType<typeof useEstoqueTecidos>;
   tabCounts?: { encomendado: number; recebido: number; rolos: number };
@@ -216,7 +217,7 @@ export function OcTecidoList({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{o.numero_pedido ?? "—"}</span>
-                    {ab && <Badge className={ab.cls}>{ab.label}</Badge>}
+                    {ab && <StatusBadge tone={ab.tone}>{ab.label}</StatusBadge>}
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />
                   </div>
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
@@ -260,7 +261,7 @@ export function OcTecidoList({
                     <div className="flex flex-col items-start gap-0.5">
                       <span className="inline-flex items-center gap-2">
                         {o.numero_pedido ?? "—"}
-                        {ab && <Badge className={ab.cls}>{ab.label}</Badge>}
+                        {ab && <StatusBadge tone={ab.tone}>{ab.label}</StatusBadge>}
                       </span>
                       <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />
                     </div>

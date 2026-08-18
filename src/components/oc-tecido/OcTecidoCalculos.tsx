@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { CQ_ALERTA_TONE } from "./CqTecido";
 import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -152,10 +154,10 @@ export function OcTecidoCalculos({
                             {entry.codigo
                               ? <Badge variant="outline" className="shrink-0 font-mono text-[11px]">{entry.codigo}</Badge>
                               : <span className="w-8 shrink-0 text-xs text-muted-foreground">#{ri + 1}</span>}
-                            {entry.cqStatus === "alertado" && <Badge className="shrink-0 bg-amber-500 hover:bg-amber-500 text-[10px]">Alerta</Badge>}
-                            {entry.cqStatus === "cancelado" && <Badge className="shrink-0 bg-zinc-500 hover:bg-zinc-500 text-[10px]">Cancelado</Badge>}
-                            {entry.cqStatus === "trocado" && <Badge className="shrink-0 bg-blue-600 hover:bg-blue-600 text-[10px]">Trocado</Badge>}
-                            {entry.usado && <Badge className="shrink-0 bg-slate-600 hover:bg-slate-600 text-[10px]" title="Rolo já consumido — não pode editar/cancelar/trocar">Em uso</Badge>}
+                            {entry.cqStatus === "alertado" && <StatusBadge tone={CQ_ALERTA_TONE.alertado} className="shrink-0">Alerta</StatusBadge>}
+                            {entry.cqStatus === "cancelado" && <StatusBadge tone={CQ_ALERTA_TONE.cancelado} className="shrink-0">Cancelado</StatusBadge>}
+                            {entry.cqStatus === "trocado" && <StatusBadge tone={CQ_ALERTA_TONE.trocado} className="shrink-0">Trocado</StatusBadge>}
+                            {entry.usado && <StatusBadge tone="neutral" className="shrink-0" title="Rolo já consumido — não pode editar/cancelar/trocar">Em uso</StatusBadge>}
                             {entry.roloId && onRoloAjuste ? (
                               // Rolo já criado: quantidade EDITÁVEL — ajusta via RPC no blur (recalcula a OC).
                               // Rolo USADO (consumido) trava: não pode mudar/cancelar/trocar.

@@ -84,7 +84,7 @@ type Parcela = {
   ocs_aviamento?: { numero_pedido: string | null } | null;
   ocs_etiqueta?: { numero_pedido: string | null } | null;
   ocs_p_acabado?: { numero_pedido: string | null } | null;
-  ocBadge?: { label: string; cls: string } | null;
+  ocBadge?: { label: string; tone: StatusTone } | null;
 };
 
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
@@ -789,7 +789,7 @@ function ParcelaDetailDialog({
             <span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj ?? "—"}
           </div>
           <div className="flex items-center gap-2"><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}
-            {parcela.ocBadge && <Badge className={parcela.ocBadge.cls}>{parcela.ocBadge.label}</Badge>}</div>
+            {parcela.ocBadge && <StatusBadge tone={parcela.ocBadge.tone}>{parcela.ocBadge.label}</StatusBadge>}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
           <div className="flex items-center gap-2">
@@ -1199,7 +1199,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                             {ocNumero(p)}
                           </button>
                         ) : ocNumero(p)}
-                        {p.ocBadge && <Badge className={p.ocBadge.cls}>{p.ocBadge.label}</Badge>}
+                        {p.ocBadge && <StatusBadge tone={p.ocBadge.tone}>{p.ocBadge.label}</StatusBadge>}
                       </span>
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{p.numero_parcela}</td>

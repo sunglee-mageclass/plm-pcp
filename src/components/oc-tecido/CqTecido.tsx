@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -42,13 +43,28 @@ type CqItem = {
 const PENDENTES: CqStatus[] = ["alertado", "troca_pendente"];
 const RESOLVIDOS: CqStatus[] = ["estilo_ok", "trocado", "cancelado"];
 
-const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
+// Taxonomia ÚNICA de tom §Q9 p/ status de alerta de tecido (campanha StatusBadge, ago/2026).
+// alertado=warning (flag leve, sob revisão) · troca_pendente=danger (defeito confirmado,
+// bloqueia até repor) · trocado=info (resolvido via troca, neutro-informativo) ·
+// estilo_ok=success (resolvido, sem problema) · cancelado=neutral (encerrado sem ação).
+// Centralizado aqui e consumido por TODO lugar que pinta esse status (Alertas de Tecido,
+// resumo por OC — `alertaBadge` — e a grade de rolos em OcTecidoCalculos) — nenhum outro
+// arquivo deve reimplementar essa cor.
+export const CQ_ALERTA_TONE: Record<Exclude<CqStatus, "sem_alerta">, StatusTone> = {
+  alertado: "warning",
+  troca_pendente: "danger",
+  trocado: "info",
+  estilo_ok: "success",
+  cancelado: "neutral",
+};
+
+const STATUS_BADGE: Record<CqStatus, { label: string; tone: StatusTone } | null> = {
   sem_alerta: null,
-  alertado: { label: "Alerta estilo", cls: "bg-amber-500 hover:bg-amber-500" },
-  troca_pendente: { label: "Troca pendente", cls: "bg-orange-500 hover:bg-orange-500" },
-  trocado: { label: "Trocado", cls: "bg-blue-500 hover:bg-blue-500" },
-  estilo_ok: { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" },
-  cancelado: { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" },
+  alertado: { label: "Alerta estilo", tone: CQ_ALERTA_TONE.alertado },
+  troca_pendente: { label: "Troca pendente", tone: CQ_ALERTA_TONE.troca_pendente },
+  trocado: { label: "Trocado", tone: CQ_ALERTA_TONE.trocado },
+  estilo_ok: { label: "Estilo OK", tone: CQ_ALERTA_TONE.estilo_ok },
+  cancelado: { label: "Cancelado", tone: CQ_ALERTA_TONE.cancelado },
 };
 
 const SELECT_COLS =
@@ -57,12 +73,12 @@ const SELECT_COLS =
 const ROLO_SELECT_COLS = `${SELECT_COLS}, estoque_tecido_baixas(id), modelo_tecido_oc_links(id)`;
 
 // Badge-resumo do alerta de uma OC (prioridade: pendente > troca > trocado > cancelado > ok).
-export function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
-  if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
-  if (statuses.includes("troca_pendente")) return { label: "Troca", cls: "bg-orange-500 hover:bg-orange-500" };
-  if (statuses.includes("trocado")) return { label: "Trocado", cls: "bg-blue-600 hover:bg-blue-600" };
-  if (statuses.includes("cancelado")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
-  if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
+export function alertaBadge(statuses: string[]): { label: string; tone: StatusTone } | null {
+  if (statuses.includes("alertado")) return { label: "Alerta", tone: CQ_ALERTA_TONE.alertado };
+  if (statuses.includes("troca_pendente")) return { label: "Troca", tone: CQ_ALERTA_TONE.troca_pendente };
+  if (statuses.includes("trocado")) return { label: "Trocado", tone: CQ_ALERTA_TONE.trocado };
+  if (statuses.includes("cancelado")) return { label: "Cancelado", tone: CQ_ALERTA_TONE.cancelado };
+  if (statuses.includes("estilo_ok")) return { label: "Estilo OK", tone: CQ_ALERTA_TONE.estilo_ok };
   return null;
 }
 
@@ -209,7 +225,7 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
   };
 
   // Resumo do estado no cabeçalho colapsado: alerta (badge de status) > "CQ ok" > pendente.
-  const resumo = badge ?? (item.cq_ok ? { label: "CQ ok", cls: "bg-emerald-500 hover:bg-emerald-500" } : null);
+  const resumo = badge ?? (item.cq_ok ? { label: "CQ ok", tone: "success" as StatusTone } : null);
 
   // Casca COLAPSÁVEL (default fechado) — estado local, não persiste. Nenhuma lógica de
   // CQ muda aqui: toggles/obs seguem idênticos, só movidos para dentro do conteúdo.
@@ -224,7 +240,7 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {resumo
-              ? <Badge className={resumo.cls}>{resumo.label}</Badge>
+              ? <StatusBadge tone={resumo.tone}>{resumo.label}</StatusBadge>
               : <Badge variant="outline" className="text-muted-foreground">Pendente</Badge>}
             {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
           </div>
@@ -391,7 +407,7 @@ export function AlertasList() {
                     <span className="font-medium">{it.artigo}</span>
                     <span className="text-muted-foreground">· {it.variante}</span>
                     <Badge variant="outline">{it.is_rolo ? "Rolo" : "OC"} {it.oc_numero ?? "—"}</Badge>
-                    {badge && <Badge className={badge.cls}>{badge.label}</Badge>}
+                    {badge && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
                   </div>
                   <ObsField item={it} update={update} />
                 </div>

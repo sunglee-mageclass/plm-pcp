@@ -1,10 +1,10 @@
 import { AlertTriangle, Check } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
 import { NfList } from "./NfList";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { uploadFile } from "./shared";
@@ -209,19 +209,15 @@ export function OcTecidoRecebimento({
         {requisitos.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {requisitos.map((r) => (
-              <span
+              <StatusBadge
                 key={r.key}
+                tone={r.ok ? "success" : "warning"}
                 title={r.ok ? undefined : r.faltas.join(" ")}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
-                  r.ok
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-400"
-                    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400",
-                )}
+                className="gap-1.5 rounded-full px-2.5 py-1 text-[11px]"
               >
                 {r.ok ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                 {r.rotulo}
-              </span>
+              </StatusBadge>
             ))}
           </div>
         )}

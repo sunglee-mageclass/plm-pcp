@@ -31,6 +31,7 @@ import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
+import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
@@ -100,7 +101,7 @@ function OcTecidoPage() {
 
   // Badge de alerta por OC (na lista de Recebidos), pro operador ver sem abrir.
   const alertaBadgeByOc = useMemo(() => {
-    const m: Record<string, { label: string; cls: string } | null> = {};
+    const m: Record<string, { label: string; tone: StatusTone } | null> = {};
     for (const oc of ocs as any[]) {
       m[oc.id] = alertaBadge((oc.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status));
     }

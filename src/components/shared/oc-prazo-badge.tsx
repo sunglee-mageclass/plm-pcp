@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { todayISOInStoreTZ } from "@/lib/timezone";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
@@ -25,12 +26,12 @@ export function OcPrazoBadge({
     if (dataEntrega && dataPrevista) {
       const diff = differenceInCalendarDays(parseISO(dataEntrega), parseISO(dataPrevista));
       if (diff === 0) {
-        return <Badge variant="outline" className="bg-slate-500 text-white border-transparent">No prazo</Badge>;
+        return <StatusBadge tone="neutral">No prazo</StatusBadge>;
       }
       if (diff > 0) {
-        return <Badge variant="outline" className="bg-destructive text-destructive-foreground border-transparent">Atrasado {dia(diff)}</Badge>;
+        return <StatusBadge tone="danger">Atrasado {dia(diff)}</StatusBadge>;
       }
-      return <Badge variant="outline" className="bg-green-600 text-white border-transparent">Adiantado {dia(-diff)}</Badge>;
+      return <StatusBadge tone="success">Adiantado {dia(-diff)}</StatusBadge>;
     }
     return <Badge variant="outline">—</Badge>;
   }
@@ -39,12 +40,12 @@ export function OcPrazoBadge({
   if (dataPrevista) {
     const diff = differenceInCalendarDays(parseISO(dataPrevista), parseISO(todayISOInStoreTZ(tz)));
     if (diff > 0) {
-      return <Badge variant="outline" className="bg-slate-500 text-white border-transparent">Faltam {dia(diff)}</Badge>;
+      return <StatusBadge tone="neutral">Faltam {dia(diff)}</StatusBadge>;
     }
     if (diff === 0) {
-      return <Badge variant="outline" className="bg-yellow-500 text-white border-transparent">Vence hoje</Badge>;
+      return <StatusBadge tone="warning">Vence hoje</StatusBadge>;
     }
-    return <Badge variant="outline" className="bg-destructive text-destructive-foreground border-transparent">Atrasado {dia(-diff)}</Badge>;
+    return <StatusBadge tone="danger">Atrasado {dia(-diff)}</StatusBadge>;
   }
 
   return <Badge variant="outline">—</Badge>;

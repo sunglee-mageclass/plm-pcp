@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -428,8 +428,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                   <TableCell data-label="Baixa" className="text-right tabular-nums">{o.baixado ? fmtNumEdit(totBaixa(o)) : "—"}</TableCell>
                   <TableCell data-label="Status">
                     {o.baixado
-                      ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Baixado</Badge>
-                      : <Badge variant="secondary">Não Baixado</Badge>}
+                      ? <StatusBadge tone="success">Baixado</StatusBadge>
+                      : <StatusBadge tone="neutral">Não Baixado</StatusBadge>}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right whitespace-nowrap">
                     {o.baixado ? (
