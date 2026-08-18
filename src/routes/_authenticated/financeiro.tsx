@@ -12,7 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
+import { SegmentedTabs } from "@/components/dashboard/mobile";
+import { MobileFilterSheet } from "@/components/shared/MobileFilterSheet";
 // Aliases: `Tooltip` já é importado do recharts (gráfico do Resumo) mais abaixo.
 import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
@@ -111,6 +114,16 @@ const TONE_SURFACE: Record<StatusTone, string> = {
   neutral: "bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral-fg)]",
 };
 
+// Ponto sólido por tom (strip do mês, mobile) — cor via token de tinta do tom (§Q9), nunca
+// classe de cor solta (green-500…) que o anti-drift/§R proíbem.
+const DOT_TONE: Record<StatusTone, string> = {
+  success: "bg-[var(--tone-success-fg)]",
+  warning: "bg-[var(--tone-warning-fg)]",
+  danger: "bg-[var(--tone-danger-fg)]",
+  info: "bg-[var(--tone-info-fg)]",
+  neutral: "bg-[var(--tone-neutral-fg)]",
+};
+
 // Marca visual do calendário — 4 estados (o ≤3d é um REALCE dentro de "a vencer", não muda
 // effectiveStatus). Critérios são os REAIS da tela (effectiveStatus + proximidade do venc.).
 type VisEstado = "pago" | "vence_breve" | "vencido" | "a_vencer";
@@ -153,6 +166,37 @@ function VisBadgeIcon({ vis, className }: { vis: VisEstado; className?: string }
     <span className={cn("inline-flex items-center justify-center rounded-md", TONE_SURFACE[tone], className)}>
       <Icon className={cn("h-3.5 w-3.5", fill && "fill-current")} aria-hidden />
     </span>
+  );
+}
+
+// Chips de Status (mobile, dentro do bottom sheet de filtros) — mesma marca tom+ícone da
+// tela; seleção única (clicar o ativo volta p/ "all"). Alvos ≥ 40px (dentro do sheet 44px).
+function StatusFilterChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const opts: { v: string; vis: VisEstado; label: string }[] = [
+    { v: "a_pagar", vis: "a_vencer", label: "A pagar" },
+    { v: "pago", vis: "pago", label: "Pago" },
+    { v: "vencido", vis: "vencido", label: "Vencido" },
+  ];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {opts.map(({ v, vis, label }) => {
+        const on = value === v;
+        const { Icon, fill } = VIS_META[vis];
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(on ? "all" : v)}
+            className={cn(
+              "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold",
+              on ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground",
+            )}
+          >
+            <Icon className={cn("h-3.5 w-3.5", fill && "fill-current")} aria-hidden /> {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -345,20 +389,23 @@ function FinanceiroPage() {
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <div className="sm:hidden mb-4">
-          <Select value={tab} onValueChange={setTab}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="calendario">Calendário</SelectItem>
-              <SelectItem value="lista">OCs</SelectItem>
-              <SelectItem value="servicos">Serviços</SelectItem>
-              <SelectItem value="resumo">Resumo</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* Mobile (<md): abas como pílulas roláveis (SegmentedTabs do dashboard) — substitui
+            o Select. Desktop mantém a TabsList (agora ≥md, alinhado à camada mobile). */}
+        <div className="md:hidden mb-4">
+          <SegmentedTabs
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { value: "calendario", label: "Calendário" },
+              { value: "lista", label: "OCs" },
+              { value: "servicos", label: "Serviços" },
+              { value: "resumo", label: "Resumo" },
+            ]}
+          />
         </div>
         {/* Abas no nível da página: FORA do card/calendário (antes ficavam embutidas
             no cabeçalho do calendário, parecendo "camufladas" dentro dele). */}
-        <TabsList className="mb-2 hidden sm:inline-flex sm:flex-nowrap">
+        <TabsList className="mb-2 hidden md:inline-flex md:flex-nowrap">
           <TabsTrigger value="calendario">Calendário</TabsTrigger>
           <TabsTrigger value="lista">OCs</TabsTrigger>
           <TabsTrigger value="servicos">Serviços</TabsTrigger>
@@ -390,9 +437,12 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
-  // Popover "dia aberto" (desktop) e sheet do dia (mobile): a chave do dia (yyyy-MM-dd)
-  // cujo popover/sheet está aberto. Uma só marca aberta por vez.
+  // Popover "dia aberto" (desktop): a chave do dia (yyyy-MM-dd) cujo popover está aberto.
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // Sheet do dia (mobile): estado SEPARADO do popover — as duas superfícies coexistem no DOM
+  // (grade `hidden md:grid` vs agenda `md:hidden`) e um Sheet portaliza p/ o body; compartilhar
+  // o mesmo estado abriria os dois ao mesmo tempo. Aberto via strip; linhas abrem o detalhe.
+  const [sheetDay, setSheetDay] = useState<string | null>(null);
   const autoJumped = useRef(false);
 
   // Quando as parcelas chegarem, se o mês atual estiver vazio, salta para o mês da próxima parcela
@@ -503,48 +553,91 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
         })}
       </div>
 
-      {/* Mobile: agenda (só dias com parcelas, linhas tocáveis) */}
-      <div className="md:hidden space-y-3">
-        {days.filter((day) => isSameMonth(day, cursor) && (byDay.get(format(day, "yyyy-MM-dd"))?.length ?? 0) > 0).map((day) => {
-          const k = format(day, "yyyy-MM-dd");
-          const items = byDay.get(k) ?? [];
-          const isToday = isSameDay(day, today);
-          const diaSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"][day.getDay()];
-          return (
-            <div key={k} className={cn("overflow-hidden rounded-lg border", isToday && "ring-1 ring-primary")}>
-              <div className="border-b bg-muted/40 px-3 py-2 text-sm font-semibold">
-                {diaSemana}, {format(day, "dd/MM")}{isToday && <span className="ml-2 text-xs font-normal text-primary">hoje</span>}
-              </div>
-              <div className="divide-y">
-                {items.map((p) => {
-                  const st = effectiveStatus(p, hoje);
-                  const venc = parseLocalDate(p.data_vencimento);
-                  const diff = differenceInCalendarDays(venc, today);
-                  let dot = "bg-muted-foreground";
-                  if (st === "pago") dot = "bg-green-500";
-                  else if (st === "vencido") dot = "bg-destructive";
-                  else if (diff <= 3) dot = "bg-yellow-500";
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => (p as any)._servico ? onServico?.() : setDetalheId(p.id)}
-                      className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/50"
-                    >
-                      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", dot)} />
-                      <span className="min-w-0 flex-1 truncate text-sm">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</span>
-                      <span className="shrink-0 text-sm font-medium">{brl(Number(p.valor))}</span>
-                    </button>
-                  );
-                })}
-              </div>
+      {/* Mobile (<md): mês-grade vira strip navegável + agenda por dia (NN/g · HIG).
+          O mês é navegado pela mesma barra de mês acima. */}
+      {(() => {
+        const diasComParcela = days.filter((day) => isSameMonth(day, cursor) && (byDay.get(format(day, "yyyy-MM-dd"))?.length ?? 0) > 0);
+        if (diasComParcela.length === 0) {
+          return <p className="md:hidden py-6 text-center text-sm text-muted-foreground">Nenhuma parcela neste mês.</p>;
+        }
+        const wdShort = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+        const wdLong = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+        return (
+          <div className="md:hidden">
+            {/* strip: só os dias com parcela (dots por tom), tocar abre o sheet do dia */}
+            <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {diasComParcela.map((day) => {
+                const k = format(day, "yyyy-MM-dd");
+                const items = byDay.get(k) ?? [];
+                const isToday = isSameDay(day, today);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    data-qa="strip-day"
+                    onClick={() => setSheetDay(k)}
+                    className={cn(
+                      "flex min-h-[56px] w-11 shrink-0 flex-col items-center gap-1 rounded-xl border bg-card px-1 py-1.5",
+                      isToday && "border-primary bg-primary/10",
+                    )}
+                  >
+                    <span className="text-[10px] uppercase text-muted-foreground">{wdShort[day.getDay()]}</span>
+                    <span className={cn("text-sm font-bold leading-none", isToday && "text-primary")}>{format(day, "d")}</span>
+                    <span className="flex h-1.5 items-center gap-0.5">
+                      {items.slice(0, 3).map((p, i) => (
+                        <span key={i} className={cn("h-1.5 w-1.5 rounded-full", DOT_TONE[VIS_META[parcelaVis(p, hoje, today)].tone])} />
+                      ))}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
-        {days.filter((day) => isSameMonth(day, cursor) && (byDay.get(format(day, "yyyy-MM-dd"))?.length ?? 0) > 0).length === 0 && (
-          <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma parcela neste mês.</p>
-        )}
-      </div>
+            {/* agenda: grupos por dia (cabeçalho + total), linhas tom+ícone abrem o detalhe */}
+            <div className="mt-2 space-y-3">
+              {diasComParcela.map((day) => {
+                const k = format(day, "yyyy-MM-dd");
+                const items = byDay.get(k) ?? [];
+                const isToday = isSameDay(day, today);
+                const total = items.reduce((s, p) => s + Number(p.valor || 0), 0);
+                const diff = differenceInCalendarDays(day, today);
+                const rel = isToday ? "hoje" : diff > 0 && diff <= 7 ? `em ${diff} dia${diff > 1 ? "s" : ""}` : null;
+                return (
+                  <div key={k} data-qa="agenda-day" className={cn("overflow-hidden rounded-xl border", isToday && "ring-1 ring-primary")}>
+                    <div className="flex items-baseline justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+                      <span className="text-sm font-semibold">
+                        {wdLong[day.getDay()]}, {format(day, "dd/MM")}
+                        {rel && <span className="ml-1.5 text-[11px] font-normal text-primary">{rel}</span>}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">{brl(total)}</span>
+                    </div>
+                    <div className="divide-y">
+                      {items.map((p) => {
+                        const vis = parcelaVis(p, hoje, today);
+                        const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => (p as any)._servico ? onServico?.() : setDetalheId(p.id)}
+                            className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left active:bg-muted/50"
+                          >
+                            <VisBadgeIcon vis={vis} className="h-7 w-7 shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">{nome}</span>
+                              <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+                            </span>
+                            <span className="shrink-0 text-sm font-semibold tabular-nums">{brl(Number(p.valor))}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 text-xs text-foreground/80">
         {LEGENDA_VIS.map((vis) => (
@@ -556,6 +649,22 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
       </div>
 
       {loading && <p className="text-sm text-muted-foreground mt-2">Carregando…</p>}
+
+      {/* Sheet do dia (mobile): parcelas do dia tocado na strip; cada linha abre o detalhe
+          (marcar/desmarcar pago, abrir OC, comprovante). Só renderiza quando aberto. */}
+      <Sheet open={sheetDay !== null} onOpenChange={(o) => { if (!o) setSheetDay(null); }}>
+        <SheetContent side="bottom" className="max-h-[85vh] gap-0 overflow-y-auto rounded-t-2xl p-0">
+          <SheetTitle className="sr-only">Parcelas do dia</SheetTitle>
+          {sheetDay && (
+            <DiaParcelasList
+              day={parseLocalDate(sheetDay)}
+              items={byDay.get(sheetDay) ?? []}
+              hoje={hoje} today={today}
+              onPick={(p) => { setSheetDay(null); (p as any)._servico ? onServico?.() : setDetalheId(p.id); }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
 
       <ParcelaDetailDialog
         parcela={detalheId ? parcelas.find((p) => p.id === detalheId) ?? null : null}
@@ -975,6 +1084,8 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
+        {/* Desktop: FilterButton (popover). Mobile: mesmo estado num bottom sheet 44px. */}
+        <span className="hidden md:inline-flex">
         <FilterButton
           activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
           onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
@@ -1012,6 +1123,34 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
             </div>
           </div>
         </FilterButton>
+        </span>
+        <MobileFilterSheet
+          className="md:hidden"
+          activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
+          onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
+        >
+          <div className="space-y-1.5">
+            <Label className="text-xs">Fornecedor</Label>
+            <Select value={fornecedor} onValueChange={setFornecedor}>
+              <SelectTrigger className={`h-11 text-sm ${filtroAtivoClass(fornecedor !== "all")}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Status</Label>
+            <StatusFilterChips value={status} onChange={setStatus} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Vencimento</Label>
+            <div className="flex gap-2">
+              <DateField value={dataIni} onChange={(e) => setDataIni(e.target.value)} className="flex-1" />
+              <DateField value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="flex-1" />
+            </div>
+          </div>
+        </MobileFilterSheet>
         </div>
       </div>
 
@@ -1221,6 +1360,7 @@ function ServicosView() {
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
+        <span className="hidden md:inline-flex">
         <FilterButton
           activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
           onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
@@ -1258,6 +1398,34 @@ function ServicosView() {
             </div>
           </div>
         </FilterButton>
+        </span>
+        <MobileFilterSheet
+          className="md:hidden"
+          activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
+          onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
+        >
+          <div className="space-y-1.5">
+            <Label className="text-xs">Fornecedor</Label>
+            <Select value={fornecedor} onValueChange={setFornecedor}>
+              <SelectTrigger className={`h-11 text-sm ${filtroAtivoClass(fornecedor !== "all")}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {fornecedores.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Status</Label>
+            <StatusFilterChips value={status} onChange={setStatus} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Vencimento</Label>
+            <div className="flex gap-2">
+              <DateField value={dataIni} onChange={(e) => setDataIni(e.target.value)} className="flex-1" />
+              <DateField value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="flex-1" />
+            </div>
+          </div>
+        </MobileFilterSheet>
       </div>
       <Card className="p-4">
         <div className="overflow-x-auto">
@@ -1716,6 +1884,17 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
   const totalAPagar = sumBy("a_pagar");
   const totalPago = sumBy("pago");
   const totalVencido = sumBy("vencido");
+  // Mobile "resumo primeiro": contagens + próximas parcelas (não-pagas, mais urgentes primeiro).
+  const today = new Date();
+  const countBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p, hoje) === st).length;
+  const countAPagar = countBy("a_pagar");
+  const countVencido = countBy("vencido");
+  const proximas = useMemo(
+    () => base.filter((p) => effectiveStatus(p, hoje) !== "pago")
+      .sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento))
+      .slice(0, 6),
+    [base, hoje],
+  );
 
   const chartData = useMemo(() => {
     const m = new Map<string, { mes: string; ord: string; pago: number; a_pagar: number; vencido: number }>();
@@ -1746,6 +1925,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             </Button>
           ))}
         </div>
+        <span className="hidden md:inline-flex">
         <FilterButton activeCount={activeCount} onClear={clearFilters}>
           <div className="grid gap-1">
             <Label className="text-xs">Fornecedor</Label>
@@ -1770,9 +1950,84 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} />
           </div>
         </FilterButton>
+        </span>
+        <MobileFilterSheet className="md:hidden" activeCount={activeCount} onClear={clearFilters}>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Fornecedor</Label>
+            <Select value={fFornecedor} onValueChange={setFFornecedor}>
+              <SelectTrigger className={`h-11 text-sm ${filtroAtivoClass(fFornecedor !== "all")}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Mês</Label>
+            <Input type="month" className={`h-11 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Vencimento</Label>
+            <div className="flex gap-2">
+              <DateField value={fDe} onChange={(e) => setFDe(e.target.value)} className="flex-1" />
+              <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} className="flex-1" />
+            </div>
+          </div>
+        </MobileFilterSheet>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* Mobile: resumo primeiro (Wroblewski) — total pendente + Vencido/A vencer + próximas.
+          Os 3 cards interativos + gráfico ficam no ≥md. */}
+      <div className="md:hidden space-y-3">
+        <div className="rounded-xl border bg-card p-4">
+          <div className="text-xs text-muted-foreground">Total pendente</div>
+          <div className="mt-0.5 text-3xl font-bold tabular-nums">{brl(totalAPagar + totalVencido)}</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg border bg-muted/30 p-2.5">
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5 text-[var(--tone-danger-fg)]" aria-hidden /> Vencido
+              </div>
+              <div className="mt-0.5 text-base font-bold tabular-nums text-[var(--tone-danger-fg)]">{brlAbrev(totalVencido)}</div>
+              <div className="text-[11px] text-muted-foreground">{countVencido} parcela{countVencido === 1 ? "" : "s"}</div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-2.5">
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Circle className="h-3.5 w-3.5 fill-current text-muted-foreground" aria-hidden /> A vencer
+              </div>
+              <div className="mt-0.5 text-base font-bold tabular-nums">{brlAbrev(totalAPagar)}</div>
+              <div className="text-[11px] text-muted-foreground">{countAPagar} parcela{countAPagar === 1 ? "" : "s"}</div>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <div className="text-xs text-muted-foreground">Total pago</div>
+          <div className="mt-0.5 text-xl font-bold tabular-nums text-[var(--tone-success-fg)]">{brl(totalPago)}</div>
+        </div>
+        {proximas.length > 0 && (
+          <div>
+            <div className="px-0.5 pb-1 pt-1 text-xs font-bold text-muted-foreground">Próximas parcelas</div>
+            <div className="space-y-2">
+              {proximas.map((p) => {
+                const vis = parcelaVis(p, hoje, today);
+                const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
+                return (
+                  <div key={p.id} className="flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2.5">
+                    <VisBadgeIcon vis={vis} className="h-7 w-7 shrink-0" />
+                    <span className="w-11 shrink-0 text-sm font-bold tabular-nums">{format(parseLocalDate(p.data_vencimento), "dd/MM")}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{nome}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums">{brl(Number(p.valor))}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="hidden gap-4 sm:grid-cols-3 md:grid">
         <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-[var(--tone-warning-fg)]"
           active={selected === "a_pagar"} onClick={() => toggle("a_pagar")} />
         <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
