@@ -1126,7 +1126,7 @@ function ModalShell({ isSheet, open, onOpenChange, children }: {
   if (isSheet) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="right" className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
+        <SheetContent side="right" size="editor" className="flex flex-col p-0 [&>button]:hidden">
           {children}
         </SheetContent>
       </Sheet>

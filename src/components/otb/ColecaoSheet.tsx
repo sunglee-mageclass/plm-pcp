@@ -562,7 +562,7 @@ export function ColecaoSheet({
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
+      <SheetContent side="right" size="editor" className="flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <Breadcrumb items={[{ label: "OTB" }, { label: nome || "Coleção" }]} />
           <SheetTitle className="flex items-center gap-2">

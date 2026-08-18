@@ -425,7 +425,7 @@ function TecidosGallery() {
 
       {/* Detalhe do tecido em SHEET lateral (igual Planejamento). Abrir card = ver/editar. */}
       <Sheet open={!!openId} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
-        <SheetContent side="right" className="w-full p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
+        <SheetContent side="right" size="editor" className="p-0 [&>button]:hidden">
           <SheetTitle className="sr-only">Detalhes do tecido</SheetTitle>
           {openId && <TecidoDetail artigoId={openId} onClose={() => setOpenId(null)} embedded />}
         </SheetContent>

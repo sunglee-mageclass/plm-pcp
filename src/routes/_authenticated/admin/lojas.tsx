@@ -601,7 +601,7 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
   };
 
   return (
-    <SheetContent side="right" className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
+    <SheetContent side="right" size="editor" className="flex flex-col p-0 [&>button]:hidden">
       <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b p-3">
           <div className="space-y-1">

@@ -122,7 +122,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
+      <SheetContent side="right" size="editor" className="flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <div className="flex items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">Padrão do mix</SheetTitle>

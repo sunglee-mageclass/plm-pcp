@@ -190,7 +190,7 @@ function CqListPage() {
       </Card>
 
       <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
+        <SheetContent size="editor" className="flex flex-col p-0 max-md:[&>button]:hidden">
           {sheetId && <CqDetail modeloId={sheetId} onClose={requestClose} onForceClose={closeSheet} onDirtyChange={setCqDirty} />}
           {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador "não salvo" não aparecia. */}
           <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />

@@ -43,6 +43,15 @@ const sheetVariants = cva(
         right:
           "inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
       },
+      // Larguras de PROJETO (§O/§G) — FONTE ÚNICA. Antes cada tela de edição re-especificava
+      // `w-full sm:w-[70vw] sm:max-w-[70vw]` à mão (o §O pede 70vw no editor lateral). Sem `size`
+      // o default shadcn segue intacto (`w-3/4 sm:max-w-sm` = 384px), então nenhum uso legado muda.
+      //  · editor = 70vw no desktop, full-width no mobile (o editor lateral padrão do sistema).
+      //  · full   = tela cheia (planejadores densos — ProdutoAcabado/PlanTecido).
+      size: {
+        editor: "w-full sm:w-[70vw] sm:max-w-[70vw]",
+        full: "w-screen max-w-none sm:max-w-none",
+      },
     },
     defaultVariants: {
       side: "right",
@@ -58,14 +67,14 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => {
+>(({ side = "right", size, className, children, ...props }, ref) => {
   const readOnly = useReadOnly();
   return (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Content
         ref={ref}
-        className={cn(sheetVariants({ side }), className)}
+        className={cn(sheetVariants({ side, size }), className)}
         onFocusCapture={(e) => {
           // Mobile: ao focar um campo, rola pra que o teclado não o cubra.
           const el = e.target as HTMLElement;

@@ -511,7 +511,8 @@ function EtiquetasPage() {
           <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
             <SheetContent
               side="right"
-              className="flex flex-col gap-0 p-0 w-full sm:w-[70vw] sm:max-w-[70vw] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
+              size="editor"
+              className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
             >
               {modalConteudo}
             </SheetContent>

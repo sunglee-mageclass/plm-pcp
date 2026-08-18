@@ -33,7 +33,8 @@ export function OcModalShell({
       <Sheet open onOpenChange={(o) => !o && requestClose()}>
         <SheetContent
           side="right"
-          className={`w-full sm:w-[70vw] sm:max-w-[70vw] ${grid} max-md:w-screen max-md:!p-4 max-md:[&>button]:hidden`}
+          size="editor"
+          className={`${grid} max-md:w-screen max-md:!p-4 max-md:[&>button]:hidden`}
         >
           {children}
           {guard}

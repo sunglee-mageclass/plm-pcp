@@ -122,7 +122,8 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
     <SheetContent
       side="right"
-      className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden"
+      size="editor"
+      className="flex flex-col p-0 [&>button]:hidden"
       onInteractOutside={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
       onEscapeKeyDown={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
     >
