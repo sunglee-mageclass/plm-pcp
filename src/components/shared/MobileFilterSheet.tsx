@@ -6,11 +6,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 
 /**
  * Chip "Filtros (N)" + bottom sheet com rodapé fixo Limpar · Aplicar (padrão mobile do
- * projeto — mesmo chrome do `MobileFilterBar` do dashboard). Diferença: aqui o corpo é
- * `children` LIVRE (campos de filtro reais — selects, chips, DateFields…), pra telas cujos
- * filtros não cabem no shape "só selects + período" do `MobileFilterBar`. Os filtros
- * aplicam ao vivo (onChange dos próprios campos); "Aplicar" só fecha; "Limpar" chama onClear.
- * Alvos ≥ 44px. Use `md:hidden` no wrapper (o desktop mantém seu `FilterButton`).
+ * projeto). FONTE ÚNICA do chrome de filtro mobile: o corpo é `children` LIVRE (campos de
+ * filtro reais — selects, chips, DateFields…). O `MobileFilterBar` do dashboard é só uma
+ * CASCA fina em cima deste (monta período + selects como children) — antes os dois duplicavam
+ * o mesmo chrome quase verbatim. Os filtros aplicam ao vivo (onChange dos próprios campos);
+ * "Aplicar" só fecha; "Limpar" chama onClear. Alvos ≥ 44px. Use `md:hidden` no wrapper (o
+ * desktop mantém seu `FilterButton`).
  */
 export function MobileFilterSheet({
   activeCount, onClear, children, className, title = "Filtros",

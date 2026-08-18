@@ -9,15 +9,15 @@
 //  • Sparkline — micro-tendência SVG leve (só onde há série temporal; senão nem renderiza).
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Filter, ChevronRight, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { ChevronRight, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { MobileFilterSheet } from "@/components/shared/MobileFilterSheet";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import type { FilterConfig } from "@/components/shared/filters";
 
@@ -241,7 +241,6 @@ export function MobileFilterBar({
   periodo?: Periodo;
   onPeriodo?: (p: Periodo) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const fs = filters ?? [];
   const activeCount = fs.filter((f) => f.value && f.value !== (f.emptyValue ?? "all")).length;
   const count = activeCount + (periodo?.from ? 1 : 0);
@@ -249,56 +248,36 @@ export function MobileFilterBar({
     fs.forEach((f) => f.onChange(f.emptyValue ?? "all"));
     onPeriodo?.(undefined);
   };
+  // UMA casca só: o `MobileFilterSheet` (shared) provê chip + bottom sheet + rodapé fixo
+  // Limpar·Aplicar. Aqui só montamos o CORPO (período + selects) como children — o chrome
+  // era duplicado quase verbatim entre os dois (dashboard × financeiro) e agora é fonte única.
   return (
-    <div className={className}>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-primary bg-primary/10 px-4 text-[13px] font-semibold text-primary"
-      >
-        <Filter className="h-4 w-4" aria-hidden /> Filtros
-        {count > 0 && (
-          <span className="rounded-full bg-primary px-2 text-[11px] font-bold tabular-nums text-primary-foreground">{count}</span>
-        )}
-      </button>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="flex max-h-[85vh] flex-col gap-0 rounded-t-2xl p-0">
-          <SheetHeader className="shrink-0 p-4 pb-2 pr-12 text-left">
-            <SheetTitle className="text-base">Filtros</SheetTitle>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-            {onPeriodo && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Período</label>
-                <div><PeriodoPicker value={periodo} onChange={onPeriodo} /></div>
-              </div>
-            )}
-            {fs.map((f) => {
-              const empty = f.emptyValue ?? "all";
-              const active = Boolean(f.value) && f.value !== empty;
-              return (
-                <div key={f.label} className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">{f.label}</label>
-                  <Select value={f.value} onValueChange={f.onChange}>
-                    <SelectTrigger className={cn("h-11 text-sm", active && "border-primary font-medium text-foreground")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {f.options.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              );
-            })}
+    <MobileFilterSheet className={className} activeCount={count} onClear={clearAll}>
+      {onPeriodo && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Período</label>
+          <div><PeriodoPicker value={periodo} onChange={onPeriodo} /></div>
+        </div>
+      )}
+      {fs.map((f) => {
+        const empty = f.emptyValue ?? "all";
+        const active = Boolean(f.value) && f.value !== empty;
+        return (
+          <div key={f.label} className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{f.label}</label>
+            <Select value={f.value} onValueChange={f.onChange}>
+              <SelectTrigger className={cn("h-11 text-sm", active && "border-primary font-medium text-foreground")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {f.options.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex shrink-0 gap-2 border-t p-3">
-            <Button type="button" variant="outline" className="h-11 flex-1" onClick={clearAll}>Limpar</Button>
-            <Button type="button" className="h-11 flex-1" onClick={() => setOpen(false)}>Aplicar</Button>
-          </div>
-        </SheetContent>
-      </Sheet>
-    </div>
+        );
+      })}
+    </MobileFilterSheet>
   );
 }
