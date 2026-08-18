@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { brl } from "@/lib/format";
+import { brl, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint, REL_COR_SUCESSO, REL_COR_PERIGO } from "@/components/shared/RelatorioPrint";
@@ -1667,12 +1667,15 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="mes" />
-              <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
+              <YAxis tickFormatter={(v) => fmtInt(Number(v))} />
               <Tooltip formatter={(v: any) => brl(Number(v))} />
               <Legend />
-              {(!selected || selected === "pago") && <Bar dataKey="pago" name="Pago" fill="hsl(142 71% 45%)" />}
-              {(!selected || selected === "a_pagar") && <Bar dataKey="a_pagar" name="A pagar" fill="hsl(45 93% 47%)" />}
-              {(!selected || selected === "vencido") && <Bar dataKey="vencido" name="Vencido" fill="hsl(0 72% 51%)" />}
+              {/* Status = tom semântico §Q9 (pago=sucesso · a pagar=alerta · vencido=perigo),
+                  via token — nunca hsl solto (anti-drift regra f). O nome de cada série na
+                  legenda dá o rótulo (cor nunca é o único sinal). */}
+              {(!selected || selected === "pago") && <Bar dataKey="pago" name="Pago" fill="var(--success)" />}
+              {(!selected || selected === "a_pagar") && <Bar dataKey="a_pagar" name="A pagar" fill="var(--warning)" />}
+              {(!selected || selected === "vencido") && <Bar dataKey="vencido" name="Vencido" fill="var(--destructive)" />}
             </BarChart>
           </ResponsiveContainer>
         </div>
