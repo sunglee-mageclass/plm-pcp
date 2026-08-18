@@ -237,11 +237,13 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **UI de edição — PADRÃO DO SISTEMA** (docs/design/ui-padroes.md §A/§G; NÃO reinventar; §K–§P =
   padrões do redesign ago/2026 — divisão por função/InfoStrip, ações de ciclo na tela + ⋯ no card,
   canvas colapsável, grade/peso/variante·apelido, form padrão OC, rollout tela a tela; **§Q =
-  padrões v3 (cartilha ago/2026)** — toda tela/componente NOVO segue §Q via primitivos
-  compartilhados (Button/PageActionBar/DateField/MoneyInput/StatusBadge…), nunca valor solto (hex,
-  px fora da escala, toFixed manual); teste anti-drift em `tests/unit/ui-padroes-antidrift.test.ts`
-  **ATIVO** (ago/2026, onda 3 — `ANTIDRIFT_LIGADO=true`; regra de cor respeita a exceção de
-  impressão/dado real documentada em §Q3)):
+  padrões v3 + §R = Gráficos & Dataviz (cartilhas ago/2026)** — toda tela/componente NOVO segue
+  §Q/§R via primitivos compartilhados (Button/PageActionBar/DateField/MoneyInput/StatusBadge…; cor
+  de gráfico SÓ via `src/lib/chart-colors.ts` → tokens `--chart-*`), nunca valor solto (hex, `hsl()`
+  de gráfico, px fora da escala, toFixed manual); teste anti-drift em
+  `tests/unit/ui-padroes-antidrift.test.ts` **ATIVO** (ago/2026, onda 3 + Dashboard v2 —
+  `ANTIDRIFT_LIGADO=true`; regras a–f, `f` = `hsl()` cru de gráfico; regra de cor respeita a exceção
+  de impressão/dado real documentada em §Q3/§R12)):
   - **Guarda de "alterações não salvas"**: todo form com Salvar usa `useUnsavedGuard({dirty,
     onClose?, blockNav?})` + `<UnsavedChangesGuard confirm message>` (só o AlertDialog "Descartar
     alterações?") de `@/components/shared/UnsavedChangesGuard`, e `useDirtySnapshot` (`@/hooks`) p/

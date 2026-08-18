@@ -664,3 +664,148 @@ pt-BR sempre: milhar "." · decimal ",".
 Toda célula numérica: `tabular-nums`, alinhada à **direita**, `nowrap` — dinheiro nunca quebra
 linha. Hoje isso já vale nos **inputs** (`MoneyInput`/`CampoRO`); v3 estende pra QUALQUER exibição
 numérica (tabela, badge, KPI) via classe `.num`.
+
+---
+
+## R. Gráficos & Dataviz (cartilha) — referência rápida
+
+> **Status: fundação implementada + anti-drift ATIVO** (ago/2026, onda Dashboard v2). Tokens de
+> gráfico em `src/styles.css` (§R2, claro+escuro), **fonte única** `src/lib/chart-colors.ts`
+> (consumida pelo Recharts via `fill="var(--chart-1)"`), Dashboard migrado (fim do arco-íris
+> ciclado `PIE_COLORS[i%8]`; pizza→barra ordenada; Custos ganhou Δ divergente; aging→barra
+> horizontal), aba/tela Financeiro na mesma régua. **Teste anti-drift regra `f`** (`hsl()` cru fora
+> de `styles.css`/`chart-colors.ts`) em ZERO — `tests/unit/ui-padroes-antidrift.test.ts`. A régua
+> aqui é a mesma dos clássicos (Few — dashboard de relance, bullet graph, small multiples; Tufte —
+> data-ink, grade recessiva; Nussbaumer — a mensagem primeiro) e casa com a paleta Navy Trust (§Q3)
+> e os tons de feedback (§Q9). Regra de ouro: **a cor do gráfico é computável — compute** (nunca
+> `hsl()`/hex solto no componente; sempre token via `chart-colors.ts`).
+
+### R1. Forma pela função — escolha a marca pelo que a série É
+
+| Mensagem | Forma | Nunca |
+|---|---|---|
+| Magnitude / comparar categorias | **barra** (horizontal se rótulo longo), ordenada maior→menor | pizza com N fatias |
+| Mudança no tempo | **linha** (com faixa-meta se houver) | barras "por mês" p/ tendência |
+| Um só número | **stat tile / número-hero** (com contexto, R8) | número solto sem comparação |
+| Medida × meta | **bullet graph** (R7) | gauge/velocímetro; barra que satura em 100% |
+| Parte do todo (≤3 partes) | pizza/donut aceitável | pizza p/ 4+ partes |
+| Distribuição por idade/faixa | barra **horizontal** (faixas no eixo Y) | rótulo inclinado no eixo X |
+
+- **Pizza só com ≤3 fatias.** 4+ fatias → **barra horizontal ordenada** (o ângulo é difícil de
+  comparar; o comprimento não é). Jurisprudência: "Distribuição por categoria" (Coleção) virou barra.
+- **Um eixo só. NUNCA eixo duplo (dual-axis).** Duas medidas de escala diferente = **dois gráficos**
+  (small multiples), não dois eixos Y no mesmo. Pares "modelos + grade" ficam lado a lado, mesma forma.
+
+### R2. Cor — tokens de gráfico (a fonte canônica)
+
+**Fonte única: `src/lib/chart-colors.ts`** (referencia os tokens `--chart-*` de `src/styles.css`;
+o Recharts resolve `fill="var(--chart-1)"` no SVG). **NUNCA** `hsl()`/hex/oklch solto no componente
+(anti-drift regra `f`). Todos reagem a tema claro/escuro sem código extra.
+
+| Papel | Constante (`chart-colors.ts`) | Token(s) | Regra |
+|---|---|---|---|
+| **Série única** (magnitude) | `CHART_SERIE` | `--chart-1` (= `--primary`) | 1 matiz navy; TODO gráfico de 1 série |
+| **Categórica** (entidades nominais) | `CHART_CATEGORICAL[0..7]` | `--chart-1..8` | ordem **FIXA por entidade** (índice estável), NUNCA ciclada/por rank; 9ª+ vira "Outros" |
+| **Sequencial** (ordinal/magnitude) | `CHART_SEQ[0..4]` | `--chart-seq-1..5` | 1 matiz navy **claro→escuro** (funil, etapas do pipeline) |
+| **Sequencial de idade** (WIP) | `CHART_AGE[0..4]` | `--chart-age-0..4` | âmbar claro→escuro (mais velho=urgente); índice 0 = "sem envio" (neutro, fora da escala) |
+| **Divergente** (Δ medida×meta) | `CHART_DIVERGE_NEG` / `_POS` | `--chart-diverge-neg` / `-pos` | abaixo/negativo = navy à esquerda · acima/positivo = vermelho à direita · ~0 = neutro |
+| **Grade** (CartesianGrid) | `CHART_GRID` | `--chart-grid` (= `--border`) | recessiva |
+| **Status / acento de KPI** | `TONE_BG[t]` / `TONE_FG[t]` | `--tone-*-bg/-fg` (§Q9) | fundo suave + fg legível; **sempre com ícone** (R6) |
+
+- **Série única = 1 matiz.** Não pinte 4 barras de 4 cores só porque são 4 — se é uma métrica, é um
+  matiz. A distinção vem do **rótulo/eixo**, não da cor (data-ink).
+- **Categórica = a cor segue a ENTIDADE, nunca o rank.** Um filtro que muda a contagem NÃO pode
+  repintar os sobreviventes (era o pecado do `PIE_COLORS[i%8]`). Índice fixo por entidade.
+- A categórica **evita verde/vermelho puros** (reservados a status, §Q9) — âncora navy + matizes
+  dessaturados. Só use categórica quando entidades nominais **coexistem no mesmo gráfico**.
+- **Sequencial = 1 matiz, claridade monotônica.** Divergente = 2 matizes + neutro no meio. **Nunca
+  arco-íris.**
+
+### R3. Status em gráfico/tabela — tom §Q9 + ÍCONE, nunca só cor
+
+- Estado (ok / atenção / atrasado, pago / a pagar / vencido) usa o **tom semântico** (`success` /
+  `warning` / `danger`) da fórmula §Q9 — **e sempre acompanha ícone ou rótulo**. Cor sozinha falha em
+  daltonismo e fere a régra. Ex.: célula acima da meta leva **▲**; KPI atrasado leva ícone + número.
+- Séries de status num gráfico (barras Pago/A pagar/Vencido) usam `var(--success)`/`var(--warning)`/
+  `var(--destructive)` **e** o `name=` de cada série alimenta a **legenda** (a cor nunca é o único sinal).
+- Não gaste os matizes de status como "série 2/4" numa paleta categórica — eles são reservados.
+
+### R4. Um eixo, grade recessiva, marcas finas
+
+- **Um eixo Y.** Escala diferente → outro gráfico (R1).
+- **Grade recessiva:** `CartesianGrid strokeDasharray="3 3" className="opacity-30"` (tracejado tênue);
+  a grade nunca compete com o dado. Eixos/ticks em `--muted-foreground`/11–12px.
+- **Barra fina** com `radius` suave; sem sombra, sem gradiente decorativo, sem 3D.
+- **Rótulo de texto** (LabelList/eixo) usa **token de texto** (`var(--foreground)`/`--muted-foreground`),
+  **nunca a cor da série**.
+
+### R5. Legenda + rótulo direto
+
+- **Legenda obrigatória p/ ≥2 séries** (`<Legend>`). Série única não precisa de legenda (o título diz).
+- **Rótulo direto seletivo:** `<LabelList>` no valor quando ajuda a leitura (barra horizontal ordenada,
+  gargalo destacado) — não em toda barra (evitar poluição). Rótulo direto > legenda quando cabe.
+
+### R6. Tooltip em tudo
+
+- Todo gráfico tem `<Tooltip>` com **formatação pt-BR** (`brl`/`fmtNum`/`fmtPct`) — o hover é onde o
+  número exato mora, então a barra/linha pode ficar limpa. `labelFormatter` p/ contexto (ex.: "média de
+  3/5 modelos").
+
+### R7. Medida × meta = bullet graph (a barra PODE ultrapassar a meta)
+
+- Forma canônica de "quanto real vs. meta, com faixas": **barra = medida real · tique = meta · faixas
+  ok/atenção/atrasado ao fundo**.
+- **A barra ULTRAPASSA a meta** — se algo está a 3,1× o ideal, a barra é a mais longa da tela e o
+  gargalo salta aos olhos. **NUNCA saturar em 100%** (`min(100, real/ideal)` apaga justamente a
+  informação que importa: o quanto passou). Escala do eixo cobre o pior caso.
+
+### R8. Número-hero com contexto
+
+- Um KPI/hero grande **sempre traz contexto**: variação vs. período/meta (`▲ +5,8d vs meta 30d`),
+  ou "N de M". Número solto sem comparação não conta história (Nussbaumer). Ícone/seta reforça a direção.
+
+### R9. Divergente p/ variação (Δ)
+
+- "Estourou / economizou" = **barra divergente** centrada no zero: abaixo do previsto = navy à esquerda,
+  acima = vermelho à direita, ~0 = neutro — **com sinal + ícone** (▲/▼). Escala comum às linhas (maior
+  |Δ| da tabela, piso p/ Δ pequeno não encher, teto p/ outlier não achatar). Ref.: coluna **Δ variação**
+  do Custos (`DeltaBar`, `dashboard.tsx`).
+
+### R10. Números pt-BR — `.num` + helpers
+
+- Toda exibição numérica em gráfico/tabela/KPI: **pt-BR** (`brl`/`fmtNum`/`fmtInt`/`fmtPct` de
+  `src/lib/format.ts`) — nunca `.toFixed`/`.toLocaleString` solto no componente (o de exibição mora em
+  `format.ts`; anti-drift regra `d`). Célula numérica: classe **`.num`** (tabular-nums, direita, nowrap),
+  exceto onde alinhar à direita quebraria o layout (ex.: número-hero de KPI fica à esquerda — use só
+  `tabular-nums`).
+
+### R11. Empty-state honesto & erro de carga
+
+- Sem dados = mensagem clara ("Sem dados no período.") **centrada na área do gráfico** — nunca um
+  gráfico vazio/enganoso nem `0` que finge dado. Loading = "Carregando…". Erro = `"—"` + "tentar de
+  novo" (§Q10), nunca `0`.
+- Célula "não atingida" numa matriz = **"—"**, não `0` (0 é um valor real).
+
+### R12. Impressão = exceção documentada (§Q3)
+
+- Gráfico de **relatório impresso** (`<PrintArea>`/`.print-area`, ex.: `PrintBarChart.tsx`) usa **cor
+  FIXA de propósito** (fundo claro, tinta escura — o papel não tem modo escuro) e fica **FORA** dos
+  tokens `--chart-*`: é a exceção de impressão do §Q3 (regras `a`/`f` do scanner isentam esses arquivos).
+- KPIs/donut de `<RelatorioPrint>` alimentados por arquivo NÃO-print (`dashboard.tsx`) usam as
+  constantes nomeadas `REL_COR_SUCESSO`/`REL_COR_ALERTA`/`REL_COR_PERIGO` (de `RelatorioPrint.tsx`),
+  não hex solto no chamador. `PBar` sem `color` cai no default (hsl fixo) do próprio componente de print.
+
+### R13. Checklist de gráfico (dev)
+
+- [ ] Cor via `src/lib/chart-colors.ts` (`CHART_SERIE`/`CHART_SEQ`/`CHART_CATEGORICAL`/…), **nunca**
+      `hsl()`/hex solto (regra `f`).
+- [ ] Série única = 1 matiz (`CHART_SERIE`). Categórica = índice FIXO por entidade (nunca por rank).
+- [ ] Um eixo só. Escala diferente → dois gráficos (small multiples), nunca dual-axis.
+- [ ] Pizza só ≤3 fatias; senão barra ordenada maior→menor.
+- [ ] Medida×meta = bullet (barra pode passar da meta; nunca satura em 100%).
+- [ ] Status = tom §Q9 **+ ícone/rótulo**, nunca só cor. Verde/vermelho reservados.
+- [ ] `<Tooltip>` em tudo (pt-BR); `<Legend>` p/ ≥2 séries; rótulo direto seletivo.
+- [ ] Grade recessiva (`opacity-30`); texto/rótulo em token de texto, não na cor da série.
+- [ ] Número com contexto (variação/período/N-de-M); `.num` + `brl`/`fmtNum`/`fmtPct`.
+- [ ] Empty-state honesto ("Sem dados"), erro = "—" + tentar de novo; "—" p/ célula não atingida.
+- [ ] Gráfico de impressão = cor fixa (§Q3/R12), fora dos tokens `--chart-*`.
