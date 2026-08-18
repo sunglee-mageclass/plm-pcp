@@ -11,14 +11,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 // Aliases: `Tooltip` já é importado do recharts (gráfico do Resumo) mais abaixo.
 import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { brl, fmtInt } from "@/lib/format";
+import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint, REL_COR_SUCESSO, REL_COR_PERIGO } from "@/components/shared/RelatorioPrint";
@@ -95,6 +97,63 @@ function effectiveStatus(p: Parcela, hoje: string): "pago" | "vencido" | "a_paga
   const venc = (p.data_vencimento ?? "").slice(0, 10);
   if (venc && venc < hoje) return "vencido";
   return "a_pagar";
+}
+
+/* ---- §Q9/§R3: uma marca de status única (tom + ícone), nunca só cor ---------------- */
+// Fundo/tinta SÓ via tokens de tom (--tone-*-bg/-fg de src/styles.css, fórmula §Q9
+// color-mix) — nada de hex/hsl solto (anti-drift a/f). Cada estado tem UM tom + UM ícone
+// idêntico na célula, na legenda, no popover do dia e nas tabelas (daltonismo-safe).
+const TONE_SURFACE: Record<StatusTone, string> = {
+  success: "bg-[var(--tone-success-bg)] text-[var(--tone-success-fg)]",
+  warning: "bg-[var(--tone-warning-bg)] text-[var(--tone-warning-fg)]",
+  danger: "bg-[var(--tone-danger-bg)] text-[var(--tone-danger-fg)]",
+  info: "bg-[var(--tone-info-bg)] text-[var(--tone-info-fg)]",
+  neutral: "bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral-fg)]",
+};
+
+// Marca visual do calendário — 4 estados (o ≤3d é um REALCE dentro de "a vencer", não muda
+// effectiveStatus). Critérios são os REAIS da tela (effectiveStatus + proximidade do venc.).
+type VisEstado = "pago" | "vence_breve" | "vencido" | "a_vencer";
+type VisMeta = { tone: StatusTone; Icon: LucideIcon; label: string; fill?: boolean };
+const VIS_META: Record<VisEstado, VisMeta> = {
+  pago: { tone: "success", Icon: Check, label: "Pago" },
+  vence_breve: { tone: "warning", Icon: Clock, label: "Vence em ≤ 3 dias" },
+  vencido: { tone: "danger", Icon: AlertTriangle, label: "Vencido" },
+  a_vencer: { tone: "neutral", Icon: Circle, label: "A vencer", fill: true },
+};
+const LEGENDA_VIS: VisEstado[] = ["pago", "vence_breve", "vencido", "a_vencer"];
+
+function parcelaVis(p: Parcela, hoje: string, today: Date): VisEstado {
+  const st = effectiveStatus(p, hoje);
+  if (st === "pago") return "pago";
+  if (st === "vencido") return "vencido";
+  const diff = differenceInCalendarDays(parseLocalDate(p.data_vencimento), today);
+  return diff <= 3 ? "vence_breve" : "a_vencer";
+}
+
+// Badge de status das TABELAS (3 estados; sem o realce ≤3d, que é só do calendário).
+function StatusParcelaBadge({ st }: { st: "pago" | "vencido" | "a_pagar" }) {
+  const meta: VisMeta & { label: string } =
+    st === "pago" ? { ...VIS_META.pago }
+    : st === "vencido" ? { ...VIS_META.vencido }
+    : { ...VIS_META.a_vencer, label: "A pagar" };
+  const { tone, Icon, label, fill } = meta;
+  return (
+    <StatusBadge tone={tone} className="inline-flex items-center gap-1 normal-case tracking-normal text-[11px]">
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", fill && "fill-current")} aria-hidden />
+      {label}
+    </StatusBadge>
+  );
+}
+
+// Ícone + superfície do tom, num quadradinho (legenda / linha do popover / strip).
+function VisBadgeIcon({ vis, className }: { vis: VisEstado; className?: string }) {
+  const { tone, Icon, fill } = VIS_META[vis];
+  return (
+    <span className={cn("inline-flex items-center justify-center rounded-md", TONE_SURFACE[tone], className)}>
+      <Icon className={cn("h-3.5 w-3.5", fill && "fill-current")} aria-hidden />
+    </span>
+  );
 }
 
 // Permissão de ESCRITA do Financeiro (parcelas a pagar/calendário). Propagada por
@@ -331,6 +390,9 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  // Popover "dia aberto" (desktop) e sheet do dia (mobile): a chave do dia (yyyy-MM-dd)
+  // cujo popover/sheet está aberto. Uma só marca aberta por vez.
+  const [openDay, setOpenDay] = useState<string | null>(null);
   const autoJumped = useRef(false);
 
   // Quando as parcelas chegarem, se o mês atual estiver vazio, salta para o mês da próxima parcela
@@ -390,39 +452,53 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
           const items = byDay.get(k) ?? [];
           const inMonth = isSameMonth(day, cursor);
           const isToday = isSameDay(day, today);
+          const cellCls = cn(
+            "bg-background min-h-[98px] p-1.5 text-xs",
+            !inMonth && "opacity-40",
+            isToday && "ring-1 ring-primary",
+          );
+          const dayNum = <div className="text-right text-[11px] text-muted-foreground mb-1">{format(day, "d")}</div>;
+          if (items.length === 0) {
+            return <div key={k} className={cellCls}>{dayNum}</div>;
+          }
+          const total = items.reduce((s, p) => s + Number(p.valor || 0), 0);
+          // Célula tocável = "dia como unidade de ação": abre o popover com TODAS as parcelas
+          // do dia. Até 2 chips (tom+ícone+valor abreviado) + "+N · dia R$…" com o total do dia.
           return (
-            <div
-              key={k}
-              className={cn(
-                "bg-background min-h-[90px] p-1.5 text-xs",
-                !inMonth && "opacity-40",
-                isToday && "ring-1 ring-primary",
-              )}
-            >
-              <div className="text-right text-[11px] text-muted-foreground mb-1">{format(day, "d")}</div>
-              <div className="space-y-1">
-                {items.slice(0, 3).map((p) => {
-                  const st = effectiveStatus(p, hoje);
-                  const venc = parseLocalDate(p.data_vencimento);
-                  const diff = differenceInCalendarDays(venc, today);
-                  let color = "bg-muted text-muted-foreground";
-                  if (st === "pago") color = "bg-green-500/20 text-green-700 dark:text-green-300";
-                  else if (st === "vencido") color = "bg-destructive/20 text-destructive";
-                  else if (diff <= 3) color = "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300";
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => (p as any)._servico ? onServico?.() : setDetalheId(p.id)}
-                      className={cn("w-full text-left px-1.5 py-0.5 rounded truncate hover:ring-1 hover:ring-primary", color)}
-                    >
-                      {(p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—")} · {brl(Number(p.valor))}
-                    </button>
-                  );
-                })}
-                {items.length > 3 && <div className="text-[10px] text-muted-foreground">+{items.length - 3}</div>}
-              </div>
-            </div>
+            <Popover key={k} open={openDay === k} onOpenChange={(o) => setOpenDay(o ? k : null)}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(cellCls, "text-left transition-shadow hover:ring-1 hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+                >
+                  {dayNum}
+                  <div className="space-y-1">
+                    {items.slice(0, 2).map((p) => {
+                      const { tone, Icon, fill } = VIS_META[parcelaVis(p, hoje, today)];
+                      const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
+                      return (
+                        <span key={p.id} className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", TONE_SURFACE[tone])}>
+                          <Icon className={cn("h-3.5 w-3.5 shrink-0", fill && "fill-current")} aria-hidden />
+                          <span className="min-w-0 flex-1 truncate font-normal">{nome}</span>
+                          <span className="shrink-0 tabular-nums font-semibold">{brlAbrev(Number(p.valor))}</span>
+                        </span>
+                      );
+                    })}
+                    {items.length > 2 && (
+                      <div className="pl-1 text-[11px] font-medium text-muted-foreground">
+                        +{items.length - 2} · dia {brlAbrev(total)}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 p-0">
+                <DiaParcelasList
+                  day={day} items={items} hoje={hoje} today={today}
+                  onPick={(p) => { setOpenDay(null); (p as any)._servico ? onServico?.() : setDetalheId(p.id); }}
+                />
+              </PopoverContent>
+            </Popover>
           );
         })}
       </div>
@@ -470,11 +546,13 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-4 text-xs">
-        <Legend2 color="bg-green-500/30" label="Pago" />
-        <Legend2 color="bg-yellow-500/30" label="Vence em ≤ 3 dias" />
-        <Legend2 color="bg-destructive/30" label="Vencido" />
-        <Legend2 color="bg-muted" label="Futuro" />
+      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 text-xs text-foreground/80">
+        {LEGENDA_VIS.map((vis) => (
+          <span key={vis} className="inline-flex items-center gap-1.5">
+            <VisBadgeIcon vis={vis} className="h-5 w-5" />
+            {VIS_META[vis].label}
+          </span>
+        ))}
       </div>
 
       {loading && <p className="text-sm text-muted-foreground mt-2">Carregando…</p>}
@@ -624,11 +702,9 @@ function ParcelaDetailDialog({
               </Button>
             )}
           </div>
-          <div>
-            <span className="text-muted-foreground">Status:</span>{" "}
-            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-xs font-medium h-8 px-3">
-              {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
-            </Badge>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Status:</span>
+            <StatusParcelaBadge st={st} />
           </div>
           {parcela.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {format(parseISO(parcela.data_pagamento), "dd/MM/yyyy")}</div>
@@ -707,8 +783,63 @@ function ComprovanteLink({ value, label, className }: { value: string; label: st
   return <a href={href} target="_blank" rel="noreferrer" className={className}>{label}</a>;
 }
 
-function Legend2({ color, label }: { color: string; label: string }) {
-  return <div className="flex items-center gap-1.5"><span className={cn("inline-block h-3 w-3 rounded", color)} />{label}</div>;
+// Origem legível de uma parcela (rótulo do tipo de OC · Nº · parcela), p/ o sublabel das
+// linhas do dia. Serviços (calendário) não têm tipo_oc/ocs_* — caem no ramo _servico.
+function parcelaOrigemLabel(p: Parcela): string {
+  if ((p as any)._servico) return "Serviço · abrir na aba Serviços";
+  const tipoLabel =
+    p.tipo_oc === "tecido" ? "OC de Tecido"
+    : p.tipo_oc === "aviamento" ? "OC de Aviamento"
+    : p.tipo_oc === "etiqueta" ? "OC de Insumo"
+    : p.tipo_oc === "p_acabado" ? "Produto Acabado"
+    : (p.tipo_oc ?? "OC");
+  const num = p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? p.ocs_etiqueta?.numero_pedido ?? p.ocs_p_acabado?.numero_pedido ?? "—";
+  return `${tipoLabel} · Nº ${num} · parc. ${p.numero_parcela}`;
+}
+
+// Lista das parcelas de UM dia — cabeçalho (dia + total) + uma linha por parcela (tom+ícone,
+// payee, origem, valor). Cada linha chama `onPick` (abre o detalhe = TODAS as ações da tela:
+// marcar/desmarcar pago, abrir OC, comprovante). Compartilhada: popover do dia (desktop) e
+// sheet do dia (mobile).
+function DiaParcelasList({
+  day, items, hoje, today, onPick,
+}: {
+  day: Date;
+  items: Parcela[];
+  hoje: string;
+  today: Date;
+  onPick: (p: Parcela) => void;
+}) {
+  const total = items.reduce((s, p) => s + Number(p.valor || 0), 0);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 border-b px-3 py-2.5">
+        <span className="text-sm font-semibold capitalize">{format(day, "EEEE, dd/MM/yyyy", { locale: ptBR })}</span>
+        <span className="shrink-0 text-sm font-bold tabular-nums">{brl(total)}</span>
+      </div>
+      <div className="max-h-72 overflow-y-auto">
+        {items.map((p) => {
+          const vis = parcelaVis(p, hoje, today);
+          const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onPick(p)}
+              className="flex w-full items-center gap-2.5 border-b px-3 py-2.5 text-left last:border-0 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+            >
+              <VisBadgeIcon vis={vis} className="h-6 w-6 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{nome}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+              </span>
+              <span className="shrink-0 text-sm font-bold tabular-nums">{brl(Number(p.valor))}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /* ============================== LISTA ============================== */
@@ -933,7 +1064,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                       </span>
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{p.numero_parcela}</td>
-                    <td className="py-2 pr-3 text-right" data-label="Valor">{brl(Number(p.valor))}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums" data-label="Valor">{brl(Number(p.valor))}</td>
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
                         value={p.data_vencimento}
@@ -942,9 +1073,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                       />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-xs font-medium h-8 px-3">
-                        {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
-                      </Badge>
+                      <StatusParcelaBadge st={st} />
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
@@ -1164,7 +1293,7 @@ function ServicosView() {
                       {r.representante_nome ?? r.empresa_nome ?? r.responsavel ?? "—"}
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
-                    <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
+                    <td className="py-2 pr-3 text-right font-medium tabular-nums" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
                     </td>
@@ -1172,9 +1301,7 @@ function ServicosView() {
                       <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-xs font-medium h-8 px-3">
-                        {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
-                      </Badge>
+                      <StatusParcelaBadge st={st} />
                     </td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st === "pago" ? (
@@ -1281,6 +1408,7 @@ function ServicoDetailDialog({
   const temRep = !!row.representante_nome;
   const payeeCnpj = temRep ? (row.representante_cnpj ?? null) : (row.empresa_cnpj ?? null);
   const isPago = stLabel === "Pago";
+  const stRaw: "pago" | "vencido" | "a_pagar" = isPago ? "pago" : stLabel === "Vencido" ? "vencido" : "a_pagar";
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -1309,7 +1437,7 @@ function ServicoDetailDialog({
           <div><span className="text-muted-foreground">Vencimento:</span> {fmtD(row.data_vencimento)}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Status:</span>
-            <Badge variant={stVariant} className="text-xs font-medium h-8 px-3">{stLabel}</Badge>
+            <StatusParcelaBadge st={stRaw} />
           </div>
           {row.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
@@ -1645,11 +1773,11 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-yellow-600 dark:text-yellow-400"
+        <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-[var(--tone-warning-fg)]"
           active={selected === "a_pagar"} onClick={() => toggle("a_pagar")} />
-        <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-green-600 dark:text-green-400"
+        <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-[var(--tone-success-fg)]"
           active={selected === "pago"} onClick={() => toggle("pago")} />
-        <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-destructive"
+        <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-[var(--tone-danger-fg)]"
           active={selected === "vencido"} onClick={() => toggle("vencido")} />
       </div>
 
@@ -1691,7 +1819,7 @@ function SummaryCard({ title, value, accent, active, onClick }: { title: string;
       onClick={onClick}
     >
       <p className="text-sm text-muted-foreground">{title}</p>
-      <p className={cn("text-2xl font-bold mt-1", accent)}>{value}</p>
+      <p className={cn("text-2xl font-bold mt-1 tabular-nums", accent)}>{value}</p>
     </Card>
   );
 }
