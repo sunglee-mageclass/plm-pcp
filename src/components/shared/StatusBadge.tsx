@@ -15,13 +15,18 @@ const toneClasses: Record<StatusTone, string> = {
   neutral: "border-transparent bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral-fg)]",
 };
 
+// `title`/`onClick`/demais atributos nativos passam por Omit+spread — cobre chips que
+// hoje precisam de tooltip (title=) ou outro atributo do <div> sem precisar de wrapper.
+// Extensão única (ago/2026, campanha StatusBadge): a migração dos ~105 badges à mão
+// achou vários casos reais com `title=` no elemento cru — sem isso, viraria wrapper
+// span redundante em cada um.
 type Props = {
   tone: StatusTone;
   children: React.ReactNode;
   className?: string;
-};
+} & Omit<React.HTMLAttributes<HTMLDivElement>, "className" | "children">;
 
-export function StatusBadge({ tone, children, className }: Props) {
+export function StatusBadge({ tone, children, className, ...rest }: Props) {
   return (
     <Badge
       variant="outline"
@@ -30,6 +35,7 @@ export function StatusBadge({ tone, children, className }: Props) {
         toneClasses[tone],
         className,
       )}
+      {...rest}
     >
       {children}
     </Badge>
