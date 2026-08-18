@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { PageActionBar } from "@/components/shared/PageActionBar";
@@ -424,9 +425,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
             mesNome={(modelo as any)?.mes?.mes} anoNome={(modelo as any)?.ano?.ano}
           />
         </div>
-        <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+        <StatusBadge tone={confirmado ? "success" : "warning"}>
           {confirmado ? "Separado" : "Pendente"}
-        </Badge>
+        </StatusBadge>
       </header>
 
       {!cad?.id && (

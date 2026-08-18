@@ -27,6 +27,7 @@ import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -116,12 +117,15 @@ type Bloco = {
   grade_detalhe: GradeDetalhe;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  em_andamento: "bg-blue-500",
-  finalizado: "bg-emerald-500",
-  pre_finalizado: "bg-teal-500",
-  sem_selecao: "bg-muted",
+// Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
+// (Pré confirmado, Pós ainda não) fica no mesmo tom "em progresso" de em_andamento —
+// a distinção de fato mora no LABEL, não há um 6º tom pra um estado intermediário.
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  em_andamento: "info",
+  finalizado: "success",
+  pre_finalizado: "info",
+  sem_selecao: "neutral",
 };
 const STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -1070,19 +1074,19 @@ export function TerceirizadosDetail({
         <div>
           <Label className="text-xs text-muted-foreground">Status Pré</Label>
           <div className="mt-1">
-            <Badge className={`${STATUS_COLORS[statusPre] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusPre] ?? statusPre}</Badge>
+            <StatusBadge tone={STATUS_TONE[statusPre] ?? "neutral"}>{STATUS_LABELS[statusPre] ?? statusPre}</StatusBadge>
           </div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Pós</Label>
           <div className="mt-1">
-            <Badge className={`${STATUS_COLORS[statusPos] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusPos] ?? statusPos}</Badge>
+            <StatusBadge tone={STATUS_TONE[statusPos] ?? "neutral"}>{STATUS_LABELS[statusPos] ?? statusPos}</StatusBadge>
           </div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Geral</Label>
           <div className="mt-1">
-            <Badge className={`${STATUS_COLORS[statusGeral] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusGeral] ?? statusGeral}</Badge>
+            <StatusBadge tone={STATUS_TONE[statusGeral] ?? "neutral"}>{STATUS_LABELS[statusGeral] ?? statusGeral}</StatusBadge>
           </div>
         </div>
         <div>
@@ -1233,7 +1237,7 @@ export function TerceirizadosDetail({
                   // Badge do bloco pela MESMA regra do lock/status (blocoFinalizado), não pelo
                   // b.status cru do trigger (que vira 'finalizado' só com data_entregue).
                   const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
-                  return <Badge className={`${STATUS_COLORS[bSt] ?? "bg-muted"} text-white`}>{STATUS_LABELS[bSt] ?? bSt}</Badge>;
+                  return <StatusBadge tone={STATUS_TONE[bSt] ?? "neutral"}>{STATUS_LABELS[bSt] ?? bSt}</StatusBadge>;
                 })()}
                 <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
                   <Trash2 className="h-4 w-4 text-destructive" />

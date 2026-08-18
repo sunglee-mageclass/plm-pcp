@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -1109,9 +1109,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
             mesNome={(modelo as any)?.mes?.mes} anoNome={(modelo as any)?.ano?.ano}
           />
         </div>
-        <Badge className={(view === "pos" ? posBtn.confirmado : confirmado) ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+        <StatusBadge tone={(view === "pos" ? posBtn.confirmado : confirmado) ? "success" : "warning"}>
           {(view === "pos" ? posBtn.confirmado : confirmado) ? "Confirmado" : "Pendente"}
-        </Badge>
+        </StatusBadge>
         </div>
       </header>
 

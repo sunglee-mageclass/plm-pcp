@@ -4,14 +4,14 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 
 // Badge #Erro na lista de um setor, quando a etapa está com revisão pendente.
 export function RevisaoErroBadge({ revisao, etapa }: { revisao: any; etapa: string }) {
   if (!revisao || !revisao[etapa]) return null;
-  return <Badge className="bg-red-600 hover:bg-red-600">#Erro</Badge>;
+  return <StatusBadge tone="danger">#Erro</StatusBadge>;
 }
 
 // Banner + botão "Marcar verificado" no detalhe do setor (some o #Erro daquela etapa).
