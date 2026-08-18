@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 //
 // Onda 2 (ago/2026) varreu os hits e ligou o gate abaixo. Regras a/d/e em ZERO fora
 // das exceções documentadas (regra a) — ver docs/design/ui-padroes.md §Q3.
+// Regra (f) — hsl() cru (dataviz, §R) — adicionada e ZERADA na onda de Dashboard v2
+// (ago/2026): cor de gráfico agora só via tokens --chart-* (src/lib/chart-colors.ts),
+// mantendo a exceção de impressão (PrintBarChart usa hsl fixo de propósito).
 const ANTIDRIFT_LIGADO = true;
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -77,6 +80,11 @@ function isScannable(file: string): boolean {
 const ALL_FILES = walk(SRC).filter(isScannable);
 const FILES_NO_LIB = ALL_FILES.filter((f) => !f.startsWith(LIB_DIR + path.sep));
 const FILES_SEM_EXCECAO_COR = ALL_FILES.filter((f) => !EXCECAO_COR.has(f));
+// Regra (f) — hsl() cru. Mesmas exceções de cor (print/dado real) da regra (a) MAIS a fonte
+// única de cor de gráfico src/lib/chart-colors.ts, que é a ÚNICA autorizada a nomear cor de
+// dataviz (e ainda assim só referencia tokens var(--chart-*), nunca hsl solto). Ver §R.
+const CHART_COLORS_TS = path.join(ROOT, "src/lib/chart-colors.ts");
+const FILES_SEM_HSL = FILES_SEM_EXCECAO_COR.filter((f) => f !== CHART_COLORS_TS);
 
 // Linha de comentário (// … | JSDoc/bloco * … | abertura /* …) fica de fora do grep —
 // reduz falso-positivo grosseiro (ex.: "(React #185)" batendo na regra de hex dentro
@@ -89,7 +97,7 @@ function stripComment(line: string): string {
 }
 
 type Hit = { file: string; line: number; text: string };
-type RuleId = "a" | "b" | "c" | "d" | "e";
+type RuleId = "a" | "b" | "c" | "d" | "e" | "f";
 
 const ICON_SIZES_OK = new Set([14, 16, 20, 24]);
 
@@ -137,6 +145,14 @@ const RULES: Record<RuleId, { label: string; files: string[]; find: (line: strin
       return m ?? [];
     },
   },
+  f: {
+    label: "hsl() cru fora de styles.css/chart-colors e da exceção de impressão/dado real (§R — usar tokens --chart-* via src/lib/chart-colors.ts)",
+    files: FILES_SEM_HSL,
+    find: (line) => {
+      const m = line.match(/hsl\(/g);
+      return m ?? [];
+    },
+  },
 };
 
 function scanRule(id: RuleId): Hit[] {
@@ -164,12 +180,12 @@ function fmtHits(hits: Hit[]): string {
 // independente do valor de ANTIDRIFT_LIGADO.
 describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
   it("reporta a contagem de débito por regra (console.info, não falha)", () => {
-    const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0 };
+    const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0 };
     for (const id of Object.keys(RULES) as RuleId[]) counts[id] = scanRule(id).length;
     console.info(
-      "[ui-padroes anti-drift §Q] débito por regra:",
+      "[ui-padroes anti-drift §Q/§R] débito por regra:",
       JSON.stringify(counts),
-      "\n  a = cor literal | b = <input type=date> | c = ícone size fora da escala | d = .toFixed fora de lib | e = font-size fracionário",
+      "\n  a = cor literal | b = <input type=date> | c = ícone size fora da escala | d = .toFixed fora de lib | e = font-size fracionário | f = hsl() cru (§R)",
     );
     expect(Object.keys(counts).length).toBe(Object.keys(RULES).length);
   });

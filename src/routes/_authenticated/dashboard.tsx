@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
@@ -20,8 +20,12 @@ import { RelatorioPrint, type RelSecao, REL_COR_SUCESSO, REL_COR_ALERTA, REL_COR
 import { PBar, PBar2 } from "@/components/shared/PrintBarChart";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
+  CHART_SERIE, CHART_SEQ, CHART_AGE, CHART_GRID, CHART_DIVERGE_NEG, CHART_DIVERGE_POS,
+  TONE_BG, TONE_FG, type Tone,
+} from "@/lib/chart-colors";
+import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-  PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
+  Cell, FunnelChart, Funnel, LabelList,
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -37,12 +41,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   ),
 });
 
-const PIE_COLORS = ["hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(45 93% 47%)", "hsl(0 84% 60%)", "hsl(280 70% 60%)", "hsl(190 80% 50%)", "hsl(20 90% 55%)", "hsl(160 60% 45%)"];
-
-// Escala SEQUENCIAL de idade do WIP (1 matiz âmbar claro→escuro = mais velho/urgente);
-// índice 0 = "Sem envio" (cinza neutro, fora da escala). Casa com `ordem` da RPC
-// dashboard_producao_servicos (emProducaoPorIdade). hsl() = permitido pelo anti-drift §Q.
-const IDADE_CORES = ["hsl(215 14% 66%)", "hsl(30 90% 72%)", "hsl(30 90% 60%)", "hsl(30 90% 48%)", "hsl(30 88% 38%)"];
+// Cores de gráfico: fonte ÚNICA em src/lib/chart-colors.ts (tokens --chart-* de styles.css,
+// §R). Série única = CHART_SERIE (1 matiz navy); ordinal = CHART_SEQ; idade do WIP = CHART_AGE.
 
 const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
@@ -126,13 +126,14 @@ function DashError({ show }: { show?: boolean }) {
 const nfInt = (n: any) => Number(n ?? 0).toLocaleString("pt-BR");
 
 // Estágios do destrinche por LINHA — MESMOS rótulos dos KPI cards da aba (a soma dos 4 =
-// total da linha). Ordem de matiz FIXA (categórico, §Q/dataviz). Drive tanto a barra
-// empilhada quanto as colunas da tabela (DRY). Casa com os campos de porLinha da RPC.
+// total da linha). São ORDINAIS (planejamento → lançados), então usam a rampa SEQUENCIAL
+// navy (§R: ordinal = 1 matiz claro→escuro), não matizes cicladas. Drive a barra empilhada;
+// as colunas da tabela só usam os rótulos. Casa com os campos de porLinha da RPC.
 const LINHA_STAGES = [
-  { key: "planejamento", label: "Em Planejamento", color: PIE_COLORS[0] },
-  { key: "desenvolvimento", label: "Em Desenvolvimento", color: PIE_COLORS[1] },
-  { key: "producao", label: "Em Produção", color: PIE_COLORS[2] },
-  { key: "lancados", label: "Lançados", color: PIE_COLORS[3] },
+  { key: "planejamento", label: "Em Planejamento", color: CHART_SEQ[0] },
+  { key: "desenvolvimento", label: "Em Desenvolvimento", color: CHART_SEQ[1] },
+  { key: "producao", label: "Em Produção", color: CHART_SEQ[2] },
+  { key: "lancados", label: "Lançados", color: CHART_SEQ[3] },
 ] as const;
 
 function ColecaoTab() {
@@ -161,7 +162,8 @@ function ColecaoTab() {
   const funnelBase = Number((data?.funnel ?? [])[0]?.value) || 0;
   const funnel = (data?.funnel ?? []).map((f: any, i: number) => {
     const pct = funnelBase > 0 ? Math.round((Number(f.value) / funnelBase) * 100) : 0;
-    return { ...f, fill: PIE_COLORS[i % PIE_COLORS.length], labelDir: `${f.name} · ${f.value} · ${pct}%` };
+    // Estágios ordinais do funil → rampa sequencial navy (§R), por posição de etapa.
+    return { ...f, fill: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)], labelDir: `${f.name} · ${f.value} · ${pct}%` };
   });
   const pieData = data?.pie ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
@@ -212,19 +214,23 @@ function ColecaoTab() {
           )}
         </Card>
         <Card className="p-4">
-          <h3 className="font-semibold mb-3">Distribuição por categoria</h3>
+          {/* §R P1: pizza (ângulos difíceis de comparar, cores cicladas) → BARRA HORIZONTAL
+              ordenada maior→menor, 1 matiz navy (a fatia vira comprimento, comparável). */}
+          <h3 className="font-semibold mb-3">Distribuição por categoria <span className="text-sm font-normal text-muted-foreground">· maior → menor</span></h3>
           {pieData.length === 0 ? (
             <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
           ) : (
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
-              <PieChart>
-                <Tooltip />
-                <Legend />
-                <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={110} label>
-                  {pieData.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-              </PieChart>
+              <BarChart data={[...pieData].sort((a: any, b: any) => Number(b.value) - Number(a.value))} layout="vertical" margin={{ left: 8, right: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Bar dataKey="value" name="Modelos" fill={CHART_SERIE} radius={[0, 4, 4, 0]}>
+                  <LabelList dataKey="value" position="right" formatter={(v: any) => (Number(v) > 0 ? fmtNum(v) : "")} />
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
           )}
@@ -294,28 +300,33 @@ function ColecaoTab() {
 }
 
 
-function Kpi({ label, value, icon: Icon, cor, sub }: { label: string; value: number | string; icon: any; cor?: string; sub?: string }) {
+// KPI / stat tile. O acento vem de um TOM semântico §Q9 (chip com fundo suave + ícone e
+// número na cor-fg legível) — nunca hsl/hex solto, nunca só cor (o ícone acompanha). Sem
+// `tone` = acento neutro/informativo e número na cor de texto padrão (KPIs de contagem).
+function Kpi({ label, value, icon: Icon, tone, sub }: { label: string; value: number | string; icon: any; tone?: Tone; sub?: string }) {
+  const bg = tone ? TONE_BG[tone] : "var(--tone-info-bg)";
+  const fg = tone ? TONE_FG[tone] : "var(--tone-info-fg)";
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: cor ?? "hsl(217 91% 60%)" }}>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: bg, color: fg }}>
           <Icon className="h-4 w-4" />
         </span>
       </div>
-      <div className="mt-2 text-3xl font-bold leading-none" style={cor ? { color: cor } : undefined}>{value}</div>
+      <div className="mt-2 text-3xl font-bold leading-none" style={tone ? { color: fg } : undefined}>{value}</div>
       {sub && <div className="mt-1.5 text-[11px] text-muted-foreground">{sub}</div>}
     </Card>
   );
 }
 
-// Donut on-screen (SVG) p/ taxas — mesmo visual do relatório.
-function DashDonut({ pct, cor = "hsl(142 71% 45%)", legenda }: { pct: number; cor?: string; legenda?: string }) {
+// Donut on-screen (SVG) p/ taxas — mesmo visual do relatório. Cor default = tom sucesso (§Q9).
+function DashDonut({ pct, cor = "var(--success)", legenda }: { pct: number; cor?: string; legenda?: string }) {
   const r = 60, c = 2 * Math.PI * r, on = (c * pct) / 100;
   return (
     <div className="flex flex-col items-center justify-center">
       <svg width="160" height="160" viewBox="0 0 170 170">
-        <circle cx="85" cy="85" r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="22" />
+        <circle cx="85" cy="85" r={r} fill="none" stroke="var(--muted)" strokeWidth="22" />
         <circle cx="85" cy="85" r={r} fill="none" stroke={cor} strokeWidth="22" strokeDasharray={`${on} ${c - on}`} transform="rotate(-90 85 85)" strokeLinecap="butt" />
         <text x="85" y="98" textAnchor="middle" fontSize="40" fontWeight="800" fill={cor}>{pct}%</text>
       </svg>
@@ -405,8 +416,8 @@ function EstoqueTab() {
       {/* Estoque por categoria — tecido e aviamento. */}
       <div className="grid gap-4 lg:grid-cols-2">
         {[
-          { titulo: "Estoque por categoria de tecido", data: barTecido, cor: PIE_COLORS[0] },
-          { titulo: "Estoque por categoria de aviamento", data: barAviamento, cor: PIE_COLORS[1] },
+          { titulo: "Estoque por categoria de tecido", data: barTecido, cor: CHART_SERIE },
+          { titulo: "Estoque por categoria de aviamento", data: barAviamento, cor: CHART_SERIE },
         ].map((g) => (
           <Card key={g.titulo} className="p-4">
             <h3 className="font-semibold mb-3">{g.titulo}</h3>
@@ -632,10 +643,10 @@ function ProducaoServicos({ ini, fim, colecao, linha }: { ini?: string; fim?: st
                 <XAxis dataKey={emProdXKey} tick={{ fontSize: 11 }} interval={0} />
                 <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
                 <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Bar dataKey={dk} name={mLabel} fill={PIE_COLORS[0]} radius={[4, 4, 0, 0]}>
-                  {/* Categoria específica: cor sequencial por idade (por barra). Visão geral: matiz único. */}
+                <Bar dataKey={dk} name={mLabel} fill={CHART_SERIE} radius={[4, 4, 0, 0]}>
+                  {/* Categoria específica: rampa SEQUENCIAL por idade (§R, por barra). Visão geral: matiz único. */}
                   {!isTodas && (emProdData as any[]).map((d, i) => (
-                    <Cell key={i} fill={IDADE_CORES[Number(d.ordem)] ?? PIE_COLORS[0]} />
+                    <Cell key={i} fill={CHART_AGE[Number(d.ordem)] ?? CHART_SERIE} />
                   ))}
                   <LabelList dataKey={dk} position="top" formatter={(v: any) => (Number(v) > 0 ? fmtNum(v) : "")} />
                 </Bar>
@@ -658,7 +669,7 @@ function ProducaoServicos({ ini, fim, colecao, linha }: { ini?: string; fim?: st
                 <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                 <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
                 <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Bar dataKey={dk} name={mLabel} fill={PIE_COLORS[1]} radius={[4, 4, 0, 0]} />
+                <Bar dataKey={dk} name={mLabel} fill={CHART_SERIE} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -746,9 +757,9 @@ function ProducaoTab() {
       <DashError show={isError} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
-        <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={CheckCircle2} cor="hsl(142 71% 45%)" sub="entregas de Serviços" />
-        <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} cor={Number(kpiPrazo.atrasadas) > 0 ? "hsl(0 84% 60%)" : undefined} sub={`${Math.round((Number(kpiPrazo.atrasadas) / Math.max(Number(kpiPrazo.noPrazo) + Number(kpiPrazo.atrasadas), 1)) * 100)}% do total`} />
-        <Kpi label="Defeito médio" value={fmtPct(defeitoMedio)} icon={Sparkles} cor="hsl(45 93% 47%)" sub="defeito ÷ recebido" />
+        <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={CheckCircle2} tone="success" sub="entregas de Serviços" />
+        <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} tone={Number(kpiPrazo.atrasadas) > 0 ? "danger" : undefined} sub={`${Math.round((Number(kpiPrazo.atrasadas) / Math.max(Number(kpiPrazo.noPrazo) + Number(kpiPrazo.atrasadas), 1)) * 100)}% do total`} />
+        <Kpi label="Defeito médio" value={fmtPct(defeitoMedio)} icon={Sparkles} tone="warning" sub="defeito ÷ recebido" />
         <Card className="p-4 flex flex-col">
           <span className="text-xs font-medium text-muted-foreground mb-1">% no prazo</span>
           <div className="flex-1 flex items-center justify-center">
@@ -761,8 +772,8 @@ function ProducaoTab() {
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Cortes por mês <span className="font-normal">· por data de entrega do corte</span></h2>
         <div className="grid gap-4 lg:grid-cols-2">
-          <MonthBarCard title="Modelos cortados" data={cortes} dataKey="modelos" name="Modelos" color={PIE_COLORS[0]} empty="Sem cortes no período." loading={isLoading} />
-          <MonthBarCard title="Grade total cortada" subtitle="peças" data={cortes} dataKey="grade" name="Grade total" color={PIE_COLORS[1]} empty="Sem cortes no período." loading={isLoading} />
+          <MonthBarCard title="Modelos cortados" data={cortes} dataKey="modelos" name="Modelos" color={CHART_SERIE} empty="Sem cortes no período." loading={isLoading} />
+          <MonthBarCard title="Grade total cortada" subtitle="peças" data={cortes} dataKey="grade" name="Grade total" color={CHART_SERIE} empty="Sem cortes no período." loading={isLoading} />
         </div>
       </div>
       )}
@@ -770,8 +781,8 @@ function ProducaoTab() {
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Produção finalizada por mês <span className="font-normal">· Serviços com status finalizado</span></h2>
         <div className="grid gap-4 lg:grid-cols-2">
-          <MonthBarCard title="Modelos finalizados" data={finalizadas} dataKey="modelos" name="Modelos" color={PIE_COLORS[2]} empty="Nada finalizado no período." loading={isLoading} />
-          <MonthBarCard title="Grade total finalizada" subtitle="peças" data={finalizadas} dataKey="grade" name="Grade total" color={PIE_COLORS[3]} empty="Nada finalizado no período." loading={isLoading} />
+          <MonthBarCard title="Modelos finalizados" data={finalizadas} dataKey="modelos" name="Modelos" color={CHART_SERIE} empty="Nada finalizado no período." loading={isLoading} />
+          <MonthBarCard title="Grade total finalizada" subtitle="peças" data={finalizadas} dataKey="grade" name="Grade total" color={CHART_SERIE} empty="Nada finalizado no período." loading={isLoading} />
         </div>
       </div>
 
@@ -780,8 +791,8 @@ function ProducaoTab() {
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Etapa do kanban de Desenvolvimento</h2>
         <div className="grid gap-4 lg:grid-cols-2">
-          <EtapaBarCard title="Modelos por etapa" data={kanbanDev} dataKey="modelos" name="Modelos" color={PIE_COLORS[0]} />
-          <EtapaBarCard title="Grade total por etapa" data={kanbanDev} dataKey="grade" name="Grade total" color={PIE_COLORS[1]} />
+          <EtapaBarCard title="Modelos por etapa" data={kanbanDev} dataKey="modelos" name="Modelos" color={CHART_SERIE} />
+          <EtapaBarCard title="Grade total por etapa" data={kanbanDev} dataKey="grade" name="Grade total" color={CHART_SERIE} />
         </div>
       </div>
 
@@ -797,7 +808,7 @@ function ProducaoTab() {
               <XAxis dataKey="mes" />
               <YAxis tickFormatter={(v) => `${v}%`} />
               <Tooltip formatter={(v: any) => `${Number(v)}%`} />
-              <Bar dataKey="taxa" name="Taxa de defeito" fill={PIE_COLORS[3]} />
+              <Bar dataKey="taxa" name="Taxa de defeito" fill={CHART_SERIE} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -885,7 +896,7 @@ function ProducaoTab() {
           {
             titulo: "Qualidade — taxa de defeito por mês", icone: "◷",
             descricao: "Defeito ÷ recebido (entregas de Serviços)",
-            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" color={PIE_COLORS[3]} fmtL={(v) => `${v}%`} /> : undefined,
+            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" fmtL={(v) => `${v}%`} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "taxa", label: "Taxa de defeito", align: "right" }],
             linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })), zebra: true,
           },
@@ -922,8 +933,8 @@ function ProducaoTab() {
             titulo: "Cortes por mês", icone: "▦",
             descricao: "Por data de entrega do corte",
             grafico: (cortes as any[]).length > 0 ? <PBar2
-              a={{ titulo: "Modelos cortados", node: <PBar data={cortes} xKey="mes" barKey="modelos" color={PIE_COLORS[0]} width={320} height={160} fmtL={nfInt} /> }}
-              b={{ titulo: "Grade total cortada", node: <PBar data={cortes} xKey="mes" barKey="grade" color={PIE_COLORS[1]} width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
+              a={{ titulo: "Modelos cortados", node: <PBar data={cortes} xKey="mes" barKey="modelos" width={320} height={160} fmtL={nfInt} /> }}
+              b={{ titulo: "Grade total cortada", node: <PBar data={cortes} xKey="mes" barKey="grade" width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
             linhas: (cortes as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
           }] as RelSecao[]) : []),
@@ -931,8 +942,8 @@ function ProducaoTab() {
             titulo: "Produção finalizada por mês", icone: "▦",
             descricao: "Serviços com status finalizado",
             grafico: (finalizadas as any[]).length > 0 ? <PBar2
-              a={{ titulo: "Modelos finalizados", node: <PBar data={finalizadas} xKey="mes" barKey="modelos" color={PIE_COLORS[2]} width={320} height={160} fmtL={nfInt} /> }}
-              b={{ titulo: "Grade total finalizada", node: <PBar data={finalizadas} xKey="mes" barKey="grade" color={PIE_COLORS[3]} width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
+              a={{ titulo: "Modelos finalizados", node: <PBar data={finalizadas} xKey="mes" barKey="modelos" width={320} height={160} fmtL={nfInt} /> }}
+              b={{ titulo: "Grade total finalizada", node: <PBar data={finalizadas} xKey="mes" barKey="grade" width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
             linhas: (finalizadas as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
           },
@@ -987,9 +998,9 @@ function FinanceiroTab() {
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
-        <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} cor="hsl(217 91% 60%)" />
-        <Kpi label="Total pago" value={brl(pago)} icon={CheckCircle2} cor="hsl(142 71% 45%)" />
-        <Kpi label="Total pendente" value={brl(pendente)} icon={AlertTriangle} cor="hsl(45 93% 47%)" />
+        <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} tone="info" />
+        <Kpi label="Total pago" value={brl(pago)} icon={CheckCircle2} tone="success" />
+        <Kpi label="Total pendente" value={brl(pendente)} icon={AlertTriangle} tone="warning" />
         <Card className="p-4 flex flex-col">
           <span className="text-xs font-medium text-muted-foreground mb-1">% pago</span>
           <div className="flex-1 flex items-center justify-center">
@@ -1006,7 +1017,7 @@ function FinanceiroTab() {
               <XAxis dataKey="mes" />
               <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
               <Tooltip formatter={(v: any) => brl(Number(v))} />
-              <Bar dataKey="total" name="A pagar" fill={PIE_COLORS[2]} />
+              <Bar dataKey="total" name="A pagar" fill={CHART_SERIE} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1030,7 +1041,7 @@ function FinanceiroTab() {
               <XAxis type="number" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
               <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 12 }} />
               <Tooltip formatter={(v: any) => brl(Number(v))} />
-              <Bar dataKey="valor" name="R$ parado" fill={PIE_COLORS[2]} />
+              <Bar dataKey="valor" name="R$ parado" fill={CHART_SERIE} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1039,15 +1050,20 @@ function FinanceiroTab() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <h3 className="font-semibold mb-3">Aging de contas a pagar <span className="text-sm font-normal text-muted-foreground">· em aberto, por idade do vencimento</span></h3>
+          {/* §R P2: barra HORIZONTAL (faixas no eixo Y, sem inclinar rótulo — resolve a
+              legibilidade sofrível no mobile) + rampa sequencial navy (mais novo → mais velho). */}
           <div style={{ width: "100%", height: 280 }}>
             <ResponsiveContainer>
-              <BarChart data={data?.aging ?? []} margin={{ bottom: 14 }}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                {/* mobile: rótulos das faixas inclinados + menores p/ não colidirem. */}
-                <XAxis dataKey="faixa" interval={0} tick={{ fontSize: 10 }} angle={-12} textAnchor="end" height={46} />
-                <YAxis width={44} tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
+              <BarChart data={data?.aging ?? []} layout="vertical" margin={{ left: 8, right: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
+                <YAxis type="category" dataKey="faixa" width={96} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v: any) => brl(Number(v))} />
-                <Bar dataKey="total" name="A pagar" fill={PIE_COLORS[3]} />
+                <Bar dataKey="total" name="A pagar" radius={[0, 4, 4, 0]}>
+                  {((data?.aging ?? []) as any[]).map((_: any, i: number) => (
+                    <Cell key={i} fill={CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)]} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1062,7 +1078,7 @@ function FinanceiroTab() {
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
                 <YAxis type="category" dataKey="nome" width={92} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v: any) => brl(Number(v))} />
-                <Bar dataKey="total" name="Total" fill={PIE_COLORS[0]} />
+                <Bar dataKey="total" name="Total" fill={CHART_SERIE} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1082,20 +1098,20 @@ function FinanceiroTab() {
         secoes={[
           {
             titulo: "Contas a pagar — projeção mensal", icone: "▦",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" color={PIE_COLORS[2]} fmtL={(v) => nfInt(v)} /> : undefined,
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "total", label: "A pagar", align: "right" }],
             linhas: (chartData as any[]).map((d) => ({ mes: d.mes, total: brl(Number(d.total)) })), zebra: true,
             rodape: `Total projetado: ${brl((chartData as any[]).reduce((s, d) => s + Number(d.total || 0), 0))}`,
           },
           {
             titulo: "Aging — contas em aberto por idade do vencimento", icone: "◷",
-            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" color={PIE_COLORS[3]} fmtL={(v) => nfInt(v)} height={170} /> : undefined,
+            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" fmtL={(v) => nfInt(v)} height={170} /> : undefined,
             colunas: [{ key: "faixa", label: "Faixa" }, { key: "total", label: "Valor em aberto", align: "right" }],
             linhas: ((data?.aging ?? []) as any[]).map((a) => ({ faixa: a.faixa, total: brl(Number(a.total)) })), zebra: true,
           },
           {
             titulo: "Top fornecedores no período", icone: "▤",
-            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" color={PIE_COLORS[0]} horizontal height={Math.max(150, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtL={(v) => nfInt(v)} /> : undefined,
+            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" horizontal height={Math.max(150, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "nome", label: "Fornecedor" }, { key: "total", label: "Total no período", align: "right" }],
             linhas: ((data?.topFornecedores ?? []) as any[]).map((r) => ({ nome: r.nome ?? "—", total: brl(Number(r.total)) })), zebra: true,
           },
@@ -1108,6 +1124,34 @@ function FinanceiroTab() {
 }
 
 /* ============================ CUSTOS ============================ */
+
+// §R P1 — barra DIVERGENTE da variação previsto×real: abaixo do previsto (economia) = navy
+// à ESQUERDA do zero; acima (estouro) = vermelho à DIREITA; ~0 = neutro. Sempre com sinal +
+// ícone (nunca só cor). `max` = maior |Δ%| da tabela (piso 10%) p/ escalar as barras juntas.
+// Não confirmado em CAD ainda = "—" neutro (não há variação real a comparar).
+function DeltaBar({ pct, max, confirmado }: { pct: number | null | undefined; max: number; confirmado?: boolean }) {
+  if (!confirmado) {
+    return <span className="text-muted-foreground" title="Ainda não confirmado em CAD">—</span>;
+  }
+  const v = Number(pct ?? 0);
+  const acima = v > 0.5, abaixo = v < -0.5; // tolerância p/ "no previsto"
+  const mag = Math.min(Math.abs(v), max) / (max || 1); // 0..1
+  const w = `${Math.round(mag * 50)}%`; // metade da barra por lado
+  const cor = acima ? CHART_DIVERGE_POS : abaixo ? CHART_DIVERGE_NEG : "var(--muted-foreground)";
+  const Icon = acima ? ArrowUp : abaixo ? ArrowDown : Minus;
+  const label = acima || abaixo ? `${v > 0 ? "+" : ""}${fmtInt(v)}%` : "no previsto";
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <span className="inline-flex items-center justify-end gap-1 text-xs font-medium num" style={{ color: cor, minWidth: 62 }}>
+        <Icon className="h-3.5 w-3.5 shrink-0" /> {label}
+      </span>
+      <div className="relative h-3 w-24 shrink-0 rounded bg-muted/60" aria-hidden>
+        <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
+        <span className="absolute inset-y-0 rounded" style={{ background: cor, width: w, ...(acima ? { left: "50%" } : { right: "50%" }) }} />
+      </div>
+    </div>
+  );
+}
 
 function CustosTab() {
   const fl = useFieldLabels();
@@ -1133,6 +1177,12 @@ function CustosTab() {
   });
 
   const rows = data?.rows ?? [];
+  // Escala comum das barras de variação (§R): maior |Δ%| confirmado, piso 10% (Δ pequeno
+  // não enche a barra) e teto 100% (outlier não achata todas as demais).
+  const deltaMax = useMemo(() => {
+    const m = Math.max(0, ...(rows as any[]).filter((r) => r.confirmado).map((r) => Math.abs(Number(r.pct ?? 0))));
+    return Math.min(100, Math.max(10, m));
+  }, [rows]);
   const chartData = data?.chartData ?? [];
   const categorias: Opt[] = data?.filtros?.categorias ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
@@ -1165,6 +1215,7 @@ function CustosTab() {
                 <th className="py-2 pr-3">Modelo</th>
                 <th className="py-2 pr-3 text-right">Previsto (un.)</th>
                 <th className="py-2 pr-3 text-right">Real (un.)</th>
+                <th className="py-2 pr-3 text-right">Δ variação</th>
               </tr>
             </thead>
             <tbody>
@@ -1179,9 +1230,10 @@ function CustosTab() {
                   <td className="py-2 pr-3" data-label="Modelo">{r.nome}</td>
                   <td className="py-2 pr-3 text-right" data-label="Previsto (un.)">{brl(r.previsto)}</td>
                   <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Δ variação"><DeltaBar pct={r.pct} max={deltaMax} confirmado={r.confirmado} /></td>
                 </tr>
               ))}
-              {!isLoading && rows.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
+              {!isLoading && rows.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1203,7 +1255,7 @@ function CustosTab() {
                   return p && p.nTotal != null ? `${label} — média de ${p.nConf}/${p.nTotal} modelo(s)` : label;
                 }}
               />
-              <Bar dataKey="medio" name="Custo médio" fill={PIE_COLORS[1]} />
+              <Bar dataKey="medio" name="Custo médio" fill={CHART_SERIE} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1222,7 +1274,7 @@ function CustosTab() {
         secoes={[
           {
             titulo: "Custo médio por peça por coleção", icone: "▣",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" color={PIE_COLORS[1]} fmtL={(v) => nfInt(v)} /> : undefined,
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "colecao", label: "Coleção" }, { key: "medio", label: "Custo médio / peça", align: "right" }],
             linhas: (chartData as any[]).map((d) => ({ colecao: d.colecao, medio: brl(Number(d.medio)) })), zebra: true,
           },

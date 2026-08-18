@@ -181,6 +181,47 @@
   /* Login — borda do input mais escura que --input padrão (contraste 1,23:1 era baixo
      demais contra o card, laudo WCAG 1.4.11); troca por tema via seletor .dark abaixo. */
   --auth-input-border: oklch(0.8 0.01 248);
+
+  /* ── §R · Cores de gráfico (dataviz) — fonte canônica p/ Recharts ────────────────
+     Consumidas SÓ via src/lib/chart-colors.ts (var(--chart-*)); NUNCA hsl()/hex solto
+     no componente (anti-drift regra `f`). Regras em docs/design/ui-padroes.md §R:
+     série única = 1 matiz · categórica = ordem FIXA por entidade (nunca ciclada/rank) ·
+     sequencial = 1 matiz claro→escuro · status reusa os tons §Q9 (com ícone). */
+
+  /* Série única (magnitude) = 1 matiz navy. --chart-1 = âncora (=primary). */
+  --chart-1: var(--primary);
+  /* Categórica — ordem FIXA por entidade (índice estável), âncora navy, evitando
+     verde/vermelho PUROS (reservados a status §Q9). Só quando entidades nominais
+     precisam coexistir num mesmo gráfico; 9ª+ vira "Outros". */
+  --chart-2: oklch(0.62 0.10 210);
+  --chart-3: oklch(0.68 0.08 165);
+  --chart-4: oklch(0.72 0.10 90);
+  --chart-5: oklch(0.55 0.11 300);
+  --chart-6: oklch(0.60 0.05 258);
+  --chart-7: oklch(0.63 0.10 35);
+  --chart-8: oklch(0.72 0.04 220);
+
+  /* Sequencial navy — 1 matiz claro→escuro (ordinal/magnitude: funil, etapas). */
+  --chart-seq-1: oklch(0.90 0.03 248);
+  --chart-seq-2: oklch(0.80 0.06 248);
+  --chart-seq-3: oklch(0.68 0.08 248);
+  --chart-seq-4: oklch(0.55 0.10 248);
+  --chart-seq-5: oklch(0.42 0.09 248);
+
+  /* Sequencial de IDADE do WIP — 1 matiz âmbar claro→escuro (mais velho = mais urgente);
+     índice 0 = "sem envio" (neutro, FORA da escala). */
+  --chart-age-0: var(--muted-foreground);
+  --chart-age-1: oklch(0.82 0.08 75);
+  --chart-age-2: oklch(0.74 0.11 68);
+  --chart-age-3: oklch(0.66 0.13 60);
+  --chart-age-4: oklch(0.56 0.14 52);
+
+  /* Grade recessiva do gráfico (CartesianGrid). */
+  --chart-grid: var(--border);
+
+  /* Divergente (Δ medida×meta): abaixo/negativo = navy; acima/positivo = vermelho. */
+  --chart-diverge-neg: var(--primary);
+  --chart-diverge-pos: var(--destructive);
 }
 
 .dark {
@@ -235,6 +276,29 @@
   --tone-info-fg: color-mix(in oklab, var(--primary) 74%, var(--foreground));
   --tone-neutral-bg: var(--muted);
   --tone-neutral-fg: var(--muted-foreground);
+
+  /* §R · Cores de gráfico — overrides do tema escuro. --chart-1 herda --primary (já
+     tem valor escuro). Categórica/sequencial sobem a claridade p/ os fills renderarem
+     legíveis contra o card escuro (~0.21 L). Idade e divergente idem. */
+  --chart-2: oklch(0.70 0.11 210);
+  --chart-3: oklch(0.74 0.09 165);
+  --chart-4: oklch(0.78 0.11 90);
+  --chart-5: oklch(0.66 0.12 300);
+  --chart-6: oklch(0.70 0.05 258);
+  --chart-7: oklch(0.70 0.11 35);
+  --chart-8: oklch(0.78 0.04 220);
+
+  --chart-seq-1: oklch(0.42 0.07 248);
+  --chart-seq-2: oklch(0.54 0.09 248);
+  --chart-seq-3: oklch(0.66 0.10 248);
+  --chart-seq-4: oklch(0.76 0.10 248);
+  --chart-seq-5: oklch(0.86 0.06 248);
+
+  --chart-age-0: var(--muted-foreground);
+  --chart-age-1: oklch(0.60 0.10 75);
+  --chart-age-2: oklch(0.68 0.12 68);
+  --chart-age-3: oklch(0.76 0.13 60);
+  --chart-age-4: oklch(0.84 0.13 52);
 }
 
 
