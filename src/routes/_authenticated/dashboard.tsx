@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
@@ -23,6 +23,10 @@ import {
   CHART_SERIE, CHART_SEQ, CHART_AGE, CHART_GRID, CHART_DIVERGE_NEG, CHART_DIVERGE_POS,
   TONE_BG, TONE_FG, type Tone,
 } from "@/lib/chart-colors";
+import {
+  FASES, idealLookup, itemTotais, heroStats, seqIndexRatio, seqTextToken, bulletScaleMax,
+  type HeroStats,
+} from "@/lib/leadtime";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
   Cell, FunnelChart, Funnel, LabelList,
@@ -1503,26 +1507,136 @@ function LeadtimePretty(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function EtapaLeadCard({ label, e }: { label: string; e: any }) {
+// Estado de uma etapa (bullet/hero): ok ≤ meta · atenção ≤ 1,5× · atrasado > 1,5× (ou, na etapa
+// de SLA por item, por faixas de % no prazo). Devolve o tom §Q9 + o ícone (R3 — nunca só cor).
+function etapaEstado(e: any): { estado: "ok" | "watch" | "late"; cor: string; Icon: any } {
   const ideal = Number(e.idealDias) || 0;
   const media = Number(e.duracaoMedia) || 0;
-  const sla = !!e.slaCol; // prazo por item (SLA da Subcategoria) — não há ideal único
-  const ok = sla ? Number(e.pctNoPrazo) >= 100 : ideal <= 0 || media <= ideal;
-  const pctBar = sla ? Number(e.pctNoPrazo) || 0 : ideal > 0 ? Math.min(100, (media / ideal) * 100) : 0;
+  const sla = !!e.slaCol;
+  const ratio = ideal > 0 ? media / ideal : 0;
+  const estado: "ok" | "watch" | "late" = sla
+    ? Number(e.pctNoPrazo) >= 100 ? "ok" : Number(e.pctNoPrazo) >= 60 ? "watch" : "late"
+    : ideal <= 0 || media <= ideal ? "ok" : ratio <= 1.5 ? "watch" : "late";
+  const cor = estado === "ok" ? "var(--success)" : estado === "watch" ? "var(--warning)" : "var(--destructive)";
+  const Icon = estado === "ok" ? Check : estado === "watch" ? AlertTriangle : X;
+  return { estado, cor, Icon };
+}
+
+// Bullet graph (§R R7): barra = duração REAL, tique = meta (ideal), faixas ok/atenção/atrasado ao
+// fundo. A barra ULTRAPASSA a meta — a escala do grupo (`scaleMax`) cobre o pior caso, então nada
+// satura em 100% e o gargalo salta. Substitui a parede de cards de média.
+function BulletRow({ label, e, scaleMax }: { label: string; e: any; scaleMax: number }) {
+  const ideal = Number(e.idealDias) || 0;
+  const media = Number(e.duracaoMedia) || 0;
+  const sla = !!e.slaCol;
+  const ratio = ideal > 0 ? media / ideal : 0;
+  const over = ideal > 0 && media > ideal;
+  const pct = (x: number) => Math.max(0, Math.min(100, (x / scaleMax) * 100));
+  const okEnd = ideal > 0 ? pct(ideal) : 0;
+  const watchEnd = ideal > 0 ? pct(ideal * 1.5) : 0;
+  const { cor, Icon } = etapaEstado(e);
+  const bandas = ideal > 0
+    ? `linear-gradient(90deg, var(--tone-success-bg) 0 ${okEnd}%, var(--tone-warning-bg) ${okEnd}% ${watchEnd}%, var(--tone-danger-bg) ${watchEnd}% 100%)`
+    : "var(--muted)";
   return (
-    <Card className="p-4">
-      <p className="text-sm font-medium truncate">{label}</p>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={"text-2xl font-bold " + (sla ? "text-foreground" : ok ? "text-green-600 dark:text-green-400" : "text-destructive")}>{fmtNum(media)}d</span>
-        <span className="text-xs text-muted-foreground">{sla ? "SLA da Subcat." : `ideal ${fmtNum(ideal)}d`}</span>
+    <div className="grid grid-cols-1 items-center gap-x-3 gap-y-1 py-1.5 sm:grid-cols-[minmax(120px,190px)_1fr_minmax(104px,auto)]">
+      <div className={"truncate text-sm " + (over ? "font-semibold" : "font-medium")} title={label}>{label}</div>
+      <div className="relative h-5 overflow-hidden rounded border" style={{ background: bandas }}>
+        <div
+          className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-r"
+          style={{ width: `${pct(media)}%`, background: over ? "var(--destructive)" : CHART_SERIE }}
+        />
+        {ideal > 0 && (
+          <div className="absolute bottom-0.5 top-0.5 w-0.5" style={{ left: `${pct(ideal)}%`, background: "var(--foreground)", opacity: 0.7 }} />
+        )}
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
-        <div className={"h-full " + (ok || sla ? "bg-green-500" : "bg-destructive")} style={{ width: `${pctBar}%` }} />
+      <div className="text-right tabular-nums">
+        <span className="text-sm font-bold" style={over ? { color: cor } : undefined}>{fmtNum(media)}d</span>
+        <span className="block text-[11px] font-semibold" style={{ color: cor }}>
+          <Icon className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+          {sla ? `${e.pctNoPrazo}% no prazo` : ideal > 0 ? `${e.pctNoPrazo}% · ${fmtNum(ratio)}×` : `${e.nModelos} mod.`}
+        </span>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {e.pctNoPrazo}% no prazo · {e.nModelos} modelo(s){Number(e.foraSla) > 0 ? ` · ${e.foraSla} fora` : ""}
-      </p>
-    </Card>
+    </div>
+  );
+}
+
+// Uma seção de bullets (Planejamento / Desenvolvimento / Produção), ordenada do PIOR pro melhor
+// (maior razão real/meta em cima). Escala do eixo compartilhada pelo grupo (barras comparáveis).
+function BulletSection({ icon, titulo, etapas, labelDe }: { icon: any; titulo: string; etapas: any[]; labelDe: (e: any) => string }) {
+  if (etapas.length === 0) return null;
+  const badness = (e: any) => {
+    const ideal = Number(e.idealDias) || 0;
+    if (e.slaCol) return (100 - (Number(e.pctNoPrazo) || 0)) / 100;
+    return ideal > 0 ? (Number(e.duracaoMedia) || 0) / ideal : 0;
+  };
+  const ord = [...etapas].sort((a, b) => badness(b) - badness(a));
+  const scaleMax = bulletScaleMax(
+    ord.map((e) => Number(e.duracaoMedia) || 0),
+    ord.map((e) => Number(e.idealDias) || 0),
+  );
+  return (
+    <div>
+      <SecHeader icon={icon}>{titulo}</SecHeader>
+      <Card className="p-4">
+        {ord.map((e) => <BulletRow key={e.etapa} label={labelDe(e)} e={e} scaleMax={scaleMax} />)}
+      </Card>
+    </div>
+  );
+}
+
+// Hero ponta-a-ponta (§R R8): número-título + contexto (desvio vs meta, nº de modelos, gargalo,
+// fração dentro da meta). Números pt-BR (.num), setas/ícones reforçam a direção.
+function LeadtimeHero({ hero, gargalo, filtroTxt }: { hero: HeroStats; gargalo: any; filtroTxt: string }) {
+  const acima = hero.delta > 0.05;
+  const abaixo = hero.delta < -0.05;
+  const corDesvio = acima ? "var(--destructive)" : abaixo ? "var(--success)" : "var(--muted-foreground)";
+  const SetaDesvio = acima ? ArrowUp : abaixo ? ArrowDown : Minus;
+  const gOver = gargalo && gargalo.ratio > 1;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Card className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Lead time médio ponta a ponta</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--tone-info-bg)", color: "var(--tone-info-fg)" }}><Timer className="h-4 w-4" /></span>
+        </div>
+        <div className="mt-2 text-3xl font-bold leading-none tabular-nums">{hero.n ? fmtNum(hero.mediaTotal) : "—"} <span className="text-base font-semibold text-muted-foreground">dias</span></div>
+        {hero.n > 0 && (
+          <p className="mt-1.5 text-xs font-semibold" style={{ color: corDesvio }}>
+            <SetaDesvio className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+            {acima ? `+${fmtNum(hero.delta)}d` : abaixo ? `−${fmtNum(-hero.delta)}d` : "no alvo"} vs meta {fmtNum(hero.mediaMeta)}d
+          </p>
+        )}
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{hero.n} modelo(s) · {filtroTxt}</p>
+      </Card>
+
+      <Card className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Maior gargalo</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: gOver ? "var(--tone-danger-bg)" : "var(--tone-neutral-bg)", color: gOver ? "var(--tone-danger-fg)" : "var(--tone-neutral-fg)" }}><Gauge className="h-4 w-4" /></span>
+        </div>
+        {gargalo ? (
+          <>
+            <div className="mt-2 truncate text-xl font-bold leading-tight" title={gargalo.label}>{gargalo.label}</div>
+            <p className="mt-1.5 text-xs font-semibold" style={{ color: gOver ? "var(--destructive)" : "var(--success)" }}>
+              {gOver ? <ArrowUp className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden /> : <Check className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />}
+              {fmtNum(gargalo.media)}d · {fmtNum(gargalo.ratio)}× a meta ({fmtNum(gargalo.ideal)}d)
+            </p>
+          </>
+        ) : (
+          <div className="mt-2 text-xl font-bold text-muted-foreground">—</div>
+        )}
+      </Card>
+
+      <Card className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Dentro da meta ponta a ponta</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--tone-success-bg)", color: "var(--tone-success-fg)" }}><CheckCircle2 className="h-4 w-4" /></span>
+        </div>
+        <div className="mt-2 text-3xl font-bold leading-none tabular-nums">{hero.n ? hero.pctDentro : "—"}<span className="text-base font-semibold text-muted-foreground">%</span></div>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">{hero.dentroMeta} de {hero.n} modelo(s) ≤ meta</p>
+      </Card>
+    </div>
   );
 }
 
@@ -1584,10 +1698,29 @@ function LeadtimeTab() {
   const macro = etapas
     .filter((e) => (e.tipo === "macro" && e.etapa !== "planejamento") || e.tipo === "servico")
     .sort((a, b) => ordProd(a) - ordProd(b)).map(withStats);
-  const colunas = [...planejamento, ...kanban, ...macro];
 
   const isLoading = skel.isLoading || det.isLoading;
   const isError = skel.isError || det.isError;
+
+  // Hero ponta-a-ponta e gargalo derivam dos MESMOS itens filtrados. `lookup` = ideal por etapa
+  // (config da loja; default por tipo p/ chaves históricas fora do board).
+  const lookup = idealLookup(etapas);
+  const hero = heroStats(filtItens, lookup, slaServico);
+  // Gargalo = pior razão real/meta entre as etapas CONFIGURADAS (as dos bullets), preferindo as com
+  // massa (≥3 modelos) p/ um outlier de 1 modelo não dominar. Exclui a etapa de SLA (sem ideal único).
+  const bulletsAll = [...planejamento, ...kanban, ...macro].filter((e) => !e.slaCol && (Number(e.idealDias) || 0) > 0);
+  const gargaloDe = (arr: any[]) =>
+    arr.reduce<any>((best, e) => {
+      const ratio = (Number(e.duracaoMedia) || 0) / (Number(e.idealDias) || 1);
+      if (best && best.ratio >= ratio) return best;
+      return { label: e.tipo === "kanban" ? LeadtimePretty(e.label) : e.label, media: Number(e.duracaoMedia) || 0, ideal: Number(e.idealDias) || 0, ratio };
+    }, null);
+  const gargalo = gargaloDe(bulletsAll.filter((e) => (Number(e.nModelos) || 0) >= 3)) ?? gargaloDe(bulletsAll);
+  const filtroTxt = [
+    colecao === "all" ? "todas as coleções" : colecao,
+    subcol === "all" ? null : subcol,
+    semana === "all" ? null : "Lan " + semana,
+  ].filter(Boolean).join(" · ");
 
   return (
     <div className="space-y-4">
@@ -1602,35 +1735,17 @@ function LeadtimeTab() {
           ]}
         />
       </div>
-      {/* Ordem do fluxo: Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
-      {planejamento.length > 0 && (
-        <div>
-          <SecHeader icon={ClipboardCheck}>Planejamento</SecHeader>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {planejamento.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
-          </div>
-        </div>
-      )}
 
-      {kanban.length > 0 && (
-        <div>
-          <SecHeader icon={Palette}>Desenvolvimento · por coluna do kanban</SecHeader>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {kanban.map((e) => <EtapaLeadCard key={e.etapa} label={LeadtimePretty(e.label)} e={e} />)}
-          </div>
-        </div>
-      )}
+      {/* Hero: a mensagem primeiro (§R R8) — total ponta-a-ponta, gargalo, % dentro da meta. */}
+      {etapas.length > 0 && <LeadtimeHero hero={hero} gargalo={gargalo} filtroTxt={filtroTxt} />}
 
-      {macro.length > 0 && (
-        <div>
-          <SecHeader icon={Factory}>Produção</SecHeader>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {macro.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
-          </div>
-        </div>
-      )}
+      {/* Onde o tempo é gasto — bullets por etapa (§R R7), do pior pro melhor. Ordem de fluxo:
+          Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
+      <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />
+      <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => LeadtimePretty(e.label)} />
+      <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
 
-      {etapas.length > 0 && <LeadtimeMatriz colunas={colunas} itens={filtItens} slaServico={slaServico} />}
+      {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} />}
 
       {!isLoading && etapas.length === 0 && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
@@ -1643,62 +1758,89 @@ function LeadtimeTab() {
   );
 }
 
-// Tracking INDIVIDUAL: matriz item × etapas (o DETALHAMENTO). Recebe os itens JÁ filtrados
-// pelo filtro global do Leadtime + as colunas (etapas em flow order, com idealDias). Célula
-// = dias na etapa, verde/vermelho vs o ideal — na coluna do SLA, vs o SLA da Sub1 do item.
-function LeadtimeMatriz({ colunas, itens, slaServico }: { colunas: any[]; itens: any[]; slaServico: string | null }) {
-  const idealDe = (etapa: string) => Number(colunas.find((c) => c.etapa === etapa)?.idealDias) || 0;
+// Tracking INDIVIDUAL: HEATMAP item × 6 FASES (o DETALHAMENTO). As ~18 etapas colapsam em 6 fases
+// (o kanban inteiro vira "Desenvolvimento" total — inclui status históricos fora do board, ex.
+// "aprovado"). Célula = razão real/meta acumulada da fase por RAMPA sequencial navy (§R R2), com
+// ▲ nos atrasados (R3 — nunca só cor). Linhas ordenadas pelo maior lead time; coluna Total com
+// barra de dado. Rola na horizontal no próprio container (nunca a página).
+function LeadtimeHeatmap({ itens, lookup, slaServico }: { itens: any[]; lookup: Map<string, number>; slaServico: string | null }) {
+  const rows = itens
+    .map((it) => ({ it, ...itemTotais(it, lookup, slaServico) }))
+    .sort((a, b) => b.total - a.total); // pior (maior lead time) primeiro
+  const maxTotal = Math.max(1, ...rows.map((r) => r.total));
   return (
     <div className="space-y-3">
       <SecHeader icon={ClipboardCheck}>Detalhamento por item</SecHeader>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        18 etapas colapsadas em 6 fases (o kanban vira "Desenvolvimento" total). Cor = razão real/meta
+        acumulada da fase (mais intenso = mais acima da meta); <span aria-hidden>▲</span> = acima da meta.
+        Ordenado pelo maior lead time.
+      </p>
+      {/* Legenda da rampa (sequencial = magnitude) + o marcador de atraso (R5). */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span>dentro da meta</span>
+        {CHART_SEQ.map((c, i) => (
+          <span key={i} className="inline-block h-3 w-5 rounded-sm border" style={{ background: c }} aria-hidden />
+        ))}
+        <span>acima →</span>
+        <span className="ml-1"><span aria-hidden>▲</span> acima da meta · — não atingida</span>
+      </div>
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm card-table">
+          <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 px-3 whitespace-nowrap">Item</th>
-                {colunas.map((c) => (
-                  <th key={c.etapa} className="py-2 px-2 text-center text-xs whitespace-nowrap">
-                    {c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
-                    <span className="block font-normal text-[10px] text-muted-foreground/70">
-                      {c.etapa === slaServico ? "SLA da Subcat." : `ideal ${fmtNum(idealDe(c.etapa))}d`}
-                    </span>
-                  </th>
+                <th className="sticky left-0 z-10 whitespace-nowrap bg-card py-2 px-3">Item</th>
+                {FASES.map((f) => (
+                  <th key={f.key} className="whitespace-nowrap py-2 px-2 text-center text-xs">{f.short}</th>
                 ))}
+                <th className="whitespace-nowrap py-2 px-3 text-right text-xs">
+                  Total
+                  <span className="block font-normal text-[10px] text-muted-foreground/70">lead time</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {itens.map((it) => {
-                const dur = it.duracoes ?? {};
-                return (
-                  <tr key={it.modelo_id} className="border-b last:border-0">
-                    <td className="py-2 px-3 font-medium" data-label="Item">
-                      <span className="inline-flex items-center gap-1.5">
-                        {it.ref || it.nome || "—"}
-                        {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{it.versao}</Badge>}
-                      </span>
-                      {it.ref && it.nome && <span className="block text-xs text-muted-foreground">{it.nome}</span>}
-                    </td>
-                    {colunas.map((c) => {
-                      const d = dur[c.etapa];
-                      // Na coluna do SLA, o prazo por item vem do SLA da Subcategoria do item.
-                      const ideal = c.etapa === slaServico && it.sub1_sla != null ? Number(it.sub1_sla) : idealDe(c.etapa);
-                      const ok = d == null || ideal <= 0 || Number(d) <= ideal;
-                      return (
-                        <td
-                          key={c.etapa}
-                          data-label={c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
-                          className={"py-2 px-2 text-center tabular-nums " + (d == null ? "text-muted-foreground/50" : ok ? "text-green-700 dark:text-green-400" : "text-destructive font-semibold")}
+              {rows.map(({ it, total, porFase }) => (
+                <tr key={it.modelo_id} className="border-b last:border-0">
+                  <td className="sticky left-0 z-10 max-w-[190px] bg-card py-1.5 px-3" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate font-medium">{it.ref || it.nome || "—"}</span>
+                      {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">v{it.versao}</Badge>}
+                    </span>
+                    {it.ref && it.nome && <span className="block truncate text-xs text-muted-foreground">{it.nome}</span>}
+                  </td>
+                  {FASES.map((f) => {
+                    const fase = porFase[f.key];
+                    if (!fase) return <td key={f.key} className="py-1.5 px-2 text-center text-muted-foreground/50">—</td>;
+                    const ratio = fase.meta > 0 ? fase.valor / fase.meta : 0;
+                    const idx = seqIndexRatio(ratio);
+                    const over = ratio > 1;
+                    return (
+                      <td key={f.key} className="py-1.5 px-2 text-center">
+                        <span
+                          className="inline-flex min-w-[36px] items-center justify-center gap-0.5 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
+                          style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
+                          title={`${f.label}: ${fmtNum(fase.valor)}d · meta ${fmtNum(fase.meta)}d · ${fmtNum(ratio)}×`}
                         >
-                          {d == null ? "—" : fmtNum(d)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              {itens.length === 0 && (
-                <tr><td colSpan={colunas.length + 1} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
+                          {fmtInt(fase.valor)}
+                          {over && <span aria-hidden>▲</span>}
+                        </span>
+                      </td>
+                    );
+                  })}
+                  <td className="py-1.5 px-3">
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-4 min-w-[64px] flex-1 overflow-hidden rounded bg-muted">
+                        <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${(total / maxTotal) * 100}%`, background: CHART_SERIE, opacity: 0.85 }} />
+                      </div>
+                      <span className="w-12 shrink-0 text-right text-xs font-bold tabular-nums">{fmtInt(total)}d</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={FASES.length + 2} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
               )}
             </tbody>
           </table>
