@@ -501,7 +501,7 @@ function AviamentosGallery() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleting && deleteMut.mutate(deleting)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Excluir
             </AlertDialogAction>

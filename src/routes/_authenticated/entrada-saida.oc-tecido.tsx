@@ -342,7 +342,7 @@ function OcTecidoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleting && deleteMut.mutate(deleting)}>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1690,7 +1690,7 @@ function OcDialog({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => unmarkReceivedMut.mutate()} disabled={unmarkReceivedMut.isPending}>
+            <AlertDialogAction variant="destructive" onClick={() => unmarkReceivedMut.mutate()} disabled={unmarkReceivedMut.isPending}>
               Desmarcar
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1712,7 +1712,7 @@ function OcDialog({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => {
                 if (confirmDesmarcar) toggleVariante(confirmDesmarcar.n, confirmDesmarcar.varId, false);
                 setConfirmDesmarcar(null);

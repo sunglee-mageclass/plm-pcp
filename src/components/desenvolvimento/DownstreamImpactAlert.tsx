@@ -314,7 +314,12 @@ export function DesmarcarEtapasDialog({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { const s = UNMARK_STAGES.find((x) => x.key === confirmKey); if (s?.action) unmark.mutate(s.action); setConfirmKey(null); }}>Desmarcar</AlertDialogAction>
+            <AlertDialogAction
+              variant={UNMARK_STAGES.find((x) => x.key === confirmKey)?.destructive ? "destructive" : "default"}
+              onClick={() => { const s = UNMARK_STAGES.find((x) => x.key === confirmKey); if (s?.action) unmark.mutate(s.action); setConfirmKey(null); }}
+            >
+              Desmarcar
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

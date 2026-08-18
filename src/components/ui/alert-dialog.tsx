@@ -2,7 +2,7 @@ import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
 import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants, type ButtonProps } from "@/components/ui/button";
 import { useReadOnly } from "@/components/RequirePermission";
 
 const AlertDialog = AlertDialogPrimitive.Root;
@@ -81,16 +81,22 @@ const AlertDialogDescription = React.forwardRef<
 ));
 AlertDialogDescription.displayName = AlertDialogPrimitive.Description.displayName;
 
+// Padrões v3 §Q: ação destrutiva nasce vermelha. Default do primitivo continua
+// "default" (primary) — a maioria dos AlertDialogs é confirmação normal (Aplicar/
+// Confirmar/Salvar). Call sites cuja ação é destrutiva (Excluir/Remover/Apagar/
+// Descartar/Cancelar-com-perda/Desmarcar-com-perda-de-dado) passam `variant="destructive"`.
 const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
->(({ className, disabled, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action> & {
+    variant?: ButtonProps["variant"];
+  }
+>(({ className, disabled, variant, ...props }, ref) => {
   const readOnly = useReadOnly();
   return (
     <AlertDialogPrimitive.Action
       ref={ref}
       disabled={disabled || readOnly}
-      className={cn(buttonVariants(), className)}
+      className={cn(buttonVariants({ variant }), className)}
       {...props}
     />
   );

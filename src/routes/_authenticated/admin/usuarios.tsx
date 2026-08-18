@@ -311,7 +311,7 @@ function UsuariosPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => { if (confirmDeact) toggle.mutate({ user_id: confirmDeact.id, ativo: false }); setConfirmDeact(null); }}
             >
               Desativar

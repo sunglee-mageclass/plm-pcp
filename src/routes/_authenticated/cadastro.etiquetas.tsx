@@ -534,7 +534,7 @@ function EtiquetasPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={(e) => { e.preventDefault(); if (deleteRow) delMut.mutate(deleteRow.id); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
+              variant="destructive">Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -548,7 +548,7 @@ function EtiquetasPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={(e) => { e.preventDefault(); bulkDelete(); }} disabled={bulkBusy}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              variant="destructive">
               {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>

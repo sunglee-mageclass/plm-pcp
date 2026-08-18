@@ -981,7 +981,7 @@ function PlanejamentoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <AlertDialogAction variant="destructive"
               onClick={(e) => { e.preventDefault(); bulkDel.mutate(); }} disabled={bulkDel.isPending}>
               {bulkDel.isPending ? "Excluindo…" : "Excluir"}
             </AlertDialogAction>
@@ -2867,7 +2867,7 @@ function ModeloDialog({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => del.mutate()}>Excluir</AlertDialogAction>
+              <AlertDialogAction variant="destructive" onClick={() => del.mutate()}>Excluir</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

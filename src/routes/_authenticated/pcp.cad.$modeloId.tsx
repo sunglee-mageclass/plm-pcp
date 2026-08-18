@@ -1112,7 +1112,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               disabled={excluirCad.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => { setConfirmDel(false); excluirCad.mutate(); }}
             >
               Excluir CAD
@@ -1133,6 +1133,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               disabled={desmarcarEnvio.isPending}
               onClick={() => { setConfirmDesmarcarOpen(false); desmarcarEnvio.mutate(); }}
             >

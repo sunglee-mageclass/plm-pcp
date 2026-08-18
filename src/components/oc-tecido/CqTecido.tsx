@@ -460,7 +460,7 @@ export function AlertasList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction disabled={resol.isPending || cancelRoloMut.isPending} onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
+            <AlertDialogAction variant="destructive" disabled={resol.isPending || cancelRoloMut.isPending} onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
               {confirmCancel?.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -482,6 +482,7 @@ export function AlertasList() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction
+              variant={confirmReabrir?.cq_alerta_status === "troca_pendente" ? "destructive" : "default"}
               disabled={resol.isPending || reabrirRoloMut.isPending}
               onClick={() => { if (confirmReabrir) { confirmReabrir.is_rolo ? reabrirRoloMut.mutate(confirmReabrir.oc_id!) : resol.mutate({ item_id: confirmReabrir.id, acao: "reabrir" }); } setConfirmReabrir(null); }}>
               {confirmReabrir?.cq_alerta_status === "troca_pendente" ? "Desfazer troca" : "Reabrir"}

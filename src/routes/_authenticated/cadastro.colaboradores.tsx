@@ -498,7 +498,7 @@ function ColaboradoresPage() {
                 e.preventDefault();
                 if (delTab) delType.mutate(delTab);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Excluir
             </AlertDialogAction>

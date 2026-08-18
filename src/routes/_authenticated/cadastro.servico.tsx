@@ -898,7 +898,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                 if (deleteRow) deleteMut.mutate(deleteRow.id);
               }}
               disabled={deleteUsage === null || deleteUsage > 0 || deleteMut.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Excluir
             </AlertDialogAction>
@@ -921,7 +921,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
             <AlertDialogAction
               onClick={(e) => { e.preventDefault(); bulkDelete(); }}
               disabled={bulkBusy}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
@@ -1614,7 +1614,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 if (deleteRow) deleteMut.mutate(deleteRow.id);
               }}
               disabled={deleteUsage === null || deleteUsage > 0 || deleteMut.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Excluir
             </AlertDialogAction>
@@ -1637,7 +1637,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             <AlertDialogAction
               onClick={(e) => { e.preventDefault(); bulkDelete(); }}
               disabled={bulkBusy}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>

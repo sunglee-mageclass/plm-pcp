@@ -91,7 +91,7 @@ function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTex
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirMut.mutate(c.id)}>
+                <AlertDialogAction variant="destructive" onClick={() => excluirMut.mutate(c.id)}>
                   Excluir
                 </AlertDialogAction>
               </AlertDialogFooter>

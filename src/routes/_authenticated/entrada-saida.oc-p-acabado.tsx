@@ -244,7 +244,7 @@ function OcPaPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => deleting && deleteMutation.mutate(deleting.id)}
             >
               Excluir

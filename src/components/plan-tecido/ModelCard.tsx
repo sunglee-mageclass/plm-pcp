@@ -521,7 +521,7 @@ export function ModelCard({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={aplicandoGrade}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={aplicandoGrade} onClick={() => aplicarAoModelo(true)}>
+            <AlertDialogAction variant="destructive" disabled={aplicandoGrade} onClick={() => aplicarAoModelo(true)}>
               Aplicar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>

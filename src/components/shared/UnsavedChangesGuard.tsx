@@ -117,7 +117,7 @@ export function UnsavedChangesGuard({ confirm, message }: UnsavedChangesGuardPro
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={confirm.onKeepEditing}>Continuar editando</AlertDialogCancel>
-          <AlertDialogAction onClick={confirm.onDiscard}>Descartar</AlertDialogAction>
+          <AlertDialogAction variant="destructive" onClick={confirm.onDiscard}>Descartar</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

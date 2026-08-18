@@ -173,7 +173,7 @@ function UsuariosLojaPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => deleting && delMut.mutate(deleting.id)}
               disabled={delMut.isPending}
             >

@@ -581,7 +581,7 @@ export function RolosList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleting && excluir.mutate(deleting.id)}>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && excluir.mutate(deleting.id)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -237,7 +237,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Continuar editando</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { if (confirmSwitch) setSelId(confirmSwitch); setConfirmSwitch(null); }}>
+              <AlertDialogAction variant="destructive" onClick={() => { if (confirmSwitch) setSelId(confirmSwitch); setConfirmSwitch(null); }}>
                 Descartar
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -256,7 +256,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="destructive"
                 onClick={() => { if (confirmDel) excluir.mutate(confirmDel.id); setConfirmDel(null); }}
               >
                 Excluir

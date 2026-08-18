@@ -622,7 +622,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <AlertDialogAction variant="destructive"
               onClick={(e) => { e.preventDefault(); excluir.mutate(); }} disabled={excluir.isPending}>
               {excluir.isPending ? "Excluindo…" : "Excluir"}
             </AlertDialogAction>

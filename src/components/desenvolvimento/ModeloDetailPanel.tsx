@@ -2989,7 +2989,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => { confirmGrade?.onConfirm(); setConfirmGrade(null); }}
             >
               Continuar

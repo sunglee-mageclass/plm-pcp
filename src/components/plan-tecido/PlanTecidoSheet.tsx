@@ -1537,7 +1537,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { void confirmarSobrescrita(); }}>Aplicar mesmo assim</AlertDialogAction>
+              <AlertDialogAction variant="destructive" onClick={() => { void confirmarSobrescrita(); }}>Aplicar mesmo assim</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

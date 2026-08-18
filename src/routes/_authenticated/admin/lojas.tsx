@@ -322,7 +322,7 @@ function LojasPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className={ativoTarget?.ativo ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
+              variant={ativoTarget?.ativo ? "destructive" : "default"}
               onClick={(e) => {
                 e.preventDefault();
                 if (ativoTarget) toggleAtivo.mutate({ id: ativoTarget.id, ativo: !ativoTarget.ativo });
@@ -391,7 +391,7 @@ function LojasPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={(e) => { e.preventDefault(); if (deleteTarget) deleteMut.mutate(deleteTarget.id); }}
               disabled={deleteMut.isPending || deleteConfirm.trim() !== (deleteTarget?.nome ?? "").trim()}
             >

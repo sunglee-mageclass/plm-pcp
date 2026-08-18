@@ -379,7 +379,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => excluirMut.mutate()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Excluir
             </AlertDialogAction>
@@ -834,7 +834,7 @@ function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: strin
                 e.preventDefault();
                 if (removeTarget) removeVarMut.mutate(removeTarget);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Remover
             </AlertDialogAction>

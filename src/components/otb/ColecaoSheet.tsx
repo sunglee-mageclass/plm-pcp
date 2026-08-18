@@ -699,7 +699,7 @@ export function ColecaoSheet({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               onClick={(e) => { e.preventDefault(); excluir.mutate(); }}
               disabled={excluir.isPending || nPlanejado > 0}
             >

@@ -278,7 +278,7 @@ function OcInsumoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && deleteMut.mutate(deleting)}>Excluir</AlertDialogAction>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting)}>Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -621,7 +621,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={(e) => { e.preventDefault(); unmark.mutate(); }}>Desmarcar</AlertDialogAction>
+            <AlertDialogAction variant="destructive" onClick={(e) => { e.preventDefault(); unmark.mutate(); }}>Desmarcar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

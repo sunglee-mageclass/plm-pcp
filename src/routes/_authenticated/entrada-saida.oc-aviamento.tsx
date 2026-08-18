@@ -435,7 +435,7 @@ function OcAviamentoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && deleteMut.mutate(deleting)}>
+            <AlertDialogAction variant="destructive" onClick={() => deleting && deleteMut.mutate(deleting)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1019,7 +1019,7 @@ function OcDialog({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => unmarkReceivedMut.mutate()} disabled={unmarkReceivedMut.isPending}>
+            <AlertDialogAction variant="destructive" onClick={() => unmarkReceivedMut.mutate()} disabled={unmarkReceivedMut.isPending}>
               Desmarcar
             </AlertDialogAction>
           </AlertDialogFooter>

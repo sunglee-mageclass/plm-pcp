@@ -810,7 +810,7 @@ export function ProdutoCard({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             {!produto.oc && (
-              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirMut.mutate()}>
+              <AlertDialogAction variant="destructive" onClick={() => excluirMut.mutate()}>
                 Excluir
               </AlertDialogAction>
             )}
