@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -249,9 +249,9 @@ function LojasPage() {
                   <TableCell data-label="CNPJ" className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
                   <TableCell data-label="Status">
                     {t.ativo ? (
-                      <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativa</Badge>
+                      <StatusBadge tone="success">Ativa</StatusBadge>
                     ) : (
-                      <Badge variant="destructive">Inativa</Badge>
+                      <StatusBadge tone="danger">Inativa</StatusBadge>
                     )}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">

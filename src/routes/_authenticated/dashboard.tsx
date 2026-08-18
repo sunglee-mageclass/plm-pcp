@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
@@ -922,11 +923,7 @@ function ProducaoTab() {
               const taxa = Number(r.taxaDefeito ?? 0);
               const produzidas = Number(r.pecasProduzidas ?? 0);
               const defeito = Number(r.pecasDefeito ?? 0);
-              const badgeCls = taxa > 5
-                ? "bg-destructive text-destructive-foreground"
-                : taxa > 2
-                  ? "bg-yellow-500 text-white"
-                  : "bg-muted text-muted-foreground";
+              const badgeTone = taxa > 5 ? "danger" : taxa > 2 ? "warning" : "neutral";
               return (
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-2 pr-3">{r.nome}</td>
@@ -936,12 +933,13 @@ function ProducaoTab() {
                   <td className="py-2 pr-3 text-right" data-label="Total entregue">{r.total}</td>
                   <td className="py-2 pr-3 text-right" data-label="Taxa de Defeito">
                     {produzidas > 0 ? (
-                      <span
-                        className={"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium " + badgeCls}
+                      <StatusBadge
+                        tone={badgeTone}
                         title={`${defeito} defeito${defeito === 1 ? "" : "s"} / ${produzidas} peça${produzidas === 1 ? "" : "s"}`}
+                        className="normal-case tracking-normal"
                       >
                         {fmtNum(taxa)}%
-                      </span>
+                      </StatusBadge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

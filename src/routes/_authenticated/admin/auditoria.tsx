@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
@@ -23,11 +23,15 @@ export const Route = createFileRoute("/_authenticated/admin/auditoria")({
 
 const PAGE = 50;
 
-const ACAO_META: Record<string, { label: string; cls: string }> = {
-  criar: { label: "Criou", cls: "bg-emerald-500 hover:bg-emerald-500" },
-  editar: { label: "Editou", cls: "bg-amber-500 hover:bg-amber-500" },
-  excluir: { label: "Excluiu", cls: "bg-red-500 hover:bg-red-500" },
-  resetar: { label: "Resetou", cls: "bg-orange-500 hover:bg-orange-500" },
+// Tom §Q9 por tipo de ação (campanha StatusBadge, ago/2026). "Resetou" (reset de loja,
+// bem mais destrutivo que um "editou" comum) fica no mesmo tom danger de "Excluiu" — a
+// paleta tem 5 tons só, sem um 6º pra diferenciar as duas ações destrutivas; o LABEL
+// segue distinguindo ("Excluiu" vs "Resetou").
+const ACAO_META: Record<string, { label: string; tone: StatusTone }> = {
+  criar: { label: "Criou", tone: "success" },
+  editar: { label: "Editou", tone: "warning" },
+  excluir: { label: "Excluiu", tone: "danger" },
+  resetar: { label: "Resetou", tone: "danger" },
 };
 
 // Rótulos PT p/ os campos do diff (nomes crus de coluna são incompreensíveis p/ o leigo).
@@ -229,12 +233,12 @@ function AuditoriaPage() {
           <p className="py-8 text-center text-sm text-muted-foreground">Nenhum evento encontrado.</p>
         ) : (
           rows.map((r) => {
-            const meta = ACAO_META[r.acao] ?? { label: r.acao, cls: "bg-zinc-500" };
+            const meta = ACAO_META[r.acao] ?? { label: r.acao, tone: "neutral" as StatusTone };
             const temDiff = r.dados && Object.keys(r.dados).length > 0;
             const open = expanded === r.id;
             const head = (
               <>
-                <Badge className={meta.cls + " shrink-0"}>{meta.label}</Badge>
+                <StatusBadge tone={meta.tone} className="shrink-0">{meta.label}</StatusBadge>
                 <div className="min-w-0 flex-1">
                   <div className="line-clamp-2 text-sm font-medium">{r.descricao ?? `${meta.label} ${r.entidade}`}</div>
                   <div className="text-xs text-muted-foreground">
