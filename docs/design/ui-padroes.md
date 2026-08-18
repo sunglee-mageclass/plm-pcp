@@ -641,6 +641,14 @@ depende do que está por trás e lava no tema escuro.
   opacity**.
 - **loading**: skeleton com shimmer que para em `prefers-reduced-motion`.
 - **erro de carga**: `"—"` + `"tentar de novo"` — nunca `"0"`.
+- **fade de rolagem (affordance de overflow-x)** — decisão do dono ago/2026: o gradiente de
+  borda em container rolável (segmented de abas, chips, tabelas) existe SÓ pra dizer "tem mais
+  conteúdo escondido deste lado". Logo: (1) é **por lado** e **condicional ao scroll real**
+  (`scrollLeft > 4` p/ o esquerdo; `scrollLeft + clientWidth < scrollWidth − 4` p/ o direito),
+  medido em `onScroll` + `ResizeObserver` — NUNCA incondicional (senão "borra" o último item,
+  ex.: a pílula ativa no fim do segmented); (2) some ao chegar no fim; (3) os dois lados são
+  simétricos; (4) `pointer-events-none`, `w-8`, `from-background to-transparent`.
+  Implementação de referência: `SegmentedTabs` em `src/components/dashboard/mobile.tsx`.
 
 ### Q11. Placeholders — já é regra do dono (§D)
 
