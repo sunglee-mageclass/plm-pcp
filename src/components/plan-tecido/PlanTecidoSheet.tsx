@@ -22,6 +22,7 @@ import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -1191,7 +1192,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); onSubChange?.(sub.subcolecao_id ?? "none"); }}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
-                      {status && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${status.green ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{status.txt}</span>}
+                      {status && <StatusBadge tone={status.green ? "success" : "warning"} className="shrink-0 rounded-full px-2 py-0.5 text-[11px] normal-case tracking-normal">{status.txt}</StatusBadge>}
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {/* "nenhuma categoria criada" (lanes da sub) ≠ "N modelos sem categoria" (cards) —
@@ -1199,9 +1200,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       {cats.length ? cats.map((cid) => (
                         <span key={cid} className="rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{catTecidoNome(cid) ?? "?"}</span>
                       )) : <span className="text-[11px] text-muted-foreground">nenhuma categoria criada</span>}
-                      {semCat > 0 && <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">{semCat} modelos sem categoria</span>}
+                      {semCat > 0 && <StatusBadge tone="warning" className="px-2 py-0.5 text-[11px] normal-case tracking-normal">{semCat} modelos sem categoria</StatusBadge>}
                     </div>
-                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{realizado}</b>{planejado > 0 ? <> / {planejado}</> : null} modelo(s){realizado > planejado && planejado > 0 ? <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title={`${realizado - planejado} modelos acima do planejado no OTB`}>+{realizado - planejado} acima do OTB</span> : null}</div>
+                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{realizado}</b>{planejado > 0 ? <> / {planejado}</> : null} modelo(s){realizado > planejado && planejado > 0 ? <StatusBadge tone="warning" title={`${realizado - planejado} modelos acima do planejado no OTB`} className="ml-1 px-1.5 py-0.5 text-[10px] normal-case tracking-normal">+{realizado - planejado} acima do OTB</StatusBadge> : null}</div>
                   </button>
                 );
               })}

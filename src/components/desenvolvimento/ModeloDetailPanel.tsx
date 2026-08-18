@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
@@ -174,16 +175,20 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 
 // Selo de completude no cabeçalho de cada seção do accordion (laudo das 3 lentes: cada
 // seção mostra de relance se está preenchida). ml-auto encosta na direita, antes do chevron.
+// Tom §Q9 por trás do "ok/info/warn/muted" histórico do laudo das 3 lentes (mesma API —
+// só a fonte da cor mudou, campanha StatusBadge ago/2026).
+const SEC_BADGE_TONE: Record<"ok" | "info" | "warn" | "muted", StatusTone> = {
+  ok: "success",
+  info: "info",
+  warn: "warning",
+  muted: "neutral",
+};
+
 function SecBadge({ tone, title, children }: { tone: "ok" | "info" | "warn" | "muted"; title?: string; children: ReactNode }) {
-  const cls =
-    tone === "ok" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-    : tone === "info" ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-    : tone === "warn" ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-    : "bg-muted text-muted-foreground";
   return (
-    <span title={title} className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+    <StatusBadge tone={SEC_BADGE_TONE[tone]} title={title} className="ml-auto gap-1 rounded-full px-2 py-0.5 text-[11px] normal-case tracking-normal">
       {children}
-    </span>
+    </StatusBadge>
   );
 }
 

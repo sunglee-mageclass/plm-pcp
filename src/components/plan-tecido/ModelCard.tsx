@@ -298,10 +298,10 @@ export function ModelCard({
           </div>
           {!isRevenda && fornecTotal ? (
             fornecCom === fornecTotal
-              ? <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Todos os materiais têm fornecedor">✓ fornec.</span>
-              : <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Materiais com fornecedor">{fornecCom}/{fornecTotal}</span>
+              ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">✓ fornec.</StatusBadge>
+              : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
           ) : null}
-          {!isRevenda && !temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'.">⚠ sem peças</span>}
+          {!isRevenda && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         </div>

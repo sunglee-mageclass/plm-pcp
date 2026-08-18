@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Check, X, AlertTriangle } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -704,11 +705,11 @@ function CardCover({ url, isPdf, nome }: { url: string | null; isPdf: boolean; n
 // (sem custo/mascarado pela RPC) = sem badge.
 function MaoObraBadge({ estado }: { estado?: string }) {
   if (estado === "aprovada")
-    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Custo aprovado</span>;
+    return <StatusBadge tone="success" className="mt-0.5 gap-1 normal-case tracking-normal"><Check className="h-3 w-3" />Custo aprovado</StatusBadge>;
   if (estado === "reprovada")
-    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Custo reprovado</span>;
+    return <StatusBadge tone="danger" className="mt-0.5 gap-1 normal-case tracking-normal"><X className="h-3 w-3" />Custo reprovado</StatusBadge>;
   if (estado === "pendente")
-    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Custo pendente</span>;
+    return <StatusBadge tone="warning" className="mt-0.5 gap-1 normal-case tracking-normal"><AlertTriangle className="h-3 w-3" />Custo pendente</StatusBadge>;
   return null;
 }
 

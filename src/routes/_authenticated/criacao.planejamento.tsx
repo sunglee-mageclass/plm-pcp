@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -164,9 +165,9 @@ type Modelo = {
 // esquerda do card no Planejamento: o status vira a BORDA (não gasta linha); o label vai
 // no `title`/tooltip do card (desktop). Cor da borda como sinal principal (decisão do dono).
 const STATUS_OPTS = [
-  { value: "em_planejamento", label: "Em Planejamento", color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200", border: "border-l-amber-500" },
-  { value: "reprovado", label: "Reprovado", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200", border: "border-l-red-500" },
-  { value: "planejado", label: "Planejado", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200", border: "border-l-emerald-500" },
+  { value: "em_planejamento", label: "Em Planejamento", tone: "warning" as StatusTone, border: "border-l-amber-500" },
+  { value: "reprovado", label: "Reprovado", tone: "danger" as StatusTone, border: "border-l-red-500" },
+  { value: "planejado", label: "Planejado", tone: "success" as StatusTone, border: "border-l-emerald-500" },
 ];
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
@@ -1038,9 +1039,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         {/* STATUS como badge TEXTUAL (não só a cor da borda — acessibilidade/daltônicos, laudo
             jul/2026). A mão de obra saiu daqui (era uma bolinha da MESMA paleta do status, que
             confundia os dois eixos) e virou um badge PRÓPRIO no corpo. */}
-        <span className={`absolute top-1.5 right-1.5 z-10 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${meta.color}`} title={meta.label}>
+        <StatusBadge tone={meta.tone} title={meta.label} className="absolute top-1.5 right-1.5 z-10 rounded-full px-2 py-0.5 shadow-sm normal-case tracking-normal">
           {meta.label}
-        </span>
+        </StatusBadge>
         {!url ? (
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
         ) : coverIsPdf ? (
@@ -1055,14 +1056,17 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         // barreira p/ daltônicos, e sem contexto do modelo). Status por texto, não só cor.
         <div className="p-2 space-y-1">
           <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${meta.color}`}>{meta.label}</span>
+          <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5 text-[9px] normal-case tracking-normal">{meta.label}</StatusBadge>
           <div className="flex items-center gap-1">
             {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
             {(podeVerCustos || podeAprovarMaoObra) && (
-              <span className={`ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px] font-semibold ${
-                moEstado === "aprovada" || moEstado === "sem_servico" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                : moEstado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`} title={moTxt}>MO</span>
+              <StatusBadge
+                tone={moEstado === "aprovada" || moEstado === "sem_servico" ? "success" : moEstado === "reprovada" ? "danger" : "warning"}
+                title={moTxt}
+                className="ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px]"
+              >
+                MO
+              </StatusBadge>
             )}
           </div>
           {podeVerCustos && <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>}
@@ -1094,13 +1098,13 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs">
               {/* Mão de obra em CANAL PRÓPRIO (badge ícone, não a bolinha do status). Estado
                   agregado por serviço; aprovar/reprovar é por linha no editor do detalhe. */}
-              <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                moEstado === "aprovada" || moEstado === "sem_servico" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                : moEstado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
+              <StatusBadge
+                tone={moEstado === "aprovada" || moEstado === "sem_servico" ? "success" : moEstado === "reprovada" ? "danger" : "warning"}
+                className="shrink-0 gap-1 rounded-full px-2 py-0.5 normal-case tracking-normal"
+              >
                 {moEstado === "aprovada" || moEstado === "sem_servico" ? <Check className="h-3 w-3" /> : moEstado === "reprovada" ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                 MO {moEstado === "sem_servico" ? "—" : moEstado === "aprovada" ? "aprovada" : moEstado === "reprovada" ? "reprovada" : "pendente"}
-              </span>
+              </StatusBadge>
               {podeVerCustos && <span className="truncate text-muted-foreground">{maoObra != null ? brl(maoObra) : "—"}</span>}
             </div>
           )}

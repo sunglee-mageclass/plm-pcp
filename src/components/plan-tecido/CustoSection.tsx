@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { precoInfo } from "@/lib/preco";
 import { brl, fmtNum } from "@/lib/format";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, X } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
@@ -55,15 +56,15 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: 
           <div className="col-span-2 space-y-0.5 text-[11px]">
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Mão de Obra:</span>
-              <span className={`ml-auto rounded px-2 py-0.5 font-medium ${
-                maoObraEstado === "aprovada" ? "bg-emerald-100 text-emerald-700"
-                : maoObraEstado === "reprovada" ? "bg-red-100 text-red-700"
-                : maoObraEstado === "pendente" ? "bg-amber-100 text-amber-700"
-                : "bg-muted text-muted-foreground"}`}>
+              <StatusBadge
+                tone={maoObraEstado === "aprovada" ? "success" : maoObraEstado === "reprovada" ? "danger" : maoObraEstado === "pendente" ? "warning" : "neutral"}
+                className="ml-auto gap-1 normal-case tracking-normal"
+              >
+                {maoObraEstado === "aprovada" ? <Check className="h-3 w-3" /> : maoObraEstado === "reprovada" ? <X className="h-3 w-3" /> : maoObraEstado === "pendente" ? <AlertTriangle className="h-3 w-3" /> : null}
                 {maoObraEstado === "aprovada" ? "aprovada"
                   : maoObraEstado === "reprovada" ? "reprovada"
                   : maoObraEstado === "pendente" ? "pendente" : "sem serviço"}
-              </span>
+              </StatusBadge>
             </div>
             <p className="text-[10px] text-muted-foreground">Aprovação da mão de obra é por serviço, no Planejamento.</p>
           </div>

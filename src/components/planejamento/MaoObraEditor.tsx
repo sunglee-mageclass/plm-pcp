@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
 import type { MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
@@ -73,13 +74,13 @@ export function MaoObraEditor({
                 <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValor(id, v === "" ? null : Number(v)); }} placeholder="0,00" />
               </div>
             )}
-            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-              estado === "aprovada" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-              : estado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
+            <StatusBadge
+              tone={estado === "aprovada" ? "success" : estado === "reprovada" ? "danger" : "warning"}
+              className="gap-1 rounded-full px-2 py-0.5 normal-case tracking-normal"
+            >
               {estado === "aprovada" ? <Check className="h-3 w-3" /> : estado === "reprovada" ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
               {estado}
-            </span>
+            </StatusBadge>
             {l.aprovado === false && l.motivo_reprovacao && (
               <span className="w-full text-xs text-red-700 dark:text-red-300">Motivo: {l.motivo_reprovacao}</span>
             )}

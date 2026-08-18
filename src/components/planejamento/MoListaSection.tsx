@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Check, X, AlertTriangle } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
 import type { MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
@@ -68,13 +69,13 @@ export function MoListaSection({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
-                    estado === "aprovada" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                    : estado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
+                  <StatusBadge
+                    tone={estado === "aprovada" ? "success" : estado === "reprovada" ? "danger" : "warning"}
+                    className="gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] normal-case tracking-normal"
+                  >
                     {estado === "aprovada" ? <Check className="h-2.5 w-2.5" /> : estado === "reprovada" ? <X className="h-2.5 w-2.5" /> : <AlertTriangle className="h-2.5 w-2.5" />}
                     {estado}
-                  </span>
+                  </StatusBadge>
                 </TooltipTrigger>
                 {estado === "reprovada" && l.motivo_reprovacao && (
                   <TooltipContent className="max-w-[220px]"><p className="text-xs">Motivo: {l.motivo_reprovacao}</p></TooltipContent>
