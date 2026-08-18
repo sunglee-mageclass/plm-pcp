@@ -167,14 +167,36 @@ export function SegmentedTabs({
   tabs, value, onChange,
 }: { tabs: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  // fades por LADO, só quando há conteúdo escondido naquele lado — senão o gradiente
+  // "borra" a pílula ativa quando ela é a última (report do dono, ago/2026).
+  const [fade, setFade] = useState({ left: false, right: false });
+  const medirFade = () => {
+    const el = ref.current;
+    if (!el) return;
+    setFade({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  };
   useEffect(() => {
     const el = ref.current?.querySelector<HTMLButtonElement>(`[data-seg="${value}"]`);
     el?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    medirFade();
   }, [value]);
+  useEffect(() => {
+    medirFade();
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(medirFade);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="relative">
       <div
         ref={ref}
+        onScroll={medirFade}
         className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {tabs.map((t) => {
@@ -196,7 +218,12 @@ export function SegmentedTabs({
           );
         })}
       </div>
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
+      {fade.left && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+      )}
+      {fade.right && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
+      )}
     </div>
   );
 }
