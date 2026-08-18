@@ -9,6 +9,8 @@ import {
   seqIndexRatio,
   seqTextToken,
   bulletScaleMax,
+  metaConfig,
+  splitFaseSub,
 } from "@/lib/leadtime";
 
 describe("leadtime · fases (colapso de 18 etapas → 6 fases)", () => {
@@ -128,6 +130,77 @@ describe("leadtime · rampa sequencial + texto legível", () => {
     expect(seqTextToken(2)).toBe("var(--foreground)");
     expect(seqTextToken(3)).toBe("var(--background)");
     expect(seqTextToken(4)).toBe("var(--background)");
+  });
+});
+
+describe("leadtime · split por sub-etapa (grupos expansíveis: Σ sub ≡ agregado)", () => {
+  const lookup = idealLookup([
+    { etapa: "kanban:em_ajuste", idealDias: 5 },
+    { etapa: "servico_cat:corte", idealDias: 3 },
+  ]);
+  // Item real (shape provado no banco): kanban por status (incl. "aprovado" histórico fora do board),
+  // cad_corte + macro "servicos" + servico_cat por categoria (todos na fase Serviços).
+  const item = {
+    duracoes: {
+      planejamento: 4,
+      "kanban:em_ajuste": 6,
+      "kanban:aprovado": 30, // histórico, fora do board → Outros de Desenvolvimento
+      "kanban:stand_by": 2, // no board (sub-coluna própria)
+      cad_corte: 10, // Serviços → Outros
+      servicos: 18, // macro Serviços → Outros
+      "servico_cat:corte": 11, // categoria própria
+      "servico_cat:oficina": 5, // categoria própria
+      cq: 1,
+    },
+    sub1_sla: null,
+  };
+
+  it("metaConfig: só a config, nunca o default; sub-etapa não configurada → null (célula neutra)", () => {
+    expect(metaConfig("kanban:em_ajuste", lookup)).toBe(5);
+    expect(metaConfig("servico_cat:corte", lookup)).toBe(3);
+    expect(metaConfig("kanban:aprovado", lookup)).toBeNull(); // sem ideal na config → neutra
+    expect(metaConfig("cad_corte", lookup)).toBeNull();
+  });
+
+  it("Desenvolvimento: Σ das sub-colunas + Outros ≡ agregado; Outros captura status histórico", () => {
+    const devKeys = ["kanban:em_ajuste", "kanban:stand_by"]; // ordem do board
+    const s = splitFaseSub(item, "desenvolvimento", devKeys);
+    expect(s.valores["kanban:em_ajuste"]).toBe(6);
+    expect(s.valores["kanban:stand_by"]).toBe(2);
+    expect(s.outros).toBe(30); // "aprovado" (fora do board) preservado em Outros
+    const agg = itemTotais(item, lookup, null).porFase.desenvolvimento!;
+    expect(s.valores["kanban:em_ajuste"] + s.valores["kanban:stand_by"] + s.outros).toBe(agg.valor);
+    expect(s.total).toBe(agg.valor); // 38
+  });
+
+  it("Serviços: categorias próprias + Outros (cad_corte + macro servicos) ≡ agregado", () => {
+    const servKeys = ["servico_cat:corte", "servico_cat:oficina"];
+    const s = splitFaseSub(item, "servicos", servKeys);
+    expect(s.valores["servico_cat:corte"]).toBe(11);
+    expect(s.valores["servico_cat:oficina"]).toBe(5);
+    expect(s.outros).toBe(28); // cad_corte 10 + macro servicos 18
+    const agg = itemTotais(item, lookup, null).porFase.servicos!;
+    expect(11 + 5 + s.outros).toBe(agg.valor);
+    expect(s.total).toBe(agg.valor); // 44
+  });
+
+  it("sub-coluna sem dado no item fica AUSENTE (célula '—'), sem inventar zero; Outros=0 quando não há resto", () => {
+    const s = splitFaseSub(
+      { duracoes: { "kanban:em_ajuste": 6 } },
+      "desenvolvimento",
+      ["kanban:em_ajuste", "kanban:stand_by"],
+    );
+    expect(s.valores["kanban:em_ajuste"]).toBe(6);
+    expect(s.valores["kanban:stand_by"]).toBeUndefined();
+    expect(s.outros).toBe(0);
+  });
+
+  it("ignora valores não-numéricos (NaN) na partição — paridade com itemTotais", () => {
+    // Number("x")=NaN → pulado; Number(null)=0 é finito (contado como 0, igual a itemTotais).
+    const s = splitFaseSub({ duracoes: { "kanban:em_ajuste": "x", "kanban:x": 3 } }, "desenvolvimento", ["kanban:em_ajuste"]);
+    expect(s.valores["kanban:em_ajuste"]).toBeUndefined();
+    expect(s.outros).toBe(3);
+    expect(s.total).toBe(3);
   });
 });
 

@@ -155,3 +155,39 @@ export function bulletScaleMax(medias: number[], ideais: number[]): number {
   const maxIdeal = ideais.length ? Math.max(...ideais) : 0;
   return Math.max(maxMedia * 1.08, maxIdeal * 1.6, 1);
 }
+
+// ————— Grupos de coluna EXPANSÍVEIS do heatmap (Desenvolvimento / Serviços destrinchados) —————
+
+// Meta de COLORAÇÃO de uma sub-coluna: SÓ o ideal configurado pela loja (nunca o default por tipo).
+// Sub-etapa sem ideal na config ⇒ null → célula neutra (valor sem cor de razão; não inventa meta,
+// R3/honestidade). Difere de `idealDeEtapa` (que sempre devolve um número via default) de propósito.
+export function metaConfig(key: string, lookup: Map<string, number>): number | null {
+  const v = lookup.get(key);
+  return v != null && v > 0 ? v : null;
+}
+
+// Particiona a fase de um item nas SUB-colunas próprias (`subKeys`) + o resíduo "Outros". `outros`
+// captura as chaves da fase que NÃO viraram coluna própria — em Desenvolvimento os status de kanban
+// FORA do board (ex. "aprovado", histórico); em Serviços o `cad_corte`, o macro "servicos" e as
+// categorias sem coluna. INVARIANTE: Σ(valores) + outros ≡ o `porFase[fase].valor` de itemTotais —
+// a soma das sub-colunas fecha SEMPRE com a coluna agregada (nada some, "Outros" segura o resto).
+export function splitFaseSub(
+  item: any,
+  fase: FaseKey,
+  subKeys: readonly string[],
+): { valores: Record<string, number>; outros: number; total: number } {
+  const want = new Set(subKeys);
+  const dur = (item?.duracoes ?? {}) as Record<string, unknown>;
+  const valores: Record<string, number> = {};
+  let outros = 0;
+  let total = 0;
+  for (const [k, vRaw] of Object.entries(dur)) {
+    const v = Number(vRaw);
+    if (!Number.isFinite(v)) continue;
+    if (faseDeEtapa(k) !== fase) continue;
+    total += v;
+    if (want.has(k)) valores[k] = (valores[k] ?? 0) + v;
+    else outros += v;
+  }
+  return { valores, outros, total };
+}

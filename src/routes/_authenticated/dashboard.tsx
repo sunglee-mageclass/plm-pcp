@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
@@ -25,7 +25,8 @@ import {
 } from "@/lib/chart-colors";
 import {
   FASES, idealLookup, itemTotais, heroStats, seqIndexRatio, seqTextToken, bulletScaleMax,
-  type HeroStats,
+  metaConfig, splitFaseSub,
+  type HeroStats, type FaseTotais,
 } from "@/lib/leadtime";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -1671,6 +1672,17 @@ function LeadtimeTab() {
     queryKey: ["dash-leadtime-itens"],
     queryFn: async () => { const { data, error } = await supabase.rpc("dashboard_leadtime_itens" as never); if (error) throw error; return data as any; },
   });
+  // Categorias de serviço (id→nome/ativo/ordem) p/ rotular as sub-colunas de Serviços do heatmap
+  // (o esqueleto só traz `servico_cat` QUANDO configurado; aqui vêm todas, RLS por tenant).
+  const cats = useQuery({
+    queryKey: ["leadtime-categorias-terceirizado"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("categorias_terceirizado") as any)
+        .select("id, nome, ativo, ordem").order("ordem").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; ativo: boolean; ordem: number }[];
+    },
+  });
   const etapas: any[] = skel.data?.etapas ?? [];
   const itens: any[] = det.data?.itens ?? [];
   const slaServico: string | null = det.data?.slaServico ?? null;
@@ -1761,7 +1773,7 @@ function LeadtimeTab() {
       <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => LeadtimePretty(e.label)} />
       <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
 
-      {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} />}
+      {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
 
       {!isLoading && etapas.length === 0 && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
@@ -1774,23 +1786,142 @@ function LeadtimeTab() {
   );
 }
 
+// Célula AGREGADA de uma fase (rampa real/meta + ▲). Reusada na fase RECOLHIDA e no "Total" de um
+// grupo EXPANDIDO (que é a soma das sub-colunas — a invariante Σ sub ≡ agregado, visível na tela).
+function FaseAggCell({ fase, label, edge }: { fase: FaseTotais | undefined; label: string; edge?: boolean }) {
+  const cls = "py-1.5 px-2 text-center" + (edge ? " border-l" : "");
+  if (!fase) return <td className={cls + " text-muted-foreground/50"}>—</td>;
+  const ratio = fase.meta > 0 ? fase.valor / fase.meta : 0;
+  const idx = seqIndexRatio(ratio);
+  const over = ratio > 1;
+  return (
+    <td className={cls}>
+      <span
+        className="inline-flex min-w-[36px] items-center justify-center gap-0.5 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
+        style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
+        title={`${label}: ${fmtNum(fase.valor)}d · meta ${fmtNum(fase.meta)}d · ${fmtNum(ratio)}×`}
+      >
+        {fmtInt(fase.valor)}
+        {over && <span aria-hidden>▲</span>}
+      </span>
+    </td>
+  );
+}
+
+// Célula de SUB-coluna (status do kanban / categoria de serviço). MESMA rampa da agregada QUANDO a
+// sub-etapa tem meta na config (R2); sem meta configurada = NEUTRA (valor sem cor de razão — não
+// inventa ideal, R3/honestidade). Sem dado no item = "—" (não zera à toa). `edge` = borda-esquerda
+// que delimita o início do grupo expandido.
+function SubCell({ valor, meta, label, edge }: { valor: number | undefined; meta: number | null; label: string; edge?: boolean }) {
+  const cls = "py-1.5 px-2 text-center" + (edge ? " border-l" : "");
+  if (valor == null) return <td className={cls + " text-muted-foreground/50"}>—</td>;
+  if (meta == null) {
+    return (
+      <td className={cls}>
+        <span
+          className="inline-flex min-w-[36px] items-center justify-center rounded bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground"
+          title={`${label}: ${fmtNum(valor)}d · sem meta na config`}
+        >
+          {fmtInt(valor)}
+        </span>
+      </td>
+    );
+  }
+  const ratio = meta > 0 ? valor / meta : 0;
+  const idx = seqIndexRatio(ratio);
+  const over = ratio > 1;
+  return (
+    <td className={cls}>
+      <span
+        className="inline-flex min-w-[36px] items-center justify-center gap-0.5 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
+        style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
+        title={`${label}: ${fmtNum(valor)}d · meta ${fmtNum(meta)}d · ${fmtNum(ratio)}×`}
+      >
+        {fmtInt(valor)}
+        {over && <span aria-hidden>▲</span>}
+      </span>
+    </td>
+  );
+}
+
 // Tracking INDIVIDUAL: HEATMAP item × 6 FASES (o DETALHAMENTO). As ~18 etapas colapsam em 6 fases
 // (o kanban inteiro vira "Desenvolvimento" total — inclui status históricos fora do board, ex.
 // "aprovado"). Célula = razão real/meta acumulada da fase por RAMPA sequencial navy (§R R2), com
 // ▲ nos atrasados (R3 — nunca só cor). Linhas ordenadas pelo maior lead time; coluna Total com
-// barra de dado. Rola na horizontal no próprio container (nunca a página).
-function LeadtimeHeatmap({ itens, lookup, slaServico }: { itens: any[]; lookup: Map<string, number>; slaServico: string | null }) {
+// barra de dado. **Cabeçalho CONGELADO** (sticky top) + coluna Item sticky-left (canto double-sticky)
+// e **grupos Desenvolvimento/Serviços EXPANSÍVEIS** em sub-colunas (chevron). Rola nos 2 eixos no
+// próprio container (nunca a página).
+function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }: {
+  itens: any[]; lookup: Map<string, number>; slaServico: string | null;
+  kanbanOrder: any; categorias: { id: string; nome: string; ativo: boolean; ordem: number }[];
+}) {
+  // Estado da expansão POR SESSÃO (useState — reinicia ao recarregar; default RECOLHIDO).
+  const [expand, setExpand] = useState<{ desenvolvimento: boolean; servicos: boolean }>({ desenvolvimento: false, servicos: false });
+  const toggle = (g: "desenvolvimento" | "servicos") => setExpand((e) => ({ ...e, [g]: !e[g] }));
+
   const rows = itens
     .map((it) => ({ it, ...itemTotais(it, lookup, slaServico) }))
     .sort((a, b) => b.total - a.total); // pior (maior lead time) primeiro
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
+
+  // Sub-colunas de Desenvolvimento = TODO status do board na ORDEM (mesmo sem dado); status
+  // histórico FORA do board (ex. "aprovado") cai em "Outros" (Σ preservada).
+  const devCols = normalizeKanbanStatuses(kanbanOrder).map((s) => ({
+    key: "kanban:" + s.key, label: LeadtimePretty(s.label), meta: metaConfig("kanban:" + s.key, lookup),
+  }));
+  const devKeys = devCols.map((c) => c.key);
+  const devOutros = rows.some((r) => splitFaseSub(r.it, "desenvolvimento", devKeys).outros > 1e-9);
+
+  // Sub-colunas de Serviços = categoria ATIVA com dado no filtro (ordem do cadastro); cad_corte, o
+  // macro "servicos" e categoria inativa/desconhecida caem em "Outros".
+  const catById = new Map(categorias.map((c) => [c.id, c]));
+  const servPresent = new Set<string>();
+  for (const r of rows) for (const k of Object.keys(r.it?.duracoes ?? {})) if (k.startsWith("servico_cat:")) servPresent.add(k);
+  const servCols = [...servPresent]
+    .map((k) => ({ k, cat: catById.get(k.slice("servico_cat:".length)) }))
+    .filter((x): x is { k: string; cat: { id: string; nome: string; ativo: boolean; ordem: number } } => !!x.cat && x.cat.ativo)
+    .sort((a, b) => (a.cat.ordem - b.cat.ordem) || a.cat.nome.localeCompare(b.cat.nome))
+    .map((x) => ({ key: x.k, label: x.cat.nome, meta: metaConfig(x.k, lookup) }));
+  const servKeys = servCols.map((c) => c.key);
+  const servOutros = rows.some((r) => splitFaseSub(r.it, "servicos", servKeys).outros > 1e-9);
+
+  const anyExpanded = expand.desenvolvimento || expand.servicos;
+  // nº de leaf-colunas de um grupo expandido = sub-colunas + Outros? + Total.
+  const devLeafN = devCols.length + (devOutros ? 1 : 0) + 1;
+  const servLeafN = servCols.length + (servOutros ? 1 : 0) + 1;
+  const leafTotal =
+    1 + // Item
+    (expand.desenvolvimento ? devLeafN : 1) + // Desenvolvimento
+    (expand.servicos ? servLeafN : 1) + // Serviços
+    4 + // Planejamento + CQ + Direcionamento + Lançamento
+    1; // Total (lead time)
+
+  const rspan = anyExpanded ? 2 : 1;
+  const topCell = "sticky top-0 z-20 bg-card whitespace-nowrap py-2 px-2 text-center text-xs align-middle";
+  const groupHeadCell = "sticky top-0 z-20 bg-card h-9 whitespace-nowrap py-2 px-2 text-center text-xs border-l";
+  const subHeadCell = "sticky top-9 z-20 bg-card whitespace-nowrap py-1.5 px-2 text-center text-[11px] font-medium";
+
+  const GroupToggle = ({ g, label }: { g: "desenvolvimento" | "servicos"; label: string }) => (
+    <button
+      type="button"
+      onClick={() => toggle(g)}
+      aria-expanded={expand[g]}
+      className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      title={expand[g] ? "Recolher sub-etapas" : "Expandir em sub-etapas"}
+    >
+      {expand[g] ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+      {label}
+    </button>
+  );
+
   return (
     <div className="space-y-3">
       <SecHeader icon={ClipboardCheck}>Detalhamento por item</SecHeader>
       <p className="-mt-1 text-xs text-muted-foreground">
         18 etapas colapsadas em 6 fases (o kanban vira "Desenvolvimento" total). Cor = razão real/meta
         acumulada da fase (mais intenso = mais acima da meta); <span aria-hidden>▲</span> = acima da meta.
-        Ordenado pelo maior lead time.
+        Ordenado pelo maior lead time. Toque no <span aria-hidden>▸</span> em <strong>Desenvolvimento</strong> ou
+        {" "}<strong>Serviços</strong> para destrinchar em sub-colunas (a soma fecha na coluna <strong>Total</strong> do grupo).
       </p>
       {/* Legenda da rampa (sequencial = magnitude) + o marcador de atraso (R5). */}
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -1799,64 +1930,112 @@ function LeadtimeHeatmap({ itens, lookup, slaServico }: { itens: any[]; lookup: 
           <span key={i} className="inline-block h-3 w-5 rounded-sm border" style={{ background: c }} aria-hidden />
         ))}
         <span>acima →</span>
-        <span className="ml-1"><span aria-hidden>▲</span> acima da meta · — não atingida</span>
+        <span className="ml-1"><span aria-hidden>▲</span> acima da meta · — não atingida · sub-etapa sem meta = neutra</span>
       </div>
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="sticky left-0 z-10 whitespace-nowrap bg-card py-2 px-3">Item</th>
-                {FASES.map((f) => (
-                  <th key={f.key} className="whitespace-nowrap py-2 px-2 text-center text-xs">{f.short}</th>
-                ))}
-                <th className="whitespace-nowrap py-2 px-3 text-right text-xs">
+                <th className="sticky left-0 top-0 z-30 whitespace-nowrap bg-card py-2 px-3">Item</th>
+                <th rowSpan={rspan} className={topCell}>Planej.</th>
+                {expand.desenvolvimento ? (
+                  <th colSpan={devLeafN} className={groupHeadCell}><GroupToggle g="desenvolvimento" label="Desenvolvimento" /></th>
+                ) : (
+                  <th rowSpan={rspan} className={topCell}><GroupToggle g="desenvolvimento" label="Desenv." /></th>
+                )}
+                {expand.servicos ? (
+                  <th colSpan={servLeafN} className={groupHeadCell}><GroupToggle g="servicos" label="Serviços" /></th>
+                ) : (
+                  <th rowSpan={rspan} className={topCell}><GroupToggle g="servicos" label="Serviços" /></th>
+                )}
+                <th rowSpan={rspan} className={topCell}>CQ</th>
+                <th rowSpan={rspan} className={topCell}>Direc.</th>
+                <th rowSpan={rspan} className={topCell}>Lançam.</th>
+                <th rowSpan={rspan} className="sticky top-0 z-20 whitespace-nowrap bg-card py-2 px-3 text-right text-xs align-middle">
                   Total
                   <span className="block font-normal text-[10px] text-muted-foreground/70">lead time</span>
                 </th>
               </tr>
+              {anyExpanded && (
+                <tr className="border-b">
+                  {expand.desenvolvimento && (
+                    <>
+                      {devCols.map((c, i) => (
+                        <th key={c.key} className={subHeadCell + (i === 0 ? " border-l" : "")} title={c.label}>
+                          <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
+                        </th>
+                      ))}
+                      {devOutros && <th className={subHeadCell} title="Status históricos fora do board (Σ preservada)">Outros</th>}
+                      <th className={subHeadCell + " border-l font-semibold text-foreground"}>Total</th>
+                    </>
+                  )}
+                  {expand.servicos && (
+                    <>
+                      {servCols.map((c, i) => (
+                        <th key={c.key} className={subHeadCell + (i === 0 ? " border-l" : "")} title={c.label}>
+                          <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
+                        </th>
+                      ))}
+                      {servOutros && <th className={subHeadCell} title="CAD→Corte + Produção (macro) + categorias sem coluna (Σ preservada)">Outros</th>}
+                      <th className={subHeadCell + " border-l font-semibold text-foreground"}>Total</th>
+                    </>
+                  )}
+                </tr>
+              )}
             </thead>
             <tbody>
-              {rows.map(({ it, total, porFase }) => (
-                <tr key={it.modelo_id} className="border-b last:border-0">
-                  <td className="sticky left-0 z-10 max-w-[190px] bg-card py-1.5 px-3" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate font-medium">{it.ref || it.nome || "—"}</span>
-                      {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">v{it.versao}</Badge>}
-                    </span>
-                    {it.ref && it.nome && <span className="block truncate text-xs text-muted-foreground">{it.nome}</span>}
-                  </td>
-                  {FASES.map((f) => {
-                    const fase = porFase[f.key];
-                    if (!fase) return <td key={f.key} className="py-1.5 px-2 text-center text-muted-foreground/50">—</td>;
-                    const ratio = fase.meta > 0 ? fase.valor / fase.meta : 0;
-                    const idx = seqIndexRatio(ratio);
-                    const over = ratio > 1;
-                    return (
-                      <td key={f.key} className="py-1.5 px-2 text-center">
-                        <span
-                          className="inline-flex min-w-[36px] items-center justify-center gap-0.5 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
-                          style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
-                          title={`${f.label}: ${fmtNum(fase.valor)}d · meta ${fmtNum(fase.meta)}d · ${fmtNum(ratio)}×`}
-                        >
-                          {fmtInt(fase.valor)}
-                          {over && <span aria-hidden>▲</span>}
-                        </span>
-                      </td>
-                    );
-                  })}
-                  <td className="py-1.5 px-3">
-                    <div className="flex items-center gap-2">
-                      <div className="relative h-4 min-w-[64px] flex-1 overflow-hidden rounded bg-muted">
-                        <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${(total / maxTotal) * 100}%`, background: CHART_SERIE, opacity: 0.85 }} />
+              {rows.map(({ it, total, porFase }) => {
+                const devSplit = expand.desenvolvimento ? splitFaseSub(it, "desenvolvimento", devKeys) : null;
+                const servSplit = expand.servicos ? splitFaseSub(it, "servicos", servKeys) : null;
+                return (
+                  <tr key={it.modelo_id} className="border-b last:border-0">
+                    <td className="sticky left-0 z-10 max-w-[190px] bg-card py-1.5 px-3" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate font-medium">{it.ref || it.nome || "—"}</span>
+                        {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">v{it.versao}</Badge>}
+                      </span>
+                      {it.ref && it.nome && <span className="block truncate text-xs text-muted-foreground">{it.nome}</span>}
+                    </td>
+                    <FaseAggCell fase={porFase.planejamento} label="Planejamento" />
+                    {expand.desenvolvimento ? (
+                      <>
+                        {devCols.map((c, i) => (
+                          <SubCell key={c.key} edge={i === 0} valor={devSplit!.valores[c.key]} meta={c.meta} label={c.label} />
+                        ))}
+                        {devOutros && <SubCell valor={devSplit!.outros || undefined} meta={null} label="Outros / histórico (fora do board)" />}
+                        <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento (total)" edge />
+                      </>
+                    ) : (
+                      <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento" />
+                    )}
+                    {expand.servicos ? (
+                      <>
+                        {servCols.map((c, i) => (
+                          <SubCell key={c.key} edge={i === 0} valor={servSplit!.valores[c.key]} meta={c.meta} label={c.label} />
+                        ))}
+                        {servOutros && <SubCell valor={servSplit!.outros || undefined} meta={null} label="Outros: CAD→Corte + Produção (macro)" />}
+                        <FaseAggCell fase={porFase.servicos} label="Serviços (total)" edge />
+                      </>
+                    ) : (
+                      <FaseAggCell fase={porFase.servicos} label="Serviços" />
+                    )}
+                    <FaseAggCell fase={porFase.cq} label="CQ" />
+                    <FaseAggCell fase={porFase.direcionamento} label="Direcionamento" />
+                    <FaseAggCell fase={porFase.lancamento} label="Lançamento" />
+                    <td className="py-1.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="relative h-4 min-w-[64px] flex-1 overflow-hidden rounded bg-muted">
+                          <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${(total / maxTotal) * 100}%`, background: CHART_SERIE, opacity: 0.85 }} />
+                        </div>
+                        <span className="w-12 shrink-0 text-right text-xs font-bold tabular-nums">{fmtInt(total)}d</span>
                       </div>
-                      <span className="w-12 shrink-0 text-right text-xs font-bold tabular-nums">{fmtInt(total)}d</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
-                <tr><td colSpan={FASES.length + 2} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
+                <tr><td colSpan={leafTotal} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
               )}
             </tbody>
           </table>
