@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -141,9 +141,9 @@ export function BulkEditDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Definir em massa · {ids.length} card(s)</DialogTitle></DialogHeader>
-        <div className="space-y-3 max-sm:min-h-0 max-sm:overflow-y-auto">
+      <DialogContent fixedFooter mobileFull className="max-w-2xl">
+        <DialogHeader><DialogTitle>Definir em massa · {ids.length} card(s)</DialogTitle></DialogHeader>
+        <DialogBody className="space-y-3">
           <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.{alterados.length > 0 && <> <b className="text-primary">{alterados.length} alterado{alterados.length > 1 ? "s" : ""}</b>.</>}</p>
           <div className="grid sm:grid-cols-2 gap-3">
             {otbOn && field("Coleção", colecaoId, (v) => { setColecaoId(v); setSubcolecao(NONE); }, colecoes)}
@@ -181,8 +181,8 @@ export function BulkEditDialog({
             {field("Ano", ano, setAno, anos)}
             {field("Status", status, setStatus, statusOpts)}
           </div>
-        </div>
-        <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
+        </DialogBody>
+        <DialogFooter className="border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
           <span className="mr-auto self-center text-xs text-muted-foreground max-sm:hidden">
             {alterados.length === 0 ? "Nada a aplicar" : `Vai gravar ${alterados.join(", ")} em ${ids.length} card(s)`}
           </span>

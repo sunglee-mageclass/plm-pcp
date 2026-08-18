@@ -44,9 +44,9 @@ export function OcModalShell({
   }
   return (
     <Dialog open onOpenChange={(o) => !o && requestClose()}>
-      <DialogContent
-        className={`max-w-4xl max-h-[90dvh] ${grid} max-md:w-screen max-md:max-w-none max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0 max-md:!p-4 max-md:[&>button]:hidden`}
-      >
+      {/* fixedFooter+mobileFull vivem no primitivo agora (§G) — o grid header·corpo·rodapé
+          e o full-screen mobile deixaram de ser injetados à mão aqui. */}
+      <DialogContent fixedFooter mobileFull className="max-w-4xl">
         {children}
         {guard}
       </DialogContent>

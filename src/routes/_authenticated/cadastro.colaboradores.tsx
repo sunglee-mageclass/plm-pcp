@@ -23,6 +23,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -429,14 +430,14 @@ function ColaboradoresPage() {
         open={addOpen}
         onOpenChange={(o) => { if (o) setAddOpen(true); else requestCloseType(); }}
       >
-        <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-          <DialogHeader className="max-sm:shrink-0">
+        <DialogContent fixedFooter mobileFull>
+          <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle>{editTab ? "Editar tipo de colaborador" : "Novo tipo de colaborador"}</DialogTitle>
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </DialogHeader>
-          <div className="space-y-3 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+          <DialogBody className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label>Nome do tipo</Label>
               <Input
@@ -468,8 +469,8 @@ function ColaboradoresPage() {
                 (ex.: Corte). Reaproveita as Categorias de Serviço.
               </p>
             </div>
-          </div>
-          <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
+          </DialogBody>
+          <DialogFooter className="border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
             <Button variant="outline" onClick={requestCloseType}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
