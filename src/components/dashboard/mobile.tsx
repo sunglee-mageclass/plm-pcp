@@ -108,7 +108,7 @@ export function KpiCardMobile({
       </div>
       {(spark || onOpen) && (
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          {spark && <Sparkline points={spark} tone={sparkTone} />}
+          {spark && <Sparkline points={spark} tone={sparkTone} width={compact ? 40 : 66} height={compact ? 18 : 24} />}
           {onOpen && (
             <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[10px] text-muted-foreground">
               {tapLabel} <ChevronRight className="h-3 w-3" aria-hidden />

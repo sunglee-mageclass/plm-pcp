@@ -182,6 +182,63 @@ function ColecaoTab() {
     { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
     { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
   ];
+  const isMobile = useIsMobile();
+
+  // ——— Mobile (Onda B): KPI-cards por estágio + barra de categorias horizontal ordenada ———
+  if (isMobile) {
+    const pctDo = (n: number) => (Number(kpis.total) > 0 ? `${Math.round((Number(n) / Number(kpis.total)) * 100)}% do total` : undefined);
+    const cats = [...pieData].sort((a: any, b: any) => Number(b.value) - Number(a.value));
+    const catMax = Math.max(1, ...cats.map((c: any) => Number(c.value)));
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
+        </div>
+        <div className="text-xs text-muted-foreground">{fmtInt(kpis.total)} modelos no filtro</div>
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCardMobile compact label="Em Planejamento" value={fmtInt(kpis.planejamento)} sub={pctDo(kpis.planejamento)} />
+          <KpiCardMobile compact label="Em Desenvolvimento" value={fmtInt(kpis.desenvolvimento)} sub={pctDo(kpis.desenvolvimento)} />
+          <KpiCardMobile compact label="Em Produção" value={fmtInt(kpis.producao)} sub={pctDo(kpis.producao)} />
+          <KpiCardMobile compact label="Lançados" value={fmtInt(kpis.lancados)} sub={pctDo(kpis.lancados)} />
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <div className="mb-2 text-sm font-semibold">Modelos por categoria <span className="text-xs font-normal text-muted-foreground">· maior → menor</span></div>
+          {cats.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
+          ) : (
+            cats.map((c: any) => (
+              <div key={c.name} className="grid grid-cols-[76px_1fr_auto] items-center gap-2 py-1">
+                <span className="truncate text-xs text-muted-foreground" title={c.name}>{c.name}</span>
+                <span className="h-4 overflow-hidden rounded bg-muted">
+                  <span className="block h-full rounded" style={{ width: `${Math.max((Number(c.value) / catMax) * 100, Number(c.value) > 0 ? 3 : 0)}%`, background: CHART_SERIE }} />
+                </span>
+                <span className="w-8 text-right text-xs font-bold tabular-nums">{fmtInt(c.value)}</span>
+              </div>
+            ))
+          )}
+        </div>
+        {funnelBase > 0 && (
+          <div className="rounded-xl border bg-card p-3">
+            <div className="mb-2 text-sm font-semibold">Funil de progresso <span className="text-xs font-normal text-muted-foreground">· % do topo</span></div>
+            <div className="space-y-1.5">
+              {funnel.map((f: any) => (
+                <div key={f.name} className="grid grid-cols-[104px_1fr_auto] items-center gap-2">
+                  <span className="truncate text-xs" title={f.name}>{f.name}</span>
+                  <span className="relative h-5 overflow-hidden rounded bg-muted">
+                    <span className="absolute inset-y-0 left-0 rounded" style={{ width: `${Math.max(f.pctBase, f.value > 0 ? 3 : 0)}%`, background: f.fill }} />
+                    <span className="absolute inset-y-0 left-1.5 flex items-center text-[11px] font-semibold tabular-nums text-foreground">{fmtInt(f.value)}</span>
+                  </span>
+                  <span className="w-8 text-right text-[11px] font-medium tabular-nums text-muted-foreground">{f.pctBase}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -983,6 +1040,15 @@ function ProducaoTab() {
 
 /* ============================ FINANCEIRO ============================ */
 
+// Rótulo do tipo de OC de uma parcela a pagar (o cadastro de parcela não tem fornecedor
+// denormalizado — Onda B usa o tipo da OC + o nº da parcela, sem RPC/join novo).
+const TIPO_OC_LABEL: Record<string, string> = {
+  tecido: "OC de Tecido",
+  aviamento: "OC de Aviamento",
+  etiqueta: "OC de Insumo",
+  p_acabado: "OC Produto Acabado",
+};
+
 function FinanceiroTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const inicio = isoDate(periodo?.from), fim = isoDate(periodo?.to);
@@ -1012,6 +1078,88 @@ function FinanceiroTab() {
   const pago = Number(data?.pago ?? 0);
   const pendente = Number(data?.pendente ?? 0);
   const chartData = data?.chartData ?? [];
+
+  const isMobile = useIsMobile();
+  const hoje = format(new Date(), "yyyy-MM-dd");
+  // Próximas parcelas a pagar (só no mobile). O dashboard_financeiro não devolve a LISTA de
+  // parcelas — leitura direta da tabela `parcelas` (mesmo padrão do select direto do Leadtime),
+  // sem RPC nova; RLS por tenant + modgate financeiro já protegem. "Em aberto" = data_pagamento
+  // nula (espelha o predicado da RPC); status='pago' filtrado no cliente (cobre pago sem data).
+  const { data: proximasParcelas = [] } = useQuery({
+    queryKey: ["dash-fin-proximas-parcelas"],
+    enabled: isMobile,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("parcelas") as any)
+        .select("id, data_vencimento, valor, status, tipo_oc, numero_parcela")
+        .is("data_pagamento", null)
+        .order("data_vencimento", { ascending: true })
+        .limit(20);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  // ——— Mobile (Onda B): KPI-cards (dinheiro abreviado) + aging + próximas parcelas em cards ———
+  if (isMobile) {
+    const parcelas = (proximasParcelas as any[]).filter((p) => p.status !== "pago").slice(0, 12);
+    const agingArr = (data?.aging ?? []) as any[];
+    const agingMax = Math.max(1, ...agingArr.map((a) => Number(a.total)));
+    const pctPago = (pago + pendente) > 0 ? Math.round((pago / (pago + pendente)) * 100) : 0;
+    const chartSerie = (chartData as any[]).map((d) => Number(d.total));
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCardMobile compact label="Investido em MP" value={brlAbrev(investido)} valueTitle={brl(investido)} />
+          <KpiCardMobile compact label="Total pago" value={brlAbrev(pago)} valueTitle={brl(pago)} sub={`${pctPago}% do total`} />
+          <KpiCardMobile compact label="Total pendente" value={brlAbrev(pendente)} valueTitle={brl(pendente)} spark={chartSerie.length > 1 ? chartSerie : undefined} sparkTone="primary" />
+          <KpiCardMobile compact label="% pago" value={<>{pctPago}<span className="text-sm font-semibold text-muted-foreground">%</span></>} />
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <div className="mb-2 text-sm font-semibold">Aging <span className="text-xs font-normal text-muted-foreground">· por idade do vencimento</span></div>
+          {agingArr.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem contas em aberto."}</p>
+          ) : (
+            agingArr.map((a, i) => (
+              <div key={a.faixa} className="grid grid-cols-[72px_1fr_auto] items-center gap-2 py-1">
+                <span className="text-[11px] text-muted-foreground">{a.faixa}</span>
+                <span className="h-4 overflow-hidden rounded bg-muted">
+                  <span className="block h-full rounded" style={{ width: `${Math.max((Number(a.total) / agingMax) * 100, Number(a.total) > 0 ? 3 : 0)}%`, background: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)] }} />
+                </span>
+                <span className="w-16 text-right text-[11px] font-bold tabular-nums" title={brl(a.total)}>{fmtInt(a.total)}</span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <div className="mb-1 text-sm font-semibold">Próximas parcelas <span className="text-xs font-normal text-muted-foreground">· a pagar, em aberto</span></div>
+          {parcelas.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">Nenhuma parcela em aberto.</p>
+          ) : (
+            parcelas.map((p) => {
+              const venc = String(p.data_vencimento) < hoje;
+              const dd = String(p.data_vencimento).slice(8, 10);
+              const mm = String(p.data_vencimento).slice(5, 7);
+              return (
+                <div key={p.id} className="flex items-center gap-3 border-t py-2 first:border-t-0">
+                  <span className="min-w-[42px] text-sm font-bold tabular-nums" style={venc ? { color: "var(--destructive)" } : undefined}>{dd}/{mm}</span>
+                  <span className="min-w-0 flex-1 text-xs font-medium">
+                    {TIPO_OC_LABEL[p.tipo_oc] ?? "OC"}
+                    <span className="block text-[10px] font-normal text-muted-foreground">{venc ? "vencida · " : ""}parcela {p.numero_parcela}</span>
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-sm font-bold tabular-nums">{brl(p.valor)}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -1850,7 +1998,8 @@ function LeadtimeTab() {
             />
           </div>
         )}
-        {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
+        {/* Onda B: heatmap larga → cartões por modelo (6 chips, pior no topo). */}
+        {etapas.length > 0 && <LeadtimeMobileCards itens={filtItens} lookup={lookup} slaServico={slaServico} />}
         {!isLoading && etapas.length === 0 && (
           <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
             Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
@@ -1956,6 +2105,91 @@ function SubCell({ valor, meta, label, edge, strong, tip }: { valor: number | un
         {over && <span aria-hidden>▲</span>}
       </span>
     </td>
+  );
+}
+
+// Onda B · MOBILE do "Detalhamento por item": a tabela larga (heatmap 6 fases) não cabe no
+// polegar → vira SMALL MULTIPLES de CARTÕES (Few): 1 card por modelo, ref + nome + total (com ▲
+// se acima da meta), e uma linha de 6 CHIPS coloridos pela razão real/meta (mesma rampa navy do
+// heatmap; ▲ na fase acima da meta — status leva ícone, nunca só cor). Pior no topo; >50 = "mostrar
+// mais". Mesma matemática do desktop (itemTotais/seqIndexRatio), sem RPC nova.
+const LT_CHIP_SHORT = ["Planej", "Desenv", "Serv", "CQ", "Direc", "Lanç"] as const;
+function LeadtimeMobileCards({ itens, lookup, slaServico }: {
+  itens: any[]; lookup: Map<string, number>; slaServico: string | null;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 50;
+  const rows = itens
+    .map((it) => ({ it, ...itemTotais(it, lookup, slaServico) }))
+    .sort((a, b) => b.total - a.total); // pior (maior lead time) primeiro
+  const visible = showAll ? rows : rows.slice(0, LIMIT);
+  return (
+    <div className="space-y-3">
+      <SecHeader icon={ClipboardCheck}>Detalhamento por item</SecHeader>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        18 etapas em 6 fases · cor = razão real/meta (mais intenso = mais acima); <span aria-hidden>▲</span> = acima da meta ·
+        ordenado pelo maior lead time. Toque num chip para dias/meta/razão.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span>no/abaixo da meta</span>
+        {CHART_SEQ.map((c, i) => (
+          <span key={i} className="inline-block h-3 w-5 rounded-sm border" style={{ background: c }} aria-hidden />
+        ))}
+        <span>muito acima →</span>
+        <span className="ml-1"><span aria-hidden>▲</span> acima da meta</span>
+      </div>
+      {visible.map(({ it, total, meta, porFase }) => {
+        const over = meta > 0 && total > meta;
+        return (
+          <div key={it.modelo_id} className={"rounded-xl border bg-card p-3" + (over ? " border-destructive/60" : "")}>
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="min-w-0">
+                {it.ref && <div className="font-mono text-[10px] text-muted-foreground">{it.ref}</div>}
+                <div className="truncate text-sm font-semibold" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>{it.nome || it.ref || "—"}</div>
+              </div>
+              <div className="shrink-0 whitespace-nowrap font-bold tabular-nums" style={over ? { color: "var(--destructive)" } : undefined}>
+                {fmtInt(total)}d{over && <span aria-hidden> ▲</span>}
+              </div>
+            </div>
+            <div className="mt-2 flex gap-1">
+              {FASES.map((f, i) => {
+                const fase = porFase[f.key];
+                if (!fase) {
+                  return (
+                    <span key={f.key} className="flex-1 rounded-md border bg-muted px-0.5 py-1 text-center text-muted-foreground/60">
+                      <span className="block text-[9px] font-semibold">{LT_CHIP_SHORT[i]}</span>
+                      <span className="block text-xs font-bold">—</span>
+                    </span>
+                  );
+                }
+                const ratio = fase.meta > 0 ? fase.valor / fase.meta : 0;
+                const idx = seqIndexRatio(ratio);
+                const chipOver = ratio > 1;
+                return (
+                  <span
+                    key={f.key}
+                    className="flex-1 rounded-md px-0.5 py-1 text-center"
+                    style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
+                    title={`${f.label}: ${fmtNum(fase.valor)}d · meta ${fmtNum(fase.meta)}d · ${fmtNum(ratio)}×`}
+                  >
+                    <span className="block text-[9px] font-semibold">{LT_CHIP_SHORT[i]}{chipOver && <span aria-hidden> ▲</span>}</span>
+                    <span className="block text-xs font-bold tabular-nums">{fmtInt(fase.valor)}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      {rows.length === 0 && (
+        <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">Nenhum item no filtro.</p>
+      )}
+      {!showAll && rows.length > LIMIT && (
+        <Button variant="outline" className="w-full" onClick={() => setShowAll(true)}>
+          Mostrar mais ({rows.length - LIMIT})
+        </Button>
+      )}
+    </div>
   );
 }
 
