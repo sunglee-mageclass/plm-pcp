@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { brl, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { precoInfo } from "@/lib/preco";
-import { normalizeKanbanStatuses } from "@/lib/kanban-status";
-import { useMemo, useState, type ReactNode } from "react";
+import { normalizeKanbanStatuses, DEFAULT_STATUSES } from "@/lib/kanban-status";
+import { useMemo, useState, useRef, useLayoutEffect, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -1520,10 +1520,6 @@ function ComercialTab() {
 // Leadtime: duração média REAL por etapa vs o tempo IDEAL (config da loja, senão
 // default). Etapas MACRO (marcos existentes) + Desenvolvimento destrinchado por COLUNA
 // do kanban (modelo_kanban_historico). RPC dashboard_leadtime (só exibe).
-function LeadtimePretty(s: string) {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 // Estado de uma etapa (bullet/hero): ok ≤ meta · atenção ≤ 1,5× · atrasado > 1,5× (ou, na etapa
 // de SLA por item, por faixas de % no prazo). Devolve o tom §Q9 + o ícone (R3 — nunca só cor).
 function etapaEstado(e: any): { estado: "ok" | "watch" | "late"; cor: string; Icon: any } {
@@ -1714,8 +1710,21 @@ function LeadtimeTab() {
   const withStats = (e: any) => ({ ...e, ...statOf(e.etapa, Number(e.idealDias) || 0), slaCol: e.etapa === slaServico });
 
   // Ordem do fluxo (kanban pela ordem de status_kanban; produção fixa; serviços-micro no slot de Serviços).
-  const kanbanIdx = new Map(normalizeKanbanStatuses(skel.data?.kanbanOrder).map((s, i) => ["kanban:" + s.key, i] as const));
+  const kanbanCols = normalizeKanbanStatuses(skel.data?.kanbanOrder);
+  const kanbanIdx = new Map(kanbanCols.map((s, i) => ["kanban:" + s.key, i] as const));
   const ordKb = (k: string) => (kanbanIdx.has(k) ? kanbanIdx.get(k)! : 999);
+  // Rótulo de uma coluna do kanban = o label EXATO do board (status_kanban) — NUNCA um
+  // title-case programático, que corrompe acento e conector ("Corte de Piloto I"→"Corte De
+  // Piloto I", "Desenho Técnico"→"Desenho TéCnico", "Aprovação"→"AprovaçãO"). Órfã (status
+  // fora do board atual) cai no label canônico do DEFAULT_STATUSES; em último caso o valor
+  // cru — sem reformatar.
+  const kanbanLabelByKey = new Map<string, string>();
+  for (const s of kanbanCols) kanbanLabelByKey.set(s.key, s.label);
+  for (const s of DEFAULT_STATUSES) if (!kanbanLabelByKey.has(s.key)) kanbanLabelByKey.set(s.key, s.label);
+  const kanbanLabel = (etapaOrKey: string) => {
+    const key = etapaOrKey.startsWith("kanban:") ? etapaOrKey.slice("kanban:".length) : etapaOrKey;
+    return kanbanLabelByKey.get(key) ?? key;
+  };
   const PROD_ORDER = ["cad_corte", "servicos", "cq", "direcionamento", "lancamento"];
   const ordProd = (e: any) =>
     String(e.etapa).startsWith("servico_cat:")
@@ -1741,7 +1750,7 @@ function LeadtimeTab() {
     arr.reduce<any>((best, e) => {
       const ratio = (Number(e.duracaoMedia) || 0) / (Number(e.idealDias) || 1);
       if (best && best.ratio >= ratio) return best;
-      return { label: e.tipo === "kanban" ? LeadtimePretty(e.label) : e.label, media: Number(e.duracaoMedia) || 0, ideal: Number(e.idealDias) || 0, ratio };
+      return { label: e.tipo === "kanban" ? kanbanLabel(e.etapa) : e.label, media: Number(e.duracaoMedia) || 0, ideal: Number(e.idealDias) || 0, ratio };
     }, null);
   const gargalo = gargaloDe(bulletsAll.filter((e) => (Number(e.nModelos) || 0) >= 3)) ?? gargaloDe(bulletsAll);
   const filtroTxt = [
@@ -1770,7 +1779,7 @@ function LeadtimeTab() {
       {/* Onde o tempo é gasto — bullets por etapa (§R R7), do pior pro melhor. Ordem de fluxo:
           Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
       <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />
-      <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => LeadtimePretty(e.label)} />
+      <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />
       <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
 
       {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
@@ -1788,8 +1797,8 @@ function LeadtimeTab() {
 
 // Célula AGREGADA de uma fase (rampa real/meta + ▲). Reusada na fase RECOLHIDA e no "Total" de um
 // grupo EXPANDIDO (que é a soma das sub-colunas — a invariante Σ sub ≡ agregado, visível na tela).
-function FaseAggCell({ fase, label, edge }: { fase: FaseTotais | undefined; label: string; edge?: boolean }) {
-  const cls = "py-1.5 px-2 text-center" + (edge ? " border-l" : "");
+function FaseAggCell({ fase, label, edge, strong, groupEnd }: { fase: FaseTotais | undefined; label: string; edge?: boolean; strong?: boolean; groupEnd?: boolean }) {
+  const cls = "py-2 px-2 text-center align-middle" + (edge ? (strong ? " border-l-2" : " border-l") : "") + (groupEnd ? " border-r-2" : "");
   if (!fase) return <td className={cls + " text-muted-foreground/50"}>—</td>;
   const ratio = fase.meta > 0 ? fase.valor / fase.meta : 0;
   const idx = seqIndexRatio(ratio);
@@ -1812,8 +1821,8 @@ function FaseAggCell({ fase, label, edge }: { fase: FaseTotais | undefined; labe
 // sub-etapa tem meta na config (R2); sem meta configurada = NEUTRA (valor sem cor de razão — não
 // inventa ideal, R3/honestidade). Sem dado no item = "—" (não zera à toa). `edge` = borda-esquerda
 // que delimita o início do grupo expandido.
-function SubCell({ valor, meta, label, edge }: { valor: number | undefined; meta: number | null; label: string; edge?: boolean }) {
-  const cls = "py-1.5 px-2 text-center" + (edge ? " border-l" : "");
+function SubCell({ valor, meta, label, edge, strong }: { valor: number | undefined; meta: number | null; label: string; edge?: boolean; strong?: boolean }) {
+  const cls = "py-2 px-2 text-center align-middle" + (edge ? (strong ? " border-l-2" : " border-l") : "");
   if (valor == null) return <td className={cls + " text-muted-foreground/50"}>—</td>;
   if (meta == null) {
     return (
@@ -1859,6 +1868,12 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
   const [expand, setExpand] = useState<{ desenvolvimento: boolean; servicos: boolean }>({ desenvolvimento: false, servicos: false });
   const toggle = (g: "desenvolvimento" | "servicos") => setExpand((e) => ({ ...e, [g]: !e[g] }));
 
+  // Altura REAL da 1ª linha do cabeçalho (não "chutar" h-9): a 2ª linha (sub-headers) gruda
+  // exatamente embaixo dela via `top: row1H`. Medido no layout + ResizeObserver (reage a
+  // expandir/recolher, zoom, wrap). Sem isso, sub-header desalinha se a linha 1 não tem 36px.
+  const head1Ref = useRef<HTMLTableRowElement>(null);
+  const [row1H, setRow1H] = useState(36);
+
   const rows = itens
     .map((it) => ({ it, ...itemTotais(it, lookup, slaServico) }))
     .sort((a, b) => b.total - a.total); // pior (maior lead time) primeiro
@@ -1867,7 +1882,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
   // Sub-colunas de Desenvolvimento = TODO status do board na ORDEM (mesmo sem dado); status
   // histórico FORA do board (ex. "aprovado") cai em "Outros" (Σ preservada).
   const devCols = normalizeKanbanStatuses(kanbanOrder).map((s) => ({
-    key: "kanban:" + s.key, label: LeadtimePretty(s.label), meta: metaConfig("kanban:" + s.key, lookup),
+    key: "kanban:" + s.key, label: s.label, meta: metaConfig("kanban:" + s.key, lookup),
   }));
   const devKeys = devCols.map((c) => c.key);
   const devOutros = rows.some((r) => splitFaseSub(r.it, "desenvolvimento", devKeys).outros > 1e-9);
@@ -1896,10 +1911,30 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
     4 + // Planejamento + CQ + Direcionamento + Lançamento
     1; // Total (lead time)
 
+  useLayoutEffect(() => {
+    const el = head1Ref.current;
+    if (!el) return;
+    const measure = () => setRow1H(Math.round(el.getBoundingClientRect().height));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro.disconnect(); window.removeEventListener("resize", measure); };
+  }, [anyExpanded, expand.desenvolvimento, expand.servicos, devCols.length, servCols.length, devOutros, servOutros]);
+
   const rspan = anyExpanded ? 2 : 1;
+  // Camadas de z: canto Item (sticky left+top) fica ACIMA de tudo (z-40) p/ nada vazar por
+  // baixo dele ao rolar nos 2 eixos; demais headers z-20; coluna Item do CORPO z-10 (acima
+  // das células, abaixo do header); células comuns do corpo ficam no z base. Todo header e a
+  // coluna Item são bg OPACO (bg-card) — a opacidade é o que impede o "vazamento".
+  const cornerCell = "sticky left-0 top-0 z-40 bg-card whitespace-nowrap py-2 px-3 border-r align-middle";
   const topCell = "sticky top-0 z-20 bg-card whitespace-nowrap py-2 px-2 text-center text-xs align-middle";
-  const groupHeadCell = "sticky top-0 z-20 bg-card h-9 whitespace-nowrap py-2 px-2 text-center text-xs border-l";
-  const subHeadCell = "sticky top-9 z-20 bg-card whitespace-nowrap py-1.5 px-2 text-center text-[11px] font-medium";
+  // Header de GRUPO expandido (colSpan): título centrado + borda vertical forte dos 2 lados
+  // p/ delimitar o bloco (o dono: "não dá pra entender o que é o que").
+  const groupHeadCell = "sticky top-0 z-20 bg-card h-9 whitespace-nowrap py-2 px-2 text-center text-xs font-semibold text-foreground border-l-2 border-r-2";
+  // Sub-header (linha 2): gruda em `top: row1H` (medido), bg opaco p/ o corpo passar por baixo limpo.
+  const subHeadCell = "sticky z-20 bg-card whitespace-nowrap py-1.5 px-2 text-center text-[11px] font-medium";
+  const subTop = { top: row1H };
 
   const GroupToggle = ({ g, label }: { g: "desenvolvimento" | "servicos"; label: string }) => (
     <button
@@ -1936,8 +1971,8 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
         <div className="max-h-[70vh] overflow-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
-              <tr className="border-b">
-                <th className="sticky left-0 top-0 z-30 whitespace-nowrap bg-card py-2 px-3">Item</th>
+              <tr ref={head1Ref} className="border-b">
+                <th rowSpan={rspan} className={cornerCell}>Item</th>
                 <th rowSpan={rspan} className={topCell}>Planej.</th>
                 {expand.desenvolvimento ? (
                   <th colSpan={devLeafN} className={groupHeadCell}><GroupToggle g="desenvolvimento" label="Desenvolvimento" /></th>
@@ -1962,23 +1997,23 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                   {expand.desenvolvimento && (
                     <>
                       {devCols.map((c, i) => (
-                        <th key={c.key} className={subHeadCell + (i === 0 ? " border-l" : "")} title={c.label}>
+                        <th key={c.key} style={subTop} className={subHeadCell + (i === 0 ? " border-l-2" : "")} title={c.label}>
                           <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
                         </th>
                       ))}
-                      {devOutros && <th className={subHeadCell} title="Status históricos fora do board (Σ preservada)">Outros</th>}
-                      <th className={subHeadCell + " border-l font-semibold text-foreground"}>Total</th>
+                      {devOutros && <th style={subTop} className={subHeadCell} title="Status históricos fora do board (Σ preservada)">Outros</th>}
+                      <th style={subTop} className={subHeadCell + " border-l border-r-2 font-semibold text-foreground"}>Total</th>
                     </>
                   )}
                   {expand.servicos && (
                     <>
                       {servCols.map((c, i) => (
-                        <th key={c.key} className={subHeadCell + (i === 0 ? " border-l" : "")} title={c.label}>
+                        <th key={c.key} style={subTop} className={subHeadCell + (i === 0 ? " border-l-2" : "")} title={c.label}>
                           <span className="mx-auto block max-w-[96px] truncate">{c.label}</span>
                         </th>
                       ))}
-                      {servOutros && <th className={subHeadCell} title="CAD→Corte + Produção (macro) + categorias sem coluna (Σ preservada)">Outros</th>}
-                      <th className={subHeadCell + " border-l font-semibold text-foreground"}>Total</th>
+                      {servOutros && <th style={subTop} className={subHeadCell} title="CAD→Corte + Produção (macro) + categorias sem coluna (Σ preservada)">Outros</th>}
+                      <th style={subTop} className={subHeadCell + " border-l border-r-2 font-semibold text-foreground"}>Total</th>
                     </>
                   )}
                 </tr>
@@ -1990,7 +2025,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                 const servSplit = expand.servicos ? splitFaseSub(it, "servicos", servKeys) : null;
                 return (
                   <tr key={it.modelo_id} className="border-b last:border-0">
-                    <td className="sticky left-0 z-10 max-w-[190px] bg-card py-1.5 px-3" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>
+                    <td className="sticky left-0 z-10 max-w-[190px] bg-card border-r py-2 px-3" title={[it.ref, it.nome].filter(Boolean).join(" · ")}>
                       <span className="flex items-center gap-1.5">
                         <span className="truncate font-medium">{it.ref || it.nome || "—"}</span>
                         {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">v{it.versao}</Badge>}
@@ -2001,10 +2036,10 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                     {expand.desenvolvimento ? (
                       <>
                         {devCols.map((c, i) => (
-                          <SubCell key={c.key} edge={i === 0} valor={devSplit!.valores[c.key]} meta={c.meta} label={c.label} />
+                          <SubCell key={c.key} edge={i === 0} strong={i === 0} valor={devSplit!.valores[c.key]} meta={c.meta} label={c.label} />
                         ))}
                         {devOutros && <SubCell valor={devSplit!.outros || undefined} meta={null} label="Outros / histórico (fora do board)" />}
-                        <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento (total)" edge />
+                        <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento (total)" edge groupEnd />
                       </>
                     ) : (
                       <FaseAggCell fase={porFase.desenvolvimento} label="Desenvolvimento" />
@@ -2012,10 +2047,10 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                     {expand.servicos ? (
                       <>
                         {servCols.map((c, i) => (
-                          <SubCell key={c.key} edge={i === 0} valor={servSplit!.valores[c.key]} meta={c.meta} label={c.label} />
+                          <SubCell key={c.key} edge={i === 0} strong={i === 0} valor={servSplit!.valores[c.key]} meta={c.meta} label={c.label} />
                         ))}
                         {servOutros && <SubCell valor={servSplit!.outros || undefined} meta={null} label="Outros: CAD→Corte + Produção (macro)" />}
-                        <FaseAggCell fase={porFase.servicos} label="Serviços (total)" edge />
+                        <FaseAggCell fase={porFase.servicos} label="Serviços (total)" edge groupEnd />
                       </>
                     ) : (
                       <FaseAggCell fase={porFase.servicos} label="Serviços" />
@@ -2023,7 +2058,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
                     <FaseAggCell fase={porFase.cq} label="CQ" />
                     <FaseAggCell fase={porFase.direcionamento} label="Direcionamento" />
                     <FaseAggCell fase={porFase.lancamento} label="Lançamento" />
-                    <td className="py-1.5 px-3">
+                    <td className="py-2 px-3">
                       <div className="flex items-center gap-2">
                         <div className="relative h-4 min-w-[64px] flex-1 overflow-hidden rounded bg-muted">
                           <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${(total / maxTotal) * 100}%`, background: CHART_SERIE, opacity: 0.85 }} />
