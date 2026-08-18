@@ -39,6 +39,11 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 const PIE_COLORS = ["hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(45 93% 47%)", "hsl(0 84% 60%)", "hsl(280 70% 60%)", "hsl(190 80% 50%)", "hsl(20 90% 55%)", "hsl(160 60% 45%)"];
 
+// Escala SEQUENCIAL de idade do WIP (1 matiz âmbar claro→escuro = mais velho/urgente);
+// índice 0 = "Sem envio" (cinza neutro, fora da escala). Casa com `ordem` da RPC
+// dashboard_producao_servicos (emProducaoPorIdade). hsl() = permitido pelo anti-drift §Q.
+const IDADE_CORES = ["hsl(215 14% 66%)", "hsl(30 90% 72%)", "hsl(30 90% 60%)", "hsl(30 90% 48%)", "hsl(30 88% 38%)"];
+
 const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
 const DASH_TABS = [
@@ -485,6 +490,119 @@ function RankingServicos() {
   );
 }
 
+// Produção por CATEGORIA DE SERVIÇO (Corte/Oficina/PL/…). Uma chamada por seleção à RPC
+// dashboard_producao_servicos; herda o filtro global da aba (período/coleção/linha) por props.
+//   • Em produção (foto atual): categoria=Todas => barras POR SERVIÇO (quem tem mais WIP agora);
+//     categoria específica => barras POR IDADE (dias desde o envio, escala sequencial).
+//   • Entregue (série temporal): barras por MÊS da data_entregue.
+// Toggle Modelos | Peças = as 2 visões de cada gráfico.
+function ProducaoServicos({ ini, fim, colecao, linha }: { ini?: string; fim?: string; colecao: string; linha: string }) {
+  const [categoria, setCategoria] = useState("all");
+  const [metrica, setMetrica] = useState<"modelos" | "pecas">("modelos");
+  const { data, isLoading } = useQuery({
+    queryKey: ["dash-prod-servicos", ini, fim, colecao, linha, categoria],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_producao_servicos" as never, {
+        p_inicio: ini,
+        p_fim: fim,
+        p_colecao: colecao === "all" ? undefined : colecao,
+        p_linha: linha === "all" ? undefined : linha,
+        p_categoria: categoria === "all" ? undefined : categoria,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  const categorias: { nome: string }[] = data?.categorias ?? [];
+  const porCategoria: any[] = data?.emProducaoPorCategoria ?? [];
+  const porIdade: any[] = data?.emProducaoPorIdade ?? [];
+  const entregue: any[] = data?.entreguePorMes ?? [];
+  const isTodas = categoria === "all";
+  const dk = metrica; // "modelos" | "pecas"
+  const mLabel = metrica === "modelos" ? "Modelos" : "Peças";
+
+  // Em produção: por serviço (visão geral) OU por idade (categoria específica).
+  const emProdData = isTodas ? porCategoria : porIdade;
+  const emProdXKey = isTodas ? "categoria" : "bucket";
+  const emProdVazio = (emProdData as any[]).length === 0 || (emProdData as any[]).every((d) => Number(d?.[dk] ?? 0) === 0);
+  const entregueVazio = (entregue as any[]).length === 0;
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          Produção por serviço <span className="font-normal">· {isTodas ? "todas as categorias" : categoria}</span>
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Toggle das 2 visões (Modelos | Peças), aplicado aos dois gráficos. */}
+          <div className="inline-flex rounded-md border p-0.5">
+            <Button size="sm" variant={metrica === "modelos" ? "default" : "ghost"} className="h-7 border-0" onClick={() => setMetrica("modelos")}>Modelos</Button>
+            <Button size="sm" variant={metrica === "pecas" ? "default" : "ghost"} className="h-7 border-0" onClick={() => setMetrica("pecas")}>Peças</Button>
+          </div>
+          <Select value={categoria} onValueChange={setCategoria}>
+            <SelectTrigger className="h-8 w-full sm:w-52"><SelectValue placeholder="Serviço" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as categorias</SelectItem>
+              {categorias.map((c) => <SelectItem key={c.nome} value={c.nome}>{c.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* (a) Em produção — foto atual (sem finalização). */}
+        <Card className="p-4">
+          <h3 className="font-semibold mb-1">Em produção <span className="text-sm font-normal text-muted-foreground">· {mLabel}</span></h3>
+          <p className="text-xs text-muted-foreground mb-2">
+            {isTodas ? "por serviço · blocos sem finalização (foto atual)" : "por idade (dias desde o envio) · blocos sem finalização"}
+          </p>
+          <div style={{ width: "100%", height: 280 }}>
+            <ResponsiveContainer>
+              <BarChart data={emProdData}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey={emProdXKey} tick={{ fontSize: 11 }} interval={0} />
+                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Bar dataKey={dk} name={mLabel} fill={PIE_COLORS[0]} radius={[4, 4, 0, 0]}>
+                  {/* Categoria específica: cor sequencial por idade (por barra). Visão geral: matiz único. */}
+                  {!isTodas && (emProdData as any[]).map((d, i) => (
+                    <Cell key={i} fill={IDADE_CORES[Number(d.ordem)] ?? PIE_COLORS[0]} />
+                  ))}
+                  <LabelList dataKey={dk} position="top" formatter={(v: any) => (Number(v) > 0 ? fmtNum(v) : "")} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {!isLoading && emProdVazio && (
+            <p className="text-sm text-muted-foreground text-center mt-2">Nada em produção{isTodas ? "" : " nesta categoria"}.</p>
+          )}
+        </Card>
+
+        {/* (b) Entregue ao longo do tempo — blocos finalizados. */}
+        <Card className="p-4">
+          <h3 className="font-semibold mb-1">Entregue ao longo do tempo <span className="text-sm font-normal text-muted-foreground">· {mLabel}</span></h3>
+          <p className="text-xs text-muted-foreground mb-2">blocos finalizados · por mês da data de entrega</p>
+          <div style={{ width: "100%", height: 280 }}>
+            <ResponsiveContainer>
+              <BarChart data={entregue}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Bar dataKey={dk} name={mLabel} fill={PIE_COLORS[1]} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {!isLoading && entregueVazio && (
+            <p className="text-sm text-muted-foreground text-center mt-2">Nada entregue no período.</p>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function ProducaoTab() {
   const fl = useFieldLabels();
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
@@ -588,6 +706,8 @@ function ProducaoTab() {
           <MonthBarCard title="Grade total finalizada" subtitle="peças" data={finalizadas} dataKey="grade" name="Grade total" color={PIE_COLORS[3]} empty="Nada finalizado no período." loading={isLoading} />
         </div>
       </div>
+
+      <ProducaoServicos ini={ini} fim={fim} colecao={colecao} linha={linha} />
 
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Etapa do kanban de Desenvolvimento</h2>
