@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { brl, fmtNum, fmtPct, fmtInt } from "@/lib/format";
+import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
 import { precoInfo } from "@/lib/preco";
 import { normalizeKanbanStatuses, DEFAULT_STATUSES } from "@/lib/kanban-status";
 import { useMemo, useState, useRef, useLayoutEffect, type ReactNode } from "react";
@@ -78,17 +80,11 @@ function Dashboard() {
         </div>
       </header>
       <Tabs value={active} onValueChange={setTab}>
-        {/* Mobile: dropdown (as abas ficavam apertadas no celular). Desktop: o
-            TabsList vai DENTRO da toolbar de cada aba (mr-auto), via <DashTabsList />. */}
+        {/* Mobile: segmented control rolável (Onda A — as abas ficavam apertadas no celular;
+            o dropdown foi trocado por pílulas roláveis, ativa em navy). Desktop: o TabsList vai
+            DENTRO da toolbar de cada aba (mr-auto), via <DashTabsList />. */}
         <div className="md:hidden">
-          <Select value={active} onValueChange={setTab}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {tabs.map((t) => (
-                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SegmentedTabs tabs={tabs.map((t) => ({ value: t.value, label: t.label }))} value={active} onChange={setTab} />
         </div>
         {tabs.map((t) => (
           <TabsContent key={t.value} value={t.value} className="mt-4">
@@ -181,18 +177,22 @@ function ColecaoTab() {
   const porLinha: any[] = data?.porLinha ?? [];
   const linhaSort = useSort<any>(porLinha, { key: "total", dir: "desc" });
 
+  const filtros = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
+    { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
-        <PeriodoPicker value={periodo} onChange={setPeriodo} />
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-            { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
-          ]}
-        />
+        {/* Desktop inalterado (display:contents = wrapper transparente ao layout). Mobile: chip + bottom sheet. */}
+        <div className="hidden md:contents">
+          <PeriodoPicker value={periodo} onChange={setPeriodo} />
+          <FilterButton filters={filtros} />
+        </div>
+        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -760,19 +760,21 @@ function ProducaoTab() {
 
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
+  const filtrosProd = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
+  ];
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <PeriodoPicker value={periodo} onChange={setPeriodo} />
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-          ]}
-        />
+        <div className="hidden md:contents">
+          <PeriodoPicker value={periodo} onChange={setPeriodo} />
+          <FilterButton filters={filtrosProd} />
+        </div>
+        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtrosProd} />
       </div>
 
       <DashError show={isError} />
@@ -1016,7 +1018,8 @@ function FinanceiroTab() {
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <PeriodoPicker value={periodo} onChange={setPeriodo} />
+        <div className="hidden md:contents"><PeriodoPicker value={periodo} onChange={setPeriodo} /></div>
+        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
         <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} tone="info" />
@@ -1208,20 +1211,22 @@ function CustosTab() {
   const categorias: Opt[] = data?.filtros?.categorias ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
+  const filtrosCustos = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+  ];
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <PeriodoPicker value={periodo} onChange={setPeriodo} />
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
-          ]}
-        />
+        <div className="hidden md:contents">
+          <PeriodoPicker value={periodo} onChange={setPeriodo} />
+          <FilterButton filters={filtrosCustos} />
+        </div>
+        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtrosCustos} />
       </div>
 
       <DashError show={isError} />
@@ -1484,19 +1489,48 @@ function ComercialTab() {
     return { byColecao: bc, byLinha: bl, tot };
   }, [modelos, custoMap, gradePlan, gradeReal]);
 
+  const isMobile = useIsMobile();
+  const filtrosCom = [
+    { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))] },
+    { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))] },
+    { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
+    { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+    { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
+  ];
+  // Tabelas detalhadas (a "visão tabela" da régua) — card-table já adapta ao mobile. Reusadas
+  // nos dois ramos (mesma JSX = desktop byte-idêntico).
+  const tabelas = (
+    <>
+      <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
+      <ComTable title="Por linha" firstLabel="Linha" rows={byLinha} />
+    </>
+  );
+
+  // Mobile (Padrão A): resumo em KPI-cards (dinheiro ABREVIADO, cheio no title) + tabelas.
+  if (isMobile) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar filters={filtrosCom} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`real. ${brlAbrev(tot.pvReal)}`} />
+          <KpiCardMobile compact label="Lucro bruto" value={brlAbrev(tot.lucroPlan)} valueTitle={brl(tot.lucroPlan)} sub={`real. ${brlAbrev(tot.lucroReal)}`} />
+          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemPlan)} sub={`real. ${fmtPctComercial(tot.margemReal)}`} />
+          <KpiCardMobile compact label="Markup médio" value={fmtMkp(tot.markupPlan)} sub={`real. ${fmtMkp(tot.markupReal)}`} />
+        </div>
+        {tabelas}
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))] },
-            { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))] },
-            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
-            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
-            { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
-          ]}
-        />
+        <FilterButton filters={filtrosCom} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1506,8 +1540,7 @@ function ComercialTab() {
         <Kpi label="Markup médio" value={fmtMkp(tot.markupPlan)} icon={Layers} sub={`realizado ${fmtMkp(tot.markupReal)}`} />
       </div>
 
-      <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
-      <ComTable title="Por linha" firstLabel="Linha" rows={byLinha} />
+      {tabelas}
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
@@ -1658,6 +1691,9 @@ function LeadtimeTab() {
   const [colecao, setColecao] = useState("all");
   const [subcol, setSubcol] = useState("all");
   const [semana, setSemana] = useState("all");
+  const isMobile = useIsMobile();
+  // Mobile (Padrão A): tocar num KPI-card ou no card "Onde o tempo é gasto" abre o sheet de bullets.
+  const [bulletsOpen, setBulletsOpen] = useState(false);
 
   // skeleton = quais etapas + ideal/label/ordem (config); det = itens (dados por modelo).
   const skel = useQuery({
@@ -1759,18 +1795,86 @@ function LeadtimeTab() {
     semana === "all" ? null : "Lan " + semana,
   ].filter(Boolean).join(" · ");
 
+  const filtrosLead = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))] },
+    { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))] },
+    { label: "Lançamento nº", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Lan " + c }))] },
+  ];
+
+  // ——— Mobile (Padrão A): pilha de KPI-cards; tocar abre o bullet chart no ChartSheet ———
+  if (isMobile) {
+    const gOver = gargalo && gargalo.ratio > 1;
+    const acima = hero.delta > 0.05, abaixo = hero.delta < -0.05;
+    const bullets = (
+      <div className="space-y-1">
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "var(--tone-success-bg)" }} aria-hidden />no prazo</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "var(--tone-warning-bg)" }} aria-hidden />atenção</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "var(--tone-danger-bg)" }} aria-hidden />atrasado</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-0.5" style={{ background: "var(--foreground)" }} aria-hidden />meta</span>
+        </div>
+        <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />
+        <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />
+        <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
+      </div>
+    );
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar filters={filtrosLead} />
+        </div>
+        {etapas.length > 0 && (
+          <div className="space-y-2.5">
+            <KpiCardMobile
+              label="Lead time médio ponta a ponta"
+              value={<>{hero.n ? fmtNum(hero.mediaTotal) : "—"} <span className="text-sm font-semibold text-muted-foreground">dias</span></>}
+              delta={hero.n ? { dir: acima ? "up" : abaixo ? "down" : "flat", text: acima ? `+${fmtNum(hero.delta)}d vs meta ${fmtNum(hero.mediaMeta)}d` : abaixo ? `−${fmtNum(-hero.delta)}d vs meta ${fmtNum(hero.mediaMeta)}d` : `no alvo · meta ${fmtNum(hero.mediaMeta)}d` } : undefined}
+              sub={`${hero.n} modelo(s) · ${filtroTxt}`}
+              onOpen={() => setBulletsOpen(true)}
+              tapLabel="ver etapas"
+            />
+            <KpiCardMobile
+              label="Maior gargalo"
+              compact
+              value={gargalo ? gargalo.label : "—"}
+              delta={gargalo ? { dir: gOver ? "up" : "flat", text: `${fmtNum(gargalo.media)}d · ${fmtNum(gargalo.ratio)}× a meta (${fmtNum(gargalo.ideal)}d)`, color: gOver ? "var(--destructive)" : "var(--success)" } : undefined}
+              onOpen={() => setBulletsOpen(true)}
+              tapLabel="ver etapas"
+            />
+            <KpiCardMobile
+              label="Dentro da meta ponta a ponta"
+              value={<>{hero.n ? hero.pctDentro : "—"}<span className="text-sm font-semibold text-muted-foreground">%</span></>}
+              sub={`${hero.dentroMeta} de ${hero.n} modelo(s) ≤ meta`}
+              onOpen={() => setBulletsOpen(true)}
+              tapLabel="ver etapas"
+            />
+          </div>
+        )}
+        {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
+        {!isLoading && etapas.length === 0 && (
+          <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
+            Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
+          </p>
+        )}
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+        <ChartSheet
+          open={bulletsOpen}
+          onOpenChange={setBulletsOpen}
+          title="Onde o tempo é gasto"
+          subtitle="Barra = duração real · tique = meta · faixas ok/atenção/atrasado"
+        >
+          {bullets}
+        </ChartSheet>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
-        <FilterButton
-          screen="leadtime"
-          filters={[
-            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))] },
-            { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))] },
-            { label: "Lançamento nº", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Lan " + c }))] },
-          ]}
-        />
+        <FilterButton screen="leadtime" filters={filtrosLead} />
       </div>
 
       {/* Hero: a mensagem primeiro (§R R8) — total ponta-a-ponta, gargalo, % dentro da meta. */}

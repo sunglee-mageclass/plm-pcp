@@ -16,6 +16,24 @@ export function brl(n: number | string | null | undefined): string {
 }
 
 /**
+ * Moeda pt-BR ABREVIADA para KPI-cards do mobile (ex.: "R$ 1,68mi", "R$ 985mil").
+ * O valor cheio (`brl`) continua no tooltip/sheet. Milhão = 2 casas; milhar = inteiro
+ * arredondado; abaixo de mil = `brl` normal. Sem `.toFixed` (usa toLocaleString).
+ */
+export function brlAbrev(n: number | string | null | undefined): string {
+  const v = Number(n ?? 0);
+  const abs = Math.abs(v);
+  const sinal = v < 0 ? "-" : "";
+  if (abs >= 1_000_000) {
+    return `${sinal}R$ ${(abs / 1_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}mi`;
+  }
+  if (abs >= 10_000) {
+    return `${sinal}R$ ${Math.round(abs / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}mil`;
+  }
+  return brl(v);
+}
+
+/**
  * Percentual pt-BR com 1 casa decimal (ex.: 12,5%) — padrão §Q12 (adotado; ajustável).
  * Recebe o valor JÁ em pontos percentuais (50 → "50,0%"), não a fração (0,5).
  */
