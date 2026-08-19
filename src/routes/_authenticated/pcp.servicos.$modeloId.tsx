@@ -1717,7 +1717,7 @@ function GradeEditor({
                             <input
                               type="number" min={0} disabled={disabled}
                               title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
-                              className={`h-7 w-full rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
+                              className={`h-7 max-md:h-11 w-full rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
                               value={cel(v.id, t)[k] || ""}
                               onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
                               onFocus={() => onCampoFoco?.(`${label} · ${tamLabel(t)}`)}

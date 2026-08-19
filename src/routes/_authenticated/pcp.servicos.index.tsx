@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
 // sem_servico ou undefined (sem custo/mascarado pela RPC) → sem bolinha.
 function MoDot({ estado }: { estado?: string }) {
   if (!estado || estado === "sem_servico") return null;
-  const cls = estado === "aprovada" ? "bg-emerald-500" : estado === "reprovada" ? "bg-red-500" : "bg-amber-400";
+  const cls = estado === "aprovada" ? "bg-success" : estado === "reprovada" ? "bg-destructive" : "bg-warning";
   const title = estado === "aprovada" ? "Mão de obra aprovada" : estado === "reprovada" ? "Mão de obra reprovada" : "Mão de obra pendente";
   return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${cls}`} title={title} />;
 }
