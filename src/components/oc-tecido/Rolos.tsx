@@ -531,7 +531,7 @@ export function RolosList() {
                     <TableCell className="font-medium">{r.rolo_codigo || "—"}</TableCell>
                     <TableCell data-label="Tecido">{tecido}</TableCell>
                     <TableCell data-label="Variantes" className="text-muted-foreground">{vars || "—"}</TableCell>
-                    <TableCell data-label="Metragem (m)" className="text-right">{fmtNum(total)}</TableCell>
+                    <TableCell data-label="Metragem (m)" className="text-right num">{fmtNum(total)}</TableCell>
                     <TableCell data-label="Endereço" className="text-muted-foreground">
                       {endereco || "—"}
                     </TableCell>
@@ -879,7 +879,7 @@ export function AjustesList() {
               <TableRow key={a.id}>
                 <TableCell className="font-medium">{a.origem_label}</TableCell>
                 <TableCell data-label="Tecido" className="text-muted-foreground">{a.artigo} · {a.variante}</TableCell>
-                <TableCell data-label="Removido (m)" className="text-right">{fmtNum(a.quantidade)}</TableCell>
+                <TableCell data-label="Removido (m)" className="text-right num">{fmtNum(a.quantidade)}</TableCell>
                 <TableCell data-label="Motivo" className="text-muted-foreground">{a.motivo || "—"}</TableCell>
                 <TableCell data-label="Por" className="text-muted-foreground">{a.por}</TableCell>
                 <TableCell data-label="Ações">

@@ -479,7 +479,7 @@ function EstoqueTab() {
                     <tr key={r.id} className="border-b last:border-0">
                       <td className="py-2 pr-3 truncate max-w-[240px]" data-label="Item">{r.nome}</td>
                       <td className="py-2 pr-3" data-label="Categoria">{r.categoria}</td>
-                      <td className="py-2 pr-3 text-right" data-label="Estoque">{fmtNum(r.estoque)}</td>
+                      <td className="py-2 pr-3 text-right num" data-label="Estoque">{fmtNum(r.estoque)}</td>
                     </tr>
                   ))}
                   {!isLoading && s.sorted.length === 0 && (
@@ -626,13 +626,13 @@ function RankingServicos() {
                 <tr key={r.fornecedor} className="border-b last:border-0">
                   <td className="py-2 pr-3 text-center">{medal}</td>
                   <td className="py-2 pr-3 font-medium" data-label="Fornecedor">{r.fornecedor}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Entregas">{r.entregas}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Dias real">{fmtNum(r.diasReal)}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Prazo">{fmtNum(r.diasPrazo)}</td>
-                  <td className={"py-2 pr-3 text-right font-medium " + (dentro ? "text-green-600 dark:text-green-400" : "text-destructive")} data-label="Desvio">
+                  <td className="py-2 pr-3 text-right num" data-label="Entregas">{r.entregas}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Dias real">{fmtNum(r.diasReal)}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Prazo">{fmtNum(r.diasPrazo)}</td>
+                  <td className={"py-2 pr-3 text-right num font-medium " + (dentro ? "text-green-600 dark:text-green-400" : "text-destructive")} data-label="Desvio">
                     {Number(r.desvio) > 0 ? "+" : ""}{fmtNum(r.desvio)}
                   </td>
-                  <td className="py-2 pr-3 text-right" data-label="% no prazo">{r.pctDentro}%</td>
+                  <td className="py-2 pr-3 text-right num" data-label="% no prazo">{r.pctDentro}%</td>
                 </tr>
               );
             })}
@@ -928,10 +928,10 @@ function ProducaoTab() {
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3" data-label="Tipo de serviço">{r.tipo ?? "—"}</td>
-                  <td className="py-2 pr-3 text-right" data-label="SLA médio (dias)">{fmtNum(r.slaMedio)}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="SLA médio (dias)">{fmtNum(r.slaMedio)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")} data-label="Atrasos">{r.atrasos}</td>
                   <td className="py-2 pr-3 text-right" data-label="Total entregue">{r.total}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Taxa de Defeito">
+                  <td className="py-2 pr-3 text-right num" data-label="Taxa de Defeito">
                     {produzidas > 0 ? (
                       <StatusBadge
                         tone={badgeTone}
@@ -1400,8 +1400,8 @@ function CustosTab() {
                     </span>
                   </td>
                   <td className="py-2 pr-3" data-label="Modelo">{r.nome}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Previsto (un.)">{brl(r.previsto)}</td>
-                  <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Previsto (un.)">{brl(r.previsto)}</td>
+                  <td className={"py-2 pr-3 text-right num " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
                   <td className="py-2 pr-3 text-right" data-label="Δ variação"><DeltaBar pct={r.pct} max={deltaMax} confirmado={r.confirmado} /></td>
                 </tr>
               ))}
@@ -1507,28 +1507,28 @@ function ComTable({ title, firstLabel, rows }: { title: string; firstLabel: stri
             </tr>
             <tr className="border-b">
               <SortTh label={firstLabel} sortKey="nome" sortState={s} className="py-2 pr-3" />
-              <SortTh label="PV" sortKey="pvPlan" sortState={s} className={`py-2 px-2 text-right border-l ${plan}`} align="right" />
-              <SortTh label="Lucro" sortKey="lucroPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
-              <SortTh label="Margem" sortKey="margemPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
-              <SortTh label="Markup" sortKey="markupPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
-              <SortTh label="PV" sortKey="pvReal" sortState={s} className={`py-2 px-2 text-right border-l ${real}`} align="right" />
-              <SortTh label="Lucro" sortKey="lucroReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
-              <SortTh label="Margem" sortKey="margemReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
-              <SortTh label="Markup" sortKey="markupReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
+              <SortTh label="PV" sortKey="pvPlan" sortState={s} className={`py-2 px-2 text-right num border-l ${plan}`} align="right" />
+              <SortTh label="Lucro" sortKey="lucroPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
+              <SortTh label="Margem" sortKey="margemPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
+              <SortTh label="Markup" sortKey="markupPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
+              <SortTh label="PV" sortKey="pvReal" sortState={s} className={`py-2 px-2 text-right num border-l ${real}`} align="right" />
+              <SortTh label="Lucro" sortKey="lucroReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
+              <SortTh label="Margem" sortKey="margemReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
+              <SortTh label="Markup" sortKey="markupReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
             </tr>
           </thead>
           <tbody>
             {s.sorted.map((r) => (
               <tr key={r.key} className="border-b last:border-0">
                 <td className="py-2 pr-3 font-medium">{r.nome}</td>
-                <td className={`py-2 px-2 text-right border-l ${plan}`} data-label="Plan · PV">{brl(r.pvPlan)}</td>
-                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Lucro">{brl(r.lucroPlan)}</td>
-                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Margem">{fmtPctComercial(r.margemPlan)}</td>
-                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Markup">{fmtMkp(r.markupPlan)}</td>
-                <td className={`py-2 px-2 text-right border-l ${real}`} data-label="Real · PV">{brl(r.pvReal)}</td>
-                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Lucro">{brl(r.lucroReal)}</td>
-                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Margem">{fmtPctComercial(r.margemReal)}</td>
-                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Markup">{fmtMkp(r.markupReal)}</td>
+                <td className={`py-2 px-2 text-right num border-l ${plan}`} data-label="Plan · PV">{brl(r.pvPlan)}</td>
+                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Lucro">{brl(r.lucroPlan)}</td>
+                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Margem">{fmtPctComercial(r.margemPlan)}</td>
+                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Markup">{fmtMkp(r.markupPlan)}</td>
+                <td className={`py-2 px-2 text-right num border-l ${real}`} data-label="Real · PV">{brl(r.pvReal)}</td>
+                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Lucro">{brl(r.lucroReal)}</td>
+                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Margem">{fmtPctComercial(r.margemReal)}</td>
+                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Markup">{fmtMkp(r.markupReal)}</td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}

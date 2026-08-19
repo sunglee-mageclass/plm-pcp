@@ -260,7 +260,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                           title={emKg ? "Déficit arredondado p/ cima em lotes de 5 kg" : "Déficit arredondado p/ cima em lotes de 10 m"} />
                       </td>
                       <td className="p-1.5">{it.unidade}</td>
-                      <td className="p-1.5 text-right">{it.preco > 0 ? fmtNum(it.preco) : "—"}</td>
+                      <td className="p-1.5 text-right num">{it.preco > 0 ? fmtNum(it.preco) : "—"}</td>
                     </tr>
                     );
                   })}
