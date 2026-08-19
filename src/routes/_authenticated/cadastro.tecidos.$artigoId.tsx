@@ -100,6 +100,7 @@ type Artigo = {
   rendimento: number | null;
   preco_por_metro: number | null;
   unidade_medida: string;
+  ncm: string | null;
   historico_precos: any;
 };
 
@@ -134,7 +135,8 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
         .eq("id", artigoId)
         .single();
       if (error) throw error;
-      return data as Artigo;
+      // `ncm` ainda não está no types.ts gerado (backlog) → via unknown (mesmo padrão do aviamento).
+      return data as unknown as Artigo;
     },
   });
 
@@ -248,6 +250,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
         largura_estimada: form.largura_estimada ?? null,
         categoria_tecido_id: catIds[0] || null,
         composicao: form.composicao || null,
+        ncm: form.ncm?.trim() || null,
         mes_id: form.mes_id || null,
         ano_id: form.ano_id || null,
         preco: form.preco ?? null,
@@ -455,6 +458,15 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
               value={form.composicao ?? ""}
               onChange={(e) => setForm({ ...form, composicao: e.target.value })}
               placeholder="Ex: 100% algodão"
+            />
+          </Field>
+
+          <Field label="NCM">
+            <Input
+              value={form.ncm ?? ""}
+              onChange={(e) => setForm({ ...form, ncm: e.target.value })}
+              placeholder="Ex: 5208.11.00"
+              inputMode="numeric"
             />
           </Field>
 

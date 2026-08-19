@@ -228,12 +228,13 @@ function TecidosGallery() {
   }, [artigos, empresaFilter, catFilter, sort, search, catsByArtigo]);
 
   const createMut = useMutation({
-    mutationFn: async (form: { nome: string; unidade_medida: string }) => {
+    mutationFn: async (form: { nome: string; unidade_medida: string; ncm?: string }) => {
       const nome = form.nome.trim();
       if (!nome) throw new Error("Informe o nome.");
+      // ncm ainda não está no types.ts gerado (backlog) → cast (mesmo padrão do aviamento).
       const { data, error } = await supabase
         .from("artigos")
-        .insert({ nome, unidade_medida: form.unidade_medida })
+        .insert({ nome, unidade_medida: form.unidade_medida, ncm: form.ncm?.trim() || null } as never)
         .select("id")
         .single();
       if (error) throw error;
@@ -530,11 +531,12 @@ function CreateTecidoModal({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onSubmit: (f: { nome: string; unidade_medida: string }) => void;
+  onSubmit: (f: { nome: string; unidade_medida: string; ncm?: string }) => void;
   loading: boolean;
 }) {
   const [nome, setNome] = useState("");
   const [unidade, setUnidade] = useState("metro");
+  const [ncm, setNcm] = useState("");
 
   return (
     <Dialog
@@ -543,6 +545,7 @@ function CreateTecidoModal({
         if (!o) {
           setNome("");
           setUnidade("metro");
+          setNcm("");
         }
         onOpenChange(o);
       }}
@@ -573,6 +576,15 @@ function CreateTecidoModal({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label>NCM</Label>
+            <Input
+              value={ncm}
+              onChange={(e) => setNcm(e.target.value)}
+              placeholder="Ex: 5208.11.00"
+              inputMode="numeric"
+            />
+          </div>
           <p className="text-xs text-muted-foreground">
             Demais campos (fornecedor, preço, variantes…) podem ser preenchidos na próxima tela.
           </p>
@@ -581,7 +593,7 @@ function CreateTecidoModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             <ArrowLeft className="h-4 w-4 mr-1" />Voltar
           </Button>
-          <Button onClick={() => onSubmit({ nome, unidade_medida: unidade })} disabled={loading}>
+          <Button onClick={() => onSubmit({ nome, unidade_medida: unidade, ncm })} disabled={loading}>
             {loading ? "Criando…" : "Criar e abrir"}
           </Button>
         </DialogFooter>
