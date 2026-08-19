@@ -47,6 +47,7 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { useSort } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -247,6 +248,7 @@ function PlanejamentoPage() {
   // Seleção múltipla SEM "modo": o checkbox fica sempre à mostra no card (pedido do dono) e a barra
   // de ações em massa aparece quando há ≥1 selecionado.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const isMobile = useIsMobile();
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
   const clearSel = () => setSelected(new Set());
@@ -798,35 +800,51 @@ function PlanejamentoPage() {
   };
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       {/* Seleção múltipla no HEADER STICKY (portal), ao lado do nome do módulo. Ativa
-          mostra Todos / contagem / Definir em massa ali mesmo. */}
-      <HeaderActions>
-        {selected.size > 0 ? (
-          <>
-            <Button size="sm" variant="ghost" onClick={clearSel}>Limpar ({selected.size})</Button>
-            <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
-            <Button size="sm" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
-            <Button size="sm" variant="destructive" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
-              <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
+          mostra Todos / contagem / Definir em massa ali mesmo. NO MOBILE as ações de seleção
+          NÃO ficam no header (dono ago/2026 — "ficou péssimo"): "Selecionar todos" mora na
+          toolbar da página e as ações em massa descem pra MobileActionBar no rodapé. */}
+      {!isMobile && (
+        <HeaderActions>
+          {selected.size > 0 ? (
+            <>
+              <Button size="sm" variant="ghost" onClick={clearSel}>Limpar ({selected.size})</Button>
+              <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
+              <Button size="sm" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+              <Button size="sm" variant="destructive" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
+                <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="outline" onClick={selectAllFiltered} aria-label="Selecionar todos">
+              <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar todos</span>
             </Button>
-          </>
-        ) : (
-          <Button size="sm" variant="outline" onClick={selectAllFiltered} aria-label="Selecionar todos">
-            <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar todos</span>
+          )}
+        </HeaderActions>
+      )}
+      {isMobile && selected.size > 0 && (
+        <MobileActionBar breakpoint="md">
+          <Button variant="ghost" className="min-h-11" onClick={clearSel}>Limpar ({selected.size})</Button>
+          <Button className="min-h-11 flex-1" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+          <Button variant="destructive" className="min-h-11" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
+            <Trash2 className="h-4 w-4" />
           </Button>
-        )}
-      </HeaderActions>
+        </MobileActionBar>
+      )}
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <ClipboardList className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="font-display text-2xl font-semibold tracking-tight truncate">Planejamento de Produto</h1>
+            {/* Mobile: título curto — "Planejamento de Produto" cortava (dono ago/2026). */}
+            <h1 className="font-display text-2xl font-semibold tracking-tight truncate">
+              <span className="md:hidden">P. Produto</span>
+              <span className="hidden md:inline">Planejamento de Produto</span>
+            </h1>
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-sm:justify-end">
-
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
           {groups && allGroupPaths.length > 0 && (
             <Button
@@ -840,6 +858,18 @@ function PlanejamentoPage() {
               <span className="max-lg:sr-only">{allGruposRecolhidos ? "Expandir todos" : "Recolher todos"}</span>
             </Button>
           )}
+          {/* Mobile: "Selecionar todos" SÓ ÍCONE, na mesma linha do Agrupar, à esquerda dele
+              (dono ago/2026 — as ações de seleção não moram no header sticky no mobile; as
+              ações em massa aparecem na MobileActionBar ao selecionar). */}
+          <Button
+            variant="outline"
+            className="md:hidden h-11 w-11 p-0"
+            onClick={selectAllFiltered}
+            aria-label="Selecionar todos"
+            title="Selecionar todos"
+          >
+            <CheckSquare className="h-4 w-4" />
+          </Button>
           <AgrupamentoButton
             groups={[
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
@@ -1003,10 +1033,14 @@ function PlanejamentoPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <MobileActionBar>
-        <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
-        <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
-      </MobileActionBar>
+      {/* Barra CONTEXTUAL: com seleção ativa, a barra de seleção (acima) substitui esta —
+          duas barras fixed no rodapé se sobrepunham. */}
+      {selected.size === 0 && (
+        <MobileActionBar>
+          <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
+          <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
+        </MobileActionBar>
+      )}
     </div>
   );
 }

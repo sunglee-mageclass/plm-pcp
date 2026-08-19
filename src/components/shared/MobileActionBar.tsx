@@ -15,10 +15,12 @@ import { createPortal } from "react-dom";
  *  - No botão de ação do header, adicione `max-sm:hidden` (some no mobile).
  *  - Renderize <MobileActionBar> ao final da página com a versão mobile da ação (+ voltar).
  */
-export function MobileActionBar({ children }: { children: ReactNode }) {
+export function MobileActionBar({ children, breakpoint = "sm" }: { children: ReactNode; breakpoint?: "sm" | "md" }) {
   if (typeof document === "undefined") return null; // SSR guard
   return createPortal(
-    <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t bg-background p-3 shadow-[0_-2px_8px_rgba(0,0,0,0.08)]">
+    <div
+      className={`${breakpoint === "md" ? "md:hidden" : "sm:hidden"} fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t bg-background p-3 shadow-[0_-2px_8px_rgba(0,0,0,0.08)]`}
+    >
       {children}
     </div>,
     document.body,
