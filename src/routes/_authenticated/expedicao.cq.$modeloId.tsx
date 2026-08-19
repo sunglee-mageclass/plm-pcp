@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
@@ -1025,11 +1026,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
-          </Button>
           <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id}>
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Controle de Qualidade
+          </Button>
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </>
       ) : editing ? (
@@ -1070,11 +1071,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           {posBtn.editing && (
             <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Voltar</Button>
           )}
-          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
-          </Button>
           <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
+          </Button>
+          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </>
       ))}
@@ -1327,21 +1328,21 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <Label className="text-xs">Peças Incompletas</Label>
-            <NumberInput integer value={form.pecas_incompletas}
+            <NumberInput integer blankZero placeholder="0" value={form.pecas_incompletas}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))}
               onFocus={() => setCampoFocado(rotuloConflito("pecas_incompletas"))}
               onBlur={() => setCampoFocado(null)} />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
-            <NumberInput integer value={form.pecas_faltantes}
+            <NumberInput integer blankZero placeholder="0" value={form.pecas_faltantes}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))}
               onFocus={() => setCampoFocado(rotuloConflito("pecas_faltantes"))}
               onBlur={() => setCampoFocado(null)} />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
-            <NumberInput integer value={form.pecas_sem_etiqueta}
+            <NumberInput integer blankZero placeholder="0" value={form.pecas_sem_etiqueta}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))}
               onFocus={() => setCampoFocado(rotuloConflito("pecas_sem_etiqueta"))}
               onBlur={() => setCampoFocado(null)} />
@@ -1574,11 +1575,11 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Desconto total</Label>
-                <NumberInput type="number" step="0.01" value={desc} onChange={(e) => setDesc(Number(e.target.value))} />
+                <MoneyInput value={desc} onChange={(e) => setDesc(Number(e.target.value))} />
               </div>
               <div>
                 <Label className="text-xs">Multa total</Label>
-                <NumberInput type="number" step="0.01" value={multa} onChange={(e) => setMulta(Number(e.target.value))} />
+                <MoneyInput value={multa} onChange={(e) => setMulta(Number(e.target.value))} />
               </div>
             </div>
             <div className="rounded-md bg-muted/40 px-3 py-2"><span className="text-muted-foreground">Custo líquido:</span> <b>{brl(liquido)}</b></div>
