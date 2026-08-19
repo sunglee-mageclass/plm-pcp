@@ -757,8 +757,16 @@ function PlanejamentoPage() {
   // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
   // profundidade; nós internos ganham barra/indentação à esquerda.
   const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold text-muted-foreground"];
+  // Nº de selecionados DENTRO do grupo (recursivo): feedback do "Selecionar todos" mesmo com os
+  // grupos RECOLHIDOS — sem isso a seleção acontecia invisível e o botão parecia morto (dono ago/2026).
+  const selCountOf = (g: Grupo): number =>
+    g.subgroups
+      ? g.subgroups.reduce((a, sg) => a + selCountOf(sg), 0)
+      : (g.items ?? []).reduce((a, m) => a + (selected.has(m.id) ? 1 : 0), 0);
+
   const renderGroup = (g: Grupo, depth: number, path: string) => {
     const collapsed = !expandedGroups.has(path);
+    const nSel = selCountOf(g);
     return (
       <section key={g.key}>
         <div
@@ -774,6 +782,11 @@ function PlanejamentoPage() {
             : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
           <ResumoVenda {...g.resumo} />
+          {nSel > 0 && (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+              {nSel} selecionado{nSel === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
         {!collapsed && (g.subgroups ? (
           <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1, `${path}/${sg.key}`))}</div>
