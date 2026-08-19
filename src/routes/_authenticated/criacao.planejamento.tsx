@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { InfoStrip } from "@/components/shared/InfoStrip";
+import { AnexoThumbZoom } from "@/components/shared/ImagePreview";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -3435,46 +3436,7 @@ function PhotoList({ label, paths, onAdd, onRemove }: {
 function FileThumb({ path, onRemove }: { path: string; onRemove?: () => void }) {
   const isPdf = /\.pdf$/i.test(path);
   const url = useSignedUrlBucket(path);
-  const [zoom, setZoom] = useState(false);
-  return (
-    <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => url && setZoom(true)}
-        onKeyDown={(e) => { if (url && (e.key === "Enter" || e.key === " ")) setZoom(true); }}
-        className="h-full w-full cursor-zoom-in flex items-center justify-center"
-        title="Abrir"
-      >
-        {!url ? (
-          <ImageIcon className="h-8 w-8 text-muted-foreground" />
-        ) : isPdf ? (
-          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="PDF" className="h-full w-full pointer-events-none" />
-        ) : (
-          <img src={url} className="h-full w-full object-cover" alt="" />
-        )}
-      </div>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100 z-10"
-          aria-label="Remover"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
-      )}
-      <Dialog open={zoom} onOpenChange={setZoom}>
-        <DialogContent className="max-w-5xl p-1 border-none bg-transparent shadow-none [&>button]:!text-white [&>button]:top-2 [&>button]:right-2">
-          {isPdf ? (
-            <iframe src={url ?? ""} title="PDF" className="w-full h-[85vh] rounded-md bg-white" />
-          ) : (
-            <img src={url ?? ""} alt="" className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl" />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+  return <AnexoThumbZoom url={url} isPdf={isPdf} onRemove={onRemove} />;
 }
 
 /* Anexo único (imagem ou PDF) com preview + zoom — Croqui / Desenho Técnico. */

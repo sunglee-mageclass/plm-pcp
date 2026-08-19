@@ -1,6 +1,13 @@
 import { useState } from "react";
+import { ImageIcon, Trash2 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+// SSOT do estilo do lightbox — usado pelo ImagePreview e pelo AnexoThumbZoom (evita
+// as duas caixas divergirem de novo, como aconteceu antes deste fix: bg-transparent/
+// max-w-5xl duplicado nos dois lugares).
+export const LIGHTBOX_CONTENT_CLASS =
+  "max-w-5xl p-1 border-none bg-transparent shadow-none place-items-center [&>button]:!text-white [&>button]:top-2 [&>button]:right-2";
 
 export function ImagePreview({ src, alt, children, className }: {
   src: string;
@@ -41,7 +48,7 @@ export function ImagePreview({ src, alt, children, className }: {
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent
             onPointerDownOutside={bloquearProximoClick}
-            className="max-w-5xl p-1 border-none bg-transparent shadow-none [&>button]:!text-white [&>button]:top-2 [&>button]:right-2"
+            className={LIGHTBOX_CONTENT_CLASS}
           >
             <img
               src={src}
@@ -52,5 +59,61 @@ export function ImagePreview({ src, alt, children, className }: {
         </Dialog>
       </div>
     </>
+  );
+}
+
+/**
+ * Miniatura de anexo (imagem OU PDF) com preview + zoom ao clicar — usada por
+ * Croqui/Desenho Técnico/Ficha (Desenvolvimento e Planejamento). Antes vivia
+ * duplicada (byte a byte) em `ModeloAnexosSection.tsx` e `criacao.planejamento.tsx`,
+ * cada uma com sua própria resolução de signed URL (bucket diferente) — por isso
+ * recebe `url` já resolvido em vez de `path`, e o chamador mantém seu próprio hook.
+ * Não usa a mesma caixa d'água anti-bubbling do ImagePreview (bloquearProximoClick)
+ * porque não fica dentro de um card clicável, só de um form/seção.
+ */
+export function AnexoThumbZoom({ url, isPdf, onRemove }: {
+  url: string | null | undefined;
+  isPdf: boolean;
+  onRemove?: () => void;
+}) {
+  const [zoom, setZoom] = useState(false);
+  return (
+    <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => url && setZoom(true)}
+        onKeyDown={(e) => { if (url && (e.key === "Enter" || e.key === " ")) setZoom(true); }}
+        className="h-full w-full cursor-zoom-in flex items-center justify-center"
+        title="Abrir"
+      >
+        {!url ? (
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        ) : isPdf ? (
+          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="PDF" className="h-full w-full pointer-events-none" />
+        ) : (
+          <img src={url} className="h-full w-full object-cover" alt="" />
+        )}
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100 z-10"
+          aria-label="Remover"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
+      <Dialog open={zoom} onOpenChange={setZoom}>
+        <DialogContent className={LIGHTBOX_CONTENT_CLASS}>
+          {isPdf ? (
+            <iframe src={url ?? ""} title="PDF" className="w-full h-[85vh] rounded-md bg-white" />
+          ) : (
+            <img src={url ?? ""} alt="" className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl" />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
