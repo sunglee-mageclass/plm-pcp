@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { fmtInt, fmtNum } from "@/lib/format";
+import { brl, fmtInt, fmtNum } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
@@ -269,7 +269,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
               {(() => { const { qtdT, rs } = somaPagina(passo); return (
                 <div className="flex items-center gap-2 border-t bg-muted/30 px-2 py-1.5 text-xs">
                   <span className="text-muted-foreground">Total desta OC</span>
-                  <b className="ml-auto tabular-nums">{qtdT.toLocaleString("pt-BR")} {pg.itens[0]?.unidade ?? "m"}{rs > 0 ? ` · R$ ${rs.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}</b>
+                  <b className="ml-auto tabular-nums">{qtdT.toLocaleString("pt-BR")} {pg.itens[0]?.unidade ?? "m"}{rs > 0 ? ` · ${brl(rs)}` : ""}</b>
                 </div>
               ); })()}
             </div>
@@ -294,7 +294,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           </Button>
           {!ultima && <Button variant="outline" disabled={gerar.isPending} onClick={proxima}>Próxima</Button>}
           <span className="ml-auto text-[10px] tabular-nums text-muted-foreground" title="Só as OCs incluídas (checkbox) e com quantidade entram">
-            {total > 0 ? `${passo + 1}/${total} · ${nOcs} incluída(s)${somaGeral.rs > 0 ? ` · Σ R$ ${somaGeral.rs.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` : ""}
+            {total > 0 ? `${passo + 1}/${total} · ${nOcs} incluída(s)${somaGeral.rs > 0 ? ` · Σ ${brl(somaGeral.rs)}` : ""}` : ""}
           </span>
           {/* Gerar disponível de QUALQUER página (antes só na última: 7 cliques até poder gerar — laudo) */}
           <Button disabled={nOcs === 0 || gerar.isPending} onClick={() => gerar.mutate()}>

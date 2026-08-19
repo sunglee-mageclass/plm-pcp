@@ -5,6 +5,7 @@
 // tamanho aqui").
 import { format } from "date-fns";
 import { splitMaiorResto } from "@/lib/produto-acabado";
+import { brl } from "@/lib/format";
 
 export type Opt = { id: string; nome: string };
 export type CatOpt = Opt & { grupo_id: string | null };
@@ -228,6 +229,5 @@ export function erroValidacao(mensagem: string): Error {
 }
 
 export function fmtMoney(v: number | null | undefined): string {
-  const n = Number(v) || 0;
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return brl(Number(v) || 0);
 }

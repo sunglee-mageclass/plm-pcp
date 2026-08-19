@@ -12,6 +12,10 @@ import { fileURLToPath } from "node:url";
 // Regra (f) — hsl() cru (dataviz, §R) — adicionada e ZERADA na onda de Dashboard v2
 // (ago/2026): cor de gráfico agora só via tokens --chart-* (src/lib/chart-colors.ts),
 // mantendo a exceção de impressão (PrintBarChart usa hsl fixo de propósito).
+// Regra (g) — moeda formatada à mão (§Q12, campanha tela-a-tela ago/2026) — adicionada e ZERADA
+// migrando toda moeda (Intl.NumberFormat / toLocaleString currency / `R$ ${…toLocaleString}`) pra
+// brl() de src/lib/format.ts. Escopo SÓ moeda (não número/percentual/markup, que são usos
+// legítimos à mão sem 1:1 no format.ts); print reusa a exceção §Q3.
 const ANTIDRIFT_LIGADO = true;
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -85,6 +89,10 @@ const FILES_SEM_EXCECAO_COR = ALL_FILES.filter((f) => !EXCECAO_COR.has(f));
 // dataviz (e ainda assim só referencia tokens var(--chart-*), nunca hsl solto). Ver §R.
 const CHART_COLORS_TS = path.join(ROOT, "src/lib/chart-colors.ts");
 const FILES_SEM_HSL = FILES_SEM_EXCECAO_COR.filter((f) => f !== CHART_COLORS_TS);
+// Regra (g) — moeda formatada à mão. Fora de src/lib (fonte única = `brl()` em src/lib/format.ts,
+// que o format.ts documenta: "não duplicar const brl por tela") E fora da exceção de impressão
+// (§Q3 — comprovante/etiqueta/ficha imprimem com formato fixo). Print files reusam a exceção de cor.
+const FILES_NO_LIB_SEM_PRINT = FILES_NO_LIB.filter((f) => !EXCECAO_COR.has(f));
 
 // Linha de comentário (// … | JSDoc/bloco * … | abertura /* …) fica de fora do grep —
 // reduz falso-positivo grosseiro (ex.: "(React #185)" batendo na regra de hex dentro
@@ -97,7 +105,7 @@ function stripComment(line: string): string {
 }
 
 type Hit = { file: string; line: number; text: string };
-type RuleId = "a" | "b" | "c" | "d" | "e" | "f";
+type RuleId = "a" | "b" | "c" | "d" | "e" | "f" | "g";
 
 const ICON_SIZES_OK = new Set([14, 16, 20, 24]);
 
@@ -153,6 +161,21 @@ const RULES: Record<RuleId, { label: string; files: string[]; find: (line: strin
       return m ?? [];
     },
   },
+  g: {
+    label:
+      'moeda formatada à mão fora de src/lib (Intl.NumberFormat | toLocaleString com style:"currency" | `R$ ${…toLocaleString}`) — usar brl() de src/lib/format.ts (§Q12; format.ts: "não duplicar const brl por tela"). Só MOEDA: número/percentual/markup à mão são usos legítimos e ficam de fora.',
+    files: FILES_NO_LIB_SEM_PRINT,
+    find: (line) => {
+      const out: string[] = [];
+      // Intl.NumberFormat — no repo é SEMPRE moeda (style:"currency"); fonte única = brl()
+      for (const m of line.matchAll(/Intl\.NumberFormat\(/g)) out.push(m[0]);
+      // toLocaleString com style:"currency" (moeda montada via API do JS)
+      for (const m of line.matchAll(/toLocaleString\([^)]*currency/g)) out.push(m[0]);
+      // moeda montada à mão: literal "R$" seguido de .toLocaleString( na MESMA linha
+      for (const m of line.matchAll(/R\$[^\n]*?toLocaleString\(/g)) out.push(m[0]);
+      return out;
+    },
+  },
 };
 
 function scanRule(id: RuleId): Hit[] {
@@ -180,12 +203,12 @@ function fmtHits(hits: Hit[]): string {
 // independente do valor de ANTIDRIFT_LIGADO.
 describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
   it("reporta a contagem de débito por regra (console.info, não falha)", () => {
-    const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0 };
+    const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, g: 0 };
     for (const id of Object.keys(RULES) as RuleId[]) counts[id] = scanRule(id).length;
     console.info(
       "[ui-padroes anti-drift §Q/§R] débito por regra:",
       JSON.stringify(counts),
-      "\n  a = cor literal | b = <input type=date> | c = ícone size fora da escala | d = .toFixed fora de lib | e = font-size fracionário | f = hsl() cru (§R)",
+      "\n  a = cor literal | b = <input type=date> | c = ícone size fora da escala | d = .toFixed fora de lib | e = font-size fracionário | f = hsl() cru (§R) | g = moeda à mão (§Q12)",
     );
     expect(Object.keys(counts).length).toBe(Object.keys(RULES).length);
   });

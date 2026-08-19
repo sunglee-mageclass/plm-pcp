@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
+import { brl } from "@/lib/format";
 import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
@@ -1399,7 +1400,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const anexoCroqui = !!draft?.croqui_url;
   const anexosOk = anexoFotoModelo && anexoDesenho && anexoCroqui;
   const anexoLabel = anexoFotoModelo ? "foto do modelo" : anexoDesenho ? "desenho técnico" : anexoCroqui ? "croqui" : null;
-  const custoLbl = totals.peca > 0 ? `R$ ${totals.peca.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "R$ —";
+  const custoLbl = totals.peca > 0 ? brl(totals.peca) : "R$ —";
   // Ordem das seções → nº 1..N pulando as ocultas (Custos some sem permissão, sem deixar buraco).
   // `s5` acompanha o MESMO gate do AccordionItem (podeVerCustos OU só-aprovador de MO) — senão
   // a numeração destoa do que de fato renderiza (Anexos "8" com Custos ausente da lista, etc.).

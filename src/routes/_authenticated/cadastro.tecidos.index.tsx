@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -506,12 +507,7 @@ function TecidoCard({
             )}
             <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
             <p className="mt-auto text-sm font-semibold text-primary">
-              {artigo.preco != null
-                ? new Intl.NumberFormat("pt-BR", {
-                    style: "currency",
-                    currency: "BRL",
-                  }).format(Number(artigo.preco))
-                : "—"}
+              {artigo.preco != null ? brl(Number(artigo.preco)) : "—"}
               <span className="text-xs text-muted-foreground font-normal">
                 {" "}
                 / {artigo.unidade_medida}

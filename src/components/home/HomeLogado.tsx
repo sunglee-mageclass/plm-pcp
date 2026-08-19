@@ -8,6 +8,7 @@ import {
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { brl } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
 import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -17,8 +18,6 @@ import { todayISOInStoreTZ } from "@/lib/timezone";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { Card } from "@/components/ui/card";
 import { TecelagemAnimacao } from "./TecelagemAnimacao";
-
-const fmtMoney = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 // Atalhos de MÓDULO — só no MOBILE (sidebar recolhida = navegação primária). No desktop os
 // tiles de módulo duplicavam 1:1 a sidebar visível ao lado (laudo do time, jul/2026).
@@ -182,7 +181,7 @@ export function HomeLogado() {
       key: "atrasadas", to: "/financeiro", search: { tab: "lista", status: "vencido" },
       icon: CalendarX, tone: "red" as Tone,
       valor: atrasadasN, label: "Contas atrasadas",
-      sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : undefined,
+      sub: (atrasadas.data || servicos.data) ? brl(atrasadasTotal) : undefined,
       loading: atrasadas.isLoading || servicos.isLoading,
       error: atrasadas.isError && servicos.isError,
     },
@@ -196,7 +195,7 @@ export function HomeLogado() {
     podeVerFin && {
       key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as Tone,
       valor: pagar7N, label: "A pagar em 7 dias",
-      sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : undefined,
+      sub: (pagar.data || servicos.data) ? brl(pagar7Total) : undefined,
       loading: pagar.isLoading || servicos.isLoading,
       error: pagar.isError && servicos.isError,
     },

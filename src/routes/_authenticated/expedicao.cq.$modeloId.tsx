@@ -5,6 +5,7 @@ import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Penci
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { resolverFonteConfeccao } from "@/lib/confeccao-fonte";
 import { celulasRecebidaAcimaCortada, completarGradeFonte, type GradeDetalhe } from "@/lib/grade-cortada";
@@ -1539,7 +1540,6 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
   // pendências pede confirmação de descarte.
   const dirty = open && !!serv && changed;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
-  const brl = (v: number) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const bruto = Number(serv?.custo_bruto ?? 0);
   const liquido = bruto - (Number(desc) || 0) + (Number(multa) || 0);
   const save = useMutation({

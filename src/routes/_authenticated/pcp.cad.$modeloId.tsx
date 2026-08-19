@@ -5,6 +5,7 @@ import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
 import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
 import { supabase } from "@/integrations/supabase/client";
@@ -991,17 +992,17 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
             </div>
             <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary/10 px-3 py-1.5 text-sm">
               <span className="text-muted-foreground">Custo real (CAD, sem serviços):</span>
-              <b className="text-primary">{custoRealPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</b>
+              <b className="text-primary">{brl(custoRealPeca)}</b>
               <span className="text-xs text-muted-foreground">/ peça</span>
             </div>
             {custosAdicionaisPeca > 0 && (
               <div className="mt-1 text-xs text-muted-foreground">
-                inclui custos adicionais: {custosAdicionaisPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                inclui custos adicionais: {brl(custosAdicionaisPeca)}
               </div>
             )}
             {custoRealTotalVar > 0 && (
               <div className="mt-1 text-xs italic text-muted-foreground" title="Experimental — Σ(metragem × preço da variante). Não entra no custo oficial.">
-                Custo real total (acompanhamento): {custoRealTotalVar.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                Custo real total (acompanhamento): {brl(custoRealTotalVar)}
               </div>
             )}
           </div>

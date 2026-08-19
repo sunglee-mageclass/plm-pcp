@@ -1,6 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { labelVarianteRow } from "@/lib/variante";
+import { brl } from "@/lib/format";
 
 export const BUCKET = "oc-tecido";
 
@@ -167,7 +168,7 @@ export function metragemPedidaItem(it: ItemDraft, artigoMap: Record<string, Arti
 
 export function fmtMoney(v: number | null | undefined) {
   if (v == null || isNaN(v as number)) return "—";
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return brl(v);
 }
 export function fmtDate(v: string | null | undefined) {
   if (!v) return "—";

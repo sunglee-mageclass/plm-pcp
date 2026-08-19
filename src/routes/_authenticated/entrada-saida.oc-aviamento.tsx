@@ -5,6 +5,7 @@ import { Sparkles, Plus, Upload, Trash2, ArrowLeft, Printer } from "lucide-react
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -99,7 +100,7 @@ type ItemDraft = {
 
 function fmtMoney(v: number | null | undefined) {
   if (v == null || isNaN(v as number)) return "—";
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return brl(v);
 }
 function fmtDate(v: string | null | undefined) {
   if (!v) return "—";

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
@@ -114,10 +115,7 @@ const SORT_OPTIONS = [
   { value: "recente", label: "Mais recentes" },
 ];
 
-const fmtBRL = (n: number | null | undefined) =>
-  n != null
-    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n))
-    : "—";
+const fmtBRL = (n: number | null | undefined) => (n != null ? brl(Number(n)) : "—");
 
 function AviamentosGallery() {
   const qc = useQueryClient();

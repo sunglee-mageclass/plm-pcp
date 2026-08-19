@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { brl } from "@/lib/format";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
@@ -555,14 +556,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
             <Field label="Preço por Metro">
               <Input
                 readOnly
-                value={
-                  precoMetro != null
-                    ? new Intl.NumberFormat("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                      }).format(Number(precoMetro))
-                    : "—"
-                }
+                value={precoMetro != null ? brl(Number(precoMetro)) : "—"}
                 className="bg-muted/50"
               />
             </Field>
@@ -592,12 +586,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
                   key={i}
                   className="flex items-center justify-between rounded-md border bg-card p-2 text-sm"
                 >
-                  <span>
-                    {new Intl.NumberFormat("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                    }).format(Number(h.preco))}
-                  </span>
+                  <span>{brl(Number(h.preco))}</span>
                   <span className="text-xs text-muted-foreground">
                     {fmtDataHora(h.data)}
                   </span>
@@ -942,7 +931,7 @@ function VariantRow({
           </p>
           <p className="text-xs font-medium">
             {variante.preco != null
-              ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(variante.preco))
+              ? brl(Number(variante.preco))
               : <span className="text-muted-foreground font-normal">Sem preço</span>}
           </p>
         </div>
@@ -1048,7 +1037,7 @@ function VariantRow({
                     <ul className="space-y-1">
                       {[...(variante.historico_precos ?? [])].reverse().map((h, i) => (
                         <li key={i} className="flex items-center justify-between text-xs">
-                          <span>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(h.preco))}</span>
+                          <span>{brl(Number(h.preco))}</span>
                           <span className="text-muted-foreground">{fmtDataHora(h.data)}</span>
                         </li>
                       ))}
