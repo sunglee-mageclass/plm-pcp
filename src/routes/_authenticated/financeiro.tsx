@@ -1341,16 +1341,8 @@ function ServicosView() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Atualizado"); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
-  // Data de pagamento editável: informar a data marca como pago (e registra QUANDO foi pago).
-  const updPag = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: string }) => {
-      const { error } = await supabase.from("parcelas_servico" as any)
-        .update({ data_pagamento: data || null, status: data ? "pago" : "a_pagar" }).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Pagamento atualizado"); },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar pagamento")),
-  });
+  // A data de pagamento NÃO é mais editável inline (igual às OCs): marca-se como pago pelo
+  // botão "Marcar pago" → PagarDialog (data + comprovante). A data fica read-only na coluna.
 
   const total = filtered.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
 
@@ -1465,9 +1457,7 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
                     </td>
-                    <td className="py-2 pr-3" data-label="Pagamento" onClick={stop} onKeyDown={stop}>
-                      <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
-                    </td>
+                    <td className="py-2 pr-3" data-label="Pagamento">{r.data_pagamento ? format(parseISO(r.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="Status">
                       <StatusParcelaBadge st={st} />
                     </td>
