@@ -49,6 +49,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { resolveStatusKey, normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
+import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 
@@ -221,16 +222,12 @@ function ConfiguracoesLojaPage() {
     onSuccess: () => {
       toast.success("Configurações salvas");
       markClean();
-      // Invalida TODA leitura de config para refletir na hora. As leituras usam
-      // prefixos divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
-      // tenant-config-threshold, tenant-status-kanban, ft-tamanhos…), então casamos
-      // por predicate em vez de prefixo único.
-      qc.invalidateQueries({
-        predicate: (q) => {
-          const k = q.queryKey?.[0];
-          return typeof k === "string" && (k.includes("tenant") || k.includes("tamanhos"));
-        },
-      });
+      // Invalida TODA leitura de config para refletir na hora. As leituras usam prefixos
+      // divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
+      // tenant-status-kanban, ft-tamanhos, confeccao-prioridade…), então casamos por
+      // predicate. Fonte única = realtime-invalidation-map (mesmo predicate do hook global
+      // useRealtimeInvalidation), p/ o save local e o eco Realtime baterem 1:1.
+      qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });

@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { StoreClock } from "@/components/shared/StoreClock";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
+import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { PAGE_URLS } from "@/lib/nav";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,9 @@ function AuthenticatedLayout() {
   const { user, loading, signOut } = useAuth();
   const identity = useApplySystemIdentity();
   const { section, page } = useBreadcrumb();
+  // Atualização AO VIVO entre usuários: 1 canal Realtime tenant-scoped que invalida as
+  // queries de config/cadastro quando OUTRO usuário salva (item 11 do dono). No-op sem user.
+  useRealtimeInvalidation();
   // Loja inativa = suspensão real: a RLS já bloqueia os dados (get_user_tenant_id
   // retorna o UUID sentinela nil '0000…', NUNCA NULL — invariante 13); aqui só
   // mostramos a mensagem em vez de telas vazias.
