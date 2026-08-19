@@ -122,7 +122,7 @@ function PlanTecidoListPage() {
         <div className="flex min-w-0 items-start gap-3">
           <Layers className="mt-0.5 h-7 w-7 shrink-0 text-primary" />
           <div className="min-w-0">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">Planejamento de Tecido</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Planejamento de Tecido</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos.</p>
           </div>
         </div>

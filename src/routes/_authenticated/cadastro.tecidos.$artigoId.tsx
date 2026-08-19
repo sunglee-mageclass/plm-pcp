@@ -362,7 +362,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{form.nome}</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">{form.nome}</h1>
           <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
         </div>
         <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />

@@ -379,7 +379,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         <div className="flex min-w-0 items-start gap-3">
           <PackageMinus className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">{cfg.title}</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">{cfg.title}</h1>
             <p className="text-sm text-muted-foreground">{cfg.desc}</p>
           </div>
         </div>

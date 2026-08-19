@@ -163,7 +163,7 @@ function AuditoriaPage() {
         <div className="flex min-w-0 items-start gap-3">
           <ScrollText className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">Auditoria</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Auditoria</h1>
             <p className="text-sm text-muted-foreground">
               Registro automático de todos os eventos: criado, editado ou excluído, por quem e quando.
             </p>

@@ -319,7 +319,7 @@ export function HomeLogado() {
             {branding.nome && (
               <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">{branding.nome}</p>
             )}
-            <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h1 className="font-display text-xl font-semibold tracking-tight">
               {saud}{nome ? `, ${nome}` : ""} <span aria-hidden>👋</span>
             </h1>
             <p className="mt-0.5 text-xs opacity-75">{dataLonga}</p>

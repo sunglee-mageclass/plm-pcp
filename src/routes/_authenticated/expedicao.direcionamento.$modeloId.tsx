@@ -418,7 +418,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           nome={modelo?.nome} className="h-14 w-14"
         />
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">{modelo?.colecao ?? "—"}</p>
           <ModeloResumoMeta
             subcolecao={(modelo as any)?.subcolecao} lancamento={(modelo as any)?.semana}

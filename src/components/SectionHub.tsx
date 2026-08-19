@@ -53,7 +53,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
       <header className="flex items-start gap-3">
         {Header && <Header className="mt-0.5 h-7 w-7 shrink-0 text-primary" />}
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">{meta?.title ?? mod?.label ?? "Setor"}</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">{meta?.title ?? mod?.label ?? "Setor"}</h1>
           {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
         </div>
       </header>

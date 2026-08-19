@@ -81,7 +81,7 @@ function OficinaListPage() {
         <div className="flex items-start gap-3">
           <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Oficina</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Oficina</h1>
             <p className="text-sm text-muted-foreground">Costura e montagem por REF.</p>
           </div>
         </div>

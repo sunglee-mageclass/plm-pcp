@@ -248,7 +248,7 @@ function OficinaDetailPage() {
         <header className="flex items-start gap-3">
           <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="flex-1">
-            <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
             <p className="text-sm text-muted-foreground">
               {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
             </p>

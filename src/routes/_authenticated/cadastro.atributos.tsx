@@ -520,7 +520,7 @@ function AtributosPage() {
       <header className="flex items-start gap-3">
         <Tags className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Atributos</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">Atributos</h1>
           <p className="text-sm text-muted-foreground">
             Listas de apoio usadas em todo o cadastro do sistema.
           </p>

@@ -157,7 +157,7 @@ function OcInsumoPage() {
         <div className="flex min-w-0 items-start gap-3">
           <Package className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold truncate">OC Insumo</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight truncate">OC Insumo</h1>
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de insumos (etiquetas/tags), por variante.</p>
           </div>
         </div>

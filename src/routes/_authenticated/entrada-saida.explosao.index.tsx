@@ -149,7 +149,7 @@ function ExplosaoListPage() {
         <div className="flex items-start gap-3">
           <Layers className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Explosão</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Explosão</h1>
             <p className="text-sm text-muted-foreground">Modelos prontos para dar baixa de estoque (corte).</p>
           </div>
         </div>

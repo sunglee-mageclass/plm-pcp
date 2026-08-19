@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/alertas-teci
         <header className="flex items-start gap-3">
           <AlertTriangle className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Alertas de Tecido</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Alertas de Tecido</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Tecidos sinalizados no Controle de Qualidade aguardando ação do Estilo. Resolva com Estilo OK, troca ou cancelamento.
             </p>

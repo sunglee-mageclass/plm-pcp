@@ -101,7 +101,7 @@ function DirListPage() {
         <div className="flex items-start gap-3">
           <Compass className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Direcionamento</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Direcionamento</h1>
             <p className="text-sm text-muted-foreground">Distribuição entre as lojas cadastradas.</p>
           </div>
         </div>

@@ -232,7 +232,7 @@ function OcTecidoPage() {
         <div className="flex min-w-0 items-start gap-3">
           <Scissors className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold truncate">OC de Tecido</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight truncate">OC de Tecido</h1>
             {/* Subtítulo contextual: explica p/ que serve cada aba (um usuário não entendeu Rolos). */}
             <p className="text-sm text-muted-foreground mt-1">
               {tab === "rolos"

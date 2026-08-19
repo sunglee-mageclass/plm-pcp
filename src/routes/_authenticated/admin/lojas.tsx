@@ -196,7 +196,7 @@ function LojasPage() {
         <div className="flex items-start gap-4">
           <Store className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Gerenciar Lojas</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Gerenciar Lojas</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Cadastre e administre todas as lojas do sistema.
             </p>

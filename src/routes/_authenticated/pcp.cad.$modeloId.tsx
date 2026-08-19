@@ -977,7 +977,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           <div className="flex-1 min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <Scissors className="h-5 w-5 text-primary shrink-0" />
-              <h1 className="text-xl max-md:text-lg font-bold">{modelo?.nome ?? "—"}</h1>
+              <h1 className="font-display text-xl max-md:text-lg font-semibold tracking-tight">{modelo?.nome ?? "—"}</h1>
               <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
               <VersaoBadge versao={modelo?.versao} />
             </div>

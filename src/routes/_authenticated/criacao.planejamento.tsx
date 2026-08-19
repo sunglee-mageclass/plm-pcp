@@ -838,7 +838,7 @@ function PlanejamentoPage() {
           <ClipboardList className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
             {/* Mobile: título curto — "Planejamento de Produto" cortava (dono ago/2026). */}
-            <h1 className="font-display text-2xl font-semibold tracking-tight truncate">
+            <h1 className="font-display text-xl font-semibold tracking-tight truncate">
               <span className="md:hidden">P. Produto</span>
               <span className="hidden md:inline">Planejamento de Produto</span>
             </h1>

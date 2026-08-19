@@ -76,7 +76,7 @@ function Dashboard() {
       <header className="flex items-start gap-3">
         <BarChart3 className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
         </div>
       </header>

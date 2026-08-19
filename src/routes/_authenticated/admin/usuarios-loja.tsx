@@ -104,7 +104,7 @@ function UsuariosLojaPage() {
         <div className="flex items-start gap-4">
           <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Usuários da Minha Loja</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Usuários da Minha Loja</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Crie usuários e configure quais páginas eles podem acessar.
             </p>

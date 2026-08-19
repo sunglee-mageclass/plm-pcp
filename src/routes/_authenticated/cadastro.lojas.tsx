@@ -185,7 +185,7 @@ function LojasPage() {
       <header className="flex items-start gap-3">
         <Store className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Lojas</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">Lojas</h1>
           <p className="text-sm text-muted-foreground">
             Destinos do Direcionamento (ex.: E-commerce, Loja Física, franquias).
           </p>

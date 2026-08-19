@@ -498,7 +498,7 @@ function DesenvolvimentoPage() {
         <div className="flex min-w-0 items-start gap-3">
           <Hammer className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="truncate text-xl sm:text-2xl font-bold">Desenvolvimento</h1>
+            <h1 className="truncate font-display text-xl font-semibold tracking-tight">Desenvolvimento</h1>
             <p className="text-sm text-muted-foreground">Kanban dos modelos planejados.</p>
           </div>
         </div>

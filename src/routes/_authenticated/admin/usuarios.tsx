@@ -179,7 +179,7 @@ function UsuariosPage() {
         <div className="flex items-start gap-4">
           <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold">Gerenciar Usuários</h1>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Gerenciar Usuários</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Crie e administre usuários de todas as lojas.
             </p>

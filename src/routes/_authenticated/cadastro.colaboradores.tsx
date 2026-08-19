@@ -285,7 +285,7 @@ function ColaboradoresPage() {
       <header className="flex items-start gap-3">
         <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Colaboradores</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">Colaboradores</h1>
           <p className="text-sm text-muted-foreground">
             Pessoas envolvidas no processo, organizadas por tipo.
           </p>

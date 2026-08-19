@@ -36,7 +36,7 @@ function AdminPage() {
       <header className="flex items-start gap-3">
         <Shield className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Admin</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">Admin</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gestão de usuários, lojas e configurações do sistema.
           </p>
