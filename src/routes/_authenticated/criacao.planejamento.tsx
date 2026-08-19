@@ -2172,6 +2172,11 @@ function ModeloDialog({
       // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem
       // isto o Dev não ficava sabendo de edições de MO salvas aqui sem refetch manual.
       qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+      // Identidade/classificação (Nome, taxonomia, coleção, linha, datas) é a MESMA ficha
+      // `modelos` editada no Dev (seção "1. Geral") — o Dev já invalida `modelos-planejamento`
+      // no seu save (reflexo Dev→Plan.); este espelha o sentido Plan.→Dev pra o card do kanban
+      // do Desenvolvimento refletir sem refetch manual (§K, decisão do dono ago/2026).
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
       qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
       onSaved();

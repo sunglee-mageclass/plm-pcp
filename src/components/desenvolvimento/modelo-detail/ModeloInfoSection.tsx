@@ -115,99 +115,119 @@ export function ModeloInfoSection({
 
   return (
     <div className="space-y-3">
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Field label="Nome">
-          <Input
-            value={draft.nome}
-            onChange={(e) => setDraft({ ...draft, nome: e.target.value })}
-            data-colab-path={colabField("nome")["data-colab-path"]}
-            title={colabField("nome").title}
-            className={colabField("nome").className}
-          />
-        </Field>
-        {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel).
-            REF: aparece a partir da etapa configurada (Config da Loja › Status do Kanban). */}
-        {refVisivel && (
-          <Field label={fl("ref")}>
-            <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
+      {/* DISTRIBUIÇÃO §K (decisão do dono, ago/2026): identidade/classificação que vem do
+          Planejamento fica num cluster, o que o Dev define/co-define no outro. TODOS os campos
+          seguem INPUTS EDITÁVEIS (nada de resumo/⧉ aqui) — o reflexo é bidirecional porque as
+          duas telas editam a MESMA ficha `modelos`. */}
+      <div className="rounded-md border border-dashed p-3 space-y-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Identidade &amp; classificação
+          <span className="ml-1.5 font-normal normal-case tracking-normal">— compartilhada com o Planejamento (reflete nos dois sentidos)</span>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Nome">
+            <Input
+              value={draft.nome}
+              onChange={(e) => setDraft({ ...draft, nome: e.target.value })}
+              data-colab-path={colabField("nome")["data-colab-path"]}
+              title={colabField("nome").title}
+              className={colabField("nome").className}
+            />
           </Field>
-        )}
+          <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
+        </div>
         {isReprovado && (
           <Field label="Motivo do Cancelamento" full>
             <Textarea rows={2} value={draft.motivo_cancelamento} onChange={(e) => setDraft({ ...draft, motivo_cancelamento: e.target.value })} />
           </Field>
         )}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
-        <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Grupo FILTRA a Categoria (não é salvo). Categoria vem do Planejamento, editável aqui. */}
-        <FieldSelectOpt
-          label="Grupo"
-          value={grupoId}
-          onChange={(v) => {
-            setGrupoId(v);
-            const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
-            // Se a categoria atual não pertence ao novo grupo, limpa categoria + subcategorias.
-            if (cat && cat.grupo_id !== v) setDraft({ ...draft, categoria_principal_id: null, subcategoria1_id: null, subcategoria2_id: null });
-          }}
-          options={grupos}
-        />
-        <FieldSelectOpt
-          label="Categoria"
-          value={draft.categoria_principal_id}
-          onChange={(v) =>
-            // Trocar a categoria invalida as subcategorias (que pertencem a ela).
-            setDraft({ ...draft, categoria_principal_id: v, subcategoria1_id: null, subcategoria2_id: null })
-          }
-          options={grupoId ? categorias.filter((c) => c.grupo_id === grupoId) : categorias}
-        />
-        <FieldSelectOpt
-          label="Subcategoria 1"
-          value={draft.subcategoria1_id}
-          onChange={(v) => setDraft({ ...draft, subcategoria1_id: v })}
-          options={sub1Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
-        />
-        <FieldSelectOpt
-          label="Subcategoria 2"
-          value={draft.subcategoria2_id}
-          onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
-          options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
-        />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <FieldSelectOpt label="Lançamento" value={draft.semana || null} onChange={(v) => setDraft({ ...draft, semana: v })} options={["1", "2", "3", "4", "5"].map((s) => ({ id: s, nome: s }))} />
-        <FieldSelectOpt label="Mês" value={draft.mes_id || null} onChange={(v) => setDraft({ ...draft, mes_id: v })} options={meses} />
-        <FieldSelectOpt label="Ano" value={draft.ano_id || null} onChange={(v) => setDraft({ ...draft, ano_id: v })} options={anos} />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {otbOn && (
+        <div className="grid grid-cols-2 gap-3">
+          {/* Grupo FILTRA a Categoria (não é salvo). Categoria vem do Planejamento, editável aqui. */}
           <FieldSelectOpt
-            label="Coleção"
-            value={draft.colecao_id}
+            label="Grupo"
+            value={grupoId}
             onChange={(v) => {
-              const col = (colecoes ?? []).find((c) => c.id === v);
-              setDraft({ ...draft, colecao_id: v, colecao: col?.nome ?? draft.colecao,
-                mes_id: draft.mes_id ?? col?.mes_id ?? null, ano_id: draft.ano_id ?? col?.ano_id ?? null });
+              setGrupoId(v);
+              const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+              // Se a categoria atual não pertence ao novo grupo, limpa categoria + subcategorias.
+              if (cat && cat.grupo_id !== v) setDraft({ ...draft, categoria_principal_id: null, subcategoria1_id: null, subcategoria2_id: null });
             }}
-            options={(colecoes ?? []).map((c) => ({ id: c.id, nome: c.nome }))}
+            options={grupos}
           />
-        )}
-        {otbOn ? (
           <FieldSelectOpt
-            label="Subcoleção"
-            value={draft.subcolecao || null}
-            onChange={(v) => setDraft({ ...draft, subcolecao: v })}
-            options={Array.from(new Set([...(subcolecoes ?? []), ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: s }))}
+            label="Categoria"
+            value={draft.categoria_principal_id}
+            onChange={(v) =>
+              // Trocar a categoria invalida as subcategorias (que pertencem a ela).
+              setDraft({ ...draft, categoria_principal_id: v, subcategoria1_id: null, subcategoria2_id: null })
+            }
+            options={grupoId ? categorias.filter((c) => c.grupo_id === grupoId) : categorias}
           />
-        ) : (
-          <Field label="Subcoleção">
-            <Input value={draft.subcolecao ?? ""} onChange={(e) => setDraft({ ...draft, subcolecao: e.target.value })} />
-          </Field>
-        )}
-        <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {otbOn && (
+            <FieldSelectOpt
+              label="Coleção"
+              value={draft.colecao_id}
+              onChange={(v) => {
+                const col = (colecoes ?? []).find((c) => c.id === v);
+                setDraft({ ...draft, colecao_id: v, colecao: col?.nome ?? draft.colecao,
+                  mes_id: draft.mes_id ?? col?.mes_id ?? null, ano_id: draft.ano_id ?? col?.ano_id ?? null });
+              }}
+              options={(colecoes ?? []).map((c) => ({ id: c.id, nome: c.nome }))}
+            />
+          )}
+          {otbOn ? (
+            <FieldSelectOpt
+              label="Subcoleção"
+              value={draft.subcolecao || null}
+              onChange={(v) => setDraft({ ...draft, subcolecao: v })}
+              options={Array.from(new Set([...(subcolecoes ?? []), ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: s }))}
+            />
+          ) : (
+            <Field label="Subcoleção">
+              <Input value={draft.subcolecao ?? ""} onChange={(e) => setDraft({ ...draft, subcolecao: e.target.value })} />
+            </Field>
+          )}
+          <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <FieldSelectOpt label="Lançamento" value={draft.semana || null} onChange={(v) => setDraft({ ...draft, semana: v })} options={["1", "2", "3", "4", "5"].map((s) => ({ id: s, nome: s }))} />
+          <FieldSelectOpt label="Mês" value={draft.mes_id || null} onChange={(v) => setDraft({ ...draft, mes_id: v })} options={meses} />
+          <FieldSelectOpt label="Ano" value={draft.ano_id || null} onChange={(v) => setDraft({ ...draft, ano_id: v })} options={anos} />
+        </div>
+      </div>
+      {/* Cluster do Desenvolvimento — o que a etapa DEFINE/CO-DEFINE (invariante 11): REF gerada
+          e editável aqui, Modelista, Subcategoria 1/2 (só definidas no Dev). Campos, não resumo. */}
+      <div className="rounded-md border border-dashed p-3 space-y-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Desenvolvimento
+          <span className="ml-1.5 font-normal normal-case tracking-normal">— definido/co-definido nesta etapa</span>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel).
+              REF: aparece a partir da etapa configurada (Config da Loja › Status do Kanban). */}
+          {refVisivel && (
+            <Field label={fl("ref")}>
+              <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
+            </Field>
+          )}
+          <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldSelectOpt
+            label="Subcategoria 1"
+            value={draft.subcategoria1_id}
+            onChange={(v) => setDraft({ ...draft, subcategoria1_id: v })}
+            options={sub1Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+          />
+          <FieldSelectOpt
+            label="Subcategoria 2"
+            value={draft.subcategoria2_id}
+            onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
+            options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+          />
+        </div>
       </div>
       {/* Cronograma & pilotos — cluster agrupado (mockup) p/ separar de identidade/classificação. */}
       <div className="rounded-md border border-dashed p-3">
