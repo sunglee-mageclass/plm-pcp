@@ -3298,8 +3298,8 @@ function BatchCardsDialog({
 
         <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Cancelar</span>
+            <ArrowLeft className="h-4 w-4 sm:mr-1" />
+            <span className="max-sm:sr-only">Voltar</span>
           </Button>
           <Button className="max-sm:ml-auto" onClick={() => create.mutate()} disabled={create.isPending || total === 0}>
             {create.isPending ? "Criando…" : `Criar ${total} ${total === 1 ? "card" : "cards"}`}

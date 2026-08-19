@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, ArrowLeft } from "lucide-react";
 import { useModeloParaCopia } from "./useModeloParaCopia";
 import { construirCopia, gradeAplicavel, type Selecao, type ItemTecido, type ResultadoCopia, type ModeloParaCopia } from "./importar-copia";
 import { TIPOS, TIPO_LABEL, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
@@ -123,7 +123,7 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
           </fieldset>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button disabled={!origem} onClick={copiar}>Copiar</Button>
         </DialogFooter>
       </DialogContent>

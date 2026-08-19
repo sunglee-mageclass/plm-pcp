@@ -8,6 +8,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -186,7 +187,7 @@ export function BulkEditDialog({
           <span className="mr-auto self-center text-xs text-muted-foreground max-sm:hidden">
             {alterados.length === 0 ? "Nada a aplicar" : `Vai gravar ${alterados.join(", ")} em ${ids.length} card(s)`}
           </span>
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button variant="ghost" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           {/* Confirma antes de gravar em N cards — simétrico com o Excluir em massa (laudo). */}
           <Button onClick={() => setConfirmOpen(true)} disabled={apply.isPending || alterados.length === 0}>
             {apply.isPending ? "Aplicando…" : "Aplicar…"}

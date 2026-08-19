@@ -285,7 +285,7 @@ function LojasPage() {
           </DialogHeader>
           {formFields}
           <DialogFooter>
-            <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+            <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}

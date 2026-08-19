@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
-import { AlertTriangle, Check, Ban, ChevronRight, RotateCcw, Repeat } from "lucide-react";
+import { AlertTriangle, Check, Ban, ChevronRight, RotateCcw, Repeat, ArrowLeft } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -534,7 +534,7 @@ export function AlertasList() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setTrocaRolo(null); setTrocaMetragem(""); }}>Cancelar</Button>
+              <Button variant="outline" onClick={() => { setTrocaRolo(null); setTrocaMetragem(""); }}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
               <Button
                 onClick={() => trocaRoloMut.mutate({
                   rolo_id: trocaRolo.oc_id!,
@@ -586,7 +586,7 @@ function ReceberReposicaoDialog({ original, reposicao, onClose }: { original: Cq
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={confirmar} disabled={reposicao.isPending}>Confirmar recebimento</Button>
         </DialogFooter>
       </DialogContent>
@@ -676,7 +676,7 @@ function TrocaDialog({ original, resol, onClose }: { original: CqItem; resol: Re
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={confirmar} disabled={resol.isPending}>Confirmar troca</Button>
         </DialogFooter>
       </DialogContent>

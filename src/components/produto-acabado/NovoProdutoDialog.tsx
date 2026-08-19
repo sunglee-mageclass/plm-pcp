@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,7 +145,7 @@ export function NovoProdutoDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancelar</Button>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => criarMut.mutate()} disabled={criarMut.isPending}>
             {criarMut.isPending ? "Criando…" : "Criar"}
           </Button>

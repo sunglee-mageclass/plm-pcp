@@ -90,12 +90,12 @@ function CategoriaDistribuicaoDialog({
           })}
           {blocos.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma categoria cadastrada.</p>}
         </div>
-        {/* flex-row também no mobile: Cancelar à esquerda, Aplicar à direita (não empilhar). */}
+        {/* flex-row também no mobile: Voltar à esquerda, Aplicar à direita (não empilhar). */}
         <DialogFooter className="flex-row items-center justify-end gap-2">
           <span className={`mr-auto text-sm tabular-nums ${sum > total ? "text-destructive" : "text-muted-foreground"}`}>
             {sum} / {total}{resto > 0 ? ` · resto ${resto} sem categoria` : ""}
           </span>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button disabled={!valid} onClick={() => onSave(map)}>Aplicar</Button>
         </DialogFooter>
       </DialogContent>

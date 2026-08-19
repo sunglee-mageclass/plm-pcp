@@ -21,7 +21,7 @@ import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, type LucideIcon } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
@@ -1832,7 +1832,7 @@ function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = [
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button variant="ghost" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => mut.mutate()} disabled={uploading || mut.isPending || !podeEditar}>Confirmar</Button>
         </DialogFooter>
       </DialogContent>

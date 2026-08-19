@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, ArrowLeft } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -172,7 +172,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" disabled={salvar.isPending} onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button variant="outline" disabled={salvar.isPending} onClick={() => setOpen(false)}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             <Button disabled={salvar.isPending} onClick={() => salvar.mutate()}>
               {salvar.isPending ? "Salvando…" : "Salvar"}
             </Button>

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel, varianteLabel } from "@/lib/variante";
-import { Trash2, Pencil, Undo2, Printer, MapPin } from "lucide-react";
+import { Trash2, Pencil, Undo2, Printer, MapPin, ArrowLeft } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
@@ -282,7 +282,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+          <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => criar.mutate()} disabled={criar.isPending}>Criar rolo</Button>
         </DialogFooter>
       </DialogContent>
@@ -661,7 +661,7 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+          <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
@@ -721,7 +721,7 @@ function EnderecarEmMassaDialog({ ids, onClose, onSaved }: { ids: string[]; onCl
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Endereçar ({n})</Button>
         </DialogFooter>
       </DialogContent>
@@ -821,7 +821,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => remover.mutate()} disabled={remover.isPending}>Remover</Button>
         </DialogFooter>
       </DialogContent>

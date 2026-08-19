@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { MapPin, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { MapPin, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -202,7 +202,7 @@ function DestinosPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+            <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}

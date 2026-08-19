@@ -539,7 +539,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -589,7 +589,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" className="max-sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>Cancelar</Button>
+            <Button variant="outline" className="max-sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>
               <ArrowLeft className="h-4 w-4" />
             </Button>

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Pencil, Trash2, Search, Loader2, X } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Search, Loader2, X, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -495,7 +495,7 @@ function EtiquetasPage() {
             </div>
           </div>
           <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2 sm:justify-end">
-            <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+            <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}

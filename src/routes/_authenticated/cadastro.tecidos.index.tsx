@@ -11,6 +11,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -578,7 +579,7 @@ function CreateTecidoModal({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
           </Button>
           <Button onClick={() => onSubmit({ nome, unidade_medida: unidade })} disabled={loading}>
             {loading ? "Criando…" : "Criar e abrir"}

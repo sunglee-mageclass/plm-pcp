@@ -234,7 +234,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       </div>
       <UnsavedChangesGuard confirm={confirm} message="Há permissões não salvas para este usuário." />
       <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
-        <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+        <Button variant="outline" className="max-sm:hidden" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
         <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>

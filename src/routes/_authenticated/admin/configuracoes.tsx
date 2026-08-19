@@ -1138,7 +1138,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
 
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
         <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
-          <Button variant="ghost" onClick={requestClose}>Cancelar</Button>
+          <Button variant="ghost" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>

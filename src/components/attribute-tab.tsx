@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Plus, Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -702,7 +702,7 @@ export function AttributeTab({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={requestCreateClose}>
-              Cancelar
+              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
             </Button>
             <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>
               {createMut.isPending ? "Salvando…" : "Salvar"}

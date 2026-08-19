@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Trash2, Pencil, MoreVertical } from "lucide-react";
+import { Users, Plus, Trash2, Pencil, MoreVertical, ArrowLeft } from "lucide-react";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -471,7 +471,7 @@ function ColaboradoresPage() {
             </div>
           </DialogBody>
           <DialogFooter className="border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
-            <Button variant="outline" onClick={requestCloseType}>Cancelar</Button>
+            <Button variant="outline" onClick={requestCloseType}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             {!readOnly && (
               <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
                 {editTab
