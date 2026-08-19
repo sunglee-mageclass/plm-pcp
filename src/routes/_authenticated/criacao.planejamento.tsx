@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
+import { InfoStrip } from "@/components/shared/InfoStrip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -1566,6 +1567,14 @@ function ModeloDialog({
   const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
 
+  // Composição do custo (materiais + mão de obra) p/ o InfoStrip §K do setor Preço, no ramo
+  // MANUFATURADO. Mesma régua do card da lista: materiais = custo total − mão de obra. A MO
+  // acompanha a base do total (real quando o custo confirma, previsto senão) pra a soma sempre
+  // fechar com `custo` (`.real` do RPC = real-quando-confirmado, senão custo_peca_previsto).
+  const maoObraSetor = Number(custoReal ? (custoData as any)?.mao_obra_real : (custoData as any)?.mao_obra_previsto) || 0;
+  const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
+  const linhaNomeSetor = linhas.find((l) => l.id === draft.linha_id)?.nome ?? null;
+
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
   // revenda (Task 4) e fica disponível MESMO antes da OC ser recebida (ao contrário de
@@ -2528,31 +2537,71 @@ function ModeloDialog({
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {isEdit && (
           <Secao titulo="Preço">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={custo > 0 ? brl(custo) : "—"} />
-              <CampoRO label="Markup" value={markup > 0 ? markup.toLocaleString("pt-BR") : "—"} />
-              <CampoRO label="Preço" value={preco > 0 ? brl(preco) : "—"} />
-              <CampoRO label="Preço sugerido" value={precoSug > 0 ? brl(precoSug) : "—"} />
-              {/* Revenda (item 3 do refino, ago/2026): "Preço para venda" vira DERIVADO
-                  (markup × custo, ver bloco de markups abaixo) — MANUFATURADOS seguem
-                  digitando como sempre (preco.ts intocado, nada muda aqui). */}
-              {!isRevenda && (
+            {!isRevenda ? (
+              // MANUFATURADO — §K: custo/markup/preço vêm de OUTRA etapa (BOM/CAD +
+              // Serviços; linha do Cadastro; cálculo de preco.ts) → tira de resumo + atalho
+              // ⧉ pra etapa dona, NUNCA campo travado. Só "Preço para venda" é campo desta
+              // tela (nasce vazio, placeholder = sugerido — §D). Nada de dado/RPC muda: são
+              // os MESMOS valores (custo/markup/preco/precoSug/markupReal), só a apresentação.
+              <div className="space-y-3">
+                <InfoStrip
+                  compact
+                  titulo="Custo"
+                  procedencia="vem do Desenvolvimento (BOM/CAD) + Serviços"
+                  link={{ to: "/criacao/desenvolvimento", label: "Ver no Desenvolvimento" }}
+                  itens={[
+                    { label: "Materiais", valor: custo > 0 ? brl(materiaisSetor) : "—" },
+                    { op: "+", label: "Mão de obra", valor: custo > 0 ? brl(maoObraSetor) : "—" },
+                    {
+                      op: "=",
+                      label: "Custo total",
+                      hi: true,
+                      badge: !custoReal ? <StatusBadge tone="warning">previsto</StatusBadge> : undefined,
+                      valor: custo > 0 ? brl(custo) : "—",
+                    },
+                  ]}
+                />
+                <InfoStrip
+                  compact
+                  titulo="Formação de preço"
+                  procedencia="markup da linha · cálculo de preco.ts"
+                  link={{ to: "/cadastro/atributos", label: "Editar no Cadastro" }}
+                  itens={[
+                    { label: "Markup", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR") : "—" },
+                    { op: "→", label: "Preço", hint: "(custo × markup)", valor: preco > 0 ? brl(preco) : "—" },
+                    { op: "→", label: "Preço sugerido", hint: "(arredonda ,90)", valor: precoSug > 0 ? brl(precoSug) : "—" },
+                  ]}
+                />
                 <div className="grid gap-1">
-                  <Label>Preço para venda</Label>
+                  <Label>
+                    Preço para venda <span className="font-normal text-muted-foreground text-xs">— campo desta tela</span>
+                  </Label>
                   <NumberInput
                     value={draft.preco_venda && draft.preco_venda > 0 ? draft.preco_venda : ""}
                     placeholder={precoSug > 0 ? brl(precoSug) : undefined}
                     onChange={(e) => { const v = e.target.value; setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null })); }}
                   />
+                  <p className="text-xs text-muted-foreground">Vazio usa o preço sugerido.</p>
                 </div>
-              )}
-              {!isRevenda && <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />}
-              {/* Revenda: os 2 markups digitáveis (mesma fonte de ProdutoCard.tsx no
-                  planejador Produto Acabado, bidirecional — editar aqui reflete lá e
-                  vice-versa) + Preço atacado/Preço para venda DERIVADOS ao vivo (client-side,
-                  mesma fórmula do servidor). Sem produto vinculado ainda → hint pra criar. */}
-              {isRevenda && (
-                produtoRevenda ? (
+                <InfoStrip
+                  compact
+                  titulo="Markup real"
+                  procedencia="derivado ao vivo: preço efetivo ÷ custo"
+                  itens={[
+                    { label: "Markup real", valor: markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
+                  ]}
+                />
+              </div>
+            ) : (
+              // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
+              // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
+              // bidirecional) + Preço atacado/para venda DERIVADOS ao vivo. Intocado.
+              <div className="grid sm:grid-cols-2 gap-3">
+                <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={custo > 0 ? brl(custo) : "—"} />
+                <CampoRO label="Markup" value={markup > 0 ? markup.toLocaleString("pt-BR") : "—"} />
+                <CampoRO label="Preço" value={preco > 0 ? brl(preco) : "—"} />
+                <CampoRO label="Preço sugerido" value={precoSug > 0 ? brl(precoSug) : "—"} />
+                {produtoRevenda ? (
                   <>
                     <div className="grid gap-1">
                       <Label>Markup atacado</Label>
@@ -2589,9 +2638,9 @@ function ModeloDialog({
                   <p className="text-sm text-muted-foreground sm:col-span-2">
                     {produtoRevendaLoading ? "Carregando…" : "Crie o produto acabado (abaixo) para definir os markups de preço."}
                   </p>
-                )
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </Secao>
           )}
 
