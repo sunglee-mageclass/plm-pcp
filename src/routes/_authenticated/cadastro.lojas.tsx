@@ -251,11 +251,11 @@ function LojasPage() {
                     <Badge variant={l.ativo ? "default" : "outline"}>{l.ativo ? "Ativa" : "Desativada"}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(l)} aria-label="Editar">
+                    <Button size="iconSm" variant="ghost" onClick={() => openEdit(l)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="icon" variant="ghost"
+                      size="iconSm" variant="ghost"
                       onClick={() => setDeleteRow(l)}
                       disabled={readOnly || l.is_default}
                       aria-label="Excluir"

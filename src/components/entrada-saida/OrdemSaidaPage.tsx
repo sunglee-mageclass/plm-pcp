@@ -433,11 +433,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right whitespace-nowrap">
                     {o.baixado ? (
-                      <Button size="icon" variant="outline" onClick={() => setConfirmDesmarcar(o)} disabled={desmarcarMut.isPending} aria-label="Desmarcar baixa" title="Desmarcar baixa">
+                      <Button size="iconSm" variant="outline" onClick={() => setConfirmDesmarcar(o)} disabled={desmarcarMut.isPending} aria-label="Desmarcar baixa" title="Desmarcar baixa">
                         <RotateCcw className="h-4 w-4" />
                       </Button>
                     ) : (
-                      <Button size="icon" variant="outline" onClick={() => openBaixa(o)} aria-label="Dar baixa" title="Dar baixa">
+                      <Button size="iconSm" variant="outline" onClick={() => openBaixa(o)} aria-label="Dar baixa" title="Dar baixa">
                         <ScissorsLineDashed className="h-4 w-4" />
                       </Button>
                     )}
@@ -445,11 +445,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                         baixa mantendo o status "Baixado" e corrompia o estoque. Para
                         alterar, desmarque a baixa primeiro (botão ao lado). */}
                     {!o.baixado && (
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
+                      <Button size="iconSm" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button size="icon" variant="destructive" onClick={() => setDeleteRow(o)} aria-label="Excluir">
+                    <Button size="iconSm" variant="destructive" onClick={() => setDeleteRow(o)} aria-label="Excluir">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </TableCell>

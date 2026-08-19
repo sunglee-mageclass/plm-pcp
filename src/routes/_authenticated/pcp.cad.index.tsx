@@ -185,8 +185,8 @@ function CadListPage() {
                 <td className="px-4 py-2 text-center" data-label="">
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 hidden md:inline-flex"
+                    size="iconSm"
+                    className="hidden md:inline-flex"
                     title="Imprimir Ficha de Corte"
                     onClick={(e) => { e.stopPropagation(); setPrintReq((prev) => ({ id: r.modelo_id, token: (prev?.token ?? 0) + 1 })); }}
                   >

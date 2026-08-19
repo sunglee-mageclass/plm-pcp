@@ -373,8 +373,8 @@ function EtiquetasPage() {
                   <TableCell className="text-muted-foreground">{fornecedorLabel(e)}</TableCell>
                   <TableCell className="text-right num">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(e)} disabled={readOnly} aria-label="Excluir">
+                    <Button size="iconSm" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
+                    <Button size="iconSm" variant="ghost" onClick={() => setDeleteRow(e)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>

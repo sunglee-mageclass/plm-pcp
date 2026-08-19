@@ -756,10 +756,10 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                   <TableCell data-label="Contato">{r.contato ?? "—"}</TableCell>
                   <TableCell data-label="CNPJ">{r.cnpj ? formatCNPJ(r.cnpj) : "—"}</TableCell>
                   <TableCell data-label="Ações" className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
+                    <Button size="iconSm" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => startDelete(r)} disabled={readOnly} aria-label="Excluir">
+                    <Button size="iconSm" variant="ghost" onClick={() => startDelete(r)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -1471,10 +1471,10 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                       )}
                     </TableCell>
                     <TableCell data-label="Ações" className="text-right">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
+                      <Button size="iconSm" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly} aria-label="Excluir">
+                      <Button size="iconSm" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly} aria-label="Excluir">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </TableCell>

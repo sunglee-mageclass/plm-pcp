@@ -509,14 +509,14 @@ export function AttributeTab({
                           className="h-8 max-md:h-11"
                         />
                         <Button
-                          size="icon"
+                          size="iconSm"
                           variant="ghost"
                           onClick={() => updateMut.mutate({ id: row.id, value: editValue })}
                           disabled={updateMut.isPending}
                         >
                           <Check className="h-4 w-4 text-green-600" />
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => setEditingId(null)}>
+                        <Button size="iconSm" variant="ghost" onClick={() => setEditingId(null)}>
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -612,11 +612,11 @@ export function AttributeTab({
                   <TableCell className="text-right">
                     {!isProtected(row) && (
                       <>
-                        <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
+                        <Button size="iconSm" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         {!config.fixed && (
-                          <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
+                          <Button size="iconSm" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         )}

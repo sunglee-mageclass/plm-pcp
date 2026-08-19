@@ -238,7 +238,7 @@ function UsuariosPage() {
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(u)} title="Editar" aria-label="Editar">
+                      <Button size="iconSm" variant="ghost" onClick={() => setEditing(u)} title="Editar" aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
                       {user?.id !== u.id && (

@@ -162,10 +162,10 @@ function DestinosPage() {
                     </button>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(d)} aria-label="Editar">
+                    <Button size="iconSm" variant="ghost" onClick={() => openEdit(d)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(d)} disabled={readOnly} aria-label="Excluir">
+                    <Button size="iconSm" variant="ghost" onClick={() => setDeleteRow(d)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
