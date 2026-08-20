@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
+import { corApelidoLabel } from "@/lib/variante";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -73,7 +74,28 @@ type Empresa = {
   representantes?: { id: string; nome: string | null }[] | null;
 };
 type Colab = { id: string; nome: string; tipo: string };
-type Aviamento = { id: string; codigo_nome: string; empresa_id: string | null; preco: number | null };
+// Variante de aviamento (cor base + cor apelido) embedada por aviamento p/ o 2º Select.
+type AviamentoVariante = {
+  id: string;
+  nome_variante: string | null;
+  codigo_variante: string | null;
+  cor: { nome: string | null } | null;
+  apelido: { nome: string | null } | null;
+};
+type Aviamento = {
+  id: string;
+  codigo_nome: string;
+  empresa_id: string | null;
+  preco: number | null;
+  variantes: AviamentoVariante[];
+};
+
+/** Rótulo da variante do aviamento: "cor - cor apelido" (fonte única @/lib/variante),
+ *  caindo p/ nome/código da variante quando não há cor. */
+function varianteAviLabel(v: AviamentoVariante): string {
+  const l = corApelidoLabel(v.cor?.nome, v.apelido?.nome);
+  return l !== "—" ? l : (v.nome_variante || v.codigo_variante || "—");
+}
 
 type OC = {
   id: string;
@@ -93,6 +115,7 @@ type ItemDraft = {
   tempId: string;
   id?: string;
   aviamento_id: string;
+  variante_aviamento_id: string | null;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
   cancelado: boolean;
@@ -544,6 +567,7 @@ function OcDialog({
         tempId: i.id,
         id: i.id,
         aviamento_id: i.aviamento_id,
+        variante_aviamento_id: i.variante_aviamento_id ?? null,
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
         cancelado: !!i.cancelado,
@@ -559,18 +583,31 @@ function OcDialog({
   const { data: aviamentos = [] } = useQuery({
     queryKey: ["aviamentos-by-empresa", draft.empresa_id],
     queryFn: async () => {
-      let q = supabase.from("aviamentos").select("id, codigo_nome, empresa_id, preco").order("codigo_nome");
+      // Embed das variantes (cor base + cor apelido) p/ o 2º Select por item — espelha
+      // o padrão do tecido em @/lib/variante (cor:cor_id / apelido:cor_apelido_id).
+      let q = supabase
+        .from("aviamentos")
+        .select(
+          "id, codigo_nome, empresa_id, preco, variantes:variantes_aviamento(id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))",
+        )
+        .order("codigo_nome");
       if (draft.empresa_id) q = q.eq("empresa_id", draft.empresa_id);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as Aviamento[];
+      return ((data ?? []) as any[]).map((a) => ({
+        id: a.id as string,
+        codigo_nome: a.codigo_nome as string,
+        empresa_id: a.empresa_id as string | null,
+        preco: a.preco as number | null,
+        variantes: (a.variantes ?? []) as AviamentoVariante[],
+      })) as Aviamento[];
     },
   });
   const aviMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
 
   const addItem = () => {
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
-    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
+    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", variante_aviamento_id: null, quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
   };
   const removeItem = (tempId: string) =>
     // Remove APENAS o item clicado (não há ordem/cascata entre aviamentos de uma OC).
@@ -620,6 +657,7 @@ function OcDialog({
         .map((i) => ({
           id: i.id ?? null,
           aviamento_id: i.aviamento_id,
+          variante_aviamento_id: i.variante_aviamento_id ?? null,
           quantidade_pedida: i.quantidade_pedida,
           quantidade_recebida: i.quantidade_recebida,
           cancelado: i.cancelado,
@@ -851,16 +889,42 @@ function OcDialog({
                 {items.map((i) => (
                   <TableRow key={i.tempId} className={i.cancelado ? "opacity-50" : ""}>
                     <TableCell>
-                      <Select value={i.aviamento_id} onValueChange={(v) => updateItem(i.tempId, { aviamento_id: v })}>
-                        <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                        <SelectContent>
-                          {aviamentos.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                              {a.codigo_nome} — {fmtMoney(Number(a.preco ?? 0))}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-1.5">
+                        <Select
+                          value={i.aviamento_id}
+                          onValueChange={(v) => updateItem(i.tempId, { aviamento_id: v, variante_aviamento_id: null })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectContent>
+                            {aviamentos.map((a) => (
+                              <SelectItem key={a.id} value={a.id}>
+                                {a.codigo_nome} — {fmtMoney(Number(a.preco ?? 0))}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {/* 2º Select: variantes (cor) do aviamento escolhido. Aviamento sem
+                            variantes = oculto (não quebra). Exibe a variante COMPRADA quando editando. */}
+                        {(() => {
+                          const vars = aviMap[i.aviamento_id]?.variantes ?? [];
+                          if (!i.aviamento_id || vars.length === 0) return null;
+                          return (
+                            <Select
+                              value={i.variante_aviamento_id ?? ""}
+                              onValueChange={(v) => updateItem(i.tempId, { variante_aviamento_id: v || null })}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Variante (cor)…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {vars.map((vr) => (
+                                  <SelectItem key={vr.id} value={vr.id}>{varianteAviLabel(vr)}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()}
+                      </div>
                     </TableCell>
                     <TableCell data-label="Qtd Pedida">
                       <NumberInput type="number" step="0.01" placeholder="0" value={i.quantidade_pedida || undefined}
