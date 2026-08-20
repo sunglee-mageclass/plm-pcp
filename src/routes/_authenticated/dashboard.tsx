@@ -2155,7 +2155,7 @@ function LeadtimeMobileCards({ itens, lookup, slaServico }: {
                 if (!fase) {
                   return (
                     <span key={f.key} className="flex-1 rounded-md border bg-muted px-0.5 py-1 text-center text-muted-foreground/60">
-                      <span className="block text-[9px] font-semibold">{LT_CHIP_SHORT[i]}</span>
+                      <span className="block text-[11px] font-semibold">{LT_CHIP_SHORT[i]}</span>
                       <span className="block text-xs font-bold">—</span>
                     </span>
                   );
@@ -2170,7 +2170,7 @@ function LeadtimeMobileCards({ itens, lookup, slaServico }: {
                     style={{ background: CHART_SEQ[idx], color: seqTextToken(idx) }}
                     title={`${f.label}: ${fmtNum(fase.valor)}d · meta ${fmtNum(fase.meta)}d · ${fmtNum(ratio)}×`}
                   >
-                    <span className="block text-[9px] font-semibold">{LT_CHIP_SHORT[i]}{chipOver && <span aria-hidden> ▲</span>}</span>
+                    <span className="block text-[11px] font-semibold">{LT_CHIP_SHORT[i]}{chipOver && <span aria-hidden> ▲</span>}</span>
                     <span className="block text-xs font-bold tabular-nums">{fmtInt(fase.valor)}</span>
                   </span>
                 );

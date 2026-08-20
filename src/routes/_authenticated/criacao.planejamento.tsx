@@ -1105,14 +1105,14 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         // barreira p/ daltônicos, e sem contexto do modelo). Status por texto, não só cor.
         <div className="p-2 space-y-1">
           <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-          <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5 text-[9px] normal-case tracking-normal">{meta.label}</StatusBadge>
+          <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
           <div className="flex items-center gap-1">
             {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
             {(podeVerCustos || podeAprovarMaoObra) && (
               <StatusBadge
                 tone={moEstado === "aprovada" || moEstado === "sem_servico" ? "success" : moEstado === "reprovada" ? "danger" : "warning"}
                 title={moTxt}
-                className="ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px]"
+                className="ml-auto shrink-0 rounded-full px-1 py-0.5"
               >
                 MO
               </StatusBadge>

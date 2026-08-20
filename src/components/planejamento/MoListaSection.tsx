@@ -71,7 +71,7 @@ export function MoListaSection({
                 <TooltipTrigger asChild>
                   <StatusBadge
                     tone={estado === "aprovada" ? "success" : estado === "reprovada" ? "danger" : "warning"}
-                    className="gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] normal-case tracking-normal"
+                    className="gap-0.5 rounded-full px-1.5 py-0.5"
                   >
                     {estado === "aprovada" ? <Check className="h-2.5 w-2.5" /> : estado === "reprovada" ? <X className="h-2.5 w-2.5" /> : <AlertTriangle className="h-2.5 w-2.5" />}
                     {estado}
