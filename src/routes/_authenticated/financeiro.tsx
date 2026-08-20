@@ -899,25 +899,22 @@ function ComprovanteLink({ value, label, className, icone }: { value: string; la
   let alvo = value;
   if (!isPath) { try { alvo = new URL(value).pathname; } catch { /* mantém value */ } }
   const ehImg = COMPROVANTE_IMG_EXT.test(alvo);
-  // `icone`: botão de clipe (§Q8, iconSm) — affordance clara na lista de pagamentos (dono ago/2026;
-  // o link de texto passava despercebido). Sem `icone`: link de texto (dialogs de detalhe).
-  const gatilho = icone
-    ? <button type="button" title="Ver comprovante" aria-label="Ver comprovante"
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={(e) => e.stopPropagation()}>
-        <Paperclip className="h-4 w-4" />
-      </button>
-    : <span className="underline">{label}</span>;
+  // `icone`: clipe (§Q8) — affordance clara na lista de pagamentos (dono ago/2026; o link de texto
+  // passava despercebido). ⚠️ O ImagePreview JÁ envolve os filhos num <div role=button> com o
+  // próprio onClick — o gatilho de imagem NÃO pode ser um <button>/ter onClick (stopPropagation
+  // interno matava o clique e o lightbox não abria). Span puro; o clique é do ImagePreview.
+  const iconeCls = "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground";
   if (ehImg) {
+    const gatilho = icone
+      ? <span className={iconeCls} title="Ver comprovante" aria-label="Ver comprovante"><Paperclip className="h-4 w-4" /></span>
+      : <span className="underline">{label}</span>;
     return <ImagePreview src={href} alt={label} className={className}>{gatilho}</ImagePreview>;
   }
-  // PDF/outros: abre em aba. No modo ícone, o próprio botão vira o link.
+  // PDF/outros: abre em aba (o <a> é o próprio gatilho, sem ImagePreview → pode ter onClick).
   return (
     <a href={href} target="_blank" rel="noreferrer" className={icone ? "inline-flex" : className} onClick={(e) => e.stopPropagation()}
        title={icone ? "Ver comprovante" : undefined} aria-label={icone ? "Ver comprovante" : undefined}>
-      {icone
-        ? <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"><Paperclip className="h-4 w-4" /></span>
-        : label}
+      {icone ? <span className={iconeCls}><Paperclip className="h-4 w-4" /></span> : label}
     </a>
   );
 }
