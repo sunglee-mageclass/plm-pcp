@@ -22,7 +22,7 @@ import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
   TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, type LucideIcon } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, Check, Clock, Circle, ArrowLeft, Paperclip, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtInt } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
@@ -889,7 +889,7 @@ function ParcelaDetailDialog({
 // aba nova. Assim todo anexo enviado é visualizável na própria lista (antes só abria em aba).
 const COMPROVANTE_IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(\?|#|$)/i;
 
-function ComprovanteLink({ value, label, className }: { value: string; label: string; className?: string }) {
+function ComprovanteLink({ value, label, className, icone }: { value: string; label: string; className?: string; icone?: boolean }) {
   // Compat: registros antigos guardavam a signed URL inteira; novos guardam o path do bucket.
   const isPath = !value.startsWith("http");
   const signedUrl = useSignedUrl(isPath ? value : null, "comprovantes");
@@ -898,14 +898,28 @@ function ComprovanteLink({ value, label, className }: { value: string; label: st
   // Detecta imagem pela extensão do path do bucket (ou do pathname da URL legada).
   let alvo = value;
   if (!isPath) { try { alvo = new URL(value).pathname; } catch { /* mantém value */ } }
-  if (COMPROVANTE_IMG_EXT.test(alvo)) {
-    return (
-      <ImagePreview src={href} alt={label} className={className}>
-        <span className="underline">{label}</span>
-      </ImagePreview>
-    );
+  const ehImg = COMPROVANTE_IMG_EXT.test(alvo);
+  // `icone`: botão de clipe (§Q8, iconSm) — affordance clara na lista de pagamentos (dono ago/2026;
+  // o link de texto passava despercebido). Sem `icone`: link de texto (dialogs de detalhe).
+  const gatilho = icone
+    ? <button type="button" title="Ver comprovante" aria-label="Ver comprovante"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"
+        onClick={(e) => e.stopPropagation()}>
+        <Paperclip className="h-4 w-4" />
+      </button>
+    : <span className="underline">{label}</span>;
+  if (ehImg) {
+    return <ImagePreview src={href} alt={label} className={className}>{gatilho}</ImagePreview>;
   }
-  return <a href={href} target="_blank" rel="noreferrer" className={className} onClick={(e) => e.stopPropagation()}>{label}</a>;
+  // PDF/outros: abre em aba. No modo ícone, o próprio botão vira o link.
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className={icone ? "inline-flex" : className} onClick={(e) => e.stopPropagation()}
+       title={icone ? "Ver comprovante" : undefined} aria-label={icone ? "Ver comprovante" : undefined}>
+      {icone
+        ? <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"><Paperclip className="h-4 w-4" /></span>
+        : label}
+    </a>
+  );
 }
 
 // Origem legível de uma parcela (rótulo do tipo de OC · Nº · parcela), p/ o sublabel das
@@ -1238,7 +1252,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
                       ))}
                       {p.comprovante_url && (
-                        <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
+                        <ComprovanteLink value={p.comprovante_url} label="Ver comprovante" className="ml-2 align-middle" icone />
                       )}
                     </td>
                   </tr>
@@ -1484,7 +1498,7 @@ function ServicosView() {
                         <Button size="sm" onClick={() => setPagandoId(r.parcela_id)}>Marcar pago</Button>
                       ))}
                       {r.comprovante_url && (
-                        <ComprovanteLink value={r.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
+                        <ComprovanteLink value={r.comprovante_url} label="Ver comprovante" className="ml-2 align-middle" icone />
                       )}
                     </td>
                   </tr>
