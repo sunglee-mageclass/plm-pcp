@@ -42,7 +42,7 @@ export function construirCopia(origem: ModeloParaCopia, _destinoBlocks: TecidoBl
   if (sel.obsTecnica) { patch.observacoes_tecnicas = origem.observacoes_tecnicas; campos.add("obs_tecnicas"); }
   if (sel.custosAdicionais) { patch.custos_adicionais = origem.custos_adicionais.map((c) => ({ ...c })); campos.add("custos_adicionais"); }
   if (sel.aviamentos) {
-    patch.aviamentos = origem.aviamentos.map((r) => ({ aviamento_id: r.aviamento_id, consumo: r.consumo, loss_percent: r.loss_percent, custo_previsto: r.custo_previsto }));
+    patch.aviamentos = origem.aviamentos.map((r) => ({ aviamento_id: r.aviamento_id, variante_aviamento_id: r.variante_aviamento_id ?? null, consumo: r.consumo, loss_percent: r.loss_percent, custo_previsto: r.custo_previsto }));
     campos.add("aviamentos");
   }
   if (sel.etiquetas) {

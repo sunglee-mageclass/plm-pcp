@@ -35,12 +35,13 @@ describe("construirCopia — escalares", () => {
 
 describe("construirCopia — listas e grade", () => {
   it("copia aviamentos e etiquetas sem id (novos)", () => {
-    const av: AviamentoRow = { id: "a1", aviamento_id: "AV", consumo: 2, loss_percent: 0, custo_previsto: 4 };
+    const av: AviamentoRow = { id: "a1", aviamento_id: "AV", variante_aviamento_id: "VAR", consumo: 2, loss_percent: 0, custo_previsto: 4 };
     const et: ModeloEtiquetaRow = { id: "e1", etiqueta_id: "ET", cor_id: "C", consumo: 1, loss_percent: 0, custo_previsto: 1 };
     const origem = { ...origemVazia(), aviamentos: [av], etiquetas: [et] };
     const sel = { ...selNada(), aviamentos: true, etiquetas: true };
     const { patch, campos } = construirCopia(origem, makeEmptyBlocks(), sel);
-    expect(patch.aviamentos).toEqual([{ aviamento_id: "AV", consumo: 2, loss_percent: 0, custo_previsto: 4 }]);
+    // sem id (nova linha), mas carrega a variante escolhida do aviamento (item 2)
+    expect(patch.aviamentos).toEqual([{ aviamento_id: "AV", variante_aviamento_id: "VAR", consumo: 2, loss_percent: 0, custo_previsto: 4 }]);
     expect(patch.etiquetas).toEqual([{ etiqueta_id: "ET", cor_id: "C", consumo: 1, loss_percent: 0, custo_previsto: 1 }]);
     expect(campos.has("aviamentos")).toBe(true);
     expect(campos.has("etiquetas")).toBe(true);

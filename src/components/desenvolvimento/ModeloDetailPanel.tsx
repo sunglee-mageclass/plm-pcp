@@ -360,10 +360,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     queryKey: ["aviamentos-all"],
     // sem staleTime: o cadastro de aviamentos invalida ["aviamentos"], não esta chave.
     queryFn: async () => {
+      // Embed das variantes (cor base + apelido) p/ o 2º Select da seção de Aviamentos.
+      // `variantes_aviamento` ainda não está no types.ts gerado → cast.
       const { data, error } = await supabase
-        .from("aviamentos").select("id, codigo_nome, preco").order("codigo_nome");
+        .from("aviamentos" as any)
+        .select("id, codigo_nome, preco, variantes:variantes_aviamento(id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .order("codigo_nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; codigo_nome: string; preco: number | null }[];
+      return (data ?? []) as unknown as { id: string; codigo_nome: string; preco: number | null; variantes?: { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[] }[];
     },
   });
   const aviamentoMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
@@ -445,11 +449,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     queryKey: ["modelo-aviamentos", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("modelo_aviamentos")
-        .select("id, aviamento_id, numero, consumo, loss_percent, custo_previsto")
+        .from("modelo_aviamentos" as any)
+        .select("id, aviamento_id, variante_aviamento_id, numero, consumo, loss_percent, custo_previsto")
         .eq("modelo_id", modeloId).order("numero");
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as any[];
     },
   });
 
@@ -897,7 +901,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     if (!aviamentosData) return;
     if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
     const rows: AviamentoRow[] = aviamentosData.map((a: any) => ({
-      id: a.id, aviamento_id: a.aviamento_id,
+      id: a.id, aviamento_id: a.aviamento_id, variante_aviamento_id: a.variante_aviamento_id ?? null,
       consumo: Number(a.consumo ?? 0), loss_percent: Number(a.loss_percent ?? 0),
       custo_previsto: Number(a.custo_previsto ?? 0),
     }));
@@ -1778,6 +1782,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         .filter((r) => r.aviamento_id)
         .map((r, i) => ({
           aviamento_id: r.aviamento_id,
+          variante_aviamento_id: r.variante_aviamento_id || null,
           numero: i + 1,
           consumo: r.consumo || 0,
           loss_percent: r.loss_percent || 0,
@@ -1841,6 +1846,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const round4 = (n: number) => Math.round(n * 10000) / 10000;
         const cadAviamentosPayload = aviamentosPayload.map((a, i) => ({
           aviamento_id: a.aviamento_id,
+          variante_aviamento_id: a.variante_aviamento_id || null,
           numero: i + 1,
           consumo: a.consumo || 0,
           quantidade_enviar: round4((a.consumo || 0) * gradeTotalGeral),
@@ -2320,7 +2326,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     colecoesTouchadasRef.current = true;
     setAviamentoAlterado(true);
     if (aviamentosState.length >= 20) return;
-    setAviamentosState((rows) => [...rows, { aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
+    setAviamentosState((rows) => [...rows, { aviamento_id: null, variante_aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
   const removeAviamento = (idx: number) => { colecoesTouchadasRef.current = true; setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
 

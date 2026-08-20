@@ -34,6 +34,9 @@ export type TecidoBlock = {
 export type AviamentoRow = {
   id?: string;
   aviamento_id: string | null;
+  /** Variante (cor base + apelido) escolhida do aviamento. Opcional — aviamento sem
+   *  variantes fica null. Persistida em modelo_aviamentos.variante_aviamento_id (item 2). */
+  variante_aviamento_id?: string | null;
   consumo: number;
   loss_percent: number;
   custo_previsto: number;
