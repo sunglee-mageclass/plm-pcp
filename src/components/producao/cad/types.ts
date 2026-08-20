@@ -45,6 +45,8 @@ export type AviamentoRow = {
   numero: number;
   aviamento_id: string | null;
   aviamento_nome?: string | null;
+  // Rótulo da variante (cor - apelido) p/ a Explosão de Aviamentos impressa; null = sem variante.
+  variante_label?: string | null;
   consumo: number;
   grade_total: number;
   quantidade_enviar: number;

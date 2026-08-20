@@ -7,17 +7,14 @@
 //     `_enviar_modelo_para_cad_core` usa ao copiar o BOM p/ o CAD (`ROUND(consumo*grade,4)`).
 //   • quantidade a SEPARAR/ENVIAR = espelha o passo de separação do TECIDO. No tecido é a
 //     coluna editável `cad_tecido_variantes.metragem_enviada`; no aviamento o equivalente é
-//     `cad_aviamentos.quantidade_separar` (a "Qtd a Enviar" da tela CAD / Ficha Técnica),
-//     inicializada = necessária no envio ao CAD e ajustável no PCP > CAD. Como o
-//     `cad_aviamentos` NÃO é destrinchado por variante (a coluna `variante_aviamento_id`
-//     dele ainda não é preenchida — item 2 pendente), atribuímos o valor por ENTRADA do
-//     BOM via o par 1:1 (aviamento_id, numero) — que o envio ao CAD preserva — e somamos por
-//     (aviamento, variante). Sem entrada no CAD (aviamento adicionado ao BOM após o envio) o
-//     "a separar" cai no default do fluxo = a necessária daquela linha.
-//
-// ⚠️ LACUNA CONHECIDA (reportada): não existe hoje um registro de separação POR VARIANTE de
-// aviamento — a régua vigente rastreia "a separar" por entrada de aviamento no CAD. A coluna
-// aqui é a MELHOR derivação possível sobre o dado existente, sem inventar persistência nova.
+//     `cad_aviamentos.quantidade_separar` — que AGORA é POR aviamento×variante (o
+//     `_enviar_modelo_para_cad_core` passou a copiar `variante_aviamento_id`, + backfill;
+//     migration 20260820160000). Por isso a "a separar" é atribuída DIRETO por
+//     (aviamento_id, variante_aviamento_id): o mapa `separarPorVariante` traz a SOMA do
+//     `quantidade_separar` das entradas do CAD daquele grupo (várias entradas do mesmo
+//     aviamento×variante somam). A chave PRESENTE no mapa (mesmo com valor 0) é o valor
+//     salvo; a chave AUSENTE (grupo sem entrada no CAD) cai no default = necessária do grupo.
+//     A gravação (RPC `salvar_explosao_aviamento_separar`) é o espelho editável dessa coluna.
 //
 // Fonte da variante/consumo = `modelo_aviamentos` (é onde a variante é preenchida, itens 1/2).
 // Aviamento legado SEM variante vira uma linha "Sem variante" (chave "__sem__") — nunca some.
@@ -50,7 +47,8 @@ export type AviVarLinha = {
   consumo: number;
   /** consumo × grade total do modelo (qtd necessária p/ toda a grade). */
   quantidade: number;
-  /** Qtd a separar/enviar (do `cad_aviamentos.quantidade_separar`, atribuída por entrada). */
+  /** Qtd a separar/enviar (Σ `cad_aviamentos.quantidade_separar` do grupo aviamento×variante;
+   *  default = necessária quando o grupo não tem entrada no CAD). Editável na Explosão. */
   aSeparar: number;
 };
 
@@ -64,16 +62,17 @@ export type AviGrupo = {
 
 const SEM_VARIANTE = "Sem variante";
 
-/** Chave do par BOM↔CAD por entrada de aviamento: `${aviamento_id}:${numero}`. */
-export function chaveEntradaAviamento(aviamentoId: string | null, numero: number | null | undefined): string {
-  return `${aviamentoId ?? ""}:${numero ?? ""}`;
+/** Chave do grupo por aviamento×variante: `${aviamento_id}:${variante_aviamento_id|"__sem__"}`. */
+export function chaveVarianteAviamento(aviamentoId: string | null, varId: string | null | undefined): string {
+  return `${aviamentoId ?? ""}:${varId ?? "__sem__"}`;
 }
 
 export function agruparAviamentosExplosao(
   rows: ModeloAviamentoEmbedRow[],
   gradeTotalGeral: number,
-  /** Map `${aviamento_id}:${numero}` → cad_aviamentos.quantidade_separar. Ausente ⇒ default. */
-  separarPorEntrada?: Map<string, number>,
+  /** Map `${aviamento_id}:${variante_aviamento_id|"__sem__"}` → Σ cad_aviamentos.quantidade_separar.
+   *  Chave PRESENTE (mesmo 0) ⇒ valor salvo; AUSENTE ⇒ default = necessária do grupo. */
+  separarPorVariante?: Map<string, number>,
 ): AviGrupo[] {
   const byAvi = new Map<string, { nome: string; vars: Map<string, AviVarLinha> }>();
 
@@ -97,18 +96,20 @@ export function agruparAviamentosExplosao(
         quantidade: 0,
         aSeparar: 0,
       } as AviVarLinha);
-    const consumoLinha = Number(r.consumo ?? 0);
-    linha.consumo += consumoLinha;
-    // "A separar" por ENTRADA (aviamento_id, numero); default = necessária daquela linha.
-    const sep = separarPorEntrada?.get(chaveEntradaAviamento(aviId, r.numero ?? null));
-    linha.aSeparar += sep ?? consumoLinha * gradeTotalGeral;
+    linha.consumo += Number(r.consumo ?? 0);
     grupo.vars.set(vkey, linha);
     byAvi.set(aviId, grupo);
   }
 
   const grupos: AviGrupo[] = [];
   byAvi.forEach((g, aviId) => {
-    const linhas = [...g.vars.values()].map((l) => ({ ...l, quantidade: l.consumo * gradeTotalGeral }));
+    // "A separar" por GRUPO (aviamento×variante): valor salvo (chave presente, mesmo 0) ou
+    // default = necessária. Mapa vazio ⇒ tudo cai no default (espelha o metragem do tecido).
+    const linhas = [...g.vars.values()].map((l) => {
+      const quantidade = l.consumo * gradeTotalGeral;
+      const salvo = separarPorVariante?.get(chaveVarianteAviamento(aviId, l.variante_aviamento_id));
+      return { ...l, quantidade, aSeparar: salvo ?? quantidade };
+    });
     // Com variante primeiro (rótulo pt-BR); "Sem variante" (legado) por último.
     linhas.sort((a, b) => {
       const aSem = a.variante_aviamento_id == null;

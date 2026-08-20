@@ -10,7 +10,7 @@
  * NÃO mostra grade, aviamentos, etiquetas, nem permite editar CAD completo.
  * Usa CadEditor apenas para impressão e leitura de dados.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertTriangle, ArrowLeft, ImageIcon, Pencil, Printer, RotateCcw, Save, Send } from "lucide-react";
@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { ExplosaoMetragemSection } from "@/components/producao/explosao/ExplosaoMetragemSection";
 import { ExplosaoAviamentosSection } from "@/components/producao/explosao/ExplosaoAviamentosSection";
-import { agruparAviamentosExplosao, chaveEntradaAviamento } from "@/lib/explosao-aviamentos";
+import { agruparAviamentosExplosao, chaveVarianteAviamento } from "@/lib/explosao-aviamentos";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -44,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { TecidoRow, GradeRow, VarianteRow } from "@/components/producao/cad/types";
+import type { TecidoRow, GradeRow, VarianteRow, AviamentoRow } from "@/components/producao/cad/types";
 import { calcCusto } from "@/components/producao/cad/types";
 
 type Props = {
@@ -156,7 +156,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // Aviamentos do BOM (Desenvolvimento). Fonte da variante = `modelo_aviamentos`
   // (item 1/2 da feature): o `cad_aviamentos` ainda não carrega `variante_aviamento_id`
   // (a cópia BOM→CAD só leva aviamento_id + consumo). Read-only — só exibição.
-  const { data: modeloAviamentos = [] } = useQuery({
+  const { data: modeloAviamentos = [], isFetched: modeloAviamentosFetched } = useQuery({
     queryKey: ["explosao-modelo-aviamentos", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -172,34 +172,51 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   });
 
   // "A separar/enviar" do aviamento = cad_aviamentos.quantidade_separar (mesma coluna "Qtd a
-  // Enviar" da tela CAD/Ficha), atribuída por ENTRADA (aviamento_id, numero) ao BOM. É o
-  // espelho do metragem_enviada do tecido no passo de separação.
-  const { data: cadAviamentosSeparar = [] } = useQuery({
+  // Enviar" da tela CAD/Ficha). Agora POR aviamento×variante (o envio ao CAD copia a
+  // variante — migration 20260820160000). Espelho editável do metragem_enviada do tecido.
+  const { data: cadAviamentosSeparar = [], isFetched: cadAviamentosFetched } = useQuery({
     queryKey: ["explosao-cad-aviamentos", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cad_aviamentos")
-        .select("aviamento_id, numero, quantidade_separar")
+        .select("aviamento_id, variante_aviamento_id, quantidade_separar")
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
 
-  // --- local editable state (só metragem_enviada é editável) ---
+  // --- local editable state (metragem_enviada do tecido + a-separar do aviamento) ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [seeded, setSeeded] = useState(false);
+  // "A separar" editável do aviamento, por chave aviamento×variante (chaveVarianteAviamento).
+  const [aviSeparar, setAviSeparar] = useState<Record<string, number>>({});
+  const [aviSeeded, setAviSeeded] = useState(false);
+  const seededAll = seeded && aviSeeded;
 
-  // Guarda de "alterações não salvas": só metragem_enviada/quantidade_folhas por variante
-  // são editáveis; o resto é read-only. Snapshot enxuto dessas duas colunas.
-  const metragemSnapshot = useMemo(
-    () => tecidos.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)),
-    [tecidos],
+  // Guarda de "alterações não salvas": editáveis = metragem_enviada/quantidade_folhas do
+  // tecido + a-separar do aviamento. Snapshot enxuto dos dois lados.
+  const editSnapshot = useMemo(
+    () => ({
+      tec: tecidos.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)),
+      avi: aviSeparar,
+    }),
+    [tecidos, aviSeparar],
   );
-  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot(metragemSnapshot);
-  useEffect(() => { onDirtyChange?.(seeded && dirty); }, [seeded, dirty, onDirtyChange]);
+  const { dirty, markClean } = useDirtySnapshot(editSnapshot);
+  // Re-baseline UMA vez, quando os dois lados já foram semeados (o memo reflete o estado
+  // carregado). Guard por ref: markClean troca de identidade a cada edição, mas só re-baseliza
+  // no 1º disparo com tudo semeado — depois disso, editar acende o "não salvo".
+  const baselinedRef = useRef(false);
+  useEffect(() => {
+    if (seededAll && !baselinedRef.current) {
+      baselinedRef.current = true;
+      markClean();
+    }
+  }, [seededAll, markClean]);
+  useEffect(() => { onDirtyChange?.(seededAll && dirty); }, [seededAll, dirty, onDirtyChange]);
 
   useEffect(() => {
     if (seeded) return;
@@ -256,9 +273,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     }));
     setGrades(initialGrades);
 
-    // Re-baseline o guarda a partir do estado semeado (valor explícito — o setState
-    // acima ainda está stale neste tick).
-    resetBaseline(initialTec.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)));
+    // O re-baseline do guarda acontece no effect combinado (seededAll), depois que os dois
+    // lados (tecido + aviamento) semeiam — não aqui.
     // Abre EDITÁVEL se ainda não enviado (preparando); TRAVADO se já enviado (edita pelo lápis).
     setEditing(!(cadRow as any)?.enviado_corte);
     setSeeded(true);
@@ -306,22 +322,74 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     [grades],
   );
 
-  // Mapa da "a separar" por entrada de aviamento (aviamento_id:numero → quantidade_separar).
-  const separarPorEntrada = useMemo(() => {
+  // Mapa da "a separar" salva por aviamento×variante (Σ quantidade_separar do grupo no CAD).
+  // Chave PRESENTE (mesmo 0) = valor salvo; AUSENTE = grupo sem entrada no CAD (cai no default).
+  const separarPorVariante = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of cadAviamentosSeparar as any[]) {
-      m.set(chaveEntradaAviamento(c.aviamento_id, c.numero), Number(c.quantidade_separar ?? 0));
+      const k = chaveVarianteAviamento(c.aviamento_id, c.variante_aviamento_id ?? null);
+      m.set(k, (m.get(k) ?? 0) + Number(c.quantidade_separar ?? 0));
     }
     return m;
   }, [cadAviamentosSeparar]);
 
   // Agrega os aviamentos do BOM por AVIAMENTO × VARIANTE (helper puro, testado). Qtd
   // necessária = Σ consumo × grade total (mesma fórmula do _enviar_modelo_para_cad_core);
-  // "a separar/enviar" = cad_aviamentos.quantidade_separar por entrada (espelha o passo do
+  // "a separar/enviar" = Σ cad_aviamentos.quantidade_separar do grupo (espelha o passo do
   // tecido); aviamento legado sem variante vira a linha "Sem variante" — não some.
   const aviamentosExplosao = useMemo(
-    () => agruparAviamentosExplosao(modeloAviamentos as any[], gradeTotalGeral, separarPorEntrada),
-    [modeloAviamentos, gradeTotalGeral, separarPorEntrada],
+    () => agruparAviamentosExplosao(modeloAviamentos as any[], gradeTotalGeral, separarPorVariante),
+    [modeloAviamentos, gradeTotalGeral, separarPorVariante],
+  );
+
+  // Semeia a "a separar" editável a partir do agregado, quando os dois lados carregam
+  // (tecido semeado ⇒ gradeTotalGeral válido; + aviamentos do BOM e do CAD fetchados).
+  useEffect(() => {
+    if (aviSeeded) return;
+    if (!seeded || !modeloAviamentosFetched || !cadAviamentosFetched) return;
+    const init: Record<string, number> = {};
+    for (const grp of aviamentosExplosao) {
+      for (const l of grp.linhas) init[chaveVarianteAviamento(grp.aviamento_id, l.variante_aviamento_id)] = l.aSeparar;
+    }
+    setAviSeparar(init);
+    setAviSeeded(true);
+  }, [aviSeeded, seeded, modeloAviamentosFetched, cadAviamentosFetched, aviamentosExplosao]);
+
+  // Sobrepõe as edições locais de "a separar" ao agregado (o que a UI e o print mostram).
+  const aviGruposView = useMemo(
+    () =>
+      aviamentosExplosao.map((grp) => {
+        const linhas = grp.linhas.map((l) => {
+          const k = chaveVarianteAviamento(grp.aviamento_id, l.variante_aviamento_id);
+          return { ...l, aSeparar: k in aviSeparar ? aviSeparar[k] : l.aSeparar };
+        });
+        return { ...grp, linhas, totalSeparar: linhas.reduce((s, l) => s + l.aSeparar, 0) };
+      }),
+    [aviamentosExplosao, aviSeparar],
+  );
+
+  const updateAviSeparar = (aviamentoId: string, varianteId: string | null, valor: number) =>
+    setAviSeparar((prev) => ({ ...prev, [chaveVarianteAviamento(aviamentoId, varianteId)]: Math.max(0, valor) }));
+
+  // Explosão de Aviamentos p/ a Ficha de Corte impressa — uma linha por aviamento×variante
+  // (com o rótulo da variante). Espelha o bloco da tela (aviGruposView), incluindo edições.
+  const aviamentosPrint = useMemo<AviamentoRow[]>(
+    () =>
+      aviGruposView.flatMap((grp, gi) =>
+        grp.linhas.map((l, li) => ({
+          numero: gi * 100 + li,
+          aviamento_id: grp.aviamento_id,
+          aviamento_nome: grp.aviamento_nome,
+          variante_label: l.variante_aviamento_id ? l.label : null,
+          consumo: l.consumo,
+          grade_total: gradeTotalGeral,
+          quantidade_enviar: l.quantidade, // necessária (planejada)
+          quantidade_separar: l.aSeparar,
+          preco: 0,
+          custo_cad: 0,
+        })),
+      ),
+    [aviGruposView, gradeTotalGeral],
   );
 
   // Variantes com metragem_planejada > 0 mas metragem_enviada = 0
@@ -377,6 +445,17 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       })),
     );
 
+  // "A separar" do aviamento por aviamento×variante (estado por grupo p/ o RPC estreito
+  // salvar_explosao_aviamento_separar — atualiza APENAS cad_aviamentos.quantidade_separar).
+  const buildAviamentoSepararPayload = () =>
+    aviGruposView.flatMap((grp) =>
+      grp.linhas.map((l) => ({
+        aviamento_id: grp.aviamento_id,
+        variante_aviamento_id: l.variante_aviamento_id,
+        quantidade_separar: l.aSeparar,
+      })),
+    );
+
   // --- salvar sem baixa ---
   const salvarMut = useMutation({
     mutationFn: async () => {
@@ -386,6 +465,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         _variantes: buildVariantesPayload(),
       });
       if (error) throw error;
+      // Persiste também a "a separar" do aviamento (RPC estreita — só quantidade_separar).
+      const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
+        _cad_id: cadRow.id,
+        _linhas: buildAviamentoSepararPayload(),
+      });
+      if (errAvi) throw errAvi;
     },
     onSuccess: () => {
       toast.success("Salvo");
@@ -393,6 +478,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       setEditing(false); // trava a edição após salvar (o lápis reabre)
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
@@ -409,6 +495,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         _variantes: buildVariantesPayload(),
       });
       if (errSave) throw errSave;
+      // E a "a separar" do aviamento (não perde a edição ao enviar; não entra na baixa do corte).
+      const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
+        _cad_id: cadRow.id,
+        _linhas: buildAviamentoSepararPayload(),
+      });
+      if (errAvi) throw errAvi;
 
       // Depois executa a baixa de estoque (o corte que envia para PCP).
       const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
@@ -437,6 +529,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       // torna o dado velho visível — achado ao vivo na QA desta tela.
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-grades", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
@@ -568,8 +661,13 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           )}
         </div>
 
-        {/* Aviamentos necessários — agregado por aviamento × variante (read-only). */}
-        <ExplosaoAviamentosSection grupos={aviamentosExplosao} gradeTotalGeral={gradeTotalGeral} />
+        {/* Aviamentos necessários — agregado por aviamento × variante; "a separar" editável. */}
+        <ExplosaoAviamentosSection
+          grupos={aviGruposView}
+          gradeTotalGeral={gradeTotalGeral}
+          editing={editing}
+          onSepararChange={updateAviSeparar}
+        />
       </div>
 
       {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola.
@@ -695,7 +793,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         tecidos={tecidos}
         grades={grades}
         tamanhosAll={tamanhosAll}
-        aviamentos={[]}
+        aviamentos={aviamentosPrint}
         gradeTotalGeral={gradeTotalGeral}
         labelByNumero={gradeLabelByNumero}
         ocLinksByKey={ocLinksByKey}

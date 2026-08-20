@@ -1,19 +1,20 @@
 /**
- * ExplosaoAviamentosSection — bloco "Aviamentos necessários" da Explosão (somente-leitura).
+ * ExplosaoAviamentosSection — bloco "Aviamentos necessários" da Explosão.
  *
  * Espelha a estrutura do ExplosaoMetragemSection (tecido), mas para aviamentos: agrega por
  * AVIAMENTO × VARIANTE (`variante_aviamento_id`) e mostra a quantidade total necessária =
  * Σ (consumo por peça) × grade total do modelo — a MESMA fórmula que o
  * `_enviar_modelo_para_cad_core` usa ao copiar o BOM p/ o CAD (`consumo * grade_total`).
  *
- * Fonte = `modelo_aviamentos` (BOM), pois é onde a variante do aviamento é preenchida
- * (itens 1/2 da feature de variantes de aviamento); o `cad_aviamentos` ainda não carrega a
- * variante (a cópia BOM→CAD só leva aviamento_id + consumo). Aviamento legado SEM variante
- * aparece como linha "Sem variante" — nunca some. Tudo read-only: a Explosão não edita
- * aviamento (o consumo/variante mora no Desenvolvimento; a baixa de aviamento é outra tela).
+ * Fonte = `modelo_aviamentos` (BOM), pois é onde a variante do aviamento é preenchida.
+ * A ÚNICA coluna editável é "A separar/enviar" (gate `editing`, mesmo lápis do painel) —
+ * espelha o `metragem_enviada` do tecido; grava em `cad_aviamentos.quantidade_separar` por
+ * aviamento×variante (RPC `salvar_explosao_aviamento_separar`). Aviamento legado SEM variante
+ * aparece como linha "Sem variante" — nunca some; editá-la grava na(s) entrada(s) sem variante.
  */
 import { Package } from "lucide-react";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { fmtNum, fmtNumEdit } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AviGrupo } from "@/lib/explosao-aviamentos";
@@ -22,16 +23,20 @@ type Props = {
   grupos: AviGrupo[];
   /** Grade total do modelo (Σ das grades planejadas) — exibida no cabeçalho como base do cálculo. */
   gradeTotalGeral: number;
+  /** Modo de edição do painel (lápis). Fora dele, "A separar/enviar" fica read-only. */
+  editing: boolean;
+  /** Grava a nova "a separar" de um aviamento×variante (0 quando limpo). */
+  onSepararChange: (aviamentoId: string, varianteId: string | null, valor: number) => void;
 };
 
-export function ExplosaoAviamentosSection({ grupos, gradeTotalGeral }: Props) {
+export function ExplosaoAviamentosSection({ grupos, gradeTotalGeral, editing, onSepararChange }: Props) {
   return (
     <div className="border rounded-[11px] overflow-hidden">
       <div className="flex items-center gap-2.5 flex-wrap px-3.5 py-2.5 border-b bg-muted/30">
         <Package className="h-4 w-4 text-muted-foreground shrink-0" />
         <b className="font-display text-sm">Aviamentos necessários</b>
         <span className="text-[11px] text-muted-foreground">
-          necessária = consumo por peça × grade total ({fmtNum(gradeTotalGeral)}); a separar vem do CAD
+          necessária = consumo por peça × grade total ({fmtNum(gradeTotalGeral)}); só "a separar" é editável
         </span>
       </div>
 
@@ -81,8 +86,20 @@ export function ExplosaoAviamentosSection({ grupos, gradeTotalGeral }: Props) {
                     <td className="px-2 py-1 num text-muted-foreground" data-label="Qtd necessária">
                       {fmtNum(l.quantidade)}
                     </td>
-                    <td className="px-2 py-1 num font-semibold bg-primary/5" data-label="A separar/enviar">
-                      {fmtNum(l.aSeparar)}
+                    <td className="px-2 py-1 bg-primary/5" data-label="A separar/enviar">
+                      {editing ? (
+                        <NumberInput
+                          blankZero
+                          placeholder="0,00"
+                          className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold num"
+                          value={l.aSeparar || ""}
+                          onChange={(e) =>
+                            onSepararChange(g.aviamento_id, l.variante_aviamento_id, Math.max(0, Number(e.target.value)))
+                          }
+                        />
+                      ) : (
+                        <span className="block text-right num font-semibold">{fmtNum(l.aSeparar)}</span>
+                      )}
                     </td>
                   </tr>
                 ))}

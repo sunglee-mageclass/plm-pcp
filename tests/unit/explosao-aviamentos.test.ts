@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   agruparAviamentosExplosao,
-  chaveEntradaAviamento,
+  chaveVarianteAviamento,
   type ModeloAviamentoEmbedRow,
 } from "@/lib/explosao-aviamentos";
 
@@ -73,8 +73,8 @@ describe("agruparAviamentosExplosao — bloco de aviamentos da Explosão", () =>
     expect(g.linhas[0].consumo).toBe(0.5);
   });
 
-  describe("a separar/enviar (espelho do metragem_enviada do tecido)", () => {
-    it("default = necessária quando não há registro no CAD", () => {
+  describe("a separar/enviar (espelho editável do metragem_enviada do tecido)", () => {
+    it("default = necessária quando o grupo não tem registro no CAD (chave ausente)", () => {
       const rows: ModeloAviamentoEmbedRow[] = [zíper({ nome_variante: null, cor: { nome: "Branco" }, apelido: null }, 0.05, "v-branco", 1)];
       const [g] = agruparAviamentosExplosao(rows, 192);
       // sem mapa → a separar cai no default = necessária (0.05 × 192 = 9.6)
@@ -83,28 +83,43 @@ describe("agruparAviamentosExplosao — bloco de aviamentos da Explosão", () =>
       expect(g.totalSeparar).toBeCloseTo(9.6, 6);
     });
 
-    it("usa o cad_aviamentos.quantidade_separar por entrada (aviamento_id, numero) quando presente", () => {
+    it("usa a Σ quantidade_separar do grupo (aviamento_id, variante) quando a chave está presente", () => {
       const rows: ModeloAviamentoEmbedRow[] = [zíper({ nome_variante: null, cor: { nome: "Branco" }, apelido: null }, 0.05, "v-branco", 3)];
-      const mapa = new Map<string, number>([[chaveEntradaAviamento("avi-ziper", 3), 4]]);
+      const mapa = new Map<string, number>([[chaveVarianteAviamento("avi-ziper", "v-branco"), 4]]);
       const [g] = agruparAviamentosExplosao(rows, 192, mapa);
-      // necessária inalterada; a separar = valor editado no CAD (4), não o default 9.6
+      // necessária inalterada; a separar = valor salvo p/ o grupo (4), não o default 9.6
       expect(g.linhas[0].quantidade).toBeCloseTo(9.6, 6);
       expect(g.linhas[0].aSeparar).toBe(4);
     });
 
-    it("soma 'a separar' por (aviamento, variante) e cada entrada casa por numero", () => {
+    it("chave presente com valor 0 vence o default (não recai na necessária)", () => {
+      const rows: ModeloAviamentoEmbedRow[] = [zíper({ nome_variante: null, cor: { nome: "Branco" }, apelido: null }, 0.05, "v-branco", 1)];
+      const mapa = new Map<string, number>([[chaveVarianteAviamento("avi-ziper", "v-branco"), 0]]);
+      const [g] = agruparAviamentosExplosao(rows, 192, mapa);
+      expect(g.linhas[0].aSeparar).toBe(0);
+    });
+
+    it("agrega 'a separar' por (aviamento, variante) — duas entradas do BOM, um valor de grupo", () => {
       const rows: ModeloAviamentoEmbedRow[] = [
         zíper({ nome_variante: null, cor: { nome: "Branco" }, apelido: null }, 0.05, "v-branco", 1),
         zíper({ nome_variante: null, cor: { nome: "Branco" }, apelido: null }, 0.05, "v-branco", 2),
       ];
-      const mapa = new Map<string, number>([
-        [chaveEntradaAviamento("avi-ziper", 1), 3],
-        [chaveEntradaAviamento("avi-ziper", 2), 5],
-      ]);
+      // O mapa já traz a Σ do grupo (o CAD é somado por aviamento×variante no servidor).
+      const mapa = new Map<string, number>([[chaveVarianteAviamento("avi-ziper", "v-branco"), 8]]);
       const [g] = agruparAviamentosExplosao(rows, 100, mapa);
       expect(g.linhas).toHaveLength(1);
-      expect(g.linhas[0].aSeparar).toBe(8); // 3 + 5
+      expect(g.linhas[0].aSeparar).toBe(8);
       expect(g.linhas[0].quantidade).toBeCloseTo(10, 6); // (0.05+0.05) × 100
+    });
+
+    it("legado sem variante: usa a chave '__sem__' do grupo", () => {
+      const rows: ModeloAviamentoEmbedRow[] = [
+        { aviamento_id: "avi-patch", variante_aviamento_id: null, consumo: 1, aviamentos: { codigo_nome: "Patch" }, variantes_aviamento: null },
+      ];
+      const mapa = new Map<string, number>([[chaveVarianteAviamento("avi-patch", null), 42]]);
+      const [g] = agruparAviamentosExplosao(rows, 120, mapa);
+      expect(g.linhas[0].variante_aviamento_id).toBeNull();
+      expect(g.linhas[0].aSeparar).toBe(42);
     });
   });
 });

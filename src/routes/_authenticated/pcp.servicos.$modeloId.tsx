@@ -320,15 +320,26 @@ export function TerceirizadosDetail({
         .from("modelo_aviamentos" as any)
         .select("aviamento_id, variante_aviamento_id, aviamentos:aviamento_id(id, codigo_nome), variante:variante_aviamento_id(cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId);
-      return (data ?? [])
-        .map((r: any) => {
-          const cor = r.variante?.cor?.nome ?? null;
-          const apel = r.variante?.apelido?.nome ?? null;
-          // Em Serviços o apelido vem na frente (apelido - cor), padrão do bloco de tecidos.
-          const varLabel = cor || apel ? corApelidoLabelServico(cor, apel) : null;
-          return { id: r.aviamentos?.id, nome: varLabel ? `${r.aviamentos?.codigo_nome} · ${varLabel}` : r.aviamentos?.codigo_nome };
-        })
-        .filter((x: any) => x.id);
+      // "Enviados" é POR AVIAMENTO (o toggle grava aviamento_id em aviamentos_enviados), mas o
+      // BOM pode ter o MESMO aviamento em várias linhas (consumos distintos) → dedup por
+      // aviamento_id, agregando os rótulos de variante distintos ("codigo · Branco - Off White,
+      // Preto"). Sem dedup a lista mostrava 3-4 botões idênticos p/ o mesmo aviamento.
+      const byId = new Map<string, { codigo: string; variantes: string[] }>();
+      for (const r of (data ?? []) as any[]) {
+        const id = r.aviamentos?.id;
+        if (!id) continue;
+        const cor = r.variante?.cor?.nome ?? null;
+        const apel = r.variante?.apelido?.nome ?? null;
+        // Em Serviços o apelido vem na frente (apelido - cor), padrão do bloco de tecidos.
+        const varLabel = cor || apel ? corApelidoLabelServico(cor, apel) : null;
+        const e: { codigo: string; variantes: string[] } = byId.get(id) ?? { codigo: r.aviamentos?.codigo_nome ?? "—", variantes: [] };
+        if (varLabel && !e.variantes.includes(varLabel)) e.variantes.push(varLabel);
+        byId.set(id, e);
+      }
+      return [...byId.entries()].map(([id, e]) => ({
+        id,
+        nome: e.variantes.length ? `${e.codigo} · ${e.variantes.join(", ")}` : e.codigo,
+      }));
     },
   });
 

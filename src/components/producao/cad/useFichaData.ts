@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { varianteLabel } from "@/lib/variante";
+import { varianteLabel, corApelidoLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
@@ -94,7 +94,9 @@ export function useFichaData(modeloId: string): FichaData {
   const { data: cadAviamentos = [] } = useQuery({
     queryKey: ["ft-aviamentos", cadId],
     enabled: !!cadId,
-    queryFn: async () => (await supabase.from("cad_aviamentos").select("*, aviamentos:aviamento_id(codigo_nome, preco)").eq("cad_id", cadId).order("numero")).data ?? [],
+    // Embed da variante (cor base + apelido) do aviamento — cad_aviamentos agora é POR variante.
+    // `variantes_aviamento` ainda não está no types.ts gerado → cast.
+    queryFn: async () => (await supabase.from("cad_aviamentos" as any).select("*, aviamentos:aviamento_id(codigo_nome, preco), variante:variante_aviamento_id(cor:cor_id(nome), apelido:cor_apelido_id(nome))").eq("cad_id", cadId).order("numero")).data ?? [],
   });
 
   const { data: cadEtiquetas = [] } = useQuery({
@@ -176,7 +178,7 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const aviamentos: AviamentoRow[] = useMemo(
-    () => (cadAviamentos as any[]).map((a) => { const consumo = num(a.consumo); const preco = num(a.aviamentos?.preco); return ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, consumo, grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar), preco, custo_cad: roundTo(consumo * preco, 2) }); }),
+    () => (cadAviamentos as any[]).map((a) => { const consumo = num(a.consumo); const preco = num(a.aviamentos?.preco); const varLbl = corApelidoLabel(a.variante?.cor?.nome, a.variante?.apelido?.nome); return ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, variante_label: varLbl !== "—" ? varLbl : null, consumo, grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar), preco, custo_cad: roundTo(consumo * preco, 2) }); }),
     [cadAviamentos],
   );
 

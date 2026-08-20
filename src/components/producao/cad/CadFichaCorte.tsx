@@ -175,6 +175,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
             <thead>
               <tr style={{ background: "#eee" }}>
                 <th style={cellH}>Aviamento</th>
+                <th style={cellH}>Variante</th>
                 <th style={cellH}>Consumo</th>
                 <th style={cellH}>Quantidade Planejada</th>
                 <th style={cellH}>Quantidade a Enviar</th>
@@ -184,6 +185,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
               {aviamentos.map((a, i) => (
                 <tr key={i}>
                   <td style={cell}>{a.aviamento_nome ?? ""}</td>
+                  <td style={cell}>{a.variante_label ?? "—"}</td>
                   <td style={cell}>{fmt2(a.consumo)}</td>
                   <td style={cell}>{fmt2(a.quantidade_enviar)}</td>
                   <td style={cell}>{fmt2(a.quantidade_separar)}</td>
