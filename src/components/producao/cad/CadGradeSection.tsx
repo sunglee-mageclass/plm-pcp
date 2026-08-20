@@ -8,6 +8,7 @@ type Props = {
   grades: GradeRow[];
   tamanhosAll: string[];
   updateGradeCell: (gi: number, tamanho: string, value: number) => void;
+  updateGradeTotal?: (gi: number, total: number) => void;
   labelByNumero?: Record<number, string>;
   gradeAuto?: boolean;
   onToggleGradeAuto?: (v: boolean) => void;
@@ -19,12 +20,15 @@ export function CadGradeSection({
   grades,
   tamanhosAll,
   updateGradeCell,
+  updateGradeTotal,
   labelByNumero,
   gradeAuto,
   onToggleGradeAuto,
   proporcoes,
   onChangeProporcao,
 }: Props) {
+  // Modo auto: a Grade Total vira INPUT (editar o total destrincha pelas proporções ao vivo).
+  const totalEditavel = !!gradeAuto && !!updateGradeTotal;
   return (
     <Card className="p-5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -72,7 +76,7 @@ export function CadGradeSection({
 
       {gradeAuto && (
         <p className="text-[11px] text-muted-foreground">
-          Digite um tamanho em qualquer variante e os demais preenchem na proporção acima.
+          Digite a Grade Total ou um tamanho de qualquer variante — os demais preenchem na proporção acima, ao vivo.
         </p>
       )}
 
@@ -107,7 +111,18 @@ export function CadGradeSection({
                       />
                     </td>
                   ))}
-                  <td className="px-2 py-1 font-medium text-center">{g.grade_total}</td>
+                  <td className="px-2 py-1 text-center">
+                    {totalEditavel ? (
+                      <NumberInput
+                        type="number"
+                        className="w-20 text-center"
+                        value={g.grade_total}
+                        onChange={(e) => updateGradeTotal!(gi, Math.max(0, Number(e.target.value)))}
+                      />
+                    ) : (
+                      <span className="font-medium">{g.grade_total}</span>
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -127,7 +142,19 @@ export function CadGradeSection({
                 </div>
               ))}
             </div>
-            <div className="mt-1 text-right text-xs text-muted-foreground">Total: <b className="text-foreground">{g.grade_total}</b></div>
+            <div className="mt-1 flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+              <span>Total:</span>
+              {totalEditavel ? (
+                <NumberInput
+                  type="number"
+                  className="h-9 w-20 text-center"
+                  value={g.grade_total}
+                  onChange={(e) => updateGradeTotal!(gi, Math.max(0, Number(e.target.value)))}
+                />
+              ) : (
+                <b className="text-foreground">{g.grade_total}</b>
+              )}
+            </div>
           </div>
         </div>
       ))}

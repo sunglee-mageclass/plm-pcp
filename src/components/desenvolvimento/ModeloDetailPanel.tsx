@@ -9,6 +9,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { brl } from "@/lib/format";
+import { distribuiTotal, distribuiAncora, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
 import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
@@ -2339,36 +2340,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
-      const props = draft?.proporcoes ?? {};
-      const sum = tamanhos.reduce((s, t) => s + (Number(props[t]) || 0), 0);
-      const next: Record<string, number> = { ...cur.grades };
-      if (sum > 0 && total > 0) {
-        tamanhos.forEach((t) => {
-          next[t] = Math.round(((Number(props[t]) || 0) / sum) * total);
-        });
-        const rounded = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
-        const diff = total - rounded;
-        if (diff !== 0) {
-          // distribui a diferença no tamanho com maior proporção
-          let maxTam = tamanhos[0];
-          let maxProp = -Infinity;
-          tamanhos.forEach((t) => {
-            const p = Number(props[t]) || 0;
-            if (p > maxProp) { maxProp = p; maxTam = t; }
-          });
-          next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
-        }
-      } else if (total > 0 && tamanhos.length > 0) {
-        // Sem proporções definidas: distribui IGUALMENTE entre os tamanhos (resto nos primeiros),
-        // mantendo Σ células == total. Assim a Grade Total é editável mesmo sem proporção (ex.: grade
-        // veio do "Aplicar ao modelo" do Plan. Tecido sem proporção). O usuário refina por célula ou
-        // definindo proporções depois. (Antes zerava as células, o que travava a edição do total.)
-        const base = Math.floor(total / tamanhos.length);
-        const resto = total - base * tamanhos.length;
-        tamanhos.forEach((t, i) => { next[t] = base + (i < resto ? 1 : 0); });
-      } else {
-        tamanhos.forEach((t) => { next[t] = 0; });
-      }
+      const props = (draft?.proporcoes ?? {}) as Record<string, number>;
+      // Fonte única (lib/grade-proporcao): total → células, Σ === total (resíduo no maior peso;
+      // sem proporção divide igual; total 0 zera). Preserva chaves fora dos tamanhos ativos.
+      const next = { ...cur.grades, ...distribuiTotal(total, tamanhos, props) };
       const others = gs.filter((g) => g.variante_numero !== n);
       return [...others, { variante_numero: n, grades: next, grade_total: total }].sort((a, b) => a.variante_numero - b.variante_numero);
     });
@@ -2378,20 +2353,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
-      const props = draft?.proporcoes ?? {};
+      const props = (draft?.proporcoes ?? {}) as Record<string, number>;
       const propTam = Number(props[tam]) || 0;
-      let next: Record<string, number>;
-      if (gradeAuto && qty > 0 && propTam > 0) {
-        // Âncora: a célula digitada define a "unidade" (qty / proporção dela) e as
-        // demais são preenchidas por proporção. Ex.: PPP=30 com prop 1·1·2·2·2·1
-        // -> 30·30·60·60·60·30.
-        const unit = qty / propTam;
-        next = {};
-        tamanhos.forEach((t) => { next[t] = Math.round(unit * (Number(props[t]) || 0)); });
-        next[tam] = qty; // mantém exatamente o valor digitado na âncora
-      } else {
-        next = { ...cur.grades, [tam]: qty };
-      }
+      // Modo auto: a célula digitada vira ÂNCORA e distribui por proporção (fonte única,
+      // lib/grade-proporcao). Fora do auto, só grava a célula. O total é sempre Σ das células.
+      const next = (gradeAuto && qty > 0 && propTam > 0)
+        ? distribuiAncora(qty, tam, tamanhos, props)
+        : { ...cur.grades, [tam]: qty };
       const realTotal = tamanhos.reduce((s, t) => s + (Number(next[t]) || 0), 0);
       const others = gs.filter((g) => g.variante_numero !== n);
       return [...others, { variante_numero: n, grades: next, grade_total: realTotal }].sort((a, b) => a.variante_numero - b.variante_numero);
@@ -2412,11 +2380,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         setGrades((gs) => gs.map((g) => {
           const total = g.grade_total || 0;
           if (total <= 0) return g;
-          const unit = total / oldSum;
-          const next: Record<string, number> = {};
-          tamanhos.forEach((t) => { next[t] = Math.round(unit * (Number(newProp[t]) || 0)); });
-          const gt = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
-          return { ...g, grades: next, grade_total: gt };
+          // fonte única: mantém a escala (unit = total ÷ Σprop anterior); Σ recomputado.
+          const next = redistribuiPorEscala(total / oldSum, tamanhos, newProp);
+          return { ...g, grades: next, grade_total: somaGrade(next) };
         }));
       }
     }
@@ -2435,16 +2401,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     setGrades((gs) => gs.map((g) => {
       const total = g.grade_total || 0;
       if (total <= 0) return g;
-      const next: Record<string, number> = {};
-      tamanhos.forEach((t) => { next[t] = Math.round(((Number(props[t]) || 0) / sum) * total); });
-      const rounded = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
-      const diff = total - rounded;
-      if (diff !== 0) {
-        let maxTam = tamanhos[0]; let maxProp = -Infinity;
-        tamanhos.forEach((t) => { const p = Number(props[t]) || 0; if (p > maxProp) { maxProp = p; maxTam = t; } });
-        next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
-      }
-      return { ...g, grades: next, grade_total: total };
+      // fonte única: redistribui pela proporção mantendo o grade_total (Σ === total).
+      return { ...g, grades: distribuiTotal(total, tamanhos, props), grade_total: total };
     }));
   };
 

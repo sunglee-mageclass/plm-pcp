@@ -6,6 +6,7 @@ import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvo
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
+import { distribuiTotal, distribuiAncora, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
 import { varianteLabel } from "@/lib/variante";
 import { roundTo } from "@/lib/num";
 import { supabase } from "@/integrations/supabase/client";
@@ -547,19 +548,24 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     setGrades((prev) => {
       const next = [...prev];
       const propTam = Number(proporcoes[tamanho]) || 0;
-      let grades: Record<string, number>;
-      if (gradeAuto && value > 0 && propTam > 0) {
-        // Âncora: célula digitada define a unidade (valor/proporção dela); demais
-        // por proporção. Ex.: PPP=30 com 1·1·2·2·2·1 -> 30·30·60·60·60·30.
-        const unit = value / propTam;
-        grades = {};
-        tamanhosAll.forEach((t) => { grades[t] = Math.round(unit * (Number(proporcoes[t]) || 0)); });
-        grades[tamanho] = value;
-      } else {
-        grades = { ...next[gi].grades, [tamanho]: value };
-      }
-      const grade_total = Object.values(grades).reduce((a, b) => a + (Number(b) || 0), 0);
-      next[gi] = { ...next[gi], grades, grade_total };
+      // Modo auto: célula digitada vira ÂNCORA e distribui por proporção (fonte única,
+      // lib/grade-proporcao). Fora do auto, só grava a célula. Total = Σ das células.
+      const grades = (gradeAuto && value > 0 && propTam > 0)
+        ? distribuiAncora(value, tamanho, tamanhosAll, proporcoes)
+        : { ...next[gi].grades, [tamanho]: value };
+      next[gi] = { ...next[gi], grades, grade_total: somaGrade(grades) };
+      return next;
+    });
+  };
+  // total → células (Σ === total), usado quando o modo automático está ligado (a Grade Total
+  // vira input editável, igual ao Desenvolvimento — antes aqui era só texto, faltava o sentido
+  // total→células, por isso "às vezes não funcionava").
+  const updateGradeTotal = (gi: number, total: number) => {
+    setGradeAlterada(true);
+    setGrades((prev) => {
+      const next = [...prev];
+      const grades = { ...next[gi].grades, ...distribuiTotal(total, tamanhosAll, proporcoes) };
+      next[gi] = { ...next[gi], grades, grade_total: total };
       return next;
     });
   };
@@ -568,21 +574,32 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     const oldProp = proporcoes;
     const newProp = { ...oldProp, [tam]: Math.max(0, val) };
     setProporcoes(newProp);
-    // Com cálculo automático ativo, redistribui a grade mantendo a escala.
+    // Com cálculo automático ativo, redistribui a grade mantendo a escala (fonte única).
     if (gradeAuto) {
       const oldSum = tamanhosAll.reduce((s, t) => s + (Number(oldProp[t]) || 0), 0);
       if (oldSum > 0) {
         setGrades((gs) => gs.map((g) => {
           const total = g.grade_total || 0;
           if (total <= 0) return g;
-          const unit = total / oldSum;
-          const grades: Record<string, number> = {};
-          tamanhosAll.forEach((t) => { grades[t] = Math.round(unit * (Number(newProp[t]) || 0)); });
-          const gt = tamanhosAll.reduce((s, t) => s + (grades[t] || 0), 0);
-          return { ...g, grades, grade_total: gt };
+          const grades = redistribuiPorEscala(total / oldSum, tamanhosAll, newProp);
+          return { ...g, grades, grade_total: somaGrade(grades) };
         }));
       }
     }
+  };
+  // Ligar o auto REDISTRIBUI cada grade pela proporção atual mantendo o grade_total (igual ao Dev;
+  // antes o toggle não recalculava nada — outra causa do "às vezes não funciona").
+  const toggleGradeAuto = (v: boolean) => {
+    setGradeAuto(v);
+    if (!v) return;
+    const sum = tamanhosAll.reduce((s, t) => s + (Number(proporcoes[t]) || 0), 0);
+    if (sum <= 0) return;
+    setGradeAlterada(true);
+    setGrades((gs) => gs.map((g) => {
+      const total = g.grade_total || 0;
+      if (total <= 0) return g;
+      return { ...g, grades: distribuiTotal(total, tamanhosAll, proporcoes), grade_total: total };
+    }));
   };
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
     setAviamentoAlterado(true);
@@ -1020,9 +1037,10 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           grades={grades}
           tamanhosAll={tamanhosAll}
           updateGradeCell={updateGradeCell}
+          updateGradeTotal={updateGradeTotal}
           labelByNumero={gradeLabelByNumero}
           gradeAuto={gradeAuto}
-          onToggleGradeAuto={setGradeAuto}
+          onToggleGradeAuto={toggleGradeAuto}
           proporcoes={proporcoes}
           onChangeProporcao={updateProporcao}
         />
