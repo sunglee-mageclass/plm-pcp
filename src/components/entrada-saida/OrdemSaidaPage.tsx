@@ -56,7 +56,9 @@ const num = (s: any) => {
 };
 const fmtDate = (s: string | null | undefined) => (s ? s.split("-").reverse().join("/") : "—");
 
-type ItemForm = { _key: string; itemId: string; reserva: string };
+// FF#3 (ago/2026): OS de aviamento por variante — `varianteId` (só usado quando tipo=aviamento
+// e o aviamento tem variantes; "" = sem variante / tecido).
+type ItemForm = { _key: string; itemId: string; varianteId: string; reserva: string };
 type OSRow = {
   id: string;
   numero: number | null;
@@ -161,6 +163,31 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     return m;
   }, [itemOptions]);
 
+  // FF#3: variantes (cor) por aviamento — fonte do 2º select da OS de aviamento (padrão da OC
+  // Aviamento). Só carrega p/ tipo=aviamento; tecido usa a variante como item (não precisa).
+  const { data: aviVariantes = new Map<string, { id: string; label: string }[]>() } = useQuery({
+    queryKey: ["os-avi-variantes"],
+    enabled: tipo === "aviamento",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_aviamento" as any)
+        .select("id, aviamento_id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)");
+      if (error) throw error;
+      const m = new Map<string, { id: string; label: string }[]>();
+      for (const v of (data ?? []) as any[]) {
+        const arr = m.get(v.aviamento_id) ?? [];
+        arr.push({ id: v.id, label: labelVarianteRow(v) });
+        m.set(v.aviamento_id, arr);
+      }
+      return m;
+    },
+  });
+  const aviVarLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const arr of aviVariantes.values()) for (const v of arr) m.set(v.id, v.label);
+    return m;
+  }, [aviVariantes]);
+
   // Unidade da quantidade da OS. Tecido: o estoque é CANÔNICO em METROS — mesmo
   // para artigo vendido em kg, reserva/baixa entram em metros (o motor de estoque
   // subtrai do físico em metros). Aviamento: unidades. Mostrar evita o operador
@@ -185,19 +212,24 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       const { data, error } = await supabase.rpc((tipo === "tecido" ? "estoque_tecido" : "estoque_aviamento") as any);
       if (error) throw error;
       const disp: Record<string, number> = {};
-      // Aviamento agora vem POR VARIANTE (1 linha por aviamento×variante) — a OS de aviamento
-      // é por aviamento_id, então SOMA o fisico das variantes por aviamento. Tecido: 1 linha
-      // por variante (chave única), a soma coincide com o valor. (Espelha a trava do baixar_os.)
+      // FF#3: aviamento vem POR VARIANTE (1 linha por aviamento×variante) — a OS agora também é
+      // por variante, então o saldo é keyed por `${aviamento_id}::${variante_id}` (espelha a
+      // trava do baixar_os). Tecido: 1 linha por variante (chave única).
       for (const r of (data ?? []) as any[]) {
-        const k = tipo === "tecido" ? r.variante_tecido_id : r.id;
-        if (ids.has(k)) disp[k] = (disp[k] ?? 0) + num(r.fisico);
+        if (tipo === "tecido") {
+          const k = r.variante_tecido_id;
+          if (ids.has(k)) disp[k] = (disp[k] ?? 0) + num(r.fisico);
+        } else if (ids.has(r.id)) {
+          const k = `${r.id}::${r.variante_id ?? ""}`;
+          disp[k] = (disp[k] ?? 0) + num(r.fisico);
+        }
       }
       return disp;
     },
   });
 
   const saldoDisp = (it: any): number | null => {
-    const k = it[cfg.itemFk];
+    const k = tipo === "tecido" ? it.variante_tecido_id : `${it.aviamento_id}::${it.variante_aviamento_id ?? ""}`;
     return k in dispSaldo ? dispSaldo[k] : null;
   };
   const excedeSaldo = (it: any): boolean => {
@@ -245,7 +277,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     setEditing(null);
     // sugere o próximo número (editável no formulário).
     const proximo = ordens.reduce((m, o) => Math.max(m, o.numero ?? 0), 0) + 1;
-    const fItensSeed: ItemForm[] = [{ _key: newKey(), itemId: "", reserva: "" }];
+    const fItensSeed: ItemForm[] = [{ _key: newKey(), itemId: "", varianteId: "", reserva: "" }];
     setFNumero(String(proximo));
     setFResponsavel(""); setFSolicitacao(""); setFCorte(""); setFDestino("none"); setFObs("");
     setFItens(fItensSeed);
@@ -266,6 +298,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       fItens: (o.itens ?? []).map((it) => ({
         _key: newKey(),
         itemId: it[cfg.itemFk] ?? "",
+        varianteId: it.variante_aviamento_id ?? "",
         reserva: it.reserva != null ? String(it.reserva) : "",
       })),
     };
@@ -295,7 +328,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         destino_id: fDestino === "none" ? null : fDestino,
         observacao: fObs.trim() || null,
       };
-      const itensPayload = itens.map((i) => ({ itemId: i.itemId, reserva: Math.max(0, num(i.reserva)) }));
+      // FF#3: envia a variante do aviamento (null p/ tecido / aviamento sem variante — a RPC ignora no ramo tecido).
+      const itensPayload = itens.map((i) => ({ itemId: i.itemId, varianteId: i.varianteId || null, reserva: Math.max(0, num(i.reserva)) }));
       const { error } = await supabase.rpc("salvar_os" as any, {
         _tipo: tipo,
         _os_id: editing ? editing.id : null,
@@ -510,28 +544,49 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
             <div className="space-y-2">
               <Label>Itens — reserva ({tipo === "tecido" ? "metros" : "unidades"})</Label>
-              {fItens.map((it, idx) => (
-                <div key={it._key} className="flex items-center gap-2">
-                  <Select value={it.itemId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, itemId: v } : x))}>
-                    <SelectTrigger className="flex-1 min-w-0"><SelectValue placeholder={`Selecione ${cfg.itemLabel.toLowerCase()}`} /></SelectTrigger>
-                    <SelectContent>
-                      {itemOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    className="w-20 shrink-0"
-                    inputMode="decimal"
-                    placeholder="Reserva"
-                    value={it.reserva}
-                    onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
-                  />
-                  <span className="w-5 shrink-0 text-xs text-muted-foreground">{unidadeQtd}</span>
+              {fItens.map((it, idx) => {
+                // FF#3: variantes (cor) do aviamento escolhido — 2º select (padrão da OC Aviamento).
+                const vars = tipo === "aviamento" && it.itemId ? (aviVariantes.get(it.itemId) ?? []) : [];
+                return (
+                <div key={it._key} className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    {/* Trocar o aviamento zera a variante (as variantes são daquele aviamento). */}
+                    <Select value={it.itemId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, itemId: v, varianteId: "" } : x))}>
+                      <SelectTrigger className="w-full"><SelectValue placeholder={`Selecione ${cfg.itemLabel.toLowerCase()}`} /></SelectTrigger>
+                      <SelectContent>
+                        {itemOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {tipo === "aviamento" && it.itemId && (
+                      vars.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">Sem variantes — cadastre em Cadastro › Aviamentos.</p>
+                      ) : (
+                        <Select value={it.varianteId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, varianteId: v } : x))}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Variante (cor)…" /></SelectTrigger>
+                          <SelectContent>
+                            {vars.map((vr) => <SelectItem key={vr.id} value={vr.id}>{vr.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Input
+                      className="w-20"
+                      inputMode="decimal"
+                      placeholder="Reserva"
+                      value={it.reserva}
+                      onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
+                    />
+                    <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                  </div>
                   <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
-              ))}
-              <Button size="sm" variant="outline" onClick={() => setFItens((prev) => [...prev, { _key: newKey(), itemId: "", reserva: "" }])}>
+                );
+              })}
+              <Button size="sm" variant="outline" onClick={() => setFItens((prev) => [...prev, { _key: newKey(), itemId: "", varianteId: "", reserva: "" }])}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar item
               </Button>
             </div>
@@ -568,7 +623,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               {(baixaOS?.itens ?? []).map((it) => (
                 <div key={it.id} className="flex items-center justify-between gap-3 p-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm truncate">{itemLabelById.get(it[cfg.itemFk]) ?? "—"}</div>
+                    <div className="text-sm truncate">
+                      {itemLabelById.get(it[cfg.itemFk]) ?? "—"}
+                      {tipo === "aviamento" && it.variante_aviamento_id && aviVarLabelById.get(it.variante_aviamento_id)
+                        ? ` · ${aviVarLabelById.get(it.variante_aviamento_id)}` : ""}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       Reserva: {fmtNumEdit(num(it.reserva))} {unidadeQtd}
                       {saldoDisp(it) != null && <> · Disponível: {fmtNumEdit(saldoDisp(it)!)} {unidadeQtd}</>}
