@@ -1575,11 +1575,11 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Desconto total</Label>
-                <MoneyInput value={desc} onChange={(e) => setDesc(Number(e.target.value))} />
+                <MoneyInput value={desc || ""} placeholder="0,00" onChange={(e) => setDesc(Number(e.target.value))} />
               </div>
               <div>
                 <Label className="text-xs">Multa total</Label>
-                <MoneyInput value={multa} onChange={(e) => setMulta(Number(e.target.value))} />
+                <MoneyInput value={multa || ""} placeholder="0,00" onChange={(e) => setMulta(Number(e.target.value))} />
               </div>
             </div>
             <div className="rounded-md bg-muted/40 px-3 py-2"><span className="text-muted-foreground">Custo líquido:</span> <b>{brl(liquido)}</b></div>
