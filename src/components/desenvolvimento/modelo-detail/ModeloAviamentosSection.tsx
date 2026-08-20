@@ -56,8 +56,9 @@ export function ModeloAviamentosSection({
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            {/* Ordem do mockup: material → variante (cor) → consumo → loss → CUSTO (à direita). */}
-            <div className="grid grid-cols-1 sm:grid-cols-[1.5fr_1.5fr_1fr_1fr_1fr] gap-2">
+            {/* 2 LINHAS (dono ago/2026 — nome de aviamento pode ser extenso e não caber):
+                linha 1 = Aviamento (2/3) · Cor/Variante (1/3); linha 2 = Consumo · % Loss · Custo. */}
+            <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-2">
               <FieldSelectOpt
                 label="Aviamento"
                 value={r.aviamento_id}
@@ -78,6 +79,8 @@ export function ModeloAviamentosSection({
                   <Input readOnly className="bg-muted/50 cursor-default text-muted-foreground" placeholder="—" value={r.aviamento_id ? "Sem variantes" : ""} />
                 </Field>
               )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Field label="Consumo">
                 <NumberInput type="number" step="0.001" placeholder="0,000" value={r.consumo || ""} onChange={(e) => { onChangeRow(i, { consumo: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
               </Field>
