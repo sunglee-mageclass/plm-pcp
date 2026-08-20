@@ -831,7 +831,7 @@ function ParcelaDetailDialog({
         <DialogFooter className="flex-row flex-wrap justify-end gap-2">
           {st === "pago" && (
             <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
-              <Printer className="h-4 w-4 mr-1" /> Comprovante
+              <Printer className="h-4 w-4 mr-1" /> Imprimir recibo
             </Button>
           )}
           {(parcela.oc_tecido_id || parcela.oc_aviamento_id || parcela.oc_etiqueta_id || parcela.oc_p_acabado_id) && (
