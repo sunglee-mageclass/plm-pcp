@@ -1038,7 +1038,7 @@ function PlanejamentoPage() {
       {/* Barra CONTEXTUAL: com seleção ativa, a barra de seleção (acima) substitui esta —
           duas barras fixed no rodapé se sobrepunham. */}
       {selected.size === 0 && (
-        <MobileActionBar>
+        <MobileActionBar breakpoint="md">
           <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
           <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
         </MobileActionBar>
