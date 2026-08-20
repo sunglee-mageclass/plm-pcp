@@ -185,9 +185,12 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       const { data, error } = await supabase.rpc((tipo === "tecido" ? "estoque_tecido" : "estoque_aviamento") as any);
       if (error) throw error;
       const disp: Record<string, number> = {};
+      // Aviamento agora vem POR VARIANTE (1 linha por aviamento×variante) — a OS de aviamento
+      // é por aviamento_id, então SOMA o fisico das variantes por aviamento. Tecido: 1 linha
+      // por variante (chave única), a soma coincide com o valor. (Espelha a trava do baixar_os.)
       for (const r of (data ?? []) as any[]) {
         const k = tipo === "tecido" ? r.variante_tecido_id : r.id;
-        if (ids.has(k)) disp[k] = num(r.fisico);
+        if (ids.has(k)) disp[k] = (disp[k] ?? 0) + num(r.fisico);
       }
       return disp;
     },

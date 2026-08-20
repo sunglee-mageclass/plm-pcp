@@ -306,6 +306,20 @@ e verifique** — o repo muda rápido.
    `_dashboard_estoque_parado_core`) e `detalhe_estoque_variante` TODOS rolam esse core — nenhum
    re-implementa a conta (senão dá drift). `previsto` NÃO é clampado (pode ficar negativo: reserva
    > físico é sinal legítimo, ex.: cortou mais que comprou); só `fisico` clampa em ≥0.
+   ⚠️ **Estoque de AVIAMENTO é POR VARIANTE (cor base + apelido)** (ago/2026, `20260820140000`),
+   espelhando o tecido: **fonte única `_estoque_aviamento_core`** reagrupa por
+   `aviamento_id × variante_aviamento_id` (recebido/prev ← `ocs_aviamento_itens.variante_aviamento_id`;
+   baixa ← `cad_aviamentos`/`ordens_saida_aviamento_itens`; reserva ← `modelo_aviamentos.variante_aviamento_id`
+   + OS). A tela (`estoque_aviamento`, agora 1 linha por aviamento×variante), o dashboard
+   (`_dashboard_estoque_core`) e a trava de saldo da OS (`baixar_os`) TODOS rolam esse core — os dois
+   últimos **SOMAM as variantes por aviamento** (mantêm a granularidade por-aviamento sem re-implementar
+   a conta; número idêntico ao anterior, diff-validado). Clamp de `fisico` passou de por-aviamento p/
+   **por-variante** (idêntico ao tecido). **Regra de atribuição do LEGADO** (decisão do dono): linha com
+   `variante_aviamento_id` NULL é atribuída à ÚNICA variante do aviamento quando ele tem exatamente 1
+   (cobre TODO o backfill — cada aviamento com cor virou 1 variante); 0 ou 2+ variantes → bucket
+   **"Sem variante"** (variante_id NULL, NÃO some). Σ por aviamento ≡ Σ das variantes (provado
+   byte-a-byte, ZERO perda). `_estoque_aviamento_core` segue com EXECUTE revogado dos TRÊS (invariante #9;
+   já teve IDOR aqui). A OS de aviamento é por `aviamento_id` (variante = item 5, ainda não populado).
    ⚠️ **`estoque_zerado` foi APOSENTADO** (jul/2026, migração `20260727000000`): a ação de "zerar
    lote" já não existia; o conceito foi removido do banco (4 funções: `_estoque_tecido_core`,
    `detalhe_estoque_variante`, `ocs_disponiveis_variante`, `ocs_para_rolo`) e do front (badge
