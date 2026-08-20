@@ -87,6 +87,28 @@ function rotuloConflito(path: string): string {
   return ROTULO_CONFLITO[path] ?? path;
 }
 
+// FF#2 (ago/2026): "aviamento enviado" passa a distinguir a VARIANTE (cor) do aviamento.
+// A chave é {aviamento_id, variante_aviamento_id} (variante null = aviamento sem variante, ou
+// o legado migrado). Um aviamento com 2+ variantes no BOM vira 2 botões distintos.
+type AviamentoEnviado = { aviamento_id: string; variante_aviamento_id: string | null };
+
+// Aceita o formato NOVO (objeto) e o LEGADO (string = aviamento_id, variante null) — resiliência
+// na transição; o banco também migra o dado (mig 20260820170000). Descarta lixo.
+function normalizeAviEnviados(raw: unknown): AviamentoEnviado[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AviamentoEnviado[] = [];
+  for (const el of raw) {
+    if (typeof el === "string") {
+      if (el) out.push({ aviamento_id: el, variante_aviamento_id: null });
+    } else if (el && typeof el === "object" && (el as any).aviamento_id) {
+      out.push({ aviamento_id: (el as any).aviamento_id, variante_aviamento_id: (el as any).variante_aviamento_id ?? null });
+    }
+  }
+  return out;
+}
+const mesmoAvi = (a: AviamentoEnviado, b: AviamentoEnviado) =>
+  a.aviamento_id === b.aviamento_id && (a.variante_aviamento_id ?? null) === (b.variante_aviamento_id ?? null);
+
 type Bloco = {
   _key: string; // chave estável de render (permite blocos repetidos da mesma categoria)
   id?: string;
@@ -110,7 +132,7 @@ type Bloco = {
   data_entregue: string | null;
   status: string | null;
   observacao: string;
-  aviamentos_enviados: string[];
+  aviamentos_enviados: AviamentoEnviado[];
   tecidos_enviados: string[];
   // Quantidade por tamanho × variante (opt-in). Quando `detalhado`, os 3 totais viram Σ da grade.
   detalhado: boolean;
@@ -323,26 +345,28 @@ export function TerceirizadosDetail({
         .from("modelo_aviamentos" as any)
         .select("aviamento_id, variante_aviamento_id, aviamentos:aviamento_id(id, codigo_nome), variante:variante_aviamento_id(cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId);
-      // "Enviados" é POR AVIAMENTO (o toggle grava aviamento_id em aviamentos_enviados), mas o
-      // BOM pode ter o MESMO aviamento em várias linhas (consumos distintos) → dedup por
-      // aviamento_id, agregando os rótulos de variante distintos ("codigo · Branco - Off White,
-      // Preto"). Sem dedup a lista mostrava 3-4 botões idênticos p/ o mesmo aviamento.
-      const byId = new Map<string, { codigo: string; variantes: string[] }>();
+      // FF#2 (ago/2026): 1 botão por AVIAMENTO × VARIANTE. O BOM pode repetir o MESMO
+      // (aviamento, variante) em várias linhas (consumos distintos) → dedup pela CHAVE COMPOSTA
+      // (aviamento_id + variante_aviamento_id). Aviamento sem variante = 1 botão (variante null).
+      const byKey = new Map<string, { aviamento_id: string; variante_aviamento_id: string | null; nome: string }>();
       for (const r of (data ?? []) as any[]) {
-        const id = r.aviamentos?.id;
-        if (!id) continue;
+        const aid = r.aviamentos?.id ?? r.aviamento_id;
+        if (!aid) continue;
+        const vid = (r.variante_aviamento_id ?? null) as string | null;
+        const key = `${aid}::${vid ?? ""}`;
+        if (byKey.has(key)) continue;
         const cor = r.variante?.cor?.nome ?? null;
         const apel = r.variante?.apelido?.nome ?? null;
         // Em Serviços o apelido vem na frente (apelido - cor), padrão do bloco de tecidos.
         const varLabel = cor || apel ? corApelidoLabelServico(cor, apel) : null;
-        const e: { codigo: string; variantes: string[] } = byId.get(id) ?? { codigo: r.aviamentos?.codigo_nome ?? "—", variantes: [] };
-        if (varLabel && !e.variantes.includes(varLabel)) e.variantes.push(varLabel);
-        byId.set(id, e);
+        const codigo = r.aviamentos?.codigo_nome ?? "—";
+        byKey.set(key, {
+          aviamento_id: aid,
+          variante_aviamento_id: vid,
+          nome: varLabel ? `${codigo} · ${varLabel}` : codigo,
+        });
       }
-      return [...byId.entries()].map(([id, e]) => ({
-        id,
-        nome: e.variantes.length ? `${e.codigo} · ${e.variantes.join(", ")}` : e.codigo,
-      }));
+      return [...byKey.values()];
     },
   });
 
@@ -476,7 +500,10 @@ export function TerceirizadosDetail({
 
   // Itens da Ordem de Serviço: um por bloco COM responsável (terceirizado ou colaborador interno).
   const osItens = useMemo<OSItem[]>(() => {
-    const aviLabel = (id: string) => aviamentosModelo.find((a: any) => a.id === id)?.nome ?? null;
+    const aviLabel = (e: AviamentoEnviado) =>
+      (aviamentosModelo as any[]).find(
+        (a) => a.aviamento_id === e.aviamento_id && (a.variante_aviamento_id ?? null) === (e.variante_aviamento_id ?? null),
+      )?.nome ?? null;
     const tecLabel = (id: string) => {
       for (const t of tecidosModelo as any[]) {
         const v = (t.variantes ?? []).find((vv: any) => vv.id === id);
@@ -615,7 +642,7 @@ export function TerceirizadosDetail({
       data_entregue: r.data_entregue,
       status: r.status,
       observacao: r.observacao ?? "",
-      aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
+      aviamentos_enviados: normalizeAviEnviados(r.aviamentos_enviados),
       tecidos_enviados: Array.isArray(r.tecidos_enviados) ? r.tecidos_enviados : [],
       detalhado: Boolean(r.detalhado),
       grade_detalhe: (r.grade_detalhe && typeof r.grade_detalhe === "object" ? r.grade_detalhe : {}) as GradeDetalhe,
@@ -1514,18 +1541,19 @@ export function TerceirizadosDetail({
                   <p className="text-xs text-muted-foreground">Nenhum aviamento vinculado ao modelo.</p>
                 )}
                 {(aviamentosModelo as any[]).map((a) => {
-                  const checked = b.aviamentos_enviados.includes(a.id);
+                  const sel: AviamentoEnviado = { aviamento_id: a.aviamento_id, variante_aviamento_id: a.variante_aviamento_id ?? null };
+                  const checked = b.aviamentos_enviados.some((x) => mesmoAvi(x, sel));
                   return (
                     <Button
-                      key={a.id}
+                      key={`${a.aviamento_id}::${a.variante_aviamento_id ?? ""}`}
                       type="button"
                       size="sm"
                       variant={checked ? "default" : "outline"}
                       onClick={() =>
                         updateBloco(idx, {
                           aviamentos_enviados: checked
-                            ? b.aviamentos_enviados.filter((x) => x !== a.id)
-                            : [...b.aviamentos_enviados, a.id],
+                            ? b.aviamentos_enviados.filter((x) => !mesmoAvi(x, sel))
+                            : [...b.aviamentos_enviados, sel],
                         })
                       }
                     >
