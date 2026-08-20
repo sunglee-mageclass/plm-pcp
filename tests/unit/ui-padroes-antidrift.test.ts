@@ -16,6 +16,16 @@ import { fileURLToPath } from "node:url";
 // migrando toda moeda (Intl.NumberFormat / toLocaleString currency / `R$ ${…toLocaleString}`) pra
 // brl() de src/lib/format.ts. Escopo SÓ moeda (não número/percentual/markup, que são usos
 // legítimos à mão sem 1:1 no format.ts); print reusa a exceção §Q3.
+//
+// Regras (h)/(i) — pass de consolidação (revisão adversarial, ago/2026) — REPORT-ONLY (contam
+// no console.info, FORA do gate). (h) fonte abaixo do piso §Q5 (text-[Npx] N<11): o achado 4
+// (3 StatusBadge do Planejamento com text-[9px]/[8px] + 2 chips text-[9px] do Dashboard Leadtime)
+// FOI zerado, mas restam ~146 hits pré-existentes — 125× text-[10px] (o tamanho DE-FACTO do repo,
+// incl. o próprio StatusBadge primitivo) + 21× text-[8/9px] densos em plan-tecido/produto-acabado/
+// sidebar. Zerar tudo é campanha própria, não este pass — por isso (h) NÃO entra no gate (ligaria
+// com 146 falhas). (i) born-empty §Q11/§D: MoneyInput de dinheiro sem placeholder — heurística
+// MULTI-LINHA (as props da tag cruzam linhas, não é grep limpo linha-a-linha), report-only por
+// definição/nunca gate.
 const ANTIDRIFT_LIGADO = true;
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -105,7 +115,7 @@ function stripComment(line: string): string {
 }
 
 type Hit = { file: string; line: number; text: string };
-type RuleId = "a" | "b" | "c" | "d" | "e" | "f" | "g";
+type RuleId = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h";
 
 const ICON_SIZES_OK = new Set([14, 16, 20, 24]);
 
@@ -176,7 +186,40 @@ const RULES: Record<RuleId, { label: string; files: string[]; find: (line: strin
       return out;
     },
   },
+  h: {
+    label:
+      "fonte abaixo do piso §Q5 (menor token = 11px/--text-2xs): text-[Npx] com N<11 — REPORT-ONLY (text-[10px] é o tamanho de-facto do repo, 125×, incl. StatusBadge primitivo; débito grande, zerar é campanha própria)",
+    files: FILES_SEM_EXCECAO_COR, // fora de src/components/ui/, print/§Q3 e cor-de-dado
+    find: (line) => {
+      const out: string[] = [];
+      for (const m of line.matchAll(/text-\[(\d+)px\]/g)) {
+        if (Number(m[1]) < 11) out.push(m[0]);
+      }
+      return out;
+    },
+  },
 };
+
+// Regras contadas no console.info mas FORA do gate: (h) débito pré-existente grande demais p/
+// zerar sem campanha própria/regressão visual. Mover p/ o gate quando zerado.
+const REPORT_ONLY = new Set<RuleId>(["h"]);
+
+// Regra (i) — born-empty (§Q11/§D), REPORT-ONLY multi-linha: <MoneyInput> de dinheiro sem
+// `placeholder` (nasce "0" em vez de vazio+placeholder). As props da tag cruzam várias linhas,
+// então NÃO é grep limpo linha-a-linha — fica FORA do RULES (line-based) e nunca vira gate.
+function scanMoneyBornEmpty(): Hit[] {
+  const hits: Hit[] = [];
+  for (const file of FILES_NO_LIB) {
+    const src = fs.readFileSync(file, "utf8");
+    for (const m of src.matchAll(/<MoneyInput\b[\s\S]*?\/>/g)) {
+      const tag = m[0];
+      if (/placeholder=/.test(tag)) continue;
+      const line = src.slice(0, m.index ?? 0).split("\n").length;
+      hits.push({ file: path.relative(ROOT, file), line, text: tag.split("\n")[0].trim() + " …" });
+    }
+  }
+  return hits;
+}
 
 function scanRule(id: RuleId): Hit[] {
   const rule = RULES[id];
@@ -203,14 +246,16 @@ function fmtHits(hits: Hit[]): string {
 // independente do valor de ANTIDRIFT_LIGADO.
 describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
   it("reporta a contagem de débito por regra (console.info, não falha)", () => {
-    const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, g: 0 };
+    const counts: Record<string, number> = {};
     for (const id of Object.keys(RULES) as RuleId[]) counts[id] = scanRule(id).length;
+    counts.i = scanMoneyBornEmpty().length; // regra (i) — fora do RULES (multi-linha)
     console.info(
       "[ui-padroes anti-drift §Q/§R] débito por regra:",
       JSON.stringify(counts),
       "\n  a = cor literal | b = <input type=date> | c = ícone size fora da escala | d = .toFixed fora de lib | e = font-size fracionário | f = hsl() cru (§R) | g = moeda à mão (§Q12)",
+      "\n  h = fonte < piso 11px (§Q5, REPORT-ONLY) | i = MoneyInput sem placeholder (§Q11/§D, REPORT-ONLY)",
     );
-    expect(Object.keys(counts).length).toBe(Object.keys(RULES).length);
+    expect(Object.keys(counts).length).toBe(Object.keys(RULES).length + 1); // + regra (i)
   });
 });
 
@@ -219,6 +264,7 @@ describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
 // religar rápido se um caso legítimo novo precisar de exceção temporária.
 describe.skipIf(!ANTIDRIFT_LIGADO)("ui-padroes anti-drift — asserções (§Q, gate ATIVO)", () => {
   for (const id of Object.keys(RULES) as RuleId[]) {
+    if (REPORT_ONLY.has(id)) continue; // report-only — débito pré-existente, contado no console.info, fora do gate
     const rule = RULES[id];
     it(`(${id}) ${rule.label}`, () => {
       const hits = scanRule(id);
