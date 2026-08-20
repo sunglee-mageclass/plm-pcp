@@ -436,6 +436,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
   const hoje = todayISOInStoreTZ(useStoreTimezone());
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const [anexarId, setAnexarId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   // Popover "dia aberto" (desktop): a chave do dia (yyyy-MM-dd) cujo popover está aberto.
@@ -673,21 +674,28 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
         onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
         onOpenOc={(tipo, id) => { setDetalheId(null); setOcView({ tipo, id }); }}
         onVencimentoSaved={(d) => { autoJumped.current = true; setCursor(startOfMonth(parseLocalDate(d))); }}
+        onAnexar={(id) => { setDetalheId(null); setAnexarId(id); }}
       />
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
+      <AnexarComprovanteDialog
+        parcelaId={anexarId}
+        temComprovante={anexarId ? !!parcelas.find((p) => p.id === anexarId)?.comprovante_url : false}
+        onClose={() => setAnexarId(null)}
+      />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
     </Card>
   );
 }
 
 function ParcelaDetailDialog({
-  parcela, onClose, onMarkPaid, onOpenOc, onVencimentoSaved,
+  parcela, onClose, onMarkPaid, onOpenOc, onVencimentoSaved, onAnexar,
 }: {
   parcela: Parcela | null;
   onClose: () => void;
   onMarkPaid: (id: string) => void;
   onOpenOc: (tipo: string, ocId: string) => void;
   onVencimentoSaved?: (date: string) => void;
+  onAnexar?: (id: string) => void;
 }) {
   const qc = useQueryClient();
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
@@ -779,7 +787,7 @@ function ParcelaDetailDialog({
   const payeeCnpj = temRep ? (parcela.representanteCnpj ?? null) : (parcela.empresaCnpj ?? null);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="md:max-w-3xl">
         <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
           <div><span className="text-muted-foreground">Empresa:</span> <b>{parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</b></div>
@@ -832,6 +840,11 @@ function ParcelaDetailDialog({
           {st === "pago" && (
             <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
               <Printer className="h-4 w-4 mr-1" /> Imprimir recibo
+            </Button>
+          )}
+          {st === "pago" && podeEditar && onAnexar && (
+            <Button size="sm" variant="outline" onClick={() => onAnexar(parcela.id)}>
+              <Upload className="h-4 w-4 mr-1" /> {parcela.comprovante_url ? "Trocar comprovante" : "Anexar comprovante"}
             </Button>
           )}
           {(parcela.oc_tecido_id || parcela.oc_aviamento_id || parcela.oc_etiqueta_id || parcela.oc_p_acabado_id) && (
@@ -1012,6 +1025,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
   const [dataFim, setDataFim] = useState("");
   const [tipo, setTipo] = useState("all"); // separa OCs por tipo: tecido / aviamento / etiqueta(insumo)
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const [anexarId, setAnexarId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
   // Card/detalhe da parcela: a LINHA inteira abre (não só o nº do pedido).
   const [detalheId, setDetalheId] = useState<string | null>(null);
@@ -1243,14 +1257,19 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
-                      {podeEditar && (st !== "pago" ? (
-                        <Button size="sm" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
-                      ) : (
-                        <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
-                      ))}
-                      {p.comprovante_url && (
-                        <ComprovanteLink value={p.comprovante_url} label="Ver comprovante" className="ml-2 align-middle" icone />
-                      )}
+                      <span className="inline-flex items-center gap-1.5 align-middle">
+                        {podeEditar && (st !== "pago" ? (
+                          <Button size="sm" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
+                        ) : (
+                          <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                        ))}
+                        {p.comprovante_url && (
+                          <ComprovanteLink value={p.comprovante_url} label="Ver comprovante" icone />
+                        )}
+                        {podeEditar && st === "pago" && (
+                          <AnexarComprovanteBtn temComprovante={!!p.comprovante_url} onClick={() => setAnexarId(p.id)} />
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -1268,8 +1287,14 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
         onClose={() => setDetalheId(null)}
         onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
         onOpenOc={(tipo, id) => { setDetalheId(null); setOcView({ tipo, id }); }}
+        onAnexar={(id) => { setDetalheId(null); setAnexarId(id); }}
       />
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
+      <AnexarComprovanteDialog
+        parcelaId={anexarId}
+        temComprovante={anexarId ? !!filtered.find((p) => p.id === anexarId)?.comprovante_url : false}
+        onClose={() => setAnexarId(null)}
+      />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
 
       {!ocView && !detalheId && <RelatorioPrint
@@ -1329,6 +1354,7 @@ function ServicosView() {
   const [dataFim, setDataFim] = useState("");
   const [detalhe, setDetalhe] = useState<any | null>(null);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const [anexarId, setAnexarId] = useState<string | null>(null);
 
   const stOf = (r: any) => {
     if (r.status === "pago" || r.data_pagamento) return "pago";
@@ -1489,14 +1515,19 @@ function ServicosView() {
                       <StatusParcelaBadge st={st} />
                     </td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
-                      {podeEditar && (st === "pago" ? (
-                        <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
-                      ) : (
-                        <Button size="sm" onClick={() => setPagandoId(r.parcela_id)}>Marcar pago</Button>
-                      ))}
-                      {r.comprovante_url && (
-                        <ComprovanteLink value={r.comprovante_url} label="Ver comprovante" className="ml-2 align-middle" icone />
-                      )}
+                      <span className="inline-flex items-center gap-1.5 align-middle">
+                        {podeEditar && (st === "pago" ? (
+                          <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
+                        ) : (
+                          <Button size="sm" onClick={() => setPagandoId(r.parcela_id)}>Marcar pago</Button>
+                        ))}
+                        {r.comprovante_url && (
+                          <ComprovanteLink value={r.comprovante_url} label="Ver comprovante" icone />
+                        )}
+                        {podeEditar && st === "pago" && (
+                          <AnexarComprovanteBtn temComprovante={!!r.comprovante_url} onClick={() => setAnexarId(r.parcela_id)} />
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -1525,12 +1556,20 @@ function ServicosView() {
         }}
         toggling={togglePago.isPending}
         onClose={() => setDetalhe(null)}
+        onAnexar={(id) => { setDetalhe(null); setAnexarId(id); }}
       />
       <PagarDialog
         parcelaId={pagandoId}
         table="parcelas_servico"
         invalidateKey={["servicos-financeiro"]}
         onClose={() => setPagandoId(null)}
+      />
+      <AnexarComprovanteDialog
+        parcelaId={anexarId}
+        temComprovante={anexarId ? !!filtered.find((r) => r.parcela_id === anexarId)?.comprovante_url : false}
+        table="parcelas_servico"
+        invalidateKey={["servicos-financeiro"]}
+        onClose={() => setAnexarId(null)}
       />
 
       <RelatorioPrint
@@ -1577,7 +1616,7 @@ function ServicosView() {
 /* ===== Card/detalhe de uma parcela de SERVIÇO (terceirizado) ===== */
 
 function ServicoDetailDialog({
-  row, stLabel, stVariant, fmtD, canPay, onTogglePago, toggling, onClose,
+  row, stLabel, stVariant, fmtD, canPay, onTogglePago, toggling, onClose, onAnexar,
 }: {
   row: any | null;
   stLabel: string;
@@ -1587,6 +1626,7 @@ function ServicoDetailDialog({
   onTogglePago: (pago: boolean) => void;
   toggling: boolean;
   onClose: () => void;
+  onAnexar?: (id: string) => void;
 }) {
   if (!row) return null;
   // O payee é o representante (se houver) ou a empresa. Mostra o CNPJ do payee.
@@ -1596,7 +1636,7 @@ function ServicoDetailDialog({
   const stRaw: "pago" | "vencido" | "a_pagar" = isPago ? "pago" : stLabel === "Vencido" ? "vencido" : "a_pagar";
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="md:max-w-3xl">
         <DialogHeader><DialogTitle>Detalhes do Serviço</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
           <div><span className="text-muted-foreground">Serviço:</span> <b>{row.servico}</b>{row.ref ? ` · ${row.ref}` : ""}</div>
@@ -1631,7 +1671,34 @@ function ServicoDetailDialog({
             <div><ComprovanteLink value={row.comprovante_url} label="Ver comprovante" className="text-primary" /></div>
           )}
         </div>
+
+        {/* Recibo imprimível — paridade com o detalhe da OC (impresso por "Imprimir recibo"). */}
+        {isPago && (
+          <ComprovantePagamentoPrint
+            parcela={{
+              representanteNome: row.representante_nome,
+              empresaNome: row.empresa_nome ?? row.responsavel,
+              numero_parcela: row.numero_parcela,
+              valor: row.valor_parcela,
+              data_vencimento: row.data_vencimento,
+              data_pagamento: row.data_pagamento,
+            }}
+            tipoLabel="Serviço"
+            ocNumero={`${row.servico}${row.ref ? ` · ${row.ref}` : ""}`}
+          />
+        )}
+
         <DialogFooter className="flex-row flex-wrap items-center justify-end gap-2">
+          {isPago && (
+            <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+              <Printer className="h-4 w-4 mr-1" /> Imprimir recibo
+            </Button>
+          )}
+          {canPay && isPago && onAnexar && (
+            <Button size="sm" variant="outline" onClick={() => onAnexar(row.parcela_id)}>
+              <Upload className="h-4 w-4 mr-1" /> {row.comprovante_url ? "Trocar comprovante" : "Anexar comprovante"}
+            </Button>
+          )}
           {canPay && (isPago ? (
             <Button size="sm" variant="destructive" onClick={() => onTogglePago(false)} disabled={toggling}>Desmarcar pago</Button>
           ) : (
@@ -1797,6 +1864,102 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
   );
 }
 
+// Sobe o arquivo p/ o bucket `comprovantes` no prefixo do tenant e devolve o PATH
+// (gravável em `comprovante_url`). Fonte única do upload — usada ao marcar pago
+// (PagarDialog) E ao anexar/trocar depois de pago (AnexarComprovanteDialog).
+async function uploadComprovante(parcelaId: string, file: File): Promise<string> {
+  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const tenant = await tenantPrefix();
+  const ext = file.name.split(".").pop() ?? "bin";
+  const path = `${tenant}/${parcelaId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("comprovantes").upload(path, file, { upsert: true });
+  if (error) throw error;
+  return path;
+}
+
+// Botão-ícone de anexar/trocar o comprovante de uma parcela JÁ PAGA, nas linhas das
+// listas (OCs e Serviços). Espelha a MOLDURA do clipe de "Ver comprovante" (mesmo
+// h-8 w-8/border), mas com ícone de Upload (subir) p/ não confundir com o de ver
+// (Paperclip). O upload no momento de PAGAR mora no PagarDialog; este é só o pós-pago.
+const ANEXAR_ICON_CLS = "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground";
+function AnexarComprovanteBtn({ temComprovante, onClick, className }: { temComprovante: boolean; onClick: () => void; className?: string }) {
+  const label = temComprovante ? "Trocar comprovante" : "Anexar comprovante";
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={cn(ANEXAR_ICON_CLS, className)}
+    >
+      <Upload className="h-4 w-4" />
+    </button>
+  );
+}
+
+// Dialog enxuto de UPLOAD do comprovante DEPOIS de pago: só escolhe o arquivo e grava
+// `comprovante_url` — NÃO toca status/data_pagamento (a parcela já está quitada). Reusa
+// `uploadComprovante` (mesma bucket/tenantPrefix do PagarDialog) e invalida as mesmas
+// queryKeys. Serve OCs (`parcelas`) e Serviços (`parcelas_servico`) via props.
+function AnexarComprovanteDialog({
+  parcelaId, temComprovante, onClose, table = "parcelas", invalidateKey = ["parcelas"],
+}: {
+  parcelaId: string | null;
+  temComprovante: boolean;
+  onClose: () => void;
+  table?: string;
+  invalidateKey?: (string | number)[];
+}) {
+  const qc = useQueryClient();
+  const podeEditar = usePodeEditarFinanceiro();
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const mut = useMutation({
+    mutationFn: async () => {
+      if (!parcelaId || !file) return;
+      setUploading(true);
+      const path = await uploadComprovante(parcelaId, file);
+      const { error } = await supabase
+        .from(table as any)
+        .update({ comprovante_url: path })
+        .eq("id", parcelaId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(temComprovante ? "Comprovante trocado" : "Comprovante anexado");
+      qc.invalidateQueries({ queryKey: invalidateKey });
+      setFile(null);
+      onClose();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao anexar comprovante")),
+    onSettled: () => setUploading(false),
+  });
+
+  return (
+    <Dialog open={!!parcelaId} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>{temComprovante ? "Trocar comprovante" : "Anexar comprovante"}</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Comprovante</Label>
+            <Input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {file
+              ? <p className="text-xs text-muted-foreground mt-1"><Upload className="inline h-3 w-3 mr-1" />{file.name}</p>
+              : temComprovante && <p className="text-xs text-muted-foreground mt-1">Já há um comprovante anexado — escolher um arquivo substitui o atual.</p>}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+          <Button onClick={() => mut.mutate()} disabled={!file || uploading || mut.isPending || !podeEditar}>
+            {temComprovante ? "Trocar" : "Anexar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = ["parcelas"] }: { parcelaId: string | null; onClose: () => void; table?: string; invalidateKey?: (string | number)[] }) {
   const qc = useQueryClient();
   const podeEditar = usePodeEditarFinanceiro();
@@ -1808,15 +1971,7 @@ function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = [
     mutationFn: async () => {
       if (!parcelaId) return;
       setUploading(true);
-      let path: string | null = null;
-      if (file) {
-        const { tenantPrefix } = await import("@/lib/storage-tenant");
-        const tenant = await tenantPrefix();
-        const ext = file.name.split(".").pop() ?? "bin";
-        path = `${tenant}/${parcelaId}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from("comprovantes").upload(path, file, { upsert: true });
-        if (upErr) throw upErr;
-      }
+      const path = file ? await uploadComprovante(parcelaId, file) : null;
       const { error } = await supabase
         .from(table as any)
         .update({ status: "pago", data_pagamento: dataPag, ...(path ? { comprovante_url: path } : {}) })
