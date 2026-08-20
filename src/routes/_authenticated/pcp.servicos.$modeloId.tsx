@@ -312,7 +312,10 @@ export function TerceirizadosDetail({
     );
 
   const { data: aviamentosModelo = [] } = useQuery({
-    queryKey: ["modelo-aviamentos", modeloId],
+    // ⚠️ queryKey PRÓPRIA (não `["modelo-aviamentos", …]` do Desenvolvimento): as duas telas leem
+    // a MESMA tabela com SHAPES diferentes; key compartilhada = cache cross-read (a classe de bug
+    // que já derrubou tela nesta base — ver CLAUDE.md). Sem invalidação cruzada intencional.
+    queryKey: ["pcp-modelo-aviamentos", modeloId],
     queryFn: async () => {
       // Embed da variante (cor base + apelido) escolhida no Desenvolvimento (item 2).
       // `variantes_aviamento` ainda não está no types.ts gerado → cast.
