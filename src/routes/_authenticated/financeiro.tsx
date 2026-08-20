@@ -16,6 +16,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { SegmentedTabs } from "@/components/dashboard/mobile";
 import { MobileFilterSheet } from "@/components/shared/MobileFilterSheet";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 // Aliases: `Tooltip` já é importado do recharts (gráfico do Resumo) mais abaixo.
 import {
   Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
@@ -883,13 +884,28 @@ function ParcelaDetailDialog({
   );
 }
 
+// Comprovante-imagem abre em LIGHTBOX (ImagePreview: centralizado, fecha fora/Esc/X e com
+// anti-bubbling p/ não disparar o onClick da linha clicável da tabela); PDF/outros abrem em
+// aba nova. Assim todo anexo enviado é visualizável na própria lista (antes só abria em aba).
+const COMPROVANTE_IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)(\?|#|$)/i;
+
 function ComprovanteLink({ value, label, className }: { value: string; label: string; className?: string }) {
   // Compat: registros antigos guardavam a signed URL inteira; novos guardam o path do bucket.
   const isPath = !value.startsWith("http");
   const signedUrl = useSignedUrl(isPath ? value : null, "comprovantes");
   const href = isPath ? signedUrl : value;
   if (!href) return null;
-  return <a href={href} target="_blank" rel="noreferrer" className={className}>{label}</a>;
+  // Detecta imagem pela extensão do path do bucket (ou do pathname da URL legada).
+  let alvo = value;
+  if (!isPath) { try { alvo = new URL(value).pathname; } catch { /* mantém value */ } }
+  if (COMPROVANTE_IMG_EXT.test(alvo)) {
+    return (
+      <ImagePreview src={href} alt={label} className={className}>
+        <span className="underline">{label}</span>
+      </ImagePreview>
+    );
+  }
+  return <a href={href} target="_blank" rel="noreferrer" className={className} onClick={(e) => e.stopPropagation()}>{label}</a>;
 }
 
 // Origem legível de uma parcela (rótulo do tipo de OC · Nº · parcela), p/ o sublabel das

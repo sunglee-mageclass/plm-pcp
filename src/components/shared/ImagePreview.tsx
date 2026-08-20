@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ImageIcon, Trash2 } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 // SSOT do estilo do lightbox — usado pelo ImagePreview e pelo AnexoThumbZoom (evita
@@ -50,6 +50,9 @@ export function ImagePreview({ src, alt, children, className }: {
             onPointerDownOutside={bloquearProximoClick}
             className={LIGHTBOX_CONTENT_CLASS}
           >
+            {/* Nome acessível do diálogo (exigido pelo Radix) — só p/ leitor de tela, sem
+                impacto visual (sr-only = position:absolute, fora do grid `place-items-center`). */}
+            <DialogTitle className="sr-only">{alt || "Visualização de imagem"}</DialogTitle>
             <img
               src={src}
               alt={alt}
@@ -107,6 +110,7 @@ export function AnexoThumbZoom({ url, isPdf, onRemove }: {
       )}
       <Dialog open={zoom} onOpenChange={setZoom}>
         <DialogContent className={LIGHTBOX_CONTENT_CLASS}>
+          <DialogTitle className="sr-only">Visualização de anexo</DialogTitle>
           {isPdf ? (
             <iframe src={url ?? ""} title="PDF" className="w-full h-[85vh] rounded-md bg-white" />
           ) : (
