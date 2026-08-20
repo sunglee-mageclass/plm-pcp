@@ -901,8 +901,8 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
-          <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Novos Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Novos Cards</span></Button>
-          <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
+          <Button className="hidden md:inline-flex" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Novos Cards"><Layers className="h-4 w-4 mr-1" />Novos Cards</Button>
+          <Button className="hidden md:inline-flex" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" />Novo Modelo</Button>
         </div>
       </header>
 
