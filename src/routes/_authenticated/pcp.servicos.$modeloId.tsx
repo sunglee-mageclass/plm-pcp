@@ -314,11 +314,21 @@ export function TerceirizadosDetail({
   const { data: aviamentosModelo = [] } = useQuery({
     queryKey: ["modelo-aviamentos", modeloId],
     queryFn: async () => {
+      // Embed da variante (cor base + apelido) escolhida no Desenvolvimento (item 2).
+      // `variantes_aviamento` ainda não está no types.ts gerado → cast.
       const { data } = await supabase
-        .from("modelo_aviamentos")
-        .select("aviamento_id, aviamentos:aviamento_id(id, codigo_nome)")
+        .from("modelo_aviamentos" as any)
+        .select("aviamento_id, variante_aviamento_id, aviamentos:aviamento_id(id, codigo_nome), variante:variante_aviamento_id(cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId);
-      return (data ?? []).map((r: any) => ({ id: r.aviamentos?.id, nome: r.aviamentos?.codigo_nome })).filter((x: any) => x.id);
+      return (data ?? [])
+        .map((r: any) => {
+          const cor = r.variante?.cor?.nome ?? null;
+          const apel = r.variante?.apelido?.nome ?? null;
+          // Em Serviços o apelido vem na frente (apelido - cor), padrão do bloco de tecidos.
+          const varLabel = cor || apel ? corApelidoLabelServico(cor, apel) : null;
+          return { id: r.aviamentos?.id, nome: varLabel ? `${r.aviamentos?.codigo_nome} · ${varLabel}` : r.aviamentos?.codigo_nome };
+        })
+        .filter((x: any) => x.id);
     },
   });
 
