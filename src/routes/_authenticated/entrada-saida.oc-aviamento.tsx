@@ -903,11 +903,16 @@ function OcDialog({
                             ))}
                           </SelectContent>
                         </Select>
-                        {/* 2º Select: variantes (cor) do aviamento escolhido. Aviamento sem
-                            variantes = oculto (não quebra). Exibe a variante COMPRADA quando editando. */}
+                        {/* 2º Select: variantes (cor) do aviamento escolhido. Exibe a variante
+                            COMPRADA quando editando. Aviamento SEM variantes cadastradas mostra uma
+                            DICA (antes ocultava em silêncio e parecia que "não dava pra adicionar"
+                            variante — dono ago/2026). */}
                         {(() => {
                           const vars = aviMap[i.aviamento_id]?.variantes ?? [];
-                          if (!i.aviamento_id || vars.length === 0) return null;
+                          if (!i.aviamento_id) return null;
+                          if (vars.length === 0) return (
+                            <p className="text-[11px] text-muted-foreground">Sem variantes — cadastre em Cadastro › Aviamentos.</p>
+                          );
                           return (
                             <Select
                               value={i.variante_aviamento_id ?? ""}
