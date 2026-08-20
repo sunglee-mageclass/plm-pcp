@@ -319,7 +319,16 @@ e verifique** — o repo muda rápido.
    (cobre TODO o backfill — cada aviamento com cor virou 1 variante); 0 ou 2+ variantes → bucket
    **"Sem variante"** (variante_id NULL, NÃO some). Σ por aviamento ≡ Σ das variantes (provado
    byte-a-byte, ZERO perda). `_estoque_aviamento_core` segue com EXECUTE revogado dos TRÊS (invariante #9;
-   já teve IDOR aqui). A OS de aviamento é por `aviamento_id` (variante = item 5, ainda não populado).
+   já teve IDOR aqui). ⚠️ **A OS de aviamento é POR VARIANTE** (FF#3 ago/2026, `20260820180000`):
+   `salvar_os` grava `ordens_saida_aviamento_itens.variante_aviamento_id`; a trava de saldo do
+   `baixar_os` deixou de SOMAR por aviamento e passou a valer POR (aviamento × variante), espelhando
+   o bucketing do `_estoque_aviamento_core` (COALESCE variante→variante única do legado; join
+   `IS NOT DISTINCT FROM`) — item sem variante recai na variante única (ou bucket "Sem variante" NULL,
+   fisico ~0, que barra). `_estoque_aviamento_core` NÃO mudou (já era por variante). Idem **PCP
+   "aviamentos enviados" é POR VARIANTE** (FF#2, `20260820170000`):
+   `producao_terceirizados.aviamentos_enviados` guarda `{aviamento_id, variante_aviamento_id}` (era
+   array de `aviamento_id`); `salvar_terceirizados` grava o jsonb OPACO (sem mudança de RPC — era o
+   único leitor). Ver memória `project_variantes_aviamento`.
    ⚠️ **`estoque_zerado` foi APOSENTADO** (jul/2026, migração `20260727000000`): a ação de "zerar
    lote" já não existia; o conceito foi removido do banco (4 funções: `_estoque_tecido_core`,
    `detalhe_estoque_variante`, `ocs_disponiveis_variante`, `ocs_para_rolo`) e do front (badge
