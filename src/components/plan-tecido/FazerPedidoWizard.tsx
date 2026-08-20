@@ -10,7 +10,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Button } from "@/components/ui/button";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import {
-  Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 
 export type PreviaItemRpc = {
@@ -158,7 +158,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !gerar.isPending) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent fixedFooter mobileFull className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Fazer pedido {total > 0 ? `— OC ${passo + 1} de ${total}` : ""}</DialogTitle>
           <DialogDescription>
@@ -172,6 +172,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody className="space-y-3">
         {total > 0 && pg && (
           <div className={`space-y-3 ${resp.incluida ? "" : "opacity-50"}`}>
             <div className="flex flex-wrap items-center gap-3">
@@ -287,8 +288,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
             Bloqueios: {previa.bloqueios.map((b) => `${b.artigo_nome} (${b.motivo})`).join("; ")}.
           </div>
         )}
+        </DialogBody>
 
-        <DialogFooter className="flex-row flex-wrap items-center gap-2 sm:justify-between sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
+        <DialogFooter className="border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 flex-row flex-wrap items-center gap-2 sm:justify-between">
           <Button variant="ghost" disabled={passo === 0 || gerar.isPending} onClick={() => setPasso((p) => p - 1)}>
             Anterior
           </Button>
