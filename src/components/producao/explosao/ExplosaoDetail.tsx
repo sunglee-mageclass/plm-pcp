@@ -25,6 +25,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { ExplosaoMetragemSection } from "@/components/producao/explosao/ExplosaoMetragemSection";
+import { ExplosaoAviamentosSection } from "@/components/producao/explosao/ExplosaoAviamentosSection";
+import { agruparAviamentosExplosao, chaveEntradaAviamento } from "@/lib/explosao-aviamentos";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -151,6 +153,40 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     return out;
   }, [ocLinks]);
 
+  // Aviamentos do BOM (Desenvolvimento). Fonte da variante = `modelo_aviamentos`
+  // (item 1/2 da feature): o `cad_aviamentos` ainda não carrega `variante_aviamento_id`
+  // (a cópia BOM→CAD só leva aviamento_id + consumo). Read-only — só exibição.
+  const { data: modeloAviamentos = [] } = useQuery({
+    queryKey: ["explosao-modelo-aviamentos", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_aviamentos")
+        .select(
+          "id, numero, consumo, aviamento_id, variante_aviamento_id, aviamentos:aviamento_id(codigo_nome), variantes_aviamento:variante_aviamento_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))",
+        )
+        .eq("modelo_id", modeloId)
+        .order("numero");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  // "A separar/enviar" do aviamento = cad_aviamentos.quantidade_separar (mesma coluna "Qtd a
+  // Enviar" da tela CAD/Ficha), atribuída por ENTRADA (aviamento_id, numero) ao BOM. É o
+  // espelho do metragem_enviada do tecido no passo de separação.
+  const { data: cadAviamentosSeparar = [] } = useQuery({
+    queryKey: ["explosao-cad-aviamentos", cadRow?.id],
+    enabled: !!cadRow?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cad_aviamentos")
+        .select("aviamento_id, numero, quantidade_separar")
+        .eq("cad_id", cadRow!.id);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   // --- local editable state (só metragem_enviada é editável) ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
@@ -268,6 +304,24 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const gradeTotalGeral = useMemo(
     () => grades.reduce((a, g) => a + (g.grade_total || 0), 0),
     [grades],
+  );
+
+  // Mapa da "a separar" por entrada de aviamento (aviamento_id:numero → quantidade_separar).
+  const separarPorEntrada = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of cadAviamentosSeparar as any[]) {
+      m.set(chaveEntradaAviamento(c.aviamento_id, c.numero), Number(c.quantidade_separar ?? 0));
+    }
+    return m;
+  }, [cadAviamentosSeparar]);
+
+  // Agrega os aviamentos do BOM por AVIAMENTO × VARIANTE (helper puro, testado). Qtd
+  // necessária = Σ consumo × grade total (mesma fórmula do _enviar_modelo_para_cad_core);
+  // "a separar/enviar" = cad_aviamentos.quantidade_separar por entrada (espelha o passo do
+  // tecido); aviamento legado sem variante vira a linha "Sem variante" — não some.
+  const aviamentosExplosao = useMemo(
+    () => agruparAviamentosExplosao(modeloAviamentos as any[], gradeTotalGeral, separarPorEntrada),
+    [modeloAviamentos, gradeTotalGeral, separarPorEntrada],
   );
 
   // Variantes com metragem_planejada > 0 mas metragem_enviada = 0
@@ -513,6 +567,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
             </span>
           )}
         </div>
+
+        {/* Aviamentos necessários — agregado por aviamento × variante (read-only). */}
+        <ExplosaoAviamentosSection grupos={aviamentosExplosao} gradeTotalGeral={gradeTotalGeral} />
       </div>
 
       {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola.
