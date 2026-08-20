@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { corApelidoLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
@@ -103,8 +104,18 @@ type Aviamento = {
 
 type Option = { id: string; nome: string };
 type CorApelido = { id: string; nome: string; cor_base_id: string | null };
+type VarianteCorRow = {
+  aviamento_id: string;
+  cor_id: string | null;
+  cor_apelido_id: string | null;
+  cor: { nome: string } | null;
+  cor_apelido: { nome: string } | null;
+  created_at: string;
+};
 type Empresa = { id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null };
 type Subcategoria = { id: string; nome: string; categoria_aviamento_id: string };
+// Variante montada no "+ Novo" antes de existir aviamento_id (staging).
+type VarDraft = { cor_id: string; cor_apelido_id: string | null };
 
 const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
 const SORT_OPTIONS = [
@@ -228,20 +239,45 @@ function AviamentosGallery() {
     },
   });
 
+  // Variantes de aviamento (cor base + apelido), fonte da cor exibida no card e no
+  // agrupamento (o aviamento pode ter VÁRIAS cores — a single legada saiu do form).
+  const { data: variantesRows = [] } = useQuery({
+    queryKey: ["aviamentos-variantes"],
+    queryFn: async () => {
+      // variantes_aviamento ainda não está no types.ts gerado (backlog de regen) → cast.
+      const { data, error } = await (supabase.from("variantes_aviamento" as any) as any)
+        .select("aviamento_id,cor_id,cor_apelido_id,cor:cor_id(nome),cor_apelido:cor_apelido_id(nome),created_at")
+        .order("created_at");
+      if (error) throw error;
+      return (data ?? []) as unknown as VarianteCorRow[];
+    },
+  });
+  // aviamento_id -> lista de variantes (ordenada por created_at); a 1ª é a "representativa".
+  const variantesPorAviamento = useMemo(() => {
+    const m = new Map<string, VarianteCorRow[]>();
+    for (const v of variantesRows) {
+      const arr = m.get(v.aviamento_id) ?? [];
+      arr.push(v);
+      m.set(v.aviamento_id, arr);
+    }
+    return m;
+  }, [variantesRows]);
+  const primeiraVariante = (id: string) => variantesPorAviamento.get(id)?.[0] ?? null;
+
   const empresasMap = useMemo(
     () => new Map(empresas.map((e) => [e.id, e.nome_fantasia])),
     [empresas],
   );
   const catMap = useMemo(() => new Map(categorias.map((c) => [c.id, c.nome])), [categorias]);
   const subMap = useMemo(() => new Map(subcategorias.map((s) => [s.id, s.nome])), [subcategorias]);
-  // Maps de cor derivados das próprias linhas (cada uma traz o nome embedado).
+  // Maps de cor derivados das VARIANTES (cada linha traz o nome embedado).
   const corBaseMap = useMemo(
-    () => new Map(aviamentos.filter((a) => a.cor_id).map((a) => [a.cor_id!, a.cor?.nome ?? "—"])),
-    [aviamentos],
+    () => new Map(variantesRows.filter((v) => v.cor_id).map((v) => [v.cor_id!, v.cor?.nome ?? "—"])),
+    [variantesRows],
   );
   const corApelidoMap = useMemo(
-    () => new Map(aviamentos.filter((a) => a.cor_apelido_id).map((a) => [a.cor_apelido_id!, a.cor_apelido?.nome ?? "—"])),
-    [aviamentos],
+    () => new Map(variantesRows.filter((v) => v.cor_apelido_id).map((v) => [v.cor_apelido_id!, v.cor_apelido?.nome ?? "—"])),
+    [variantesRows],
   );
 
   const filtered = useMemo(() => {
@@ -286,6 +322,7 @@ function AviamentosGallery() {
       setDeleting(null);
       setEditing(null); // fecha o diálogo de edição (de onde a exclusão é disparada)
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
+      qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
     },
     onError: (e: any) =>
       toast.error(e?.code === "23503" ? "Aviamento em uso (OC, modelo, CAD ou ordem de saída). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
@@ -297,6 +334,7 @@ function AviamentosGallery() {
     <AviamentoCard
       key={a.id}
       aviamento={a}
+      variantes={variantesPorAviamento.get(a.id) ?? []}
       categoria={a.categoria_aviamento_id ? catMap.get(a.categoria_aviamento_id) ?? null : null}
       fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
       onEdit={() => setEditing(a)}
@@ -316,8 +354,9 @@ function AviamentosGallery() {
   };
   const byCat = (items: Aviamento[]) => splitBy(items, (a) => a.categoria_aviamento_id, (k) => (k === "__none__" ? "Sem categoria" : catMap.get(k) ?? "Sem categoria"));
   const bySub = (items: Aviamento[]) => splitBy(items, (a) => a.subcategoria_aviamento_id, (k) => (k === "__none__" ? "Sem subcategoria" : subMap.get(k) ?? "Sem subcategoria"));
-  const byCorBase = (items: Aviamento[]) => splitBy(items, (a) => a.cor_id, (k) => (k === "__none__" ? "Sem cor base" : corBaseMap.get(k) ?? "Sem cor base"));
-  const byCorApelido = (items: Aviamento[]) => splitBy(items, (a) => a.cor_apelido_id, (k) => (k === "__none__" ? "Sem cor apelido" : corApelidoMap.get(k) ?? "Sem cor apelido"));
+  // Agrupa pela cor da 1ª variante (representativa) — o aviamento pode ter várias cores.
+  const byCorBase = (items: Aviamento[]) => splitBy(items, (a) => primeiraVariante(a.id)?.cor_id ?? null, (k) => (k === "__none__" ? "Sem cor base" : corBaseMap.get(k) ?? "Sem cor base"));
+  const byCorApelido = (items: Aviamento[]) => splitBy(items, (a) => primeiraVariante(a.id)?.cor_apelido_id ?? null, (k) => (k === "__none__" ? "Sem cor apelido" : corApelidoMap.get(k) ?? "Sem cor apelido"));
   const byFornecedor = (items: Aviamento[]) => splitBy(items, (a) => a.empresa_id, (k) => (k === "__none__" ? "Sem fornecedor" : empresasMap.get(k) ?? "Sem fornecedor"));
   const splitters = [
     groupByCat ? byCat : null,
@@ -480,6 +519,7 @@ function AviamentosGallery() {
           intervalos={intervalos}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["aviamentos"] });
+            qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
             setCreateOpen(false);
             setEditing(null);
           }}
@@ -520,6 +560,7 @@ function AviamentosGallery() {
 
 function AviamentoCard({
   aviamento,
+  variantes,
   categoria,
   fornecedor,
   onEdit,
@@ -527,6 +568,7 @@ function AviamentoCard({
   readOnly,
 }: {
   aviamento: Aviamento;
+  variantes: VarianteCorRow[];
   categoria: string | null;
   fornecedor: string | null;
   onEdit: () => void;
@@ -556,14 +598,16 @@ function AviamentoCard({
               <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
             )}
             <h3 className="font-medium leading-tight line-clamp-3">{aviamento.codigo_nome}</h3>
-            {(categoria || aviamento.cor?.nome || aviamento.cor_apelido?.nome) && (
+            {(categoria || variantes.length > 0) && (
               <div className="flex flex-wrap gap-1">
                 {categoria && <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>}
-                {aviamento.cor?.nome && (
-                  <Badge variant="outline" className="text-[10px]">{aviamento.cor.nome}</Badge>
-                )}
-                {aviamento.cor_apelido?.nome && (
-                  <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">{aviamento.cor_apelido.nome}</Badge>
+                {variantes.slice(0, 3).map((v, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px]">
+                    {v.cor?.nome ?? "—"}{v.cor_apelido?.nome ? ` · ${v.cor_apelido.nome}` : ""}
+                  </Badge>
+                ))}
+                {variantes.length > 3 && (
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground">+{variantes.length - 3}</Badge>
                 )}
               </div>
             )}
@@ -607,8 +651,6 @@ type FormState = {
   largura_exata_vazado: string;
   observacoes: string;
   ncm: string;
-  cor_id: string;
-  cor_apelido_id: string;
   foto_url: string | null;
 };
 
@@ -627,8 +669,6 @@ const emptyForm: FormState = {
   largura_exata_vazado: "",
   observacoes: "",
   ncm: "",
-  cor_id: "",
-  cor_apelido_id: "",
   foto_url: null,
 };
 
@@ -658,6 +698,8 @@ function AviamentoModal({
   readOnly?: boolean;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
+  // Variantes em staging (só no "+ Novo"; no Sheet elas são persistidas ao vivo).
+  const [stagedVars, setStagedVars] = useState<VarDraft[]>([]);
   const [uploading, setUploading] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -668,7 +710,8 @@ function AviamentoModal({
 
   // Guarda de alterações não salvas (Case C: muitos campos, snapshot do objeto form).
   const { dirty: formChanged, markClean, reset: resetBaseline } = useDirtySnapshot(form);
-  const dirty = open && formChanged;
+  // No "+ Novo" as variantes em staging também sujam o form (guarda de não-salvo).
+  const dirty = open && (formChanged || (!initial && stagedVars.length > 0));
   const closeAndCleanup = useCallback(() => {
     if (!savedRef.current && sessionUploads.current.length > 0) {
       const orphans = sessionUploads.current;
@@ -690,6 +733,7 @@ function AviamentoModal({
   useEffect(() => {
     sessionUploads.current = [];
     savedRef.current = false;
+    setStagedVars([]);
     if (initial) {
       const next: FormState = {
         codigo_nome: initial.codigo_nome ?? "",
@@ -707,8 +751,6 @@ function AviamentoModal({
           initial.largura_exata_vazado != null ? String(initial.largura_exata_vazado) : "",
         observacoes: initial.observacoes ?? "",
         ncm: initial.ncm ?? "",
-        cor_id: initial.cor_id ?? "",
-        cor_apelido_id: initial.cor_apelido_id ?? "",
         foto_url: initial.foto_url,
       };
       setForm(next);
@@ -772,11 +814,6 @@ function AviamentoModal({
       return (data ?? []) as CorApelido[];
     },
   });
-  // Apelido é filtrado pela cor base escolhida (cor_base_id).
-  const apelidosFiltrados = coresApelido.filter(
-    (c) => !form.cor_id || c.cor_base_id === form.cor_id,
-  );
-
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -832,17 +869,30 @@ function AviamentoModal({
         largura_exata_vazado: form.largura_exata_vazado ? Number(form.largura_exata_vazado) : null,
         observacoes: form.observacoes.trim() || null,
         ncm: form.ncm.trim() || null,
-        cor_id: form.cor_id || null,
-        cor_apelido_id: form.cor_apelido_id || null,
         foto_url: form.foto_url,
       };
-      // ncm/cor_id/cor_apelido_id ainda não estão no types.ts gerado (backlog) → cast.
+      // ncm ainda não está no types.ts gerado (backlog) → cast.
+      // Cor saiu do form: agora vive nas VARIANTES (variantes_aviamento). No Sheet
+      // (editar) elas são persistidas ao vivo pela seção; no "+ Novo" ficam em staging
+      // e são gravadas atomicamente aqui após criar o aviamento.
       if (initial) {
         const { error } = await supabase.from("aviamentos").update(payload as never).eq("id", initial.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("aviamentos").insert(payload as never);
+        const { data, error } = await supabase
+          .from("aviamentos")
+          .insert(payload as never)
+          .select("id")
+          .single();
         if (error) throw error;
+        const newId = (data as any)?.id as string;
+        if (newId && stagedVars.length > 0) {
+          const { error: vErr } = await supabase.rpc("salvar_variantes_aviamento" as any, {
+            _aviamento_id: newId,
+            _variantes: stagedVars.map((v) => ({ cor_id: v.cor_id, cor_apelido_id: v.cor_apelido_id })),
+          });
+          if (vErr) throw vErr;
+        }
       }
     },
     onSuccess: () => {
@@ -1009,26 +1059,17 @@ function AviamentoModal({
               />
             </Field>
 
-            <Field label="Cor base">
-              <SelectField
-                value={form.cor_id}
-                onChange={(v) => {
-                  set("cor_id", v);
-                  set("cor_apelido_id", ""); // troca a base → limpa o apelido
-                }}
-                options={cores}
-                placeholder="Selecione"
+            <div className="md:col-span-2">
+              <VariantesAviamentoSection
+                aviamentoId={initial?.id}
+                staged={stagedVars}
+                onStagedChange={setStagedVars}
+                cores={cores}
+                coresApelido={coresApelido}
+                readOnly={readOnly}
+                precoAviamento={form.preco ? Number(form.preco) : null}
               />
-            </Field>
-            <Field label="Cor apelido">
-              <SelectField
-                value={form.cor_apelido_id}
-                onChange={(v) => set("cor_apelido_id", v)}
-                options={apelidosFiltrados}
-                placeholder={form.cor_id ? "Selecione" : "Selecione a cor base"}
-                disabled={!form.cor_id}
-              />
-            </Field>
+            </div>
 
             <Field label="Intervalo Largura">
               <SelectField
@@ -1182,5 +1223,196 @@ function SelectField({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+// ============= Variantes de aviamento (espelha "Cores e Variantes" do Tecido) =============
+
+type VarAviamentoRow = { id: string; cor_id: string | null; cor_apelido_id: string | null };
+
+function VariantesAviamentoSection({
+  aviamentoId,
+  staged,
+  onStagedChange,
+  cores,
+  coresApelido,
+  readOnly,
+  precoAviamento,
+}: {
+  // Presente no Sheet (editar) → variantes ao vivo; ausente no "+ Novo" → staging.
+  aviamentoId?: string;
+  staged: VarDraft[];
+  onStagedChange: (v: VarDraft[]) => void;
+  cores: Option[];
+  coresApelido: CorApelido[];
+  readOnly?: boolean;
+  precoAviamento: number | null;
+}) {
+  const qc = useQueryClient();
+  const persisted = !!aviamentoId;
+  const [addBase, setAddBase] = useState("");
+  const [addApelido, setAddApelido] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<VarAviamentoRow | null>(null);
+
+  const { data: dbVars = [] } = useQuery({
+    queryKey: ["variantes-aviamento", aviamentoId],
+    enabled: persisted,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("variantes_aviamento" as any) as any)
+        .select("id,cor_id,cor_apelido_id,created_at")
+        .eq("aviamento_id", aviamentoId!)
+        .order("created_at");
+      if (error) throw error;
+      return (data ?? []) as unknown as VarAviamentoRow[];
+    },
+  });
+
+  const coresMap = useMemo(() => new Map(cores.map((c) => [c.id, c.nome])), [cores]);
+  const apelidosMap = useMemo(() => new Map(coresApelido.map((a) => [a.id, a.nome])), [coresApelido]);
+  const apelidoBase = useMemo(() => new Map(coresApelido.map((a) => [a.id, a.cor_base_id])), [coresApelido]);
+
+  type Row = { key: string; cor_id: string | null; cor_apelido_id: string | null; persistedId?: string; stagedIndex?: number };
+  const rows: Row[] = persisted
+    ? dbVars.map((v) => ({ key: v.id, cor_id: v.cor_id, cor_apelido_id: v.cor_apelido_id, persistedId: v.id }))
+    : staged.map((v, i) => ({ key: `s${i}`, cor_id: v.cor_id, cor_apelido_id: v.cor_apelido_id, stagedIndex: i }));
+
+  const jaExiste = rows.some((r) => r.cor_id === addBase && (r.cor_apelido_id ?? null) === (addApelido || null));
+
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await (supabase.from("variantes_aviamento" as any) as any).insert({
+        aviamento_id: aviamentoId,
+        cor_id: addBase,
+        cor_apelido_id: addApelido || null,
+        preco: precoAviamento ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setAddBase(""); setAddApelido("");
+      qc.invalidateQueries({ queryKey: ["variantes-aviamento", aviamentoId] });
+      qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Essa cor (com esse apelido) já existe neste aviamento." : mensagemErro(e, "Erro ao adicionar.")),
+  });
+
+  const removeMut = useMutation({
+    mutationFn: async (v: VarAviamentoRow) => {
+      const { error } = await supabase.rpc("excluir_variante_aviamento" as any, { _variante_id: v.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setRemoveTarget(null);
+      qc.invalidateQueries({ queryKey: ["variantes-aviamento", aviamentoId] });
+      qc.invalidateQueries({ queryKey: ["aviamentos-variantes"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
+  });
+
+  const doAdd = () => {
+    if (readOnly || !addBase || jaExiste) return;
+    if (persisted) addMut.mutate();
+    else {
+      onStagedChange([...staged, { cor_id: addBase, cor_apelido_id: addApelido || null }]);
+      setAddBase(""); setAddApelido("");
+    }
+  };
+  const doRemove = (r: Row) => {
+    if (persisted && r.persistedId) {
+      setRemoveTarget({ id: r.persistedId, cor_id: r.cor_id, cor_apelido_id: r.cor_apelido_id });
+    } else if (r.stagedIndex != null) {
+      onStagedChange(staged.filter((_, i) => i !== r.stagedIndex));
+    }
+  };
+
+  const apelidosDoBase = addBase ? coresApelido.filter((a) => a.cor_base_id === addBase) : coresApelido;
+  const labelRow = (cor_id: string | null, cor_apelido_id: string | null) =>
+    corApelidoLabel(
+      cor_id ? coresMap.get(cor_id) ?? null : null,
+      cor_apelido_id ? apelidosMap.get(cor_apelido_id) ?? null : null,
+    );
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+      <div>
+        <Label className="text-sm font-semibold">Cores e Variantes</Label>
+        <p className="text-xs text-muted-foreground">
+          Cada cor vira uma variante (cor base + apelido) — usada em OC, produção e estoque.
+        </p>
+      </div>
+
+      {/* Adicionar variante — cor base ↔ apelido vinculados (apelido opcional). */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1">
+          <Label className="text-xs">Cor base</Label>
+          <Select
+            value={addBase || undefined}
+            onValueChange={(b) => { setAddBase(b); if (addApelido && apelidoBase.get(addApelido) !== b) setAddApelido(""); }}
+            disabled={readOnly}
+          >
+            <SelectTrigger className="h-9"><SelectValue placeholder="Selecione a cor" /></SelectTrigger>
+            <SelectContent>
+              {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1 space-y-1">
+          <Label className="text-xs">Cor apelido</Label>
+          <Select
+            value={addApelido || undefined}
+            onValueChange={(a) => { setAddApelido(a); const base = apelidoBase.get(a); if (base) setAddBase(base); }}
+            disabled={readOnly}
+          >
+            <SelectTrigger className="h-9"><SelectValue placeholder={addBase ? "Selecione o apelido" : "Selecione a cor base"} /></SelectTrigger>
+            <SelectContent>
+              {apelidosDoBase.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.nome}{!addBase && a.cor_base_id ? ` · ${coresMap.get(a.cor_base_id) ?? ""}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button type="button" className="shrink-0" disabled={readOnly || !addBase || jaExiste || addMut.isPending} onClick={doAdd}>
+          <Plus className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Adicionar</span>
+        </Button>
+      </div>
+      {jaExiste && <p className="text-xs text-amber-600">Essa cor (com esse apelido) já existe neste aviamento.</p>}
+      {cores.length === 0 && <p className="text-xs text-muted-foreground italic">Cadastre cores em Atributos primeiro.</p>}
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">Nenhuma variante criada ainda.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {rows.map((r) => (
+            <li key={r.key} className="flex items-center gap-2 rounded-md border bg-card px-3 py-2">
+              <span className="flex-1 text-sm">{labelRow(r.cor_id, r.cor_apelido_id)}</span>
+              <Button variant="ghost" size="icon" aria-label="Remover variante" onClick={() => doRemove(r)} disabled={readOnly}>
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir esta cor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A cor <strong>{removeTarget ? labelRow(removeTarget.cor_id, removeTarget.cor_apelido_id) : ""}</strong>{" "}
+              será removida do aviamento. A exclusão é bloqueada se a cor estiver em uso.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); if (removeTarget) removeMut.mutate(removeTarget); }} variant="destructive">
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
