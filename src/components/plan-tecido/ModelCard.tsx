@@ -284,11 +284,21 @@ export function ModelCard({
                 </span>
               )}
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-              {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
-              {!isRevenda && <span className="tabular-nums">{pieces} pç</span>}
-              {!isRevenda && <span className="tabular-nums">{total ? `${fmtInt(total)} m` : "0 m"}</span>}
-            </div>
+            {/* REF na PRÓPRIA linha (truncate + title) e "N pç · N m" numa linha separada, com
+                tipografia consistente (.num) — antes os três ficavam espremidos numa flex-wrap de
+                larguras variáveis, sem padrão (pedido do dono 19/ago, item 5). */}
+            {slot.ref && (
+              <div className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground tabular-nums" title={slot.ref}>
+                {slot.ref}
+              </div>
+            )}
+            {!isRevenda && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
+                <span><span className="num">{pieces}</span> pç</span>
+                <span aria-hidden className="opacity-60">·</span>
+                <span><span className="num">{total ? fmtInt(total) : "0"}</span> m</span>
+              </div>
+            )}
             {/* Fase no fluxo (item 10) — 3ª linha ao lado da foto; só p/ modelo real com fase resolvida. */}
             {slot.modelo_id && fase && (
               <div className="mt-1 flex" title={`Etapa atual: ${fase.label}`}>
