@@ -15,7 +15,8 @@ export type ModuleKey =
   | "financeiro"
   | "dashboard"
   | "otb"
-  | "produto_acabado";
+  | "produto_acabado"
+  | "etapas_pl";
 
 const DEFAULTS: Record<ModuleKey, boolean> = {
   cadastro: true,
@@ -26,12 +27,13 @@ const DEFAULTS: Record<ModuleKey, boolean> = {
   dashboard: true,
   otb: false, // opt-in
   produto_acabado: false, // opt-in
+  etapas_pl: false, // opt-in
 };
 
-// produto_acabado não é um módulo de topo (sem tela basePath própria — é um GATE de
-// PÁGINA dentro de criacao/entrada_saida, ver PageDef.gate em permissions-catalog.ts),
-// então nunca entra em LANDING_ORDER; a entrada existe só p/ o Record<ModuleKey,string>
-// ficar exaustivo.
+// produto_acabado e etapas_pl não são módulos de topo (sem tela basePath própria — são
+// GATEs dentro de outro módulo/tela; ver PageDef.gate em permissions-catalog.ts e o
+// kanban de Etapas PL dentro de PCP), então nunca entram em LANDING_ORDER; a entrada
+// existe só p/ o Record<ModuleKey,string> ficar exaustivo.
 const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   cadastro: "/cadastro",
   entrada_saida: "/entrada-saida",
@@ -41,6 +43,7 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   dashboard: "/dashboard",
   otb: "/otb",
   produto_acabado: "/criacao/produto-acabado",
+  etapas_pl: "/pcp",
 };
 
 // Prioridade para landing/redirect. Dashboard primeiro mantém o comportamento

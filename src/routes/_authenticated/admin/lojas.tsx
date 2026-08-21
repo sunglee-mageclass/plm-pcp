@@ -43,7 +43,10 @@ import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 // aparecia (bug latente desde o split de jul/2026, corrigido aqui de passagem).
 // `produto_acabado` não tem ModuleDef próprio no PAGES_CATALOG (é PageDef.gate dentro
 // de criacao/entrada_saida) — entra à mão, igual aos outros 7 (decisão do dono, ago/2026:
-// mora em Gerenciar Lojas junto dos demais, não mais em Config da Loja).
+// mora em Gerenciar Lojas junto dos demais, não mais em Config da Loja). `etapas_pl`
+// (Etapas PL — Fase 1, ago/2026) segue o MESMO padrão: sem ModuleDef próprio, opt-in,
+// só super_admin liga/desliga aqui; a config das 5 etapas (renomear/ativa) mora em
+// Config da Loja (tenant_config.pcp_etapas).
 const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
   const seen = new Set<string>();
   const out: { key: string; label: string }[] = [];
@@ -54,6 +57,7 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
     out.push({ key, label: m.label });
   }
   out.push({ key: "produto_acabado", label: "Produto Acabado (Revenda)" });
+  out.push({ key: "etapas_pl", label: "Etapas PL (kanban)" });
   return out;
 })();
 // Descrição curta por módulo (o super_admin liga/desliga sabendo o que cada um faz).
@@ -66,11 +70,13 @@ const MODULE_DESC: Record<string, string> = {
   financeiro: "Contas a pagar, calendário e resumo financeiro.",
   dashboard: "Painéis de coleção, estoque, produção, custos, comercial e leadtime.",
   produto_acabado: "Compra de produto pronto para revenda — Produto Acabado e OC P. Acabado.",
+  etapas_pl: "Kanban das 5 etapas de PL (Peça Teste, Separação, Retorno de Grade, Oficina, Finalização) em Serviços.",
 };
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
   otb: false, // opt-in
   produto_acabado: false, // opt-in — mesmo padrão do otb
+  etapas_pl: false, // opt-in — mesmo padrão do otb
 };
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {

@@ -52,6 +52,7 @@ import { resolveStatusKey, normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/k
 import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
+import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -117,6 +118,9 @@ const DEFAULTS = {
     etapas: [] as { key: string; tipo: "macro" | "kanban" | "servico"; idealDias: number }[],
     slaServico: null as string | null,
   },
+  // Etapas PL (kanban, módulo opt-in etapas_pl): as 5 etapas fixas (renomeáveis/
+  // ativa-desativa, SEM reordenar/adicionar). Vazio ⇒ usa ETAPAS_DEFAULT.
+  pcp_etapas: [] as EtapaCfg[],
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -132,6 +136,9 @@ const MODULE_LABELS: { key: string; label: string }[] = [
   // produto_acabado (opt-in): badge só-leitura, igual aos outros 7 — o toggle mora em
   // Gerenciar Lojas (super_admin), não mais aqui (decisão do dono, ago/2026).
   { key: "produto_acabado", label: "Produto Acabado" },
+  // etapas_pl (opt-in, Fase 1 ago/2026): mesmo padrão — badge só-leitura aqui, toggle em
+  // Gerenciar Lojas; a config das 5 etapas (renomear/ativa) é o Card "Etapas do PCP" abaixo.
+  { key: "etapas_pl", label: "Etapas PL" },
 ];
 
 function ConfiguracoesLojaPage() {
@@ -196,6 +203,10 @@ function ConfiguracoesLojaPage() {
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
           : DEFAULTS.leadtime,
+      pcp_etapas:
+        Array.isArray((r as any).pcp_etapas) && (r as any).pcp_etapas.length
+          ? ((r as any).pcp_etapas as EtapaCfg[])
+          : DEFAULTS.pcp_etapas,
     };
     setCfg(next);
     resetCfgBaseline(next);
@@ -415,6 +426,13 @@ function ConfiguracoesLojaPage() {
         value={cfg.leadtime}
         onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
       />
+
+      {modules.etapas_pl && (
+        <EtapasPLCard
+          value={cfg.pcp_etapas}
+          onChange={(pcp_etapas) => setCfg((c) => ({ ...c, pcp_etapas }))}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -1003,6 +1021,63 @@ function SortableItem({
         <div className="mt-2 flex items-center justify-end gap-2 md:hidden">{extra}{trashButton}</div>
       )}
     </li>
+  );
+}
+
+// Etapas do PCP (módulo opt-in etapas_pl): as 5 etapas fixas do kanban de PL — renomear
+// (label) + ativar/desativar. SEM reordenar/adicionar (ordem e gatilho de transição são
+// fixos no motor de regras, ver src/lib/pcp-etapas.ts) — por isso NÃO reusa
+// SortableListCard (que é genérico p/ listas livres com drag). `value` vazio (loja nunca
+// salvou) exibe ETAPAS_DEFAULT — mas só grava no `cfg` quando o usuário mexe (edit/toggle
+// materializa a lista default no estado local antes de escrever).
+function EtapasPLCard({
+  value,
+  onChange,
+}: {
+  value: EtapaCfg[];
+  onChange: (next: EtapaCfg[]) => void;
+}) {
+  const etapas = value.length ? value : ETAPAS_DEFAULT;
+
+  const update = (index: number, patch: Partial<EtapaCfg>) => {
+    const next = etapas.map((e, i) => (i === index ? { ...e, ...patch } : e));
+    onChange(next);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Etapas do PCP</CardTitle>
+        <CardDescription>
+          As 5 etapas do kanban de Etapas PL. Renomeie o rótulo exibido ou desative a
+          etapa (ela é pulada no fluxo). Ordem fixa — sem arrastar nem adicionar/excluir.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {etapas.map((etapa, idx) => (
+            <li key={etapa.key} className="flex items-center gap-2 rounded-md border bg-card p-2">
+              <Input
+                value={etapa.label}
+                onChange={(e) => update(idx, { label: e.target.value })}
+                className="h-8 max-md:h-11"
+                maxLength={60}
+              />
+              <div className="flex shrink-0 items-center gap-2 pl-1">
+                <Switch
+                  checked={etapa.ativa}
+                  onCheckedChange={(checked) => update(idx, { ativa: checked })}
+                  aria-label={`${etapa.ativa ? "Desativar" : "Ativar"} etapa ${etapa.label}`}
+                />
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  {etapa.ativa ? "Ativa" : "Inativa"}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 
