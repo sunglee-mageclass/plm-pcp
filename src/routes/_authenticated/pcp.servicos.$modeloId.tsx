@@ -52,6 +52,11 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { isServicoPL } from "@/lib/servico-confeccao";
+import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
+import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
   component: TercDetailPage,
@@ -137,6 +142,11 @@ type Bloco = {
   // Quantidade por tamanho × variante (opt-in). Quando `detalhado`, os 3 totais viram Σ da grade.
   detalhado: boolean;
   grade_detalhe: GradeDetalhe;
+  // Etapas PL (Fase 1, módulo opt-in `etapas_pl`): campos da etapa "Peça Teste" — alimentam
+  // etapaDoBloco (src/lib/pcp-etapas.ts) no painel EtapasPlPanel.
+  pt_data_saida: string | null;
+  pt_data_entrada: string | null;
+  pt_aprovacao: "aprovado" | "reprovado" | null;
 };
 
 // Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
@@ -193,6 +203,26 @@ export function TerceirizadosDetail({
   const readOnly = useReadOnly();
   const { canView } = useAuth();
   const podeVerPrecos = canView("producao_terceirizados:precos");
+
+  // Etapas PL (Fase 1, módulo opt-in): painel só aparece quando a loja ligou `etapas_pl`.
+  const { isModuleEnabled } = useTenantModules();
+  const tenantId = useActiveTenantId();
+  const { data: pcpEtapasCfg } = useQuery({
+    queryKey: ["tenant_config", "pcp_etapas", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_config")
+        .select("pcp_etapas")
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (error) throw error;
+      const raw = (data as any)?.pcp_etapas;
+      return Array.isArray(raw) && raw.length ? (raw as EtapaCfg[]) : ETAPAS_DEFAULT;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const etapasCfg = pcpEtapasCfg ?? ETAPAS_DEFAULT;
 
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
@@ -646,6 +676,9 @@ export function TerceirizadosDetail({
       tecidos_enviados: Array.isArray(r.tecidos_enviados) ? r.tecidos_enviados : [],
       detalhado: Boolean(r.detalhado),
       grade_detalhe: (r.grade_detalhe && typeof r.grade_detalhe === "object" ? r.grade_detalhe : {}) as GradeDetalhe,
+      pt_data_saida: (r as any).pt_data_saida ?? null,
+      pt_data_entrada: (r as any).pt_data_entrada ?? null,
+      pt_aprovacao: (r as any).pt_aprovacao ?? null,
     }));
 
   // Colab: 1ª carga semeia + baseline; refetch/Realtime faz merge 3-vias (escalares por bloco
@@ -774,6 +807,9 @@ export function TerceirizadosDetail({
         tecidos_enviados: [],
         detalhado: false,
         grade_detalhe: {},
+        pt_data_saida: null,
+        pt_data_entrada: null,
+        pt_aprovacao: null,
       },
     ]);
   };
@@ -868,6 +904,11 @@ export function TerceirizadosDetail({
         observacao: b.observacao,
         aviamentos_enviados: b.aviamentos_enviados,
         tecidos_enviados: b.tecidos_enviados,
+        // Etapas PL (Fase 1): só faz sentido pra bloco PL, mas grava sempre (interno fica null
+        // nos 3 — mesmo padrão de empresa_id/representante_id acima).
+        pt_data_saida: b.interno ? null : b.pt_data_saida,
+        pt_data_entrada: b.interno ? null : b.pt_data_entrada,
+        pt_aprovacao: b.interno ? null : b.pt_aprovacao,
       }));
       // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
       if (conflitosRef.current.length > 0)
@@ -1616,6 +1657,23 @@ export function TerceirizadosDetail({
                 rows={2}
               />
             </div>
+
+            {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
+              <EtapasPlPanel
+                bloco={{
+                  pt_data_saida: b.pt_data_saida,
+                  pt_data_entrada: b.pt_data_entrada,
+                  pt_aprovacao: b.pt_aprovacao,
+                  data_enviado: b.data_enviado,
+                  data_entregue: b.data_entregue,
+                  qtd_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
+                  grade_detalhe: b.grade_detalhe,
+                }}
+                etapasCfg={etapasCfg}
+                onChange={(campo, valor) => updateBloco(idx, { [campo]: valor } as Partial<Bloco>)}
+                readOnly={readOnly}
+              />
+            )}
           </Card>
         );
       })}
