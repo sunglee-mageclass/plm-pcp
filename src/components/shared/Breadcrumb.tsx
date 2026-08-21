@@ -42,7 +42,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
                 <span
                   className={
                     isLast
-                      ? "text-xs text-foreground font-medium"
+                      ? "text-xs text-foreground font-semibold"
                       : "text-xs text-muted-foreground"
                   }
                 >
