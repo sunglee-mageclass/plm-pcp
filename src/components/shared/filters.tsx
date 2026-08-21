@@ -91,7 +91,9 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
           }}
         >
           {/* Ativo (valor ≠ vazio) ganha borda/peso — reconhecer o que filtra sem varrer todos. */}
-          <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(active)}`}>
+          {/* h-8 compacto no desktop; max-md:h-11 = toque 44px no mobile (§Q/§G — o mesmo
+              popover serve desktop E mobile; explícito p/ não depender do merge do primitivo). */}
+          <SelectTrigger className={`h-8 max-md:h-11 text-sm ${filtroAtivoClass(active)}`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -218,7 +220,8 @@ export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
         {groups.map((g) => (
           <label
             key={g.label}
-            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+            // max-md:min-h-11 = linha clicável de 44px no toque (§Q/§G); py-1.5 compacto no desktop.
+            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted max-md:min-h-11"
           >
             <Checkbox checked={g.active} onCheckedChange={() => g.onToggle()} />
             <span>{g.label}</span>
