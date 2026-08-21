@@ -1,8 +1,11 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { SectionHub } from "@/components/SectionHub";
 
-// PCP é um nível de página única (= Serviços): /pcp abre direto o Serviços em /pcp/servicos.
 export const Route = createFileRoute("/_authenticated/pcp/")({
-  beforeLoad: () => {
-    throw redirect({ to: "/pcp/servicos" });
-  },
+  component: PcpIndex,
 });
+
+
+function PcpIndex() {
+  return <SectionHub module="pcp" subtitle="Serviços terceirizados de produção." />;
+}

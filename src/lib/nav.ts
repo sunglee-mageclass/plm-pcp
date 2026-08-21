@@ -42,9 +42,10 @@ export const PAGE_URLS: Record<string, string> = {
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/entrada-saida/explosao",
-  // PCP é o próprio Serviços (nível de página única): a tela fica NO basePath /pcp, então
-  // producao_terceirizados NÃO entra em PAGE_URLS (senão viraria sub-item/hub em vez de link direto).
+  // PCP virou hub multi-página (Serviços hoje; Etapas em fase seguinte) — Serviços entra em
+  // PAGE_URLS como card do hub / sub-item da sidebar, igual às demais páginas de setor.
   // Oficina e CAD são acessados dentro de outras telas — também sem item próprio na navegação.
+  producao_terceirizados: "/pcp/servicos",
   producao_cq: "/expedicao/cq",
   producao_direcionamento: "/expedicao/direcionamento",
   producao_lancamentos: "/expedicao/lancamentos",
