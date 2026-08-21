@@ -1033,18 +1033,25 @@ export function TerceirizadosDetail({
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
-  // Etapas PL (Fase 1): blocos PL reprovados na Peça Teste, da aba corrente (espelha o
-  // filtro da lista de blocos acima) — rodapé colapsável "PLs reprovadas na peça teste".
-  const reprovadosPl = blocosDaAba
-    .filter((b) => {
+  // Etapas PL (Fase 1, fix-round 1): blocos PL reprovados na Peça Teste, da aba corrente
+  // (espelha o filtro da lista de blocos abaixo) — SAEM da lista principal (renderBlocoCard)
+  // e vivem só no colapsável "PLs reprovadas na peça teste" (ReprovadasPl), onde o MESMO card
+  // editável abre dentro de cada item colapsado. `idx` é o índice em `blocos` (não em
+  // `blocosDaAba`) — updateBloco/removeBloco endereçam por ele.
+  const reprovadosPl = blocos
+    .map((b, idx) => ({ b, idx }))
+    .filter(({ b }) => {
+      if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return false;
       const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "";
       return !b.interno && isServicoPL(catNome) && b.pt_aprovacao === "reprovado";
     })
-    .map((b) => ({
+    .map(({ b, idx }) => ({
       _key: b._key,
+      idx,
       empresa: (empresasServico as any[]).find((e) => e.id === b.empresa_id)?.nome_fantasia ?? "—",
       pt_data_saida: b.pt_data_saida,
     }));
+  const reprovadosPlIds = new Set(reprovadosPl.map((r) => r._key));
   // Botões "Categorias do Serviço" (só p/ ADICIONAR bloco novo): categoria inativa some,
   // exceto se já existir um bloco dela no modelo (aí some esmaecida — permite editar o
   // existente, mas não convida a criar outro).
@@ -1092,6 +1099,414 @@ export function TerceirizadosDetail({
       <Save className="h-4 w-4 mr-2" /> Salvar
     </Button>
   );
+
+  // Corpo COMPLETO do card de edição de UM bloco — extraído (Etapas PL Fase 1, fix-round 1)
+  // p/ ser reusado tanto na lista principal quanto, colapsado por default, dentro de cada item
+  // do colapsável "PLs reprovadas na peça teste" (ReprovadasPl): o usuário edita ali dentro a
+  // Aprovação (de volta pra pendente/aprovado) e/ou lança uma nova Data de Saída, e ao deixar
+  // de casar `pt_aprovacao==='reprovado'` o bloco some do colapsável e volta pra lista principal
+  // no próximo render — sem ação extra. `idx` é sempre o índice em `blocos` (não em
+  // `blocosDaAba`/`reprovadosPl`), pois é o que `updateBloco`/`removeBloco` esperam.
+  function renderBlocoCard(b: Bloco, idx: number) {
+    const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
+    const empresasCat = empresasDaCategoria(b.categoria_terceirizado_id);
+    const empresaSel = (empresasServico as any[]).find((e) => e.id === b.empresa_id);
+    const repsDaEmpresa = (empresaSel?.representantes ?? []) as { id: string; nome: string | null }[];
+    const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);
+    // SLA do serviço: dias entre enviado e entregue (calculado das datas).
+    const slaBloco =
+      b.data_enviado && b.data_entregue
+        ? Math.round((new Date(b.data_entregue).getTime() - new Date(b.data_enviado).getTime()) / 86400000)
+        : null;
+    // Nº do bloco entre os da mesma categoria (ex.: "Estamparia 2"), só quando repete.
+    const mesmaCatAteAqui = blocos.slice(0, idx + 1).filter((x) => x.categoria_terceirizado_id === b.categoria_terceirizado_id).length;
+    const totalMesmaCat = countByCat[b.categoria_terceirizado_id] ?? 1;
+    return (
+      <Card key={b._key} className="p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-lg">
+            {catNome}
+            {totalMesmaCat > 1 && <span className="text-muted-foreground font-normal"> #{mesmaCatAteAqui}</span>}
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* Toggle Interno / PL (Interno esconde o responsável) */}
+            <div className="flex rounded-md border overflow-hidden text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => updateBloco(idx, { interno: true, empresa_id: null, representante_id: null })}
+                className={cn(
+                  "px-2.5 py-1 max-sm:py-2 transition-colors",
+                  b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                Interno
+              </button>
+              <button
+                type="button"
+                onClick={() => updateBloco(idx, { interno: false })}
+                className={cn(
+                  "px-2.5 py-1 max-sm:py-2 transition-colors border-l",
+                  !b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                PL
+              </button>
+            </div>
+            <Badge variant="outline" className="text-xs whitespace-nowrap">
+              SLA: {slaBloco != null ? `${slaBloco}d` : "—"}
+            </Badge>
+            {(() => {
+              // Badge do bloco pela MESMA regra do lock/status (blocoFinalizado), não pelo
+              // b.status cru do trigger (que vira 'finalizado' só com data_entregue).
+              const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
+              return <StatusBadge tone={STATUS_TONE[bSt] ?? "neutral"}>{STATUS_LABELS[bSt] ?? bSt}</StatusBadge>;
+            })()}
+            <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Toggle: destrinchar as quantidades por tamanho × variante. Ligar pré-preenche a
+              Enviada com a grade PLANEJADA do modelo (uma vez). Ligado, os 3 totais viram Σ. */}
+          <label className="col-span-full flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={b.detalhado}
+              onChange={(e) => {
+                const on = e.target.checked;
+                if (on && gradeTpl && somaGrade(b.grade_detalhe, "enviada") === 0 && Object.keys(b.grade_detalhe ?? {}).length === 0) {
+                  const g: GradeDetalhe = {};
+                  for (const v of gradeTpl.variantes) { g[v.id] = {}; for (const t of gradeTpl.tamanhos) g[v.id][t] = { enviada: Number(gradeTpl.planejado[v.id]?.[t]) || 0, cortada: 0, recebida: 0, defeito: 0 }; }
+                  updateBloco(idx, { detalhado: true, grade_detalhe: g });
+                } else updateBloco(idx, { detalhado: on });
+              }}
+            />
+            <span>Quantidade por tamanho e variante (destrinchar a grade)</span>
+          </label>
+          {b.interno ? (
+            <div>
+              <Label className="text-xs">Responsável</Label>
+              <Select
+                value={b.colaborador_id ?? ""}
+                onValueChange={(v) => updateBloco(idx, { colaborador_id: v || null })}
+              >
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>
+                  {colabsCat.length === 0 && (
+                    <div className="p-2 text-xs text-muted-foreground">
+                      Nenhum colaborador desta categoria. Em Cadastro &gt; Colaboradores, crie um
+                      tipo ligado a "{catNome}" e cadastre os nomes.
+                    </div>
+                  )}
+                  {colabsCat.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <>
+              <div>
+                <Label className="text-xs">Empresa</Label>
+                <Select
+                  value={b.empresa_id ?? ""}
+                  onValueChange={(v) =>
+                    // Trocar a empresa limpa o representante (reps são daquela empresa).
+                    updateBloco(idx, { empresa_id: v || null, representante_id: null })
+                  }
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>
+                    {empresasCat.length === 0 && (
+                      <div className="p-2 text-xs text-muted-foreground">Nenhuma empresa cadastrada nesta categoria.</div>
+                    )}
+                    {empresasCat.map((e: any) => (
+                      <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Representante (opcional)</Label>
+                <Select
+                  value={b.representante_id ?? "__direto__"}
+                  onValueChange={(v) =>
+                    updateBloco(idx, { representante_id: v === "__direto__" ? null : v })
+                  }
+                  disabled={!b.empresa_id}
+                >
+                  <SelectTrigger><SelectValue placeholder="Direto na empresa" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__direto__">Direto na empresa</SelectItem>
+                    {repsDaEmpresa.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>{r.nome ?? "—"}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+          {!b.interno && podeVerPrecos && (
+            <div>
+              <Label className="text-xs">Preço por metro/unidade</Label>
+              <NumberInput
+                type="number"
+                step="0.01"
+                placeholder="0,00"
+                value={b.preco_metro_unidade || ""}
+                onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
+                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("preco_metro_unidade")}`)}
+                onBlur={() => setCampoFocado(null)}
+              />
+            </div>
+          )}
+          <div>
+            <Label className="text-xs">Qtd Enviada{b.detalhado ? " (Σ grade)" : ""}</Label>
+            <NumberInput
+              type="number"
+              placeholder="0,00"
+              disabled={b.detalhado}
+              value={b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : (b.quantidade_enviada || "")}
+              onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
+              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_enviada")}`)}
+              onBlur={() => setCampoFocado(null)}
+            />
+          </div>
+          {b.detalhado && (
+            <div>
+              <Label className="text-xs">Qtd Cortada (Σ grade)</Label>
+              <Input readOnly value={somaGrade(b.grade_detalhe, "cortada")} className="bg-muted/40" />
+            </div>
+          )}
+          {b.detalhado && (
+            <div>
+              <Label className="text-xs">Saldo a receber (Σ)</Label>
+              <Input readOnly value={somaGrade(b.grade_detalhe, "cortada") - somaGrade(b.grade_detalhe, "recebida")} className="bg-muted/40" />
+            </div>
+          )}
+
+          <div>
+            <Label className="text-xs">Data Enviado</Label>
+            <DateField
+              value={b.data_enviado ?? ""}
+              onChange={(e) => updateBloco(idx, { data_enviado: e.target.value || null })}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Data Prevista</Label>
+            <DateField
+              value={b.data_prevista ?? ""}
+              onChange={(e) => updateBloco(idx, { data_prevista: e.target.value || null })}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Data Entregue</Label>
+            <DateField
+              value={b.data_entregue ?? ""}
+              onChange={(e) => updateBloco(idx, { data_entregue: e.target.value || null })}
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Qtd Recebida{b.detalhado ? " (Σ grade)" : ""}</Label>
+            <NumberInput
+              type="number"
+              placeholder="0,00"
+              disabled={b.detalhado}
+              value={b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : (b.quantidade_recebida || "")}
+              onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
+              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_recebida")}`)}
+              onBlur={() => setCampoFocado(null)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Qtd Defeito{b.detalhado ? " (Σ grade)" : ""}</Label>
+            <NumberInput
+              type="number"
+              placeholder="0,00"
+              disabled={b.detalhado}
+              value={b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : (b.quantidade_defeito || "")}
+              onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
+              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_defeito")}`)}
+              onBlur={() => setCampoFocado(null)}
+            />
+          </div>
+          {b.detalhado && (
+            <div className="col-span-full rounded-md border bg-muted/20 p-3">
+              <div className="mb-2 text-xs text-muted-foreground">Grade por <b>tamanho × variante</b> — a <b>Enviada</b> vem pré-preenchida da grade planejada; ajuste conforme o envio/recebimento.</div>
+              {(() => {
+                const violacoes = celulasRecebidaAcimaCortada(b.grade_detalhe);
+                if (violacoes.length === 0) return null;
+                return (
+                  <div className="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>
+                      Recebida acima da Cortada em {violacoes.length} célula{violacoes.length > 1 ? "s" : ""} — confira.
+                    </span>
+                  </div>
+                );
+              })()}
+              <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} onCampoFoco={setCampoFocado} />
+            </div>
+          )}
+          {!b.interno && (
+            <div>
+              <Label className="text-xs">Desconto total</Label>
+              <NumberInput
+                type="number"
+                step="0.01"
+                placeholder="0,00"
+                value={b.desconto_total || ""}
+                onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
+                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("desconto_total")}`)}
+                onBlur={() => setCampoFocado(null)}
+              />
+            </div>
+          )}
+          {!b.interno && (
+            <div>
+              <Label className="text-xs">Multa total</Label>
+              <NumberInput
+                type="number"
+                step="0.01"
+                placeholder="0,00"
+                value={b.multa_total || ""}
+                onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
+                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("multa_total")}`)}
+                onBlur={() => setCampoFocado(null)}
+              />
+            </div>
+          )}
+          {!b.interno && (
+            <div>
+              <Label className="text-xs">Nº de parcelas</Label>
+              <NumberInput
+                type="number"
+                integer
+                min={1}
+                value={b.numero_parcelas}
+                onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })}
+                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("numero_parcelas")}`)}
+                onBlur={() => setCampoFocado(null)}
+              />
+            </div>
+          )}
+          {!b.interno && podeVerPrecos && (
+            <div>
+              <Label className="text-xs">Custo Total</Label>
+              <Input
+                readOnly
+                value={fmtNum((Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0) - (Number(b.desconto_total) || 0) + (Number(b.multa_total) || 0))}
+                className="bg-muted"
+              />
+            </div>
+          )}
+        </div>
+
+        <div>
+          <Label className="text-xs mb-2 block">Aviamentos Enviados</Label>
+          <div className="flex flex-wrap gap-2">
+            {(aviamentosModelo as any[]).length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhum aviamento vinculado ao modelo.</p>
+            )}
+            {(aviamentosModelo as any[]).map((a) => {
+              const sel: AviamentoEnviado = { aviamento_id: a.aviamento_id, variante_aviamento_id: a.variante_aviamento_id ?? null };
+              const checked = b.aviamentos_enviados.some((x) => mesmoAvi(x, sel));
+              return (
+                <Button
+                  key={`${a.aviamento_id}::${a.variante_aviamento_id ?? ""}`}
+                  type="button"
+                  size="sm"
+                  variant={checked ? "default" : "outline"}
+                  onClick={() =>
+                    updateBloco(idx, {
+                      aviamentos_enviados: checked
+                        ? b.aviamentos_enviados.filter((x) => !mesmoAvi(x, sel))
+                        : [...b.aviamentos_enviados, sel],
+                    })
+                  }
+                >
+                  {a.nome}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados (variantes)</Label>
+          {(tecidosModelo as any[]).length === 0 && (
+            <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
+          )}
+          <div className="space-y-2">
+            {(tecidosModelo as any[]).map((t) => {
+              const tipoLabel = t.tipo === "forro" ? " (Forro)" : t.tipo === "entretela" ? " (Entretela)" : "";
+              return (
+                <div key={t.id}>
+                  <p className="text-xs font-medium">{t.nome}{tipoLabel}</p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {t.variantes.length === 0 && (
+                      <span className="text-xs text-muted-foreground italic">Sem variantes cadastradas.</span>
+                    )}
+                    {t.variantes.map((v: any) => {
+                      const checked = b.tecidos_enviados.includes(v.id);
+                      return (
+                        <Button
+                          key={v.id}
+                          type="button"
+                          size="sm"
+                          variant={checked ? "default" : "outline"}
+                          onClick={() =>
+                            updateBloco(idx, {
+                              tecidos_enviados: checked
+                                ? b.tecidos_enviados.filter((x) => x !== v.id)
+                                : [...b.tecidos_enviados, v.id],
+                            })
+                          }
+                        >
+                          {v.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs">Observação</Label>
+          <Textarea
+            value={b.observacao}
+            onChange={(e) => updateBloco(idx, { observacao: e.target.value })}
+            onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("observacao")}`)}
+            onBlur={() => setCampoFocado(null)}
+            rows={2}
+          />
+        </div>
+
+        {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
+          <EtapasPlPanel
+            bloco={{
+              pt_data_saida: b.pt_data_saida,
+              pt_data_entrada: b.pt_data_entrada,
+              pt_aprovacao: b.pt_aprovacao,
+              data_enviado: b.data_enviado,
+              data_entregue: b.data_entregue,
+              qtd_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
+              grade_detalhe: b.grade_detalhe,
+            }}
+            etapasCfg={etapasCfg}
+            onChange={(campo, valor) => updateBloco(idx, { [campo]: valor } as Partial<Bloco>)}
+            readOnly={readOnly}
+          />
+        )}
+      </Card>
+    );
+  }
 
   // Modo Sheet (via terceirizados.index): flex column p/ o rodapé de ações grudar embaixo.
   // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
@@ -1288,411 +1703,17 @@ export function TerceirizadosDetail({
         </div>
       </Card>
 
-      {/* Blocos (só os da etapa da aba; idx preservado p/ updateBloco) */}
+      {/* Blocos (só os da etapa da aba; idx preservado p/ updateBloco). PL reprovado
+          na Peça Teste NÃO aparece aqui — vive só no colapsável ReprovadasPl abaixo
+          (renderBlocoCard é compartilhada pelos dois lugares, editável nos dois). */}
       {blocos.map((b, idx) => {
         if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return null;
-        const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
-        const empresasCat = empresasDaCategoria(b.categoria_terceirizado_id);
-        const empresaSel = (empresasServico as any[]).find((e) => e.id === b.empresa_id);
-        const repsDaEmpresa = (empresaSel?.representantes ?? []) as { id: string; nome: string | null }[];
-        const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);
-        // SLA do serviço: dias entre enviado e entregue (calculado das datas).
-        const slaBloco =
-          b.data_enviado && b.data_entregue
-            ? Math.round((new Date(b.data_entregue).getTime() - new Date(b.data_enviado).getTime()) / 86400000)
-            : null;
-        // Nº do bloco entre os da mesma categoria (ex.: "Estamparia 2"), só quando repete.
-        const mesmaCatAteAqui = blocos.slice(0, idx + 1).filter((x) => x.categoria_terceirizado_id === b.categoria_terceirizado_id).length;
-        const totalMesmaCat = countByCat[b.categoria_terceirizado_id] ?? 1;
-        return (
-          <Card key={b._key} className="p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold text-lg">
-                {catNome}
-                {totalMesmaCat > 1 && <span className="text-muted-foreground font-normal"> #{mesmaCatAteAqui}</span>}
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Toggle Interno / PL (Interno esconde o responsável) */}
-                <div className="flex rounded-md border overflow-hidden text-xs font-medium">
-                  <button
-                    type="button"
-                    onClick={() => updateBloco(idx, { interno: true, empresa_id: null, representante_id: null })}
-                    className={cn(
-                      "px-2.5 py-1 max-sm:py-2 transition-colors",
-                      b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    Interno
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateBloco(idx, { interno: false })}
-                    className={cn(
-                      "px-2.5 py-1 max-sm:py-2 transition-colors border-l",
-                      !b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    PL
-                  </button>
-                </div>
-                <Badge variant="outline" className="text-xs whitespace-nowrap">
-                  SLA: {slaBloco != null ? `${slaBloco}d` : "—"}
-                </Badge>
-                {(() => {
-                  // Badge do bloco pela MESMA regra do lock/status (blocoFinalizado), não pelo
-                  // b.status cru do trigger (que vira 'finalizado' só com data_entregue).
-                  const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
-                  return <StatusBadge tone={STATUS_TONE[bSt] ?? "neutral"}>{STATUS_LABELS[bSt] ?? bSt}</StatusBadge>;
-                })()}
-                <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              {/* Toggle: destrinchar as quantidades por tamanho × variante. Ligar pré-preenche a
-                  Enviada com a grade PLANEJADA do modelo (uma vez). Ligado, os 3 totais viram Σ. */}
-              <label className="col-span-full flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={b.detalhado}
-                  onChange={(e) => {
-                    const on = e.target.checked;
-                    if (on && gradeTpl && somaGrade(b.grade_detalhe, "enviada") === 0 && Object.keys(b.grade_detalhe ?? {}).length === 0) {
-                      const g: GradeDetalhe = {};
-                      for (const v of gradeTpl.variantes) { g[v.id] = {}; for (const t of gradeTpl.tamanhos) g[v.id][t] = { enviada: Number(gradeTpl.planejado[v.id]?.[t]) || 0, cortada: 0, recebida: 0, defeito: 0 }; }
-                      updateBloco(idx, { detalhado: true, grade_detalhe: g });
-                    } else updateBloco(idx, { detalhado: on });
-                  }}
-                />
-                <span>Quantidade por tamanho e variante (destrinchar a grade)</span>
-              </label>
-              {b.interno ? (
-                <div>
-                  <Label className="text-xs">Responsável</Label>
-                  <Select
-                    value={b.colaborador_id ?? ""}
-                    onValueChange={(v) => updateBloco(idx, { colaborador_id: v || null })}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                    <SelectContent>
-                      {colabsCat.length === 0 && (
-                        <div className="p-2 text-xs text-muted-foreground">
-                          Nenhum colaborador desta categoria. Em Cadastro &gt; Colaboradores, crie um
-                          tipo ligado a "{catNome}" e cadastre os nomes.
-                        </div>
-                      )}
-                      {colabsCat.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <Label className="text-xs">Empresa</Label>
-                    <Select
-                      value={b.empresa_id ?? ""}
-                      onValueChange={(v) =>
-                        // Trocar a empresa limpa o representante (reps são daquela empresa).
-                        updateBloco(idx, { empresa_id: v || null, representante_id: null })
-                      }
-                    >
-                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                      <SelectContent>
-                        {empresasCat.length === 0 && (
-                          <div className="p-2 text-xs text-muted-foreground">Nenhuma empresa cadastrada nesta categoria.</div>
-                        )}
-                        {empresasCat.map((e: any) => (
-                          <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Representante (opcional)</Label>
-                    <Select
-                      value={b.representante_id ?? "__direto__"}
-                      onValueChange={(v) =>
-                        updateBloco(idx, { representante_id: v === "__direto__" ? null : v })
-                      }
-                      disabled={!b.empresa_id}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Direto na empresa" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__direto__">Direto na empresa</SelectItem>
-                        {repsDaEmpresa.map((r) => (
-                          <SelectItem key={r.id} value={r.id}>{r.nome ?? "—"}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-              {!b.interno && podeVerPrecos && (
-                <div>
-                  <Label className="text-xs">Preço por metro/unidade</Label>
-                  <NumberInput
-                    type="number"
-                    step="0.01"
-                    placeholder="0,00"
-                    value={b.preco_metro_unidade || ""}
-                    onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
-                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("preco_metro_unidade")}`)}
-                    onBlur={() => setCampoFocado(null)}
-                  />
-                </div>
-              )}
-              <div>
-                <Label className="text-xs">Qtd Enviada{b.detalhado ? " (Σ grade)" : ""}</Label>
-                <NumberInput
-                  type="number"
-                  placeholder="0,00"
-                  disabled={b.detalhado}
-                  value={b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : (b.quantidade_enviada || "")}
-                  onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
-                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_enviada")}`)}
-                  onBlur={() => setCampoFocado(null)}
-                />
-              </div>
-              {b.detalhado && (
-                <div>
-                  <Label className="text-xs">Qtd Cortada (Σ grade)</Label>
-                  <Input readOnly value={somaGrade(b.grade_detalhe, "cortada")} className="bg-muted/40" />
-                </div>
-              )}
-              {b.detalhado && (
-                <div>
-                  <Label className="text-xs">Saldo a receber (Σ)</Label>
-                  <Input readOnly value={somaGrade(b.grade_detalhe, "cortada") - somaGrade(b.grade_detalhe, "recebida")} className="bg-muted/40" />
-                </div>
-              )}
-
-              <div>
-                <Label className="text-xs">Data Enviado</Label>
-                <DateField
-                  value={b.data_enviado ?? ""}
-                  onChange={(e) => updateBloco(idx, { data_enviado: e.target.value || null })}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Data Prevista</Label>
-                <DateField
-                  value={b.data_prevista ?? ""}
-                  onChange={(e) => updateBloco(idx, { data_prevista: e.target.value || null })}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Data Entregue</Label>
-                <DateField
-                  value={b.data_entregue ?? ""}
-                  onChange={(e) => updateBloco(idx, { data_entregue: e.target.value || null })}
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs">Qtd Recebida{b.detalhado ? " (Σ grade)" : ""}</Label>
-                <NumberInput
-                  type="number"
-                  placeholder="0,00"
-                  disabled={b.detalhado}
-                  value={b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : (b.quantidade_recebida || "")}
-                  onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
-                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_recebida")}`)}
-                  onBlur={() => setCampoFocado(null)}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Qtd Defeito{b.detalhado ? " (Σ grade)" : ""}</Label>
-                <NumberInput
-                  type="number"
-                  placeholder="0,00"
-                  disabled={b.detalhado}
-                  value={b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : (b.quantidade_defeito || "")}
-                  onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
-                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_defeito")}`)}
-                  onBlur={() => setCampoFocado(null)}
-                />
-              </div>
-              {b.detalhado && (
-                <div className="col-span-full rounded-md border bg-muted/20 p-3">
-                  <div className="mb-2 text-xs text-muted-foreground">Grade por <b>tamanho × variante</b> — a <b>Enviada</b> vem pré-preenchida da grade planejada; ajuste conforme o envio/recebimento.</div>
-                  {(() => {
-                    const violacoes = celulasRecebidaAcimaCortada(b.grade_detalhe);
-                    if (violacoes.length === 0) return null;
-                    return (
-                      <div className="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
-                        <AlertTriangle className="h-4 w-4 shrink-0" />
-                        <span>
-                          Recebida acima da Cortada em {violacoes.length} célula{violacoes.length > 1 ? "s" : ""} — confira.
-                        </span>
-                      </div>
-                    );
-                  })()}
-                  <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} onCampoFoco={setCampoFocado} />
-                </div>
-              )}
-              {!b.interno && (
-                <div>
-                  <Label className="text-xs">Desconto total</Label>
-                  <NumberInput
-                    type="number"
-                    step="0.01"
-                    placeholder="0,00"
-                    value={b.desconto_total || ""}
-                    onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
-                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("desconto_total")}`)}
-                    onBlur={() => setCampoFocado(null)}
-                  />
-                </div>
-              )}
-              {!b.interno && (
-                <div>
-                  <Label className="text-xs">Multa total</Label>
-                  <NumberInput
-                    type="number"
-                    step="0.01"
-                    placeholder="0,00"
-                    value={b.multa_total || ""}
-                    onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
-                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("multa_total")}`)}
-                    onBlur={() => setCampoFocado(null)}
-                  />
-                </div>
-              )}
-              {!b.interno && (
-                <div>
-                  <Label className="text-xs">Nº de parcelas</Label>
-                  <NumberInput
-                    type="number"
-                    integer
-                    min={1}
-                    value={b.numero_parcelas}
-                    onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })}
-                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("numero_parcelas")}`)}
-                    onBlur={() => setCampoFocado(null)}
-                  />
-                </div>
-              )}
-              {!b.interno && podeVerPrecos && (
-                <div>
-                  <Label className="text-xs">Custo Total</Label>
-                  <Input
-                    readOnly
-                    value={fmtNum((Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0) - (Number(b.desconto_total) || 0) + (Number(b.multa_total) || 0))}
-                    className="bg-muted"
-                  />
-                </div>
-              )}
-            </div>
-
-            <div>
-              <Label className="text-xs mb-2 block">Aviamentos Enviados</Label>
-              <div className="flex flex-wrap gap-2">
-                {(aviamentosModelo as any[]).length === 0 && (
-                  <p className="text-xs text-muted-foreground">Nenhum aviamento vinculado ao modelo.</p>
-                )}
-                {(aviamentosModelo as any[]).map((a) => {
-                  const sel: AviamentoEnviado = { aviamento_id: a.aviamento_id, variante_aviamento_id: a.variante_aviamento_id ?? null };
-                  const checked = b.aviamentos_enviados.some((x) => mesmoAvi(x, sel));
-                  return (
-                    <Button
-                      key={`${a.aviamento_id}::${a.variante_aviamento_id ?? ""}`}
-                      type="button"
-                      size="sm"
-                      variant={checked ? "default" : "outline"}
-                      onClick={() =>
-                        updateBloco(idx, {
-                          aviamentos_enviados: checked
-                            ? b.aviamentos_enviados.filter((x) => !mesmoAvi(x, sel))
-                            : [...b.aviamentos_enviados, sel],
-                        })
-                      }
-                    >
-                      {a.nome}
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados (variantes)</Label>
-              {(tecidosModelo as any[]).length === 0 && (
-                <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
-              )}
-              <div className="space-y-2">
-                {(tecidosModelo as any[]).map((t) => {
-                  const tipoLabel = t.tipo === "forro" ? " (Forro)" : t.tipo === "entretela" ? " (Entretela)" : "";
-                  return (
-                    <div key={t.id}>
-                      <p className="text-xs font-medium">{t.nome}{tipoLabel}</p>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {t.variantes.length === 0 && (
-                          <span className="text-xs text-muted-foreground italic">Sem variantes cadastradas.</span>
-                        )}
-                        {t.variantes.map((v: any) => {
-                          const checked = b.tecidos_enviados.includes(v.id);
-                          return (
-                            <Button
-                              key={v.id}
-                              type="button"
-                              size="sm"
-                              variant={checked ? "default" : "outline"}
-                              onClick={() =>
-                                updateBloco(idx, {
-                                  tecidos_enviados: checked
-                                    ? b.tecidos_enviados.filter((x) => x !== v.id)
-                                    : [...b.tecidos_enviados, v.id],
-                                })
-                              }
-                            >
-                              {v.label}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs">Observação</Label>
-              <Textarea
-                value={b.observacao}
-                onChange={(e) => updateBloco(idx, { observacao: e.target.value })}
-                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("observacao")}`)}
-                onBlur={() => setCampoFocado(null)}
-                rows={2}
-              />
-            </div>
-
-            {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
-              <EtapasPlPanel
-                bloco={{
-                  pt_data_saida: b.pt_data_saida,
-                  pt_data_entrada: b.pt_data_entrada,
-                  pt_aprovacao: b.pt_aprovacao,
-                  data_enviado: b.data_enviado,
-                  data_entregue: b.data_entregue,
-                  qtd_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
-                  grade_detalhe: b.grade_detalhe,
-                }}
-                etapasCfg={etapasCfg}
-                onChange={(campo, valor) => updateBloco(idx, { [campo]: valor } as Partial<Bloco>)}
-                readOnly={readOnly}
-              />
-            )}
-          </Card>
-        );
+        if (reprovadosPlIds.has(b._key)) return null;
+        return renderBlocoCard(b, idx);
       })}
 
       {reprovadosPl.length > 0 && isModuleEnabled("etapas_pl") && (
-        <ReprovadasPl blocos={reprovadosPl} />
+        <ReprovadasPl blocos={reprovadosPl} renderBloco={(idx) => renderBlocoCard(blocos[idx], idx)} />
       )}
 
       {blocos.length === 0 && (
