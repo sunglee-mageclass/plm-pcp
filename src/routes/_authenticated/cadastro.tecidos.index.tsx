@@ -59,12 +59,19 @@ type Artigo = {
   categoria_tecido_id: string | null;
   preco: number | null;
   unidade_medida: string;
+  largura_estimada: number | null;
   created_at: string;
 };
 
 type Variante = { artigo_id: string; foto_url: string | null; created_at: string };
 type Empresa = { id: string; nome_fantasia: string };
 type Categoria = { id: string; nome: string };
+
+// "a" · "a e b" · "a, b e c" (junção natural PT-BR p/ o aviso de campos faltando)
+function listaPt(itens: string[]): string {
+  if (itens.length <= 1) return itens.join("");
+  return itens.slice(0, -1).join(", ") + " e " + itens[itens.length - 1];
+}
 
 const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
 const SORT_OPTIONS: Array<{ value: string; label: string }> = [
@@ -104,7 +111,7 @@ function TecidosGallery() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("artigos")
-        .select("id,nome,empresa_id,categoria_tecido_id,preco,unidade_medida,created_at");
+        .select("id,nome,empresa_id,categoria_tecido_id,preco,unidade_medida,largura_estimada,created_at");
       if (error) throw error;
       return (data ?? []) as Artigo[];
     },
@@ -463,6 +470,12 @@ function TecidoCard({
   const url = useSignedUrl(fotoPath);
   const semCategoria = categorias.length === 0;
   const semFornecedor = !fornecedor;
+  const semLargura = artigo.largura_estimada == null;
+  const faltando = [
+    semCategoria && "categoria",
+    semFornecedor && "fornecedor",
+    semLargura && "largura",
+  ].filter(Boolean) as string[];
   return (
     <div className="group relative">
       <button type="button" onClick={onOpen} className="block w-full text-left">
@@ -486,16 +499,10 @@ function TecidoCard({
           // altura e preço no rodapé; 204px comporta título de até 3 linhas (line-clamp-3, sem cortar).
           <div className="p-3 flex h-[204px] flex-col gap-1 overflow-hidden">
             <h3 className="font-medium leading-tight line-clamp-3">{artigo.nome}</h3>
-            {(semCategoria || semFornecedor) && (
+            {faltando.length > 0 && (
               <StatusBadge tone="warning" className="w-full justify-start gap-1 normal-case tracking-normal">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                <span className="line-clamp-1">
-                  {semCategoria && semFornecedor
-                    ? "Sem categoria e sem fornecedor"
-                    : semCategoria
-                      ? "Sem categoria"
-                      : "Sem fornecedor"}
-                </span>
+                <span className="line-clamp-1">Sem {listaPt(faltando)}</span>
               </StatusBadge>
             )}
             {categorias.length > 0 && (
