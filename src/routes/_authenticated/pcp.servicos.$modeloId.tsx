@@ -56,6 +56,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { isServicoPL } from "@/lib/servico-confeccao";
 import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
+import { ReprovadasPl } from "@/components/producao/ReprovadasPl";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
@@ -1032,6 +1033,18 @@ export function TerceirizadosDetail({
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
+  // Etapas PL (Fase 1): blocos PL reprovados na Peça Teste, da aba corrente (espelha o
+  // filtro da lista de blocos acima) — rodapé colapsável "PLs reprovadas na peça teste".
+  const reprovadosPl = blocosDaAba
+    .filter((b) => {
+      const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "";
+      return !b.interno && isServicoPL(catNome) && b.pt_aprovacao === "reprovado";
+    })
+    .map((b) => ({
+      _key: b._key,
+      empresa: (empresasServico as any[]).find((e) => e.id === b.empresa_id)?.nome_fantasia ?? "—",
+      pt_data_saida: b.pt_data_saida,
+    }));
   // Botões "Categorias do Serviço" (só p/ ADICIONAR bloco novo): categoria inativa some,
   // exceto se já existir um bloco dela no modelo (aí some esmaecida — permite editar o
   // existente, mas não convida a criar outro).
@@ -1677,6 +1690,10 @@ export function TerceirizadosDetail({
           </Card>
         );
       })}
+
+      {reprovadosPl.length > 0 && isModuleEnabled("etapas_pl") && (
+        <ReprovadasPl blocos={reprovadosPl} />
+      )}
 
       {blocos.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
