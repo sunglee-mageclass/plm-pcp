@@ -348,9 +348,9 @@
 
   /* Q10 · Foco visível — baseline global p/ interativos "crus" (links, botões e
      elementos com tabindex sem estilo de foco próprio). :where() = especificidade 0,
-     então NUNCA sobrepõe componentes que já definem o próprio foco (input/select/
-     checkbox shadcn já trazem focus-visible:ring-1) — só preenche a lacuna dos
-     elementos sem foco. O botão (button.tsx) traz o seu explícito (2px + offset). */
+     então NUNCA sobrepõe componentes que já definem o próprio foco. Button (button.tsx)
+     e Input (input.tsx) já trazem o seu explícito (outline 2px + offset, §Q10); outros
+     primitivos shadcn ainda com ring-1 caem nesta baseline p/ preencher a lacuna. */
   :where(
     a,
     button,

@@ -19,7 +19,9 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           onKeyDown?.(e);
         }}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 max-md:h-11 md:text-sm",
+          // Padrões v3 §Q4/§Q10: foco = outline 2px + offset (era ring-1 sem respiro,
+          // como o button.tsx). Espelha o button e a regra global :where() do styles.css.
+          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 max-md:h-11 md:text-sm",
           className,
         )}
         ref={ref}
