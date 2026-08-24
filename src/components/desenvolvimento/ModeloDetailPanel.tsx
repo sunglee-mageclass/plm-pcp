@@ -1358,13 +1358,21 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
-  const tecido1VariantesInfo = useMemo(
-    () => tecido1VarianteIds.map((id, i) => ({
+  const tecido1VariantesInfo = useMemo(() => {
+    // O nome do tecido só prefixa a variante quando o pool do Tecido 1 mistura MAIS DE UM
+    // artigo (tecidos substitutos): aí não dá pra saber qual variante é de qual tecido só
+    // pela cor. Com um tecido só, mantém "Variante N — cor" limpo (espelha o `multiFabric`
+    // da seção Tecidos).
+    const artigosNoPool = new Set(
+      tecido1VarianteIds.map((id) => varianteArtigoMap[id]).filter(Boolean),
+    );
+    const multiTecido = artigosNoPool.size > 1;
+    return tecido1VarianteIds.map((id, i) => ({
       numero: i + 1,
       label: tecido1VariantesLabels[id] ?? "",
-    })),
-    [tecido1VarianteIds, tecido1VariantesLabels],
-  );
+      tecido: multiTecido ? (artigoMap[varianteArtigoMap[id]]?.nome ?? undefined) : undefined,
+    }));
+  }, [tecido1VarianteIds, tecido1VariantesLabels, varianteArtigoMap, artigoMap]);
   // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());

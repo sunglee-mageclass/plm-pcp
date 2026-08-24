@@ -7,7 +7,9 @@ import { Field } from "./shared";
 import type { GradeRow } from "./types";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
-export type GradeVarianteInfo = { numero: number; label: string };
+// `tecido` só vem preenchido quando o pool do Tecido 1 tem mais de um artigo (substitutos):
+// aí o nome do tecido prefixa a variante p/ desambiguar qual variante é de qual tecido.
+export type GradeVarianteInfo = { numero: number; label: string; tecido?: string };
 
 export function ModeloGradeSection({
   tamanhos,
@@ -91,14 +93,21 @@ export function ModeloGradeSection({
         </p>
       ) : (
         <div className="space-y-2">
-          {tecido1Variantes.map(({ numero: n, label }) => {
+          {tecido1Variantes.map(({ numero: n, label, tecido }) => {
             const g = ensureGrade(n);
             return (
               <Card key={n} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "grade")}`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold">
                     Variante {n}
-                    {label ? <span className="text-muted-foreground font-normal"> — {label}</span> : null}
+                    {label || tecido ? (
+                      <span className="text-muted-foreground font-normal">
+                        {" — "}
+                        {tecido ? <span className="font-medium text-foreground">{tecido}</span> : null}
+                        {tecido && label ? " · " : null}
+                        {label}
+                      </span>
+                    ) : null}
                   </span>
                   <div className="flex items-center gap-2">
                     <Label className="text-xs">Grade Total</Label>
