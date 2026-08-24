@@ -1015,6 +1015,13 @@ function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v
   );
 }
 
+// Sufixo discreto "+Nd" ao lado da data de vencimento quando a parcela foi gerada
+// pelo prazo de pagamento do fornecedor (dias_offset). Ausente (null) = sem tag.
+function OffsetTag({ dias }: { dias: number | null | undefined }) {
+  if (dias == null) return null;
+  return <span className="ml-1 text-xs text-muted-foreground tabular-nums">+{dias}d</span>;
+}
+
 function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; loading: boolean; initialStatus?: string }) {
   const qc = useQueryClient();
   const hoje = todayISOInStoreTZ(useStoreTimezone());
@@ -1251,6 +1258,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
                         disabled={st === "pago"}
                       />
+                      <OffsetTag dias={(p as any).dias_offset} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
                       <StatusParcelaBadge st={st} />
@@ -1509,6 +1517,7 @@ function ServicosView() {
                     <td className="py-2 pr-3 text-right font-medium tabular-nums" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
+                      <OffsetTag dias={(r as any).dias_offset} />
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{r.data_pagamento ? format(parseISO(r.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="Status">
