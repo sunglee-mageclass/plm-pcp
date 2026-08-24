@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -17,6 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
 import { FilterButton } from "@/components/shared/filters";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -49,6 +52,22 @@ const SORT_OPTS = [
 function EtapasPlPage() {
   const { isModuleEnabled, isLoading } = useTenantModules();
   const fl = useFieldLabels();
+  const qc = useQueryClient();
+
+  // Overlay do PCP Serviços (Task 5) — mesmo padrão de pcp.servicos.index.tsx: Sheet
+  // embutido + guarda de "não salvo" no pai (o TerceirizadosDetail reporta dirty via
+  // onDirtyChange; fechar com pendências passa pelo requestClose/confirm).
+  const [overlayModeloId, setOverlayModeloId] = useState<string | null>(null);
+  const [overlayDirty, setOverlayDirty] = useState(false);
+  const closeOverlay = () => {
+    setOverlayDirty(false);
+    setOverlayModeloId(null);
+    // O sheet grava via a mesma RPC do PCP Serviços (salvar_terceirizados) → o quadro
+    // precisa reler pra refletir a mudança (a lista de Serviços já se invalida sozinha
+    // dentro do TerceirizadosDetail; "etapas-cards" é queryKey própria desta tela).
+    qc.invalidateQueries({ queryKey: ["etapas-cards"] });
+  };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: overlayDirty, onClose: closeOverlay });
 
   const [busca, setBusca] = useState("");
   const [fColecao, setFColecao] = useState("all");
@@ -121,8 +140,8 @@ function EtapasPlPage() {
       return next;
     });
 
-  const onAbrir = (_modeloId: string) => {
-    // Overlay do detalhe (Task 5) — no-op por ora.
+  const onAbrir = (modeloId: string) => {
+    setOverlayModeloId(modeloId);
   };
 
   // Evita flashear a tela errada no primeiro paint (mesmo padrão de criacao.produto-acabado.tsx).
@@ -268,6 +287,22 @@ function EtapasPlPage() {
           minimizedCards={minimizedCards}
         />
       )}
+
+      <Sheet open={!!overlayModeloId} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <SheetContent size="editor" className="flex flex-col p-0 max-md:[&>button]:hidden">
+          {overlayModeloId && (
+            <TerceirizadosDetail
+              modeloId={overlayModeloId}
+              onClose={requestClose}
+              onForceClose={closeOverlay}
+              onDirtyChange={setOverlayDirty}
+            />
+          )}
+          {/* Guarda DENTRO do SheetContent (portal) — mesma razão do pcp.servicos.index.tsx:
+              fora do portal o indicador "não salvo" não aparecia. */}
+          <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nos Serviços." />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
