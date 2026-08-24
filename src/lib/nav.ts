@@ -4,7 +4,7 @@
 import {
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
-  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, type LucideIcon,
+  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, ListChecks, type LucideIcon,
 } from "lucide-react";
 // PAGE_ICONS de produto_acabado (revenda) usa Package (planejador) e ShoppingCart (OC) —
 // mesmo ícone de OC das demais entradas de compra (paridade visual com OC Tecido/Aviamento).
@@ -42,10 +42,11 @@ export const PAGE_URLS: Record<string, string> = {
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/entrada-saida/explosao",
-  // PCP virou hub multi-página (Serviços hoje; Etapas em fase seguinte) — Serviços entra em
-  // PAGE_URLS como card do hub / sub-item da sidebar, igual às demais páginas de setor.
+  // PCP virou hub multi-página (Serviços + Etapas, gate `etapas_pl`) — Serviços/Etapas entram em
+  // PAGE_URLS como cards do hub / sub-itens da sidebar, igual às demais páginas de setor.
   // Oficina e CAD são acessados dentro de outras telas — também sem item próprio na navegação.
   producao_terceirizados: "/pcp/servicos",
+  producao_etapas: "/pcp/etapas",
   producao_cq: "/expedicao/cq",
   producao_direcionamento: "/expedicao/direcionamento",
   producao_lancamentos: "/expedicao/lancamentos",
@@ -74,6 +75,7 @@ export const PAGE_ICONS: Record<string, LucideIcon> = {
   criacao_planejamento: ClipboardList,
   criacao_desenvolvimento: Hammer,
   producao_terceirizados: Factory,
+  producao_etapas: ListChecks,
   producao_cq: CheckCircle2,
   producao_direcionamento: Split,
   producao_lancamentos: Rocket,

@@ -99,6 +99,9 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_servico_aprovacao", label: "Aprovação de mão de obra", soEdicao: true },
       { key: "producao_cad", label: "CAD" },
       { key: "producao_oficina", label: "Oficina" },
+      // Etapas PL (Fase 2, Task 1) — quadro de PL dentro do hub PCP; opt-in (gate próprio,
+      // igual a produto_acabado dentro de criacao/entrada_saida).
+      { key: "producao_etapas", label: "Etapas", gate: "etapas_pl" },
     ],
   },
   {

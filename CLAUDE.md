@@ -183,13 +183,18 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   gate `produto_acabado`; ver docs/mapeamento §2D e invariante 13. NÃO mesclado — branch
   `feature/plan-tecido-a1`)
 - ⚠️ **O nível `producao` (PCP) foi DIVIDIDO em 2 níveis (jul/2026, ver [[project_pcp_expedicao]]):**
-  **PCP** (`/pcp` = o próprio **Serviços**, nível de página única como o OTB; rotas `pcp.servicos.*`,
-  `pcp.cad.*`, `pcp.oficina.*`) + **Expedição & Logística** (`/expedicao`, hub com **CQ + Direcionamento
+  **PCP** (`/pcp`, hub com **Serviços + Etapas** [Etapas PL, ago/2026, gate opt-in `etapas_pl` —
+  ver invariante de módulos]; rotas `pcp.servicos.*`, `pcp.etapas.tsx`, `pcp.cad.*`, `pcp.oficina.*`)
+  + **Expedição & Logística** (`/expedicao`, hub com **CQ + Direcionamento
   + Lançamentos**; rotas `expedicao.cq.*`, `expedicao.direcionamento.*`, `expedicao.lancamentos.tsx`).
-  Os DOIS níveis compartilham a MESMA flag de contratação `producao` (novo campo `ModuleDef.gate` em
-  `permissions-catalog`; keys de PÁGINA seguem `producao_*`; RPCs seguem gate `tenant_module_enabled('producao')`
-  — zero mudança no banco). As URLs `/producao/*` NÃO existem mais. `MODULE_META`/`PAGE_URLS`/ícones em
-  `src/lib/nav.ts` (SSOT). Serviços (`producao_terceirizados`) NÃO entra em `PAGE_URLS` (nível = página única).
+  `/pcp` renderiza `<SectionHub module="pcp" />` (mesmo padrão dos demais hubs de setor — o antigo
+  "PCP é o próprio Serviços, nível de página única" ficou obsoleto quando Etapas entrou como 2º card).
+  Os DOIS níveis (PCP e Expedição) compartilham a MESMA flag de contratação `producao` (campo
+  `ModuleDef.gate` em `permissions-catalog`; keys de PÁGINA seguem `producao_*`; RPCs seguem gate
+  `tenant_module_enabled('producao')` — zero mudança no banco); Etapas soma um 2º gate por-página
+  (`PageDef.gate: "etapas_pl"`, mesmo mecanismo do `produto_acabado`). As URLs `/producao/*` NÃO
+  existem mais. `MODULE_META`/`PAGE_URLS`/ícones em `src/lib/nav.ts` (SSOT) — Serviços e Etapas
+  ambos entram em `PAGE_URLS`/`PAGE_ICONS` como cards do hub / sub-itens da sidebar.
   ⚠️ `admin/lojas.tsx MODULE_TOGGLES` (Switches de contratação, super_admin) precisa DEDUPLICAR por
   `m.gate ?? m.module` — sem isso, os 2 `ModuleDef` (pcp/expedicao) viravam 2 switches soltos
   (`modules.pcp`/`modules.expedicao`, chaves que nada lê) e a flag real `modules.producao` nunca

@@ -32,6 +32,7 @@ import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authen
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as AuthenticatedPcpServicosRouteImport } from './routes/_authenticated/pcp.servicos'
 import { Route as AuthenticatedPcpOficinaRouteImport } from './routes/_authenticated/pcp.oficina'
+import { Route as AuthenticatedPcpEtapasRouteImport } from './routes/_authenticated/pcp.etapas'
 import { Route as AuthenticatedPcpCadRouteImport } from './routes/_authenticated/pcp.cad'
 import { Route as AuthenticatedExpedicaoLancamentosRouteImport } from './routes/_authenticated/expedicao.lancamentos'
 import { Route as AuthenticatedExpedicaoDirecionamentoRouteImport } from './routes/_authenticated/expedicao.direcionamento'
@@ -196,6 +197,11 @@ const AuthenticatedPcpServicosRoute =
 const AuthenticatedPcpOficinaRoute = AuthenticatedPcpOficinaRouteImport.update({
   id: '/oficina',
   path: '/oficina',
+  getParentRoute: () => AuthenticatedPcpRoute,
+} as any)
+const AuthenticatedPcpEtapasRoute = AuthenticatedPcpEtapasRouteImport.update({
+  id: '/etapas',
+  path: '/etapas',
   getParentRoute: () => AuthenticatedPcpRoute,
 } as any)
 const AuthenticatedPcpCadRoute = AuthenticatedPcpCadRouteImport.update({
@@ -506,6 +512,7 @@ export interface FileRoutesByFullPath {
   '/expedicao/direcionamento': typeof AuthenticatedExpedicaoDirecionamentoRouteWithChildren
   '/expedicao/lancamentos': typeof AuthenticatedExpedicaoLancamentosRoute
   '/pcp/cad': typeof AuthenticatedPcpCadRouteWithChildren
+  '/pcp/etapas': typeof AuthenticatedPcpEtapasRoute
   '/pcp/oficina': typeof AuthenticatedPcpOficinaRouteWithChildren
   '/pcp/servicos': typeof AuthenticatedPcpServicosRouteWithChildren
   '/admin/': typeof AuthenticatedAdminIndexRoute
@@ -563,6 +570,7 @@ export interface FileRoutesByTo {
   '/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
   '/expedicao/lancamentos': typeof AuthenticatedExpedicaoLancamentosRoute
+  '/pcp/etapas': typeof AuthenticatedPcpEtapasRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
   '/criacao': typeof AuthenticatedCriacaoIndexRoute
@@ -631,6 +639,7 @@ export interface FileRoutesById {
   '/_authenticated/expedicao/direcionamento': typeof AuthenticatedExpedicaoDirecionamentoRouteWithChildren
   '/_authenticated/expedicao/lancamentos': typeof AuthenticatedExpedicaoLancamentosRoute
   '/_authenticated/pcp/cad': typeof AuthenticatedPcpCadRouteWithChildren
+  '/_authenticated/pcp/etapas': typeof AuthenticatedPcpEtapasRoute
   '/_authenticated/pcp/oficina': typeof AuthenticatedPcpOficinaRouteWithChildren
   '/_authenticated/pcp/servicos': typeof AuthenticatedPcpServicosRouteWithChildren
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
@@ -701,6 +710,7 @@ export interface FileRouteTypes {
     | '/expedicao/direcionamento'
     | '/expedicao/lancamentos'
     | '/pcp/cad'
+    | '/pcp/etapas'
     | '/pcp/oficina'
     | '/pcp/servicos'
     | '/admin/'
@@ -758,6 +768,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/os-aviamento'
     | '/entrada-saida/os-tecido'
     | '/expedicao/lancamentos'
+    | '/pcp/etapas'
     | '/admin'
     | '/cadastro'
     | '/criacao'
@@ -825,6 +836,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expedicao/direcionamento'
     | '/_authenticated/expedicao/lancamentos'
     | '/_authenticated/pcp/cad'
+    | '/_authenticated/pcp/etapas'
     | '/_authenticated/pcp/oficina'
     | '/_authenticated/pcp/servicos'
     | '/_authenticated/admin/'
@@ -1017,6 +1029,13 @@ declare module '@tanstack/react-router' {
       path: '/oficina'
       fullPath: '/pcp/oficina'
       preLoaderRoute: typeof AuthenticatedPcpOficinaRouteImport
+      parentRoute: typeof AuthenticatedPcpRoute
+    }
+    '/_authenticated/pcp/etapas': {
+      id: '/_authenticated/pcp/etapas'
+      path: '/etapas'
+      fullPath: '/pcp/etapas'
+      preLoaderRoute: typeof AuthenticatedPcpEtapasRouteImport
       parentRoute: typeof AuthenticatedPcpRoute
     }
     '/_authenticated/pcp/cad': {
@@ -1586,6 +1605,7 @@ const AuthenticatedPcpServicosRouteWithChildren =
 
 interface AuthenticatedPcpRouteChildren {
   AuthenticatedPcpCadRoute: typeof AuthenticatedPcpCadRouteWithChildren
+  AuthenticatedPcpEtapasRoute: typeof AuthenticatedPcpEtapasRoute
   AuthenticatedPcpOficinaRoute: typeof AuthenticatedPcpOficinaRouteWithChildren
   AuthenticatedPcpServicosRoute: typeof AuthenticatedPcpServicosRouteWithChildren
   AuthenticatedPcpIndexRoute: typeof AuthenticatedPcpIndexRoute
@@ -1593,6 +1613,7 @@ interface AuthenticatedPcpRouteChildren {
 
 const AuthenticatedPcpRouteChildren: AuthenticatedPcpRouteChildren = {
   AuthenticatedPcpCadRoute: AuthenticatedPcpCadRouteWithChildren,
+  AuthenticatedPcpEtapasRoute: AuthenticatedPcpEtapasRoute,
   AuthenticatedPcpOficinaRoute: AuthenticatedPcpOficinaRouteWithChildren,
   AuthenticatedPcpServicosRoute: AuthenticatedPcpServicosRouteWithChildren,
   AuthenticatedPcpIndexRoute: AuthenticatedPcpIndexRoute,
