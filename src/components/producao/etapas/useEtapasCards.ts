@@ -10,6 +10,9 @@ export type EtapasFiltros = { colecao?: string; busca?: string };
 // base — modelos com enviado_cad + cad(enviado_corte)+producao_terceirizados) mas com o embed
 // ESTENDIDO (empresa/categoria/pt_*/grade_detalhe) e a mão de obra passada por `montarCards`
 // (achatamento + filtro PL + etapa). queryKey PRÓPRIA — não compartilhar com "producao-terc-list".
+// ⚠️ `tenantId` entra na key (isolamento multi-tenant — troca de loja no TenantSwitcher tem
+// que refazer o fetch, senão o cache serve dado da loja anterior; padrão de useFichaData.ts
+// `["ft-tamanhos", tenantId]`), e os filtros vão ACHATADOS (primitivos), não o objeto cru.
 export function useEtapasCards(filtros: EtapasFiltros = {}) {
   const tenantId = useActiveTenantId();
 
@@ -30,7 +33,7 @@ export function useEtapasCards(filtros: EtapasFiltros = {}) {
   });
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["etapas-cards", filtros],
+    queryKey: ["etapas-cards", tenantId, filtros.colecao ?? null, filtros.busca ?? null],
     queryFn: async () => {
       const { data, error } = await (supabase.from("modelos") as any)
         .select(
