@@ -355,7 +355,7 @@ export function TerceirizadosDetail({
       const { data } = await supabase
         .from("empresas")
         .select(
-          "id, nome_fantasia, empresa_categorias_servico!inner(categoria_terceirizado_id), representantes(id, nome)",
+          "id, nome_fantasia, prazo_pagamento, empresa_categorias_servico!inner(categoria_terceirizado_id), representantes(id, nome)",
         )
         .eq("tipo", "servico");
       return (data ?? []) as any[];
@@ -1384,16 +1384,13 @@ export function TerceirizadosDetail({
           )}
           {!b.interno && (
             <div>
-              <Label className="text-xs">Nº de parcelas</Label>
-              <NumberInput
-                type="number"
-                integer
-                min={1}
-                value={b.numero_parcelas}
-                onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })}
-                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("numero_parcelas")}`)}
-                onBlur={() => setCampoFocado(null)}
+              <Label className="text-xs">Prazo de Pagamento</Label>
+              <Input
+                readOnly
+                value={(empresaSel?.prazo_pagamento as string) || "—"}
+                className="bg-muted"
               />
+              <span className="text-[11px] text-muted-foreground">(do fornecedor)</span>
             </div>
           )}
           {!b.interno && podeVerPrecos && (
