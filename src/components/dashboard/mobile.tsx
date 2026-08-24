@@ -17,6 +17,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { MobileFilterSheet } from "@/components/shared/MobileFilterSheet";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import type { FilterConfig } from "@/components/shared/filters";
@@ -242,10 +243,12 @@ export function MobileFilterBar({
   onPeriodo?: (p: Periodo) => void;
 }) {
   const fs = filters ?? [];
-  const activeCount = fs.filter((f) => f.value && f.value !== (f.emptyValue ?? "all")).length;
+  const isActive = (f: FilterConfig) =>
+    f.multi ? f.value.length > 0 : Boolean(f.value) && f.value !== (f.emptyValue ?? "all");
+  const activeCount = fs.filter(isActive).length;
   const count = activeCount + (periodo?.from ? 1 : 0);
   const clearAll = () => {
-    fs.forEach((f) => f.onChange(f.emptyValue ?? "all"));
+    fs.forEach((f) => (f.multi ? f.onChange([]) : f.onChange(f.emptyValue ?? "all")));
     onPeriodo?.(undefined);
   };
   // UMA casca só: o `MobileFilterSheet` (shared) provê chip + bottom sheet + rodapé fixo
@@ -260,6 +263,23 @@ export function MobileFilterBar({
         </div>
       )}
       {fs.map((f) => {
+        if (f.multi) {
+          const toggle = (id: string) =>
+            f.onChange(f.value.includes(id) ? f.value.filter((v) => v !== id) : [...f.value, id]);
+          return (
+            <div key={f.label} className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">{f.label}</label>
+              <div className={cn("rounded-md border p-1", f.value.length > 0 && "border-primary")}>
+                {f.options.map((o) => (
+                  <label key={o.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-2 text-sm hover:bg-muted">
+                    <Checkbox checked={f.value.includes(o.id)} onCheckedChange={() => toggle(o.id)} />
+                    <span>{o.nome}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        }
         const empty = f.emptyValue ?? "all";
         const active = Boolean(f.value) && f.value !== empty;
         return (

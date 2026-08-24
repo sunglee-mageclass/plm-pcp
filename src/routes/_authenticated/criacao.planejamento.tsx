@@ -220,7 +220,7 @@ function PlanejamentoPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const [search, setSearch] = useState("");
-  const [fStatus, setFStatus] = useState("all");
+  const [fStatus, setFStatus] = useState<string[]>([]); // multi: [] = todos os status
   const [fEstilista, setFEstilista] = useState("all");
   const [fSemana, setFSemana] = useState("");
   const [fMes, setFMes] = useState("all");
@@ -508,7 +508,7 @@ function PlanejamentoPage() {
       const okRefAuto = (m.ref_auto ?? "").toLowerCase().includes(q);
       if (!okNome && !okRef && !okRefAuto) return false;
     }
-    if (fStatus !== "all" && m.status_planejamento !== fStatus) return false;
+    if (fStatus.length && !fStatus.includes(m.status_planejamento ?? "")) return false;
     if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
     if (fSemana && m.semana !== fSemana) return false;
     if (fMes !== "all" && m.mes_id !== fMes) return false;
@@ -886,7 +886,7 @@ function PlanejamentoPage() {
           <FilterButton
             screen="planejamento"
             filters={[
-              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
+              { label: "Status", multi: true, value: fStatus, onChange: setFStatus, options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
               { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "all", nome: "Todos" }, { id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Lançamento nº", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },

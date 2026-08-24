@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Filter, Group, Search, X } from "lucide-react";
+import { ChevronsUpDown, Filter, Group, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -32,14 +32,31 @@ export const filtroAtivoClass = (active: boolean) =>
 
 export type FilterOption = { id: string; nome: string };
 
-export type FilterConfig = {
+/** Filtro de valor único (dropdown Select). */
+export type FilterConfigSingle = {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: FilterOption[];
   /** Valor considerado "vazio". Default: "all". */
   emptyValue?: string;
+  multi?: false;
 };
+
+/**
+ * Filtro multi-seleção (popover de checkboxes). `value` é o array de ids marcados;
+ * array vazio = nenhum filtro (mostra tudo). Não usa `emptyValue`/`options` com "Todos" —
+ * o "todos" é o estado de nada marcado.
+ */
+export type FilterConfigMulti = {
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  options: FilterOption[];
+  multi: true;
+};
+
+export type FilterConfig = FilterConfigSingle | FilterConfigMulti;
 
 type FilterButtonProps = {
   filters?: FilterConfig[];
@@ -56,28 +73,80 @@ type FilterButtonProps = {
   screen?: string;
 };
 
+/**
+ * Filtro multi-seleção como DROPDOWN: um trigger (mesmo gabarito do SelectTrigger dos
+ * filtros single) que abre um popover próprio com a lista de checkboxes. Resumo no
+ * trigger: "Todos" (nada marcado) · o rótulo (1) · "N selecionados" (≥2). Espelha o
+ * idioma do multi-select do cadastro (Popover + Checkbox + array).
+ */
+function MultiFilter({ f, onRecord }: { f: FilterConfigMulti; onRecord: (label: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const active = f.value.length > 0;
+  const selectedLabels = f.options.filter((o) => f.value.includes(o.id)).map((o) => o.nome);
+  const resumo =
+    selectedLabels.length === 0 ? "Todos" : selectedLabels.length === 1 ? selectedLabels[0] : `${selectedLabels.length} selecionados`;
+  const toggle = (id: string) => {
+    const has = f.value.includes(id);
+    if (!has) onRecord(f.label); // só conta aplicação real, não desmarque
+    f.onChange(has ? f.value.filter((v) => v !== id) : [...f.value, id]);
+  };
+  return (
+    <div className="grid gap-1">
+      <Label className="text-xs">{f.label}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            // h-8 desktop / h-11 toque — mesmo gabarito do SelectTrigger dos filtros single.
+            className={`h-8 max-md:h-11 w-full justify-between px-3 text-sm font-normal ${filtroAtivoClass(active)}`}
+          >
+            <span className="truncate text-left">{resumo}</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-56 p-1">
+          <div className="max-h-64 space-y-0.5 overflow-y-auto">
+            {f.options.map((o) => (
+              <label
+                key={o.id}
+                // max-md:min-h-11 = linha clicável de 44px no toque (§Q/§G).
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted max-md:min-h-11"
+              >
+                <Checkbox checked={f.value.includes(o.id)} onCheckedChange={() => toggle(o.id)} />
+                <span>{o.nome}</span>
+              </label>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 export function FilterButton({ filters, children, activeCount, onClear, screen }: FilterButtonProps) {
   const { counts, record } = useFilterUsage(screen);
 
+  // "Ativo" = multi com ao menos 1 marcado, ou single com valor ≠ vazio.
+  // (Cuidado: `Boolean([])` é `true` — por isso o multi checa `.length`, não a truthiness.)
+  const isActive = (f: FilterConfig) =>
+    f.multi ? f.value.length > 0 : Boolean(f.value) && f.value !== (f.emptyValue ?? "all");
+
   const computedCount =
-    activeCount ??
-    (filters
-      ? filters.filter((f) => {
-          const empty = f.emptyValue ?? "all";
-          return f.value && f.value !== empty;
-        }).length
-      : 0);
+    activeCount ?? (filters ? filters.filter(isActive).length : 0);
 
   const handleClear = () => {
     if (onClear) onClear();
     else if (filters) {
-      filters.forEach((f) => f.onChange(f.emptyValue ?? "all"));
+      filters.forEach((f) => (f.multi ? f.onChange([]) : f.onChange(f.emptyValue ?? "all")));
     }
   };
 
-  // Um único <Select> por filtro; renderizável tanto na coluna "Mais usados"
-  // quanto na lista fixa (mesmo estado — mudar num lugar reflete no outro).
+  // Um <Select> (single) ou uma lista de checkboxes (multi) por filtro; renderizável
+  // tanto na coluna "Mais usados" quanto na lista fixa (mesmo estado — mudar num lugar
+  // reflete no outro).
   const renderFilter = (f: FilterConfig) => {
+    if (f.multi) return <MultiFilter key={f.label} f={f} onRecord={record} />;
     const empty = f.emptyValue ?? "all";
     const active = Boolean(f.value) && f.value !== empty;
     return (
