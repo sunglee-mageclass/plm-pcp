@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
+import { useFilterState } from "@/hooks/useFilterState";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
@@ -150,12 +151,12 @@ function AviamentosGallery() {
       if (n.has(path)) n.delete(path); else n.add(path);
       return n;
     });
-  const [fCat, setFCat] = useState("all");
-  const [fSub, setFSub] = useState("all");
-  const [fMat, setFMat] = useState("all");
-  const [fLarg, setFLarg] = useState("all");
-  const [fVaz, setFVaz] = useState("all");
-  const [fEmp, setFEmp] = useState("all");
+  const [fCat, setFCat] = useFilterState("cad-aviamentos", "Categoria", []);
+  const [fSub, setFSub] = useFilterState("cad-aviamentos", "Subcategoria", []);
+  const [fMat, setFMat] = useFilterState("cad-aviamentos", "Material", []);
+  const [fLarg, setFLarg] = useFilterState("cad-aviamentos", "Intervalo Largura", []);
+  const [fVaz, setFVaz] = useFilterState("cad-aviamentos", "Intervalo Vazado", []);
+  const [fEmp, setFEmp] = useFilterState("cad-aviamentos", "Fornecedor", []);
   const [editing, setEditing] = useState<Aviamento | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<Aviamento | null>(null);
@@ -280,15 +281,29 @@ function AviamentosGallery() {
     [variantesRows],
   );
 
+  // Cascata Categoria→Subcategoria: opções de Subcategoria = união das subcategorias
+  // das categorias marcadas (nenhuma marcada = todas).
+  const subOptionsFiltro = useMemo(
+    () => subcategorias.filter((s) => !fCat.length || fCat.includes(s.categoria_aviamento_id)),
+    [subcategorias, fCat],
+  );
+  // Poda: ao mudar fCat, remove de fSub os ids que saíram da união (idempotente).
+  useEffect(() => {
+    const validos = new Set(subOptionsFiltro.map((o) => o.id));
+    const podado = fSub.filter((id) => validos.has(id));
+    if (podado.length !== fSub.length) setFSub(podado);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fCat, subcategorias]);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     let list = aviamentos.filter((a) => {
-      if (fCat !== "all" && a.categoria_aviamento_id !== fCat) return false;
-      if (fSub !== "all" && a.subcategoria_aviamento_id !== fSub) return false;
-      if (fMat !== "all" && a.material_aviamento_id !== fMat) return false;
-      if (fLarg !== "all" && a.intervalo_largura_id !== fLarg) return false;
-      if (fVaz !== "all" && a.intervalo_vazado_id !== fVaz) return false;
-      if (fEmp !== "all" && a.empresa_id !== fEmp) return false;
+      if (fCat.length && !fCat.includes(a.categoria_aviamento_id ?? "")) return false;
+      if (fSub.length && !fSub.includes(a.subcategoria_aviamento_id ?? "")) return false;
+      if (fMat.length && !fMat.includes(a.material_aviamento_id ?? "")) return false;
+      if (fLarg.length && !fLarg.includes(a.intervalo_largura_id ?? "")) return false;
+      if (fVaz.length && !fVaz.includes(a.intervalo_vazado_id ?? "")) return false;
+      if (fEmp.length && !fEmp.includes(a.empresa_id ?? "")) return false;
       if (s && !a.codigo_nome.toLowerCase().includes(s)) return false;
       return true;
     });
@@ -438,12 +453,12 @@ function AviamentosGallery() {
           <FilterButton
             screen="aviamentos"
             filters={[
-              { label: "Categoria", value: fCat, onChange: (v) => { setFCat(v); setFSub("all"); }, options: [{ id: "all", nome: "Todas" }, ...categorias] },
-              { label: "Subcategoria", value: fSub, onChange: setFSub, options: [{ id: "all", nome: "Todas" }, ...subcategorias.filter((s) => fCat === "all" || s.categoria_aviamento_id === fCat)] },
-              { label: "Material", value: fMat, onChange: setFMat, options: [{ id: "all", nome: "Todos" }, ...materiais] },
-              { label: "Intervalo Largura", value: fLarg, onChange: setFLarg, options: [{ id: "all", nome: "Todos" }, ...intervalos] },
-              { label: "Intervalo Vazado", value: fVaz, onChange: setFVaz, options: [{ id: "all", nome: "Todos" }, ...intervalos] },
-              { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: categorias },
+              { label: "Subcategoria", value: fSub, onChange: setFSub, options: subOptionsFiltro },
+              { label: "Material", value: fMat, onChange: setFMat, options: materiais },
+              { label: "Intervalo Largura", value: fLarg, onChange: setFLarg, options: intervalos },
+              { label: "Intervalo Vazado", value: fVaz, onChange: setFVaz, options: intervalos },
+              { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
             ]}
           />
           <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
@@ -488,7 +503,7 @@ function AviamentosGallery() {
             description="Nenhum aviamento corresponde aos filtros aplicados."
             action={{
               label: "Limpar filtros",
-              onClick: () => { setSearch(""); setSort("nome"); setFCat("all"); setFSub("all"); setFMat("all"); setFLarg("all"); setFVaz("all"); setFEmp("all"); },
+              onClick: () => { setSearch(""); setSort("nome"); setFCat([]); setFSub([]); setFMat([]); setFLarg([]); setFVaz([]); setFEmp([]); },
             }}
           />
         )

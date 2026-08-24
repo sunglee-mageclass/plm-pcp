@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -42,9 +43,9 @@ const COL_TIPS = {
  *  montar os controles no header (contextuais) e alimentar a tabela. `enabled` = aba ativa. */
 export function useEstoqueTecidos(enabled: boolean) {
   const [search, setSearch] = useState("");
-  const [fornecedor, setFornecedor] = useState<string>("all");
-  const [categoria, setCategoria] = useState<string>("all");
-  const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
+  const [fornecedor, setFornecedor] = useFilterState("oc-tecido-estoque", "Fornecedor", []);
+  const [categoria, setCategoria] = useFilterState("oc-tecido-estoque", "Categoria", []);
+  const [estoqueFilter, setEstoqueFilter] = useFilterState("oc-tecido-estoque", "Estoque", []);
 
   // Endereços vêm do rollup consolidado (tabela enderecamento_tecido + colunas do rolo).
   const { data: rollup } = useEnderecosRollup(enabled);
@@ -115,9 +116,9 @@ export function useEstoqueTecidos(enabled: boolean) {
     const s = search.toLowerCase();
     return rows.filter((r: any) =>
       (!s || r.artigoNome.toLowerCase().includes(s) || r.nomeVariante.toLowerCase().includes(s)) &&
-      (fornecedor === "all" || r.fornecedorId === fornecedor) &&
-      (categoria === "all" || r.categoriaId === categoria) &&
-      (estoqueFilter === "all" || (estoqueFilter === "zero" ? r.fisico <= 0 : r.fisico > 0)),
+      (!fornecedor.length || fornecedor.includes(r.fornecedorId ?? "")) &&
+      (!categoria.length || categoria.includes(r.categoriaId ?? "")) &&
+      (!estoqueFilter.length || estoqueFilter.some((e) => (e === "zero" ? r.fisico <= 0 : r.fisico > 0))),
     );
   }, [data, search, fornecedor, categoria, estoqueFilter]);
 
@@ -142,9 +143,9 @@ export function useEstoqueTecidos(enabled: boolean) {
 
   // Descritores prontos p/ o <FilterButton> do header (filtros de estoque, não os da OC).
   const filtros = [
-    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
-    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
-    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: fornecedores },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: categorias },
   ];
 
   return { search, setSearch, filtros, grouped, rollup, sortKey, sortState, toggle, isLoading, error };

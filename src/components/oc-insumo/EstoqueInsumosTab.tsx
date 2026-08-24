@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -19,7 +20,7 @@ const fmtTamInsumo = (t: string) => { const [n, s] = t.split("|"); return s ? `$
 /** Estado + consulta + filtros da aba Estoque de insumos. `enabled` = aba ativa. */
 export function useEstoqueInsumos(enabled: boolean) {
   const [search, setSearch] = useState("");
-  const [estoqueFilter, setEstoqueFilter] = useState("all");
+  const [estoqueFilter, setEstoqueFilter] = useFilterState("oc-insumo-estoque", "Estoque", []);
   const { data = [], isLoading } = useQuery({
     queryKey: ["estoque-insumos"],
     enabled,
@@ -36,8 +37,7 @@ export function useEstoqueInsumos(enabled: boolean) {
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
     return data.filter((r) => {
-      if (estoqueFilter === "zero" && r.fisico > 0) return false;
-      if (estoqueFilter === "positive" && r.fisico <= 0) return false;
+      if (estoqueFilter.length && !estoqueFilter.some((e) => (e === "zero" ? r.fisico <= 0 : r.fisico > 0))) return false;
       if (s && !r.etiquetaNome.toLowerCase().includes(s) && !(r.corNome ?? "").toLowerCase().includes(s)) return false;
       return true;
     });
@@ -65,7 +65,7 @@ export function useEstoqueInsumos(enabled: boolean) {
   }, [filtered]);
 
   const filtros = [
-    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
   ];
 
   return { search, setSearch, filtros, grouped, isLoading };

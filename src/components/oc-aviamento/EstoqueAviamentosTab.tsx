@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -36,9 +37,9 @@ function varianteLabelAvi(r: { variId: string | null; varianteNome?: string | nu
  *  montar os controles no header (contextuais) e alimentar a tabela. `enabled` = aba ativa. */
 export function useEstoqueAviamentos(enabled: boolean) {
   const [search, setSearch] = useState("");
-  const [fornecedor, setFornecedor] = useState<string>("all");
-  const [categoria, setCategoria] = useState<string>("all");
-  const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
+  const [fornecedor, setFornecedor] = useFilterState("oc-aviamento-estoque", "Fornecedor", []);
+  const [categoria, setCategoria] = useFilterState("oc-aviamento-estoque", "Categoria", []);
+  const [estoqueFilter, setEstoqueFilter] = useFilterState("oc-aviamento-estoque", "Estoque", []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
@@ -84,9 +85,9 @@ export function useEstoqueAviamentos(enabled: boolean) {
     const s = search.toLowerCase();
     return rows.filter((r: any) =>
       (!s || r.aviamentoNome.toLowerCase().includes(s) || r.varianteLabel.toLowerCase().includes(s)) &&
-      (fornecedor === "all" || r.fornecedorId === fornecedor) &&
-      (categoria === "all" || r.categoriaId === categoria) &&
-      (estoqueFilter === "all" || (estoqueFilter === "zero" ? r.fisico <= 0 : r.fisico > 0)),
+      (!fornecedor.length || fornecedor.includes(r.fornecedorId ?? "")) &&
+      (!categoria.length || categoria.includes(r.categoriaId ?? "")) &&
+      (!estoqueFilter.length || estoqueFilter.some((e) => (e === "zero" ? r.fisico <= 0 : r.fisico > 0))),
     );
   }, [data, search, fornecedor, categoria, estoqueFilter]);
 
@@ -109,9 +110,9 @@ export function useEstoqueAviamentos(enabled: boolean) {
 
   // Descritores prontos p/ o <FilterButton> do header (filtros de estoque, não os da OC).
   const filtros = [
-    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
-    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
-    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: fornecedores },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: categorias },
   ];
 
   return { search, setSearch, filtros, filtered, grouped, sortKey, sortState, toggle, isLoading, error };

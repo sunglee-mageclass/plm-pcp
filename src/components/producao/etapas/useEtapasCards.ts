@@ -4,7 +4,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { montarCards, type ModeloRow } from "@/lib/pcp-etapas-kanban";
 
-export type EtapasFiltros = { colecao?: string; busca?: string };
+export type EtapasFiltros = { colecao?: string[]; busca?: string };
 
 // Hook de dados do kanban de Etapas PL: espelha a query de pcp.servicos.index.tsx (mesma
 // base — modelos com enviado_cad + cad(enviado_corte)+producao_terceirizados) mas com o embed
@@ -33,7 +33,12 @@ export function useEtapasCards(filtros: EtapasFiltros = {}) {
   });
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["etapas-cards", tenantId, filtros.colecao ?? null, filtros.busca ?? null],
+    queryKey: [
+      "etapas-cards",
+      tenantId,
+      (filtros.colecao ?? []).join(","),
+      filtros.busca ?? null,
+    ],
     queryFn: async () => {
       const { data, error } = await (supabase.from("modelos") as any)
         .select(
@@ -47,7 +52,7 @@ export function useEtapasCards(filtros: EtapasFiltros = {}) {
   });
 
   const filtered = rows.filter((m) => {
-    if (filtros.colecao && filtros.colecao !== "all" && m.colecao !== filtros.colecao) return false;
+    if (filtros.colecao?.length && !filtros.colecao.includes(m.colecao ?? "")) return false;
     if (filtros.busca) {
       const q = filtros.busca.toLowerCase();
       if (!`${m.ref ?? ""} ${m.nome ?? ""}`.toLowerCase().includes(q)) return false;

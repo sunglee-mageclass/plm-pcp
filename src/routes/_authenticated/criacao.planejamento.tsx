@@ -44,6 +44,7 @@ import {
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
 import { brl, fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
@@ -220,19 +221,19 @@ function PlanejamentoPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const [search, setSearch] = useState("");
-  const [fStatus, setFStatus] = useState<string[]>([]); // multi: [] = todos os status
-  const [fEstilista, setFEstilista] = useState("all");
-  const [fSemana, setFSemana] = useState("");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fGrupo, setFGrupo] = useState("all");
-  const [fCat, setFCat] = useState("all");
-  const [fSubcolecao, setFSubcolecao] = useState("all");
-  const [fSub1, setFSub1] = useState("all");
-  const [fRep, setFRep] = useState("all");
-  const [fOrigem, setFOrigem] = useState("all");
-  const [fColecao, setFColecao] = useState("all");
-  const [fLancamento, setFLancamento] = useState("all"); // all | pronto | lancado
+  const [fStatus, setFStatus] = useFilterState("planejamento", "Status", []); // multi: [] = todos os status
+  const [fEstilista, setFEstilista] = useFilterState("planejamento", "Estilista", []);
+  const [fSemana, setFSemana] = useFilterState("planejamento", "Lançamento nº", []);
+  const [fMes, setFMes] = useFilterState("planejamento", "Mês de Planejamento", []);
+  const [fAno, setFAno] = useFilterState("planejamento", "Ano", []);
+  const [fGrupo, setFGrupo] = useFilterState("planejamento", "Grupo", []);
+  const [fCat, setFCat] = useFilterState("planejamento", "Categoria", []);
+  const [fSubcolecao, setFSubcolecao] = useFilterState("planejamento", "Subcoleção", []);
+  const [fSub1, setFSub1] = useFilterState("planejamento", "Subcategoria", []);
+  const [fRep, setFRep] = useFilterState("planejamento", "Repetição", []);
+  const [fOrigem, setFOrigem] = useFilterState("planejamento", "Origem", []);
+  const [fColecao, setFColecao] = useFilterState("planejamento", "Coleção", []);
+  const [fLancamento, setFLancamento] = useFilterState("planejamento", "Lançamento", []); // multi: [] = todos
   const [openId, setOpenId] = useState<string | null>(null);
   // Deep-link `?modelo=<id>` (ver Route.validateSearch acima) — abre o card uma vez ao montar;
   // não reabre se o usuário fechar e a URL ainda tiver o param (evita reabrir sozinho).
@@ -495,6 +496,17 @@ function PlanejamentoPage() {
   }, [selected, modelos]);
 
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
+  // CASCATA Grupo→Categoria (filtro): opções de Categoria = união das categorias dos
+  // grupos marcados (nenhum grupo marcado = todas as categorias).
+  const categoriasParaFiltro = !fGrupo.length ? categorias : categorias.filter((c) => fGrupo.includes(c.grupo_id ?? ""));
+  // PODA: ao desmarcar/trocar Grupo, remove de fCat os ids que saíram da união acima —
+  // idempotente (só remove, nunca reintroduz), evita filtro de Categoria "fantasma".
+  useEffect(() => {
+    const validos = new Set(categoriasParaFiltro.map((c) => c.id));
+    const podado = fCat.filter((id) => validos.has(id));
+    if (podado.length !== fCat.length) setFCat(podado);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fGrupo, categorias]);
   // "Repetição" = versão v2 em diante (cópia). O original (v1) é "único".
   const isRepeticao = (m: Modelo) => (m.versao ?? 1) > 1;
   const filtered = modelos.filter((m) => {
@@ -509,19 +521,18 @@ function PlanejamentoPage() {
       if (!okNome && !okRef && !okRefAuto) return false;
     }
     if (fStatus.length && !fStatus.includes(m.status_planejamento ?? "")) return false;
-    if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
-    if (fSemana && m.semana !== fSemana) return false;
-    if (fMes !== "all" && m.mes_id !== fMes) return false;
-    if (fAno !== "all" && m.ano_id !== fAno) return false;
-    if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
-    if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
-    if (fColecao !== "all" && m.colecao !== fColecao) return false;
-    if (fSubcolecao !== "all" && m.subcolecao !== fSubcolecao) return false;
-    if (fSub1 !== "all" && m.subcategoria1_id !== fSub1) return false;
-    if (fRep === "rep" && !isRepeticao(m)) return false;
-    if (fRep === "uni" && isRepeticao(m)) return false;
-    if (fOrigem !== "all" && (m.origem ?? "interno") !== fOrigem) return false;
-    if (fLancamento !== "all" && lancStatusDe(m) !== fLancamento) return false;
+    if (fEstilista.length && !fEstilista.includes(m.estilista_id ?? "")) return false;
+    if (fSemana.length && !fSemana.includes(m.semana ?? "")) return false;
+    if (fMes.length && !fMes.includes(m.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(m.ano_id ?? "")) return false;
+    if (fGrupo.length && !fGrupo.includes((m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) ?? "")) return false;
+    if (fCat.length && !fCat.includes(m.categoria_principal_id ?? "")) return false;
+    if (fColecao.length && !fColecao.includes(m.colecao ?? "")) return false;
+    if (fSubcolecao.length && !fSubcolecao.includes(m.subcolecao ?? "")) return false;
+    if (fSub1.length && !fSub1.includes(m.subcategoria1_id ?? "")) return false;
+    if (fRep.length && !fRep.includes(isRepeticao(m) ? "rep" : "uni")) return false;
+    if (fOrigem.length && !fOrigem.includes(m.origem ?? "interno")) return false;
+    if (fLancamento.length && !fLancamento.includes(lancStatusDe(m) ?? "")) return false;
     return true;
   });
 
@@ -886,19 +897,19 @@ function PlanejamentoPage() {
           <FilterButton
             screen="planejamento"
             filters={[
-              { label: "Status", multi: true, value: fStatus, onChange: setFStatus, options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
-              { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "all", nome: "Todos" }, { id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
-              { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
-              { label: "Lançamento nº", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
-              { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
-              { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
-              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
-              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
-              { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "all", nome: "Todas" }, { id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
-              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
+              { label: "Status", value: fStatus, onChange: setFStatus, options: STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label })) },
+              { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
+              { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: estilistas },
+              { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
+              { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: meses },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos },
+              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: categoriasParaFiltro },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
+              { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
+              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
           <Button className="hidden md:inline-flex" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Novos Cards"><Layers className="h-4 w-4 mr-1" />Novos Cards</Button>

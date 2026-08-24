@@ -21,6 +21,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { useSort } from "@/components/shared/sort";
+import { useFilterState } from "@/hooks/useFilterState";
 
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -108,19 +109,19 @@ function DesenvolvimentoPage() {
   const tenantId = useActiveTenantId();
   const editable = canEdit("criacao_desenvolvimento");
   const [search, setSearch] = useState("");
-  const [fEstilista, setFEstilista] = useState("all");
-  const [fModelista, setFModelista] = useState("all");
-  const [fPiloteiro, setFPiloteiro] = useState("all");
-  const [fSemana, setFSemana] = useState("");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fColecao, setFColecao] = useState("all");
-  const [fSubcolecao, setFSubcolecao] = useState("all");
-  const [fCat, setFCat] = useState("all");
-  const [fSub1, setFSub1] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
-  const [fCad, setFCad] = useState("all");
-  const [fGrupo, setFGrupo] = useState("all");
+  const [fEstilista, setFEstilista] = useFilterState("desenvolvimento", "Estilista", []);
+  const [fModelista, setFModelista] = useFilterState("desenvolvimento", "Modelista", []);
+  const [fPiloteiro, setFPiloteiro] = useFilterState("desenvolvimento", "Piloteiro", []);
+  const [fSemana, setFSemana] = useFilterState("desenvolvimento", "Lançamento nº", []);
+  const [fMes, setFMes] = useFilterState("desenvolvimento", "Mês", []);
+  const [fAno, setFAno] = useFilterState("desenvolvimento", "Ano", []);
+  const [fColecao, setFColecao] = useFilterState("desenvolvimento", "Coleção", []);
+  const [fSubcolecao, setFSubcolecao] = useFilterState("desenvolvimento", "Subcoleção", []);
+  const [fCat, setFCat] = useFilterState("desenvolvimento", "Categoria", []);
+  const [fSub1, setFSub1] = useFilterState("desenvolvimento", "Subcategoria", []);
+  const [fStatus, setFStatus] = useFilterState("desenvolvimento", "Status", []);
+  const [fCad, setFCad] = useFilterState("desenvolvimento", "Explosão", []);
+  const [fGrupo, setFGrupo] = useFilterState("desenvolvimento", "Grupo", []);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -275,6 +276,18 @@ function DesenvolvimentoPage() {
   const firstStatusKey = statusKanban[0]?.key;
 
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
+  // CASCATA Grupo→Categoria (idêntica ao padrão do Planejamento): opções de Categoria = união
+  // dos grupos marcados (nenhum grupo marcado = todas). A poda de fCat mora no useEffect abaixo.
+  const categoriasFiltradasPorGrupo = useMemo(
+    () => (fGrupo.length ? categorias.filter((c) => c.grupo_id && fGrupo.includes(c.grupo_id)) : categorias),
+    [categorias, fGrupo]
+  );
+  useEffect(() => {
+    const validos = new Set(categoriasFiltradasPorGrupo.map((c) => c.id));
+    setFCat(fCat.filter((id) => validos.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoriasFiltradasPorGrupo]);
+
   const filtered = modelos.filter((m) => {
     // Lupa casa por nome OU REF (ref/ref_auto — mesma normalização do nome, sem accent-fold).
     if (search) {
@@ -284,30 +297,31 @@ function DesenvolvimentoPage() {
       const okRefAuto = (m.ref_auto ?? "").toLowerCase().includes(q);
       if (!okNome && !okRef && !okRefAuto) return false;
     }
-    if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
-    if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
-    if (fSubcolecao !== "all" && m.subcolecao !== fSubcolecao) return false;
-    if (fSub1 !== "all" && m.subcategoria1_id !== fSub1) return false;
-    if (fStatus !== "all") {
+    if (fGrupo.length && !fGrupo.includes(m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] ?? "" : "")) return false;
+    if (fCat.length && !fCat.includes(m.categoria_principal_id ?? "")) return false;
+    if (fSubcolecao.length && !fSubcolecao.includes(m.subcolecao ?? "")) return false;
+    if (fSub1.length && !fSub1.includes(m.subcategoria1_id ?? "")) return false;
+    if (fStatus.length) {
       // status efetivo = a coluna onde o card cai (null/desconhecido → primeira)
       const eff = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento)
         ? m.status_desenvolvimento
         : firstStatusKey;
-      if (eff !== fStatus) return false;
+      if (!fStatus.includes(eff ?? "")) return false;
     }
     const naExplosao = !!m.enviado_cad && !m.cad?.[0]?.enviado_corte;
-    if (fCad === "enviado" && !naExplosao) return false;
-    if (fCad === "nao" && naExplosao) return false;
-    if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
-    if (fModelista !== "all" && m.modelista_id !== fModelista) return false;
-    if (fPiloteiro !== "all" &&
-      m.piloteiro1_id !== fPiloteiro &&
-      m.piloteiro2_id !== fPiloteiro &&
-      m.piloteiro3_id !== fPiloteiro) return false;
-    if (fSemana && m.semana !== fSemana) return false;
-    if (fMes !== "all" && m.mes_id !== fMes) return false;
-    if (fAno !== "all" && m.ano_id !== fAno) return false;
-    if (fColecao !== "all" && m.colecao !== fColecao) return false;
+    if (fCad.length) {
+      const cadKey = naExplosao ? "enviado" : "nao";
+      if (!fCad.includes(cadKey)) return false;
+    }
+    if (fEstilista.length && !fEstilista.includes(m.estilista_id ?? "")) return false;
+    if (fModelista.length && !fModelista.includes(m.modelista_id ?? "")) return false;
+    // Piloteiro casa em piloteiro1/2/3_id — OR sobre os 3 campos. Multi = "nenhum dos 3 está entre os selecionados".
+    if (fPiloteiro.length &&
+      ![m.piloteiro1_id, m.piloteiro2_id, m.piloteiro3_id].some((id) => id && fPiloteiro.includes(id))) return false;
+    if (fSemana.length && !fSemana.includes(m.semana ?? "")) return false;
+    if (fMes.length && !fMes.includes(m.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(m.ano_id ?? "")) return false;
+    if (fColecao.length && !fColecao.includes(m.colecao ?? "")) return false;
     return true;
   });
 
@@ -547,19 +561,19 @@ function DesenvolvimentoPage() {
           <FilterButton
             screen="desenvolvimento"
             filters={[
-              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...statusKanban.map((s) => ({ id: s.key, nome: s.label }))] },
-              { label: "Explosão", value: fCad, onChange: setFCad, options: [{ id: "all", nome: "Todos" }, { id: "enviado", nome: "Enviado à Explosão" }, { id: "nao", nome: "Não enviado" }] },
-              { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
-              { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
-              { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
-              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
-              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
-              { label: "Lançamento nº", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+              { label: "Status", value: fStatus, onChange: setFStatus, options: statusKanban.map((s) => ({ id: s.key, nome: s.label })) },
+              { label: "Explosão", value: fCad, onChange: setFCad, options: [{ id: "enviado", nome: "Enviado à Explosão" }, { id: "nao", nome: "Não enviado" }] },
+              { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: estilistas },
+              { label: "Modelista", value: fModelista, onChange: setFModelista, options: modelistas },
+              { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: piloteiros },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: categoriasFiltradasPorGrupo },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
+              { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos },
             ]}
           />
         </div>

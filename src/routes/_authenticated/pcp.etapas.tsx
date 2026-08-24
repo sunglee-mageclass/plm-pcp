@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
@@ -21,6 +21,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
 import { FilterButton } from "@/components/shared/filters";
+import { useFilterState } from "@/hooks/useFilterState";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useEtapasCards } from "@/components/producao/etapas/useEtapasCards";
@@ -70,8 +71,8 @@ function EtapasPlPage() {
   const { requestClose, confirm } = useUnsavedGuard({ dirty: overlayDirty, onClose: closeOverlay });
 
   const [busca, setBusca] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fFornecedor, setFFornecedor] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("pcp-etapas", "Coleção", []);
+  const [fFornecedor, setFFornecedor] = useFilterState("pcp-etapas", "Fornecedor", []);
   const [sortKey, setSortKey] = useState(SORT_NONE);
   const [collapsedCols, setCollapsedCols] = useState<Set<EtapaKey>>(new Set());
   const [minimizedCards, setMinimizedCards] = useState(false);
@@ -85,7 +86,7 @@ function EtapasPlPage() {
     isLoading: cardsLoading,
   } = useEtapasCards({
     busca,
-    colecao: fColecao === "all" ? undefined : fColecao,
+    colecao: fColecao,
   });
 
   const tenantId = useActiveTenantId();
@@ -109,9 +110,19 @@ function EtapasPlPage() {
     [filteredCards],
   );
 
+  // Cascata Coleção→Fornecedor: `filteredCards` já vem filtrado por coleção (useEtapasCards),
+  // então `fornecedores` já é a união certa; aqui só podamos a seleção de fFornecedor quando
+  // a troca de coleção reduz as opções disponíveis (idempotente — só remove).
+  useEffect(() => {
+    const validos = new Set(fornecedores);
+    const podado = fFornecedor.filter((f) => validos.has(f));
+    if (podado.length !== fFornecedor.length) setFFornecedor(podado);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fornecedores]);
+
   const cards = useMemo(() => {
     let list = filteredCards;
-    if (fFornecedor !== "all") list = list.filter((c) => c.empresa === fFornecedor);
+    if (fFornecedor.length) list = list.filter((c) => fFornecedor.includes(c.empresa ?? ""));
     if (sortKey !== SORT_NONE) {
       list = [...list].sort((a, b) => {
         const av = (sortKey === "ref" ? a.ref : a.nome) ?? "";
@@ -196,19 +207,13 @@ function EtapasPlPage() {
                 label: fl("colecao"),
                 value: fColecao,
                 onChange: setFColecao,
-                options: [
-                  { id: "all", nome: "Todas" },
-                  ...colecoes.map((c) => ({ id: c, nome: c })),
-                ],
+                options: colecoes.map((c) => ({ id: c, nome: c })),
               },
               {
                 label: "Fornecedor",
                 value: fFornecedor,
                 onChange: setFFornecedor,
-                options: [
-                  { id: "all", nome: "Todos" },
-                  ...fornecedores.map((f) => ({ id: f, nome: f })),
-                ],
+                options: fornecedores.map((f) => ({ id: f, nome: f })),
               },
             ]}
           />

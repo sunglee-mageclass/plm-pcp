@@ -52,6 +52,7 @@ import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -142,18 +143,18 @@ function OcAviamentoPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueAviamentos(tab === "estoque"); // controles no header (contextual) + tabela
-  const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
+  const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-aviamento", "Fornecedor", []);
   const respF = useResponsavelFilter();
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_aviamento", tab, filterEmpresa, respF.tipo, respF.pessoaId],
+    queryKey: ["ocs_aviamento", tab, filterEmpresa.join(","), respF.tipo.join(","), respF.pessoaId.join(",")],
     enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
     queryFn: async () => {
       let q = supabase.from("ocs_aviamento").select("*").eq("status", tab as OCStatus).order("created_at", { ascending: false });
-      if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
+      if (filterEmpresa.length) q = q.in("empresa_id", filterEmpresa);
       if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
       const { data, error } = await q;
       if (error) throw error;
@@ -256,7 +257,7 @@ function OcAviamentoPage() {
           ) : (
             <FilterButton
               filters={[
-                { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
                 ...(tab === "encomendado" ? respF.filters : []),
               ]}
             />

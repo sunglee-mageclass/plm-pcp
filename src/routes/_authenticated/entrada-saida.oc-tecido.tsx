@@ -34,6 +34,7 @@ import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
 import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -74,27 +75,27 @@ function OcTecidoPage() {
   const [busca, setBusca] = useState("");
   // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
   const estoque = useEstoqueTecidos(tab === "estoque");
-  const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
+  const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-tecido", "Fornecedor", []);
   const respF = useResponsavelFilter();
-  const [filterAlerta, setFilterAlerta] = useState<string>("all");
+  const [filterAlerta, setFilterAlerta] = useFilterState("oc-tecido", "Alerta", []);
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_tecido", tab, filterEmpresa, respF.tipo, respF.pessoaId, filterAlerta],
+    queryKey: ["ocs_tecido", tab, filterEmpresa.join(","), respF.tipo.join(","), respF.pessoaId.join(","), filterAlerta.join(",")],
     enabled: tab !== "estoque" && tab !== "rolos", // essas abas não listam OCs
     queryFn: async () => {
       // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
       const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
       let q = supabase.from("ocs_tecido").select(sel).eq("status", tab as OCStatus).eq("is_rolo" as never, false as never).order("created_at", { ascending: false });
-      if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
+      if (filterEmpresa.length) q = q.in("empresa_id", filterEmpresa);
       if (respF.idsFiltro) q = q.in("responsavel_id", respF.idsFiltro.length ? respF.idsFiltro : [SENTINEL_UUID]);
       const { data, error } = await q;
       if (error) throw error;
       let rows = (data ?? []) as any[];
-      if (tab === "recebido" && filterAlerta !== "all")
-        rows = rows.filter((oc) => (oc.ocs_tecido_itens ?? []).some((it: any) => it.cq_alerta_status === filterAlerta));
+      if (tab === "recebido" && filterAlerta.length)
+        rows = rows.filter((oc) => (oc.ocs_tecido_itens ?? []).some((it: any) => filterAlerta.includes(it.cq_alerta_status ?? "")));
       return rows as unknown as OC[];
     },
   });
@@ -258,11 +259,10 @@ function OcTecidoPage() {
               <SearchToggle value={busca} onChange={setBusca} placeholder="Nº, fornecedor ou tecido" />
               <FilterButton
                 filters={[
-                  { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                  { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
                   ...(tab === "encomendado" ? respF.filters : []),
                   ...(tab === "recebido"
                     ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
-                        { id: "all", nome: "Todos" },
                         { id: "alertado", nome: "Alerta estilo" },
                         { id: "troca_pendente", nome: "Troca pendente" },
                         { id: "trocado", nome: "Trocado" },

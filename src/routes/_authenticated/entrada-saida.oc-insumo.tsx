@@ -17,6 +17,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -86,18 +87,18 @@ function OcInsumoPage() {
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueInsumos(tab === "estoque"); // controles no header (contextual) + tabela
-  const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
+  const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-insumo", "Fornecedor", []);
   const respF = useResponsavelFilter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [deleting, setDeleting] = useState<any | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_etiqueta", tab, filterEmpresa, respF.tipo, respF.pessoaId],
+    queryKey: ["ocs_etiqueta", tab, filterEmpresa.join(","), respF.tipo.join(","), respF.pessoaId.join(",")],
     enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
     queryFn: async () => {
       let q = supabase.from("ocs_etiqueta" as any).select("*").eq("status", tab as OCStatus).order("created_at", { ascending: false });
-      if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
+      if (filterEmpresa.length) q = q.in("empresa_id", filterEmpresa);
       if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
       const { data, error } = await q;
       if (error) throw error;
@@ -172,7 +173,7 @@ function OcInsumoPage() {
             </>
           ) : (
             <FilterButton filters={[
-              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
               ...(tab === "encomendado" ? respF.filters : []),
             ]} />
           )}
