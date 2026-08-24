@@ -27,6 +27,7 @@ import {
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -533,6 +534,17 @@ function OcDialog({
   // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
 
+  // Preview ao vivo do Nº de Pedido (T-/A-/I-...) — só em modo CRIAÇÃO (!isEdit).
+  // materialId = aviamento do 1º item selecionado da OC (null se ainda não há item).
+  const { onNumeroChange: onNumeroPedidoChange, placeholder: numeroPedidoPlaceholder } = useNumeroPedidoAuto({
+    tipo: "aviamento",
+    fornecedorId: draft.empresa_id,
+    materialId: items[0]?.aviamento_id || null,
+    numero: draft.numero_pedido,
+    setNumero: (v) => setDraft((d) => ({ ...d, numero_pedido: v })),
+    ativo: !isEdit,
+  });
+
   useQuery({
     queryKey: ["oc-avi", ocId],
     enabled: !!ocId,
@@ -788,7 +800,11 @@ function OcDialog({
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="grid gap-1">
               <Label>Número do Pedido</Label>
-              <Input value={draft.numero_pedido} onChange={(e) => setDraft((d) => ({ ...d, numero_pedido: e.target.value }))} />
+              <Input
+                value={draft.numero_pedido}
+                onChange={(e) => onNumeroPedidoChange(e.target.value)}
+                placeholder={numeroPedidoPlaceholder}
+              />
             </div>
             <div className="grid gap-1">
               <Label>Fornecedor</Label>

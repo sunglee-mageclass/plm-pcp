@@ -13,6 +13,7 @@ import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { fmtMoney, type Artigo, type Draft, type Empresa, type ItemDraft, type ParcelaRecebimento, type Variante } from "./shared";
 import type { Conflito } from "@/lib/colab/merge";
+import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
 
 // Título numerado das seções do form da OC (redesign ago/2026 — âncoras 1..5).
 export function OcSecTitle({ n, children, right }: { n: number; children: React.ReactNode; right?: React.ReactNode }) {
@@ -103,6 +104,18 @@ export function OcTecidoForm({
   const cPrazo = campo("prazo_pagamento");
   const cDataPedido = campo("data_pedido");
   const cDataEntrega = campo("data_prevista_entrega");
+
+  // Preview ao vivo do Número do Pedido (T-…): só em CRIAÇÃO (colab: não dispara dirty
+  // numa OC existente). materialId = artigo_id do 1º item do Tecido 1 (vazio → null).
+  const { onNumeroChange, placeholder: numeroPlaceholder } = useNumeroPedidoAuto({
+    tipo: "tecido",
+    fornecedorId: draft.empresa_id,
+    materialId: itemsBy(1)[0]?.artigo_id ?? null,
+    numero: draft.numero_pedido,
+    setNumero: (v) => setDraft((d) => ({ ...d, numero_pedido: v })),
+    ativo: criacao,
+  });
+
   return (
     <>
       {/* ── 1 · Pedido ─────────────────────────────────────────────── */}
@@ -113,7 +126,8 @@ export function OcTecidoForm({
           <Label>Número do Pedido</Label>
           <Input
             value={draft.numero_pedido}
-            onChange={(e) => setDraft((d) => ({ ...d, numero_pedido: e.target.value }))}
+            onChange={(e) => onNumeroChange(e.target.value)}
+            placeholder={numeroPlaceholder}
             data-colab-path={cNumero["data-colab-path"]}
             title={cNumero.title}
             className={cNumero.className}

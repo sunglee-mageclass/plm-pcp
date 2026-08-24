@@ -18,6 +18,7 @@ import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/Fo
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -311,6 +312,18 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [confirmUnmark, setConfirmUnmark] = useState(false);
   const savingRef = useRef(false);
 
+  // Preview ao vivo do Nº de Pedido (só em criação): fornecedor = empresa selecionada;
+  // material = insumo (etiqueta) do 1º bloco. Hook NÃO é dono do estado — só aumenta
+  // numero/setNumero já existentes.
+  const { onNumeroChange, placeholder: numeroPlaceholder } = useNumeroPedidoAuto({
+    tipo: "insumo",
+    fornecedorId: empresaId,
+    materialId: blocks[0]?.etiquetaId ?? null,
+    numero,
+    setNumero,
+    ativo: !isEdit,
+  });
+
   // Guarda de "alterações não salvas": snapshot de TODO o estado editável (cabeçalho +
   // parcelas + NFs + blocos de insumo). Re-baseline ao semear (query async) e após salvar.
   const formState = { numero, empresaId, repId, respNome, dataPedido, dataPrevista, prazo, qtdPrazos, nfs, parcelas, blocks };
@@ -469,7 +482,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
 
         <div className="space-y-4 min-h-0 overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-3">
-            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => setNumero(e.target.value)} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => onNumeroChange(e.target.value)} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
               <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { setEmpresaId(emp); setRepId(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
             </div>
