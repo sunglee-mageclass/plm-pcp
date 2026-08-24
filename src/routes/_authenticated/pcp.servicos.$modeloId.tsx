@@ -156,6 +156,9 @@ type Bloco = {
   // Notas Fiscais do serviço PL (Etapas PL S4): 2 listas, cada NF com url+data.
   nf_saida: NfItem[];
   nf_entrada: NfItem[];
+  // Peça de foto (Etapas PL S5): checkbox + data de entrega condicional.
+  peca_foto: boolean;
+  peca_foto_data: string | null;
 };
 
 // Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
@@ -690,6 +693,8 @@ export function TerceirizadosDetail({
       pt_aprovacao: (r as any).pt_aprovacao ?? null,
       nf_saida: Array.isArray((r as any).nf_saida) ? (r as any).nf_saida : [],
       nf_entrada: Array.isArray((r as any).nf_entrada) ? (r as any).nf_entrada : [],
+      peca_foto: Boolean((r as any).peca_foto),
+      peca_foto_data: (r as any).peca_foto_data ?? null,
     }));
 
   // Colab: 1ª carga semeia + baseline; refetch/Realtime faz merge 3-vias (escalares por bloco
@@ -823,6 +828,8 @@ export function TerceirizadosDetail({
         pt_aprovacao: null,
         nf_saida: [],
         nf_entrada: [],
+        peca_foto: false,
+        peca_foto_data: null,
       },
     ]);
   };
@@ -934,6 +941,8 @@ export function TerceirizadosDetail({
         pt_aprovacao: b.interno ? null : b.pt_aprovacao,
         nf_saida: b.interno ? [] : b.nf_saida,
         nf_entrada: b.interno ? [] : b.nf_entrada,
+        peca_foto: b.interno ? false : b.peca_foto,
+        peca_foto_data: b.interno ? null : b.peca_foto_data,
       }));
       // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
       if (conflitosRef.current.length > 0)
@@ -1539,6 +1548,22 @@ export function TerceirizadosDetail({
                 <NfList value={b.nf_entrada} onChange={(nfs) => updateBloco(idx, { nf_entrada: nfs })} uploadFn={(f) => uploadNfServico(b.id ?? b._key, f)} bucket="pcp-servicos" readOnly={readOnly} />
               </div>
             </div>
+          </div>
+        )}
+
+        {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
+          <div className="col-span-full space-y-2">
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={b.peca_foto}
+                onChange={(e) => updateBloco(idx, e.target.checked ? { peca_foto: true } : { peca_foto: false, peca_foto_data: null })} />
+              <span>Peça de foto</span>
+            </label>
+            {b.peca_foto && (
+              <div className="max-w-xs">
+                <Label className="text-xs">Data de entrega da peça de foto</Label>
+                <DateField value={b.peca_foto_data ?? ""} onChange={(e) => updateBloco(idx, { peca_foto_data: e.target.value || null })} disabled={readOnly} />
+              </div>
+            )}
           </div>
         )}
       </Card>
