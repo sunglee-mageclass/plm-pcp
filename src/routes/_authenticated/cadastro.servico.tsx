@@ -1018,6 +1018,7 @@ type EmpresaRow = {
   nome_fantasia: string;
   tipo: EmpresaTipo;
   cnpj: string | null;
+  prazo_pagamento: string | null;
 };
 
 type CatTercOption = { id: string; nome: string; etapa: string };
@@ -1037,6 +1038,7 @@ const emptyEmpresaForm = {
   situacao_cadastral: "",
   contato: "",
   observacoes: "",
+  prazo_pagamento: "",
   cats: [] as string[],
 };
 
@@ -1072,10 +1074,10 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, tipo, cnpj")
+        .select("id, nome_fantasia, tipo, cnpj, prazo_pagamento")
         .order("nome_fantasia");
       if (error) throw error;
-      return (data ?? []) as EmpresaRow[];
+      return (data ?? []) as unknown as EmpresaRow[];
     },
   });
 
@@ -1186,13 +1188,13 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const openEdit = async (e: EmpresaRow) => {
     setEditingId(e.id);
     // Traz os campos fiscais completos da empresa (a lista só tem os essenciais).
-    const { data, error } = await supabase
+    const { data, error } = (await supabase
       .from("empresas")
       .select(
-        "nome_fantasia, tipo, cnpj, razao_social, logradouro, cep, municipio, uf, telefone, email, situacao_cadastral, contato, observacoes",
+        "nome_fantasia, tipo, cnpj, razao_social, logradouro, cep, municipio, uf, telefone, email, situacao_cadastral, contato, observacoes, prazo_pagamento",
       )
       .eq("id", e.id)
-      .single();
+      .single()) as any;
     if (error) {
       toast.error(mensagemErro(error, "Erro ao carregar empresa."));
       return;
@@ -1212,6 +1214,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       situacao_cadastral: data.situacao_cadastral ?? "",
       contato: data.contato ?? "",
       observacoes: data.observacoes ?? "",
+      prazo_pagamento: data.prazo_pagamento ?? "",
       cats: (tipo === "servico" ? servByEmpresa.get(e.id) : fornByEmpresa.get(e.id)) ?? [],
     };
     setForm(next);
@@ -1252,6 +1255,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
           situacao_cadastral: form.situacao_cadastral || null,
           contato: form.contato || null,
           observacoes: form.observacoes || null,
+          prazo_pagamento: form.prazo_pagamento || null,
         },
         _cats: form.cats,
       });
@@ -1398,20 +1402,21 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               <SortHead label="Nome Fantasia" sortKey="nome_fantasia" sortState={sort} />
               <TableHead className="w-28">Tipo</TableHead>
               <TableHead>Categorias</TableHead>
+              <TableHead>Prazo de Pgto</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-muted-foreground">
                   Nenhuma empresa encontrada.
                 </TableCell>
               </TableRow>
@@ -1470,6 +1475,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                         </div>
                       )}
                     </TableCell>
+                    <TableCell data-label="Prazo de Pgto">{row.prazo_pagamento ?? "—"}</TableCell>
                     <TableCell data-label="Ações" className="text-right">
                       <Button size="iconSm" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
@@ -1528,6 +1534,14 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                   autoFocus
                   value={form.nome_fantasia}
                   onChange={(e) => setForm((f) => ({ ...f, nome_fantasia: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Prazo de Pagamento</Label>
+                <Input
+                  value={form.prazo_pagamento}
+                  onChange={(e) => setForm((f) => ({ ...f, prazo_pagamento: e.target.value }))}
+                  placeholder="Ex: 30/60/90"
                 />
               </div>
             </div>
