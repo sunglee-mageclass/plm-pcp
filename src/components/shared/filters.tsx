@@ -32,7 +32,7 @@ export const filtroAtivoClass = (active: boolean) =>
 
 export type FilterOption = { id: string; nome: string };
 
-/** Filtro de valor único (dropdown Select). */
+/** Filtro de valor único (dropdown Select). Opt-in via `single: true` — o default é multi. */
 export type FilterConfigSingle = {
   label: string;
   value: string;
@@ -40,20 +40,20 @@ export type FilterConfigSingle = {
   options: FilterOption[];
   /** Valor considerado "vazio". Default: "all". */
   emptyValue?: string;
-  multi?: false;
+  single: true;
 };
 
 /**
- * Filtro multi-seleção (popover de checkboxes). `value` é o array de ids marcados;
- * array vazio = nenhum filtro (mostra tudo). Não usa `emptyValue`/`options` com "Todos" —
- * o "todos" é o estado de nada marcado.
+ * Filtro multi-seleção (popover de checkboxes) — é o DEFAULT (sem flag). `value` é o array
+ * de ids marcados; array vazio = nenhum filtro (mostra tudo). Não usa `emptyValue`/`options`
+ * com "Todos" — o "todos" é o estado de nada marcado.
  */
 export type FilterConfigMulti = {
   label: string;
   value: string[];
   onChange: (v: string[]) => void;
   options: FilterOption[];
-  multi: true;
+  single?: false;
 };
 
 export type FilterConfig = FilterConfigSingle | FilterConfigMulti;
@@ -127,10 +127,10 @@ function MultiFilter({ f, onRecord }: { f: FilterConfigMulti; onRecord: (label: 
 export function FilterButton({ filters, children, activeCount, onClear, screen }: FilterButtonProps) {
   const { counts, record } = useFilterUsage(screen);
 
-  // "Ativo" = multi com ao menos 1 marcado, ou single com valor ≠ vazio.
+  // "Ativo" = multi (default) com ao menos 1 marcado, ou single com valor ≠ vazio.
   // (Cuidado: `Boolean([])` é `true` — por isso o multi checa `.length`, não a truthiness.)
   const isActive = (f: FilterConfig) =>
-    f.multi ? f.value.length > 0 : Boolean(f.value) && f.value !== (f.emptyValue ?? "all");
+    f.single ? Boolean(f.value) && f.value !== (f.emptyValue ?? "all") : f.value.length > 0;
 
   const computedCount =
     activeCount ?? (filters ? filters.filter(isActive).length : 0);
@@ -138,15 +138,15 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
   const handleClear = () => {
     if (onClear) onClear();
     else if (filters) {
-      filters.forEach((f) => (f.multi ? f.onChange([]) : f.onChange(f.emptyValue ?? "all")));
+      filters.forEach((f) => (f.single ? f.onChange(f.emptyValue ?? "all") : f.onChange([])));
     }
   };
 
-  // Um <Select> (single) ou uma lista de checkboxes (multi) por filtro; renderizável
+  // Um <Select> (single) ou uma lista de checkboxes (multi, default) por filtro; renderizável
   // tanto na coluna "Mais usados" quanto na lista fixa (mesmo estado — mudar num lugar
   // reflete no outro).
   const renderFilter = (f: FilterConfig) => {
-    if (f.multi) return <MultiFilter key={f.label} f={f} onRecord={record} />;
+    if (!f.single) return <MultiFilter key={f.label} f={f} onRecord={record} />;
     const empty = f.emptyValue ?? "all";
     const active = Boolean(f.value) && f.value !== empty;
     return (

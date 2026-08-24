@@ -244,11 +244,11 @@ export function MobileFilterBar({
 }) {
   const fs = filters ?? [];
   const isActive = (f: FilterConfig) =>
-    f.multi ? f.value.length > 0 : Boolean(f.value) && f.value !== (f.emptyValue ?? "all");
+    f.single ? Boolean(f.value) && f.value !== (f.emptyValue ?? "all") : f.value.length > 0;
   const activeCount = fs.filter(isActive).length;
   const count = activeCount + (periodo?.from ? 1 : 0);
   const clearAll = () => {
-    fs.forEach((f) => (f.multi ? f.onChange([]) : f.onChange(f.emptyValue ?? "all")));
+    fs.forEach((f) => (f.single ? f.onChange(f.emptyValue ?? "all") : f.onChange([])));
     onPeriodo?.(undefined);
   };
   // UMA casca só: o `MobileFilterSheet` (shared) provê chip + bottom sheet + rodapé fixo
@@ -263,7 +263,7 @@ export function MobileFilterBar({
         </div>
       )}
       {fs.map((f) => {
-        if (f.multi) {
+        if (!f.single) {
           const toggle = (id: string) =>
             f.onChange(f.value.includes(id) ? f.value.filter((v) => v !== id) : [...f.value, id]);
           return (
