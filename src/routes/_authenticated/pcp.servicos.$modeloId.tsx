@@ -58,6 +58,8 @@ import { isServicoPL } from "@/lib/servico-confeccao";
 import { EtapasPlPanel } from "@/components/producao/EtapasPlPanel";
 import { ReprovadasPl } from "@/components/producao/ReprovadasPl";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
+import { NfList, type NfItem } from "@/components/oc-tecido/NfList";
+import { tenantPrefix, sanitizeStorageName } from "@/lib/storage-tenant";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
   component: TercDetailPage,
@@ -151,6 +153,9 @@ type Bloco = {
   pt_data_saida: string | null;
   pt_data_entrada: string | null;
   pt_aprovacao: "aprovado" | "reprovado" | null;
+  // Notas Fiscais do serviço PL (Etapas PL S4): 2 listas, cada NF com url+data.
+  nf_saida: NfItem[];
+  nf_entrada: NfItem[];
 };
 
 // Tom §Q9 por status de bloco/serviço (campanha StatusBadge, ago/2026). pre_finalizado
@@ -683,6 +688,8 @@ export function TerceirizadosDetail({
       pt_data_saida: (r as any).pt_data_saida ?? null,
       pt_data_entrada: (r as any).pt_data_entrada ?? null,
       pt_aprovacao: (r as any).pt_aprovacao ?? null,
+      nf_saida: Array.isArray((r as any).nf_saida) ? (r as any).nf_saida : [],
+      nf_entrada: Array.isArray((r as any).nf_entrada) ? (r as any).nf_entrada : [],
     }));
 
   // Colab: 1ª carga semeia + baseline; refetch/Realtime faz merge 3-vias (escalares por bloco
@@ -814,6 +821,8 @@ export function TerceirizadosDetail({
         pt_data_saida: null,
         pt_data_entrada: null,
         pt_aprovacao: null,
+        nf_saida: [],
+        nf_entrada: [],
       },
     ]);
   };
@@ -822,6 +831,16 @@ export function TerceirizadosDetail({
   const updateBloco = (idx: number, patch: Partial<Bloco>) => {
     setBlocosTracked((bs) => bs.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
   };
+
+  // Notas Fiscais do serviço PL (Etapas PL S4): upload no bucket próprio pcp-servicos,
+  // path por tenant/bloco (mesmo idioma do uploadFile de oc-tecido/shared.ts).
+  async function uploadNfServico(blocoId: string, file: File): Promise<string> {
+    const tenant = await tenantPrefix();
+    const path = `${tenant}/${blocoId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
+    const { error } = await supabase.storage.from("pcp-servicos").upload(path, file, { upsert: false });
+    if (error) throw error;
+    return path;
+  }
 
   // 3 status: PRÉ (até costura), PÓS (pós costura) e GERAL (derivado). Regras do dono:
   // pré fin + pós pendente → geral "pendente"; pré fin + pós fin → "finalizado";
@@ -913,6 +932,8 @@ export function TerceirizadosDetail({
         pt_data_saida: b.interno ? null : b.pt_data_saida,
         pt_data_entrada: b.interno ? null : b.pt_data_entrada,
         pt_aprovacao: b.interno ? null : b.pt_aprovacao,
+        nf_saida: b.interno ? [] : b.nf_saida,
+        nf_entrada: b.interno ? [] : b.nf_entrada,
       }));
       // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
       if (conflitosRef.current.length > 0)
@@ -1503,6 +1524,22 @@ export function TerceirizadosDetail({
             onChange={(campo, valor) => updateBloco(idx, { [campo]: valor } as Partial<Bloco>)}
             readOnly={readOnly}
           />
+        )}
+
+        {!b.interno && isServicoPL(catNome) && isModuleEnabled("etapas_pl") && (
+          <div className="col-span-full rounded-md border border-primary/30 bg-primary/5 p-3 space-y-3">
+            <div className="text-sm font-medium">Notas Fiscais</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">NF de Saída</div>
+                <NfList value={b.nf_saida} onChange={(nfs) => updateBloco(idx, { nf_saida: nfs })} uploadFn={(f) => uploadNfServico(b.id ?? b._key, f)} bucket="pcp-servicos" readOnly={readOnly} />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">NF de Entrada</div>
+                <NfList value={b.nf_entrada} onChange={(nfs) => updateBloco(idx, { nf_entrada: nfs })} uploadFn={(f) => uploadNfServico(b.id ?? b._key, f)} bucket="pcp-servicos" readOnly={readOnly} />
+              </div>
+            </div>
+          </div>
         )}
       </Card>
     );
