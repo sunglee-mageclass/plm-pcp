@@ -144,7 +144,7 @@ function OcAviamentoPage() {
   const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueAviamentos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-aviamento", "Fornecedor", []);
-  const respF = useResponsavelFilter();
+  const respF = useResponsavelFilter("oc-aviamento");
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);

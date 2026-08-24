@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useFilterState } from "@/hooks/useFilterState";
 import type { FilterConfig } from "@/components/shared/filters";
 
 // Filtro em cascata do Responsável das OCs: 1º o TIPO de colaborador (Estilista, Modelista,
@@ -17,9 +18,11 @@ const BUILTIN_TIPOS: { value: string; label: string }[] = [
   { value: "piloteiro", label: "Piloteiro" },
 ];
 
-export function useResponsavelFilter() {
-  const [tipo, setTipo] = useState<string[]>([]);
-  const [pessoaId, setPessoaId] = useState<string[]>([]);
+export function useResponsavelFilter(screen: string) {
+  // Persistem por tela+usuário (igual aos demais filtros). `screen` vem da OC que consome
+  // (ex. "oc-tecido"), p/ não misturar a seleção entre as 3 OCs.
+  const [tipo, setTipo] = useFilterState(screen, "Colaborador", []);
+  const [pessoaId, setPessoaId] = useFilterState(screen, "Responsável", []);
 
   const { data: colaboradores = [] } = useQuery({
     queryKey: ["colaboradores-todos"],
@@ -55,10 +58,8 @@ export function useResponsavelFilter() {
   // (idempotente — só remove, não loopa).
   useEffect(() => {
     const validos = new Set(pessoas.map((p) => p.id));
-    setPessoaId((prev) => {
-      const next = prev.filter((id) => validos.has(id));
-      return next.length === prev.length ? prev : next;
-    });
+    const next = pessoaId.filter((id) => validos.has(id));
+    if (next.length !== pessoaId.length) setPessoaId(next); // guarda: só grava se podou algo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pessoas]);
 

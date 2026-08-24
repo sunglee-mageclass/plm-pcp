@@ -284,7 +284,8 @@ function DesenvolvimentoPage() {
   );
   useEffect(() => {
     const validos = new Set(categoriasFiltradasPorGrupo.map((c) => c.id));
-    setFCat(fCat.filter((id) => validos.has(id)));
+    const podado = fCat.filter((id) => validos.has(id));
+    if (podado.length !== fCat.length) setFCat(podado); // guarda: só grava/re-renderiza se podou algo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoriasFiltradasPorGrupo]);
 

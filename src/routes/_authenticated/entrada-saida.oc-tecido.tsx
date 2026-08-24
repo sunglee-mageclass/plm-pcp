@@ -76,7 +76,7 @@ function OcTecidoPage() {
   // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
   const estoque = useEstoqueTecidos(tab === "estoque");
   const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-tecido", "Fornecedor", []);
-  const respF = useResponsavelFilter();
+  const respF = useResponsavelFilter("oc-tecido");
   const [filterAlerta, setFilterAlerta] = useFilterState("oc-tecido", "Alerta", []);
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);

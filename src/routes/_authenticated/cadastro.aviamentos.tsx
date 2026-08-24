@@ -451,7 +451,7 @@ function AviamentosGallery() {
             ]}
           />
           <FilterButton
-            screen="aviamentos"
+            screen="cad-aviamentos"
             filters={[
               { label: "Categoria", value: fCat, onChange: setFCat, options: categorias },
               { label: "Subcategoria", value: fSub, onChange: setFSub, options: subOptionsFiltro },

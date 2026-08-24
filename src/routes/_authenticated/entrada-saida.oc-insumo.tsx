@@ -88,7 +88,7 @@ function OcInsumoPage() {
   const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueInsumos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useFilterState("oc-insumo", "Fornecedor", []);
-  const respF = useResponsavelFilter();
+  const respF = useResponsavelFilter("oc-insumo");
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [deleting, setDeleting] = useState<any | null>(null);
