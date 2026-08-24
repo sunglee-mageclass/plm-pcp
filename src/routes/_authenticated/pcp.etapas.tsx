@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ListChecks, Search } from "lucide-react";
+import { ListChecks, Search, Minimize2, Maximize2 } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -55,6 +55,7 @@ function EtapasPlPage() {
   const [fFornecedor, setFFornecedor] = useState("all");
   const [sortKey, setSortKey] = useState(SORT_NONE);
   const [collapsedCols, setCollapsedCols] = useState<Set<EtapaKey>>(new Set());
+  const [minimizedCards, setMinimizedCards] = useState(false);
 
   // `useEtapasCards` já filtra coleção/busca no servidor (EtapasFiltros); fornecedor não faz
   // parte da interface do T2 (o card achatado não carrega coleção — só o bloco carrega
@@ -209,6 +210,22 @@ function EtapasPlPage() {
               {allCollapsed ? "Expandir colunas" : "Recolher colunas"}
             </span>
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => setMinimizedCards((v) => !v)}
+            title={minimizedCards ? "Expandir cards" : "Recolher cards"}
+          >
+            {minimizedCards ? (
+              <Maximize2 className="h-4 w-4 sm:mr-1" />
+            ) : (
+              <Minimize2 className="h-4 w-4 sm:mr-1" />
+            )}
+            <span className="max-lg:sr-only">
+              {minimizedCards ? "Expandir cards" : "Recolher cards"}
+            </span>
+          </Button>
         </div>
       </header>
 
@@ -248,6 +265,7 @@ function EtapasPlPage() {
           collapsedCols={collapsedCols}
           onToggleCol={toggleCol}
           onAbrir={onAbrir}
+          minimizedCards={minimizedCards}
         />
       )}
     </div>

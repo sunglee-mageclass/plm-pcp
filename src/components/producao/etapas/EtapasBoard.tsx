@@ -4,6 +4,7 @@ import { CHART_CATEGORICAL } from "@/lib/chart-colors";
 import { SegmentedTabs } from "@/components/dashboard/mobile";
 import type { EtapaCfg, EtapaKey } from "@/lib/pcp-etapas";
 import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
+import { EtapaCardView } from "./EtapaCardView";
 
 // Quadro do kanban de Etapas PL. Colapso lateral por coluna espelha
 // criacao.desenvolvimento.tsx:586-623 (expandida w-80; recolhida = trilho w-9 com título
@@ -16,29 +17,16 @@ import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
 // colunas" mora no header, ao lado de busca/filtros (mesmo espelhamento de
 // criacao.desenvolvimento.tsx:522-531) — o board só recebe o Set e o toggler.
 //
-// Card por ENQUANTO é um placeholder simples (ref + nome + fornecedor) — o card rico
-// (foto/zoom, quick-edit, minimizar) é Task 4; `onAbrir` já existe para o Task 4/5
-// plugarem o overlay sem mexer na estrutura do board.
+// Card rico (Task 4): foto+zoom, edição rápida em sync com o sheet do PCP, minimizar —
+// `src/components/producao/etapas/EtapaCardView.tsx`. Substitui o antigo `CardMinimo`
+// (placeholder do Task 3) em AMBOS os lugares (colunas desktop + lista mobile).
 //
 // MOBILE (fix-round pós-review): o board horizontal de colunas com scroll lateral é
 // DESKTOP-ONLY (`hidden md:flex`, mesmo tratamento de criacao.desenvolvimento.tsx:571 — o
 // board dela também é `hidden md:flex`). No mobile (`md:hidden`) o fallback é abas roláveis
 // por etapa — `SegmentedTabs` de `@/components/dashboard/mobile` (pílulas 44px, mesmo padrão
 // usado em dashboard.tsx:88 para trocar de aba no mobile) — com a lista de cards da etapa
-// selecionada em largura total abaixo (mesmo card mínimo do desktop; sem riqueza do Task 4).
-function CardMinimo({ c, onAbrir }: { c: EtapaCard; onAbrir: (modeloId: string) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onAbrir(c.modeloId)}
-      className="w-full rounded-md border bg-card p-2.5 text-left text-sm shadow-sm transition-colors hover:border-primary/50"
-    >
-      <p className="truncate font-semibold">{c.ref ?? "—"}</p>
-      <p className="truncate text-muted-foreground">{c.nome ?? "—"}</p>
-      {c.empresa && <p className="truncate text-xs text-muted-foreground">{c.empresa}</p>}
-    </button>
-  );
-}
+// selecionada em largura total abaixo (mesmo `EtapaCardView` do desktop).
 
 export type Props = {
   cards: EtapaCard[];
@@ -46,9 +34,18 @@ export type Props = {
   collapsedCols: Set<EtapaKey>;
   onToggleCol: (key: EtapaKey) => void;
   onAbrir: (modeloId: string) => void;
+  /** "Recolher cards" global (header da página) — minimiza TODOS os cards do quadro. */
+  minimizedCards: boolean;
 };
 
-export function EtapasBoard({ cards, etapas, collapsedCols, onToggleCol, onAbrir }: Props) {
+export function EtapasBoard({
+  cards,
+  etapas,
+  collapsedCols,
+  onToggleCol,
+  onAbrir,
+  minimizedCards,
+}: Props) {
   const colunas = etapas.filter((e) => e.ativa);
   const byEtapa = new Map<EtapaKey, EtapaCard[]>();
   for (const c of cards) {
@@ -67,6 +64,25 @@ export function EtapasBoard({ cards, etapas, collapsedCols, onToggleCol, onAbrir
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colunas.map((c) => c.key).join("|")]);
+
+  // Minimizar POR card (blocoId) — nasce vazio (todos expandidos). O toggle "Recolher cards"
+  // global (header da página) sobrescreve todos de uma vez via `minimizedCards` (o botão/estado
+  // mora na PÁGINA, mesmo espelhamento do collapsedCols de coluna); o clique individual no card
+  // altera SÓ aquele card (exceção local ao estado global, zerada sempre que o global muda).
+  const [minimizedOverride, setMinimizedOverride] = useState<Set<string>>(new Set());
+  const isMinimized = (blocoId: string) =>
+    minimizedOverride.has(blocoId) ? !minimizedCards : minimizedCards;
+  const toggleMin = (blocoId: string) =>
+    setMinimizedOverride((prev) => {
+      const next = new Set(prev);
+      if (next.has(blocoId)) next.delete(blocoId);
+      else next.add(blocoId);
+      return next;
+    });
+  // Ao alternar o global, limpa as exceções locais (o toggle global vale pra todos de novo).
+  useEffect(() => {
+    setMinimizedOverride(new Set());
+  }, [minimizedCards]);
 
   if (colunas.length === 0) {
     return (
@@ -130,7 +146,15 @@ export function EtapasBoard({ cards, etapas, collapsedCols, onToggleCol, onAbrir
                     {colCards.length === 0 ? (
                       <p className="py-6 text-center text-xs text-muted-foreground">Sem cards</p>
                     ) : (
-                      colCards.map((c) => <CardMinimo key={c.blocoId} c={c} onAbrir={onAbrir} />)
+                      colCards.map((c) => (
+                        <EtapaCardView
+                          key={c.blocoId}
+                          card={c}
+                          minimized={isMinimized(c.blocoId)}
+                          onToggleMin={() => toggleMin(c.blocoId)}
+                          onAbrir={onAbrir}
+                        />
+                      ))
                     )}
                   </div>
                 </>
@@ -154,7 +178,15 @@ export function EtapasBoard({ cards, etapas, collapsedCols, onToggleCol, onAbrir
           {colCardsMobile.length === 0 ? (
             <p className="py-6 text-center text-xs text-muted-foreground">Sem cards</p>
           ) : (
-            colCardsMobile.map((c) => <CardMinimo key={c.blocoId} c={c} onAbrir={onAbrir} />)
+            colCardsMobile.map((c) => (
+              <EtapaCardView
+                key={c.blocoId}
+                card={c}
+                minimized={isMinimized(c.blocoId)}
+                onToggleMin={() => toggleMin(c.blocoId)}
+                onAbrir={onAbrir}
+              />
+            ))
           )}
         </div>
       </div>
