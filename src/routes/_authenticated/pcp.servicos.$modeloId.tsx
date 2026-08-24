@@ -80,6 +80,9 @@ const ROTULO_CONFLITO: Record<string, string> = {
   data_prevista: "Data prevista",
   data_entregue: "Data de entrega",
   observacao: "Observação",
+  pt_data_saida: "Peça Teste — Saída",
+  pt_data_entrada: "Peça Teste — Entrada",
+  pt_aprovacao: "Peça Teste — Aprovação",
 };
 const CAMPO_GRADE_PT: Record<string, string> = {
   enviada: "Enviada", cortada: "Cortada", recebida: "Recebida", defeito: "Defeito",

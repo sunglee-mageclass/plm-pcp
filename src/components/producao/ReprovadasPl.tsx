@@ -71,7 +71,7 @@ function ReprovadaPlItem({ item, renderBloco }: { item: ReprovadaPl; renderBloco
           </div>
         </CollapsibleTrigger>
         <CollapsibleContent className="border-t p-3">
-          <p className="mb-3 text-xs italic text-muted-foreground">nova saída reabre o fluxo</p>
+          <p className="mb-3 text-xs italic text-muted-foreground">trocar a Aprovação reabre o fluxo</p>
           {renderBloco(item.idx)}
         </CollapsibleContent>
       </Collapsible>
