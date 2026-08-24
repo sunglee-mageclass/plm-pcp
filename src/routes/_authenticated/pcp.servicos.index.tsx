@@ -2,7 +2,7 @@ import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Users, Search, Printer } from "lucide-react";
+import { Users, Search, Printer, Camera } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
@@ -18,6 +18,7 @@ import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
   component: TercListPage,
@@ -34,6 +35,7 @@ function MoDot({ estado }: { estado?: string }) {
 
 function TercListPage() {
   const fl = useFieldLabels();
+  const { isModuleEnabled } = useTenantModules();
   const [sheetId, setSheetId] = useState<string | null>(null);
   // Guarda de "alterações não salvas" do detalhe aberto no Sheet: o TerceirizadosDetail
   // reporta se há edições pendentes; fechar (X/ESC/fora/Voltar) com pendências confirma.
@@ -53,7 +55,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -84,6 +86,7 @@ function TercListPage() {
           else if (sPos === "vazio") statusGeral = m.cad?.[0]?.sem_acabamento === true ? "finalizado" : "pre_finalizado";
           else statusGeral = "pendente";
         }
+        const temFotoPeca = tercs.some((t: any) => !t.interno && !!t.peca_foto_data);
         return {
           modelo_id: m.id,
           ref: m.ref,
@@ -96,6 +99,7 @@ function TercListPage() {
           categoria_nome: m.categorias_produto?.nome ?? null,
           cad_id: m.cad?.[0]?.id ?? null,
           statusGeral,
+          temFotoPeca,
         };
       });
     },
@@ -208,6 +212,7 @@ function TercListPage() {
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
                     <MoDot estado={(moEstadoMap as Record<string, string>)[r.modelo_id]} />
+                    {isModuleEnabled("etapas_pl") && r.temFotoPeca && <Camera className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Peça de foto" />}
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                     <RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" />
