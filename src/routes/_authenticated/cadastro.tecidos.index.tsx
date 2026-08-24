@@ -18,6 +18,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
 
 import { supabase } from "@/integrations/supabase/client";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -91,8 +92,8 @@ function TecidosGallery() {
   const isMobile = useIsMobile();
   const compact = useCompactCards(gridRef, cols) && !isMobile;
   const [search, setSearch] = useState("");
-  const [empresaFilter, setEmpresaFilter] = useState<string>("all");
-  const [catFilter, setCatFilter] = useState<string>("all");
+  const [empresaFilter, setEmpresaFilter] = useFilterState("cad-tecidos", "Fornecedor", []);
+  const [catFilter, setCatFilter] = useFilterState("cad-tecidos", "Categoria", []);
   const [sort, setSort] = useState<string>("nome");
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupByForn, setGroupByForn] = useState(false);
@@ -210,10 +211,10 @@ function TecidosGallery() {
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     let list = artigos.filter((a) => {
-      if (empresaFilter !== "all" && a.empresa_id !== empresaFilter) return false;
-      if (catFilter !== "all") {
+      if (empresaFilter.length && !empresaFilter.includes(a.empresa_id ?? "")) return false;
+      if (catFilter.length) {
         const cs = catsByArtigo.get(a.id);
-        const matches = (cs && cs.has(catFilter)) || a.categoria_tecido_id === catFilter;
+        const matches = (cs && catFilter.some((c) => cs.has(c))) || (a.categoria_tecido_id != null && catFilter.includes(a.categoria_tecido_id));
         if (!matches) return false;
       }
       if (s && !a.nome.toLowerCase().includes(s)) return false;
@@ -366,8 +367,8 @@ function TecidosGallery() {
           />
           <FilterButton
             filters={[
-              { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              { label: "Categoria", value: catFilter, onChange: setCatFilter, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+              { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
+              { label: "Categoria", value: catFilter, onChange: setCatFilter, options: categorias },
             ]}
           />
           <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
@@ -412,7 +413,7 @@ function TecidosGallery() {
             description="Nenhum tecido corresponde aos filtros aplicados."
             action={{
               label: "Limpar filtros",
-              onClick: () => { setSearch(""); setEmpresaFilter("all"); setCatFilter("all"); setSort("nome"); },
+              onClick: () => { setSearch(""); setEmpresaFilter([]); setCatFilter([]); setSort("nome"); },
             }}
           />
         )

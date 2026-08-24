@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useSort } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { LayoutGrid } from "lucide-react";
 
@@ -80,16 +81,16 @@ function LancamentosPage() {
   const [cols, setCols] = useGridCols("lancamentos");
   const compact = useCompactCards(gridRef, cols);
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fSubcolecao, setFSubcolecao] = useState("all");
-  const [fCat, setFCat] = useState("all");
-  const [fSub1, setFSub1] = useState("all");
-  const [fLinha, setFLinha] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fGrupo, setFGrupo] = useState("all");
-  const [fRep, setFRep] = useState("all");
-  const [fSemana, setFSemana] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("lancamentos", "Coleção", []);
+  const [fSubcolecao, setFSubcolecao] = useFilterState("lancamentos", "Subcoleção", []);
+  const [fCat, setFCat] = useFilterState("lancamentos", "Categoria", []);
+  const [fSub1, setFSub1] = useFilterState("lancamentos", "Subcategoria", []);
+  const [fLinha, setFLinha] = useFilterState("lancamentos", "Linha", []);
+  const [fMes, setFMes] = useFilterState("lancamentos", "Mês", []);
+  const [fAno, setFAno] = useFilterState("lancamentos", "Ano", []);
+  const [fGrupo, setFGrupo] = useFilterState("lancamentos", "Grupo", []);
+  const [fRep, setFRep] = useFilterState("lancamentos", "Repetição", []);
+  const [fSemana, setFSemana] = useFilterState("lancamentos", "Lançamento nº", []);
   const [fDe, setFDe] = useState(""); // data de lançamento — início do período
   const [fAte, setFAte] = useState(""); // data de lançamento — fim do período
   const [groupByCat, setGroupByCat] = useState(false);
@@ -239,30 +240,29 @@ function LancamentosPage() {
 
   const filtered = cards.filter((c) => {
     if (q && !`${c.ref ?? ""} ${c.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && c.colecao !== fColecao) return false;
-    if (fSubcolecao !== "all" && c.subcolecao !== fSubcolecao) return false;
-    if (fCat !== "all" && c.categoria_principal_id !== fCat) return false;
-    if (fSub1 !== "all" && c.subcategoria1_id !== fSub1) return false;
-    if (fLinha !== "all" && c.linha_id !== fLinha) return false;
-    if (fGrupo !== "all" && c.grupo_id !== fGrupo) return false;
-    if (fMes !== "all" && c.mes_id !== fMes) return false;
-    if (fAno !== "all" && c.ano_id !== fAno) return false;
-    if (fSemana !== "all" && c.semana !== fSemana) return false;
+    if (fColecao.length && !fColecao.includes(c.colecao ?? "")) return false;
+    if (fSubcolecao.length && !fSubcolecao.includes(c.subcolecao ?? "")) return false;
+    if (fCat.length && !fCat.includes(c.categoria_principal_id ?? "")) return false;
+    if (fSub1.length && !fSub1.includes(c.subcategoria1_id ?? "")) return false;
+    if (fLinha.length && !fLinha.includes(c.linha_id ?? "")) return false;
+    if (fGrupo.length && !fGrupo.includes(c.grupo_id ?? "")) return false;
+    if (fMes.length && !fMes.includes(c.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(c.ano_id ?? "")) return false;
+    if (fSemana.length && !fSemana.includes(c.semana ?? "")) return false;
     // Período de lançamento — compara ISO (yyyy-MM-dd) lexicograficamente.
     if (fDe && (!c.data_lancamento || c.data_lancamento < fDe)) return false;
     if (fAte && (!c.data_lancamento || c.data_lancamento > fAte)) return false;
-    if (fRep === "rep" && !((c.versao ?? 1) > 1)) return false;
-    if (fRep === "uni" && (c.versao ?? 1) > 1) return false;
+    if (fRep.length && !fRep.some((v) => (v === "rep" ? (c.versao ?? 1) > 1 : v === "uni" ? (c.versao ?? 1) <= 1 : false))) return false;
     return true;
   });
 
-  // Badge de filtros ativos = dropdowns ≠ "all" + o Período (De/Até) como 1.
+  // Badge de filtros ativos = multi-selects com ≥1 marcado + o Período (De/Até) como 1.
   const filtroCount =
-    [fGrupo, fColecao, fSubcolecao, fCat, fSub1, fLinha, fMes, fAno, fSemana, fRep].filter((v) => v !== "all").length +
+    [fGrupo, fColecao, fSubcolecao, fCat, fSub1, fLinha, fMes, fAno, fSemana, fRep].filter((v) => v.length > 0).length +
     (fDe || fAte ? 1 : 0);
   const limparFiltros = () => {
-    setFGrupo("all"); setFColecao("all"); setFSubcolecao("all"); setFCat("all"); setFSub1("all");
-    setFLinha("all"); setFMes("all"); setFAno("all"); setFSemana("all"); setFRep("all");
+    setFGrupo([]); setFColecao([]); setFSubcolecao([]); setFCat([]); setFSub1([]);
+    setFLinha([]); setFMes([]); setFAno([]); setFSemana([]); setFRep([]);
     setFDe(""); setFAte("");
   };
 
@@ -445,16 +445,16 @@ function LancamentosPage() {
             activeCount={filtroCount}
             onClear={limparFiltros}
             filters={[
-              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...categorias] },
-              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1s] },
-              { label: "Linha", value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
-              { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
-              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
+              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: categorias },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1s },
+              { label: "Linha", value: fLinha, onChange: setFLinha, options: linhas },
+              { label: "Mês", value: fMes, onChange: setFMes, options: (meses as any[]).map((m) => ({ id: m.id, nome: m.nome })) },
+              { label: "Ano", value: fAno, onChange: setFAno, options: (anos as any[]).map((a) => ({ id: a.id, nome: a.nome })) },
+              { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n })) },
+              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           >
             {/* Período de lançamento (data_lancamento). Renderizado abaixo dos dropdowns. */}

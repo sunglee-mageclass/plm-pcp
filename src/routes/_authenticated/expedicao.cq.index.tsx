@@ -12,6 +12,7 @@ import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -30,10 +31,10 @@ function CqListPage() {
   const closeSheet = () => { setCqDirty(false); setSheetId(null); };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: cqDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("cq", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("cq", "Mês", []);
+  const [fAno, setFAno] = useFilterState("cq", "Ano", []);
+  const [fStatus, setFStatus] = useFilterState("cq", "Status", []);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cq-list"],
@@ -109,10 +110,10 @@ function CqListPage() {
 
   const filtered = (rows as any[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fStatus !== "all" && r.statusGeral !== fStatus) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
+    if (fStatus.length && !fStatus.includes(r.statusGeral ?? "")) return false;
     return true;
   });
 
@@ -135,12 +136,12 @@ function CqListPage() {
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <FilterButton
+            screen="cq"
             filters={[
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
               { label: "Status", value: fStatus, onChange: setFStatus, options: [
-                { id: "all", nome: "Todos" },
                 { id: "pendente", nome: "Pendente" },
                 { id: "pre_confirmado", nome: "Pré confirmado" },
                 { id: "confirmado", nome: "Confirmado" },

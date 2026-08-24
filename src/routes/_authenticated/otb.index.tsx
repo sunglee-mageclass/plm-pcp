@@ -21,6 +21,7 @@ import { computeColecaoResumo } from "@/components/otb/otb-resumo";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { brl, mesLimpo } from "@/lib/format";
 import { RequirePermission } from "@/components/RequirePermission";
+import { useFilterState } from "@/hooks/useFilterState";
 
 export const Route = createFileRoute("/_authenticated/otb/")({
   component: () => (
@@ -59,8 +60,8 @@ function OtbPage() {
   const [padraoOpen, setPadraoOpen] = useState(false);
   const abrirColecao = (c: any) =>
     c.tipo === "poder_venda" ? setPvOpen({ id: c.id }) : setOpenId(c.id);
-  const [fAno, setFAno] = useState("all");
-  const [fMes, setFMes] = useState("all");
+  const [fAno, setFAno] = useFilterState("otb", "Ano", []);
+  const [fMes, setFMes] = useFilterState("otb", "Mês", []);
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
   const { data: colecoes = [] } = useQuery({
@@ -174,7 +175,7 @@ function OtbPage() {
   });
 
   const colecoesFiltradas = colecoes.filter(
-    (c) => (fAno === "all" || c.ano_id === fAno) && (fMes === "all" || c.mes_id === fMes),
+    (c) => (!fAno.length || fAno.includes(c.ano_id ?? "")) && (!fMes.length || fMes.includes(c.mes_id ?? "")),
   );
 
   if (!isModuleEnabled("otb")) {
@@ -188,8 +189,8 @@ function OtbPage() {
           <div><h1 className="font-display text-xl font-semibold tracking-tight">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
         <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
           <FilterButton filters={[
-            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
-            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+            { label: "Ano", value: fAno, onChange: setFAno, options: anos },
+            { label: "Mês", value: fMes, onChange: setFMes, options: meses },
           ]} />
           <Button variant="outline" size="sm" onClick={() => setPadraoOpen(true)}>Padrão do mix</Button>
           <Button variant="outline" className="max-sm:hidden" onClick={() => setConfirmImportar(true)} disabled={importar.isPending}>Importar coleções existentes</Button>

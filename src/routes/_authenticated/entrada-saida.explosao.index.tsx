@@ -17,6 +17,7 @@ import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
+import { useFilterState } from "@/hooks/useFilterState";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/explosao/")({
   component: ExplosaoListPage,
@@ -50,9 +51,9 @@ function ExplosaoListPage() {
   };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: explDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("explosao", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("explosao", "Mês", []);
+  const [fAno, setFAno] = useFilterState("explosao", "Ano", []);
   // Segmento Situação — Todos é o default (não esconde nada ao abrir a tela).
   const [fSituacao, setFSituacao] = useState<"todos" | "aguardando" | "enviados">("todos");
 
@@ -113,9 +114,9 @@ function ExplosaoListPage() {
   // pra não ficar sempre travado no total geral quando a busca já reduziu a fila).
   const buscaEFiltros = (rows as Row[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     return true;
   });
   const counts = useMemo(() => {
@@ -159,10 +160,11 @@ function ExplosaoListPage() {
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <FilterButton
+            screen="explosao"
             filters={[
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
             ]}
           />
         </div>

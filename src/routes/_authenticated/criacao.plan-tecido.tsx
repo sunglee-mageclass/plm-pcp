@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
@@ -91,17 +92,17 @@ function PlanTecidoListPage() {
   const { data: anos = [] } = useOpts("anos", "ano");
   const orc = useOrcamento();
 
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
-  const [fTipo, setFTipo] = useState("all");
+  const [fMes, setFMes] = useFilterState("plan-tecido", "Mês", []);
+  const [fAno, setFAno] = useFilterState("plan-tecido", "Ano", []);
+  const [fStatus, setFStatus] = useFilterState("plan-tecido", "Status", []);
+  const [fTipo, setFTipo] = useFilterState("plan-tecido", "Tipo", []);
 
   const filtered = useMemo(() => {
     return colecoes.filter((c) => {
-      if (fMes !== "all" && c.mes_id !== fMes) return false;
-      if (fAno !== "all" && c.ano_id !== fAno) return false;
-      if (fStatus !== "all" && c.status !== fStatus) return false;
-      if (fTipo !== "all" && c.tipo !== fTipo) return false;
+      if (fMes.length && !fMes.includes(c.mes_id ?? "")) return false;
+      if (fAno.length && !fAno.includes(c.ano_id ?? "")) return false;
+      if (fStatus.length && !fStatus.includes(c.status ?? "")) return false;
+      if (fTipo.length && !fTipo.includes(c.tipo ?? "")) return false;
       return true;
     });
   }, [colecoes, fMes, fAno, fStatus, fTipo]);
@@ -140,14 +141,13 @@ function PlanTecidoListPage() {
           <FilterButton
             screen="plan-tecido"
             filters={[
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos },
               {
                 label: "Status",
                 value: fStatus,
                 onChange: setFStatus,
                 options: [
-                  { id: "all", nome: "Todos" },
                   { id: "rascunho", nome: "Rascunho" },
                   { id: "confirmada", nome: "Confirmada" },
                 ],
@@ -157,7 +157,6 @@ function PlanTecidoListPage() {
                 value: fTipo,
                 onChange: setFTipo,
                 options: [
-                  { id: "all", nome: "Todos" },
                   { id: "orcamento", nome: "Orçamento" },
                   { id: "poder_venda", nome: "Poder de Venda" },
                 ],

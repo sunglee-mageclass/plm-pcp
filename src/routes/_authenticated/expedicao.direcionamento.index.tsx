@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
@@ -31,11 +32,11 @@ function DirListPage() {
   const closeSheet = () => { setDirDirty(false); setSheetId(null); };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: dirDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fLinha, setFLinha] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("direcionamento", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("direcionamento", "Mês", []);
+  const [fAno, setFAno] = useFilterState("direcionamento", "Ano", []);
+  const [fLinha, setFLinha] = useFilterState("direcionamento", "Linha", []);
+  const [fStatus, setFStatus] = useFilterState("direcionamento", "Status", []);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["dir-list"],
@@ -85,11 +86,11 @@ function DirListPage() {
   );
   const filtered = (rows as any[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fLinha !== "all" && r.linha_id !== fLinha) return false;
-    if (fStatus !== "all" && r.dir_status !== fStatus) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
+    if (fLinha.length && !fLinha.includes(r.linha_id ?? "")) return false;
+    if (fStatus.length && !fStatus.includes(r.dir_status ?? "")) return false;
     return true;
   });
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
@@ -113,11 +114,11 @@ function DirListPage() {
           <FilterButton
             screen="direcionamento"
             filters={[
-              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, { id: "pendente", nome: "Pendente" }, { id: "separado", nome: "Separado" }] },
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
-              { label: fl("linha"), value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...(linhas as any[])] },
+              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "pendente", nome: "Pendente" }, { id: "separado", nome: "Separado" }] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
+              { label: fl("linha"), value: fLinha, onChange: setFLinha, options: linhas as any[] },
             ]}
           />
         </div>

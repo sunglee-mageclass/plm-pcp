@@ -9,6 +9,7 @@ import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useFilterState } from "@/hooks/useFilterState";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -21,9 +22,9 @@ export const Route = createFileRoute("/_authenticated/pcp/oficina/")({
 function OficinaListPage() {
   const fl = useFieldLabels();
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("pcp-oficina", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("pcp-oficina", "Mês", []);
+  const [fAno, setFAno] = useFilterState("pcp-oficina", "Ano", []);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-oficina-list"],
@@ -67,9 +68,9 @@ function OficinaListPage() {
 
   const filtered = (rows as any[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     return true;
   });
 
@@ -89,9 +90,9 @@ function OficinaListPage() {
           <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
           <FilterButton
             filters={[
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas coleções" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos meses" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos anos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: (meses as any[]).map((m) => ({ id: m.id, nome: m.nome })) },
+              { label: "Ano", value: fAno, onChange: setFAno, options: (anos as any[]).map((a) => ({ id: a.id, nome: a.nome })) },
             ]}
           />
         </div>

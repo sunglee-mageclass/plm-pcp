@@ -19,6 +19,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useFilterState } from "@/hooks/useFilterState";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
   component: TercListPage,
@@ -43,10 +44,10 @@ function TercListPage() {
   const closeSheet = () => { setDetailDirty(false); setSheetId(null); };
   const { requestClose, confirm } = useUnsavedGuard({ dirty: detailDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("pcp-servicos", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("pcp-servicos", "Mês", []);
+  const [fAno, setFAno] = useFilterState("pcp-servicos", "Ano", []);
+  const [fStatus, setFStatus] = useFilterState("pcp-servicos", "Status Geral", []);
   const [printReq, setPrintReq] = useState<{ id: string; token: number } | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
@@ -139,10 +140,10 @@ function TercListPage() {
 
   const filtered = (rows as any[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fStatus !== "all" && r.statusGeral !== fStatus) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
+    if (fStatus.length && !fStatus.includes(r.statusGeral ?? "")) return false;
     return true;
   });
 
@@ -165,12 +166,12 @@ function TercListPage() {
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <FilterButton
+            screen="pcp-servicos"
             filters={[
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
               { label: "Status Geral", value: fStatus, onChange: setFStatus, options: [
-                { id: "all", nome: "Todos" },
                 { id: "pendente", nome: "Pendente" },
                 { id: "em_andamento", nome: "Em andamento" },
                 { id: "pre_finalizado", nome: "Pré finalizado" },

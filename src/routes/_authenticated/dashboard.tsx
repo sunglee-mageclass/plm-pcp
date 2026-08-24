@@ -179,9 +179,9 @@ function ColecaoTab() {
   const linhaSort = useSort<any>(porLinha, { key: "total", dir: "desc" });
 
   const filtros = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-    { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
+    { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas], single: true as const },
   ];
   const isMobile = useIsMobile();
 
@@ -819,8 +819,8 @@ function ProducaoTab() {
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const filtrosProd = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
   ];
 
   return (
@@ -1358,9 +1358,9 @@ function CustosTab() {
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const filtrosCustos = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
-    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias], single: true as const },
   ];
 
   return (
@@ -1637,11 +1637,11 @@ function ComercialTab() {
 
   const isMobile = useIsMobile();
   const filtrosCom = [
-    { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))] },
-    { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))] },
-    { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
-    { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
-    { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
+    { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))], single: true as const },
+    { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))], single: true as const },
+    { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))], single: true as const },
+    { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))], single: true as const },
+    { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))], single: true as const },
   ];
   // Tabelas detalhadas (a "visão tabela" da régua) — card-table já adapta ao mobile. Reusadas
   // nos dois ramos (mesma JSX = desktop byte-idêntico).
@@ -1942,9 +1942,9 @@ function LeadtimeTab() {
   ].filter(Boolean).join(" · ");
 
   const filtrosLead = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))] },
-    { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))] },
-    { label: "Lançamento nº", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Lan " + c }))] },
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))], single: true as const },
+    { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))], single: true as const },
+    { label: "Lançamento nº", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Lan " + c }))], single: true as const },
   ];
 
   // ——— Mobile (Padrão A): pilha de KPI-cards; tocar abre o bullet chart no ChartSheet ———

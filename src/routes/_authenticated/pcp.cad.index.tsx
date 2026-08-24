@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { CadEditor } from "@/routes/_authenticated/pcp.cad.$modeloId";
+import { useFilterState } from "@/hooks/useFilterState";
 
 export const Route = createFileRoute("/_authenticated/pcp/cad/")({
   component: CadListPage,
@@ -49,10 +50,10 @@ function CadListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [fColecao, setFColecao] = useState("all");
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
+  const [fColecao, setFColecao] = useFilterState("pcp-cad", "Coleção", []);
+  const [fMes, setFMes] = useFilterState("pcp-cad", "Mês", []);
+  const [fAno, setFAno] = useFilterState("pcp-cad", "Ano", []);
+  const [fStatus, setFStatus] = useFilterState("pcp-cad", "Status CAD", []);
   const [printReq, setPrintReq] = useState<{ id: string; token: number } | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
@@ -104,10 +105,10 @@ function CadListPage() {
 
   const filtered = (rows as any[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fStatus !== "all" && r.status_corte !== fStatus) return false;
+    if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
+    if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
+    if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
+    if (fStatus.length && !fStatus.includes(r.status_corte ?? "")) return false;
     return true;
   });
 
@@ -135,11 +136,12 @@ function CadListPage() {
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <FilterButton
+            screen="pcp-cad"
             filters={[
-              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
-              { label: "Status CAD", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...Object.entries(STATUS_LABELS).map(([v, label]) => ({ id: v, nome: label }))] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
+              { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
+              { label: "Status CAD", value: fStatus, onChange: setFStatus, options: Object.entries(STATUS_LABELS).map(([v, label]) => ({ id: v, nome: label })) },
             ]}
           />
         </div>
