@@ -18,6 +18,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/")({
   component: DirListPage,
@@ -49,7 +50,7 @@ function DirListPage() {
       // linha). `cqLiberado` no filtro abaixo segue igual pros dois casos.
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -60,6 +61,7 @@ function DirListPage() {
         .map((m: any) => ({
           modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
           mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id, revisao_pendente: m.revisao_pendente,
+          fotos_modelo: m.fotos_modelo, desenho_tecnico_url: m.desenho_tecnico_url, croqui_url: m.croqui_url,
           linha_nome: m.linha?.nome ?? null,
           categoria_nome: m.categorias_produto?.nome ?? null,
           dir_status: m.cad?.[0]?.direcionamento_status ?? "pendente",
@@ -147,9 +149,13 @@ function DirListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
-                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" /></span>
+                  <ModeloFotoHover fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome}>
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                      <VersaoBadge versao={r.versao} className="text-[10px]" />
+                      <RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" />
+                    </span>
+                  </ModeloFotoHover>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>

@@ -8,6 +8,7 @@ import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ function CqListPage() {
       // depender de corte/Serviços, que revenda nunca tem.
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, origem, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -77,6 +78,7 @@ function CqListPage() {
             mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
             categoria_nome: m.categorias_produto?.nome ?? null,
             origem: m.origem,
+            fotos_modelo: m.fotos_modelo, desenho_tecnico_url: m.desenho_tecnico_url, croqui_url: m.croqui_url,
             enviado_corte: m.cad?.[0]?.enviado_corte === true,
             preFinalizado: pre.length > 0 && pre.every(finalizado),
             temCad: !!m.cad?.[0],
@@ -176,9 +178,16 @@ function CqListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
-                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" /></span>
+                  <ModeloFotoHover
+                    fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                    nome={r.nome}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                      <VersaoBadge versao={r.versao} className="text-[10px]" />
+                      <RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" />
+                    </span>
+                  </ModeloFotoHover>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>

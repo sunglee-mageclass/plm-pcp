@@ -15,6 +15,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 import { useFilterState } from "@/hooks/useFilterState";
@@ -64,7 +65,7 @@ function ExplosaoListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte)",
+          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -86,6 +87,9 @@ function ExplosaoListPage() {
             // Enviado para PCP (já cortado) → fica na lista, editável (lápis).
             enviado_corte,
             situacao: situacaoExplosao(enviado_corte, deficit_corte),
+            fotos_modelo: m.fotos_modelo,
+            desenho_tecnico_url: m.desenho_tecnico_url,
+            croqui_url: m.croqui_url,
           };
         });
     },
@@ -229,10 +233,15 @@ function ExplosaoListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
-                    <VersaoBadge versao={r.versao} className="text-[10px]" />
-                  </span>
+                  <ModeloFotoHover
+                    fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                    nome={r.nome}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
+                      <VersaoBadge versao={r.versao} className="text-[10px]" />
+                    </span>
+                  </ModeloFotoHover>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>

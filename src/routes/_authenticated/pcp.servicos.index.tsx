@@ -9,6 +9,7 @@ import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$model
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
+import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusBadge as SharedStatusBadge } from "@/components/shared/StatusBadge";
@@ -56,7 +57,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -93,6 +94,9 @@ function TercListPage() {
           ref: m.ref,
           versao: m.versao,
           revisao_pendente: m.revisao_pendente,
+          fotos_modelo: m.fotos_modelo,
+          desenho_tecnico_url: m.desenho_tecnico_url,
+          croqui_url: m.croqui_url,
           nome: m.nome,
           colecao: m.colecao,
           mes_id: m.mes_id,
@@ -211,13 +215,18 @@ function TercListPage() {
                 onClick={() => { setPrintReq(null); setSheetId(r.modelo_id); }}
               >
                 <td className="px-4 py-2">
-                  <span className="inline-flex items-center gap-2">
-                    <MoDot estado={(moEstadoMap as Record<string, string>)[r.modelo_id]} />
-                    {isModuleEnabled("etapas_pl") && r.temFotoPeca && <Camera className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Peça de foto" />}
-                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                    <VersaoBadge versao={r.versao} className="text-[10px]" />
-                    <RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" />
-                  </span>
+                  <ModeloFotoHover
+                    fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                    nome={r.nome}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <MoDot estado={(moEstadoMap as Record<string, string>)[r.modelo_id]} />
+                      {isModuleEnabled("etapas_pl") && r.temFotoPeca && <Camera className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Peça de foto" />}
+                      <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                      <VersaoBadge versao={r.versao} className="text-[10px]" />
+                      <RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" />
+                    </span>
+                  </ModeloFotoHover>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
