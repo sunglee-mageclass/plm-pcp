@@ -8,7 +8,7 @@ import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
-import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -154,7 +154,7 @@ function CqListPage() {
       </header>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
+        <table className="w-full text-sm card-table card-table-foto">
           <thead className="bg-muted/50 text-left">
             <tr>
               <SortTh label={fl("ref")} sortKey="ref" sortState={sortState} className="px-4 py-2" />
@@ -181,12 +181,12 @@ function CqListPage() {
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
+                <ModeloFotoCelulaMobile
+                  fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  nome={r.nome}
+                />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <ModeloFotoIconeMobile
-                      fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
-                      nome={r.nome}
-                    />
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                     <RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" />

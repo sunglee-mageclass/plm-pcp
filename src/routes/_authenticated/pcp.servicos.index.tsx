@@ -9,7 +9,7 @@ import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$model
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
-import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusBadge as SharedStatusBadge } from "@/components/shared/StatusBadge";
@@ -188,7 +188,7 @@ function TercListPage() {
       </header>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
+        <table className="w-full text-sm card-table card-table-foto">
           <thead className="bg-muted/50 text-left">
             <tr>
               <SortTh label={fl("ref")} sortKey="ref" sortState={sortState} className="px-4 py-2" />
@@ -218,12 +218,12 @@ function TercListPage() {
                 // a ficha da lista + a do detalhe — imprimiam empilhadas na mesma folha).
                 onClick={() => { setPrintReq(null); setSheetId(r.modelo_id); }}
               >
+                <ModeloFotoCelulaMobile
+                  fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  nome={r.nome}
+                />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <ModeloFotoIconeMobile
-                      fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
-                      nome={r.nome}
-                    />
                     <MoDot estado={(moEstadoMap as Record<string, string>)[r.modelo_id]} />
                     {isModuleEnabled("etapas_pl") && r.temFotoPeca && <Camera className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Peça de foto" />}
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>

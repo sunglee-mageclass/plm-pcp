@@ -18,7 +18,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/")({
   component: DirListPage,
@@ -127,7 +127,7 @@ function DirListPage() {
       </header>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
+        <table className="w-full text-sm card-table card-table-foto">
           <thead className="bg-muted/50 text-left">
             <tr>
               <SortTh label={fl("ref")} sortKey="ref" sortState={s} className="px-4 py-2" />
@@ -152,9 +152,9 @@ function DirListPage() {
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
+                <ModeloFotoCelulaMobile fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome} />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <ModeloFotoIconeMobile fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome} />
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                     <RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" />

@@ -15,7 +15,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
-import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 import { useFilterState } from "@/hooks/useFilterState";
@@ -199,7 +199,7 @@ function ExplosaoListPage() {
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
+        <table className="w-full text-sm card-table card-table-foto">
           <thead className="bg-muted/50 text-left">
             <tr>
               <SortTh label={fl("ref")} sortKey="ref" sortState={s} className="px-4 py-2" />
@@ -236,12 +236,12 @@ function ExplosaoListPage() {
                 )}
                 onClick={() => setSheetId(r.modelo_id)}
               >
+                <ModeloFotoCelulaMobile
+                  fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  nome={r.nome}
+                />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <ModeloFotoIconeMobile
-                      fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
-                      nome={r.nome}
-                    />
                     <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                   </span>
