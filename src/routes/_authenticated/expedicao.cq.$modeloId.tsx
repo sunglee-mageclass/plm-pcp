@@ -1005,11 +1005,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
   const backButton = onClose ? (
     <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
-      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+      <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/expedicao/cq"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/expedicao/cq"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
     </Button>
   );
   const actionButtons = (
@@ -1026,20 +1026,20 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
-          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id}>
-            <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Controle de Qualidade
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id} aria-label="Confirmar Controle de Qualidade">
+            <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Controle de Qualidade</span>
           </Button>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+            <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
       ) : editing ? (
         <>
-          <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); conflitosRef.current = []; setConflitos([]); setUltimoMerge(null); }} disabled={saveMut.isPending}>
-            Voltar
+          <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); conflitosRef.current = []; setConflitos([]); setUltimoMerge(null); }} disabled={saveMut.isPending} aria-label="Voltar">
+            <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+            <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
       ) : (
@@ -1052,8 +1052,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
-            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
+          <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly} aria-label="Desmarcar confirmação">
+            <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar confirmação</span>
           </Button>
         </>
       ))}

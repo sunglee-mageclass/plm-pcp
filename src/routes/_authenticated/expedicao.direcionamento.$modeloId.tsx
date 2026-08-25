@@ -341,11 +341,11 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
   const backButton = onClose ? (
     <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
-      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+      <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/expedicao/direcionamento"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/expedicao/direcionamento"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
     </Button>
   );
   const actionButtons = (
@@ -357,24 +357,25 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       )}
       {!confirmado ? (
         <>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+            <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
             title={motivo ?? undefined}
+            aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
             disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo}
           >
-            <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
+            <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
         </>
       ) : editing ? (
         <>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+            <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
-          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
+            <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar</span>
           </Button>
         </>
       ) : (
@@ -382,8 +383,8 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
+            <RotateCcw className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Desmarcar</span>
           </Button>
         </>
       )}
