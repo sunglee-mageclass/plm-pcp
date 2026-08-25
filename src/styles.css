@@ -478,20 +478,25 @@
     padding: 0;
   }
   table.card-table-foto > tbody > tr > td[data-label="foto"]::before { content: none; }
-  /* B+C — cada info vira `display:contents`: a própria td some do grid e seus "filhos"
-     (::before = rótulo → col B; valor = conteúdo → col C) viram itens DIRETOS do grid do <tr>,
-     fluindo nas rows de cima p/ baixo, coladas sob a REF. */
-  table.card-table-foto > tbody > tr > td:not([data-label="foto"]) {
+  /* B+C — cada info COM RÓTULO vira `display:contents`: a td some do grid e seus "filhos"
+     (::before = rótulo → col B; valor = conteúdo → col C) viram itens DIRETOS do grid do <tr>.
+     ⚠️ SÓ as com data-label (não a REF): `display:contents` anula o grid-column, então a REF
+     precisa continuar sendo um item de grid real (senão seu texto cai na col 1, centralizado
+     na foto). */
+  table.card-table-foto > tbody > tr > td[data-label]:not([data-label="foto"]) {
     display: contents;
   }
-  table.card-table-foto > tbody > tr > td:not([data-label="foto"])::before {
+  table.card-table-foto > tbody > tr > td[data-label]:not([data-label="foto"])::before {
     grid-column: 2; /* rótulo na coluna B */
     text-align: left;
     align-self: baseline;
   }
-  /* REF (coluna-título, sem data-label): sem ::before; o valor ocupa B+C, em destaque */
+  /* REF (coluna-título, sem data-label): item de grid real, colado ao TOPO (align-self:start),
+     ocupa B+C, em destaque. */
   table.card-table-foto > tbody > tr > td:not([data-label]) {
     grid-column: 2 / 4;
+    align-self: start;
+    justify-content: flex-start;
     font-weight: 600;
     color: var(--primary);
   }
