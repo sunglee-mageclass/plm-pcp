@@ -456,24 +456,43 @@
      Categoria + Coleção + Situação, cada uma numa linha, empilhadas à direita da foto.
      Grid (em vez de flex) garante que as infos formem uma ÚNICA coluna ao lado da foto, sem
      quebrar pra baixo dela. Escopado a .card-table-foto (listas de produto). */
+  /* Modelo do dono: grade 3 colunas — A=foto (rowspan de tudo), B=rótulos (REF/Nome/…),
+     C=dados. A foto faz "merge" das linhas (grid-row 1/-1); cada <td> de info é um SUBGRID
+     que herda as colunas B e C do <tr>, alinhando rótulo (col B) e valor (col C) entre todas
+     as linhas. Coladas no topo, sem vão. */
   table.card-table-foto > tbody > tr {
     display: grid;
-    grid-template-columns: auto 1fr; /* foto (auto=~64px) | infos (resto) */
-    align-items: start;
+    grid-template-columns: auto auto 1fr; /* foto | rótulos | dados */
+    grid-auto-rows: min-content;
+    align-content: start;
     column-gap: 0.75rem;
     row-gap: 0.2rem;
   }
-  /* célula da foto: coluna 1, ocupa todas as linhas do grid (estica na altura do bloco) */
+  /* A — foto: coluna 1, faz rowspan de todas as linhas (grid-row 1/-1). Altura FIXA retrato,
+     colada ao topo. NÃO participa do dimensionamento das rows de info (as td viram
+     `display:contents`, então as rows são só do texto). */
   table.card-table-foto > tbody > tr > td[data-label="foto"] {
     grid-column: 1;
     grid-row: 1 / -1;
-    align-self: stretch;
+    align-self: start;
     padding: 0;
   }
   table.card-table-foto > tbody > tr > td[data-label="foto"]::before { content: none; }
-  /* as demais células vão todas na coluna 2 (empilhadas, cada uma numa linha do grid) */
+  /* B+C — cada info vira `display:contents`: a própria td some do grid e seus "filhos"
+     (::before = rótulo → col B; valor = conteúdo → col C) viram itens DIRETOS do grid do <tr>,
+     fluindo nas rows de cima p/ baixo, coladas sob a REF. */
   table.card-table-foto > tbody > tr > td:not([data-label="foto"]) {
-    grid-column: 2;
-    min-width: 0;
+    display: contents;
+  }
+  table.card-table-foto > tbody > tr > td:not([data-label="foto"])::before {
+    grid-column: 2; /* rótulo na coluna B */
+    text-align: left;
+    align-self: baseline;
+  }
+  /* REF (coluna-título, sem data-label): sem ::before; o valor ocupa B+C, em destaque */
+  table.card-table-foto > tbody > tr > td:not([data-label]) {
+    grid-column: 2 / 4;
+    font-weight: 600;
+    color: var(--primary);
   }
 }

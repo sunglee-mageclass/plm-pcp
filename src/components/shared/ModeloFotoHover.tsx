@@ -52,7 +52,10 @@ export function ModeloFotoCelulaMobile({
 }) {
   return (
     <td data-label="foto" className="md:hidden">
-      <ModeloResumoFoto fontes={fontes} nome={nome} className="h-full min-h-24 w-16" />
+      {/* h-full min-h-0: a foto acompanha a altura do bloco de infos (a td faz rowspan e
+          estica); w-16 = retrato estreito. SEM altura própria fixa (senão inflaria a 1ª linha
+          e criava o vão entre REF e Nome). */}
+      <ModeloResumoFoto fontes={fontes} nome={nome} className="h-full min-h-0 w-16" />
     </td>
   );
 }
