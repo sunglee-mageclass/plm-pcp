@@ -18,7 +18,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared/ModeloFotoHover";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/")({
   component: DirListPage,
@@ -152,7 +152,14 @@ function DirListPage() {
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
-                <ModeloFotoCelulaMobile fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome} />
+                <ModeloResumoLinhaMobile
+                  fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]}
+                  refModelo={r.ref}
+                  nome={r.nome}
+                  categoria={r.categoria_nome}
+                  colecao={r.colecao}
+                  extra={<StatusBadge tone={r.dir_status === "separado" ? "success" : "warning"}>{r.dir_status === "separado" ? "Separado" : "Pendente"}</StatusBadge>}
+                />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>

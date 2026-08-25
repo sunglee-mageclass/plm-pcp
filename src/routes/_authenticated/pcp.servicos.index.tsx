@@ -9,7 +9,7 @@ import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$model
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
-import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared/ModeloFotoHover";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusBadge as SharedStatusBadge } from "@/components/shared/StatusBadge";
@@ -218,9 +218,13 @@ function TercListPage() {
                 // a ficha da lista + a do detalhe — imprimiam empilhadas na mesma folha).
                 onClick={() => { setPrintReq(null); setSheetId(r.modelo_id); }}
               >
-                <ModeloFotoCelulaMobile
+                <ModeloResumoLinhaMobile
                   fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  refModelo={r.ref}
                   nome={r.nome}
+                  categoria={r.categoria_nome}
+                  colecao={r.colecao}
+                  extra={<StatusBadge status={r.statusGeral} />}
                 />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">

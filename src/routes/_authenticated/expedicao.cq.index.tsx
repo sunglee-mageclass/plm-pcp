@@ -8,7 +8,7 @@ import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
-import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared/ModeloFotoHover";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -181,9 +181,13 @@ function CqListPage() {
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
-                <ModeloFotoCelulaMobile
+                <ModeloResumoLinhaMobile
                   fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  refModelo={r.ref}
                   nome={r.nome}
+                  categoria={r.categoria_nome}
+                  colecao={r.colecao}
+                  extra={<CqStatusBadge status={r.statusGeral} />}
                 />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">

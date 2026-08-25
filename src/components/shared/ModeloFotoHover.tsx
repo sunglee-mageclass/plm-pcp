@@ -3,20 +3,18 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 
 /**
- * Foto do modelo (anexo) na lista de produtos, com gatilhos por plataforma:
+ * Foto do modelo (anexo) na lista de produtos:
  *
- *  • `ModeloFotoHoverRow` — envolve a LINHA INTEIRA (`<tr>`) como gatilho do HoverCard no
- *    DESKTOP: passar o mouse em qualquer lugar da linha mostra a foto. `HoverCardContent`
- *    renderiza em portal (fora da tabela) e o `HoverCard` root não emite DOM, então o `<tr>`
- *    segue filho direto do `<tbody>` (HTML válido). `asChild` clona no `<tr>`, preservando o
- *    `onClick` da linha. Conteúdo do hover só monta ao abrir (signed URL lazy). `md:block`.
- *  • `ModeloFotoCelulaMobile` — no MOBILE (card empilhado via `.card-table-foto`), uma célula
- *    `<td data-label="foto">` com o thumbnail SEMPRE VISÍVEL à esquerda do card (sem toque).
- *    Escondida no desktop (`md:hidden`, lá vale o hover). Requer a tabela com a classe
- *    `card-table-foto` (ver styles.css) p/ o card virar flex-row foto-à-esquerda.
+ *  • `ModeloFotoHoverRow` — envolve a LINHA (`<tr>`) como gatilho do HoverCard no DESKTOP:
+ *    passar o mouse em qualquer lugar da linha mostra a foto grande. `HoverCard` root não emite
+ *    DOM e `HoverCardContent` vai p/ portal → o `<tr>` segue filho direto do `<tbody>` (válido).
+ *    `md:block` (só desktop; no mobile a foto já está no card).
+ *  • `ModeloResumoLinhaMobile` — no MOBILE, uma célula `<td>` (full-width, `md:hidden`) que
+ *    renderiza o CARD do modelo: foto à esquerda + "REF — Nome" em destaque + "Categoria •
+ *    Coleção" abaixo. Espelha o header dos sheets de detalhe (padrão já usado no sistema).
+ *    Requer o `<tr>` com `data-card-linha` (o CSS esconde as demais `<td>` no mobile).
  *
- * `fontes` = hierarquia de capa padrão: [fotos_modelo[0], desenho_tecnico_url, croqui_url].
- * Sem foto → `ModeloResumoFoto` mostra um ícone de imagem discreto.
+ * `fontes` = hierarquia de capa: [fotos_modelo[0], desenho_tecnico_url, croqui_url].
  */
 
 /** Envolve o `<tr>` (children) como gatilho do HoverCard — hover na linha inteira (desktop). */
@@ -39,23 +37,38 @@ export function ModeloFotoHoverRow({
   );
 }
 
-/** Célula de foto RETRATO (~64px de largura) à esquerda do card no mobile — sempre visível,
- *  sem toque, esticando na altura do bloco. É um `<td>` (vai direto dentro do `<tr>`),
- *  escondido no desktop. `h-full` faz a foto acompanhar a altura da coluna direita (via o
- *  `align-self: stretch` do `.card-table-foto`); `w-16` (~64px) mantém o retrato estreito. */
-export function ModeloFotoCelulaMobile({
+/** Card do modelo no mobile: foto à esquerda + "REF — Nome" + "Categoria • Coleção".
+ *  É uma `<td>` que ocupa o card inteiro (o CSS `.card-table-foto` esconde as demais no mobile
+ *  e mostra só esta). `ref`/`nome`/`categoria`/`colecao` = o que a lista já carrega. */
+export function ModeloResumoLinhaMobile({
   fontes,
+  refModelo,
   nome,
+  categoria,
+  colecao,
+  extra,
 }: {
   fontes: (string | null | undefined)[];
+  refModelo?: string | null; // "ref" é reservado pelo React em JSX — usar refModelo
   nome?: string | null;
+  categoria?: string | null;
+  colecao?: string | null;
+  /** slot opcional à direita (ex. badge de status/situação). */
+  extra?: ReactNode;
 }) {
+  const meta = [categoria, colecao].filter(Boolean).join(" • ");
   return (
-    <td data-label="foto" className="md:hidden">
-      {/* h-full min-h-0: a foto acompanha a altura do bloco de infos (a td faz rowspan e
-          estica); w-16 = retrato estreito. SEM altura própria fixa (senão inflaria a 1ª linha
-          e criava o vão entre REF e Nome). */}
-      <ModeloResumoFoto fontes={fontes} nome={nome} className="h-full min-h-0 w-16" />
+    <td data-label="card" className="md:hidden">
+      <div className="flex items-center gap-3">
+        <ModeloResumoFoto fontes={fontes} nome={nome} className="h-14 w-14 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-display text-base font-semibold tracking-tight">
+            {refModelo ?? "—"}{nome ? ` — ${nome}` : ""}
+          </div>
+          {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
+          {extra ? <div className="mt-1">{extra}</div> : null}
+        </div>
+      </div>
     </td>
   );
 }

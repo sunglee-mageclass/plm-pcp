@@ -15,7 +15,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
-import { ModeloFotoHoverRow, ModeloFotoCelulaMobile } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared/ModeloFotoHover";
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 import { useFilterState } from "@/hooks/useFilterState";
@@ -236,9 +236,13 @@ function ExplosaoListPage() {
                 )}
                 onClick={() => setSheetId(r.modelo_id)}
               >
-                <ModeloFotoCelulaMobile
+                <ModeloResumoLinhaMobile
                   fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                  refModelo={r.ref}
                   nome={r.nome}
+                  categoria={r.categoria_nome}
+                  colecao={r.colecao}
+                  extra={<SituacaoChip situacao={r.situacao} />}
                 />
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
