@@ -36,6 +36,7 @@ export function ModeloInfoSection({
   otbOn,
   colecoes,
   subcolecoes,
+  origem,
   camposCopiados = new Set(),
   onCampoEditado,
   colab,
@@ -61,6 +62,9 @@ export function ModeloInfoSection({
   otbOn?: boolean;
   colecoes?: { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
   subcolecoes?: string[];
+  /** `modelos.origem` — definido pelo fluxo que criou o modelo (Planejamento/Revenda),
+   *  NÃO editável aqui. Só EXIBIR (read-only). */
+  origem?: string | null;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
   // Colab (spec 2026-08-03, Task 1): presença por campo — SÓ nome/datas nesta 1ª adoção
@@ -141,7 +145,7 @@ export function ModeloInfoSection({
             <Textarea rows={2} value={draft.motivo_cancelamento} onChange={(e) => setDraft({ ...draft, motivo_cancelamento: e.target.value })} />
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Grupo FILTRA a Categoria (não é salvo). Categoria vem do Planejamento, editável aqui. */}
           <FieldSelectOpt
             label="Grupo"
@@ -163,6 +167,14 @@ export function ModeloInfoSection({
             }
             options={grupoId ? categorias.filter((c) => c.grupo_id === grupoId) : categorias}
           />
+          {/* Origem — só-leitura, definida pelo fluxo que criou o modelo (Planejamento vs Revenda). */}
+          <Field label="Origem">
+            <Input
+              readOnly
+              className="bg-muted/50 cursor-default"
+              value={origem === "revenda" ? "Revenda" : "Produção própria"}
+            />
+          </Field>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {otbOn && (

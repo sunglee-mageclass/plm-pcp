@@ -2627,6 +2627,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               <ModeloInfoSection
                 draft={draft}
                 setDraft={setDraftTracked}
+                origem={modelo?.origem ?? null}
                 colab={{ focadoPor }}
                 linhas={linhas.data ?? []}
                 estilistas={estilistas.data ?? []}
