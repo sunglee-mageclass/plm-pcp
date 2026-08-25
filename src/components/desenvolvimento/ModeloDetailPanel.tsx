@@ -414,7 +414,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       if (ids.length > 0) {
         const { data: vs, error: e2 } = await supabase
           .from("modelo_tecido_variantes")
-          .select("modelo_tecido_id, variante_tecido_id, ordem, multiplicador, complementa_variante_id, variantes_tecido:variante_tecido_id(artigo_id)")
+          .select("modelo_tecido_id, variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variantes_tecido:variante_tecido_id(artigo_id)")
           .in("modelo_tecido_id", ids);
         if (e2) throw e2;
         variantesRows = vs ?? [];
@@ -854,7 +854,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const variantes = Array(10).fill(null) as (string | null)[];
         const multiplicadores = Array(10).fill(1) as number[];
         const oc_links = Array.from({ length: 10 }, () => [] as OcAlloc[]);
-        const complementas = Array(10).fill(null) as (string | null)[];
+        const complementas = Array(10).fill(null) as (string[] | null)[];
         const varArtigos = new Set<string>();
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
@@ -864,7 +864,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               variantes[ord] = v.variante_tecido_id;
               multiplicadores[ord] = Number(v.multiplicador ?? 1) || 1;
               oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? [];
-              complementas[ord] = v.complementa_variante_id ?? null;
+              complementas[ord] =
+                Array.isArray(v.complementa_variante_ids) && v.complementa_variante_ids.length
+                  ? (v.complementa_variante_ids as string[])
+                  : null;
             }
             const aid = v.variantes_tecido?.artigo_id;
             if (aid) varArtigos.add(aid);
@@ -1371,9 +1374,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     const out: { t1id: string; compVarId: string }[] = [];
     blocks.forEach((b) => {
       if (b.tipo === "tecido" && b.numero === 1) return;
-      (b.complementas ?? []).forEach((t1id, i) => {
+      (b.complementas ?? []).forEach((t1ids, i) => {
         const compVarId = b.variantes[i];
-        if (t1id && compVarId) out.push({ t1id, compVarId });
+        if (!compVarId || !t1ids) return;
+        // Multi (N-pra-N): cada slot casa com N variantes do Tecido 1.
+        t1ids.forEach((t1id) => {
+          if (t1id) out.push({ t1id, compVarId });
+        });
       });
     });
     return out;
@@ -1829,9 +1836,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             ? b.variantes.map(() => 1)
             : b.multiplicadores.map((m) => Number(m) || 1),
           // Tecido 1 nunca casa (é a âncora); complementares levam o array paralelo.
+          // Cada slot é um ARRAY de IDs (N-pra-N); vazio vira null.
           complementas: (b.tipo === "tecido" && b.numero === 1)
             ? b.variantes.map(() => null)
-            : b.variantes.map((_, i) => b.complementas?.[i] ?? null),
+            : b.variantes.map((_, i) => {
+                const a = b.complementas?.[i];
+                return a && a.length ? a : null;
+              }),
           oc_links: b.variantes.flatMap((vid, i) => {
             const allocs = b.oc_links?.[i] ?? [];
             if (!vid) return [];
@@ -2341,11 +2352,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const variantes = [...b.variantes];
         const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
         while (oc_links.length < 10) oc_links.push([]);
-        const complementas = [...(b.complementas ?? [])];
+        const complementas: (string[] | null)[] = [...(b.complementas ?? [])];
         while (complementas.length < 10) complementas.push(null);
         const prev = variantes[vIdx];
         variantes[vIdx] = value;
-        // Trocou de variante: o par de casamento era desta variante ANTIGA; zera ambos.
+        // Trocou de variante: o(s) par(es) de casamento eram desta variante ANTIGA; zera ambos.
         if (prev !== value) { oc_links[vIdx] = []; complementas[vIdx] = null; }
         // Recalcula: o custo usa o maior preço entre os artigos das variantes
         // escolhidas (substitutos podem ter preços diferentes).

@@ -30,10 +30,10 @@ export type TecidoBlock = {
   /** Por posição de variante (0..9): lista de OCs alocadas a ela. */
   oc_links: OcAlloc[][];
   /**
-   * Por posição de variante (0..9): id da variante do Tecido 1 que este slot
-   * complementa (casar variantes). Só em blocos NÃO-Tecido-1. null = sem par.
+   * Por slot (0..9): IDs das variantes do Tecido 1 que esta variante complementar
+   * casa (N-pra-N). Só em blocos NÃO-Tecido-1. null = sem par nenhum.
    */
-  complementas: (string | null)[];
+  complementas: (string[] | null)[];
 };
 
 export type AviamentoRow = {

@@ -7,6 +7,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { artigoLabel } from "@/lib/artigo-label";
@@ -89,17 +90,26 @@ export function ModeloTecidosSection({
         .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
     },
   });
-  // Só as variantes que o Tecido 1 realmente usa, na ordem do bloco. Se o pool tem
-  // mais de 1 artigo, prefixa o nome do artigo (espelha o `varianteLabel` do bloco).
+  // Só as variantes que o Tecido 1 realmente usa, na ordem do bloco. O label é SÓ a
+  // cor/variante — o popover agrupa por tecido (principal/substituto), então o nome
+  // do artigo mora no cabeçalho do grupo (`artigoNome`), não no label do item.
   const tecido1MultiFabric = tecido1PoolIds.length > 1;
-  const tecido1Variantes: { id: string; label: string }[] = (blocoTecido1?.variantes ?? [])
+  const tecido1Variantes: { id: string; label: string; artigoNome: string; isSubstituto: boolean }[] = (
+    blocoTecido1?.variantes ?? []
+  )
     .filter((vid): vid is string => !!vid)
     .map((vid) => {
       const v = tecido1Pool.find((p) => p.id === vid);
-      if (!v) return { id: vid, label: "Variante" };
-      const label = tecido1MultiFabric ? `${artigoNomeById.get(v.artigo_id) ?? "Tecido"} · ${v.nome}` : v.nome;
-      return { id: vid, label };
-    });
+      if (!v) return { id: vid, label: "Variante", artigoNome: "Tecido", isSubstituto: false };
+      return {
+        id: vid,
+        label: v.nome,
+        artigoNome: artigoNomeById.get(v.artigo_id) ?? "Tecido",
+        isSubstituto: v.artigo_id !== blocoTecido1?.artigo_id,
+      };
+    })
+    // Principais primeiro; estável por (isSubstituto, label).
+    .sort((a, b) => Number(a.isSubstituto) - Number(b.isSubstituto) || a.label.localeCompare(b.label, "pt-BR"));
 
   useEffect(() => {
     setVisible((prev) => {
@@ -226,7 +236,7 @@ function TecidoBlockEditor({
   onChangeOcLinks: (vIdx: number, allocs: OcAlloc[]) => void;
   onRemove: () => void;
   removable: boolean;
-  tecido1Variantes: { id: string; label: string }[];
+  tecido1Variantes: { id: string; label: string; artigoNome: string; isSubstituto: boolean }[];
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
 }) {
@@ -273,7 +283,7 @@ function TecidoBlockEditor({
   // tem variantes. Estado derivado do dado (algum complemento preenchido); um estado
   // local revela os dropdowns mesmo antes de escolher o 1º par.
   const podeCasar = canMultiplicador && tecido1Variantes.length > 0;
-  const casando = block.complementas?.some(Boolean) ?? false;
+  const casando = block.complementas?.some((a) => a && a.length) ?? false;
   const [casarAberto, setCasarAberto] = useState(casando);
   const mostrarCasar = podeCasar && (casarAberto || casando);
   const toggleCasar = (on: boolean) => {
@@ -286,10 +296,14 @@ function TecidoBlockEditor({
       onCampoEditado?.(keyVariantes);
     }
   };
-  const setComplementa = (i: number, val: string | null) => {
-    const next = [...(block.complementas ?? Array(10).fill(null))];
+  // N-pra-N: cada slot casa com um ARRAY de variantes do Tecido 1.
+  const complementaAt = (i: number): string[] => (block.complementas?.[i] as string[] | null) ?? [];
+  const toggleComplementa = (i: number, vid: string) => {
+    const cur = complementaAt(i);
+    const nextArr = cur.includes(vid) ? cur.filter((x) => x !== vid) : [...cur, vid];
+    const next: (string[] | null)[] = [...(block.complementas ?? Array(10).fill(null))];
     while (next.length < 10) next.push(null);
-    next[i] = val;
+    next[i] = nextArr.length ? nextArr : null;
     onChangeBlock({ complementas: next });
     onCampoEditado?.(keyVariantes);
   };
@@ -433,26 +447,92 @@ function TecidoBlockEditor({
                         />
                       </div>
                     )}
-                    {mostrarCasar && current && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <Link2 className="h-3 w-3 shrink-0" />
-                        <span className="whitespace-nowrap">Casa com</span>
-                        <Select
-                          value={block.complementas?.[i] ?? ""}
-                          onValueChange={(v) => setComplementa(i, v === "__none__" ? null : v)}
-                        >
-                          <SelectTrigger className="h-7 flex-1 text-xs">
-                            <SelectValue placeholder="variante do Tecido 1" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
-                            {tecido1Variantes.map((v) => (
-                              <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    {mostrarCasar && current && (() => {
+                      const sel = complementaAt(i);
+                      const principais = tecido1Variantes.filter((v) => !v.isSubstituto);
+                      const substitutos = tecido1Variantes.filter((v) => v.isSubstituto);
+                      const grupos: { chave: string; titulo: string; itens: typeof tecido1Variantes }[] = [];
+                      if (principais.length > 0) {
+                        const nome = principais[0]?.artigoNome ?? "Tecido 1";
+                        grupos.push({ chave: "principal", titulo: `Tecido 1 — ${nome} (principal)`, itens: principais });
+                      }
+                      // Substitutos podem vir de artigos diferentes: agrupa por artigo.
+                      const porArtigo = new Map<string, typeof tecido1Variantes>();
+                      substitutos.forEach((v) => {
+                        const arr = porArtigo.get(v.artigoNome) ?? [];
+                        arr.push(v);
+                        porArtigo.set(v.artigoNome, arr);
+                      });
+                      porArtigo.forEach((itens, nome) =>
+                        grupos.push({ chave: `sub:${nome}`, titulo: `Tecido 1 — ${nome} (substituto)`, itens }),
+                      );
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <Link2 className="h-3 w-3 shrink-0" />
+                            <span className="whitespace-nowrap">Casa com</span>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button type="button" variant="outline" size="sm" className="h-7 flex-1 justify-start text-xs font-normal">
+                                  {sel.length > 0
+                                    ? `${sel.length} variante${sel.length > 1 ? "s" : ""} do Tecido 1`
+                                    : "casar com variantes do Tecido 1"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="w-64 p-0">
+                                <div className="max-h-64 overflow-y-auto p-1">
+                                  {grupos.map((g) => (
+                                    <div key={g.chave} className="py-1">
+                                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {g.titulo}
+                                      </p>
+                                      {g.itens.map((v) => (
+                                        <label
+                                          key={v.id}
+                                          className="flex items-center gap-2 rounded-sm px-2 py-1 text-xs cursor-pointer hover:bg-accent"
+                                        >
+                                          <Checkbox
+                                            checked={sel.includes(v.id)}
+                                            onCheckedChange={() => toggleComplementa(i, v.id)}
+                                          />
+                                          <span className="flex-1">{v.label}</span>
+                                          {v.isSubstituto && (
+                                            <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">
+                                              substituto
+                                            </Badge>
+                                          )}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ))}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          {sel.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 pl-4">
+                              {sel.map((vid) => {
+                                const v = tecido1Variantes.find((x) => x.id === vid);
+                                return (
+                                  <Badge key={vid} variant="secondary" className="gap-1">
+                                    {v?.label ?? "Variante"}
+                                    {v?.isSubstituto && <span className="text-amber-600">·s</span>}
+                                    <button
+                                      type="button"
+                                      aria-label="Remover par"
+                                      className="ml-0.5 hover:text-destructive"
+                                      onClick={() => toggleComplementa(i, vid)}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {current && (
                       <OcLinksField
                         modeloId={modeloId}
