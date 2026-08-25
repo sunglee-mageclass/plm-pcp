@@ -412,7 +412,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       if (ids.length > 0) {
         const { data: vs, error: e2 } = await supabase
           .from("modelo_tecido_variantes")
-          .select("modelo_tecido_id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(artigo_id)")
+          .select("modelo_tecido_id, variante_tecido_id, ordem, multiplicador, complementa_variante_id, variantes_tecido:variante_tecido_id(artigo_id)")
           .in("modelo_tecido_id", ids);
         if (e2) throw e2;
         variantesRows = vs ?? [];
@@ -852,6 +852,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const variantes = Array(10).fill(null) as (string | null)[];
         const multiplicadores = Array(10).fill(1) as number[];
         const oc_links = Array.from({ length: 10 }, () => [] as OcAlloc[]);
+        const complementas = Array(10).fill(null) as (string | null)[];
         const varArtigos = new Set<string>();
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
@@ -861,6 +862,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               variantes[ord] = v.variante_tecido_id;
               multiplicadores[ord] = Number(v.multiplicador ?? 1) || 1;
               oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? [];
+              complementas[ord] = v.complementa_variante_id ?? null;
             }
             const aid = v.variantes_tecido?.artigo_id;
             if (aid) varArtigos.add(aid);
@@ -881,6 +883,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           variantes,
           multiplicadores,
           oc_links,
+          complementas,
         };
       }
     });
@@ -1771,6 +1774,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           multiplicadores: (b.tipo === "tecido" && b.numero === 1)
             ? b.variantes.map(() => 1)
             : b.multiplicadores.map((m) => Number(m) || 1),
+          // Tecido 1 nunca casa (é a âncora); complementares levam o array paralelo.
+          complementas: (b.tipo === "tecido" && b.numero === 1)
+            ? b.variantes.map(() => null)
+            : b.variantes.map((_, i) => b.complementas?.[i] ?? null),
           oc_links: b.variantes.flatMap((vid, i) => {
             const allocs = b.oc_links?.[i] ?? [];
             if (!vid) return [];
@@ -2280,12 +2287,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const variantes = [...b.variantes];
         const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
         while (oc_links.length < 10) oc_links.push([]);
+        const complementas = [...(b.complementas ?? [])];
+        while (complementas.length < 10) complementas.push(null);
         const prev = variantes[vIdx];
         variantes[vIdx] = value;
-        if (prev !== value) oc_links[vIdx] = [];
+        // Trocou de variante: o par de casamento era desta variante ANTIGA; zera ambos.
+        if (prev !== value) { oc_links[vIdx] = []; complementas[vIdx] = null; }
         // Recalcula: o custo usa o maior preço entre os artigos das variantes
         // escolhidas (substitutos podem ter preços diferentes).
-        return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
+        return recomputeBlock({ ...b, variantes, oc_links, complementas }, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
       }));
     };
     if (isTecido1 && !value) {

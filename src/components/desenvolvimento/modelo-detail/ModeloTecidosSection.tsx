@@ -7,8 +7,10 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { artigoLabel } from "@/lib/artigo-label";
-import { Plus, Trash2, AlertTriangle, Check } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Check, Link2 } from "lucide-react";
 import { Field, FieldSelectOpt } from "./shared";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "./types";
@@ -53,6 +55,45 @@ export function ModeloTecidosSection({
     grades.find((g) => g.variante_numero === numero)?.grade_total ?? 0;
   const [visible, setVisible] = useState<Set<string>>(new Set());
 
+  // Casar variantes: as variantes do Tecido 1 que os blocos complementares podem
+  // "casar". Pool de artigos = artigo principal do Tecido 1 + substitutos (mesmo
+  // padrão do `poolArtigoIds` do bloco). Só as variantes efetivamente USADAS no
+  // Tecido 1 entram no dropdown, na ORDEM em que aparecem no bloco.
+  const blocoTecido1 = blocks.find((b) => b.tipo === "tecido" && b.numero === 1);
+  const tecido1PoolIds = (() => {
+    const s = new Set<string>();
+    if (blocoTecido1?.artigo_id) s.add(blocoTecido1.artigo_id);
+    (blocoTecido1?.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
+    return Array.from(s);
+  })();
+  const { data: tecido1Pool = [] } = useQuery({
+    queryKey: ["tecido1-variantes", tecido1PoolIds.slice().sort().join(",")],
+    enabled: tecido1PoolIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante, artigo_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .in("artigo_id", tecido1PoolIds);
+      if (error) throw error;
+      return (data ?? []).map((v: any) => ({
+        id: v.id,
+        artigo_id: v.artigo_id as string,
+        nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
+      }));
+    },
+  });
+  // Só as variantes que o Tecido 1 realmente usa, na ordem do bloco. Se o pool tem
+  // mais de 1 artigo, prefixa o nome do artigo (espelha o `varianteLabel` do bloco).
+  const tecido1MultiFabric = tecido1PoolIds.length > 1;
+  const tecido1Variantes: { id: string; label: string }[] = (blocoTecido1?.variantes ?? [])
+    .filter((vid): vid is string => !!vid)
+    .map((vid) => {
+      const v = tecido1Pool.find((p) => p.id === vid);
+      if (!v) return { id: vid, label: "Variante" };
+      const label = tecido1MultiFabric ? `${artigoNomeById.get(v.artigo_id) ?? "Tecido"} · ${v.nome}` : v.nome;
+      return { id: vid, label };
+    });
+
   useEffect(() => {
     setVisible((prev) => {
       const next = new Set(prev);
@@ -77,6 +118,7 @@ export function ModeloTecidosSection({
       consumo: 0,
       loss_percent: 0,
       variantes: Array(10).fill(null),
+      complementas: Array(10).fill(null),
     });
     setVisible((prev) => {
       const next = new Set(prev);
@@ -121,6 +163,7 @@ export function ModeloTecidosSection({
                     onChangeOcLinks={(vi, allocs) => onChangeOcLinks(idx, vi, allocs)}
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
+                    tecido1Variantes={tecido1Variantes}
                     camposCopiados={camposCopiados}
                     onCampoEditado={onCampoEditado}
                   />
@@ -161,6 +204,7 @@ function TecidoBlockEditor({
   onChangeOcLinks,
   onRemove,
   removable,
+  tecido1Variantes,
   camposCopiados = new Set(),
   onCampoEditado,
 }: {
@@ -175,6 +219,7 @@ function TecidoBlockEditor({
   onChangeOcLinks: (vIdx: number, allocs: OcAlloc[]) => void;
   onRemove: () => void;
   removable: boolean;
+  tecido1Variantes: { id: string; label: string }[];
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
 }) {
@@ -206,6 +251,31 @@ function TecidoBlockEditor({
     while (next.length < 10) next.push(1);
     next[i] = val > 0 ? val : 1;
     onChangeBlock({ multiplicadores: next });
+  };
+
+  // Casar variantes com o Tecido 1: só em blocos complementares e quando o Tecido 1
+  // tem variantes. Estado derivado do dado (algum complemento preenchido); um estado
+  // local revela os dropdowns mesmo antes de escolher o 1º par.
+  const podeCasar = canMultiplicador && tecido1Variantes.length > 0;
+  const casando = block.complementas?.some(Boolean) ?? false;
+  const [casarAberto, setCasarAberto] = useState(casando);
+  const mostrarCasar = podeCasar && (casarAberto || casando);
+  const toggleCasar = (on: boolean) => {
+    if (on) {
+      setCasarAberto(true);
+    } else {
+      // Desligar: limpa TODOS os pares do bloco.
+      setCasarAberto(false);
+      onChangeBlock({ complementas: Array(10).fill(null) });
+      onCampoEditado?.(keyVariantes);
+    }
+  };
+  const setComplementa = (i: number, val: string | null) => {
+    const next = [...(block.complementas ?? Array(10).fill(null))];
+    while (next.length < 10) next.push(null);
+    next[i] = val;
+    onChangeBlock({ complementas: next });
+    onCampoEditado?.(keyVariantes);
   };
 
   const { data: variantesPool = [] } = useQuery({
@@ -294,9 +364,21 @@ function TecidoBlockEditor({
 
       {poolArtigoIds.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">
-            Variantes{multiFabric ? " — de qualquer tecido do pool; custo usa o maior preço/metro" : ""}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Variantes{multiFabric ? " — de qualquer tecido do pool; custo usa o maior preço/metro" : ""}
+            </p>
+            {podeCasar && (
+              <Label className="flex items-center gap-1.5 text-xs font-normal cursor-pointer text-muted-foreground">
+                <Checkbox
+                  checked={mostrarCasar}
+                  onCheckedChange={(c) => toggleCasar(c === true)}
+                />
+                <Link2 className="h-3.5 w-3.5" />
+                Casar variantes com o Tecido 1
+              </Label>
+            )}
+          </div>
           <div className="grid sm:grid-cols-2 gap-2">
             {Array.from({ length: 10 }).map((_, i) => {
               const prevFilled = i === 0 || !!block.variantes[i - 1];
@@ -331,6 +413,26 @@ function TecidoBlockEditor({
                           value={multAt(i)}
                           onChange={(e) => setMult(i, Number(e.target.value) || 1)}
                         />
+                      </div>
+                    )}
+                    {mostrarCasar && current && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <Link2 className="h-3 w-3 shrink-0" />
+                        <span className="whitespace-nowrap">Casa com</span>
+                        <Select
+                          value={block.complementas?.[i] ?? ""}
+                          onValueChange={(v) => setComplementa(i, v === "__none__" ? null : v)}
+                        >
+                          <SelectTrigger className="h-7 flex-1 text-xs">
+                            <SelectValue placeholder="variante do Tecido 1" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            {tecido1Variantes.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )}
                     {current && (

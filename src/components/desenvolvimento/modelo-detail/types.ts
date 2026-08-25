@@ -29,6 +29,11 @@ export type TecidoBlock = {
   multiplicadores: number[];
   /** Por posição de variante (0..9): lista de OCs alocadas a ela. */
   oc_links: OcAlloc[][];
+  /**
+   * Por posição de variante (0..9): id da variante do Tecido 1 que este slot
+   * complementa (casar variantes). Só em blocos NÃO-Tecido-1. null = sem par.
+   */
+  complementas: (string | null)[];
 };
 
 export type AviamentoRow = {
@@ -80,6 +85,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         variantes: Array(10).fill(null),
         multiplicadores: Array(10).fill(1),
         oc_links: Array.from({ length: 10 }, () => [] as OcAlloc[]),
+        complementas: Array(10).fill(null),
       });
     }
   });
@@ -136,10 +142,13 @@ export function removerVarianteDoBloco(b: TecidoBlock, vIdx: number): TecidoBloc
   while (multiplicadores.length < len) multiplicadores.push(1);
   const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
   while (oc_links.length < len) oc_links.push([]);
+  const complementas = [...(b.complementas ?? [])];
+  while (complementas.length < len) complementas.push(null);
   variantes.splice(vIdx, 1); variantes.push(null);
   multiplicadores.splice(vIdx, 1); multiplicadores.push(1);
   oc_links.splice(vIdx, 1); oc_links.push([]);
-  return { ...b, variantes, multiplicadores, oc_links };
+  complementas.splice(vIdx, 1); complementas.push(null);
+  return { ...b, variantes, multiplicadores, oc_links, complementas };
 }
 
 /**
