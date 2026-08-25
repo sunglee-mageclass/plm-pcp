@@ -8,7 +8,7 @@ import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
-import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -172,28 +172,32 @@ function CqListPage() {
               <tr><td colSpan={5} className="p-0"><EmptyState icon={ClipboardCheck} title="Nenhum modelo disponível" description="Modelos prontos para CQ aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {sorted.map((r: any) => (
-              <tr
+              <ModeloFotoHoverRow
                 key={r.modelo_id}
+                fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                nome={r.nome}
+              >
+              <tr
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <ModeloFotoHover
-                    fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
-                    nome={r.nome}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                      <VersaoBadge versao={r.versao} className="text-[10px]" />
-                      <RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" />
-                    </span>
-                  </ModeloFotoHover>
+                  <span className="inline-flex items-center gap-2">
+                    <ModeloFotoIconeMobile
+                      fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                      nome={r.nome}
+                    />
+                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                    <VersaoBadge versao={r.versao} className="text-[10px]" />
+                    <RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" />
+                  </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
                 <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.statusGeral} /></td>
               </tr>
+              </ModeloFotoHoverRow>
             ))}
           </tbody>
         </table>

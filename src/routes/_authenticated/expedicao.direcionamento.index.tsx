@@ -18,7 +18,7 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/")({
   component: DirListPage,
@@ -143,19 +143,22 @@ function DirListPage() {
               <tr><td colSpan={5} className="p-0"><EmptyState icon={Compass} title="Nenhum modelo disponível" description="Modelos prontos para direcionamento aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {sorted.map((r: any) => (
-              <tr
+              <ModeloFotoHoverRow
                 key={r.modelo_id}
+                fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]}
+                nome={r.nome}
+              >
+              <tr
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <ModeloFotoHover fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome}>
-                    <span className="inline-flex items-center gap-2">
-                      <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                      <VersaoBadge versao={r.versao} className="text-[10px]" />
-                      <RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" />
-                    </span>
-                  </ModeloFotoHover>
+                  <span className="inline-flex items-center gap-2">
+                    <ModeloFotoIconeMobile fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]} nome={r.nome} />
+                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                    <VersaoBadge versao={r.versao} className="text-[10px]" />
+                    <RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" />
+                  </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
@@ -166,6 +169,7 @@ function DirListPage() {
                   </StatusBadge>
                 </td>
               </tr>
+              </ModeloFotoHoverRow>
             ))}
           </tbody>
         </table>

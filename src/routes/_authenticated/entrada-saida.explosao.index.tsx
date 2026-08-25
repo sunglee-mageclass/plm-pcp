@@ -15,7 +15,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
-import { ModeloFotoHover } from "@/components/shared/ModeloFotoHover";
+import { ModeloFotoHoverRow, ModeloFotoIconeMobile } from "@/components/shared/ModeloFotoHover";
 import { cn } from "@/lib/utils";
 import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 import { useFilterState } from "@/hooks/useFilterState";
@@ -224,8 +224,12 @@ function ExplosaoListPage() {
               </tr>
             )}
             {sorted.map((r: any) => (
-              <tr
+              <ModeloFotoHoverRow
                 key={r.modelo_id}
+                fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                nome={r.nome}
+              >
+              <tr
                 className={cn(
                   "border-t hover:bg-muted/30 cursor-pointer",
                   r.situacao === "enviado" && "opacity-50",
@@ -233,15 +237,14 @@ function ExplosaoListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <ModeloFotoHover
-                    fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
-                    nome={r.nome}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
-                      <VersaoBadge versao={r.versao} className="text-[10px]" />
-                    </span>
-                  </ModeloFotoHover>
+                  <span className="inline-flex items-center gap-2">
+                    <ModeloFotoIconeMobile
+                      fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
+                      nome={r.nome}
+                    />
+                    <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
+                    <VersaoBadge versao={r.versao} className="text-[10px]" />
+                  </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
@@ -250,6 +253,7 @@ function ExplosaoListPage() {
                   <SituacaoChip situacao={r.situacao} />
                 </td>
               </tr>
+              </ModeloFotoHoverRow>
             ))}
           </tbody>
         </table>
