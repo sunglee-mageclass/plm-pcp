@@ -451,28 +451,29 @@
   table.fin-table > tbody > tr { padding: 0.75rem; }
   table.fin-table > tbody > tr > td { padding: 0.45rem 0; }
 
-  /* Variante com FOTO RETRATO à esquerda no card mobile: o <tr> vira flex-row — a 1ª célula
-     (a foto, com data-label="foto") é uma coluna estreita à esquerda que ESTICA na altura do
-     card, e as demais células (REF até Situação) empilham na coluna da direita. Reusa toda a
-     formatação "rótulo: valor" das outras td. Escopado a .card-table-foto (listas de produto). */
+  /* Variante com FOTO RETRATO à esquerda no card mobile: o <tr> vira um GRID de 2 colunas —
+     coluna 1 = foto (estreita, ~64px, ocupa TODAS as linhas), coluna 2 = REF + Nome +
+     Categoria + Coleção + Situação, cada uma numa linha, empilhadas à direita da foto.
+     Grid (em vez de flex) garante que as infos formem uma ÚNICA coluna ao lado da foto, sem
+     quebrar pra baixo dela. Escopado a .card-table-foto (listas de produto). */
   table.card-table-foto > tbody > tr {
-    display: flex;
-    flex-direction: row;
-    align-items: stretch; /* a foto estica p/ a altura do bloco (definida pela coluna direita) */
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto 1fr; /* foto (auto=~64px) | infos (resto) */
+    align-items: start;
+    column-gap: 0.75rem;
+    row-gap: 0.2rem;
   }
-  /* célula da foto: coluna esquerda estreita (~64px), estica na altura */
+  /* célula da foto: coluna 1, ocupa todas as linhas do grid (estica na altura do bloco) */
   table.card-table-foto > tbody > tr > td[data-label="foto"] {
-    flex: 0 0 auto;
-    display: flex;
+    grid-column: 1;
+    grid-row: 1 / -1;
     align-self: stretch;
     padding: 0;
   }
   table.card-table-foto > tbody > tr > td[data-label="foto"]::before { content: none; }
-  /* as demais células empilham na coluna da direita (largura restante) */
+  /* as demais células vão todas na coluna 2 (empilhadas, cada uma numa linha do grid) */
   table.card-table-foto > tbody > tr > td:not([data-label="foto"]) {
-    flex: 1 1 calc(100% - 4.75rem); /* ~64px foto + 0.75rem gap ≈ 4.75rem */
+    grid-column: 2;
     min-width: 0;
   }
 }
