@@ -39,8 +39,10 @@ export function ModeloFotoHoverRow({
   );
 }
 
-/** Célula de foto (thumbnail ~80px) à esquerda do card no mobile — sempre visível, sem toque.
- *  É um `<td>` (vai direto dentro do `<tr>`), escondido no desktop. */
+/** Célula de foto RETRATO (~64px de largura) à esquerda do card no mobile — sempre visível,
+ *  sem toque, esticando na altura do bloco. É um `<td>` (vai direto dentro do `<tr>`),
+ *  escondido no desktop. `h-full` faz a foto acompanhar a altura da coluna direita (via o
+ *  `align-self: stretch` do `.card-table-foto`); `w-16` (~64px) mantém o retrato estreito. */
 export function ModeloFotoCelulaMobile({
   fontes,
   nome,
@@ -50,7 +52,7 @@ export function ModeloFotoCelulaMobile({
 }) {
   return (
     <td data-label="foto" className="md:hidden">
-      <ModeloResumoFoto fontes={fontes} nome={nome} className="h-20 w-20" />
+      <ModeloResumoFoto fontes={fontes} nome={nome} className="h-full min-h-24 w-16" />
     </td>
   );
 }
