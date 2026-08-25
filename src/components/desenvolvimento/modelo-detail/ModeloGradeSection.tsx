@@ -9,7 +9,13 @@ import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 // `tecido` só vem preenchido quando o pool do Tecido 1 tem mais de um artigo (substitutos):
 // aí o nome do tecido prefixa a variante p/ desambiguar qual variante é de qual tecido.
-export type GradeVarianteInfo = { numero: number; label: string; tecido?: string };
+export type GradeVarianteInfo = {
+  numero: number;
+  label: string;
+  tecido?: string;
+  /** Rótulo do par casado (Fatia 1 casar-variantes): '{tecido B} · cor'. Só o TEXTO — a grade em si é a do Tecido 1. */
+  complemento?: string;
+};
 
 export function ModeloGradeSection({
   tamanhos,
@@ -93,7 +99,7 @@ export function ModeloGradeSection({
         </p>
       ) : (
         <div className="space-y-2">
-          {tecido1Variantes.map(({ numero: n, label, tecido }) => {
+          {tecido1Variantes.map(({ numero: n, label, tecido, complemento }) => {
             const g = ensureGrade(n);
             return (
               <Card key={n} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "grade")}`}>
@@ -107,6 +113,9 @@ export function ModeloGradeSection({
                         {tecido && label ? " · " : null}
                         {label}
                       </span>
+                    ) : null}
+                    {complemento ? (
+                      <span className="text-muted-foreground font-normal"> · casada com {complemento}</span>
                     ) : null}
                   </span>
                   <div className="flex items-center gap-2">

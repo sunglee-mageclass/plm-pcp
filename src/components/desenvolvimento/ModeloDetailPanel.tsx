@@ -1361,6 +1361,45 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
+  // Fatia 1 (casar variantes) — pares casados: varre os blocos NÃO-Tecido-1 (Tecido 2/3, Forro,
+  // Entretela) e coleta, por slot, o par {variante do Tecido 1 (t1id) → variante complementar
+  // deste bloco (compVarId)} via `block.complementas[i]` (Task 2). Um t1id pode ter mais de um
+  // complemento (ex.: Tecido 2 E Forro ambos casados com a mesma cor do Tecido 1).
+  const paresComplementares = useMemo(() => {
+    const out: { t1id: string; compVarId: string }[] = [];
+    blocks.forEach((b) => {
+      if (b.tipo === "tecido" && b.numero === 1) return;
+      (b.complementas ?? []).forEach((t1id, i) => {
+        const compVarId = b.variantes[i];
+        if (t1id && compVarId) out.push({ t1id, compVarId });
+      });
+    });
+    return out;
+  }, [blocks]);
+
+  const compVarIds = useMemo(
+    () => Array.from(new Set(paresComplementares.map((p) => p.compVarId))),
+    [paresComplementares],
+  );
+
+  const { data: compVarLabels = {} } = useQuery({
+    queryKey: ["variantes-labels-comp", compVarIds.join(",")],
+    enabled: compVarIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .in("id", compVarIds);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((v: any) => {
+        const l = labelVarianteRow(v);
+        map[v.id] = l !== "—" ? l : "";
+      });
+      return map;
+    },
+  });
+
   const tecido1VariantesInfo = useMemo(() => {
     // O nome do tecido só prefixa a variante quando o pool do Tecido 1 mistura MAIS DE UM
     // artigo (tecidos substitutos): aí não dá pra saber qual variante é de qual tecido só
@@ -1370,12 +1409,25 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       tecido1VarianteIds.map((id) => varianteArtigoMap[id]).filter(Boolean),
     );
     const multiTecido = artigosNoPool.size > 1;
-    return tecido1VarianteIds.map((id, i) => ({
-      numero: i + 1,
-      label: tecido1VariantesLabels[id] ?? "",
-      tecido: multiTecido ? (artigoMap[varianteArtigoMap[id]]?.nome ?? undefined) : undefined,
-    }));
-  }, [tecido1VarianteIds, tecido1VariantesLabels, varianteArtigoMap, artigoMap]);
+    return tecido1VarianteIds.map((id, i) => {
+      // Fatia 1: junta o(s) rótulo(s) "{tecido complementar} · {cor}" de todo par casado
+      // com esta variante do Tecido 1 (pode ter mais de um — Tecido 2 e Forro, por ex.).
+      const complementoPartes = paresComplementares
+        .filter((p) => p.t1id === id)
+        .map((p) => {
+          const nomeArtigo = artigoMap[varianteArtigoMap[p.compVarId]]?.nome;
+          const corLabel = compVarLabels[p.compVarId];
+          return [nomeArtigo, corLabel].filter(Boolean).join(" · ");
+        })
+        .filter(Boolean);
+      return {
+        numero: i + 1,
+        label: tecido1VariantesLabels[id] ?? "",
+        tecido: multiTecido ? (artigoMap[varianteArtigoMap[id]]?.nome ?? undefined) : undefined,
+        complemento: complementoPartes.length > 0 ? complementoPartes.join(", ") : undefined,
+      };
+    });
+  }, [tecido1VarianteIds, tecido1VariantesLabels, varianteArtigoMap, artigoMap, paresComplementares, compVarLabels]);
   // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
