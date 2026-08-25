@@ -184,9 +184,9 @@ function CqListPage() {
                 <ModeloResumoLinhaMobile
                   fontes={[(r as any).fotos_modelo?.[0], (r as any).desenho_tecnico_url, (r as any).croqui_url]}
                   refModelo={r.ref}
+                  versao={r.versao}
                   nome={r.nome}
                   categoria={r.categoria_nome}
-                  colecao={r.colecao}
                   extra={<CqStatusBadge status={r.statusGeral} />}
                 />
                 <td className="px-4 py-2">

@@ -155,9 +155,9 @@ function DirListPage() {
                 <ModeloResumoLinhaMobile
                   fontes={[r.fotos_modelo?.[0], r.desenho_tecnico_url, r.croqui_url]}
                   refModelo={r.ref}
+                  versao={r.versao}
                   nome={r.nome}
                   categoria={r.categoria_nome}
-                  colecao={r.colecao}
                   extra={<StatusBadge tone={r.dir_status === "separado" ? "success" : "warning"}>{r.dir_status === "separado" ? "Separado" : "Pendente"}</StatusBadge>}
                 />
                 <td className="px-4 py-2">
