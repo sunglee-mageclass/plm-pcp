@@ -75,11 +75,13 @@ export function ModeloTecidosSection({
         .select("id, nome_variante, codigo_variante, artigo_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("artigo_id", tecido1PoolIds);
       if (error) throw error;
-      return (data ?? []).map((v: any) => ({
-        id: v.id,
-        artigo_id: v.artigo_id as string,
-        nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
-      }));
+      return (data ?? [])
+        .map((v: any) => ({
+          id: v.id,
+          artigo_id: v.artigo_id as string,
+          nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
+        }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
     },
   });
   // Só as variantes que o Tecido 1 realmente usa, na ordem do bloco. Se o pool tem
@@ -287,11 +289,13 @@ function TecidoBlockEditor({
         .select("id, nome_variante, codigo_variante, artigo_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("artigo_id", poolArtigoIds);
       if (error) throw error;
-      return (data ?? []).map((v: any) => ({
-        id: v.id,
-        artigo_id: v.artigo_id as string,
-        nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
-      }));
+      return (data ?? [])
+        .map((v: any) => ({
+          id: v.id,
+          artigo_id: v.artigo_id as string,
+          nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
+        }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
     },
   });
   const varianteLabel = (v: { artigo_id: string; nome: string }) =>
