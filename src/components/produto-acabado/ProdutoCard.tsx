@@ -69,6 +69,7 @@ export function ProdutoCard({
   onCardCriado,
   onOcVinculada,
   onExcluido,
+  onAbrirPlanejamento,
 }: {
   produto: ProdutoDraft;
   onChange: (next: ProdutoDraft) => void;
@@ -96,6 +97,10 @@ export function ProdutoCard({
   onCardCriado: (modeloId: string) => void;
   onOcVinculada: (oc: OcVinculadaInfo | null) => void;
   onExcluido: () => void;
+  /** Abre o `PlanejamentoDetail` INLINE no sheet-pai (ProdutoAcabadoSheet) em vez de navegar
+   *  pra `/criacao/planejamento` — ausente (outros usos futuros do ProdutoCard) cai no navigate
+   *  antigo como fallback. */
+  onAbrirPlanejamento?: (modeloId: string) => void;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -355,7 +360,11 @@ export function ProdutoCard({
                 <button
                   type="button"
                   title="Abrir card no Plan. Produto"
-                  onClick={(e) => { e.stopPropagation(); navigate({ to: "/criacao/planejamento", search: { modelo: produto.modelo_id } as any }); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onAbrirPlanejamento) onAbrirPlanejamento(produto.modelo_id!);
+                    else navigate({ to: "/criacao/planejamento", search: { modelo: produto.modelo_id } as any });
+                  }}
                   className="shrink-0 rounded p-0.5 text-primary hover:bg-primary/10"
                 >
                   <ExternalLink className="h-3 w-3" />

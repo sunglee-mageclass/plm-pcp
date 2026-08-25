@@ -13,6 +13,7 @@ import { AgrupamentoButton } from "@/components/shared/filters";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useOrcamento } from "@/components/otb/orcamento";
+import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { ProdutoCard } from "./ProdutoCard";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
@@ -165,6 +166,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [resumoAberto, setResumoAberto] = useState(true);
   const [novoOpen, setNovoOpen] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
+  // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
+  // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
+  const [planModeloId, setPlanModeloId] = useState<string | null>(null);
   const [agrupar, setAgruparState] = useState<AgruparEstado>(lerAgruparSalvo);
   const setAgrupar = (patch: Partial<AgruparEstado>) =>
     setAgruparState((s) => {
@@ -472,6 +476,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => patchProduto(p.id, { oc })}
             onExcluido={() => removeProduto(p.id)}
+            onAbrirPlanejamento={setPlanModeloId}
           />
         </div>
       ))}
@@ -483,6 +488,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const semOc = produtosSub.filter((p) => !p.oc);
 
   return (
+    <>
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" size="full" className="flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex flex-col gap-1.5 border-b bg-background p-3">
@@ -731,5 +737,19 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         </Dialog>
       </SheetContent>
     </Sheet>
+
+    {/* Card → "Abrir card no Plan. Produto" (botão ExternalLink em ProdutoCard) — abre o
+        PlanejamentoDetail INLINE por cima deste Sheet, sem navegar; o próprio detail monta seu
+        Sheet/Dialog e cuida do guarda de unsaved (não duplicar aqui). onSaved invalida a query
+        dos cards pra refletir preço/dados espelhados que o Plan. Produto possa ter mudado. */}
+    {planModeloId && (
+      <PlanejamentoDetail
+        modeloId={planModeloId}
+        contexto="produto-acabado"
+        onClose={() => setPlanModeloId(null)}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["produtos-acabados", colecaoId] })}
+      />
+    )}
+    </>
   );
 }
