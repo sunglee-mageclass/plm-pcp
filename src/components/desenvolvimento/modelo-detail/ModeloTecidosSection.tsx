@@ -19,7 +19,12 @@ import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
-type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
+type ArtigoOpt = {
+  id: string;
+  nome: string;
+  unidade_medida?: string | null;
+  empresa?: { nome_fantasia: string | null; razao_social: string | null } | null;
+};
 
 const fmtM = (n: number) => fmtNum(n);
 
@@ -244,6 +249,15 @@ function TecidoBlockEditor({
   const multiFabric = poolArtigoIds.length > 1;
   // Opções de substituto: catálogo completo, menos o que já está no pool.
   const substitutoOptions = allArtigos.filter((a) => !poolArtigoIds.includes(a.id));
+  // Label do dropdown de substituto: "Nome · Fornecedor [unidade]" — só aqui (P4).
+  // Não mexe no artigoLabel (usado no principal/forro/entretela).
+  const fornecedorNome = (a: any) => a.empresa?.nome_fantasia || a.empresa?.razao_social || null;
+  const substitutoLabel = (a: any) => {
+    const forn = fornecedorNome(a);
+    const base = a.nome ?? "—";
+    const u = (a.unidade_medida ?? "").trim();
+    return `${base}${forn ? ` · ${forn}` : ""}${u ? ` [${u}]` : ""}`;
+  };
 
   // Multiplicador de cobertura: só nos complementares (Tecido 2/3, Forro, Entretela).
   const canMultiplicador = !(block.tipo === "tecido" && block.numero === 1);
@@ -354,7 +368,7 @@ function TecidoBlockEditor({
               <Select value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
                 <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs"><SelectValue placeholder="+ adicionar tecido" /></SelectTrigger>
                 <SelectContent>
-                  {substitutoOptions.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
+                  {substitutoOptions.map((a) => <SelectItem key={a.id} value={a.id}>{substitutoLabel(a)}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}

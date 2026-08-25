@@ -308,9 +308,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     queryKey: ["artigos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida, categoria_tecido_id, largura_estimada").order("nome");
+        .from("artigos")
+        .select("id, nome, preco, preco_por_metro, unidade_medida, categoria_tecido_id, largura_estimada, empresa:empresa_id(nome_fantasia, razao_social)")
+        .order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null; categoria_tecido_id: string | null; largura_estimada: number | null }[];
+      return (data ?? []) as any as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null; categoria_tecido_id: string | null; largura_estimada: number | null; empresa?: { nome_fantasia: string | null; razao_social: string | null } | null }[];
     },
   });
   const artigoMap = useMemo(() => Object.fromEntries(artigos.map((a) => [a.id, a])), [artigos]);
