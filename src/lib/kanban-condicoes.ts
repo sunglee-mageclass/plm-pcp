@@ -132,3 +132,21 @@ export function requisitosOk(requisitos: string[] | undefined, satisfeitas: Reco
   const faltando = reqs.filter((k) => !satisfeitas[k]).map((k) => CONDICAO_BY_KEY.get(k)).filter(Boolean) as Condicao[];
   return { ok: faltando.length === 0, faltando };
 }
+
+/**
+ * Fluxo de Revenda (ago/2026) — condições ESTRUTURALMENTE impossíveis para modelos
+ * `origem==='revenda'` (nunca passam por tecido/CAD/explosão/serviços de confecção/grade
+ * cortada — ver invariante #13 no CLAUDE.md). Usado só para ESMAECER essas opções no dialog
+ * de configuração de requisitos por coluna (revenda nunca vai satisfazê-las, então exigi-las
+ * travaria o card pra sempre). NÃO participa do catálogo `CONDICOES`/RPC — puramente uma lista
+ * de exclusão consultada pela UI.
+ */
+export const REVENDA_COND_NA: string[] = [
+  "tecido_planejado",
+  "tecido_com_variante",
+  "grade_todas_variantes",
+  "cad_preenchido",
+  "enviado_cad",
+  "servico_finalizado",
+  "grade_cortada_lancada",
+];
