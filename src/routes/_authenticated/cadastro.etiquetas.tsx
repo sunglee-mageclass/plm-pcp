@@ -26,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtNum } from "@/lib/format";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -317,7 +318,7 @@ function EtiquetasPage() {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               {isAdmin && (
@@ -361,7 +362,7 @@ function EtiquetasPage() {
               sorted.map((e) => (
                 <TableRow key={e.id} data-state={selected.has(e.id) ? "selected" : undefined}>
                   {isAdmin && (
-                    <TableCell className="w-10">
+                    <TableCell className="w-10" data-label="">
                       {!readOnly && <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />}
                     </TableCell>
                   )}
@@ -369,10 +370,10 @@ function EtiquetasPage() {
                     <button type="button" className="text-left hover:underline font-medium" onClick={() => openEdit(e)}>{e.nome}</button>
                     {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
                   </TableCell>
-                  <TableCell className="capitalize">{e.unidade}</TableCell>
-                  <TableCell className="text-muted-foreground">{fornecedorLabel(e)}</TableCell>
-                  <TableCell className="text-right num">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="capitalize" data-label="Unidade">{e.unidade}</TableCell>
+                  <TableCell className="text-muted-foreground" data-label="Fornecedor">{fornecedorLabel(e)}</TableCell>
+                  <TableCell className="text-right num" data-label="Preço">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
+                  <TableCell className="text-right" data-label="Ações">
                     <Button size="iconSm" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
                     <Button size="iconSm" variant="ghost" onClick={() => setDeleteRow(e)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
@@ -396,7 +397,8 @@ function EtiquetasPage() {
         const TitleTag = editing ? SheetTitle : DialogTitle;
         const modalConteudo = (
           <>
-          <div className="shrink-0 border-b px-6 pt-6 pb-3">
+          <div className="shrink-0 border-b px-6 pt-6 pb-3 space-y-1">
+            <Breadcrumb items={[{ label: "Cadastro" }, { label: "Insumos" }, { label: editing ? editing.nome : "Nova" }]} />
             <div className="flex items-center gap-2">
               <TitleTag className="text-lg font-semibold">{editing ? "Editar etiqueta" : "Nova etiqueta"}</TitleTag>
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
@@ -494,10 +496,10 @@ function EtiquetasPage() {
               <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" disabled={readOnly} />
             </div>
           </div>
-          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2 sm:justify-end">
+          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
             <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
             {!readOnly && (
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
