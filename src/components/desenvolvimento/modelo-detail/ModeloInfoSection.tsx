@@ -37,6 +37,8 @@ export function ModeloInfoSection({
   colecoes,
   subcolecoes,
   origem,
+  isRevenda = false,
+  campoVisivel = () => true,
   camposCopiados = new Set(),
   onCampoEditado,
   colab,
@@ -65,6 +67,11 @@ export function ModeloInfoSection({
   /** `modelos.origem` — definido pelo fluxo que criou o modelo (Planejamento/Revenda),
    *  NÃO editável aqui. Só EXIBIR (read-only). */
   origem?: string | null;
+  /** Modelo de revenda? (`modelos.origem==='revenda'`). Governa a config de campos abaixo. */
+  isRevenda?: boolean;
+  /** Campo `key` visível? Fluxo INTERNO sempre true (nada esconde). Revenda consulta a config
+   *  da loja (default: os 9 campos de Info Básicas OFF). Montada no Panel via `revendaCampoVisivel`. */
+  campoVisivel?: (key: string) => boolean;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
   // Colab (spec 2026-08-03, Task 1): presença por campo — SÓ nome/datas nesta 1ª adoção
@@ -224,7 +231,9 @@ export function ModeloInfoSection({
               <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
             </Field>
           )}
-          <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+          {campoVisivel("modelista_id") && (
+            <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <FieldSelectOpt
@@ -246,7 +255,10 @@ export function ModeloInfoSection({
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cronograma &amp; pilotos</div>
         <div className="grid sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-          <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
+          {campoVisivel("piloteiro1_id") && (
+            <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
+          )}
+          {campoVisivel("data_piloto1") && (
           <Field label="Data Piloto 1">
             <DateField
               value={draft.data_piloto1 ?? ""}
@@ -256,6 +268,7 @@ export function ModeloInfoSection({
               inputClassName={colabField("data_piloto1").className}
             />
           </Field>
+          )}
         </div>
         {visiblePilotos.has(2) && (
           <>
@@ -266,7 +279,10 @@ export function ModeloInfoSection({
               </Button>
             </div>
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-              <FieldSelectOpt label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
+              {campoVisivel("piloteiro2_id") && (
+                <FieldSelectOpt label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
+              )}
+              {campoVisivel("data_piloto2") && (
               <Field label="Data Piloto 2">
                 <DateField
                   value={draft.data_piloto2 ?? ""}
@@ -276,6 +292,7 @@ export function ModeloInfoSection({
                   inputClassName={colabField("data_piloto2").className}
                 />
               </Field>
+              )}
             </div>
           </>
         )}
@@ -288,7 +305,10 @@ export function ModeloInfoSection({
               </Button>
             </div>
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-              <FieldSelectOpt label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
+              {campoVisivel("piloteiro3_id") && (
+                <FieldSelectOpt label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
+              )}
+              {campoVisivel("data_piloto3") && (
               <Field label="Data Piloto 3">
                 <DateField
                   value={draft.data_piloto3 ?? ""}
@@ -298,6 +318,7 @@ export function ModeloInfoSection({
                   inputClassName={colabField("data_piloto3").className}
                 />
               </Field>
+              )}
             </div>
           </>
         )}
@@ -315,6 +336,7 @@ export function ModeloInfoSection({
             )}
           </div>
         )}
+        {campoVisivel("data_desenho_tecnico") && (
         <Field label="Data Desenho Técnico">
           <DateField
             value={draft.data_desenho_tecnico ?? ""}
@@ -324,6 +346,8 @@ export function ModeloInfoSection({
             inputClassName={colabField("data_desenho_tecnico").className}
           />
         </Field>
+        )}
+        {campoVisivel("data_aprovacao") && (
         <Field label="Data Aprovação">
           <DateField
             value={draft.data_aprovacao ?? ""}
@@ -333,6 +357,7 @@ export function ModeloInfoSection({
             inputClassName={colabField("data_aprovacao").className}
           />
         </Field>
+        )}
         </div>
       </div>
       <Field label="Observações Técnicas" full>

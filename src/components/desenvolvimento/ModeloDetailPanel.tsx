@@ -59,6 +59,7 @@ import {
   type TecidoBlock,
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
+import { lerRevendaConfig, revendaCampoVisivel } from "@/lib/revenda-config";
 import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
@@ -254,11 +255,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status, ref_exibir_status").eq("tenant_id", tenantId).maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status, ref_exibir_status, revenda_campos").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },
   });
+  // Config de revenda (por loja) — só as 3 chaves de campos/seções interessam a este arquivo
+  // (Task 4 cobre colunas/requisitos do kanban). `lerRevendaConfig` tolera as chaves faltando.
+  const revendaCfg = useMemo(() => lerRevendaConfig(tenantCfg), [tenantCfg]);
 
   // Motor de regras: condições satisfeitas do modelo (estado SALVO) + requisitos por status.
   // Bloqueia mudar de status pelo Select se os requisitos não batem — só o salvo conta.
@@ -1492,30 +1496,39 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
+  // Revenda (`modelos.origem`, fora do `draft` — nunca editado aqui): a MO por serviço não se
+  // aplica (compra pronta de terceiro; paridade com o Planejamento, que também esconde o
+  // editor p/ revenda). Também governa quais seções/campos aparecem e afrouxa o gate de envio.
+  const isRevenda = modelo?.origem === "revenda";
+  // Campo/seção `key` visível? Fluxo INTERNO (não-revenda) SEMPRE true (nada esconde — byte-a-byte
+  // idêntico ao de hoje). Revenda consulta a config da loja (default: os 9 campos + 3 seções OFF).
+  const campoVisivel = (key: string) => !isRevenda || revendaCampoVisivel(revendaCfg, key);
   // Cada pendência aponta a SEÇÃO do accordion onde se resolve (o rodapé vira link que abre a seção).
   const cadMissing: { label: string; sec: string }[] = [];
   if (podeEnviarEtapa) {
+    // Mínimos (Nome/REF/Estilista/Categoria): exigidos SEMPRE, inclusive revenda (não afrouxam).
     if ((draft?.ref ?? "").trim() === "") cadMissing.push({ label: fl("ref"), sec: "s1" });
     if ((draft?.nome ?? "").trim() === "") cadMissing.push({ label: "Nome", sec: "s1" });
     if (!(modelo as any)?.estilista_id) cadMissing.push({ label: "Estilista", sec: "s1" });
     if (!draft?.categoria_principal_id) cadMissing.push({ label: "Categoria", sec: "s1" });
-    if (!hasTecidoComVariante) cadMissing.push({ label: "ao menos 1 tecido com variante", sec: "s2" });
-    else if (!todosBlocosComArtigoTemVariante) cadMissing.push({ label: "1 variante em cada tecido/forro/entretela selecionado", sec: "s2" });
-    if (gradeTotalGeral <= 0) cadMissing.push({ label: "grade preenchida", sec: "s4" });
-    if ((draft?.data_desenho_tecnico ?? "").trim() === "") cadMissing.push({ label: "Data Desenho Técnico", sec: "s1" });
-    if ((draft?.data_piloto1 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 1", sec: "s1" });
-    if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 2", sec: "s1" });
-    if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 3", sec: "s1" });
+    // Revenda afrouxa: só exige tecido/variante quando a SEÇÃO "s2" está ligada p/ revenda
+    // (`campoVisivel` é sempre true no fluxo interno — regra de hoje intocada).
+    if (campoVisivel("s2")) {
+      if (!hasTecidoComVariante) cadMissing.push({ label: "ao menos 1 tecido com variante", sec: "s2" });
+      else if (!todosBlocosComArtigoTemVariante) cadMissing.push({ label: "1 variante em cada tecido/forro/entretela selecionado", sec: "s2" });
+    }
+    // Idem grade (seção "s4") e as datas (campos configuráveis) — só exigidas se visíveis p/ revenda.
+    if (campoVisivel("s4") && gradeTotalGeral <= 0) cadMissing.push({ label: "grade preenchida", sec: "s4" });
+    if (campoVisivel("data_desenho_tecnico") && (draft?.data_desenho_tecnico ?? "").trim() === "") cadMissing.push({ label: "Data Desenho Técnico", sec: "s1" });
+    if (campoVisivel("data_piloto1") && (draft?.data_piloto1 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 1", sec: "s1" });
+    if (campoVisivel("data_piloto2") && piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 2", sec: "s1" });
+    if (campoVisivel("data_piloto3") && piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 3", sec: "s1" });
   }
   // Enviar habilita quando o modelo está na etapa configurada (ou posterior) e sem itens
   // faltando (idempotente: reenviar é ok).
   const canEnviarCad = podeEnviarEtapa && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
-  // Revenda (`modelos.origem`, fora do `draft` — nunca editado aqui): a MO por serviço não se
-  // aplica (compra pronta de terceiro; paridade com o Planejamento, que também esconde o
-  // editor p/ revenda).
-  const isRevenda = modelo?.origem === "revenda";
 
   // ── Selos de completude por seção + numeração DINÂMICA do accordion ──────────────────
   const nTecidos = blocks.filter((b) => b.tipo === "tecido" && !!b.artigo_id).length;
@@ -1533,10 +1546,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // Ordem das seções → nº 1..N pulando as ocultas (Custos some sem permissão, sem deixar buraco).
   // `s5` acompanha o MESMO gate do AccordionItem (podeVerCustos OU só-aprovador de MO) — senão
   // a numeração destoa do que de fato renderiza (Anexos "8" com Custos ausente da lista, etc.).
+  // Revenda esconde seções via config (`campoVisivel` = true no fluxo interno, então a lista é
+  // byte-a-byte a de hoje p/ não-revenda). `s5` combina a config com o gate de custos de sempre.
   const secOrdem: { key: string; on: boolean }[] = [
-    { key: "s1", on: true }, { key: "prova", on: true }, { key: "s2", on: true },
-    { key: "s-cad", on: true }, { key: "s3", on: true }, { key: "s3e", on: true },
-    { key: "s4", on: true }, { key: "s5", on: podeVerCustos || podeAprovarMaoObra }, { key: "s6", on: true },
+    { key: "s1", on: campoVisivel("s1") }, { key: "prova", on: campoVisivel("prova") }, { key: "s2", on: campoVisivel("s2") },
+    { key: "s-cad", on: campoVisivel("s-cad") }, { key: "s3", on: campoVisivel("s3") }, { key: "s3e", on: campoVisivel("s3e") },
+    { key: "s4", on: campoVisivel("s4") }, { key: "s5", on: campoVisivel("s5") && (podeVerCustos || podeAprovarMaoObra) }, { key: "s6", on: campoVisivel("s6") },
   ];
   const secNum = (key: string) => {
     let n = 0;
@@ -2693,6 +2708,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 draft={draft}
                 setDraft={setDraftTracked}
                 origem={modelo?.origem ?? null}
+                isRevenda={isRevenda}
+                campoVisivel={campoVisivel}
                 colab={{ focadoPor }}
                 linhas={linhas.data ?? []}
                 estilistas={estilistas.data ?? []}
@@ -2718,6 +2735,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
+          {campoVisivel("prova") && (
           <AccordionItem value="prova" data-acc="prova">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2733,7 +2751,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
+          {campoVisivel("s2") && (
           <AccordionItem value="s2" data-acc="s2">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2763,7 +2783,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
+          {campoVisivel("s-cad") && (
           <AccordionItem value="s-cad" data-acc="s-cad">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2792,7 +2814,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
+          {campoVisivel("s3") && (
           <AccordionItem value="s3" data-acc="s3">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2816,7 +2840,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
+          {campoVisivel("s3e") && (
           <AccordionItem value="s3e" data-acc="s3e">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2841,7 +2867,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
+          {campoVisivel("s4") && (
           <AccordionItem value="s4" data-acc="s4">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2869,14 +2897,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
 
           {/* Seção abre p/ quem vê custos OU quem só aprova MO (paridade com o Planejamento
               `:2460`, persona suportada pelo banco — `modelo_mo_resumo` já mascara valores
               p/ quem não vê custos). DENTRO, os blocos de custo em R$ (linhas fixas, totais,
               custos adicionais, Obs. Mão de Obra) continuam exclusivos de `podeVerCustos`; só
               o card do `MaoObraEditor` aparece pro aprovador-sem-custos (valores mascarados
-              pelo próprio componente via `podeVerCustos={false}`). */}
-          {(podeVerCustos || podeAprovarMaoObra) && (
+              pelo próprio componente via `podeVerCustos={false}`). Revenda combina o gate de
+              custos com a config (`campoVisivel("s5")`). */}
+          {campoVisivel("s5") && (podeVerCustos || podeAprovarMaoObra) && (
           <AccordionItem value="s5" data-acc="s5">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2934,6 +2964,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           </AccordionItem>
           )}
 
+          {campoVisivel("s6") && (
           <AccordionItem value="s6" data-acc="s6">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2968,6 +2999,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </fieldset>
             </AccordionContent>
           </AccordionItem>
+          )}
         </Accordion>
 
         <fieldset disabled={locked} className="contents">
