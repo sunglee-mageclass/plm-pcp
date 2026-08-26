@@ -27,6 +27,8 @@ import { useSort, SortHead } from "@/components/shared/sort";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 export const Route = createFileRoute("/_authenticated/cadastro/lojas")({
   component: () => (
@@ -248,7 +250,11 @@ function LojasPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{l.ordem ?? "—"}</TableCell>
                   <TableCell>
-                    <Badge variant={l.ativo ? "default" : "outline"}>{l.ativo ? "Ativa" : "Desativada"}</Badge>
+                    {l.ativo ? (
+                      <StatusBadge tone="success">Ativa</StatusBadge>
+                    ) : (
+                      <StatusBadge tone="neutral">Desativada</StatusBadge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button size="iconSm" variant="ghost" onClick={() => openEdit(l)} aria-label="Editar">
@@ -300,10 +306,13 @@ function LojasPage() {
         <SheetContent side="right" className="w-full sm:w-[480px] sm:max-w-[480px] flex flex-col p-0">
           <div className="flex-1 overflow-y-auto p-6">
             <SheetHeader>
-              <div className="flex items-center gap-2">
-                <SheetTitle>Editar loja</SheetTitle>
-                {editing?.is_default && <Badge variant="secondary" className="text-[10px]">Padrão</Badge>}
-                <UnsavedIndicator show={editDirty} className="ml-auto shrink-0" />
+              <div className="space-y-1">
+                <Breadcrumb items={[{ label: "Cadastro" }, { label: "Lojas" }, { label: editing?.nome ?? "" }]} />
+                <div className="flex items-center gap-2">
+                  <SheetTitle>Editar loja</SheetTitle>
+                  {editing?.is_default && <Badge variant="secondary" className="text-[10px]">Padrão</Badge>}
+                  <UnsavedIndicator show={editDirty} className="ml-auto shrink-0" />
+                </div>
               </div>
             </SheetHeader>
             {formFields}
