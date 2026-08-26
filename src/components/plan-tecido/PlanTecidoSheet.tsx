@@ -1119,7 +1119,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent side="right" size="full" className="flex flex-col p-0 max-sm:[&>button]:hidden">
+      <SheetContent side="right" size="full" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex flex-col gap-1.5 border-b bg-background p-3">
           <div className="flex items-center gap-2">
             <Breadcrumb items={[

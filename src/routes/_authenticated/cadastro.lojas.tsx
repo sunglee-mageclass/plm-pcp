@@ -221,7 +221,7 @@ function LojasPage() {
       )}
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="lojas-table">
           <TableHeader>
             <TableRow>
               <TableHead className="w-8" />
@@ -412,7 +412,7 @@ function LojaRow({
                 if (e.key === "Enter") { e.preventDefault(); inputRef.current?.blur(); }
                 if (e.key === "Escape") { setNome(loja.nome); inputRef.current?.blur(); }
               }}
-              className="h-8 max-w-xs"
+              className="h-8 w-full sm:max-w-xs"
               aria-label="Nome da loja"
             />
           )}

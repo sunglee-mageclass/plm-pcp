@@ -169,7 +169,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: close });
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent size="editor" className="flex flex-col max-sm:[&>button]:hidden">
+      <SheetContent size="editor" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
         {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} onDirtyChange={setDirty} />}
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste modelo." />
       </SheetContent>
@@ -2640,7 +2640,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // (decisão do dono: "card sempre edita→salva")
   return (
     <>
-      <SheetHeader>
+      <SheetHeader className="shrink-0 px-6 pt-6">
         <Breadcrumb
           items={[
             { label: "Estilo & Engenharia" },
@@ -2673,7 +2673,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div
-        className="mt-4 flex-1 min-h-0 overflow-y-auto"
+        className="mt-4 flex-1 min-h-0 overflow-y-auto px-6"
         onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
         onBlurCapture={() => setCampoFocado(null)}
       >
