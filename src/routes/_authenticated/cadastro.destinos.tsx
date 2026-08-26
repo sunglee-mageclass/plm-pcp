@@ -133,7 +133,7 @@ function DestinosPage() {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
@@ -161,7 +161,7 @@ function DestinosPage() {
                       {d.nome}
                     </button>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell data-label="Ações" className="text-right">
                     <Button size="iconSm" variant="ghost" onClick={() => openEdit(d)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -180,6 +180,8 @@ function DestinosPage() {
         <Badge variant="secondary">{filtered.length}</Badge> registro(s)
       </div>
 
+      {/* §G: 1 campo só (nome) — Dialog único para novo+editar é exceção pragmática deliberada,
+          não split em Sheet/Dialog separados. */}
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent>
           <DialogHeader>
