@@ -63,6 +63,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -936,9 +937,12 @@ function AviamentoModal({
     <ModalShell isSheet={isSheet} open={open} onOpenChange={handleOpenChange}>
         {isSheet ? (
           // Sheet (editar): cabeçalho sem botões de ação (ficam no rodapé sticky).
-          <div className="shrink-0 border-b p-3 flex items-center gap-3">
-            <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
-            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          <div className="shrink-0 border-b p-3 space-y-1">
+            <Breadcrumb items={[{ label: "Cadastro" }, { label: "Aviamentos" }, { label: initial?.codigo_nome || initial?.codigo || "" }]} />
+            <div className="flex items-center gap-3">
+              <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
         ) : (
           <DialogHeader className="max-sm:shrink-0">
@@ -1033,6 +1037,8 @@ function AviamentoModal({
               <NumberInput
                 type="number"
                 step="0.01"
+                blankZero
+                placeholder="0,00"
                 value={form.preco}
                 onChange={(e) => set("preco", e.target.value)}
               />
@@ -1098,6 +1104,8 @@ function AviamentoModal({
               <NumberInput
                 type="number"
                 step="0.01"
+                blankZero
+                placeholder="0"
                 value={form.largura_exata}
                 onChange={(e) => set("largura_exata", e.target.value)}
               />
@@ -1115,6 +1123,8 @@ function AviamentoModal({
               <NumberInput
                 type="number"
                 step="0.01"
+                blankZero
+                placeholder="0"
                 value={form.largura_exata_vazado}
                 onChange={(e) => set("largura_exata_vazado", e.target.value)}
               />
@@ -1133,7 +1143,7 @@ function AviamentoModal({
 
         {isSheet ? (
           // Sheet (editar): rodapé sticky com todos os botões — todos os tamanhos.
-          <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
+          <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
             <Button variant="outline" onClick={requestClose}>
               <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
             </Button>
@@ -1143,7 +1153,7 @@ function AviamentoModal({
               </Button>
             )}
             {!readOnly && (
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 <Save className="h-4 w-4 mr-1" /> {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
