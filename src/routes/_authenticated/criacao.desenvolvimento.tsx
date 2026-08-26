@@ -133,6 +133,7 @@ function DesenvolvimentoPage() {
   const [fStatus, setFStatus] = useFilterState("desenvolvimento", "Status", []);
   const [fCad, setFCad] = useFilterState("desenvolvimento", "Explosão", []);
   const [fGrupo, setFGrupo] = useFilterState("desenvolvimento", "Grupo", []);
+  const [fOrigem, setFOrigem] = useFilterState("desenvolvimento", "Origem", []);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // "Reprovado" nasce colapsada já no PRIMEIRO paint (lazy init contra DEFAULT_STATUSES, que
@@ -349,6 +350,7 @@ function DesenvolvimentoPage() {
     if (fMes.length && !fMes.includes(m.mes_id ?? "")) return false;
     if (fAno.length && !fAno.includes(m.ano_id ?? "")) return false;
     if (fColecao.length && !fColecao.includes(m.colecao ?? "")) return false;
+    if (fOrigem.length && !fOrigem.includes(m.origem ?? "interno")) return false;
     return true;
   });
 
@@ -621,6 +623,7 @@ function DesenvolvimentoPage() {
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: categoriasFiltradasPorGrupo },
               { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
               { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
@@ -892,7 +895,7 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
   return (
-    <div className="relative bg-card border rounded-md p-2 space-y-2">
+    <div className={`relative border rounded-md p-2 space-y-2 ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : "bg-card"}`} title={modelo.origem === "revenda" ? "Revenda" : undefined}>
       {naExplosao && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
@@ -902,9 +905,6 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
-            {modelo.origem === "revenda" && (
-              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
-            )}
           </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
@@ -954,8 +954,9 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
         onDragStartCard?.();
       }}
       onDragEnd={() => onDragEndCard?.()}
-      className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""} ${dragging ? "opacity-50 ring-2 ring-primary" : ""}`}
+      className={`relative border rounded-md p-2 hover:shadow-md transition-shadow ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : "bg-card"} ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""} ${dragging ? "opacity-50 ring-2 ring-primary" : ""}`}
       onClick={onOpen}
+      title={modelo.origem === "revenda" ? "Revenda" : undefined}
       {...handlers}
     >
       {naExplosao && (
@@ -967,9 +968,6 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
-            {modelo.origem === "revenda" && (
-              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
-            )}
           </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
