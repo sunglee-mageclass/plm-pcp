@@ -1,6 +1,7 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useRef, type MutableRefObject } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, ShieldCheck, LogOut, Trash2, ArrowLeft } from "lucide-react";
@@ -23,12 +24,14 @@ import {
 } from "@/components/ui/table";
 import { useSort, SortHead } from "@/components/shared/sort";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 export const Route = createFileRoute("/_authenticated/admin/usuarios-loja")({
   component: UsuariosLojaPage,
@@ -47,6 +50,7 @@ function UsuariosLojaPage() {
   const qc = useQueryClient();
   const callDelete = useServerFn(deleteStoreUser);
   const [open, setOpen] = useState(false);
+  const novoRequestCloseRef = useRef<(() => void) | null>(null);
   const [permUser, setPermUser] = useState<LojaUser | null>(null);
   const [deleting, setDeleting] = useState<LojaUser | null>(null);
   const [confirmLogout, setConfirmLogout] = useState<LojaUser | null>(null);
@@ -110,11 +114,12 @@ function UsuariosLojaPage() {
             </p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) { const rc = novoRequestCloseRef.current; if (rc) rc(); else setOpen(false); } else setOpen(true); }}>
           <DialogTrigger asChild>
             <Button className="max-sm:hidden"><Plus className="h-4 w-4" /> Novo Usuário</Button>
           </DialogTrigger>
-          <NovoUsuarioModal onClose={() => setOpen(false)} />
+          {/* Monta só quando aberto → campos e baseline do guarda nascem limpos a cada abertura. */}
+          {open && <NovoUsuarioModal onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />}
         </Dialog>
       </div>
 
@@ -212,13 +217,19 @@ function UsuariosLojaPage() {
   );
 }
 
-function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
+function NovoUsuarioModal({
+  onClose, requestCloseRef,
+}: { onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const call = useServerFn(createStoreUser);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const dirty = nome !== "" || email !== "" || password !== "";
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  requestCloseRef.current = requestClose;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,7 +253,15 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
   return (
     <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
       <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Novo Usuário</DialogTitle></DialogHeader>
+        <DialogHeader className="max-sm:shrink-0">
+          <div className="space-y-1">
+            <Breadcrumb items={[{ label: "Admin" }, { label: "Usuários da Minha Loja" }, { label: "Novo usuário" }]} />
+            <div className="flex items-center gap-2">
+              <DialogTitle>Novo Usuário</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
+          </div>
+        </DialogHeader>
         <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="nome">Nome *</Label>
@@ -257,14 +276,12 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
             <Input id="pwd" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
           </div>
         </div>
-        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
-        </DialogFooter>
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
+          <Button type="button" variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
+        </div>
       </form>
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
   );
 }
