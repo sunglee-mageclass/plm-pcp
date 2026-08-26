@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Check, X, AlertTriangle } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Check, X, AlertTriangle, Tag } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -546,6 +546,28 @@ function DesenvolvimentoPage() {
     setCollapsed(allCollapsed ? new Set() : new Set(statusKanban.map((s) => s.key)));
   };
 
+  // "Foco Revenda": recolhe as colunas que NÃO fazem parte do fluxo de revenda
+  // (`revenda_kanban_colunas`) e mantém as de revenda expandidas; clicar de novo expande todas.
+  // Só faz sentido quando a loja configurou colunas de revenda (subconjunto real; [] = todas =
+  // nada a focar). O estado "está em foco" é derivado: todas as não-revenda colapsadas E todas as
+  // de revenda expandidas.
+  const colsRevenda = useMemo(() => {
+    const cols = revendaCfg.colunas ?? [];
+    return cols.filter((k) => statusKeySet.has(k));
+  }, [revendaCfg, statusKeySet]);
+  const focoRevendaDisponivel = colsRevenda.length > 0 && colsRevenda.length < statusKanban.length;
+  const emFocoRevenda = focoRevendaDisponivel &&
+    statusKanban.every((s) => colsRevenda.includes(s.key) ? !collapsed.has(s.key) : collapsed.has(s.key));
+  const toggleFocoRevenda = () => {
+    collapsedTocadoRef.current = true;
+    if (emFocoRevenda) {
+      setCollapsed(new Set()); // expande todas
+    } else {
+      // colapsa as não-revenda, expande as de revenda
+      setCollapsed(new Set(statusKanban.filter((s) => !colsRevenda.includes(s.key)).map((s) => s.key)));
+    }
+  };
+
   // Rede de segurança: se o status_kanban RESOLVIDO do tenant trouxer "reprovado" mas o default
   // não o tinha (config customizada), garante a coluna colapsada. Idempotente (no-op se já está)
   // e gated pelo collapsedTocadoRef — não re-força depois que o usuário expande. O caso comum já
@@ -625,6 +647,18 @@ function DesenvolvimentoPage() {
             {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
             <span className="max-lg:sr-only">{allCollapsed ? "Expandir colunas" : "Recolher colunas"}</span>
           </Button>
+          {focoRevendaDisponivel && (
+            <Button
+              variant={emFocoRevenda ? "default" : "outline"}
+              size="sm"
+              className="hidden md:inline-flex h-9"
+              onClick={toggleFocoRevenda}
+              title={emFocoRevenda ? "Expandir todas as colunas" : "Focar nas colunas de revenda (recolhe as demais)"}
+            >
+              <Tag className="h-4 w-4 sm:mr-1" />
+              <span className="max-lg:sr-only">Foco revenda</span>
+            </Button>
+          )}
           <AgrupamentoButton
             groups={[
               { label: "Tecido", active: groupByTecido, onToggle: toggleTecido },
