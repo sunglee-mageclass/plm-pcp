@@ -1421,14 +1421,20 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     return tecido1VarianteIds.map((id, i) => {
       // Fatia 1: junta o(s) rótulo(s) "{tecido complementar} · {cor}" de todo par casado
       // com esta variante do Tecido 1 (pode ter mais de um — Tecido 2 e Forro, por ex.).
-      const complementoPartes = paresComplementares
-        .filter((p) => p.t1id === id)
-        .map((p) => {
-          const nomeArtigo = artigoMap[varianteArtigoMap[p.compVarId]]?.nome;
-          const corLabel = compVarLabels[p.compVarId];
-          return [nomeArtigo, corLabel].filter(Boolean).join(" · ");
-        })
-        .filter(Boolean);
+      // Dedup defensivo: no N-pra-N, dois blocos podem casar a MESMA variante
+      // complementar com a mesma cor do Tecido 1 — não repetir o rótulo idêntico.
+      const complementoPartes = Array.from(
+        new Set(
+          paresComplementares
+            .filter((p) => p.t1id === id)
+            .map((p) => {
+              const nomeArtigo = artigoMap[varianteArtigoMap[p.compVarId]]?.nome;
+              const corLabel = compVarLabels[p.compVarId];
+              return [nomeArtigo, corLabel].filter(Boolean).join(" · ");
+            })
+            .filter(Boolean),
+        ),
+      );
       return {
         numero: i + 1,
         label: tecido1VariantesLabels[id] ?? "",
