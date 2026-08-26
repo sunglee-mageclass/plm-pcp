@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Pencil, Trash2, Search, Loader2, X, ArrowLeft } from "lucide-react";
+import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -360,21 +360,25 @@ function EtiquetasPage() {
               </TableRow>
             ) : (
               sorted.map((e) => (
-                <TableRow key={e.id} data-state={selected.has(e.id) ? "selected" : undefined}>
+                <TableRow
+                  key={e.id}
+                  data-state={selected.has(e.id) ? "selected" : undefined}
+                  className="cursor-pointer"
+                  onClick={() => openEdit(e)}
+                >
                   {isAdmin && (
-                    <TableCell className="w-10" data-label="">
+                    <TableCell className="w-10" data-label="" onClick={(ev) => ev.stopPropagation()}>
                       {!readOnly && <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />}
                     </TableCell>
                   )}
                   <TableCell>
-                    <button type="button" className="text-left hover:underline font-medium" onClick={() => openEdit(e)}>{e.nome}</button>
+                    <span className="font-medium">{e.nome}</span>
                     {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
                   </TableCell>
                   <TableCell className="capitalize" data-label="Unidade">{e.unidade}</TableCell>
                   <TableCell className="text-muted-foreground" data-label="Fornecedor">{fornecedorLabel(e)}</TableCell>
                   <TableCell className="text-right num" data-label="Preço">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
-                  <TableCell className="text-right" data-label="Ações">
-                    <Button size="iconSm" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
+                  <TableCell className="text-right" data-label="Ações" onClick={(ev) => ev.stopPropagation()}>
                     <Button size="iconSm" variant="ghost" onClick={() => setDeleteRow(e)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -413,7 +417,7 @@ function EtiquetasPage() {
               <div className="space-y-1.5">
                 <Label>Unidade</Label>
                 <Select value={fUnidade} onValueChange={setFUnidade} disabled={readOnly}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="capitalize"><SelectValue /></SelectTrigger>
                   <SelectContent>{UNIDADES.map((u) => <SelectItem key={u} value={u} className="capitalize">{u}</SelectItem>)}</SelectContent>
                 </Select>
               </div>

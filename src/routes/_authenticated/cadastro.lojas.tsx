@@ -276,7 +276,7 @@ function LojasPage() {
           <div className="relative flex-1">
             <Plus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Adicionar loja (só o nome)…"
+              placeholder="Adicionar loja"
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
               onKeyDown={(e) => {
@@ -326,7 +326,7 @@ function LojasPage() {
         <MobileActionBar>
           <div className="flex w-full items-center gap-2">
             <Input
-              placeholder="Nome da nova loja…"
+              placeholder="Adicionar loja"
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
               onKeyDown={(e) => {
