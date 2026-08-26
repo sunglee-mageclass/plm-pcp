@@ -1,4 +1,17 @@
-export type EtapaKey = "peca_teste" | "separacao" | "retorno_grade" | "oficina" | "finalizacao";
+export type EtapaKey =
+  | "peca_teste"
+  | "separacao"
+  | "retorno_grade"
+  | "oficina"
+  | "finalizacao"
+  // Chave RESERVADA da coluna terminal SINTÉTICA "Finalizado" (Task 3, kanban coluna
+  // terminal). NÃO entra em ETAPAS_DEFAULT/tenant_config.pcp_etapas (fora da config
+  // editável); é injetada pelo board e recebe os cards com `modelos.lancado===true`.
+  // `slugify` de etapa real nunca gera `__x__`, então não colide.
+  | "__finalizado__";
+
+/** Chave da coluna terminal sintética "Finalizado" (derivada de `modelos.lancado`). */
+export const ETAPA_FINALIZADO: EtapaKey = "__finalizado__";
 export type EtapaCfg = { key: EtapaKey; label: string; ativa: boolean };
 
 export const ETAPAS_DEFAULT: EtapaCfg[] = [
@@ -30,6 +43,9 @@ function completa(key: EtapaKey, b: BlocoEtapa): boolean {
     case "retorno_grade": return cortadaRetornou(b.grade_detalhe);
     case "oficina":       return Boolean(b.data_entregue && (b.qtd_recebida ?? 0) > 0);
     case "finalizacao":   return false; // terminal
+    // `__finalizado__` (coluna terminal sintética) nunca chega aqui — não está em
+    // ETAPAS_DEFAULT/pcp_etapas, então `etapaDoBloco` não itera sobre ela. Só p/ exaustividade.
+    default:              return false;
   }
 }
 

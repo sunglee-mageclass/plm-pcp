@@ -26,7 +26,7 @@ import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useEtapasCards } from "@/components/producao/etapas/useEtapasCards";
 import { EtapasBoard } from "@/components/producao/etapas/EtapasBoard";
-import type { EtapaKey } from "@/lib/pcp-etapas";
+import { ETAPA_FINALIZADO, type EtapaKey } from "@/lib/pcp-etapas";
 
 // Etapas PL (Fase 2, Task 1) — página ÚNICA (sem sub-rota de detalhe ainda), então o
 // componente renderiza direto (sem <Outlet/>), diferente de pcp.servicos.tsx que envolve
@@ -138,6 +138,9 @@ function EtapasPlPage() {
     ...col,
     count: cards.filter((c) => c.etapa === col.key).length,
   }));
+  // Contagem da coluna terminal sintética "Finalizado" (fora de `colunasAtivas`/toggle-all —
+  // só entra no resumo pra deixar a soma dos cards visível/fechada).
+  const finalizadoCount = cards.filter((c) => c.etapa === ETAPA_FINALIZADO).length;
 
   const allCollapsed =
     colunasAtivas.length > 0 && colunasAtivas.every((c) => collapsedCols.has(c.key));
@@ -262,6 +265,9 @@ function EtapasPlPage() {
             · {c.label}: {c.count}
           </span>
         ))}
+        {finalizadoCount > 0 && (
+          <span className="text-sm text-muted-foreground">· Finalizado: {finalizadoCount}</span>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select value={sortKey} onValueChange={setSortKey}>

@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { CHART_CATEGORICAL } from "@/lib/chart-colors";
+import { CHART_CATEGORICAL, TONE_FG } from "@/lib/chart-colors";
 import { SegmentedTabs } from "@/components/dashboard/mobile";
-import type { EtapaCfg, EtapaKey } from "@/lib/pcp-etapas";
+import { ETAPA_FINALIZADO, type EtapaCfg, type EtapaKey } from "@/lib/pcp-etapas";
 import type { EtapaCard } from "@/lib/pcp-etapas-kanban";
 import { EtapaCardView } from "./EtapaCardView";
+
+// Coluna terminal SINTÉTICA "Finalizado" (Task 3, kanban coluna terminal). NÃO vem da config
+// (`etapas`/`tenant_config.pcp_etapas`); é injetada pelo board por ÚLTIMO, sempre colapsada por
+// default, com estado de colapso PRÓPRIO (imune ao "recolher/expandir todas" da página, que só
+// itera as colunas ativas). Recebe os cards com `modelos.lancado===true` (bucket já casa por
+// `c.etapa === "__finalizado__"`, vindo de `montarCards`). Cor = tom semântico success (§Q9/§R —
+// token, nunca hex/hsl solto).
+const TERMINAL_COL = { key: ETAPA_FINALIZADO, label: "Finalizado" };
+const TERMINAL_COLOR = TONE_FG.success;
 
 // Quadro do kanban de Etapas PL. Colapso lateral por coluna espelha
 // criacao.desenvolvimento.tsx:586-623 (expandida w-80; recolhida = trilho w-9 com título
@@ -54,16 +63,28 @@ export function EtapasBoard({
     arr.push(c);
     byEtapa.set(c.etapa, arr);
   }
+  const terminalCards = byEtapa.get(TERMINAL_COL.key) ?? [];
 
-  // Aba ativa do fallback mobile — nasce na 1ª etapa ativa; re-semeia se a coluna
-  // selecionada deixar de existir (ex.: etapa desativada em Config da Loja).
-  const [abaMobile, setAbaMobile] = useState<EtapaKey | null>(colunas[0]?.key ?? null);
+  // Colapso da coluna terminal "Finalizado": estado LOCAL e self-contained (default colapsada).
+  // Fica FORA do `collapsedCols` da página (e do seu toggle-all, que só itera colunas ativas), então
+  // "expandir/recolher todas" nunca a abre — só este botão próprio a alterna.
+  const [terminalCollapsed, setTerminalCollapsed] = useState(true);
+
+  // Abas do fallback mobile = etapas ativas + a terminal "Finalizado" por último.
+  const abasMobile: { key: EtapaKey; label: string }[] = [
+    ...colunas.map((c) => ({ key: c.key, label: c.label })),
+    { key: TERMINAL_COL.key, label: TERMINAL_COL.label },
+  ];
+
+  // Aba ativa do fallback mobile — nasce na 1ª aba (etapa ativa, ou a terminal se não houver
+  // etapas ativas); re-semeia se a aba selecionada deixar de existir (ex.: etapa desativada).
+  const [abaMobile, setAbaMobile] = useState<EtapaKey | null>(abasMobile[0]?.key ?? null);
   useEffect(() => {
-    if (colunas.length > 0 && !colunas.some((c) => c.key === abaMobile)) {
-      setAbaMobile(colunas[0].key);
+    if (abasMobile.length > 0 && !abasMobile.some((c) => c.key === abaMobile)) {
+      setAbaMobile(abasMobile[0].key);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colunas.map((c) => c.key).join("|")]);
+  }, [abasMobile.map((c) => c.key).join("|")]);
 
   // Minimizar POR card (blocoId) — nasce vazio (todos expandidos). O toggle "Recolher cards"
   // global (header da página) sobrescreve todos de uma vez via `minimizedCards` (o botão/estado
@@ -84,7 +105,9 @@ export function EtapasBoard({
     setMinimizedOverride(new Set());
   }, [minimizedCards]);
 
-  if (colunas.length === 0) {
+  // Sem etapas ativas E sem cards na terminal = config vazia. (Se houver modelo lançado, a
+  // terminal ainda aparece abaixo, mesmo sem etapas ativas — o card não some do board.)
+  if (colunas.length === 0 && terminalCards.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-muted-foreground">
         Nenhuma etapa ativa. Ative etapas em Config da Loja.
@@ -162,16 +185,75 @@ export function EtapasBoard({
             </div>
           );
         })}
+
+        {/* Coluna terminal sintética "Finalizado" — SEMPRE por último, colapso próprio
+            (default colapsada, imune ao toggle-all da página). Mesmo visual das colunas normais. */}
+        <div
+          className={`flex max-h-[calc(100vh-260px)] shrink-0 flex-col rounded-lg border bg-muted/30 ${terminalCollapsed ? "" : "w-80"}`}
+        >
+          {terminalCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setTerminalCollapsed(false)}
+              title={TERMINAL_COL.label}
+              className="flex w-9 flex-1 flex-col items-center gap-2 py-3 hover:bg-muted/50"
+            >
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: TERMINAL_COLOR }}
+              />
+              <span className="whitespace-nowrap text-sm font-semibold [writing-mode:vertical-rl] rotate-180">
+                {TERMINAL_COL.label}
+              </span>
+              <span className="text-xs text-muted-foreground">{terminalCards.length}</span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setTerminalCollapsed(true)}
+                title="Recolher coluna"
+                className="flex items-center gap-2 border-b px-3 py-2.5 text-left hover:bg-muted/50"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: TERMINAL_COLOR }}
+                />
+                <span className="truncate text-sm font-semibold">{TERMINAL_COL.label}</span>
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                  {terminalCards.length}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 rotate-90 text-muted-foreground/60" />
+              </button>
+              <div className="min-w-0 flex-1 space-y-2 overflow-y-auto p-2">
+                {terminalCards.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-muted-foreground">Sem cards</p>
+                ) : (
+                  terminalCards.map((c) => (
+                    <EtapaCardView
+                      key={c.blocoId}
+                      card={c}
+                      minimized={isMinimized(c.blocoId)}
+                      onToggleMin={() => toggleMin(c.blocoId)}
+                      onAbrir={onAbrir}
+                    />
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Mobile: abas roláveis por etapa + lista em largura total. */}
+      {/* Mobile: abas roláveis por etapa (+ terminal "Finalizado") + lista em largura total. */}
       <div className="md:hidden">
         <SegmentedTabs
-          tabs={colunas.map((col) => ({
+          tabs={abasMobile.map((col) => ({
             value: col.key,
             label: `${col.label} (${(byEtapa.get(col.key) ?? []).length})`,
           }))}
-          value={abaMobile ?? colunas[0].key}
+          value={abaMobile ?? abasMobile[0].key}
           onChange={(v) => setAbaMobile(v as EtapaKey)}
         />
         <div className="mt-3 space-y-2">

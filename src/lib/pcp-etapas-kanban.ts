@@ -1,4 +1,4 @@
-import { etapaDoBloco, type BlocoEtapa, type EtapaCfg, type EtapaKey } from "@/lib/pcp-etapas";
+import { etapaDoBloco, ETAPA_FINALIZADO, type BlocoEtapa, type EtapaCfg, type EtapaKey } from "@/lib/pcp-etapas";
 import { isServicoPL } from "@/lib/servico-confeccao";
 
 // Linha de `producao_terceirizados` como vem do embed do Supabase (ver useEtapasCards).
@@ -31,6 +31,9 @@ export type ModeloRow = {
   fotos_modelo?: string[] | null;
   desenho_tecnico_url?: string | null;
   croqui_url?: string | null;
+  /** `modelos.lancado` — modelo lançado (fonte única de "Lançado"). Quando true, o card
+   *  vai SÓ pra coluna terminal sintética "Finalizado" (sai do fluxo derivado). */
+  lancado?: boolean | null;
   cad?: CadRow[] | null;
 };
 
@@ -70,6 +73,12 @@ export function montarCards(rows: ModeloRow[], etapas: EtapaCfg[]): EtapaCard[] 
       const { key, reprovada } = etapaDoBloco(bloco, etapas);
       if (reprovada) continue;
 
+      // Override derivado (Task 3): modelo lançado (`modelos.lancado===true`) sai do fluxo
+      // normal e vai SÓ pra coluna terminal sintética "Finalizado". Feito AQUI (não em
+      // `etapaDoBloco`, que é a derivação PURA por bloco) porque só `montarCards` conhece o
+      // modelo. Se `lancado` voltar a false, o card volta à etapa derivada por bloco.
+      const etapaFinal: EtapaKey | null = modelo.lancado === true ? ETAPA_FINALIZADO : key;
+
       cards.push({
         blocoId: t.id,
         cadId: cad.id,
@@ -78,7 +87,7 @@ export function montarCards(rows: ModeloRow[], etapas: EtapaCfg[]): EtapaCard[] 
         nome: modelo.nome,
         fotoFontes: [modelo.fotos_modelo?.[0] ?? null, modelo.desenho_tecnico_url ?? null, modelo.croqui_url ?? null],
         empresa: t.empresa?.nome_fantasia ?? null,
-        etapa: key,
+        etapa: etapaFinal,
         bloco: { ...bloco, categoria_terceirizado_id: t.categoria_terceirizado_id },
       });
     }
