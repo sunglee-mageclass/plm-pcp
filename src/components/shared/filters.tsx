@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Select,
   SelectContent,
@@ -323,10 +325,58 @@ type SearchToggleProps = {
 export function SearchToggle({ value, onChange, placeholder = "Buscar..." }: SearchToggleProps) {
   const [expanded, setExpanded] = useState(Boolean(value));
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const isMobile = useIsMobile();
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
     if (expanded) inputRef.current?.focus();
   }, [expanded]);
+
+  // MOBILE: a lupa abre um Dialog para digitar (o input inline ficava espremido no header).
+  // Um ponto no ícone sinaliza busca ativa. Desktop segue com o input inline expansível.
+  if (isMobile) {
+    return (
+      <>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="relative"
+          onClick={() => setDialogOpen(true)}
+          aria-label="Buscar"
+        >
+          <Search className="h-4 w-4" />
+          {value && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background" aria-hidden />}
+        </Button>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle>Buscar</DialogTitle></DialogHeader>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={value}
+                placeholder={placeholder}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") setDialogOpen(false); }}
+                className="h-11 pl-8 pr-8 text-base"
+              />
+              {value && (
+                <button
+                  type="button"
+                  onClick={() => onChange("")}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground hover:bg-muted"
+                  aria-label="Limpar busca"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   if (!expanded) {
     return (
