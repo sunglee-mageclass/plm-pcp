@@ -3038,15 +3038,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         )}
       </div>
 
-      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 max-sm:flex-nowrap">
+      <div className="shrink-0 border-t bg-background p-3 flex flex-nowrap items-center gap-2">
         {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
         <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
           <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
           <span className="max-sm:sr-only">Voltar</span>
         </Button>
-        {/* Grupo direito: ml-auto empurra para a direita. */}
+        {/* Grupo direito: ml-auto empurra para a direita. A dica trunca (min-w-0)
+            para NÃO empurrar os botões pra uma 2ª linha — mantém o rodapé com a
+            mesma altura (1 linha) dos demais Sheets. */}
         {podeEnviarEtapa && cadMissing.length > 0 && (
-          <span className="text-xs text-muted-foreground ml-auto max-sm:hidden">
+          <span className="min-w-0 truncate text-xs text-muted-foreground ml-auto max-sm:hidden">
             Para enviar, falta:{" "}
             {cadMissing.map((m, i) => (
               <span key={i}>
@@ -3059,10 +3061,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className={!(podeEnviarEtapa && cadMissing.length > 0) ? "ml-auto" : "max-sm:ml-auto"}>
+              <span className={`shrink-0 ${!(podeEnviarEtapa && cadMissing.length > 0) ? "ml-auto" : "max-sm:ml-auto"}`}>
                 <Button
                   variant="outline"
-                  size="sm"
                   disabled={!draft.enviado_cad}
                   onClick={() => setPrintTecnicaToken((t) => t + 1)}
                   aria-label="Imprimir Ficha Técnica"
@@ -3082,7 +3083,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <Tooltip>
               <TooltipTrigger asChild>
                 {/* span: botão desabilitado não dispara hover — o wrapper deixa o tooltip aparecer. */}
-                <span>
+                <span className="shrink-0">
                   <Button
                     variant="secondary"
                     onClick={() => setConfirmEnviarCad(true)}
@@ -3104,11 +3105,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           </TooltipProvider>
         )}
         {locked ? (
-          <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar">
+          <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar" className="shrink-0">
             <Pencil className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={handleSave} disabled={save.isPending}>
+          <Button onClick={handleSave} disabled={save.isPending} className="shrink-0">
             {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
           </Button>
         )}
