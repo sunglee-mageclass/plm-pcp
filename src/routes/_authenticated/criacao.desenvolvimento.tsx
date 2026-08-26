@@ -10,7 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
-import { requisitosOk } from "@/lib/kanban-condicoes";
+import { requisitosOk, type Condicao } from "@/lib/kanban-condicoes";
+import { lerRevendaConfig, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -222,6 +223,22 @@ function DesenvolvimentoPage() {
     },
   });
 
+  // Config de REVENDA por loja (colunas permitidas + requisitos próprios) — só afeta cards
+  // `origem==='revenda'`. `lerRevendaConfig` tolera as 3 chaves faltando (fallbacks documentados).
+  const { data: revendaCfgRaw } = useQuery({
+    queryKey: ["tenant-revenda-config", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tenant_config")
+        .select("revenda_kanban_colunas, revenda_kanban_requisitos")
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const revendaCfg = useMemo(() => lerRevendaConfig(revendaCfgRaw), [revendaCfgRaw]);
+
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-desenvolvimento"],
     queryFn: async () => {
@@ -284,8 +301,19 @@ function DesenvolvimentoPage() {
     },
   });
   // Um card pode ENTRAR no status? (requisitos do status ⊆ condições satisfeitas do modelo)
-  const podeEntrar = (modeloId: string, statusKey: string) =>
-    requisitosOk((kanbanRequisitos as any)[statusKey], (condicoesMap as any)[modeloId] ?? {});
+  // Revenda (`origem==='revenda'`) usa a config PRÓPRIA: coluna fora de `revenda_kanban_colunas`
+  // é BLOQUEADA, e os requisitos vêm de `revenda_kanban_requisitos` (não do kanban interno).
+  // Fluxo interno (não-revenda) permanece byte-a-byte idêntico.
+  const podeEntrar = (modeloId: string, statusKey: string) => {
+    const m = modelos.find((x) => x.id === modeloId);
+    if (m?.origem === "revenda") {
+      if (!revendaColunaPermitida(revendaCfg, statusKey)) {
+        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de revenda", modulo: "desenvolvimento" }] as Condicao[] };
+      }
+      return requisitosOk(revendaRequisitos(revendaCfg, statusKey), (condicoesMap as any)[modeloId] ?? {});
+    }
+    return requisitosOk((kanbanRequisitos as any)[statusKey], (condicoesMap as any)[modeloId] ?? {});
+  };
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();

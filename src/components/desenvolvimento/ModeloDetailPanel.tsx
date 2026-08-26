@@ -40,7 +40,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { normalizeKanbanStatuses, podeEnviarExplosao, refCampoVisivel } from "@/lib/kanban-status";
-import { requisitosOk, CONDICOES_POR_SECAO } from "@/lib/kanban-condicoes";
+import { requisitosOk, CONDICOES_POR_SECAO, type Condicao } from "@/lib/kanban-condicoes";
 
 import {
   BUCKET,
@@ -59,7 +59,7 @@ import {
   type TecidoBlock,
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
-import { lerRevendaConfig, revendaCampoVisivel } from "@/lib/revenda-config";
+import { lerRevendaConfig, revendaCampoVisivel, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
 import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
@@ -255,7 +255,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status, ref_exibir_status, revenda_campos").eq("tenant_id", tenantId).maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos, explosao_envio_status, ref_exibir_status, revenda_campos, revenda_kanban_colunas, revenda_kanban_requisitos").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -294,8 +294,18 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
   const maoObraPorServico = Number(moResumo?.total) || 0;
-  const podeEntrarStatus = (statusKey: string) =>
-    requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
+  // Revenda usa a config PRÓPRIA: coluna fora de `revenda_kanban_colunas` é BLOQUEADA e os
+  // requisitos vêm de `revenda_kanban_requisitos` (não do kanban interno). Fluxo interno
+  // (não-revenda) permanece byte-a-byte idêntico. (`modelo` só é lido em tempo de render.)
+  const podeEntrarStatus = (statusKey: string) => {
+    if (modelo?.origem === "revenda") {
+      if (!revendaColunaPermitida(revendaCfg, statusKey)) {
+        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de revenda", modulo: "desenvolvimento" }] as Condicao[] };
+      }
+      return requisitosOk(revendaRequisitos(revendaCfg, statusKey), condicoesModelo as Record<string, boolean>);
+    }
+    return requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
+  };
   // status_kanban resolvido para chave SNAKE canônica (bate com status_desenvolvimento).
   const statusOptions = useMemo(
     () => normalizeKanbanStatuses((tenantCfg as any)?.status_kanban).map((s) => ({ value: s.key, label: s.label })),
