@@ -17,14 +17,21 @@ export function RequisitosStatusButton({
   label,
   requisitos,
   onChange,
+  condsIndisponiveis,
 }: {
   label: string;
   requisitos: string[];
   onChange: (next: string[]) => void;
+  // Opcional: keys de condições "n/a" para este contexto (ex.: REVENDA_COND_NA no fluxo
+  // de Revenda) — ficam esmaecidas, com tag "n/a revenda" e NÃO togglam. Ausente (uso
+  // normal do kanban_requisitos) = todas selecionáveis, comportamento intocado.
+  condsIndisponiveis?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const set = new Set(requisitos);
+  const naSet = new Set(condsIndisponiveis ?? []);
   const toggle = (key: string, v: boolean) => {
+    if (naSet.has(key)) return; // condição n/a — não togglável
     const n = new Set(requisitos);
     if (v) n.add(key); else n.delete(key);
     onChange(Array.from(n));
@@ -50,7 +57,7 @@ export function RequisitosStatusButton({
           {MODULOS.map((m) => {
             const conds = CONDICOES.filter((c) => c.modulo === m.key);
             if (conds.length === 0) return null;
-            const nSel = conds.filter((c) => set.has(c.key)).length;
+            const nSel = conds.filter((c) => !naSet.has(c.key) && set.has(c.key)).length;
             return (
               <AccordionItem key={m.key} value={m.key} className="rounded-md border px-3">
                 <AccordionTrigger className="py-2 text-sm hover:no-underline">
@@ -58,19 +65,34 @@ export function RequisitosStatusButton({
                   {nSel > 0 && <span className="mr-2 text-xs font-semibold text-primary">{nSel}</span>}
                 </AccordionTrigger>
                 <AccordionContent className="space-y-2 pb-3">
-                  {conds.map((c) => (
-                    <label key={c.key} className="flex cursor-pointer items-start gap-2">
-                      <Checkbox
-                        checked={set.has(c.key)}
-                        onCheckedChange={(v) => toggle(c.key, !!v)}
-                        className="mt-0.5"
-                      />
-                      <span className="text-sm leading-tight">
-                        {c.label}
-                        {c.descricao && <span className="block text-xs text-muted-foreground">{c.descricao}</span>}
-                      </span>
-                    </label>
-                  ))}
+                  {conds.map((c) => {
+                    const na = naSet.has(c.key);
+                    return (
+                      <label
+                        key={c.key}
+                        className={
+                          "flex items-start gap-2" +
+                          (na ? " cursor-not-allowed opacity-50" : " cursor-pointer")
+                        }
+                      >
+                        <Checkbox
+                          checked={!na && set.has(c.key)}
+                          disabled={na}
+                          onCheckedChange={(v) => toggle(c.key, !!v)}
+                          className="mt-0.5"
+                        />
+                        <span className="text-sm leading-tight">
+                          {c.label}
+                          {na && (
+                            <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
+                              n/a revenda
+                            </span>
+                          )}
+                          {c.descricao && <span className="block text-xs text-muted-foreground">{c.descricao}</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </AccordionContent>
               </AccordionItem>
             );

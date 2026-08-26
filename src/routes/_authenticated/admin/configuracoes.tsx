@@ -53,6 +53,8 @@ import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
+import { REVENDA_COND_NA } from "@/lib/kanban-condicoes";
+import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -121,6 +123,14 @@ const DEFAULTS = {
   // Etapas PL (kanban, módulo opt-in etapas_pl): as 5 etapas fixas (renomeáveis/
   // ativa-desativa, SEM reordenar/adicionar). Vazio ⇒ usa ETAPAS_DEFAULT.
   pcp_etapas: [] as EtapaCfg[],
+  // Fluxo de Revenda (módulo opt-in produto_acabado) — config PRÓPRIA do kanban/campos
+  // dos modelos `origem==='revenda'` (ver invariante #13 + src/lib/revenda-config.ts).
+  // KEYS de coluna permitidas ([] = todas). Requisitos por coluna (keys de CONDICOES).
+  revenda_kanban_colunas: [] as string[],
+  revenda_kanban_requisitos: {} as Record<string, string[]>,
+  // Campo/seção key → visível p/ revenda. De fábrica semeia os 12 OFF (9 campos de Info
+  // Básicas + seções prova/s2/s-cad), p/ revenda já pular esses campos numa loja nova.
+  revenda_campos: Object.fromEntries(REVENDA_CAMPOS_DEFAULT_OFF.map((k) => [k, false])) as Record<string, boolean>,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -207,6 +217,17 @@ function ConfiguracoesLojaPage() {
         Array.isArray((r as any).pcp_etapas) && (r as any).pcp_etapas.length
           ? ((r as any).pcp_etapas as EtapaCfg[])
           : DEFAULTS.pcp_etapas,
+      revenda_kanban_colunas: Array.isArray((r as any).revenda_kanban_colunas)
+        ? ((r as any).revenda_kanban_colunas as string[])
+        : DEFAULTS.revenda_kanban_colunas,
+      revenda_kanban_requisitos:
+        (r as any).revenda_kanban_requisitos && typeof (r as any).revenda_kanban_requisitos === "object" && !Array.isArray((r as any).revenda_kanban_requisitos)
+          ? ((r as any).revenda_kanban_requisitos as Record<string, string[]>)
+          : DEFAULTS.revenda_kanban_requisitos,
+      revenda_campos:
+        (r as any).revenda_campos && typeof (r as any).revenda_campos === "object" && !Array.isArray((r as any).revenda_campos)
+          ? ((r as any).revenda_campos as Record<string, boolean>)
+          : DEFAULTS.revenda_campos,
     };
     setCfg(next);
     resetCfgBaseline(next);
@@ -419,6 +440,18 @@ function ConfiguracoesLojaPage() {
           </div>
         }
       />
+
+      {modules.produto_acabado && (
+        <FluxoRevendaCard
+          statusKanban={cfg.status_kanban}
+          colunas={cfg.revenda_kanban_colunas}
+          requisitos={cfg.revenda_kanban_requisitos}
+          campos={cfg.revenda_campos}
+          onColunasChange={(revenda_kanban_colunas) => setCfg((c) => ({ ...c, revenda_kanban_colunas }))}
+          onRequisitosChange={(revenda_kanban_requisitos) => setCfg((c) => ({ ...c, revenda_kanban_requisitos }))}
+          onCamposChange={(revenda_campos) => setCfg((c) => ({ ...c, revenda_campos }))}
+        />
+      )}
 
       <LeadtimeConfigCard
         tenantId={data?.tenantId ?? null}
@@ -1021,6 +1054,214 @@ function SortableItem({
         <div className="mt-2 flex items-center justify-end gap-2 md:hidden">{extra}{trashButton}</div>
       )}
     </li>
+  );
+}
+
+// Fluxo de Revenda (módulo opt-in produto_acabado): config PRÓPRIA do kanban/campos dos
+// modelos `origem==='revenda'` — a Revenda pode ter colunas/requisitos/seções diferentes do
+// fluxo manufaturado, destravando peças compradas prontas (sem Tecido/CAD/Data). Grava as 3
+// chaves em tenant_config (revenda_kanban_colunas / _requisitos / revenda_campos). A UI mostra
+// LABELS, grava KEYS (colunas via resolveStatusKey). Ver invariante #13 + src/lib/revenda-config.ts.
+
+// Rótulos amigáveis das seções do Sheet de Desenvolvimento (REVENDA_SECAO_KEYS).
+const REVENDA_SECAO_LABELS: Record<string, string> = {
+  s1: "1. Informações Básicas",
+  prova: "Ajustes na Prova",
+  s2: "Tecidos/Forros/Entretelas",
+  "s-cad": "CAD",
+  s3: "Aviamentos",
+  s3e: "Insumos",
+  s4: "Grade",
+  s5: "Custos",
+  s6: "Anexos",
+};
+
+// Rótulos amigáveis dos campos de "1. Informações Básicas" (REVENDA_CAMPO_KEYS).
+const REVENDA_CAMPO_LABELS: Record<string, string> = {
+  modelista_id: "Modelista",
+  piloteiro1_id: "Piloteiro 1",
+  piloteiro2_id: "Piloteiro 2",
+  piloteiro3_id: "Piloteiro 3",
+  data_piloto1: "Data Piloto 1",
+  data_piloto2: "Data Piloto 2",
+  data_piloto3: "Data Piloto 3",
+  data_desenho_tecnico: "Data Desenho Técnico",
+  data_aprovacao: "Data de Aprovação",
+};
+
+function FluxoRevendaCard({
+  statusKanban,
+  colunas,
+  requisitos,
+  campos,
+  onColunasChange,
+  onRequisitosChange,
+  onCamposChange,
+}: {
+  statusKanban: string[];
+  colunas: string[];
+  requisitos: Record<string, string[]>;
+  campos: Record<string, boolean>;
+  onColunasChange: (next: string[]) => void;
+  onRequisitosChange: (next: Record<string, string[]>) => void;
+  onCamposChange: (next: Record<string, boolean>) => void;
+}) {
+  const colunasSet = new Set(colunas);
+  // [] = TODAS as colunas permitidas (fallback do plano) — refletido no rótulo do bloco.
+  const semTrava = colunas.length === 0;
+
+  const toggleColuna = (key: string, on: boolean) => {
+    const next = new Set(colunas);
+    if (on) next.add(key); else next.delete(key);
+    onColunasChange(Array.from(next));
+  };
+
+  const setRequisitos = (colKey: string, next: string[]) => {
+    const map = { ...requisitos };
+    if (next.length) map[colKey] = next; else delete map[colKey];
+    onRequisitosChange(map);
+  };
+
+  // Campo/seção visível? Default: OFF p/ os 12 de REVENDA_CAMPOS_DEFAULT_OFF, ON p/ o resto.
+  // (Espelha revendaCampoVisivel; aqui é a UI de edição, então mostra o valor efetivo.)
+  const campoOn = (key: string) => {
+    const v = campos[key];
+    if (v === undefined) return !REVENDA_CAMPOS_DEFAULT_OFF.includes(key);
+    return v !== false;
+  };
+  const toggleCampo = (key: string, on: boolean) => {
+    onCamposChange({ ...campos, [key]: on });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Fluxo de Revenda</CardTitle>
+          <Badge variant="secondary" className="font-normal">módulo Produto Acabado</Badge>
+        </div>
+        <CardDescription>
+          Kanban e campos PRÓPRIOS dos produtos de revenda (peça comprada pronta). Escolha por
+          quais colunas a revenda passa, os requisitos de cada uma e quais seções/campos do card
+          ela usa — sem afetar o fluxo de produção normal.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Bloco 1 — colunas do kanban permitidas p/ revenda + requisitos de cada. */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Colunas do kanban
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {semTrava
+              ? "Nenhuma marcada = a revenda passa por TODAS as colunas (sem trava)."
+              : "A revenda só entra nas colunas marcadas. Defina os Requisitos de cada uma."}
+          </p>
+          <ul className="space-y-2">
+            {statusKanban.map((label, idx) => {
+              const key = resolveStatusKey(label);
+              const on = colunasSet.has(key);
+              return (
+                <li key={`${idx}::${key}`} className="rounded-md border bg-card p-2">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      checked={on}
+                      onCheckedChange={(v) => toggleColuna(key, v)}
+                      aria-label={`Coluna "${label}" na revenda`}
+                    />
+                    <span
+                      className="flex-1 cursor-pointer select-none truncate text-sm"
+                      onClick={() => toggleColuna(key, !on)}
+                    >
+                      {label}
+                    </span>
+                    {on && (
+                      <RequisitosStatusButton
+                        label={label}
+                        requisitos={requisitos[key] ?? []}
+                        onChange={(next) => setRequisitos(key, next)}
+                        condsIndisponiveis={REVENDA_COND_NA}
+                      />
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+            {statusKanban.length === 0 && (
+              <li className="text-sm text-muted-foreground italic">
+                Configure as colunas do kanban acima (bloco "Status do Kanban").
+              </li>
+            )}
+          </ul>
+        </div>
+
+        {/* Bloco 2 — seções e campos do card de Desenvolvimento visíveis p/ revenda. */}
+        <div className="space-y-2 border-t pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Seções e campos do card
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Desligue as seções/campos que não fazem sentido para peça comprada pronta. Desligados
+            somem do card de revenda (e não travam o envio). "Nome" é sempre exibido.
+          </p>
+          <ul className="space-y-2">
+            {REVENDA_SECAO_KEYS.map((secKey) => {
+              const isS1 = secKey === "s1";
+              return (
+                <li key={secKey} className="rounded-md border bg-card">
+                  <div className="flex items-center gap-3 p-2">
+                    <Switch
+                      checked={isS1 ? true : campoOn(secKey)}
+                      disabled={isS1}
+                      onCheckedChange={(v) => toggleCampo(secKey, v)}
+                      aria-label={`Seção "${REVENDA_SECAO_LABELS[secKey] ?? secKey}" na revenda`}
+                    />
+                    <span
+                      className={
+                        "flex-1 select-none truncate text-sm font-medium" +
+                        (isS1 ? "" : " cursor-pointer")
+                      }
+                      onClick={() => { if (!isS1) toggleCampo(secKey, !campoOn(secKey)); }}
+                    >
+                      {REVENDA_SECAO_LABELS[secKey] ?? secKey}
+                    </span>
+                    {isS1 && <span className="shrink-0 text-xs text-muted-foreground">sempre ativa</span>}
+                  </div>
+                  {/* s1 expande os campos individuais de "Informações Básicas". */}
+                  {isS1 && (
+                    <ul className="space-y-1.5 border-t px-2 py-2 pl-6">
+                      <li className="flex items-center gap-3">
+                        <Switch checked disabled aria-label="Campo Nome (sempre exibido)" />
+                        <span className="flex-1 select-none truncate text-sm">Nome</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">sempre</span>
+                      </li>
+                      {REVENDA_CAMPO_KEYS.map((campoKey) => {
+                        const con = campoOn(campoKey);
+                        return (
+                          <li key={campoKey} className="flex items-center gap-3">
+                            <Switch
+                              checked={con}
+                              onCheckedChange={(v) => toggleCampo(campoKey, v)}
+                              aria-label={`Campo "${REVENDA_CAMPO_LABELS[campoKey] ?? campoKey}" na revenda`}
+                            />
+                            <span
+                              className="flex-1 cursor-pointer select-none truncate text-sm"
+                              onClick={() => toggleCampo(campoKey, !con)}
+                            >
+                              {REVENDA_CAMPO_LABELS[campoKey] ?? campoKey}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
