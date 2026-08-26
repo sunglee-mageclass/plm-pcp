@@ -249,16 +249,16 @@ export function HomeLogado() {
       <Card className={cn(
         "flex h-full min-h-[110px] flex-col gap-3 p-4 transition-all hover:-translate-y-px hover:shadow-md sm:flex-row sm:items-start",
         !a.error && a.valor > 0 && (
-          a.tone === "red" ? "border-red-500/50" : a.tone === "amber" ? "border-amber-500/50" : "border-blue-500/50"
+          a.tone === "red" ? "border-destructive/50" : a.tone === "amber" ? "border-amber-500/50" : "border-primary/50"
         ),
       )}>
         <div className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-[10px]",
           a.error || a.valor === 0
             ? "bg-muted text-muted-foreground"
-            : a.tone === "red" ? "bg-red-500/15 text-red-600"
+            : a.tone === "red" ? "bg-destructive/15 text-destructive"
             : a.tone === "amber" ? "bg-amber-500/15 text-amber-700 dark:text-amber-600"
-            : "bg-blue-500/15 text-blue-600",
+            : "bg-primary/15 text-primary",
         )}>
           <a.icon className="h-5 w-5" />
         </div>
