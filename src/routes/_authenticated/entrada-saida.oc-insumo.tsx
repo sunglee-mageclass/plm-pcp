@@ -21,6 +21,8 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
+import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
+import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -33,7 +35,6 @@ import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import { useEstoqueInsumos, EstoqueInsumosTable } from "@/components/oc-insumo/EstoqueInsumosTab";
 import { printWithImages } from "@/lib/print";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
@@ -310,6 +311,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [addSel, setAddSel] = useState("");
   const [confirmUnmark, setConfirmUnmark] = useState(false);
+  const [secAtiva, setSecAtiva] = useState("oci-sec-pedido");
   const savingRef = useRef(false);
 
   // Preview ao vivo do Nº de Pedido (só em criação): fornecedor = empresa selecionada;
@@ -467,6 +469,29 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   // desabilitados, então `changed` permanece falso naturalmente.
   const dirty = changed;
 
+  // §O: seções numeradas + trilho de âncoras (espelha OC Tecido / OC P.Acabado).
+  // Recebimento só existe após salvar → trancada (cadeado) na criação.
+  const secoes: SecaoOc[] = [
+    { id: "oci-sec-pedido", n: 1, label: "Pedido" },
+    { id: "oci-sec-insumos", n: 2, label: "Insumos" },
+    { id: "oci-sec-anexos", n: 3, label: "Anexos", locked: !isEdit },
+    { id: "oci-sec-recebimento", n: 4, label: "Recebimento", locked: !isEdit },
+  ];
+  const irParaSecao = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSecAtiva(id);
+  };
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const topo = e.currentTarget.getBoundingClientRect().top;
+    let atual = secoes[0]?.id ?? "oci-sec-pedido";
+    for (const s of secoes) {
+      if (s.locked) continue;
+      const el = document.getElementById(s.id);
+      if (el && el.getBoundingClientRect().top - topo <= 40) atual = s.id;
+    }
+    if (atual !== secAtiva) setSecAtiva(atual);
+  };
+
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de insumo.">
@@ -480,7 +505,11 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           </DialogHeader>
         </div>
 
-        <div className="space-y-4 min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 gap-4">
+          <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
+          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+          <section id="oci-sec-pedido" className="scroll-mt-2 space-y-4">
+          <OcSecTitle n={1}>Pedido</OcSecTitle>
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => onNumeroChange(e.target.value)} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
@@ -499,11 +528,12 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
               <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => setNumParcelas(parseInt(e.target.value, 10))} disabled={isReadOnlyRecebimento || readOnly} />
             </div>
           </div>
+          </section>
 
-          <Separator />
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold">Insumos</h3>
-            {!isReadOnlyRecebimento && (
+          <section id="oci-sec-insumos" className="scroll-mt-2 space-y-4">
+          <OcSecTitle
+            n={2}
+            right={!isReadOnlyRecebimento ? (
               <Select value={addSel} onValueChange={addInsumo} disabled={readOnly}>
                 <SelectTrigger className="h-8 w-56 max-sm:w-44"><SelectValue placeholder="Adicionar insumo…" /></SelectTrigger>
                 <SelectContent>
@@ -511,8 +541,8 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                     : disponiveis.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
                 </SelectContent>
               </Select>
-            )}
-          </div>
+            ) : undefined}
+          >Insumos</OcSecTitle>
 
           {blocks.length === 0 ? (
             <p className="text-sm text-muted-foreground">Adicione um insumo, escolha as cores e marque as variantes desta OC.</p>
@@ -579,12 +609,27 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
               </Card>
             );
           })}
+          </section>
+
+          {!isEdit && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+              <span>Os <b>Anexos</b> e o <b>Recebimento</b> ficam disponíveis depois de salvar a OC (salvou → reabra e registre a chegada).</span>
+            </div>
+          )}
 
           {isEdit && (
-            <>
-              <Separator />
-              <h3 className="font-semibold">Recebimento</h3>
-              <NfList value={nfs} onChange={setNfs} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly} />
+            <section id="oci-sec-anexos" className="scroll-mt-2 space-y-4">
+              <OcSecTitle n={3}>Anexos</OcSecTitle>
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notas Fiscais</Label>
+                <NfList value={nfs} onChange={setNfs} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly} />
+              </div>
+            </section>
+          )}
+
+          {isEdit && (
+            <section id="oci-sec-recebimento" className="scroll-mt-2 space-y-4">
+              <OcSecTitle n={4}>Recebimento</OcSecTitle>
               <div className="grid gap-2">
                 <Label className="text-sm">Parcelas de Recebimento</Label>
                 {parcelas.length === 0 ? (
@@ -607,8 +652,9 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                 )}
                 <div className="text-sm"><OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={derivedEntrega} status={status} /></div>
               </div>
-            </>
+            </section>
           )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4">
