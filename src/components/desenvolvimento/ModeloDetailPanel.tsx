@@ -951,6 +951,25 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     });
   }, [etiquetaMap, modeloEtiquetasData]);
 
+  // MESMO bug das etiquetas (bug-fix ago/2026), agora nos TECIDOS: a hidratação [831-907]
+  // semeia `custo_previsto` do valor CRU do banco e as queries de preço (`artigoMap`,
+  // `varianteArtigoMap`, `frozenPrecos`) resolvem DEPOIS — sem este efeito o custo ficava preso
+  // no valor cru até o usuário forçar um recompute editando um campo (repro do dono: apagar/repor
+  // o loss do Tecido 1 p/ o Custo Previsto aparecer). Recalcula os blocos quando os preços chegam/
+  // mudam, preservando consumo/loss/variantes já digitados. Guard de map vazio (não zerar com
+  // preço 0 antes de `artigoMap` carregar) + guard de no-op (só troca o array se algum
+  // custo_previsto mudou de fato — evita re-render/ciclo em refetch de background da colab).
+  useEffect(() => {
+    if (Object.keys(artigoMap).length === 0) return;
+    setBlocks((bs) => {
+      if (!bs.length) return bs;
+      const next = bs.map((b) => recomputeBlock(b, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>));
+      const mudou = next.some((b, i) => b.custo_previsto !== bs[i].custo_previsto);
+      return mudou ? next : bs;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artigoMap, varianteArtigoMap, frozenPrecos, tecidosData]);
+
   useEffect(() => {
     if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
     if (!gradesData) { setGrades([]); return; }
