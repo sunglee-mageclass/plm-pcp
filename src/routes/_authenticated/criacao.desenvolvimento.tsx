@@ -562,9 +562,11 @@ function DesenvolvimentoPage() {
     collapsedTocadoRef.current = true;
     if (emFocoRevenda) {
       setCollapsed(new Set()); // expande todas
+      setFOrigem([]);          // limpa o filtro de origem (volta a mostrar tudo)
     } else {
-      // colapsa as não-revenda, expande as de revenda
+      // colapsa as não-revenda, expande as de revenda + filtra a lista por origem=revenda
       setCollapsed(new Set(statusKanban.filter((s) => !colsRevenda.includes(s.key)).map((s) => s.key)));
+      setFOrigem(["revenda"]);
     }
   };
 
