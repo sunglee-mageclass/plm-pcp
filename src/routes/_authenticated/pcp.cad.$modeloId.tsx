@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { calcCusto } from "@/components/producao/cad/types";
+import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
 import { somaCustosAdicionais } from "@/lib/custo";
 import type {
   AviamentoRow,
@@ -882,14 +883,28 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     if (!autoFolhas) return;
     setTecidos((prev) => {
       let changed = false;
+      // Mapa variante_tecido_id (Tecido 1) → grade da sua posição, p/ o casamento de
+      // variantes (Fatia 2B): uma variante complementar CASADA consome a Σ das grades
+      // das cores do Tecido 1 com que foi casada, não a grade da própria ordem.
+      const gradePorVarianteTecido1 = new Map<string, number>();
+      const t1 = prev.find((b) => b.tipo === "tecido" && b.numero === 1);
+      t1?.variantes.forEach((v) => {
+        if (v.variante_tecido_id) gradePorVarianteTecido1.set(v.variante_tecido_id, gradeTotalByNumero(v.ordem));
+      });
       const next = prev.map((t) => {
         // Metragem planejada INCLUI o %loss (bate com a reserva e o custo). O tamanho
         // de folha usa a metragem-base SEM loss (o desperdício não infla o layout).
         const lossFactor = 1 + (Number(t.loss_percent_cad) || 0) / 100;
         let baseMetragem = 0;
+        const isTecido1 = t.tipo === "tecido" && t.numero === 1;
         const variantes = t.variantes.map((v) => {
           const mult = Number(v.multiplicador ?? 1) || 1;
-          const pecas = gradeTotalByNumero(v.ordem) * mult;
+          const pecas = gradeEfetivaPar({
+            isTecido1,
+            complementaIds: v.complementa_variante_ids,
+            gradePosicao: gradeTotalByNumero(v.ordem),
+            gradePorVarianteTecido1,
+          }) * mult;
           const quantidade_folhas = sumProporcoes > 0 ? round2(pecas / sumProporcoes) : 0;
           const base = pecas * (t.consumo_cad || 0);
           baseMetragem += base;

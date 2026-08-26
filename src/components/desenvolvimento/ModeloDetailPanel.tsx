@@ -10,6 +10,7 @@ import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import { brl } from "@/lib/format";
 import { distribuiTotal, distribuiAncora, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
+import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
 import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
@@ -995,6 +996,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       quantidade_folhas: 0,
       metragem_planejada: 0,
       metragem_enviada: 0,
+      complementa_variante_ids: v.complementa_variante_ids ?? null,
     });
 
     let initialTec: CadTecidoRow[];
@@ -1027,6 +1029,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
           metragem_planejada: Number(v.metragem_planejada ?? 0),
           metragem_enviada: Number(v.metragem_enviada ?? 0),
+          complementa_variante_ids: v.complementa_variante_ids ?? null,
         } as CadVarianteRow)),
       }));
       // Mescla variantes/blocos novos do BOM que ainda não estão no CAD.
@@ -1049,6 +1052,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 variante_nome: null, variante_cor: null, variante_apelido: null,
                 multiplicador: Number(v.multiplicador ?? 1) || 1, ordem: v.ordem,
                 quantidade_folhas: 0, metragem_planejada: 0, metragem_enviada: 0,
+                complementa_variante_ids: v.complementa_variante_ids ?? null,
               })),
             });
             return;
@@ -1082,6 +1086,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             variante_nome: null, variante_cor: null, variante_apelido: null,
             multiplicador: Number(v.multiplicador ?? 1) || 1, ordem: v.ordem,
             quantidade_folhas: 0, metragem_planejada: 0, metragem_enviada: 0,
+            complementa_variante_ids: v.complementa_variante_ids ?? null,
           })),
         } as CadTecidoRow;
       }) ?? [];
@@ -1150,12 +1155,26 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     if (!autoFolhas) return;
     setCadTecidosState((prev) => {
       let changed = false;
+      // Mapa variante_tecido_id (Tecido 1) → grade da sua posição, p/ o casamento de
+      // variantes (Fatia 2B): uma variante complementar CASADA consome a Σ das grades
+      // das cores do Tecido 1 com que foi casada, não a grade da própria ordem.
+      const gradePorVarianteTecido1 = new Map<string, number>();
+      const t1 = prev.find((b) => b.tipo === "tecido" && b.numero === 1);
+      t1?.variantes.forEach((v) => {
+        if (v.variante_tecido_id) gradePorVarianteTecido1.set(v.variante_tecido_id, gradeTotalByNumeroDev(v.ordem));
+      });
       const next = prev.map((t) => {
         const lossFactor = 1 + (Number(t.loss_percent_cad) || 0) / 100;
         let baseMetragem = 0;
+        const isTecido1 = t.tipo === "tecido" && t.numero === 1;
         const variantes = t.variantes.map((v) => {
           const mult = Number(v.multiplicador ?? 1) || 1;
-          const pecas = gradeTotalByNumeroDev(v.ordem) * mult;
+          const pecas = gradeEfetivaPar({
+            isTecido1,
+            complementaIds: v.complementa_variante_ids,
+            gradePosicao: gradeTotalByNumeroDev(v.ordem),
+            gradePorVarianteTecido1,
+          }) * mult;
           const quantidade_folhas = sumProporcoesDev > 0 ? round2Dev(pecas / sumProporcoesDev) : 0;
           const base = pecas * (t.consumo_cad || 0);
           baseMetragem += base;
@@ -1214,29 +1233,36 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         const block = blocks.find((b) => b.tipo === cadTec.tipo && b.numero === cadTec.numero);
         if (!block) return cadTec;
 
-        // Variantes não-null do block, com sua ordem (1-based)
-        const bomVars: { variante_tecido_id: string; ordem: number; multiplicador: number }[] = [];
+        // Variantes não-null do block, com sua ordem (1-based). O casamento
+        // (complementa_variante_ids) vem de `block.complementas` na MESMA posição.
+        const bomVars: { variante_tecido_id: string; ordem: number; multiplicador: number; complementa_variante_ids: string[] | null }[] = [];
         block.variantes.forEach((vid, i) => {
-          if (vid) bomVars.push({ variante_tecido_id: vid, ordem: i + 1, multiplicador: Number(block.multiplicadores?.[i] ?? 1) || 1 });
+          if (vid) bomVars.push({
+            variante_tecido_id: vid,
+            ordem: i + 1,
+            multiplicador: Number(block.multiplicadores?.[i] ?? 1) || 1,
+            complementa_variante_ids: (block.complementas?.[i] as string[] | null) ?? null,
+          });
         });
 
         // Mapa das variantes já no cadTecidosState (por variante_tecido_id)
         const have = new Map(cadTec.variantes.map((v) => [v.variante_tecido_id, v]));
 
         // Constrói a nova lista de variantes do cadTec
-        const nextVariantes: CadVarianteRow[] = bomVars.map(({ variante_tecido_id, ordem, multiplicador }) => {
+        const nextVariantes: CadVarianteRow[] = bomVars.map(({ variante_tecido_id, ordem, multiplicador, complementa_variante_ids }) => {
           const existing = have.get(variante_tecido_id);
           const info = blockVariantesInfo[variante_tecido_id];
           // Rótulo vem do mapa; se ainda não carregou, preserva o que houver (não zera).
           const nome = info?.nome ?? existing?.variante_nome ?? null;
           const cor = info?.cor ?? existing?.variante_cor ?? null;
           const apelido = info?.apelido ?? existing?.variante_apelido ?? null;
+          const compChanged = JSON.stringify(existing?.complementa_variante_ids ?? null) !== JSON.stringify(complementa_variante_ids);
           if (existing) {
-            // Preserva valores já digitados; atualiza ordem/multiplicador e rótulos se mudaram
-            if (existing.ordem !== ordem || existing.multiplicador !== multiplicador
+            // Preserva valores já digitados; atualiza ordem/multiplicador/casamento e rótulos se mudaram
+            if (existing.ordem !== ordem || existing.multiplicador !== multiplicador || compChanged
               || existing.variante_nome !== nome || existing.variante_cor !== cor || existing.variante_apelido !== apelido) {
               changed = true;
-              return { ...existing, ordem, multiplicador, variante_nome: nome, variante_cor: cor, variante_apelido: apelido };
+              return { ...existing, ordem, multiplicador, complementa_variante_ids, variante_nome: nome, variante_cor: cor, variante_apelido: apelido };
             }
             return existing;
           }
@@ -1252,6 +1278,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             quantidade_folhas: 0,
             metragem_planejada: 0,
             metragem_enviada: 0,
+            complementa_variante_ids,
           } as CadVarianteRow;
         });
 
