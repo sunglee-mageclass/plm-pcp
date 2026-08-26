@@ -134,7 +134,12 @@ function DesenvolvimentoPage() {
   const [fGrupo, setFGrupo] = useFilterState("desenvolvimento", "Grupo", []);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // "Reprovado" nasce colapsada já no PRIMEIRO paint (lazy init contra DEFAULT_STATUSES, que
+  // contém a key) — evita o flash-de-1-frame de um seed em useEffect pós-paint. O effect abaixo
+  // é só rede de segurança p/ tenant cujo status_kanban resolvido traga "reprovado" fora do default.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+    DEFAULT_STATUSES.some((s) => s.key === "reprovado") ? new Set(["reprovado"]) : new Set(),
+  );
   // "tocou no colapso" = o usuário mexeu (por coluna ou pelo botão global) → para de re-semear
   // o default (coluna Reprovado nasce colapsada — pedido #1, kanban coluna terminal, ago/2026).
   const collapsedTocadoRef = useRef(false);
@@ -510,9 +515,10 @@ function DesenvolvimentoPage() {
     setCollapsed(allCollapsed ? new Set() : new Set(statusKanban.map((s) => s.key)));
   };
 
-  // DEFAULT: coluna "Reprovado" (status terminal) nasce colapsada, demais expandidas. Semeia só
-  // 1x, quando statusKanban resolve e tem "reprovado" como key presente — até o usuário mexer
-  // (collapsedTocadoRef, marcado por toggleCollapse/toggleAll). Não re-força depois que ele expande.
+  // Rede de segurança: se o status_kanban RESOLVIDO do tenant trouxer "reprovado" mas o default
+  // não o tinha (config customizada), garante a coluna colapsada. Idempotente (no-op se já está)
+  // e gated pelo collapsedTocadoRef — não re-força depois que o usuário expande. O caso comum já
+  // nasceu colapsado no lazy init do useState acima (sem flash).
   useEffect(() => {
     if (collapsedTocadoRef.current) return;
     if (!statusKanban.some((s) => s.key === "reprovado")) return;
