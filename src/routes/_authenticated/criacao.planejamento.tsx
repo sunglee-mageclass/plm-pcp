@@ -971,7 +971,12 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         // situação da MO (laudo: o compacto só mostrava nome/preço → status ficava só na cor da borda,
         // barreira p/ daltônicos, e sem contexto do modelo). Status por texto, não só cor.
         <div className="p-2 space-y-1">
-          <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
+          <div className="flex items-center gap-1">
+            <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
+            {modelo.origem === "revenda" && (
+              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            )}
+          </div>
           <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
           <div className="flex items-center gap-1">
             {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
@@ -993,6 +998,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         <div className="p-3 space-y-1.5">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
+            {modelo.origem === "revenda" && (
+              <StatusBadge tone="info" className="normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            )}
             <VersaoBadge versao={modelo.versao} />
           </div>
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
