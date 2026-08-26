@@ -3038,7 +3038,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         )}
       </div>
 
-      <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 items-center max-sm:flex-nowrap">
+      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 max-sm:flex-nowrap">
         {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
         <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
           <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
