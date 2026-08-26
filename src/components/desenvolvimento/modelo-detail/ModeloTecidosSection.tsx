@@ -19,6 +19,7 @@ import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemAr
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
 
 type ArtigoOpt = {
   id: string;
@@ -111,6 +112,15 @@ export function ModeloTecidosSection({
     // Principais primeiro; estável por (isSubstituto, label).
     .sort((a, b) => Number(a.isSubstituto) - Number(b.isSubstituto) || a.label.localeCompare(b.label, "pt-BR"));
 
+  // Casar variantes (Fatia 2B): mapa `variante_tecido_id (Tecido 1) → grade_total` da
+  // POSIÇÃO daquela variante no bloco Tecido 1 (ordem = índice 1-based em `variantes`).
+  // Alimenta `gradeEfetivaPar` p/ que o consumo de uma variante complementar CASADA use a
+  // Σ das grades das cores do Tecido 1 com que ela casa, não a grade da própria posição.
+  const gradePorVarianteTecido1 = new Map<string, number>();
+  (blocoTecido1?.variantes ?? []).forEach((vid, i) => {
+    if (vid) gradePorVarianteTecido1.set(vid, gradeTotalByPos(i + 1));
+  });
+
   useEffect(() => {
     setVisible((prev) => {
       const next = new Set(prev);
@@ -181,6 +191,7 @@ export function ModeloTecidosSection({
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
                     tecido1Variantes={tecido1Variantes}
+                    gradePorVarianteTecido1={gradePorVarianteTecido1}
                     camposCopiados={camposCopiados}
                     onCampoEditado={onCampoEditado}
                   />
@@ -222,6 +233,7 @@ function TecidoBlockEditor({
   onRemove,
   removable,
   tecido1Variantes,
+  gradePorVarianteTecido1,
   camposCopiados = new Set(),
   onCampoEditado,
 }: {
@@ -237,6 +249,7 @@ function TecidoBlockEditor({
   onRemove: () => void;
   removable: boolean;
   tecido1Variantes: { id: string; label: string; artigoNome: string; isSubstituto: boolean }[];
+  gradePorVarianteTecido1: Map<string, number>;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
 }) {
@@ -537,7 +550,12 @@ function TecidoBlockEditor({
                       <OcLinksField
                         modeloId={modeloId}
                         varianteId={current}
-                        need={(block.consumo || 0) * (1 + (block.loss_percent || 0) / 100) * gradeTotalByPos(i + 1) * multAt(i)}
+                        need={(block.consumo || 0) * (1 + (block.loss_percent || 0) / 100) * gradeEfetivaPar({
+                          isTecido1: block.tipo === "tecido" && block.numero === 1,
+                          complementaIds: complementaAt(i),
+                          gradePosicao: gradeTotalByPos(i + 1),
+                          gradePorVarianteTecido1,
+                        }) * multAt(i)}
                         value={block.oc_links?.[i] ?? []}
                         onChange={(allocs) => onChangeOcLinks(i, allocs)}
                       />
