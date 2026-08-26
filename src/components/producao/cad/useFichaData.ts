@@ -28,6 +28,9 @@ export type FichaData = {
   composicao: string;
   observacoes: ObsRow[];
   ocLinksByKey: Record<string, string[]>;
+  /** Rótulo (varianteLabel) das variantes do Tecido 1, por variante_tecido_id — p/ mostrar
+   *  "casada com {Tecido 1 · cor}" na Ficha (ver casar-variantes-fatia2). */
+  tecido1LabelById: Map<string, string>;
   /** true quando os dados essenciais da ficha já carregaram (p/ imprimir só depois). */
   isReady: boolean;
 };
@@ -163,6 +166,7 @@ export function useFichaData(modeloId: string): FichaData {
           variante_nome: v.variantes_tecido?.nome_variante,
           variante_cor: v.variantes_tecido?.cor?.nome,
           variante_apelido: v.variantes_tecido?.apelido?.nome,
+          complementa_variante_ids: v.complementa_variante_ids ?? null,
         })),
       }))
       .sort((a, b) => {
@@ -205,6 +209,20 @@ export function useFichaData(modeloId: string): FichaData {
     (t1?.variantes ?? []).forEach((v) => {
       const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
       if (v.ordem) m[v.ordem] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}`;
+    });
+    return m;
+  }, [tecidos]);
+
+  // Rótulo das variantes do Tecido 1 por variante_tecido_id (não por ordem) — usado pra
+  // resolver "casada com {Tecido 1 · cor}" a partir de complementa_variante_ids (ver
+  // casar-variantes-fatia2, Task 2).
+  const tecido1LabelById = useMemo(() => {
+    const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
+    const m = new Map<string, string>();
+    (t1?.variantes ?? []).forEach((v) => {
+      if (!v.variante_tecido_id) return;
+      const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
+      if (lbl !== "—") m.set(v.variante_tecido_id, lbl);
     });
     return m;
   }, [tecidos]);
@@ -256,6 +274,7 @@ export function useFichaData(modeloId: string): FichaData {
     composicao,
     observacoes: observacoes as ObsRow[],
     ocLinksByKey,
+    tecido1LabelById,
     // Só está "pronto" quando o modelo, o CAD e a grade carregaram (e, havendo
     // CAD, os tecidos). Evita imprimir a ficha em branco no 1º clique (cache frio).
     isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched),

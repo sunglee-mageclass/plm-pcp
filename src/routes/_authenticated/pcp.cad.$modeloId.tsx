@@ -143,7 +143,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -320,6 +320,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       quantidade_folhas: 0,
       metragem_planejada: 0,
       metragem_enviada: 0,
+      complementa_variante_ids: v.complementa_variante_ids ?? null,
     });
     const tecFromModelo = (mt: any): TecidoRow => {
       const preco = precoTecido(mt.tipo, mt.numero, Number(mt.artigos?.preco_por_metro ?? 0));
@@ -367,6 +368,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
           metragem_planejada: Number(v.metragem_planejada ?? 0),
           metragem_enviada: Number(v.metragem_enviada ?? 0),
+          complementa_variante_ids: v.complementa_variante_ids ?? null,
         })),
       }));
       // Vínculo Desenvolvimento → CAD: mescla blocos/variantes adicionados no
@@ -836,6 +838,19 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     return m;
   }, [tecidos]);
 
+  // Rótulo das variantes do Tecido 1 por variante_tecido_id — p/ a Ficha mostrar "casada
+  // com {Tecido 1 · cor}" (casar-variantes-fatia2, Task 2).
+  const tecido1LabelById = useMemo(() => {
+    const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
+    const m = new Map<string, string>();
+    (t1?.variantes ?? []).forEach((v) => {
+      if (!v.variante_tecido_id) return;
+      const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
+      if (lbl !== "—") m.set(v.variante_tecido_id, lbl);
+    });
+    return m;
+  }, [tecidos]);
+
   const gradeTotalGeral = useMemo(
     () => grades.reduce((a, g) => a + (g.grade_total || 0), 0),
     [grades],
@@ -1091,6 +1106,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         gradeTotalGeral={gradeTotalGeral}
         labelByNumero={gradeLabelByNumero}
         ocLinksByKey={ocLinksByKey}
+        tecido1LabelById={tecido1LabelById}
       />
 
       <AlertDialog open={confirmZeroOpen} onOpenChange={setConfirmZeroOpen}>

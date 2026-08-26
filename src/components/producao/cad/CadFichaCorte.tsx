@@ -21,6 +21,7 @@ type Props = {
   gradeTotalGeral?: number;
   labelByNumero?: Record<number, string>;
   ocLinksByKey?: Record<string, string[]>;
+  tecido1LabelById?: Map<string, string>;
 };
 
 // Quebra NATURAL: cada seção evita ser cortada no meio e pagina quando não cabe.
@@ -58,8 +59,17 @@ function varLabel(v: TecidoRow["variantes"][number]) {
   return lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}`;
 }
 
+/** Rótulo pequeno "· casada com {Tecido 1 · cor}, ..." (ver casar-variantes-fatia2). Sem
+ *  ids ou sem mapa (ou nenhum id resolve p/ rótulo) → "" (degrada, some da célula). */
+function casadaComLabel(v: TecidoRow["variantes"][number], tecido1LabelById?: Map<string, string>) {
+  const ids = v.complementa_variante_ids;
+  if (!ids?.length || !tecido1LabelById) return "";
+  const labels = ids.map((id) => tecido1LabelById.get(id)).filter(Boolean) as string[];
+  return labels.length ? `· casada com ${labels.join(", ")}` : "";
+}
+
 /** Tabela de variantes (mesmo esquema p/ tecido e p/ forro/entretela). */
-export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]> }) {
+export function MaterialTable({ blocks, colMaterial, ocLinksByKey, tecido1LabelById }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]>; tecido1LabelById?: Map<string, string> }) {
   const rows = blocks.flatMap((t) =>
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
@@ -87,9 +97,13 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
       <tbody>
         {rows.map(({ t, v }, i) => {
           const ocs = ocLinksByKey?.[`${t.tipo}-${t.numero}-${v.ordem}-${v.variante_tecido_id}`] ?? [];
+          const casada = casadaComLabel(v, tecido1LabelById);
           return (
             <tr key={i}>
-              <td style={cW}>{varLabel(v)}</td>
+              <td style={cW}>
+                {varLabel(v)}
+                {casada && <div style={{ fontSize: 9, color: "#999" }}>{casada}</div>}
+              </td>
               <td style={cW}>{t.artigo_nome ?? ""}</td>
               <td style={cW}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : ""}</td>
               <td style={cW}>{fmt2(t.consumo_cad)}</td>
@@ -120,7 +134,7 @@ export function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
   );
 }
 
-export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
+export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde, tecido1LabelById }: Props) {
   const tenantLogo = useTenantLogo();
 
   const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
@@ -148,7 +162,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           <td className="print-section" style={meiaCell}>
             {pageHeader}
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
-            <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} />
+            <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} tecido1LabelById={tecido1LabelById} />
             <Etiquetas blocks={tecidoBlocks} />
             <Assinatura />
           </td>
@@ -156,9 +170,9 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
         <tr style={meiaRow}>
           <td className="print-section" style={meiaCellBaixo}>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Forro</h3>
-            <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={ocLinksByKey} />
+            <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={ocLinksByKey} tecido1LabelById={tecido1LabelById} />
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Entretela</h3>
-            <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={ocLinksByKey} />
+            <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={ocLinksByKey} tecido1LabelById={tecido1LabelById} />
             <Etiquetas blocks={forroEntretela} />
             <Assinatura />
           </td>
@@ -300,6 +314,7 @@ export function FichaCorteDoc({ modeloId }: { modeloId: string }) {
       gradeTotalGeral={d.gradeTotalGeral}
       labelByNumero={d.labelByNumero}
       ocLinksByKey={d.ocLinksByKey}
+      tecido1LabelById={d.tecido1LabelById}
     />
   );
 }

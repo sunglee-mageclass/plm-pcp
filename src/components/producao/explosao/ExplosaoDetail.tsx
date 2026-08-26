@@ -255,6 +255,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         quantidade_folhas: Number(v.quantidade_folhas ?? 0),
         metragem_planejada: Number(v.metragem_planejada ?? 0),
         metragem_enviada: Number(v.metragem_enviada ?? 0),
+        complementa_variante_ids: v.complementa_variante_ids ?? null,
       })),
     }));
     // Ordena os blocos: Tecido → Forro → Entretela (e por número dentro do tipo).
@@ -313,6 +314,19 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     (t1?.variantes ?? []).forEach((v) => {
       const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
       if (v.ordem) m[v.ordem] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}`;
+    });
+    return m;
+  }, [tecidos]);
+
+  // Rótulo das variantes do Tecido 1 por variante_tecido_id — p/ a Ficha mostrar "casada
+  // com {Tecido 1 · cor}" (casar-variantes-fatia2, Task 2).
+  const tecido1LabelById = useMemo(() => {
+    const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
+    const m = new Map<string, string>();
+    (t1?.variantes ?? []).forEach((v) => {
+      if (!v.variante_tecido_id) return;
+      const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
+      if (lbl !== "—") m.set(v.variante_tecido_id, lbl);
     });
     return m;
   }, [tecidos]);
@@ -797,6 +811,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         gradeTotalGeral={gradeTotalGeral}
         labelByNumero={gradeLabelByNumero}
         ocLinksByKey={ocLinksByKey}
+        tecido1LabelById={tecido1LabelById}
       />
 
       {/* Confirmação ANTES da baixa (Enviar E Reenviar) — resumo do que vai baixar, com

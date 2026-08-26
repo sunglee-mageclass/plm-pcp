@@ -13,6 +13,10 @@ export type VarianteRow = {
   quantidade_folhas: number;
   metragem_planejada: number;
   metragem_enviada: number;
+  // Variante(s) do Tecido 1 com que esta variante (bloco complementar, ex.: forro) foi
+  // "casada" — ver casar-variantes-fatia2. Copiado do BOM (modelo_tecido_variantes) ao
+  // enviar ao CAD; usado só p/ exibição ("casada com …") na Ficha Técnica/Corte.
+  complementa_variante_ids?: string[] | null;
 };
 
 export type TecidoRow = {
