@@ -64,6 +64,7 @@ type Modelo = {
   // `modelos.lancado` — fonte única de "Lançado". Quando true, o card sai do fluxo normal e vai
   // SÓ pra coluna terminal sintética "Lançado" (derivada; volta ao fluxo se reverter a false).
   lancado: boolean | null;
+  origem: string | null;
   cad: { enviado_corte: boolean | null }[] | null;
   created_at: string | null;
 };
@@ -225,7 +226,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, lancado, cad(enviado_corte), created_at")
+        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, lancado, origem, cad(enviado_corte), created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -901,6 +902,9 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
+            {modelo.origem === "revenda" && (
+              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            )}
           </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
@@ -963,6 +967,9 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
+            {modelo.origem === "revenda" && (
+              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            )}
           </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
