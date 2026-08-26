@@ -15,6 +15,7 @@ import { lerRevendaConfig, revendaColunaPermitida, revendaRequisitos } from "@/l
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { ImagePreview } from "@/components/shared/ImagePreview";
@@ -150,6 +151,8 @@ function DesenvolvimentoPage() {
   // colapsada). FORA do `collapsed`/`toggleAll` (que só iteram `statusKanban`), então "expandir
   // todas" nunca a abre — só o botão próprio dela a alterna.
   const [terminalAberta, setTerminalAberta] = useState(false);
+  // Popover do botão único "Recolher/Expandir" (junta colunas + tecidos p/ ocupar menos espaço).
+  const [recolherOpen, setRecolherOpen] = useState(false);
   // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
   const [groupByTecido, setGroupByTecido] = useState<boolean>(() => {
     try { return (localStorage.getItem(GROUPBY_LS) ?? "tecido").includes("tecido"); } catch { return true; }
@@ -625,30 +628,39 @@ function DesenvolvimentoPage() {
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           {/* ordem: lupa · recolher (desktop) · ordenar · filtros */}
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
-          {/* Dois níveis (dono): "Tecidos" = grupos dentro das colunas; "Colunas" = as colunas. */}
-          {splitters.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden md:inline-flex h-9"
-              onClick={toggleTecidos}
-              disabled={allGroupPaths.length === 0}
-              title={allTecidosRecolhidos ? "Expandir todos os tecidos" : "Recolher todos os tecidos"}
-            >
-              {allTecidosRecolhidos ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
-              <span className="max-lg:sr-only">{allTecidosRecolhidos ? "Expandir tecidos" : "Recolher tecidos"}</span>
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden md:inline-flex h-9"
-            onClick={toggleAll}
-            title={allCollapsed ? "Expandir todas as colunas" : "Recolher todas as colunas"}
-          >
-            {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
-            <span className="max-lg:sr-only">{allCollapsed ? "Expandir colunas" : "Recolher colunas"}</span>
-          </Button>
+          {/* Recolher/Expandir num BOTÃO ÚNICO com dropdown (ocupa menos espaço): "Colunas" = as
+              colunas do kanban; "Tecidos" = os grupos dentro das colunas (só quando há agrupamento).
+              Cada opção é um toggle (executa e fecha); o rótulo alterna Recolher/Expandir. */}
+          <Popover open={recolherOpen} onOpenChange={setRecolherOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="hidden md:inline-flex h-9" title="Recolher / Expandir">
+                <ChevronsDownUp className="h-4 w-4 sm:mr-1" />
+                <span className="max-lg:sr-only">Recolher</span>
+                <ChevronDown className="h-3.5 w-3.5 ml-1 opacity-60" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-52 p-1">
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                onClick={() => { toggleAll(); setRecolherOpen(false); }}
+              >
+                {allCollapsed ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+                {allCollapsed ? "Expandir colunas" : "Recolher colunas"}
+              </button>
+              {splitters.length > 0 && (
+                <button
+                  type="button"
+                  disabled={allGroupPaths.length === 0}
+                  className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+                  onClick={() => { toggleTecidos(); setRecolherOpen(false); }}
+                >
+                  {allTecidosRecolhidos ? <ChevronsUpDown className="h-4 w-4" /> : <ChevronsDownUp className="h-4 w-4" />}
+                  {allTecidosRecolhidos ? "Expandir tecidos" : "Recolher tecidos"}
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
           {focoRevendaDisponivel && (
             <Button
               variant={emFocoRevenda ? "default" : "outline"}
