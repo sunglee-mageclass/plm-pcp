@@ -61,9 +61,19 @@ type Modelo = {
   desenho_tecnico_url: string | null;
   croqui_url: string | null;
   enviado_cad: boolean | null;
+  // `modelos.lancado` — fonte única de "Lançado". Quando true, o card sai do fluxo normal e vai
+  // SÓ pra coluna terminal sintética "Lançado" (derivada; volta ao fluxo se reverter a false).
+  lancado: boolean | null;
   cad: { enviado_corte: boolean | null }[] | null;
   created_at: string | null;
 };
+
+// Coluna terminal SINTÉTICA "Lançado" (pedido #2, kanban coluna terminal). NÃO faz parte de
+// `statusKanban`/`tenant_config.status_kanban` (então é ineditável pelo usuário E imune ao
+// recolher/expandir-todas, que só itera `statusKanban`). Renderizada por ÚLTIMO, sempre colapsada
+// por default, com estado de colapso PRÓPRIO. Recebe os cards com `modelos.lancado===true`
+// (bucketing em `byStatus`). Cor = tom semântico success (§Q9/§R — token, nunca hex/hsl solto).
+const TERMINAL_DEV = { key: "__lancado__", label: "Lançado", color: "var(--tone-success-fg)" };
 
 const SORT_FIELDS = [
   { key: "nome", label: "Nome" },
@@ -128,6 +138,10 @@ function DesenvolvimentoPage() {
   // "tocou no colapso" = o usuário mexeu (por coluna ou pelo botão global) → para de re-semear
   // o default (coluna Reprovado nasce colapsada — pedido #1, kanban coluna terminal, ago/2026).
   const collapsedTocadoRef = useRef(false);
+  // Colapso da coluna terminal sintética "Lançado": estado LOCAL e self-contained (default
+  // colapsada). FORA do `collapsed`/`toggleAll` (que só iteram `statusKanban`), então "expandir
+  // todas" nunca a abre — só o botão próprio dela a alterna.
+  const [terminalAberta, setTerminalAberta] = useState(false);
   // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
   const [groupByTecido, setGroupByTecido] = useState<boolean>(() => {
     try { return (localStorage.getItem(GROUPBY_LS) ?? "tecido").includes("tecido"); } catch { return true; }
@@ -206,7 +220,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
+        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, lancado, cad(enviado_corte), created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -433,8 +447,12 @@ function DesenvolvimentoPage() {
   const byStatus = useMemo(() => {
     const map = new Map<string, Modelo[]>();
     statusKanban.forEach((s) => map.set(s.key, []));
+    map.set(TERMINAL_DEV.key, []); // coluna terminal sintética "Lançado"
     const firstKey = statusKanban[0]?.key;
     s.sorted.forEach((m) => {
+      // Modelo lançado (`lancado===true`) sai do fluxo normal e vai SÓ pra terminal (derivado —
+      // volta ao fluxo se reverter). Feito aqui pra não vazar pra nenhuma coluna de status.
+      if (m.lancado === true) { map.get(TERMINAL_DEV.key)!.push(m); return; }
       const k = m.status_desenvolvimento && map.has(m.status_desenvolvimento)
         ? m.status_desenvolvimento
         : firstKey;
@@ -470,6 +488,9 @@ function DesenvolvimentoPage() {
     e.preventDefault();
     setDragOver(null);
     setDraggingId(null);
+    // A coluna terminal "Lançado" é derivada (não recebe drop) — barra por segurança, mesmo que
+    // ela não wire onDrop (nenhuma coluna carrega essa key hoje).
+    if (statusKey === TERMINAL_DEV.key) return;
     const id = e.dataTransfer.getData("text/plain");
     if (!id) return;
     const cur = modelos.find((m) => m.id === id);
@@ -686,6 +707,67 @@ function DesenvolvimentoPage() {
             </div>
           );
         })}
+
+        {/* Coluna terminal sintética "Lançado" — SEMPRE por último, colapso próprio (default
+            colapsada, imune ao recolher/expandir-todas da página). Mesmo visual das colunas
+            normais. Drag DESABILITADO: a coluna é derivada de `modelos.lancado`, não se move card
+            de/para ela por arraste (nem aceita drop — sem handlers onDragOver/onDrop). */}
+        {(() => {
+          const cards = byStatus.get(TERMINAL_DEV.key) ?? [];
+          return (
+            <div
+              className={`shrink-0 rounded-lg flex flex-col max-h-[calc(100vh-260px)] border bg-muted/30 ${terminalAberta ? "w-80" : ""}`}
+            >
+              {!terminalAberta ? (
+                /* Recolhida: trilho vertical estreito (clica p/ expandir) */
+                <button
+                  type="button"
+                  onClick={() => setTerminalAberta(true)}
+                  title={TERMINAL_DEV.label}
+                  className="flex-1 w-9 flex flex-col items-center gap-2 py-3 hover:bg-muted/50"
+                >
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: TERMINAL_DEV.color }} />
+                  <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{TERMINAL_DEV.label}</span>
+                  <span className="text-xs text-muted-foreground">{cards.length}</span>
+                </button>
+              ) : (
+                <>
+                  {/* Título horizontal no topo (clica p/ recolher) */}
+                  <button
+                    type="button"
+                    onClick={() => setTerminalAberta(false)}
+                    title="Recolher coluna"
+                    className="flex items-center gap-2 px-3 py-2.5 border-b hover:bg-muted/50 text-left"
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: TERMINAL_DEV.color }} />
+                    <span className="text-sm font-semibold truncate">{TERMINAL_DEV.label}</span>
+                    <span className="ml-auto text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 rotate-90" />
+                  </button>
+                  {/* Cards empilhados — drag DESABILITADO (draggable=false). */}
+                  <div className="flex-1 min-w-0 p-2 space-y-2 overflow-y-auto">
+                    {cards.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
+                    ) : (
+                      cards.map((m) => (
+                        <KanbanCard
+                          key={m.id}
+                          modelo={m}
+                          moEstado={moEstadoMap[m.id]}
+                          estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                          categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                          onOpen={() => setOpenId(m.id)}
+                          draggable={false}
+                        />
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Mobile: lista agrupada por status com seletor para mover */}
@@ -716,6 +798,42 @@ function DesenvolvimentoPage() {
               </AccordionItem>
             );
           })}
+          {/* Coluna terminal sintética "Lançado" — por ÚLTIMO. Derivada de `modelos.lancado`;
+              sem "Mover para…" (não se move card de/para ela). Nasce fechada (não em defaultValue). */}
+          {(() => {
+            const cards = byStatus.get(TERMINAL_DEV.key) ?? [];
+            return (
+              <AccordionItem value={TERMINAL_DEV.key} className="rounded-lg border bg-muted/30 px-3">
+                <AccordionTrigger className="py-2 hover:no-underline">
+                  <div className="flex flex-1 items-center justify-between gap-2 pr-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: TERMINAL_DEV.color }} />
+                      <span className="truncate text-sm font-semibold">{TERMINAL_DEV.label}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-3">
+                  {cards.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-4">Sem cards</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {cards.map((m) => (
+                        <MobileCard
+                          key={m.id}
+                          modelo={m}
+                          moEstado={moEstadoMap[m.id]}
+                          estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                          categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                          onOpen={() => setOpenId(m.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })()}
         </Accordion>
       </div>
 
