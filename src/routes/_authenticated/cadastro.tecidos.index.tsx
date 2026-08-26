@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -48,6 +48,8 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { TecidoDetail } from "./cadastro.tecidos.$artigoId";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/")({
   component: TecidosGallery,
@@ -531,6 +533,8 @@ function TecidoCard({
   );
 }
 
+const CREATE_TECIDO_DEFAULTS = { nome: "", unidade: "metro", ncm: "" };
+
 function CreateTecidoModal({
   open,
   onOpenChange,
@@ -542,70 +546,89 @@ function CreateTecidoModal({
   onSubmit: (f: { nome: string; unidade_medida: string; ncm?: string }) => void;
   loading: boolean;
 }) {
-  const [nome, setNome] = useState("");
-  const [unidade, setUnidade] = useState("metro");
-  const [ncm, setNcm] = useState("");
+  const [nome, setNome] = useState(CREATE_TECIDO_DEFAULTS.nome);
+  const [unidade, setUnidade] = useState(CREATE_TECIDO_DEFAULTS.unidade);
+  const [ncm, setNcm] = useState(CREATE_TECIDO_DEFAULTS.ncm);
+
+  // §A Caso B: modal simples (3 campos) — dirty comparado contra o baseline vazio.
+  const dirty =
+    open &&
+    (nome !== CREATE_TECIDO_DEFAULTS.nome ||
+      unidade !== CREATE_TECIDO_DEFAULTS.unidade ||
+      ncm !== CREATE_TECIDO_DEFAULTS.ncm);
+  const resetForm = () => {
+    setNome(CREATE_TECIDO_DEFAULTS.nome);
+    setUnidade(CREATE_TECIDO_DEFAULTS.unidade);
+    setNcm(CREATE_TECIDO_DEFAULTS.ncm);
+  };
+  // Modal fica sempre montado (nunca desmonta); "open" também pode virar false pelo
+  // caminho de sucesso do pai (fora do onOpenChange do Dialog) — reseta em qualquer
+  // fechamento, senão o form fica sujo e o próximo "Novo" abre com dirty=true à toa.
+  useEffect(() => {
+    if (!open) resetForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const { requestClose, confirm } = useUnsavedGuard({
+    dirty,
+    onClose: () => onOpenChange(false),
+  });
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) {
-          setNome("");
-          setUnidade("metro");
-          setNcm("");
-        }
-        onOpenChange(o);
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Novo Tecido</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1.5">
-            <Label>Nome do tecido</Label>
-            <Input
-              autoFocus
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex: Linho 100% premium"
-            />
+    <>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Novo Tecido</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome do tecido</Label>
+              <Input
+                autoFocus
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Ex: Linho 100% premium"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Unidade de medida</Label>
+              <Select value={unidade} onValueChange={setUnidade}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="metro">Metro</SelectItem>
+                  <SelectItem value="kg">Kg</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>NCM</Label>
+              <Input
+                value={ncm}
+                onChange={(e) => setNcm(e.target.value)}
+                placeholder="Ex: 5208.11.00"
+                inputMode="numeric"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Demais campos (fornecedor, preço, variantes…) podem ser preenchidos na próxima tela.
+            </p>
           </div>
-          <div className="space-y-1.5">
-            <Label>Unidade de medida</Label>
-            <Select value={unidade} onValueChange={setUnidade}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="metro">Metro</SelectItem>
-                <SelectItem value="kg">Kg</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>NCM</Label>
-            <Input
-              value={ncm}
-              onChange={(e) => setNcm(e.target.value)}
-              placeholder="Ex: 5208.11.00"
-              inputMode="numeric"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Demais campos (fornecedor, preço, variantes…) podem ser preenchidos na próxima tela.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
-          </Button>
-          <Button onClick={() => onSubmit({ nome, unidade_medida: unidade, ncm })} disabled={loading}>
-            {loading ? "Criando…" : "Criar e abrir"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={requestClose}>
+              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+            </Button>
+            <Button onClick={() => onSubmit({ nome, unidade_medida: unidade, ncm })} disabled={loading}>
+              {loading ? "Criando…" : "Criar e abrir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste tecido." />
+    </>
   );
 }
