@@ -28,7 +28,7 @@ export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       // Título NEUTRO: a identidade (nome do sistema) é configurável por instalação —
-      // "sisTrama" fixo contradizia a marca exibida na página (ex.: WISH360).
+      // um nome fixo no título contradiz a marca exibida na página (ex.: WISH360).
       { title: "Entrar" },
       { name: "description", content: "Acesse sua conta para gerenciar criação, produção, estoque e financeiro da sua confecção." },
       { property: "og:title", content: "Entrar" },

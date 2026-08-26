@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { STORAGE_PREFIX, migrarPrefixoStorage } from "@/lib/storage-prefix-migration";
 
 /**
  * Persiste, POR USUÁRIO e POR TELA, a seleção (array de ids) de UM filtro multi.
@@ -11,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
  * auth/tenant (essa nunca vai pra localStorage).
  */
 const KEY = (uid: string, screen: string, key: string) =>
-  `sistrama:filtro-sel:${uid}:${screen}:${key}`;
+  `${STORAGE_PREFIX}filtro-sel:${uid}:${screen}:${key}`;
 
 /**
  * Parse + validação pura (testável sem localStorage/window — o env de teste é node).
@@ -43,6 +44,7 @@ export function useFilterState(
   // Hidrata no cliente (evita mismatch de hidratação no SSR do Cloudflare).
   useEffect(() => {
     if (typeof window === "undefined") return;
+    migrarPrefixoStorage(); // copia chaves sistrama:* → wish360:* (uma vez, não perde filtro)
     try {
       const raw = window.localStorage.getItem(KEY(uid, screen, key));
       setValue(parseFilterSel(raw, initial));

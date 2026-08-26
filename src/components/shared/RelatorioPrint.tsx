@@ -94,7 +94,7 @@ export function RelatorioPrint({
   rodape?: ReactNode;
 }) {
   const loja = useTenantBranding();
-  const nomeLoja = loja.nome ?? "sisTrama";
+  const nomeLoja = loja.nome ?? "WISH360";
 
   return (
     <PrintArea>
@@ -156,7 +156,7 @@ export function RelatorioPrint({
 
         {/* Rodapé institucional */}
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 6, borderTop: "1px solid #ddd", fontSize: 11, color: "#999" }}>
-          <span>Relatório gerado pelo sisTrama</span>
+          <span>Relatório gerado pelo WISH360</span>
           <span>{nomeLoja} · {dataStr}</span>
         </div>
       </div>

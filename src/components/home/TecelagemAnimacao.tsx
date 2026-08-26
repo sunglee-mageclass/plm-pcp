@@ -15,7 +15,7 @@ const ROW_H = 21;       // distância entre linhas da trama (px)
 const persist = { frenteFrac: 0, prog: 0, dir: 1, iniciado: false };
 
 /**
- * Animação da identidade do sisTrama: os fios do URDUME (verticais, sob tensão) sendo
+ * Animação da identidade do WISH360: os fios do URDUME (verticais, sob tensão) sendo
  * "juntados" pela TRAMA (a lançadeira que cruza formando o tecido linha a linha). Loop
  * infinito: a frente de tecelagem desce, deixa o pano pronto atrás e reinicia no topo.
  *

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { STORAGE_PREFIX, migrarPrefixoStorage } from "@/lib/storage-prefix-migration";
 
 /**
  * Rastreia, POR USUÁRIO e POR TELA, quantas vezes cada filtro foi aplicado.
@@ -10,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
  * auth/tenant (essa nunca vai pra localStorage). Se um dia precisar sincronizar
  * entre dispositivos, troca-se o backend aqui sem tocar nas telas.
  */
-const KEY = (uid: string, screen: string) => `sistrama:filtros:${uid}:${screen}`;
+const KEY = (uid: string, screen: string) => `${STORAGE_PREFIX}filtros:${uid}:${screen}`;
 
 export function useFilterUsage(screen?: string) {
   const { user } = useAuth();
@@ -20,6 +21,7 @@ export function useFilterUsage(screen?: string) {
   // Carrega no cliente (evita mismatch de hidratação no SSR do Cloudflare).
   useEffect(() => {
     if (!screen || typeof window === "undefined") return;
+    migrarPrefixoStorage(); // copia chaves sistrama:* → wish360:* (uma vez, não perde uso)
     try {
       const raw = window.localStorage.getItem(KEY(uid, screen));
       setCounts(raw ? JSON.parse(raw) : {});
