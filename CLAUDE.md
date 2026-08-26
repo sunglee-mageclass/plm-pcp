@@ -556,6 +556,26 @@ e verifique** — o repo muda rápido.
     e por empty-state na UI (leitura direta via REST/embed não é bloqueada no banco se alguém
     montar a query à mão); decisão registrada 3× (Tasks 1/5/8), mesmo padrão do `otb`, não é
     regressão desta feature.
+    ⚠️ **Fluxo de Revenda CONFIGURÁVEL por loja (ago/2026, `a342618..efdeea0`, review opus SHIP):**
+    3 colunas jsonb novas em `tenant_config` (migração `20260826130000`): `revenda_kanban_colunas`
+    (keys de colunas por onde a revenda passa; `[]`=todas), `revenda_kanban_requisitos` (mapa
+    coluna→condições, próprio da revenda), `revenda_campos` (visibilidade por seção `s1..s6/prova/
+    s-cad/s3e` E campo de Info Básicas `modelista_id/piloteiro1-3_id/data_piloto1-3/data_desenho_
+    tecnico/data_aprovacao`). **SSOT = `src/lib/revenda-config.ts`** (`revendaCampoVisivel`/
+    `revendaColunaPermitida`/`revendaRequisitos`/`lerRevendaConfig`, puro+testado); os 4 pontos de
+    leitura (secOrdem+render das seções, campos do `ModeloInfoSection`, gate `cadMissing`, kanban
+    `podeEntrar`/`podeEntrarStatus`) consultam ESSE helper, SÓ quando `origem==='revenda'` —
+    fluxo interno byte-a-byte intocado (`isRevenda ? novo : <literal de hoje>`). **Default de
+    fábrica esconde os 9 campos + `prova/s2/s-cad`** (`REVENDA_CAMPOS_DEFAULT_OFF`), destravando os
+    produtos de revenda que antes travavam no gate de Tecido/CAD/Data. UI = card "Fluxo de Revenda"
+    em Config da Loja (gated `modules.produto_acabado`), reusa `RequisitosStatusDialog` com prop
+    opt-in `condsIndisponiveis=REVENDA_COND_NA` (7 condições impossíveis p/ revenda esmaecidas).
+    ⚠️ Coluna fora de `revenda_kanban_colunas` = BLOQUEADA p/ revenda. Fast-follows: cluster
+    "Cronograma & Pilotos" vira caixa vazia qd os campos escondidos; `reqBadge` de completude de
+    seção ainda usa requisitos INTERNOS (mostra "falta X" cosmético num card de revenda — só
+    display, NÃO trava). ⚠️ O `ModeloDetailPanel` lê tenant_config sob key PRÓPRIA
+    `["modelo-tenant-config-grade"]` (NÃO a `tenant-config-grade` do `GradeTamanhosCard`, que
+    retorna `string[]` — colisão de shape corrigida em `efdeea0`). Ver memória `project_fluxo_revenda_config`.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
