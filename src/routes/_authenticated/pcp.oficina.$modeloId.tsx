@@ -22,6 +22,11 @@ import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
 import { printWithImages } from "@/lib/print";
 import { PrintArea } from "@/components/shared/PrintArea";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { PageActionBar } from "@/components/shared/PageActionBar";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/pcp/oficina/$modeloId")({
   component: OficinaDetailPage,
@@ -31,6 +36,12 @@ const STATUS_TONE: Record<string, StatusTone> = {
   pendente: "warning",
   em_andamento: "info",
   finalizado: "success",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pendente: "Pendente",
+  em_andamento: "Em andamento",
+  finalizado: "Finalizado",
 };
 
 function computeStatus(b: { data_enviado: string | null; data_entregue: string | null }) {
@@ -141,14 +152,16 @@ function OficinaDetailPage() {
     observacoes_molde: "",
   });
   const [hydrated, setHydrated] = useState(false);
+  const { dirty, reset: resetBaseline } = useDirtySnapshot(form);
 
   useEffect(() => {
     if (hydrated) return;
     // Espera as duas queries assentarem: producao_oficina e o cad (fonte do molde).
     if (existing === undefined || cad === undefined) return;
     const molde = (cad as any)?.observacoes_molde ?? "";
+    let next = form;
     if (existing) {
-      setForm({
+      next = {
         terceirizado_id: existing.terceirizado_id ?? "",
         preco_por_peca: Number(existing.preco_por_peca ?? 0),
         quantidade_enviada: Number(existing.quantidade_enviada ?? 0),
@@ -159,10 +172,13 @@ function OficinaDetailPage() {
         data_entregue: existing.data_entregue ?? "",
         observacao: existing.observacao ?? "",
         observacoes_molde: molde,
-      });
+      };
+      setForm(next);
     } else {
-      setForm((f) => ({ ...f, observacoes_molde: molde }));
+      next = { ...form, observacoes_molde: molde };
+      setForm(next);
     }
+    resetBaseline(next);
     setHydrated(true);
   }, [existing, cad, hydrated]);
 
@@ -175,6 +191,8 @@ function OficinaDetailPage() {
     () => (terceirizados as any[]).find((t) => t.id === form.terceirizado_id)?.nome_responsavel ?? "—",
     [terceirizados, form.terceirizado_id],
   );
+
+  const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -225,35 +243,25 @@ function OficinaDetailPage() {
   const fotos = ((modelo as any)?.fotos_modelo ?? []) as string[];
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="oficina" />
-      <div className="no-print flex items-center justify-between">
-        <Link to="/pcp/oficina" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" /> Voltar
-        </Link>
-        <div className="flex gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
-          <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
-            <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
-          </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
-          </Button>
-        </div>
-      </div>
 
       <div className="no-print space-y-6">
-        <header className="flex items-start gap-3">
-          <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <h1 className="font-display text-xl font-semibold tracking-tight">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
-            <p className="text-sm text-muted-foreground">
-              {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
-            </p>
+        <header className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Breadcrumb items={[{ label: "PCP" }, { label: "Oficina", to: "/pcp/oficina" }, { label: modelo?.ref ?? "…" }]} />
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
-          <StatusBadge tone={STATUS_TONE[status] ?? "neutral"}>{status}</StatusBadge>
+          <div className="flex items-start gap-3">
+            <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <h1 className="font-display text-xl font-semibold tracking-tight">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
+              <p className="text-sm text-muted-foreground">
+                {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
+              </p>
+            </div>
+            <StatusBadge tone={STATUS_TONE[status] ?? "neutral"}>{STATUS_LABEL[status] ?? status}</StatusBadge>
+          </div>
         </header>
 
         <Card className="p-5 space-y-4">
@@ -279,7 +287,7 @@ function OficinaDetailPage() {
             )}
             <div>
               <Label className="text-xs">Preço por Peça</Label>
-              <NumberInput type="number" step="0.01" value={form.preco_por_peca}
+              <NumberInput blankZero placeholder="0,00" value={form.preco_por_peca}
                 onChange={(e) => setForm((f) => ({ ...f, preco_por_peca: Number(e.target.value) }))} />
             </div>
             <div>
@@ -289,17 +297,17 @@ function OficinaDetailPage() {
 
             <div>
               <Label className="text-xs">Qtd Enviada</Label>
-              <NumberInput type="number" value={form.quantidade_enviada}
+              <NumberInput integer blankZero placeholder="0" value={form.quantidade_enviada}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_enviada: Number(e.target.value) }))} />
             </div>
             <div>
               <Label className="text-xs">Qtd Recebida</Label>
-              <NumberInput type="number" value={form.quantidade_recebida}
+              <NumberInput integer blankZero placeholder="0" value={form.quantidade_recebida}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_recebida: Number(e.target.value) }))} />
             </div>
             <div>
               <Label className="text-xs">Qtd Defeito</Label>
-              <NumberInput type="number" value={form.quantidade_defeito}
+              <NumberInput integer blankZero placeholder="0" value={form.quantidade_defeito}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_defeito: Number(e.target.value) }))} />
             </div>
 
@@ -420,6 +428,22 @@ function OficinaDetailPage() {
           </div>
         </div>
       </PrintArea>
+
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas na Oficina." />
+
+      <PageActionBar>
+        <Button asChild variant="outline" aria-label="Voltar">
+          <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
+        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
+            <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
+          </Button>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+        </div>
+      </PageActionBar>
     </div>
   );
 }
