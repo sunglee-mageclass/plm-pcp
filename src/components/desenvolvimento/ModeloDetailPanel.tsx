@@ -251,7 +251,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const piloteiros = useColabs("piloteiro");
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant-config-grade", tenantId],
+    // Key PRÓPRIA deste sheet (não "tenant-config-grade", que o GradeTamanhosCard usa retornando
+    // string[] — colisão de shape: se aquele card monta 1º, a cache vira string[] e este arquivo
+    // lê kanban_requisitos/revenda_* como undefined → config de revenda somem). Mesmo padrão dos
+    // outros consumidores (explosao-/cad-tenant-config-grade). configuracoes.tsx invalida por
+    // predicate (tenant-config*), então o save da config ainda invalida esta.
+    queryKey: ["modelo-tenant-config-grade", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -260,8 +265,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       return data;
     },
   });
-  // Config de revenda (por loja) — só as 3 chaves de campos/seções interessam a este arquivo
-  // (Task 4 cobre colunas/requisitos do kanban). `lerRevendaConfig` tolera as chaves faltando.
+  // Config de revenda (por loja): campos/seções (Task 3) + colunas/requisitos do kanban (Task 4).
+  // `lerRevendaConfig` tolera chaves faltando.
   const revendaCfg = useMemo(() => lerRevendaConfig(tenantCfg), [tenantCfg]);
 
   // Motor de regras: condições satisfeitas do modelo (estado SALVO) + requisitos por status.
