@@ -125,6 +125,9 @@ function DesenvolvimentoPage() {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // "tocou no colapso" = o usuário mexeu (por coluna ou pelo botão global) → para de re-semear
+  // o default (coluna Reprovado nasce colapsada — pedido #1, kanban coluna terminal, ago/2026).
+  const collapsedTocadoRef = useRef(false);
   // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
   const [groupByTecido, setGroupByTecido] = useState<boolean>(() => {
     try { return (localStorage.getItem(GROUPBY_LS) ?? "tecido").includes("tecido"); } catch { return true; }
@@ -141,11 +144,14 @@ function DesenvolvimentoPage() {
   const toggleGroup = (path: string) => { tecidosTocadoRef.current = true; setCollapsedGroups((prev) => {
     const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n;
   }); };
-  const toggleCollapse = (key: string) => setCollapsed((prev) => {
-    const n = new Set(prev);
-    n.has(key) ? n.delete(key) : n.add(key);
-    return n;
-  });
+  const toggleCollapse = (key: string) => {
+    collapsedTocadoRef.current = true;
+    setCollapsed((prev) => {
+      const n = new Set(prev);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  };
   const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
@@ -478,8 +484,25 @@ function DesenvolvimentoPage() {
   };
 
   const allCollapsed = statusKanban.length > 0 && statusKanban.every((s) => collapsed.has(s.key));
-  const toggleAll = () =>
+  const toggleAll = () => {
+    collapsedTocadoRef.current = true;
     setCollapsed(allCollapsed ? new Set() : new Set(statusKanban.map((s) => s.key)));
+  };
+
+  // DEFAULT: coluna "Reprovado" (status terminal) nasce colapsada, demais expandidas. Semeia só
+  // 1x, quando statusKanban resolve e tem "reprovado" como key presente — até o usuário mexer
+  // (collapsedTocadoRef, marcado por toggleCollapse/toggleAll). Não re-força depois que ele expande.
+  useEffect(() => {
+    if (collapsedTocadoRef.current) return;
+    if (!statusKanban.some((s) => s.key === "reprovado")) return;
+    setCollapsed((prev) => {
+      if (prev.has("reprovado")) return prev;
+      const n = new Set(prev);
+      n.add("reprovado");
+      return n;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusKanban]);
 
   // TECIDOS (grupos dentro das colunas): recolher/expandir TODOS, e DEFAULT recolhido (dono, jul/2026).
   // Todos os caminhos de grupo (formato do render: `${status}/${grupo}[/${sub}…]`).
