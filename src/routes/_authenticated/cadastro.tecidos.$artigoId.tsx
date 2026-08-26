@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
@@ -150,6 +151,9 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
   const { requestClose, confirm } = useUnsavedGuard({
     dirty,
     onClose: useCallback(() => onClose(), [onClose]),
+    // Página inteira (embedded=false) bloqueia a navegação de rota; embutido em Sheet
+    // (embedded=true) deixa false — o guarda já age no fechar via onClose acima.
+    blockNav: !embedded,
   });
 
   useEffect(() => {
@@ -360,6 +364,7 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
   // Conteúdo (sem wrapper) — usado nos dois modos.
   const corpo = (
     <>
+      <Breadcrumb items={[{ label: "Cadastro" }, { label: "Tecidos" }, { label: form.nome }]} />
       <header className="flex items-center gap-3">
         <Button variant="outline" size="icon" onClick={requestClose} aria-label="Fechar">
           <ArrowLeft className="h-4 w-4" />
@@ -422,6 +427,8 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
           <Field label="Largura Estimada (mtr)">
             <NumberInput
               type="number"
+              blankZero
+              placeholder="0"
               value={form.largura_estimada ?? ""}
               onChange={(e) =>
                 setForm({
@@ -541,6 +548,8 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
             <NumberInput
               type="number"
               step="0.01"
+              blankZero
+              placeholder="0,00"
               value={form.preco ?? ""}
               onChange={(e) =>
                 setForm({ ...form, preco: e.target.value === "" ? null : Number(e.target.value) })
@@ -553,6 +562,8 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
               <NumberInput
                 type="number"
                 step="0.01"
+                blankZero
+                placeholder="0,00"
                 value={form.rendimento ?? ""}
                 onChange={(e) =>
                   setForm({
