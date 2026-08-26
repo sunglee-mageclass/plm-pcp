@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, Camera, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { brl } from "@/lib/format";
+import { brl, fmtNum } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
@@ -586,7 +586,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
   // Câmera em 3 níveis: nenhuma foto → sem ícone; parcial → cinza; todas → verde.
   const total = card.variantes.length;
   const count = card.variantes.filter((v) => foto[String(v.num)]).length;
-  const camColor = count === 0 ? null : count === total ? "text-emerald-500" : "text-muted-foreground";
+  const camColor = count === 0 ? null : count === total ? "text-[var(--tone-success-fg)]" : "text-muted-foreground";
 
   const saveFoto = useMutation({
     mutationFn: async (next: Record<string, boolean>) => {
@@ -652,7 +652,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
               )}
               <p className="text-muted-foreground truncate">{[card.linha, card.categoria_nome, card.subcategoria1_nome].filter(Boolean).join(" · ") || "—"}</p>
               <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
-              {markup != null && <p className="text-muted-foreground">Markup: {Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</p>}
+              {markup != null && <p className="text-muted-foreground">Markup: {fmtNum(markup)}</p>}
               {preco != null && <p className="font-medium">Preço avulso: {brl(preco)}</p>}
               {preco != null && card.gradeTotal > 0 && (
                 <p className="text-muted-foreground">Poder de venda: {brl(preco * card.gradeTotal)}</p>
@@ -697,7 +697,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
                   type="button"
                   size="icon"
                   variant={on ? "default" : "outline"}
-                  className={"h-8 w-8 max-md:h-11 max-md:w-11 shrink-0 " + (on ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                  className={"h-8 w-8 max-md:h-11 max-md:w-11 shrink-0 " + (on ? "bg-[var(--tone-success-fg)] hover:bg-[var(--tone-success-fg)]/90" : "")}
                   disabled={readOnly || saveFoto.isPending || !card.cqId}
                   onClick={() => toggle(v.num)}
                   title={on ? "Fotografada" : "Sem foto"}
