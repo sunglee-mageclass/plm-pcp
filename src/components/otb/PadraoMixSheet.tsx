@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -124,6 +125,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" size="editor" className="flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
+          <Breadcrumb items={[{ label: "OTB" }, { label: "Padrão do mix" }]} />
           <div className="flex items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">Padrão do mix</SheetTitle>
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
@@ -191,18 +193,18 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                         .map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
                     </Sel>
                     <Lbl t="nº modelos">
-                      <Input className="h-8 w-16 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.numModelos}
+                      <Input className="h-8 w-16 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.numModelos || ""} placeholder="0"
                         onChange={(e) => patchLinha(l.id, { numModelos: Math.max(0, Math.round(num(e.target.value))) })} />
                     </Lbl>
                     <span className="text-sm">= <b className="tabular-nums">{pct1(pctDe(l))}</b></span>
-                    <Button variant={l.aParte ? "default" : "outline"} size="sm" className="max-sm:h-9"
+                    <Button variant={l.aParte ? "default" : "outline"} size="sm" className="max-md:h-11"
                       onClick={() => patchLinha(l.id, { aParte: !l.aParte })} title="Linha à parte: soma 100% sozinha (ex.: Acessórios)">
                       à parte
                     </Button>
-                    <Lbl t="prof/cor"><Input className="h-8 w-14 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                    <Lbl t="cores"><Input className="h-8 w-12 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                    <Lbl t="preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.min} onChange={(e) => patchLinha(l.id, { min: num(e.target.value) })} /></Lbl>
-                    <Lbl t="preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.max} onChange={(e) => patchLinha(l.id, { max: num(e.target.value) })} /></Lbl>
+                    <Lbl t="prof/cor"><Input className="h-8 w-14 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor || ""} placeholder="0" onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                    <Lbl t="cores"><Input className="h-8 w-12 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores || ""} placeholder="0" onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                    <Lbl t="preço mín"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.min || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { min: num(e.target.value) })} /></Lbl>
+                    <Lbl t="preço máx"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.max || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { max: num(e.target.value) })} /></Lbl>
                     <span className="text-xs text-muted-foreground/70">
                       markup {mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}
                       {mk ? ` · custo ${brl(l.min / mk)}–${brl(l.max / mk)}` : ""}
@@ -216,11 +218,11 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={requestClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
+        <div className="p-4 border-t shrink-0 flex items-center gap-2">
+          <Button variant="outline" onClick={requestClose} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
           </Button>
-          <Button onClick={() => salvar.mutate()} disabled={!temSel || !dirty || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+          <Button onClick={() => salvar.mutate()} disabled={!temSel || !dirty || salvar.isPending} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}</span>
           </Button>
         </div>
