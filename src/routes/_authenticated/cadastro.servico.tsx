@@ -36,6 +36,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -438,6 +440,44 @@ function EmpresaFiscalFields({
   );
 }
 
+function EditorShell({
+  isEdit,
+  open,
+  onOpenChange,
+  children,
+}: {
+  isEdit: boolean;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  children: ReactNode;
+}) {
+  if (isEdit) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" size="editor" className="flex flex-col p-0 gap-0 [&>button]:hidden">
+          {children}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditorSecao({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold border-b pb-1.5">{titulo}</h3>
+      {children}
+    </section>
+  );
+}
+
 function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
@@ -618,6 +658,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     onSuccess: () => {
       toast.success("Excluído.");
       setDeleteRow(null);
+      setOpen(false);
       qc.invalidateQueries({ queryKey: ["representantes"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     },
@@ -771,73 +812,79 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       </div>
 
 
-      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
-            <div className="flex items-center gap-2">
-              <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+      <EditorShell isEdit={!!form.id} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", form.id && "border-b")}>
+          <Breadcrumb
+            items={[
+              { label: "Cadastro" },
+              { label: "Fornecedores" },
+              { label: form.id ? (form.nome || "—") : "Novo" },
+            ]}
+          />
+          <div className="flex items-center gap-2">
+            <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+          <EditorSecao titulo="Empresa vinculada">
+            <div className="flex gap-2">
+              {!form.modoNovaEmpresa ? (
+                <>
+                  <Select
+                    value={form.empresa_id}
+                    onValueChange={(v) => setForm({ ...form, empresa_id: v })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Selecione uma empresa…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {empresas.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.nome_fantasia}
+                          {e.tipo === "servico" ? " (Serviço)" : e.tipo === "material" ? " (Material)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setForm({ ...form, modoNovaEmpresa: true, empresa_id: "" })}
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Nova
+                  </Button>
+                </>
+              ) : (
+                <div className="grid gap-2 flex-1 sm:grid-cols-2">
+                  <Input
+                    placeholder="Nome fantasia"
+                    value={form.novaEmpresa}
+                    onChange={(e) => setForm({ ...form, novaEmpresa: e.target.value })}
+                  />
+                  <CategoriasMultiSelect
+                    options={catsFornecedor}
+                    value={form.novaEmpresaCategorias}
+                    onChange={(v) => setForm({ ...form, novaEmpresaCategorias: v })}
+                    placeholder="Categorias do fornecedor…"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="sm:col-span-2 justify-self-start"
+                    onClick={() => setForm({ ...form, modoNovaEmpresa: false })}
+                  >
+                    Cancelar nova empresa
+                  </Button>
+                </div>
+              )}
             </div>
-          </DialogHeader>
+          </EditorSecao>
 
-          <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Empresa</Label>
-              <div className="flex gap-2">
-                {!form.modoNovaEmpresa ? (
-                  <>
-                    <Select
-                      value={form.empresa_id}
-                      onValueChange={(v) => setForm({ ...form, empresa_id: v })}
-                    >
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Selecione uma empresa…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {empresas.map((e) => (
-                          <SelectItem key={e.id} value={e.id}>
-                            {e.nome_fantasia}
-                            {e.tipo === "servico" ? " (Serviço)" : e.tipo === "material" ? " (Material)" : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setForm({ ...form, modoNovaEmpresa: true, empresa_id: "" })}
-                    >
-                      <Plus className="h-4 w-4 mr-1" /> Nova
-                    </Button>
-                  </>
-                ) : (
-                  <div className="grid gap-2 flex-1 sm:grid-cols-2">
-                    <Input
-                      placeholder="Nome fantasia"
-                      value={form.novaEmpresa}
-                      onChange={(e) => setForm({ ...form, novaEmpresa: e.target.value })}
-                    />
-                    <CategoriasMultiSelect
-                      options={catsFornecedor}
-                      value={form.novaEmpresaCategorias}
-                      onChange={(v) => setForm({ ...form, novaEmpresaCategorias: v })}
-                      placeholder="Categorias do fornecedor…"
-                    />
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="sm:col-span-2 justify-self-start"
-                      onClick={() => setForm({ ...form, modoNovaEmpresa: false })}
-                    >
-                      Cancelar nova empresa
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-
+          <EditorSecao titulo="Dados fiscais (via CNPJ)">
             <EmpresaFiscalFields
               value={form}
               onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
@@ -851,24 +898,35 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                 </div>
               }
             />
-          </div>
+          </EditorSecao>
+        </div>
 
-          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
-            <Button variant="outline" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+        <div className={cn("shrink-0 border-t bg-background flex items-center gap-2", form.id ? "p-3" : "px-6 py-3")}>
+          <Button variant="outline" onClick={requestClose}>
+            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+          </Button>
+          {form.id && !readOnly && (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const row = rows.find((r) => r.id === form.id);
+                if (row) startDelete(row);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
             </Button>
-            {!readOnly && (
-              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
-              </Button>
-            )}
-          </div>
-          <UnsavedChangesGuard
-            confirm={confirm}
-            message="Há alterações não salvas neste representante."
-          />
-        </DialogContent>
-      </Dialog>
+          )}
+          {!readOnly && (
+            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+          )}
+        </div>
+        <UnsavedChangesGuard
+          confirm={confirm}
+          message="Há alterações não salvas neste representante."
+        />
+      </EditorShell>
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => { if (!o) { setDeleteRow(null); setDeleteUsage(null); } }}>
         <AlertDialogContent>
@@ -1062,11 +1120,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const dirty = open && formChanged;
   const { requestClose, confirm } = useUnsavedGuard({
     dirty,
-    onClose: useCallback(() => {
-      setOpen(false);
-      setEditingId(null);
-      setForm(emptyEmpresaForm);
-    }, []),
+    onClose: useCallback(() => setOpen(false), []),
   });
 
   const { data: empresas = [], isLoading } = useQuery({
@@ -1265,7 +1319,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       markClean();
       toast.success(editingId ? "Empresa atualizada." : "Empresa criada.");
       setOpen(false);
-      resetForm();
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["empresa-categorias-links"] });
       qc.invalidateQueries({ queryKey: ["empresa-categorias-servico-links"] });
@@ -1310,6 +1363,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       toast.success("Excluído.");
       setDeleteRow(null);
       setDeleteUsage(null);
+      setOpen(false);
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
       qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
@@ -1493,15 +1547,22 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       </div>
 
 
-      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
-            <div className="flex items-center gap-2">
-              <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-            </div>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+      <EditorShell isEdit={!!editingId} open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <div className={cn("shrink-0 px-6 pt-6 pb-4 space-y-1", editingId && "border-b")}>
+          <Breadcrumb
+            items={[
+              { label: "Cadastro" },
+              { label: "Fornecedores" },
+              { label: editingId ? (form.nome_fantasia || "—") : "Novo" },
+            ]}
+          />
+          <div className="flex items-center gap-2">
+            <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
+          <EditorSecao titulo="Identificação">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
@@ -1545,12 +1606,16 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 />
               </div>
             </div>
+          </EditorSecao>
 
+          <EditorSecao titulo="Dados fiscais (via CNPJ)">
             <EmpresaFiscalFields
               value={form}
               onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             />
+          </EditorSecao>
 
+          <EditorSecao titulo="Categorias">
             <div className="space-y-1.5">
               <Label>
                 {form.tipo === "servico" ? "Categorias de Serviço" : "Categorias do Fornecedor"}{" "}
@@ -1574,23 +1639,34 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 />
               )}
             </div>
-          </div>
-          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
-            <Button variant="outline" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+          </EditorSecao>
+        </div>
+        <div className={cn("shrink-0 border-t bg-background flex items-center gap-2", editingId ? "p-3" : "px-6 py-3")}>
+          <Button variant="outline" onClick={requestClose}>
+            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+          </Button>
+          {editingId && !readOnly && (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const row = empresas.find((r) => r.id === editingId);
+                if (row) startDelete(row);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
             </Button>
-            {!readOnly && (
-              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
-              </Button>
-            )}
-          </div>
-          <UnsavedChangesGuard
-            confirm={confirm}
-            message="Há alterações não salvas nesta empresa."
-          />
-        </DialogContent>
-      </Dialog>
+          )}
+          {!readOnly && (
+            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+          )}
+        </div>
+        <UnsavedChangesGuard
+          confirm={confirm}
+          message="Há alterações não salvas nesta empresa."
+        />
+      </EditorShell>
 
       <AlertDialog
         open={!!deleteRow}
