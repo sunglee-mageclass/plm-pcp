@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -398,6 +400,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     onSuccess: () => {
       toast.success("OS excluída.");
       setDeleteRow(null);
+      setFormOpen(false);
       invalidate();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
@@ -498,15 +501,25 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       </div>
 
       {/* Criar / editar OS */}
-      <Dialog open={formOpen} onOpenChange={(o) => { if (o) setFormOpen(true); else requestClose(); }}>
-        <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-          <DialogHeader className="max-sm:shrink-0">
-            <div className="flex items-center gap-2">
-              <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+      <OSModalShell isSheet={!!editing} open={formOpen} onOpenChange={(o) => { if (o) setFormOpen(true); else requestClose(); }}>
+          {editing ? (
+            <div className="shrink-0 border-b px-6 pt-6 pb-4 space-y-1">
+              <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: cfg.title }, { label: `OS #${editing.numero ?? ""}` }]} />
+              <div className="flex items-center gap-3">
+                <DialogTitle className="text-xl font-bold">Editar OS #{editing.numero ?? ""}</DialogTitle>
+                <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+              </div>
             </div>
-          </DialogHeader>
-          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
+          ) : (
+            <DialogHeader className="max-sm:shrink-0">
+              <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: cfg.title }, { label: "Nova" }]} />
+              <div className="flex items-center gap-2">
+                <DialogTitle>Nova Ordem de Saída</DialogTitle>
+                <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+              </div>
+            </DialogHeader>
+          )}
+          <div className={editing ? "flex-1 min-h-0 overflow-y-auto px-6 py-2 space-y-4" : "space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto"}>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Número</Label>
@@ -551,6 +564,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                 <div key={it._key} className="flex items-start gap-2">
                   <div className="flex-1 min-w-0 space-y-1.5">
                     {/* Trocar o aviamento zera a variante (as variantes são daquele aviamento). */}
+                    <Label>{cfg.itemLabel}</Label>
                     <Select value={it.itemId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, itemId: v, varianteId: "" } : x))}>
                       <SelectTrigger className="w-full"><SelectValue placeholder={`Selecione ${cfg.itemLabel.toLowerCase()}`} /></SelectTrigger>
                       <SelectContent>
@@ -561,26 +575,32 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                       vars.length === 0 ? (
                         <p className="text-[11px] text-muted-foreground">Sem variantes — cadastre em Cadastro › Aviamentos.</p>
                       ) : (
-                        <Select value={it.varianteId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, varianteId: v } : x))}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Variante (cor)…" /></SelectTrigger>
-                          <SelectContent>
-                            {vars.map((vr) => <SelectItem key={vr.id} value={vr.id}>{vr.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <>
+                          <Label>Variante (cor)</Label>
+                          <Select value={it.varianteId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, varianteId: v } : x))}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Variante (cor)…" /></SelectTrigger>
+                            <SelectContent>
+                              {vars.map((vr) => <SelectItem key={vr.id} value={vr.id}>{vr.label}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </>
                       )
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Input
-                      className="w-20"
-                      inputMode="decimal"
-                      placeholder="Reserva"
-                      value={it.reserva}
-                      onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
-                    />
-                    <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                  <div className="shrink-0 space-y-1.5">
+                    <Label>Reserva</Label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        className="w-20"
+                        inputMode="decimal"
+                        placeholder={tipo === "tecido" ? "0,00" : "0"}
+                        value={it.reserva}
+                        onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
+                      />
+                      <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                    </div>
                   </div>
-                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
+                  <Button size="icon" variant="ghost" className="shrink-0 mt-6" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
@@ -596,17 +616,26 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" />
             </div>
           </div>
-          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {editing ? (
+            <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
+              <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+              <Button variant="destructive" onClick={() => setDeleteRow(editing)}><Trash2 className="h-4 w-4 mr-1" /> Excluir</Button>
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+          ) : (
+            <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+              <Button variant="outline" className="max-sm:hidden" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+              <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            </DialogFooter>
+          )}
+      </OSModalShell>
       <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta ordem de saída." />
 
       {/* Dar baixa */}
@@ -636,15 +665,18 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                       <div className="text-xs text-destructive">Acima do disponível.</div>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Input
-                      className={excedeSaldo(it) ? "w-24 border-destructive" : "w-24"}
-                      inputMode="decimal"
-                      placeholder="Utilizado"
-                      value={utilizado[it.id] ?? ""}
-                      onChange={(e) => setUtilizado((prev) => ({ ...prev, [it.id]: e.target.value }))}
-                    />
-                    <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                  <div className="shrink-0 space-y-1.5">
+                    <Label>Utilizado</Label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        className={excedeSaldo(it) ? "w-24 border-destructive" : "w-24"}
+                        inputMode="decimal"
+                        placeholder={tipo === "tecido" ? "0,00" : "0"}
+                        value={utilizado[it.id] ?? ""}
+                        onChange={(e) => setUtilizado((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                      />
+                      <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -703,5 +735,34 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// Container do form de criar/editar OS: editar (registro existente) abre em Sheet lateral
+// 70vw (§O — editor do sistema); criar abre em Dialog central (padrão §A/§G). Mesmo form por
+// dentro — só o invólucro muda.
+function OSModalShell({
+  isSheet, open, onOpenChange, children,
+}: {
+  isSheet: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  if (isSheet) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" size="editor" className="flex flex-col p-0 gap-0 [&>button]:hidden">
+          {children}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }
