@@ -6,9 +6,13 @@ orquestrador (sessão principal) consulta ESTE arquivo ao receber uma tarefa.
 
 ## Mecânica (como as fichas viram agentes)
 
-- ⚠️ As fichas NÃO são invocáveis por nome no harness (`subagent_type:"code-reviewer"`
-  → erro). O orquestrador **lê a ficha e carrega o conteúdo** (papel/checklist/regras)
-  no prompt de um subagente `general-purpose`/`Plan`/`Explore`.
+- ⚠️ As fichas de `.claude/agents/*.md` (code-reviewer, qa-engineer, domain…) NÃO são
+  invocáveis por `subagent_type` no harness (dá "Agent type not found"). O orquestrador
+  **lê a ficha e carrega o conteúdo** (papel/checklist/regras) no prompt de um subagente
+  `general-purpose`/`Plan`/`Explore`. Os tipos REALMENTE invocáveis por nome são fixos:
+  `general-purpose`, `Explore`, `Plan`, `claude`, `code-simplifier:code-simplifier`,
+  `statusline-setup` (e os de plugins tipo `claude-security:*`). Ao querer um papel do
+  roster → general-purpose + conteúdo da ficha + modelo por política.
 - **Modelos por papel** (política do dono): sessão = Opus (coordenação) · planejar =
   **Fable** · executar = **Sonnet** · revisar rotina = **Opus** · revisar/planejar
   SENSÍVEL (banco destrutivo, RLS/RPC, financeiro, arquitetura) = **Fable**. O dono
@@ -17,8 +21,10 @@ orquestrador (sessão principal) consulta ESTE arquivo ao receber uma tarefa.
   estado atual do sistema na área da tarefa. Ficha defasada → **atualizar a ficha
   PRIMEIRO**, depois despachar (regra do dono, ago/2026). Última auditoria completa
   das 14 fichas: ago/2026.
-- Execução paralela: arquivos disjuntos; commit com `git commit --only <path>`
-  (SEM o separador `--` — falha no git 2.52) ; nunca `git add .`.
+- Execução paralela: arquivos disjuntos; commit isolando o próprio arquivo com
+  `git commit --only -m "msg" -- <path>` (⚠️ o `-m` vem ANTES do `--`; `-m` depois
+  do `--` é interpretado como pathspec e falha no git 2.52). Nunca `git add .`
+  (index compartilhado entre agentes paralelos → risco de commit cruzado).
 - QA: nunca semear banco; `E2E_BASE_URL=http://localhost:5173` (default é PRODUÇÃO);
   reusar o :5173 do dono sem matar; `domcontentloaded`; limpar temporários só por
   nome próprio (nunca `rm -rf` — scratchpad é compartilhado).
@@ -57,6 +63,10 @@ Igual à FEATURE, com **2 diferenças obrigatórias**:
 2. Planejamento com ênfase em **invariantes e efeito downstream**: `domain-plm-pcp` +
    `debug-expert` (quem mais lê a mesma RPC/queryKey/coluna/tabela; gates que olham
    2 tabelas; flags derivadas por trigger).
+- Refactor puro (mesma função, código mais limpo, sem mudar comportamento): usar o
+  agente **`code-simplifier`** (subagent_type `code-simplifier:code-simplifier`, este
+  SIM é invocável por nome no harness) — depois `code-reviewer` confirma zero mudança
+  de comportamento.
 
 ### 🎨 DESIGN / MOCKUP (decisão de layout)
 | Item | Fonte |
@@ -66,6 +76,7 @@ Igual à FEATURE, com **2 diferenças obrigatórias**:
 | Rito | skill `ui-ux-pro-max` (3 lentes → mockup → **aprovação do dono** → implementar) |
 | Lentes | `cognitive-ergonomist` (carga cognitiva) + `ui-ux-mobile` (mobile 44px/card-table) | 
 | Regras | tema CLARO por default; campos/rótulos REAIS da tela; editar=Sheet / novo=Dialog (regra dura) |
+| Jurisprudência de impl (dar ao executor de UI) | `SheetContent` tem `p-6 gap-4` BASE → editor usa `p-0 gap-0` + `[&>button]:hidden` (senão rodapé gigante / X duplicado); `blankZero` é DISPLAY-ONLY (0 exibe vazio, grava 0); Excluir do rodapé do Sheet fecha o editor no `onSuccess`; `stopPropagation` em card clicável com botões internos; anti-drift NÃO pega classe Tailwind de cor crua (prova = grep, cor de realce = `var(--tone-*)`) |
 Aprovado → segue como FEATURE (do Plano em diante).
 
 ### 🔍 AVALIAÇÃO UX (auditar fluxo existente)
