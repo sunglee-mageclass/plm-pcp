@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, MoreHorizontal, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +26,7 @@ import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from "@/components/ui/popover";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -506,6 +507,7 @@ function PlanejamentoPage() {
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         onOpen={() => setOpenId(m.id)}
+        onExcluir={() => { setSelected(new Set([m.id])); setConfirmBulkDel(true); }}
         compact={compact}
       />
     </div>
@@ -915,8 +917,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, onExcluir, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -976,6 +978,39 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
             {modelo.origem === "revenda" && (
               <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
             )}
+            <button
+              type="button"
+              title="Abrir card"
+              aria-label="Abrir card"
+              className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Mais ações"
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
+                <PopoverClose asChild>
+                  <button
+                    type="button"
+                    onClick={onExcluir}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Excluir
+                  </button>
+                </PopoverClose>
+              </PopoverContent>
+            </Popover>
           </div>
           <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
           <div className="flex items-center gap-1">
@@ -1002,6 +1037,39 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               <StatusBadge tone="info" className="normal-case tracking-normal shrink-0">Revenda</StatusBadge>
             )}
             <VersaoBadge versao={modelo.versao} />
+            <button
+              type="button"
+              title="Abrir card"
+              aria-label="Abrir card"
+              className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Mais ações"
+                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
+                <PopoverClose asChild>
+                  <button
+                    type="button"
+                    onClick={onExcluir}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Excluir
+                  </button>
+                </PopoverClose>
+              </PopoverContent>
+            </Popover>
           </div>
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           {/* Coleção | Subcoleção */}
