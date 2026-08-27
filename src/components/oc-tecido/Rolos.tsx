@@ -184,12 +184,17 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
 
           <div className="space-y-1.5">
             <Label>Código</Label>
-            <Input value={codigo} onChange={(e) => { setCodigo(e.target.value); setCodigoManual(true); }} placeholder="Gerado ao escolher o tecido" />
-            {!codigoManual && (
-              <p className="text-xs text-muted-foreground">
-                Automático a partir do tecido — edite se quiser um código próprio.
-              </p>
-            )}
+            <Input
+              value={codigo}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCodigo(v);
+                // Campo vazio NÃO é código próprio → reabilita o automático (regenera
+                // ao trocar de tecido). Só um valor digitado trava a sobrescrita.
+                setCodigoManual(v.trim() !== "");
+              }}
+              placeholder="Gerado ao escolher o tecido"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
