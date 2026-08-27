@@ -248,10 +248,10 @@ function LojasPage() {
             ) : (
               sorted.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell>
+                  <TableCell data-label="">
                     <TenantLogo path={t.logo_url} alt={t.nome} />
                   </TableCell>
-                  <TableCell data-label="Nome" className="font-medium">{t.nome}</TableCell>
+                  <TableCell className="font-medium">{t.nome}</TableCell>
                   <TableCell data-label="CNPJ" className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
                   <TableCell data-label="Status">
                     {t.ativo ? (
