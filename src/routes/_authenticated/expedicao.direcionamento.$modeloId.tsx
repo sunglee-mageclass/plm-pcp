@@ -484,7 +484,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                         {tamanhos.map((t) => (
                           <td key={t} className="border p-0">
                             <NumberInput
-                              integer min={0}
+                              integer blankZero placeholder="0" min={0}
                               className="h-8 max-md:h-11 border-0 bg-transparent text-center"
                               value={grades[t] ?? ""}
                               disabled={!editavelLinha}
@@ -536,7 +536,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                         <div key={l.id} className={`mt-1 ${l.ativo ? "" : "opacity-60"}`}>
                           <span className="text-xs text-muted-foreground">{l.nome}</span>
                           <NumberInput
-                            integer min={0}
+                            integer blankZero placeholder="0" min={0}
                             className="h-9 max-md:h-11 text-center"
                             value={v.linhas[l.id]?.[t] ?? ""}
                             disabled={!editavelLinha}
