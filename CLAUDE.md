@@ -1,4 +1,4 @@
-# CLAUDE.md — sisTrama
+# CLAUDE.md — sisTrama (exibido como WISH360)
 
 Contexto do projeto para sessões do Claude Code. Leia antes de qualquer tarefa.
 
@@ -9,8 +9,14 @@ Gerencia o fluxo inteiro: cadastro de materiais → criação/desenvolvimento �
 produção → financeiro. Sistema **multi-tenant** (várias lojas isoladas), modelo
 **SaaS por loja** (cada loja liga só os módulos que usa).
 
-Nome de exibição: **sisTrama** ("sis" leve, "Trama" em destaque). A renomeação do
-antigo "PLM+PCP" já foi feita (0 ocorrências em `src/`).
+**Nome técnico interno** = **sisTrama** (o codebase, o domínio
+`sistrama.sung-lee.workers.dev`, o prefixo legado de storage). **Nome de EXIBIÇÃO
+nas telas** = **WISH360** (rebrand ago/2026): `useSystemIdentity.ts`
+`nome_sistema:"WISH360"` (default; cada loja pode sobrescrever a própria
+identidade), título do `__root.tsx`, `RelatorioPrint`, `TecelagemAnimacao` — 7
+arquivos em `src/`. A identidade por loja mora em `system_settings`
+(nome_sistema/subtitulo/logo/favicon). Não trocar "sisTrama" no corpo técnico
+deste doc (é o nome do sistema por baixo); só a marca vista pelo usuário é WISH360.
 
 ## Stack
           
