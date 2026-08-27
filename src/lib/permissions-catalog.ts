@@ -80,8 +80,8 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
-    // PCP = o próprio Serviços (nível de página única, como o OTB). CAD e Oficina são permissões
-    // sem tela na sidebar (CAD integrado à Explosão; Oficina acessada dentro de Serviços) — ficam aqui.
+    // PCP = o próprio Serviços (nível de página única, como o OTB). Oficina é permissão
+    // sem tela na sidebar (acessada dentro de Serviços) — fica aqui.
     module: "pcp",
     label: "PCP",
     basePath: "/pcp",
@@ -97,7 +97,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
       // botão fica) → voltou pra PCP em 12/ago (o dono não achava em Estilo & Engenharia; "mão
       // de obra" é lido como assunto de PCP/Serviços, mesmo a ação acontecendo no Planejamento).
       { key: "producao_servico_aprovacao", label: "Aprovação de mão de obra", soEdicao: true },
-      { key: "producao_cad", label: "CAD" },
       { key: "producao_oficina", label: "Oficina" },
       // Etapas PL (Fase 2, Task 1) — quadro de PL dentro do hub PCP; opt-in (gate próprio,
       // igual a produto_acabado dentro de criacao/entrada_saida).
