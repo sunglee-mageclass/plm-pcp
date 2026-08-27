@@ -663,6 +663,13 @@ toast "Direcionamento confirmado — Separado" de `expedicao.direcionamento.$mod
 
 ## Agentes — times por especialidade (`.claude/agents/`)
 
+**⚠️ COMPOSIÇÃO DE TIMES: ver `.claude/agents/EQUIPES.md` (playbook operacional).**
+Define o time por TIPO de trabalho (correção ≠ feature ≠ modificação ≠ design ≠
+banco/sensível), quais fichas cada papel carrega, o modelo por papel (planejar=Fable,
+executar=Sonnet, revisar=Opus/Fable) e a regra de PRÉ-VOO (ficha defasada → atualizar
+ANTES de despachar). As fichas não são invocáveis por nome no harness — o orquestrador
+carrega o conteúdo delas no prompt do subagente.
+
 Times pequenos. Em auditoria/varredura, os agentes de auditoria são **read-only**
 (encontram e sugerem; não executam nem inventam). Rodar em **paralelo** por módulo; cada um
 devolve achados com `arquivo:linha` + severidade. Módulo bom = "sem achados" — nunca inventar.
