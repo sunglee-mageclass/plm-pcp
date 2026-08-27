@@ -656,10 +656,10 @@ function VarianteRow({ row, enderecos, selectable, selected, onToggleSelect }: {
                 </thead>
                 <tbody>
                   {ocRows.map((d) => (
-                    <tr key={d.key} className={cn("border-b last:border-0", d.status === "recebida" ? "bg-emerald-50" : "bg-amber-50")}>
+                    <tr key={d.key} className={cn("border-b last:border-0", d.status === "recebida" ? "bg-[var(--tone-success-bg)]" : "bg-[var(--tone-warning-bg)]")}>
                       <td className="py-1 pr-3 whitespace-nowrap">
                         #{d.oc ?? "—"}
-                        <span className={cn("ml-1 text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>
+                        <span className={cn("ml-1 text-[9px] uppercase", d.status === "recebida" ? "text-[var(--tone-success-fg)]" : "text-[var(--tone-warning-fg)]")}>
                           {d.status}
                         </span>
                       </td>
@@ -742,11 +742,11 @@ function VarianteCard({ row, enderecos, selectable, selected, onToggleSelect }: 
           {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
           {!isLoading && ocRows.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma OC para esta variante.</p>}
           {ocRows.map((d) => (
-            <div key={d.key} className={cn("rounded border p-2 text-xs", d.status === "recebida" ? "bg-emerald-50" : "bg-amber-50")}>
+            <div key={d.key} className={cn("rounded border p-2 text-xs", d.status === "recebida" ? "bg-[var(--tone-success-bg)]" : "bg-[var(--tone-warning-bg)]")}>
               <div className="flex items-center justify-between">
                 <span className="font-medium">
                   #{d.oc ?? "—"}{" "}
-                  <span className={cn("text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>{d.status}</span>
+                  <span className={cn("text-[9px] uppercase", d.status === "recebida" ? "text-[var(--tone-success-fg)]" : "text-[var(--tone-warning-fg)]")}>{d.status}</span>
                 </span>
                 <span className="font-semibold">{fmt(d.fisico)} m</span>
               </div>
