@@ -10,7 +10,10 @@ function getInitialTheme(): Theme {
   if (typeof window === "undefined") return "light";
   const stored = window.localStorage.getItem(STORAGE_KEY) as Theme | null;
   if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Default de fábrica = CLARO, independente do tema do SO. Antes herdava o
+  // prefers-color-scheme (SO em dark → app abria escuro). Quem já escolheu um
+  // tema (localStorage) não é afetado; só muda o default de quem nunca escolheu.
+  return "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
