@@ -17,7 +17,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
-import { brl, mesLimpo } from "@/lib/format";
+import { brl, mesLimpo, fmtPct } from "@/lib/format";
 import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -43,7 +43,6 @@ let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
 const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
-const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const totLinha = (l: LinhaSub, semanas: number[]) => semanas.reduce((s, w) => s + (Number(l.q[String(w)]) || 0), 0);
 // Reparte um inteiro igualmente em n baldes (o resto vai pros primeiros).
 const splitEven = (total: number, n: number): number[] => {
@@ -442,7 +441,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                     {d.atingido > 100 && <div className="absolute inset-y-[-2px] w-0.5 rounded bg-foreground/60" style={{ left: `${(100 / d.atingido) * 100}%` }} />}
                   </div>
                   <div className={`text-right text-xs font-semibold tabular-nums ${d.atingido > 115 ? "text-amber-700 dark:text-amber-500" : d.atingido >= 100 ? "text-emerald-700 dark:text-emerald-500" : "text-primary"}`}>
-                    {pct1(d.atingido)} da meta{d.atingido > 115 ? " — bem acima da meta" : d.atingido >= 100 ? " ✓" : ""}
+                    {fmtPct(d.atingido)} da meta{d.atingido > 115 ? " — bem acima da meta" : d.atingido >= 100 ? " ✓" : ""}
                   </div>
                 </div>
               )}
@@ -473,13 +472,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                           {r.aParte && <span className="ml-1 text-xs text-muted-foreground">(à parte)</span>}
                           <span className="text-xs text-muted-foreground"> · {int(r.modelos)} mod</span>
                         </span>
-                        <span className={`tabular-nums shrink-0 ${off ? "text-amber-700 dark:text-amber-500" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
+                        <span className={`tabular-nums shrink-0 ${off ? "text-amber-700 dark:text-amber-500" : "text-foreground"}`}>{fmtPct(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {fmtPct(r.meta)}</span>}</span>
                       </div>
                     );
                   })}
                   <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2">
                     <span>Mix (sem à parte) <span className="text-xs font-normal text-muted-foreground">· {int(mixLinha.totalPool)} mod</span></span>
-                    <span className="tabular-nums">{pct1(mixLinha.sumReal)}</span>
+                    <span className="tabular-nums">{fmtPct(mixLinha.sumReal)}</span>
                   </div>
                 </div>
               </Card>
@@ -540,16 +539,16 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                       </Sel>
                                     </td>
                                     <td data-label="à parte">
-                                      <Button variant={l.aParte ? "default" : "outline"} size="sm" className="h-8 max-sm:h-9" onClick={() => patchLinha(s.id, l.id, { aParte: !l.aParte })} title="Linha à parte: 100% sozinha (ex.: Acessórios)">
+                                      <Button variant={l.aParte ? "default" : "outline"} size="sm" className="h-8 max-md:h-11" onClick={() => patchLinha(s.id, l.id, { aParte: !l.aParte })} title="Linha à parte: 100% sozinha (ex.: Acessórios)">
                                         {l.aParte ? "Sim" : "Não"}
                                       </Button>
                                     </td>
-                                    <td data-label="prof/cor"><Input className="h-8 w-14 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></td>
-                                    <td data-label="cores"><Input className="h-8 w-12 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></td>
-                                    <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.min} onChange={(e) => patchLinha(s.id, l.id, { min: num(e.target.value) })} /></td>
-                                    <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.max} onChange={(e) => patchLinha(s.id, l.id, { max: num(e.target.value) })} /></td>
+                                    <td data-label="prof/cor"><Input className="h-8 w-14 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor || ""} placeholder="0" onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></td>
+                                    <td data-label="cores"><Input className="h-8 w-12 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores || ""} placeholder="0" onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></td>
+                                    <td data-label="Preço mín"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.min || ""} placeholder="0,00" onChange={(e) => patchLinha(s.id, l.id, { min: num(e.target.value) })} /></td>
+                                    <td data-label="Preço máx"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.max || ""} placeholder="0,00" onChange={(e) => patchLinha(s.id, l.id, { max: num(e.target.value) })} /></td>
                                     {s.semanas.map((w) => (
-                                      <td key={w} data-label={`Lan ${w}`}><Input className="h-8 w-12 max-sm:h-9 max-sm:w-16 px-1 text-left tabular-nums" inputMode="numeric" value={l.q[String(w)] ?? 0} onChange={(e) => setQ(s.id, l.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
+                                      <td key={w} data-label={`Lan ${w}`}><Input className="h-8 w-12 max-md:h-11 max-sm:w-16 px-1 text-left tabular-nums" inputMode="numeric" value={l.q[String(w)] || ""} placeholder="0" onChange={(e) => setQ(s.id, l.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
                                     ))}
                                     <td data-label="Total" className="font-semibold tabular-nums">{int(tot)}</td>
                                     <td data-label="Poder" className="tabular-nums text-muted-foreground">{brl(pod)}</td>
