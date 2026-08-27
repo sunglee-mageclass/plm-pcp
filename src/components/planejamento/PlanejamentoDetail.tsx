@@ -1685,6 +1685,8 @@ export function PlanejamentoDetail({
                             <td key={t} className="px-3 py-1.5 text-right">
                               <NumberInput
                                 integer
+                                blankZero
+                                placeholder="0"
                                 className="h-8 w-20 text-right ml-auto"
                                 value={gradeRevenda[v.ordem]?.[t] ?? 0}
                                 onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
