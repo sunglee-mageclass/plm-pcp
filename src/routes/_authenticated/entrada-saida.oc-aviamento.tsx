@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +55,8 @@ import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
+import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
+import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
@@ -529,6 +530,7 @@ function OcDialog({
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
   const [confirmUnmark, setConfirmUnmark] = useState(false);
+  const [secAtiva, setSecAtiva] = useState("oca-sec-pedido");
 
   // Guarda de "alterações não salvas": compara o rascunho editável (cabeçalho + itens)
   // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
@@ -783,6 +785,22 @@ function OcDialog({
   // O OcDialog só monta quando aberto, logo `changed` já basta (sem gate por `open`).
   const dirty = changed;
 
+  // §O: seções numeradas + trilho de âncoras (espelha OC Insumo).
+  // Recebimento/Anexos só existem após salvar → trancados (cadeado) na criação.
+  const secoes: SecaoOc[] = [
+    { id: "oca-sec-pedido", n: 1, label: "Pedido" },
+    { id: "oca-sec-aviamentos", n: 2, label: "Aviamentos" },
+    { id: "oca-sec-anexos", n: 3, label: "Anexos", locked: !isEdit },
+    { id: "oca-sec-recebimento", n: 4, label: "Recebimento", locked: !isEdit },
+  ];
+  const irParaSecao = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); setSecAtiva(id); };
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const topo = e.currentTarget.getBoundingClientRect().top;
+    let atual = secoes[0]?.id ?? "oca-sec-pedido";
+    for (const s of secoes) { if (s.locked) continue; const el = document.getElementById(s.id); if (el && el.getBoundingClientRect().top - topo <= 40) atual = s.id; }
+    if (atual !== secAtiva) setSecAtiva(atual);
+  };
+
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de aviamento.">
@@ -796,7 +814,11 @@ function OcDialog({
           </DialogHeader>
         </div>
 
-        <div className="space-y-6 min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 gap-4">
+          <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
+          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+          <section id="oca-sec-pedido" className="scroll-mt-2 space-y-4">
+          <OcSecTitle n={1}>Pedido</OcSecTitle>
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="grid gap-1">
               <Label>Número do Pedido</Label>
@@ -873,18 +895,20 @@ function OcDialog({
               />
             </div>
           </div>
+          </section>
 
-          <Separator />
-
-          {/* AVIAMENTOS */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="font-semibold">Aviamentos (até 10)</h4>
+          <section id="oca-sec-aviamentos" className="scroll-mt-2 space-y-4">
+          <OcSecTitle
+            n={2}
+            right={
               <Button size="sm" variant="outline" onClick={addItem} disabled={items.length >= 10 || isReadOnlyRecebimento || !draft.empresa_id}>
                 <Plus className="h-4 w-4 mr-1" /> Adicionar
               </Button>
-            </div>
+            }
+          >Aviamentos</OcSecTitle>
+          <p className="text-xs text-muted-foreground">Até 10 aviamentos por OC.</p>
 
+          <div className="space-y-3">
             {items.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 {!draft.empresa_id ? "Selecione o fornecedor acima para adicionar aviamentos." : "Nenhum aviamento adicionado."}
@@ -992,25 +1016,39 @@ function OcDialog({
               {canShowRecebimento && <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>}
             </div>
           </div>
+          </section>
+
+          {!isEdit && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+              <span>Os <b>Anexos</b> e o <b>Recebimento</b> ficam disponíveis depois de salvar a OC (salvou → reabra e registre a chegada).</span>
+            </div>
+          )}
+
+          {isEdit && (
+            <section id="oca-sec-anexos" className="scroll-mt-2 space-y-4">
+              <OcSecTitle n={3}>Anexos</OcSecTitle>
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notas Fiscais</Label>
+                <NfList
+                  value={draft.nfs}
+                  onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
+                  uploadFn={(f) => uploadFile(f, "nf")}
+                  bucket="oc-aviamento"
+                  readOnly={isReadOnlyRecebimento}
+                />
+              </div>
+            </section>
+          )}
 
           {canShowRecebimento && (
-            <>
-              <Separator />
-              <h3 className="text-lg font-semibold">Recebimento</h3>
+            <section id="oca-sec-recebimento" className="scroll-mt-2 space-y-4">
+              <OcSecTitle n={4}>Recebimento</OcSecTitle>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label>Data da Entrega <span className="text-xs text-muted-foreground">(última parcela recebida)</span></Label>
                   <DateField value={draft.data_entrega || derivedEntrega} disabled readOnly />
                 </div>
               </div>
-
-              <NfList
-                value={draft.nfs}
-                onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
-                uploadFn={(f) => uploadFile(f, "nf")}
-                bucket="oc-aviamento"
-                readOnly={isReadOnlyRecebimento}
-              />
 
               <div className="grid gap-2">
                 <Label className="text-sm">Parcelas de Recebimento</Label>
@@ -1059,8 +1097,9 @@ function OcDialog({
               <div className="text-sm">
                 <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} status={status} />
               </div>
-            </>
+            </section>
           )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
