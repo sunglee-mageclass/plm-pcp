@@ -184,7 +184,12 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
 
           <div className="space-y-1.5">
             <Label>Código</Label>
-            <Input value={codigo} onChange={(e) => { setCodigo(e.target.value); setCodigoManual(true); }} placeholder="Ex.: R0001M260622" />
+            <Input value={codigo} onChange={(e) => { setCodigo(e.target.value); setCodigoManual(true); }} placeholder="Gerado ao escolher o tecido" />
+            {!codigoManual && (
+              <p className="text-xs text-muted-foreground">
+                Automático a partir do tecido — edite se quiser um código próprio.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
