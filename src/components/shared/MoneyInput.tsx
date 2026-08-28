@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { caretAfterFormat, countSig, maskLive, valueToMasked } from "@/lib/money-mask";
+import { caretAfterFormat, maskLive, sigBeforeCaret, valueToMasked } from "@/lib/money-mask";
 
 // useLayoutEffect no cliente (posiciona o cursor antes do paint, sem "pulo"); no
 // servidor (SSR do @tanstack/react-start) cai pro useEffect p/ não logar warning.
@@ -65,7 +65,7 @@ export const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(function
         const el = e.target;
         const raw = el.value;
         const rawCaret = el.selectionStart ?? raw.length;
-        const sigBefore = countSig(raw.slice(0, rawCaret));
+        const sigBefore = sigBeforeCaret(raw, rawCaret, decimals);
         const { masked, canonical } = maskLive(raw, decimals);
         setText(masked);
         caret.current = caretAfterFormat(masked, sigBefore);
