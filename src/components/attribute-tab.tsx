@@ -521,7 +521,7 @@ export function AttributeTab({
                 <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} className="w-64" />
               )}
               {config.extraNumber && (
-                <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} className="w-40" />
+                <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} align="left" className="w-32 [&>span]:w-full [&>span]:justify-start [&>span>button]:text-left" />
               )}
               {config.extraEnum && (
                 <SortHead label={config.extraEnum.label} sortKey={config.extraEnum.field} sortState={sortState} className="w-44" />
@@ -671,7 +671,7 @@ export function AttributeTab({
                   </TableCell>
                   {!config.extraFirst && extraCell}
                   {config.extraNumber && (
-                    <TableCell>
+                    <TableCell className="w-32 text-left">
                       {isEditingRow ? (
                         <Input
                           type="number"
@@ -834,7 +834,7 @@ export function AttributeTab({
       {/* Sheet de edição mobile (lápis do card de leitura) */}
       {sheetRow && (
         <Sheet open onOpenChange={(o) => { if (!o) requestSheetClose(); }}>
-          <SheetContent side="right" size="editor" className="flex flex-col gap-0 p-0">
+          <SheetContent side="right" size="editor" className="flex flex-col gap-0 p-0 [&>button]:hidden">
             <SheetHeader className="border-b p-4">
               <div className="flex items-center gap-2">
                 <SheetTitle>Editar {config.singular}</SheetTitle>
