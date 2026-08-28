@@ -5,6 +5,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -203,8 +204,8 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                     </Button>
                     <Lbl t="prof/cor"><Input className="h-8 w-14 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor || ""} placeholder="0" onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
                     <Lbl t="cores"><Input className="h-8 w-12 max-md:h-11 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores || ""} placeholder="0" onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                    <Lbl t="preço mín"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.min || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { min: num(e.target.value) })} /></Lbl>
-                    <Lbl t="preço máx"><Input className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" inputMode="decimal" value={l.max || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { max: num(e.target.value) })} /></Lbl>
+                    <Lbl t="preço mín"><MoneyInput className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" value={l.min || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { min: Number(e.target.value) || 0 })} /></Lbl>
+                    <Lbl t="preço máx"><MoneyInput className="h-8 w-20 max-md:h-11 px-1 text-left tabular-nums" value={l.max || ""} placeholder="0,00" onChange={(e) => patchLinha(l.id, { max: Number(e.target.value) || 0 })} /></Lbl>
                     <span className="text-xs text-muted-foreground/70">
                       markup {mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}
                       {mk ? ` · custo ${brl(l.min / mk)}–${brl(l.max / mk)}` : ""}
