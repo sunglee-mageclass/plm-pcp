@@ -34,6 +34,9 @@ export type ModeloReal = {
   subcolecao: string | null;      // nome da subcoleção (modelos.subcolecao é texto)
   subcolecao_id: string | null;   // resolvido pelo chamador (nome → id do plano), se possível
   linha_id: string | null;
+  // markup próprio do modelo (congelado, `modelos.markup_editado`) — sobrepõe o markup da
+  // linha (que no slot vem da COLOCAÇÃO, não do modelo) na formação de preço.
+  markup_editado?: number | null;
   categoria_id: string | null;
   // categoria de TECIDO derivada do Tecido 1 (artigo.categoria_tecido_id) — categoriza o card no
   // canvas AUTOMATICAMENTE (o dono não quer clicar "Agrupar por tecido"; é o default).
@@ -114,6 +117,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     // categoriza AUTOMATICAMENTE pela categoria de tecido do Tecido 1 (sem clicar "Agrupar")
     categoria_tecido_id: mr.categoria_tecido_id ?? null,
     linha_id: mr.linha_id ?? null,
+    markup_editado: mr.markup_editado ?? null,
     // materiais (aviamentos/insumos) do desenvolvimento — editável em Custo & Preço
     custo_simulado: mr.materiais_custo ? { materiais: mr.materiais_custo } : undefined,
     materiais,
@@ -326,6 +330,11 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // reabrir, e uma categorização manual do usuário é preservada.
             categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
             linha_id: saved.linha_id ?? slot.linha_id,
+            // markup_editado é congelado NO MODELO (modelos.markup_editado, invariante do banco) —
+            // o seed (`slot`, sempre o modelo vivo) VENCE sempre, nunca o snapshot salvo do plano
+            // (senão editar o markup aplicado no Planejamento não refletiria aqui até o dono limpar
+            // o plano salvo). Espelha o tratamento de `materiais`/BOM vivo, não o de `linha_id`.
+            markup_editado: effModeloId ? slot.markup_editado : (saved.markup_editado ?? slot.markup_editado),
             // proporção: "Dev vence se preenchido" (mesmo princípio do consumo). A proporção do
             // MODELO (`slot` = seed = modelos.proporcoes) vence quando tem tamanhos; senão cai no
             // plano salvo. Sem isso, um plano salvo com proporção VAZIA ({}) apagava a proporção do

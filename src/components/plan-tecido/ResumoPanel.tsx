@@ -299,7 +299,7 @@ export function ResumoPanel({
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
     const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + maoObraSlot(slot);
     const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
-    pv += precoInfo(custo, markup, slot.preco_venda ?? null).efetivo * grade;
+    pv += precoInfo(custo, markup, slot.preco_venda ?? null, slot.markup_editado ?? null).efetivo * grade;
   }
 
   return (

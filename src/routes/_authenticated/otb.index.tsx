@@ -94,9 +94,10 @@ function OtbPage() {
   const { data: modelosLink = [] } = useQuery({
     queryKey: ["otb-modelos-link"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("id, colecao_id, linha_id, preco_venda, status_planejamento").not("colecao_id", "is", null);
+      // "as any" no builder: markup_editado ainda não está no types.ts gerado (regen pendente).
+      const { data, error } = await (supabase.from("modelos") as any).select("id, colecao_id, linha_id, preco_venda, markup_editado, status_planejamento").not("colecao_id", "is", null);
       if (error) throw error;
-      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null; status_planejamento: string | null }[];
+      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null; markup_editado: number | null; status_planejamento: string | null }[];
     },
   });
   const modeloIds = modelosLink.map((m) => m.id).sort();

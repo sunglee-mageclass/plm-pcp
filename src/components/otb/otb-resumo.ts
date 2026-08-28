@@ -4,6 +4,7 @@ export type ModelForResumo = {
   id: string;
   linha_id: string | null;
   preco_venda: number | null;
+  markup_editado?: number | null;
 };
 export type Custo = { previsto: number; real: number; confirmado: boolean };
 
@@ -27,7 +28,7 @@ export function computeColecaoResumo(
   for (const m of models) {
     const grade = Number(gradeMap[m.id]) || 0;
     const custo = custoMap[m.id];
-    const pi = precoInfo(custo?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda);
+    const pi = precoInfo(custo?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda, m.markup_editado);
     previsto += (Number(custo?.previsto) || 0) * grade;
     real += (Number(custo?.real) || 0) * grade;
     poder += pi.efetivo * grade;

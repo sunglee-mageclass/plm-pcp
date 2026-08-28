@@ -124,7 +124,7 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   colecao: "Coleção", colecao_id: "Coleção", subcolecao: "Subcoleção", semana: "Semana de Lançamento",
   mes_id: "Mês de Planejamento", ano_id: "Ano",
   categoria_principal_id: "Categoria", subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2",
-  origem: "Origem", preco_venda: "Preço para venda", preco_atacado: "Preço atacado", data_lancamento: "Data de Lançamento",
+  origem: "Origem", preco_venda: "Preço para venda", preco_atacado: "Preço atacado", markup_editado: "Markup aplicado", data_lancamento: "Data de Lançamento",
   tecidos_planejados: "Tecido Planejado", status_planejamento: "Status",
   croqui_url: "Foto do Croqui", desenho_tecnico_url: "Desenho Técnico",
   fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
@@ -350,6 +350,7 @@ export function PlanejamentoDetail({
   const fl = useFieldLabels();
   const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_planejamento:custos");
+  const podeEditarCustos = canEdit("criacao_planejamento:custos");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
@@ -529,8 +530,8 @@ export function PlanejamentoDetail({
 
   // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
   const custoReal = !!custoData?.confirmado;
-  const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
-    precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
+  const { custo, markupLinha: markup, markupAplicado, preco, sugerido: precoSug, markupReal } =
+    precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
 
   // Composição do custo (materiais + mão de obra) p/ o InfoStrip §K do setor Preço, no ramo
   // MANUFATURADO. Mesma régua do card da lista: materiais = custo total − mão de obra. A MO
@@ -758,7 +759,7 @@ export function PlanejamentoDetail({
     aviamento: draft.custo_simulado.aviamento,
     mao_obra: maoObraUsado,
   });
-  const piSim = precoInfo(simCalc.total, markup, null);
+  const piSim = precoInfo(simCalc.total, markup, null, draft.markup_editado);
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
 
@@ -1541,12 +1542,44 @@ export function PlanejamentoDetail({
                 />
                 <InfoStrip
                   compact
-                  titulo="Formação de preço"
-                  procedencia="markup da linha · cálculo de preco.ts"
+                  titulo="Markup sugerido"
+                  procedencia={`markup da linha do Cadastro (${linhaNomeSetor ?? "sem linha"}), ao vivo`}
                   link={{ to: "/cadastro/atributos", label: "Editar no Cadastro" }}
                   itens={[
-                    { label: "Markup", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR") : "—" },
-                    { op: "→", label: "Preço", hint: "(custo × markup)", valor: preco > 0 ? brl(preco) : "—" },
+                    { label: "Markup sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
+                  ]}
+                />
+                {podeVerCustos && (
+                  <div className="grid gap-1">
+                    <Label>
+                      Markup aplicado{" "}
+                      <span className="font-normal text-muted-foreground text-xs">
+                        — forma o preço, congelado no modelo (em uso: {markupAplicado > 0 ? `${fmtNum(markupAplicado)}×` : "—"})
+                      </span>
+                    </Label>
+                    <div className="relative">
+                      <NumberInput
+                        blankZero
+                        disabled={!podeEditarCustos}
+                        placeholder={markup > 0 ? fmtNum(markup) : "2,50"}
+                        className="pr-6"
+                        value={draft.markup_editado ?? 0}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setDraftTracked((d) => ({ ...d, markup_editado: v > 0 ? v : null }));
+                        }}
+                      />
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Vazio usa o markup sugerido da linha.</p>
+                  </div>
+                )}
+                <InfoStrip
+                  compact
+                  titulo="Preço"
+                  procedencia="custo × markup aplicado · cálculo de preco.ts"
+                  itens={[
+                    { label: "Preço", hint: "(custo × markup aplicado)", valor: preco > 0 ? brl(preco) : "—" },
                     { op: "→", label: "Preço sugerido", hint: "(arredonda ,90)", valor: precoSug > 0 ? brl(precoSug) : "—" },
                   ]}
                 />

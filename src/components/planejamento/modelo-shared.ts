@@ -89,6 +89,7 @@ export type Draft = {
   origem: string;
   preco_venda: number | null;
   preco_atacado: number | null;
+  markup_editado: number | null;
   data_lancamento: string | null;
   tecidos_planejados: string[];
   status_planejamento: string;
@@ -105,7 +106,7 @@ export type Draft = {
 export const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null,
-  subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, preco_atacado: null, data_lancamento: null,
+  subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, preco_atacado: null, markup_editado: null, data_lancamento: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
@@ -136,6 +137,7 @@ export function draftFromModeloRow(data: any): Draft {
     origem: data.origem ?? "interno",
     preco_venda: data.preco_venda ?? null,
     preco_atacado: data.preco_atacado ?? null,
+    markup_editado: data.markup_editado ?? null,
     data_lancamento: data.data_lancamento ?? null,
     tecidos_planejados: data.tecidos_planejados ?? [],
     status_planejamento: data.status_planejamento ?? "em_planejamento",

@@ -1562,7 +1562,7 @@ function ComercialTab() {
   const { data: modelos = [], isLoading, isError } = useQuery({
     queryKey: ["comercial-modelos", fMes, fAno, fSemana, fSubcolecao, fColecao],
     queryFn: async () => {
-      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, linha:linha_id(nome, markup)");
+      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, linha:linha_id(nome, markup)");
       if (fMes !== "all") q = q.eq("mes_id", fMes);
       if (fAno !== "all") q = q.eq("ano_id", fAno);
       if (fSemana !== "all") q = q.eq("semana", fSemana);
@@ -1605,7 +1605,7 @@ function ComercialTab() {
     const acc = (map: Map<string, ComRow>, key: string, nome: string, m: any) => {
       const cu = (custoMap as any)[m.id];
       const custo = Number(cu?.real) || Number(cu?.previsto) || 0;
-      const pi = precoInfo(custo, m.linha?.markup, m.preco_venda);
+      const pi = precoInfo(custo, m.linha?.markup, m.preco_venda, m.markup_editado);
       const gp = Number((gradePlan as any)[m.id]) || 0;
       const gr = Number((gradeReal as any)[m.id]) || 0;
       let r = map.get(key);

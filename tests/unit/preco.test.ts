@@ -32,3 +32,38 @@ describe("preco — custoSimulado (simulação de custo do Planejamento)", () =>
     expect(precoInfo(total, 0, null).sugerido).toBe(0);
   });
 });
+
+describe("preco — markup aplicado por modelo (4º parâmetro, markup_editado)", () => {
+  it("aplicado > 0 forma o preço; o sugerido (linha) fica só como referência", () => {
+    const pi = precoInfo(100, 2, null, 2.5);
+    expect(pi.markupLinha).toBe(2); // sugerido
+    expect(pi.markupAplicado).toBe(2.5); // aplicado forma o preço
+    expect(pi.preco).toBe(250);
+    expect(pi.sugerido).toBe(254.9);
+  });
+
+  it("sem 4º arg (call-site antigo) cai no markupLinha — byte-a-byte", () => {
+    const pi = precoInfo(100, 2, null);
+    expect(pi.markupAplicado).toBe(2);
+    expect(pi.preco).toBe(200);
+    expect(pi.sugerido).toBe(204.9);
+  });
+
+  it("null/undefined/0 no 4º arg = usa o markupLinha (mesmo resultado que omitir)", () => {
+    expect(precoInfo(100, 2, null, null).preco).toBe(200);
+    expect(precoInfo(100, 2, null, undefined).preco).toBe(200);
+    expect(precoInfo(100, 2, null, 0).preco).toBe(200);
+  });
+
+  it("aplicado funciona mesmo sem markup na linha (linha 0)", () => {
+    expect(precoInfo(100, 0, null, 2.5).sugerido).toBe(254.9);
+  });
+
+  it("markup real segue derivado do preço de venda efetivo — fórmula inalterada", () => {
+    const pi = precoInfo(100, 2, 300, 2.5);
+    expect(pi.markupReal).toBe(3);
+    expect(pi.markupExibir).toBe(3);
+    // sem preço de venda, markupExibir cai no aplicado (não mais no da linha)
+    expect(precoInfo(100, 2, null, 2.5).markupExibir).toBeCloseTo(2.549, 3);
+  });
+});

@@ -29,7 +29,7 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: 
   // por-serviço no Planejamento). Mascarado p/ quem não vê custos → null → 0.
   const maoObra = Number(maoObraServico) || 0;
   const custoTotal = custoTecido + custoForro + materiais + maoObra;
-  const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
+  const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null, slot.markup_editado ?? null);
   const fromDev = !!slot.modelo_id; // materiais vem dos aviamentos do Dev quando é modelo
 
   const RO = ({ label, value }: { label: string; value: string }) => (
@@ -70,12 +70,12 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: 
           </div>
         )}
         <RO label="Custo total" value={brl(custoTotal)} />
-        <RO label="Markup (linha)" value={markup > 0 ? `${fmtNum(markup)}×` : "—"} />
+        <RO label={Number(slot.markup_editado) > 0 ? "Markup (do modelo)" : "Markup (linha)"} value={pi.markupAplicado > 0 ? `${fmtNum(pi.markupAplicado)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
         <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
           <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
       </div>
-      {markup <= 0 && (
+      {pi.markupAplicado <= 0 && (
         <div className="mt-1 text-[9px] text-muted-foreground">Sem markup na linha do modelo → preço sugerido indisponível; use o preço p/ venda.</div>
       )}
     </div>

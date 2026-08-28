@@ -92,6 +92,7 @@ type Modelo = {
   versao: number;
   modelo_base_id: string | null;
   preco_venda: number | null;
+  markup_editado: number | null;
   origem: string | null;
   tecidos_planejados: string[] | null;
   lancado: boolean | null;
@@ -268,7 +269,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Modelo[];
@@ -413,7 +414,7 @@ function PlanejamentoPage() {
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
   const piFor = (m: Modelo) =>
-    precoInfo((custoMap as any)[m.id]?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda);
+    precoInfo((custoMap as any)[m.id]?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda, m.markup_editado);
   const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
   const anoMap = Object.fromEntries(anos.map((x) => [x.id, x.nome]));
 

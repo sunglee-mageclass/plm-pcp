@@ -49,6 +49,7 @@ type LancCard = {
   data_lancamento: string | null;
   linha: string | null;
   markup: number | null;
+  markup_editado: number | null;
   preco_venda: number | null;
   mes: string | null;
   ano: string | null;
@@ -113,7 +114,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
+        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -183,6 +184,7 @@ function LancamentosPage() {
           data_lancamento: m.data_lancamento ?? null,
           linha: m.linha?.nome ?? null,
           markup: m.linha?.markup ?? null,
+          markup_editado: m.markup_editado ?? null,
           preco_venda: m.preco_venda ?? null,
           mes: m.mes_id ? (mesMap.get(m.mes_id) ?? null) : null,
           ano: m.ano_id ? (anoMap.get(m.ano_id) ?? null) : null,
@@ -300,7 +302,7 @@ function LancamentosPage() {
   // de venda num raro CAD sem real.
   const piFor = (c: LancCard) => {
     const cu = (custoMap as any)[c.modelo_id];
-    return precoInfo(cu?.real || cu?.previsto, c.markup, c.preco_venda);
+    return precoInfo(cu?.real || cu?.previsto, c.markup, c.preco_venda, c.markup_editado);
   };
   const computeResumo = (items: LancCard[]) => {
     let poder = 0, somaMk = 0, nMk = 0;
