@@ -275,7 +275,10 @@ export function AttributeTab({
   // grep confirmou que não há uso fora deste arquivo). Espelha `sheetSaveMut` (mobile).
   const updateRowMut = useMutation({
     mutationFn: async (row: Row) => {
-      const v = editValue.trim();
+      // Fixa (isProtected): Nome fica travado — mesmo que o rascunho local tenha
+      // divergido por algum motivo, o payload manda sempre o nome ORIGINAL da linha
+      // (nunca renomeia uma fixa). Não-fixa: comportamento de sempre (rascunho editável).
+      const v = isProtected(row) ? String(row[config.nameField] ?? "").trim() : editValue.trim();
       if (!v) throw new Error("Preencha o nome.");
       const payload: Row = { [config.nameField]: v };
       if (config.extra) {
@@ -405,7 +408,9 @@ export function AttributeTab({
   const sheetSaveMut = useMutation({
     mutationFn: async () => {
       if (!sheetRow) return;
-      const v = sheetName.trim();
+      // Fixa (isProtected): Nome fica travado — o payload manda sempre o nome ORIGINAL
+      // da linha (nunca renomeia uma fixa), mesma defesa do updateRowMut (desktop).
+      const v = isProtected(sheetRow) ? String(sheetRow[config.nameField] ?? "").trim() : sheetName.trim();
       if (!v) throw new Error("Preencha o nome.");
       const payload: Row = { [config.nameField]: v };
       if (config.extra) {
@@ -629,20 +634,18 @@ export function AttributeTab({
                           {sublinha}
                         </div>
                       </div>
-                      {!isProtected(row) && (
-                        <div className="flex shrink-0 items-center">
-                          <Button size="icon" variant="ghost" aria-label="Editar"
-                            onClick={() => openEditSheet(row)} disabled={readOnly}>
-                            <Pencil className="h-4 w-4" />
+                      <div className="flex shrink-0 items-center">
+                        <Button size="icon" variant="ghost" aria-label="Editar"
+                          onClick={() => openEditSheet(row)} disabled={readOnly}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {!isProtected(row) && !config.fixed && (
+                          <Button size="icon" variant="ghost" aria-label="Excluir"
+                            onClick={() => startDelete(row)} disabled={readOnly}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
-                          {!config.fixed && (
-                            <Button size="icon" variant="ghost" aria-label="Excluir"
-                              onClick={() => startDelete(row)} disabled={readOnly}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   {showCheck && (
@@ -654,7 +657,12 @@ export function AttributeTab({
                   )}
                   {config.extraFirst && extraCell}
                   <TableCell>
-                    {isEditingRow ? (
+                    {isEditingRow && isProtected(row) ? (
+                      <span className="inline-flex items-center gap-2">
+                        {editValue}
+                        <Badge variant="secondary" className="text-[10px]">fixo</Badge>
+                      </span>
+                    ) : isEditingRow ? (
                       <Input
                         autoFocus
                         value={editValue}
@@ -752,18 +760,18 @@ export function AttributeTab({
                           <X className="h-4 w-4" />
                         </Button>
                       </>
-                    ) : !isProtected(row) ? (
+                    ) : (
                       <>
                         <Button size="iconSm" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        {!config.fixed && (
+                        {!isProtected(row) && !config.fixed && (
                           <Button size="iconSm" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
                       </>
-                    ) : null}
+                    )}
                   </TableCell>
                 </TableRow>
                 );
@@ -852,8 +860,16 @@ export function AttributeTab({
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {config.extraFirst && config.extra && sheetExtraField}
               <div className="space-y-1.5">
-                <Label>Nome</Label>
-                <Input autoFocus value={sheetName} onChange={(e) => setSheetName(e.target.value)} />
+                <Label className="inline-flex items-center gap-2">
+                  Nome
+                  {isProtected(sheetRow) && <Badge variant="secondary" className="text-[10px]">fixo</Badge>}
+                </Label>
+                <Input
+                  autoFocus={!isProtected(sheetRow)}
+                  value={sheetName}
+                  onChange={(e) => setSheetName(e.target.value)}
+                  disabled={isProtected(sheetRow)}
+                />
               </div>
               {!config.extraFirst && config.extra && sheetExtraField}
               {config.extraNumber && (
