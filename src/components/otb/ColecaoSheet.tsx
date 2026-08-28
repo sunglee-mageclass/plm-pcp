@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -258,6 +258,18 @@ export function ColecaoSheet({
   const [weeksMeta, setWeeksMeta] = useState<WeekMeta>({}); // texto/data por semana (modo simples)
   const [weekCats, setWeekCats] = useState<CatDist>({}); // distribuição por categoria (modo simples)
   const [subs, setSubs] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
+  // Coleção NOVA: ao abrir o sheet, cria automaticamente a 1ª subcoleção (paridade com o
+  // fluxo PV). Nasce "Subcoleção 1" (não em branco) p/ SOBREVIVER ao filtro de nome-vazio do
+  // save (persistColecao descarta sub sem nome). One-shot por montagem: excluir manualmente
+  // NÃO recria; coleção EXISTENTE nunca passa aqui (o hydrate cuida dela); a sub entra no
+  // save (otb_salvar_colecao) como INSERT normal (id null), sem tocar a RPC.
+  const autoSubFeita = useRef(false);
+  useEffect(() => {
+    if (colecaoId || autoSubFeita.current || subs.length > 0) return;
+    autoSubFeita.current = true;
+    setSubs((p) => [...p, { key: crypto.randomUUID(), id: null, nome: "Subcoleção 1", weeks: {}, meta: {}, cats: {} }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colecaoId, subs.length]);
   const [pendingAssign, setPendingAssign] = useState<PendingAssign>({}); // atribuições feitas no editor, gravadas no Save
   const [confirmDel, setConfirmDel] = useState(false);
 
