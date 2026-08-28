@@ -24,9 +24,9 @@ import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
-import type { PtArvore, PtMaterial, PtVariante, PtSlot } from "@/lib/plan-tecido/types";
+import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -983,6 +983,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     if (!arvore) return;
     const n = selecao.size;
     const next = structuredClone(arvore) as PtArvore;
+    let movidos = 0;
     for (let si = 0; si < next.subcolecoes.length; si++) {
       for (let li = 0; li < next.subcolecoes[si].linhas.length; li++) {
         for (let sli = 0; sli < next.subcolecoes[si].linhas[li].slots.length; sli++) {
@@ -991,17 +992,24 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           if (!selecao.has(chave)) continue;
           // Remove o material do MESMO papel (Tecido 1 / Forro 1) e insere o novo
           const resto = slot.materiais.filter((m) => !(m.tipo === material.tipo && m.numero === 1));
-          next.subcolecoes[si].linhas[li].slots[sli] = {
+          const editado: PtSlot = {
             ...slot,
             materiais: material.tipo === "tecido" ? [material, ...resto] : [...resto, material],
           };
+          // G2: Tecido 1 (material.tipo==="tecido") pode mover o card de família — em massa, silencioso
+          // (toast único ao fim); a lane fica garantida na sub do PRÓPRIO slot (nem sempre subAtiva).
+          const finalSlot = material.tipo === "tecido"
+            ? aplicarMoveFamilia(next.subcolecoes[si], editado, slot, true)
+            : editado;
+          if (finalSlot !== editado) movidos++;
+          next.subcolecoes[si].linhas[li].slots[sli] = finalSlot;
         }
       }
     }
     patch(next);
     setSelecao(new Set());
     setFormTipo(null);
-    toast.success(`${material.tipo === "forro" ? "Forro" : "Tecido"} aplicado a ${n} slot(s).`);
+    toast.success(`${material.tipo === "forro" ? "Forro" : "Tecido"} aplicado a ${n} slot(s).${movidos > 0 ? ` ${movidos} card(s) movido(s) de família.` : ""}`);
   }
 
   const catTecidoNome = (id: string | null | undefined) => nameOf(catTecidoNomes, id);
@@ -1094,10 +1102,31 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     const t = slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
     return (t?.artigo_nome ?? (t?.artigo_id ? artigoMap.get(t.artigo_id)?.nome ?? null : null)) ?? "Sem tecido";
   };
+
+  // G2: aplica o move de família (F1) num slot editado (prev→next) e, se moveu, garante a lane
+  // em `categorias_tecido` da sub-árvore mutável passada (mesmo padrão de aplicarCategoriaEmMassa)
+  // e destrava o subgrupo por nome (chave canônica, F3) pra nascer visível/agrupado — SEM depender
+  // do `nomeSeedRef` (que já pode ter travado pra essa sub antes do card mudar de nome). Retorna o
+  // slot final (movido ou o `next` original) — quem chama grava no `patch`.
+  const aplicarMoveFamilia = (sub: PtSub, next: PtSlot, prev?: PtSlot, silent = false): PtSlot => {
+    if (!prev) return next;
+    const mov = moverParaFamiliaDoTecido(prev, next, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
+    if (!mov) return next;
+    sub.categorias_tecido = [...new Set([...(sub.categorias_tecido ?? []), mov.lane])];
+    const nomeNovo = tecidoNomeDoSlot(mov.slot);
+    setLanesRecolhidas((prevSet) => { const n = new Set(prevSet); n.delete(`${subAtiva}:nome:${nomeNovo}`); return n; });
+    if (!silent) toast.success(`Card movido para a família ${catTecidoNome(mov.lane) ?? "?"}.`);
+    return mov.slot;
+  };
+
   // Grupos por NOME nascem RECOLHIDOS (pedido do dono): ao entrar no canvas de uma subcoleção com
   // agrupamento por nome, semeia os nomeKeys em `lanesRecolhidas` UMA vez por sub (ref guarda as já
-  // semeadas), respeitando expand/recolher manual depois. nomeKey casa o formato usado no render
-  // (`${subAtiva}:__all__:nome:${nome}`, laneId "__all__" no modo sem categoria).
+  // semeadas), respeitando expand/recolher manual depois. Chave CANÔNICA só por nome (G2/F3, SEM
+  // laneId) — antes semeava só `${subAtiva}:__all__:nome:${nome}` (laneId "__all__"), mas o render
+  // dentro de uma lane de família lê `${subAtiva}:${cid}:nome:${nome}` — descasamento que deixava o
+  // subgrupo nascer expandido/inconsistente quando o MACRO (agrupar por família) estava ligado.
+  // Unificando pra `${subAtiva}:nome:${nome}` em TODOS os pontos (seed + render), o mesmo tecido
+  // recolhe/expande igual em qualquer lane em que aparecer.
   const nomeSeedRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     if (view !== "canvas" || !groupByNome || !subAtual) return;
@@ -1108,7 +1137,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     if (nomes.size === 0) return;
     setLanesRecolhidas((prev) => {
       const n = new Set(prev);
-      for (const nome of nomes) n.add(`${subAtiva}:__all__:nome:${nome}`);
+      for (const nome of nomes) n.add(`${subAtiva}:nome:${nome}`);
       return n;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1257,10 +1286,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           const allSectionKeys: string[] = groupByCategoria
             ? laneCats.flatMap((cid) => {
                 const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
-                const nomeKeys = groupByNome ? porNome(slotsOf(cid)).map(([nome]) => `${subAtiva}:${cid ?? "__sem__"}:nome:${nome}`) : [];
+                // chave canônica só por nome (G2/F3, SEM laneId) — casa com o seed e o laneBody
+                const nomeKeys = groupByNome ? porNome(slotsOf(cid)).map(([nome]) => `${subAtiva}:nome:${nome}`) : [];
                 return [laneKey, ...nomeKeys];
               })
-            : porNome(flat).map(([nome]) => `${subAtiva}:__all__:nome:${nome}`);
+            : porNome(flat).map(([nome]) => `${subAtiva}:nome:${nome}`);
           const todasSecoesRecolhidas = allSectionKeys.length > 0 && allSectionKeys.every((k) => lanesRecolhidas.has(k));
           const toggleSecoes = () => setLanesRecolhidas((prev) => {
             if (todasSecoesRecolhidas) { const n = new Set(prev); allSectionKeys.forEach((k) => n.delete(k)); return n; }
@@ -1285,7 +1315,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               fase={slot.modelo_id ? faseInfo(slot.modelo_id) : null}
               onEnsureSaved={ensureSaved}
-              onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
+              onChange={(ns) => {
+                const next = structuredClone(arvore) as PtArvore;
+                const subNext = next.subcolecoes[subAtiva];
+                subNext.linhas[li].slots[sli] = aplicarMoveFamilia(subNext, ns, slot);
+                patch(next);
+              }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
               fornecCom={slotFornec(slot).com} fornecTotal={slotFornec(slot).total}
               dragHandle={dragHandle}
@@ -1303,7 +1338,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               ? <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">Arraste um card aqui, ou defina a categoria de tecido dentro do card.</div>
               : groupByNome
                 ? porNome(slots).map(([nome, items]) => {
-                    const nomeKey = `${subAtiva}:${laneId}:nome:${nome}`;
+                    // chave CANÔNICA só por nome (G2/F3, SEM laneId — antes `${subAtiva}:${laneId}:nome:${nome}`
+                    // descasava do seed, que só semeava `__all__`). O mesmo tecido recolhe/expande igual em
+                    // qualquer lane; aceito por design (é o mesmo nome de tecido — comportamento coerente).
+                    const nomeKey = `${subAtiva}:nome:${nome}`;
                     const nomeRecolhido = lanesRecolhidas.has(nomeKey);
                     const nomeMetros = items.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
                     return (

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, type ModeloReal } from "@/lib/plan-tecido/engine";
+import type { PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -532,6 +533,67 @@ describe("plan-tecido/engine", () => {
     it("modelo SEM proporção → cai no plano salvo (fallback)", () => {
       const merged = mergeArvore(seedOf(mkModelo(null)), mkSalvo({ "40|M": 3 }) as never);
       expect(merged.subcolecoes[0].linhas[0].slots[0].proporcoes).toEqual({ "40|M": 3 });
+    });
+  });
+
+  // G2 (Pacote G-feat): trocar o Tecido 1 move o card p/ a família do artigo escolhido.
+  describe("moverParaFamiliaDoTecido (G2)", () => {
+    const slot = (materiais: PtSlot["materiais"], categoria_tecido_id: string | null = null): PtSlot =>
+      ({ modelo_id: "m1", categoria_tecido_id, materiais } as PtSlot);
+    const mat = (over: Record<string, unknown>) =>
+      ({ artigo_id: null, tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [], ...over });
+    const familiaDe = (fam: Record<string, string | null>) => (id: string) => fam[id] ?? null;
+
+    it("trocar o Tecido 1 p/ um artigo com família move o card (retorna slot+lane)", () => {
+      const prev = slot([mat({ artigo_id: "A" })]);
+      const next = slot([mat({ artigo_id: "B" })]);
+      const r = moverParaFamiliaDoTecido(prev, next, familiaDe({ B: "FAM_CHIFFON" }));
+      expect(r).not.toBeNull();
+      expect(r!.lane).toBe("FAM_CHIFFON");
+      expect(r!.slot.categoria_tecido_id).toBe("FAM_CHIFFON");
+    });
+
+    it("mesmo artigo (sem troca de Tecido 1) → null", () => {
+      const prev = slot([mat({ artigo_id: "A" })]);
+      const next = slot([mat({ artigo_id: "A" })], "FAM_X");
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ A: "FAM_CHIFFON" }))).toBeNull();
+    });
+
+    it("artigo do Tecido 1 SEM família cadastrada → null (não move)", () => {
+      const prev = slot([mat({ artigo_id: "A" })]);
+      const next = slot([mat({ artigo_id: "B" })]);
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({}))).toBeNull();
+    });
+
+    it("card já está na família do artigo escolhido → null (não re-move)", () => {
+      const prev = slot([mat({ artigo_id: "A" })]);
+      const next = slot([mat({ artigo_id: "B" })], "FAM_CHIFFON");
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ B: "FAM_CHIFFON" }))).toBeNull();
+    });
+
+    it("trocar o FORRO (não Tecido 1) → null (nunca move)", () => {
+      const prev = slot([mat({ artigo_id: "A" }), mat({ tipo: "forro" as const, numero: 1, artigo_id: "F1" })]);
+      const next = slot([mat({ artigo_id: "A" }), mat({ tipo: "forro" as const, numero: 1, artigo_id: "F2" })]);
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ F1: "FAM_FORRO", F2: "FAM_FORRO2" }))).toBeNull();
+    });
+
+    it("trocar o Tecido 2 (numero=2, não Tecido 1) → null (nunca move)", () => {
+      const prev = slot([mat({ artigo_id: "A" }), mat({ numero: 2, artigo_id: "C1" })]);
+      const next = slot([mat({ artigo_id: "A" }), mat({ numero: 2, artigo_id: "C2" })]);
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ C1: "FAM_C", C2: "FAM_C2" }))).toBeNull();
+    });
+
+    it("Tecido 1 vazio→preenchido (add tecido) também move, se tiver família", () => {
+      const prev = slot([mat({ artigo_id: null })]);
+      const next = slot([mat({ artigo_id: "A" })]);
+      const r = moverParaFamiliaDoTecido(prev, next, familiaDe({ A: "FAM_A" }));
+      expect(r?.lane).toBe("FAM_A");
+    });
+
+    it("sem Tecido 1 no next (removido) → null", () => {
+      const prev = slot([mat({ artigo_id: "A" })]);
+      const next = slot([mat({ artigo_id: null })]);
+      expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ A: "FAM_A" }))).toBeNull();
     });
   });
 });

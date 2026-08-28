@@ -271,6 +271,20 @@ export function comGradeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | nul
   });
 }
 
+/** G2: trocar o ARTIGO do Tecido 1 (tipo==='tecido' && numero===1) move o card p/ a
+ *  família (categoria de tecido) do artigo. Forro/Tecido 2+/bloco complementar NUNCA.
+ *  Artigo sem família → não move. Fonte = artigos.categoria_tecido_id (a mesma da auto-cat do seed). */
+export function moverParaFamiliaDoTecido(
+  prev: PtSlot, next: PtSlot, familiaDoArtigo: (artigoId: string) => string | null,
+): { slot: PtSlot; lane: string } | null {
+  const tec1 = (s: PtSlot) => s.materiais.find((m) => m.tipo === "tecido" && Number(m.numero) === 1)?.artigo_id ?? null;
+  const a0 = tec1(prev), a1 = tec1(next);
+  if (!a1 || a1 === a0) return null;                        // sem tecido novo / mesmo artigo
+  const fam = familiaDoArtigo(a1);
+  if (!fam || (next.categoria_tecido_id ?? null) === fam) return null; // sem família / já lá
+  return { slot: { ...next, categoria_tecido_id: fam }, lane: fam };
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
