@@ -47,7 +47,7 @@ type CorBlock = { cor_id: string; preco: number | null; tamanhos: string[] };
 type Etiqueta = {
   id: string; nome: string; unidade: string; preco: number | null;
   empresa_id: string | null; representante_id: string | null; observacoes: string | null;
-  formato_tamanho: string; n_variantes: number;
+  formato_tamanho: string; n_variantes: number; tipo_insumo_id: string | null;
 };
 
 const UNIDADES = ["unidade", "metro", "rolo", "milheiro"];
@@ -59,6 +59,7 @@ const FORMATOS = [
 ];
 const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 const SEM = "__none__";
+const NOVO_TIPO = "__novo_tipo__";
 // "38|P" -> conforme o formato da etiqueta: "P · 38" | "38" | "P".
 const fmtTamanho = (t: string, formato = "ambos") => {
   const [num, sig] = t.split("|");
@@ -80,7 +81,7 @@ function EtiquetasPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const colCount = isAdmin ? 6 : 5;
+  const colCount = isAdmin ? 7 : 6;
 
   // form
   const [fNome, setFNome] = useState("");
@@ -88,22 +89,26 @@ function EtiquetasPage() {
   const [fEmpresa, setFEmpresa] = useState<string | null>(null);
   const [fRep, setFRep] = useState<string | null>(null);
   const [fPreco, setFPreco] = useState<number | null>(null);
-  const [fFormato, setFFormato] = useState("ambos");
+  const [fFormato, setFFormato] = useState("nenhum");
   const [fObs, setFObs] = useState("");
   const [fBlocks, setFBlocks] = useState<CorBlock[]>([]);
+  const [fTipo, setFTipo] = useState<string | null>(null);
+  const [tipoNovoOpen, setTipoNovoOpen] = useState(false);
+  const [tipoNovoNome, setTipoNovoNome] = useState("");
 
   const { data: etiquetas = [], isLoading } = useQuery({
     queryKey: ["etiquetas-cadastro"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("etiquetas" as any)
-        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, formato_tamanho, variantes_etiqueta(id)")
+        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, formato_tamanho, tipo_insumo_id, variantes_etiqueta(id)")
         .order("nome");
       if (error) throw error;
       return ((data ?? []) as any[]).map((e) => ({
         id: e.id, nome: e.nome, unidade: e.unidade ?? "unidade", preco: e.preco,
         empresa_id: e.empresa_id, representante_id: e.representante_id, observacoes: e.observacoes,
         formato_tamanho: e.formato_tamanho ?? "ambos", n_variantes: (e.variantes_etiqueta ?? []).length,
+        tipo_insumo_id: e.tipo_insumo_id ?? null,
       })) as Etiqueta[];
     },
   });
@@ -125,6 +130,20 @@ function EtiquetasPage() {
     },
   });
   const empresasMap = useMemo(() => new Map(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  const { data: tipos = [] } = useQuery({
+    queryKey: ["tipos-insumo-opts", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tipos_insumo" as any)
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; nome: string }[];
+    },
+  });
+  const tipoMap = useMemo(() => new Map(tipos.map((t) => [t.id, t.nome])), [tipos]);
 
   const { data: cores = [] } = useQuery({
     queryKey: ["cores-opts", tenantId],
@@ -161,26 +180,27 @@ function EtiquetasPage() {
   };
 
   // Snapshot do formulário para detecção de alterações (Case C — muitos campos + async).
-  const formSnapshot = { nome: fNome, unidade: fUnidade, empresa: fEmpresa, rep: fRep, preco: fPreco, formato: fFormato, obs: fObs, blocks: fBlocks };
+  const formSnapshot = { nome: fNome, unidade: fUnidade, empresa: fEmpresa, rep: fRep, preco: fPreco, formato: fFormato, obs: fObs, blocks: fBlocks, tipo: fTipo };
   const { dirty: snapshotDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
   const dirty = open && snapshotDirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
 
   const resetForm = () => {
     setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null);
-    setFFormato("ambos"); setFObs(""); setFBlocks([]);
+    setFFormato("nenhum"); setFObs(""); setFBlocks([]); setFTipo(null);
   };
   const openCreate = () => {
     setEditing(null);
     resetForm();
     setOpen(true);
     // Baseline limpa (formulário vazio) para detecção de alterações.
-    resetBaseline({ nome: "", unidade: "unidade", empresa: null, rep: null, preco: null, formato: "ambos", obs: "", blocks: [] });
+    resetBaseline({ nome: "", unidade: "unidade", empresa: null, rep: null, preco: null, formato: "nenhum", obs: "", blocks: [], tipo: null });
   };
   const openEdit = async (e: Etiqueta) => {
     setEditing(e);
     setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
     setFPreco(e.preco); setFFormato(e.formato_tamanho ?? "ambos"); setFObs(e.observacoes ?? ""); setFBlocks([]);
+    setFTipo(e.tipo_insumo_id);
     setOpen(true);
     const { data } = await supabase.from("variantes_etiqueta" as any).select("tamanho, cor_id, preco").eq("etiqueta_id", e.id);
     // agrupa variantes por cor → blocos
@@ -199,6 +219,7 @@ function EtiquetasPage() {
     resetBaseline({
       nome: e.nome, unidade: e.unidade, empresa: e.empresa_id, rep: e.representante_id,
       preco: e.preco, formato: e.formato_tamanho ?? "ambos", obs: e.observacoes ?? "", blocks,
+      tipo: e.tipo_insumo_id,
     });
   };
 
@@ -232,6 +253,7 @@ function EtiquetasPage() {
       const payload = {
         nome, unidade: fUnidade, empresa_id: fEmpresa, representante_id: fRep,
         preco: fPreco, formato_tamanho: fFormato, observacoes: fObs.trim() || null,
+        tipo_insumo_id: fTipo,
       };
       let etqId = editing?.id;
       if (editing) {
@@ -270,6 +292,30 @@ function EtiquetasPage() {
     onSuccess: () => { toast.success("Excluída."); setDeleteRow(null); invalidate(); },
     onError: (e: any) =>
       toast.error(e?.code === "23503" ? "Etiqueta em uso (CAD/modelo). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
+  });
+
+  const criarTipoMut = useMutation({
+    mutationFn: async () => {
+      const nome = tipoNovoNome.trim();
+      if (!nome) throw new Error("Informe o nome do tipo.");
+      const { data, error } = await supabase
+        .from("tipos_insumo" as any)
+        .insert({ nome })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return (data as any).id as string;
+    },
+    onSuccess: (id) => {
+      toast.success("Tipo criado.");
+      setTipoNovoOpen(false);
+      setTipoNovoNome("");
+      qc.invalidateQueries({ queryKey: ["tipos-insumo-opts", tenantId] });
+      qc.invalidateQueries({ queryKey: ["attr", "tipos_insumo", ""] });
+      setFTipo(id); // auto-seleciona o recém-criado no form aberto
+    },
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Já existe um tipo com esse nome." : mensagemErro(e, "Erro ao criar tipo.")),
   });
 
   const selectableIds = useMemo(() => sorted.map((e) => e.id), [sorted]);
@@ -329,6 +375,7 @@ function EtiquetasPage() {
                 </TableHead>
               )}
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
+              <TableHead>Tipo</TableHead>
               <SortHead label="Unidade" sortKey="unidade" sortState={sortState} />
               <TableHead>Fornecedor</TableHead>
               <TableHead className="text-right">Preço</TableHead>
@@ -375,6 +422,7 @@ function EtiquetasPage() {
                     <span className="font-medium">{e.nome}</span>
                     {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
                   </TableCell>
+                  <TableCell className="text-muted-foreground" data-label="Tipo">{e.tipo_insumo_id ? tipoMap.get(e.tipo_insumo_id) ?? "—" : "—"}</TableCell>
                   <TableCell className="capitalize" data-label="Unidade">{e.unidade}</TableCell>
                   <TableCell className="text-muted-foreground" data-label="Fornecedor">{fornecedorLabel(e)}</TableCell>
                   <TableCell className="text-right num" data-label="Preço">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
@@ -415,6 +463,24 @@ function EtiquetasPage() {
                 <Input autoFocus value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Ex: Etiqueta de composição" disabled={readOnly} />
               </div>
               <div className="space-y-1.5">
+                <Label>Tipo de produto</Label>
+                <Select
+                  value={fTipo ?? SEM}
+                  onValueChange={(v) => {
+                    if (v === NOVO_TIPO) { setTipoNovoOpen(true); return; }
+                    setFTipo(v === SEM ? null : v);
+                  }}
+                  disabled={readOnly}
+                >
+                  <SelectTrigger><SelectValue placeholder="Sem tipo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SEM}>Sem tipo</SelectItem>
+                    {tipos.map((t) => <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>)}
+                    {!readOnly && <SelectItem value={NOVO_TIPO}>+ Novo tipo…</SelectItem>}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label>Unidade</Label>
                 <Select value={fUnidade} onValueChange={setFUnidade} disabled={readOnly}>
                   <SelectTrigger className="capitalize"><SelectValue /></SelectTrigger>
@@ -422,7 +488,7 @@ function EtiquetasPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Formato do tamanho</Label>
+                <Label>Formato dos tamanhos da grade</Label>
                 <Select
                   value={fFormato}
                   onValueChange={(v) => { setFFormato(v); if (v === "nenhum") setFBlocks((bs) => bs.map((b) => ({ ...b, tamanhos: [] }))); }}
@@ -431,6 +497,10 @@ function EtiquetasPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{FORMATOS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}</SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Formato dos tamanhos da grade cadastrada (letra P/M/G, número, ambos ou sem tamanho) —
+                  não é o tamanho físico do insumo.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label>Preço base (R$)</Label>
@@ -561,6 +631,34 @@ function EtiquetasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Quick-add "+ Novo tipo…" do dropdown Tipo de produto — Dialog IRMÃO do form
+          (não aninhado no Sheet/Dialog do form), p/ o portal do Radix empilhar certo. */}
+      {tipoNovoOpen && (
+        <Dialog open onOpenChange={(o) => { if (!o) { setTipoNovoOpen(false); setTipoNovoNome(""); } }}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogTitle>Novo tipo de produto</DialogTitle>
+            <div className="space-y-1.5 py-2">
+              <Label>Nome</Label>
+              <Input
+                autoFocus
+                value={tipoNovoNome}
+                onChange={(e) => setTipoNovoNome(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") criarTipoMut.mutate(); }}
+                placeholder="Ex: Cartão"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Button variant="outline" onClick={() => { setTipoNovoOpen(false); setTipoNovoNome(""); }}>
+                <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+              </Button>
+              <Button className="ml-auto" onClick={() => criarTipoMut.mutate()} disabled={criarTipoMut.isPending}>
+                {criarTipoMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <MobileActionBar>
         <Button onClick={openCreate} className="ml-auto" disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Novo</Button>

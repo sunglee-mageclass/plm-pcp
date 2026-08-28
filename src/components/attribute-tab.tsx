@@ -85,6 +85,9 @@ export type AttributeTabConfig = {
   /** Coluna booleana por linha que marca item FIXO do sistema (ex.: `fixa`) — badge "fixo",
    *  sem renomear/excluir; o toggle (`toggleField`) continua disponível. Soma-se a protectedNames. */
   protectedFlagField?: string;
+  /** Coluna booleana; quando true, esconde SÓ a lixeira e tira da exclusão em massa — o
+   *  Nome continua editável (diferente de protectedFlagField, que também trava o nome). */
+  noDeleteFlagField?: string;
   /** Conjunto FIXO (ex.: os 12 meses): não dá pra criar nem excluir, só renomear. */
   fixed?: boolean;
   /** Coluna de ordenação da lista e dos dropdowns (ex.: "ordem"). Default: nameField. */
@@ -153,6 +156,12 @@ export function AttributeTab({
   const isProtected = (row: Row) =>
     protectedSet.has(String(row[config.nameField] ?? "").toLowerCase()) ||
     (!!config.protectedFlagField && row[config.protectedFlagField] === true);
+
+  // Bloqueia SÓ a exclusão (não o rename). isProtected() ⊇ implica no-delete também
+  // (fixa não renomeia nem exclui); noDelete é o caso mais fraco (só não exclui).
+  const isNoDelete = (row: Row) =>
+    isProtected(row) ||
+    (!!config.noDeleteFlagField && row[config.noDeleteFlagField] === true);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: listKey,
@@ -338,7 +347,10 @@ export function AttributeTab({
   };
 
   // Exclusão em MASSA: só linhas não-protegidas; pula as em uso (conta config.usage) e reporta.
-  const selectableIds = useMemo(() => sorted.filter((r) => !isProtected(r)).map((r) => r.id), [sorted, protectedSet, config.protectedFlagField]);
+  const selectableIds = useMemo(
+    () => sorted.filter((r) => !isNoDelete(r)).map((r) => r.id),
+    [sorted, protectedSet, config.protectedFlagField, config.noDeleteFlagField],
+  );
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
   const toggleOne = (id: string) =>
@@ -606,9 +618,9 @@ export function AttributeTab({
                       {showCheck && (
                         <span
                           className="-ml-2 flex h-11 w-9 shrink-0 items-center justify-center"
-                          onClick={() => { if (!isProtected(row) && !readOnly) toggleOne(row.id); }}
+                          onClick={() => { if (!isNoDelete(row) && !readOnly) toggleOne(row.id); }}
                         >
-                          {!isProtected(row) && !readOnly && (
+                          {!isNoDelete(row) && !readOnly && (
                             <Checkbox
                               checked={selected.has(row.id)}
                               onCheckedChange={() => toggleOne(row.id)}
@@ -639,7 +651,7 @@ export function AttributeTab({
                           onClick={() => openEditSheet(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        {!isProtected(row) && !config.fixed && (
+                        {!isNoDelete(row) && !config.fixed && (
                           <Button size="icon" variant="ghost" aria-label="Excluir"
                             onClick={() => startDelete(row)} disabled={readOnly}>
                             <Trash2 className="h-4 w-4 text-destructive" />
@@ -650,7 +662,7 @@ export function AttributeTab({
                   </TableCell>
                   {showCheck && (
                     <TableCell className="w-10">
-                      {!isProtected(row) && !readOnly && (
+                      {!isNoDelete(row) && !readOnly && (
                         <Checkbox checked={selected.has(row.id)} onCheckedChange={() => toggleOne(row.id)} aria-label="Selecionar" />
                       )}
                     </TableCell>
@@ -765,7 +777,7 @@ export function AttributeTab({
                         <Button size="iconSm" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        {!isProtected(row) && !config.fixed && (
+                        {!isNoDelete(row) && !config.fixed && (
                           <Button size="iconSm" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>

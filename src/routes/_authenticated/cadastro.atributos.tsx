@@ -35,7 +35,7 @@ export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
   ),
 });
 
-type GroupKey = "GERAL" | "FORNECEDOR" | "TECIDO" | "AVIAMENTO" | "PRODUTO" | "SERVIÇO";
+type GroupKey = "GERAL" | "FORNECEDOR" | "TECIDO" | "AVIAMENTO" | "INSUMO" | "PRODUTO" | "SERVIÇO";
 
 type AttributeItem = {
   value: string;
@@ -209,6 +209,22 @@ const ATTRIBUTES: AttributeItem[] = [
     },
   },
   {
+    value: "tipo_insumo",
+    label: "Tipo de Produto",
+    group: "INSUMO",
+    config: {
+      table: "tipos_insumo",
+      nameField: "nome",
+      singular: "Tipo de produto",
+      plural: "Tipos de produto",
+      usage: [{ table: "etiquetas", column: "tipo_insumo_id" }],
+      // Os 3 iniciais (Cartão/Croqui/Etiqueta) podem ser RENOMEADOS, mas NÃO excluídos.
+      // `noDeleteFlagField` (AttributeTab) esconde só a lixeira quando a coluna é true —
+      // Nome e lápis seguem livres. SEM toggle (dono: sem liga-desliga).
+      noDeleteFlagField: "protegido",
+    },
+  },
+  {
     value: "grupo_produto",
     label: "Grupo",
     group: "PRODUTO",
@@ -349,6 +365,7 @@ const GROUP_ORDER: GroupKey[] = [
   "FORNECEDOR",
   "TECIDO",
   "AVIAMENTO",
+  "INSUMO",
   "PRODUTO",
   "SERVIÇO",
 ];
