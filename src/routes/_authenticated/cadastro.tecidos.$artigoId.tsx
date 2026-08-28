@@ -156,12 +156,19 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
     blockNav: !embedded,
   });
 
+  // `dirty` é lido via ref DENTRO do effect, NÃO como dependência. Depender de `dirty`
+  // fazia o effect re-disparar no instante em que `markClean()` (pós-save) zera o dirty
+  // enquanto o cache de ["artigo"] ainda tem o valor ANTIGO (o invalidate refetcha async)
+  // → setForm(antigo) revertia a edição recém-salva na tela (form voltava, selo âmbar
+  // reacendia, um 2º Salvar regravaria o valor velho). Chaveando SÓ em `artigo` (troca real
+  // de dado do servidor) o revert some e a proteção original se mantém: (re)hidrata quando o
+  // servidor muda E não há edição pendente; nunca sobrescreve o que o usuário digitou e ainda
+  // não salvou (invalidação alheia / refetchOnWindowFocus com staleTime=0).
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   useEffect(() => {
-    // Só (re)hidrata sem edições pendentes — senão um refetch de ["artigo"]
-    // (invalidação alheia, refetchOnWindowFocus com staleTime=0) apagaria o que
-    // o usuário digitou e ainda não salvou.
-    if (artigo && !dirty) setForm(artigo);
-  }, [artigo, dirty]);
+    if (artigo && !dirtyRef.current) setForm(artigo);
+  }, [artigo]);
 
   // SEM default `= []`: um `[]` novo a cada render viraria dep instável do useEffect
   // abaixo → setCatIds em loop → "Maximum update depth exceeded" (React #185), crash
