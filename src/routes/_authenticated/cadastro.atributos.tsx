@@ -169,6 +169,7 @@ const ATTRIBUTES: AttributeItem[] = [
       singular: "Subcategoria de Aviamento",
       plural: "Subcategorias de Aviamento",
       usage: [{ table: "aviamentos", column: "subcategoria_aviamento_id" }],
+      extraFirst: true,
       extra: {
         field: "categoria_aviamento_id",
         label: "Categoria de Aviamento",
