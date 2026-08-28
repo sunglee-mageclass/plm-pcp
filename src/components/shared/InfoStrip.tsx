@@ -26,12 +26,15 @@ export type InfoStripItem = {
   badge?: React.ReactNode;
 };
 
-/** Atalho ⧉ (§K): navega pra ETAPA DONA do dado. `to` = rota do TanStack Router. */
+/** Atalho ⧉ (§K): navega pra ETAPA DONA do dado. `to` = rota do TanStack Router.
+ * `onClick` (opcional): quando presente, renderiza um botão em vez do `<Link>` — pra abrir
+ * um sheet/dialog INLINE por cima da tela atual em vez de navegar (mesmo visual §K). */
 export type InfoStripLink = {
-  to: string;
+  to?: string;
   params?: Record<string, unknown>;
   search?: Record<string, unknown>;
   label: string;
+  onClick?: () => void;
 };
 
 export function InfoStrip({
@@ -62,13 +65,24 @@ export function InfoStrip({
             <span className="text-[11px] font-medium text-muted-foreground">{procedencia}</span>
           )}
           {link && (
-            <Link
-              {...({ to: link.to, params: link.params, search: link.search } as any)}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] font-semibold text-primary hover:bg-muted max-md:min-h-11 max-md:px-3"
-            >
-              {link.label}
-              <ExternalLink className="h-3 w-3 shrink-0" />
-            </Link>
+            link.onClick ? (
+              <button
+                type="button"
+                onClick={link.onClick}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] font-semibold text-primary hover:bg-muted max-md:min-h-11 max-md:px-3"
+              >
+                {link.label}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </button>
+            ) : (
+              <Link
+                {...({ to: link.to, params: link.params, search: link.search } as any)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] font-semibold text-primary hover:bg-muted max-md:min-h-11 max-md:px-3"
+              >
+                {link.label}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </Link>
+            )
           )}
         </div>
       )}

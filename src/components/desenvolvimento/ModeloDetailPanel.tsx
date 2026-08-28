@@ -157,9 +157,13 @@ function rotuloConflitoModelo(path: string): string {
   return ROTULO_CONFLITO_MODELO[path] ?? path;
 }
 
-export function ModeloDetailPanel({ modeloId, onClose }: {
+export function ModeloDetailPanel({ modeloId, onClose, onSaved }: {
   modeloId: string | null;
   onClose: () => void;
+  /** Chamado após um save bem-sucedido (Salvar OU Enviar à Explosão) — usado por quem monta
+   * este painel INLINE por cima de outra tela (ex.: PlanejamentoDetail) pra invalidar queries
+   * derivadas do mesmo modelo que o colab (canal Realtime de `modelos`) não cobre sozinho. */
+  onSaved?: () => void;
 }) {
   const open = !!modeloId;
   // Guarda de "alterações não salvas": o PanelContent reporta se o rascunho/BOM tem
@@ -170,7 +174,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent size="editor" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
-        {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} onDirtyChange={setDirty} />}
+        {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} onDirtyChange={setDirty} onSaved={onSaved} />}
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste modelo." />
       </SheetContent>
     </Sheet>
@@ -196,7 +200,7 @@ function SecBadge({ tone, title, children }: { tone: "ok" | "info" | "warn" | "m
   );
 }
 
-function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void }) {
+function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void; onSaved?: () => void }) {
   const qc = useQueryClient();
   const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_desenvolvimento:custos");
@@ -719,6 +723,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      onSaved?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
   });
@@ -2199,6 +2204,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-grades" });
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       setEditing(false); // Salvar re-trava quando já foi enviado à Explosão.
+      onSaved?.();
     },
     onError: async (e: any) => {
       // Colab (Task 1, armadilha #1 do review do piloto): ler o cache DIRETO
@@ -2354,6 +2360,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-tecidos" });
       qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-grades" });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      onSaved?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar")),
   });

@@ -58,6 +58,7 @@ import { varianteLabel } from "@/lib/variante";
 import { erroValidacao } from "@/components/produto-acabado/shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
@@ -418,6 +419,9 @@ export function PlanejamentoDetail({
       return next;
     });
   const [confirmDel, setConfirmDel] = useState(false);
+  // "Ver no Desenvolvimento" (setor Preço, §K) — abre o ModeloDetailPanel INLINE por cima
+  // deste card (sem navegar), mesmo padrão sheet-sobre-sheet do ProdutoAcabadoSheet.
+  const [verDevModeloId, setVerDevModeloId] = useState<string | null>(null);
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
   // Revenda (Produto Acabado, Task 7): card revenda ganha campo de preço atacado + grade
@@ -1527,7 +1531,7 @@ export function PlanejamentoDetail({
                   compact
                   titulo="Custo"
                   procedencia="vem do Desenvolvimento (BOM/CAD) + Serviços"
-                  link={{ to: "/criacao/desenvolvimento", label: "Ver no Desenvolvimento" }}
+                  link={modeloId ? { onClick: () => setVerDevModeloId(modeloId), label: "Ver no Desenvolvimento" } : undefined}
                   itens={[
                     { label: "Materiais", valor: custo > 0 ? brl(materiaisSetor) : "—" },
                     { op: "+", label: "Mão de obra", valor: custo > 0 ? brl(maoObraSetor) : "—" },
@@ -1544,7 +1548,6 @@ export function PlanejamentoDetail({
                   compact
                   titulo="Markup sugerido"
                   procedencia={`markup da linha do Cadastro (${linhaNomeSetor ?? "sem linha"}), ao vivo`}
-                  link={{ to: "/cadastro/atributos", label: "Editar no Cadastro" }}
                   itens={[
                     { label: "Markup sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
                   ]}
@@ -1993,22 +1996,45 @@ export function PlanejamentoDetail({
 
   // Regra 3: EDITAR registro existente = Sheet lateral (side=right, ~70vw); NOVO = Dialog
   // central. Mesmo conteúdo interno nos dois; classes max-sm:* mantêm o fullscreen mobile.
-  return isEdit ? (
-    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent
-        side="right"
-        size="editor"
-        className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
-      >
-        {conteudo}
-      </SheetContent>
-    </Sheet>
-  ) : (
-    <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-        {conteudo}
-      </DialogContent>
-    </Dialog>
+  return (
+    <>
+      {isEdit ? (
+        <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
+          <SheetContent
+            side="right"
+            size="editor"
+            className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
+          >
+            {conteudo}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
+          <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+            {conteudo}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* "Ver no Desenvolvimento" (setor Preço, §K) → ModeloDetailPanel INLINE por cima deste
+          Sheet, sem navegar (mesmo precedente do ProdutoAcabadoSheet:745-752). onSaved invalida
+          as queries de custo/MO que o colab (canal `modelos`) não cobre — o próprio `["modelo",
+          modeloId]` já reconcilia via Realtime/merge 3-vias quando o Dev grava na mesma linha. */}
+      {verDevModeloId && (
+        <ModeloDetailPanel
+          modeloId={verDevModeloId}
+          onClose={() => setVerDevModeloId(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["plan-custo-unit", verDevModeloId] });
+            qc.invalidateQueries({ queryKey: ["mo-resumo", verDevModeloId] });
+            qc.invalidateQueries({ queryKey: ["modelo-tecidos-consumo", verDevModeloId] });
+            qc.invalidateQueries({ queryKey: ["modelo", verDevModeloId] });
+            qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+            qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+          }}
+        />
+      )}
+    </>
   );
 }
 
