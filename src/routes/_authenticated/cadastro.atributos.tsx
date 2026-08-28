@@ -228,6 +228,7 @@ const ATTRIBUTES: AttributeItem[] = [
       plural: "Categorias de Produto",
       // A categoria pertence a um Grupo (obrigatório) — cria-se Grupo antes.
       extra: { field: "grupo_id", label: "Grupo", from: "grupos_produto", optionLabel: "nome", required: true },
+      extraFirst: true,
       usage: [
         { table: "modelos", column: "categoria_principal_id" },
         { table: "modelos", column: "categoria_secundaria_id" },
@@ -256,6 +257,7 @@ const ATTRIBUTES: AttributeItem[] = [
         optionLabelFn: (r) => `${r.grupo?.nome ? `${r.grupo.nome} › ` : ""}${r.nome}`,
         required: true,
       },
+      extraFirst: true,
       usage: [{ table: "modelos", column: "subcategoria1_id" }],
     },
   },
@@ -277,6 +279,7 @@ const ATTRIBUTES: AttributeItem[] = [
         optionLabelFn: (r) => `${r.grupo?.nome ? `${r.grupo.nome} › ` : ""}${r.nome}`,
         required: true,
       },
+      extraFirst: true,
       usage: [{ table: "modelos", column: "subcategoria2_id" }],
     },
   },

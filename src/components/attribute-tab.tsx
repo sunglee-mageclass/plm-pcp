@@ -72,6 +72,8 @@ export type AttributeTabConfig = {
   plural: string; // for headers
   usage: UsageRef[];
   extra?: ExtraSelect;
+  /** Renderiza a coluna/campo `extra` ANTES do Nome (lista E dialog de criação). Opt-in por atributo. */
+  extraFirst?: boolean;
   /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias, markup). */
   extraNumber?: { field: string; label: string; placeholder?: string; step?: string };
   // Campo enum (select de opções fixas) por linha — ex.: etapa "Até costura"/"Pós costura".
@@ -415,6 +417,29 @@ export function AttributeTab({
     setEditValue(String(row[config.nameField] ?? ""));
   };
 
+  // Campo `extra` do dialog "Novo" — hoisted p/ poder ser renderizado antes OU depois
+  // do Nome conforme `config.extraFirst` (mesmo conteúdo, só muda a posição).
+  const extraField = config.extra && (
+    <div className="space-y-1.5">
+      <Label>
+        {config.extra.label}
+        {config.extra.required && <span className="text-destructive"> *</span>}
+      </Label>
+      <Select value={newExtra} onValueChange={setNewExtra}>
+        <SelectTrigger>
+          <SelectValue placeholder={`Selecione ${config.extra.label.toLowerCase()}…`} />
+        </SelectTrigger>
+        <SelectContent>
+          {extraOptions.map((opt) => (
+            <SelectItem key={opt.id} value={opt.id}>
+              {extraLabel(opt)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -451,13 +476,16 @@ export function AttributeTab({
                   )}
                 </TableHead>
               )}
+              {config.extraFirst && config.extra && (
+                <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} className="w-64" />
+              )}
               {config.fixed ? (
                 <TableHead>Nome</TableHead>
               ) : (
                 <SortHead label="Nome" sortKey={config.nameField} sortState={sortState} />
               )}
-              {config.extra && (
-                <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} />
+              {!config.extraFirst && config.extra && (
+                <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} className="w-64" />
               )}
               {config.extraNumber && (
                 <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} className="w-40" />
@@ -486,7 +514,30 @@ export function AttributeTab({
                 </TableCell>
               </TableRow>
             ) : (
-              sorted.map((row) => (
+              sorted.map((row) => {
+                const extraCell = config.extra && (
+                  <TableCell className="w-64">
+                    <Select
+                      value={row[config.extra.field] ?? ""}
+                      onValueChange={(v) => updateExtraMut.mutate({ id: row.id, value: v })}
+                      disabled={readOnly}
+                    >
+                      <SelectTrigger className="h-8 w-56">
+                        <SelectValue placeholder="—">
+                          {row[config.extra.field] ? extraMap.get(row[config.extra.field]) ?? "—" : "—"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {extraOptions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {extraLabel(opt)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                );
+                return (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
                   {showCheck && (
                     <TableCell className="w-10">
@@ -495,6 +546,7 @@ export function AttributeTab({
                       )}
                     </TableCell>
                   )}
+                  {config.extraFirst && extraCell}
                   <TableCell>
                     {editingId === row.id ? (
                       <div className="flex items-center gap-2">
@@ -536,28 +588,7 @@ export function AttributeTab({
                       </button>
                     )}
                   </TableCell>
-                  {config.extra && (
-                    <TableCell>
-                      <Select
-                        value={row[config.extra.field] ?? ""}
-                        onValueChange={(v) => updateExtraMut.mutate({ id: row.id, value: v })}
-                        disabled={readOnly}
-                      >
-                        <SelectTrigger className="h-8 w-56">
-                          <SelectValue placeholder="—">
-                            {row[config.extra.field] ? extraMap.get(row[config.extra.field]) ?? "—" : "—"}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {extraOptions.map((opt) => (
-                            <SelectItem key={opt.id} value={opt.id}>
-                              {extraLabel(opt)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                  )}
+                  {!config.extraFirst && extraCell}
                   {config.extraNumber && (
                     <TableCell>
                       <Input
@@ -624,7 +655,8 @@ export function AttributeTab({
                     )}
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -641,6 +673,7 @@ export function AttributeTab({
             </div>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {config.extraFirst && extraField}
             <div className="space-y-1.5">
               <Label>Nome</Label>
               <Input
@@ -652,26 +685,7 @@ export function AttributeTab({
                 }}
               />
             </div>
-            {config.extra && (
-              <div className="space-y-1.5">
-                <Label>
-                  {config.extra.label}
-                  {config.extra.required && <span className="text-destructive"> *</span>}
-                </Label>
-                <Select value={newExtra} onValueChange={setNewExtra}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={`Selecione ${config.extra.label.toLowerCase()}…`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {extraOptions.map((opt) => (
-                      <SelectItem key={opt.id} value={opt.id}>
-                        {extraLabel(opt)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            {!config.extraFirst && extraField}
             {config.extraNumber && (
               <div className="space-y-1.5">
                 <Label>{config.extraNumber.label}</Label>
