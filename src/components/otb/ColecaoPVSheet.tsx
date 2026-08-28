@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -400,6 +400,17 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   }, [subs, padroes, padraoId]);
 
   const temPadrao = !!padraoId && !!(padroes as any[]).find((p) => p.id === padraoId);
+
+  // Coleção NOVA: ao escolher o Padrão do mix, cria e ABRE a 1ª subcoleção automaticamente.
+  // One-shot por montagem: excluir manualmente NÃO recria; coleção EXISTENTE nunca passa aqui;
+  // a sub automática entra no save preservador (salvar_colecao_pv) como INSERT normal.
+  const autoSubFeita = useRef(false);
+  useEffect(() => {
+    if (colecaoId || autoSubFeita.current || !temPadrao || subs.length > 0) return;
+    autoSubFeita.current = true;
+    addSub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colecaoId, temPadrao, subs.length]);
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
