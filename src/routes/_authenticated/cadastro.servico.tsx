@@ -528,10 +528,10 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categorias_fornecedor")
-        .select("id, nome")
+        .select("id, nome, ativo")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string }[];
+      return (data ?? []) as unknown as CatOption[];
     },
   });
 
@@ -864,7 +864,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                     onChange={(e) => setForm({ ...form, novaEmpresa: e.target.value })}
                   />
                   <CategoriasMultiSelect
-                    options={catsFornecedor}
+                    options={catsFornecedor.filter((c) => c.ativo !== false || form.novaEmpresaCategorias.includes(c.id))}
                     value={form.novaEmpresaCategorias}
                     onChange={(v) => setForm({ ...form, novaEmpresaCategorias: v })}
                     placeholder="Categorias do fornecedor…"
@@ -1000,7 +1000,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
 
 // ============ Categorias Multi-Select (material E serviço) ============
 
-type CatOption = { id: string; nome: string };
+type CatOption = { id: string; nome: string; ativo?: boolean };
 
 function CategoriasMultiSelect({
   options,
@@ -1079,7 +1079,7 @@ type EmpresaRow = {
   prazo_pagamento: string | null;
 };
 
-type CatTercOption = { id: string; nome: string; etapa: string };
+type CatTercOption = { id: string; nome: string; etapa: string; ativo?: boolean };
 
 /** Estado do editor de empresa: campos fiscais + tipo + categorias. */
 const emptyEmpresaForm = {
@@ -1140,10 +1140,10 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categorias_fornecedor")
-        .select("id, nome")
+        .select("id, nome, ativo")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as CatOption[];
+      return (data ?? []) as unknown as CatOption[];
     },
   });
 
@@ -1152,10 +1152,10 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categorias_terceirizado")
-        .select("id, nome, etapa")
+        .select("id, nome, etapa, ativo")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as CatTercOption[];
+      return (data ?? []) as unknown as CatTercOption[];
     },
   });
 
@@ -1598,6 +1598,31 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 />
               </div>
               <div className="space-y-1.5">
+                <Label>
+                  {form.tipo === "servico" ? "Categorias de Serviço" : "Categorias do Fornecedor"}{" "}
+                  <span className="text-destructive">*</span>
+                </Label>
+                {form.tipo === "servico" ? (
+                  <CategoriasMultiSelect
+                    options={catsServico
+                      .filter((c) => c.ativo !== false || form.cats.includes(c.id))
+                      .map((c) => ({
+                        id: c.id,
+                        nome: `${c.nome} (${c.etapa === "pos_costura" ? "Pós" : "Pré"})`,
+                      }))}
+                    value={form.cats}
+                    onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
+                    placeholder="Categorias de serviço…"
+                  />
+                ) : (
+                  <CategoriasMultiSelect
+                    options={catsFornecedor.filter((c) => c.ativo !== false || form.cats.includes(c.id))}
+                    value={form.cats}
+                    onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
                 <Label>Prazo de Pagamento</Label>
                 <Input
                   value={form.prazo_pagamento}
@@ -1613,32 +1638,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               value={form}
               onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             />
-          </EditorSecao>
-
-          <EditorSecao titulo="Categorias">
-            <div className="space-y-1.5">
-              <Label>
-                {form.tipo === "servico" ? "Categorias de Serviço" : "Categorias do Fornecedor"}{" "}
-                <span className="text-destructive">*</span>
-              </Label>
-              {form.tipo === "servico" ? (
-                <CategoriasMultiSelect
-                  options={catsServico.map((c) => ({
-                    id: c.id,
-                    nome: `${c.nome} (${c.etapa === "pos_costura" ? "Pós" : "Pré"})`,
-                  }))}
-                  value={form.cats}
-                  onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
-                  placeholder="Categorias de serviço…"
-                />
-              ) : (
-                <CategoriasMultiSelect
-                  options={catsFornecedor}
-                  value={form.cats}
-                  onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
-                />
-              )}
-            </div>
           </EditorSecao>
         </div>
         <div className={cn("shrink-0 border-t bg-background flex items-center gap-2", editingId ? "p-3" : "px-6 py-3")}>
