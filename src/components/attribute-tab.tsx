@@ -117,6 +117,14 @@ export function AttributeTab({
   const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Edição inline unificada do DESKTOP: o lápis liga a linha inteira (Nome + extra +
+  // extraNumber + extraEnum + toggle) num único rascunho local — espelha os states do
+  // Sheet mobile (sheetExtra/sheetNum/sheetEnum/sheetAtivo), só que renderizado na td
+  // em vez de num Sheet. Nada salva sem clicar ✓ (save atômico único).
+  const [editExtra, setEditExtra] = useState("");
+  const [editNum, setEditNum] = useState("");
+  const [editEnum, setEditEnum] = useState("");
+  const [editAtivo, setEditAtivo] = useState(true);
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
@@ -255,17 +263,30 @@ export function AttributeTab({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar.")),
   });
 
-  const updateMut = useMutation({
-    mutationFn: async ({ id, value }: { id: string; value: string }) => {
-      const v = value.trim();
+  // Save atômico da linha (DESKTOP) — o lápis liga a edição da linha inteira; ✓ grava
+  // Nome + extra + extraNumber + extraEnum + toggle NUM SÓ UPDATE. Substitui as antigas
+  // updateExtraMut/updateExtraNumMut/updateEnumMut/updateToggleMut (salvavam no ato a
+  // cada mudança direta na linha em modo leitura — removidas; nada mais as chama, e
+  // grep confirmou que não há uso fora deste arquivo). Espelha `sheetSaveMut` (mobile).
+  const updateRowMut = useMutation({
+    mutationFn: async (row: Row) => {
+      const v = editValue.trim();
       if (!v) throw new Error("Preencha o nome.");
-      const { data, error } = await supabase
-        .from(config.table as any)
-        .update({ [config.nameField]: v })
-        .eq("id", id)
-        .select("id");
+      const payload: Row = { [config.nameField]: v };
+      if (config.extra) {
+        if (config.extra.required && !editExtra) throw new Error(`Selecione ${config.extra.label}.`);
+        payload[config.extra.field] = editExtra || null;
+      }
+      if (config.extraNumber) {
+        const n = editNum.trim().replace(",", ".");
+        const num = n === "" ? null : Number(n);
+        if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
+        payload[config.extraNumber.field] = num;
+      }
+      if (config.extraEnum) payload[config.extraEnum.field] = editEnum || config.extraEnum.options[0].value;
+      if (config.toggleField) payload[config.toggleField.field] = editAtivo;
+      const { data, error } = await supabase.from(config.table as any).update(payload).eq("id", row.id).select("id");
       if (error) throw error;
-      // 0 linhas = RLS bloqueou (sem erro) → não minta "Atualizado".
       if (!data?.length) throw new Error("Sem permissão para editar este item.");
     },
     onSuccess: () => {
@@ -275,81 +296,6 @@ export function AttributeTab({
       onChanged?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
-  });
-
-  const updateExtraMut = useMutation({
-    mutationFn: async ({ id, value }: { id: string; value: string }) => {
-      if (!config.extra) return;
-      const { data, error } = await supabase
-        .from(config.table as any)
-        .update({ [config.extra.field]: value || null })
-        .eq("id", id)
-        .select("id");
-      if (error) throw error;
-      if (!data?.length) throw new Error("Sem permissão para editar este item.");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: listKey });
-      onChanged?.();
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
-  });
-
-  const updateExtraNumMut = useMutation({
-    mutationFn: async ({ id, value }: { id: string; value: string }) => {
-      if (!config.extraNumber) return;
-      const n = value.trim().replace(",", ".");
-      const num = n === "" ? null : Number(n);
-      if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
-      const { data, error } = await supabase
-        .from(config.table as any)
-        .update({ [config.extraNumber.field]: num })
-        .eq("id", id)
-        .select("id");
-      if (error) throw error;
-      if (!data?.length) throw new Error("Sem permissão para editar este item.");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: listKey });
-      onChanged?.();
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
-  });
-
-  const updateEnumMut = useMutation({
-    mutationFn: async ({ id, value }: { id: string; value: string }) => {
-      if (!config.extraEnum) return;
-      const { data, error } = await supabase
-        .from(config.table as any)
-        .update({ [config.extraEnum.field]: value })
-        .eq("id", id)
-        .select("id");
-      if (error) throw error;
-      if (!data?.length) throw new Error("Sem permissão para editar este item.");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: listKey });
-      onChanged?.();
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
-  });
-
-  const updateToggleMut = useMutation({
-    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
-      if (!config.toggleField) return;
-      const { data, error } = await supabase
-        .from(config.table as any)
-        .update({ [config.toggleField.field]: value })
-        .eq("id", id)
-        .select("id");
-      if (error) throw error;
-      if (!data || data.length === 0) throw new Error("Sem permissão para editar este item.");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: listKey });
-      onChanged?.();
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao alterar")),
   });
 
   const deleteMut = useMutation({
@@ -416,6 +362,10 @@ export function AttributeTab({
   const startEdit = (row: Row) => {
     setEditingId(row.id);
     setEditValue(String(row[config.nameField] ?? ""));
+    setEditExtra(config.extra ? (row[config.extra.field] ?? "") : "");
+    setEditNum(config.extraNumber && row[config.extraNumber.field] != null ? String(row[config.extraNumber.field]) : "");
+    setEditEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
+    setEditAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
   };
 
   // Sheet de edição mobile (lápis do card): TODOS os campos editáveis num único
@@ -598,26 +548,31 @@ export function AttributeTab({
               </TableRow>
             ) : (
               sorted.map((row) => {
+                const isEditingRow = editingId === row.id;
+                // extra: em edição, Select ligado ao rascunho da linha; em leitura, TEXTO
+                // fixo (extraMap) — sem dropdown clicável solto na linha (decisão do dono).
                 const extraCell = config.extra && (
                   <TableCell className="w-64">
-                    <Select
-                      value={row[config.extra.field] ?? ""}
-                      onValueChange={(v) => updateExtraMut.mutate({ id: row.id, value: v })}
-                      disabled={readOnly}
-                    >
-                      <SelectTrigger className="h-8 w-56">
-                        <SelectValue placeholder="—">
-                          {row[config.extra.field] ? extraMap.get(row[config.extra.field]) ?? "—" : "—"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {extraOptions.map((opt) => (
-                          <SelectItem key={opt.id} value={opt.id}>
-                            {extraLabel(opt)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {isEditingRow ? (
+                      <Select value={editExtra} onValueChange={setEditExtra} disabled={readOnly}>
+                        <SelectTrigger className="h-8 w-56">
+                          <SelectValue placeholder="—">
+                            {editExtra ? extraMap.get(editExtra) ?? "—" : "—"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {extraOptions.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>
+                              {extraLabel(opt)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="text-sm">
+                        {row[config.extra.field] ? extraMap.get(row[config.extra.field]) ?? "—" : "—"}
+                      </span>
+                    )}
                   </TableCell>
                 );
                 // Sublinha do card mobile: Grupo/valores extra concatenados (§ plano 3.4).
@@ -694,100 +649,105 @@ export function AttributeTab({
                   )}
                   {config.extraFirst && extraCell}
                   <TableCell>
-                    {editingId === row.id ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          autoFocus
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") updateMut.mutate({ id: row.id, value: editValue });
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          className="h-8 max-md:h-11"
-                        />
-                        <Button
-                          size="iconSm"
-                          variant="ghost"
-                          onClick={() => updateMut.mutate({ id: row.id, value: editValue })}
-                          disabled={updateMut.isPending}
-                        >
-                          <Check className="h-4 w-4 text-green-600" />
-                        </Button>
-                        <Button size="iconSm" variant="ghost" onClick={() => setEditingId(null)}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
+                    {isEditingRow ? (
+                      <Input
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") updateRowMut.mutate(row);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="h-8 max-md:h-11"
+                      />
                     ) : isProtected(row) ? (
                       <span className="inline-flex items-center gap-2">
                         {row[config.nameField]}
                         <Badge variant="secondary" className="text-[10px]">fixo</Badge>
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        className="text-left hover:underline disabled:opacity-100 disabled:cursor-default disabled:no-underline"
-                        onClick={() => startEdit(row)}
-                        disabled={readOnly}
-                      >
-                        {row[config.nameField]}
-                      </button>
+                      <span className="text-sm">{row[config.nameField]}</span>
                     )}
                   </TableCell>
                   {!config.extraFirst && extraCell}
                   {config.extraNumber && (
                     <TableCell>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step={config.extraNumber.step ?? "0.5"}
-                        defaultValue={row[config.extraNumber.field] ?? ""}
-                        placeholder={config.extraNumber.placeholder ?? "—"}
-                        disabled={readOnly}
-                        className="h-8 w-28"
-                        onBlur={(e) => {
-                          const cur = row[config.extraNumber!.field];
-                          const nv = e.target.value.trim();
-                          const same = (nv === "" && (cur === null || cur === undefined)) || String(cur ?? "") === nv;
-                          if (!same) updateExtraNumMut.mutate({ id: row.id, value: nv });
-                        }}
-                      />
+                      {isEditingRow ? (
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step={config.extraNumber.step ?? "0.5"}
+                          value={editNum}
+                          onChange={(e) => setEditNum(e.target.value)}
+                          placeholder={config.extraNumber.placeholder ?? "—"}
+                          disabled={readOnly}
+                          className="h-8 w-28"
+                        />
+                      ) : (
+                        <span className="text-sm">
+                          {row[config.extraNumber.field] != null && row[config.extraNumber.field] !== ""
+                            ? String(row[config.extraNumber.field]).replace(".", ",")
+                            : "—"}
+                        </span>
+                      )}
                     </TableCell>
                   )}
                   {config.extraEnum && (
                     <TableCell>
-                      <Select
-                        value={String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value)}
-                        onValueChange={(v) => updateEnumMut.mutate({ id: row.id, value: v })}
-                        disabled={readOnly}
-                      >
-                        <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {config.extraEnum.options.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {isEditingRow ? (
+                        <Select value={editEnum} onValueChange={setEditEnum} disabled={readOnly}>
+                          <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {config.extraEnum.options.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-sm">
+                          {config.extraEnum.options.find(
+                            (o) => o.value === String(row[config.extraEnum!.field] ?? config.extraEnum!.options[0].value),
+                          )?.label ?? "—"}
+                        </span>
+                      )}
                     </TableCell>
                   )}
                   {config.toggleField && (
                     <TableCell>
-                      <div className="flex items-center gap-2" title={config.toggleField.hint}>
-                        <Switch
-                          checked={row[config.toggleField.field] !== false}
-                          onCheckedChange={(v) => updateToggleMut.mutate({ id: row.id, value: v })}
-                          aria-label={config.toggleField.label}
-                          disabled={readOnly || updateToggleMut.isPending}
-                        />
-                        <span className="text-xs text-muted-foreground">
+                      {isEditingRow ? (
+                        <div className="flex items-center gap-2" title={config.toggleField.hint}>
+                          <Switch
+                            checked={editAtivo}
+                            onCheckedChange={setEditAtivo}
+                            aria-label={config.toggleField.label}
+                            disabled={readOnly}
+                          />
+                          <span className="text-xs text-muted-foreground">{editAtivo ? "Ativo" : "Inativo"}</span>
+                        </div>
+                      ) : (
+                        <Badge variant={row[config.toggleField.field] !== false ? "secondary" : "outline"} className="text-[10px] font-normal text-muted-foreground">
                           {row[config.toggleField.field] !== false ? "Ativo" : "Inativo"}
-                        </span>
-                      </div>
+                        </Badge>
+                      )}
                     </TableCell>
                   )}
                   <TableCell className="text-right">
-                    {!isProtected(row) && (
+                    {isEditingRow ? (
+                      <>
+                        <Button
+                          size="iconSm"
+                          variant="ghost"
+                          onClick={() => updateRowMut.mutate(row)}
+                          disabled={updateRowMut.isPending}
+                        >
+                          <Check className="h-4 w-4 text-green-600" />
+                        </Button>
+                        <Button size="iconSm" variant="ghost" onClick={() => setEditingId(null)} disabled={updateRowMut.isPending}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : !isProtected(row) ? (
                       <>
                         <Button size="iconSm" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
@@ -798,7 +758,7 @@ export function AttributeTab({
                           </Button>
                         )}
                       </>
-                    )}
+                    ) : null}
                   </TableCell>
                 </TableRow>
                 );
