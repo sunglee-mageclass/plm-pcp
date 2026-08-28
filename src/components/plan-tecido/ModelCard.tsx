@@ -119,8 +119,15 @@ export function ModelCard({
   // guarda a mensagem PT do banco p/ o 2º AlertDialog de confirmação.
   const [sobrescritaMsg, setSobrescritaMsg] = useState<string | null>(null);
 
-  // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
-  const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
+  // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome, categoria
+  // ou tecido. FIX G1 (card só-categoria não materializa): a guarda original só contava
+  // nome/tecido — um slot com SÓ categoria (produto ou família de tecido) preenchida nunca
+  // habilitava o botão, mesmo a RPC `_plan_tecido_criar_card_core` já aceitando categoria-only
+  // (com fallback de nome no servidor). `categoria_id` = categoria de PRODUTO (dropdown do
+  // card); `categoria_tecido_id` = família/lane de tecido — qualquer uma das duas basta.
+  const podeCriarCard =
+    !slot.modelo_id &&
+    (!!slot.nome || !!slot.categoria_id || !!slot.categoria_tecido_id || slot.materiais.some((m) => m.artigo_id));
 
   // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar + auto-aplicar
   // do save — fonte única em `buildMateriaisAplicar`, @/lib/plan-tecido/calc).
@@ -399,7 +406,7 @@ export function ModelCard({
                     size="sm"
                     className="w-full text-xs"
                     disabled={!podeCriarCard || criandoCard}
-                    title={podeCriarCard ? "Cria o card em Plan. Produto com os dados deste item" : "Defina um nome ou um tecido primeiro"}
+                    title={podeCriarCard ? "Cria o card em Plan. Produto com os dados deste item" : "Defina um nome, categoria ou tecido primeiro"}
                     onClick={criarCard}
                   >
                     {criandoCard ? "Criando…" : "Criar card no Planejamento"}

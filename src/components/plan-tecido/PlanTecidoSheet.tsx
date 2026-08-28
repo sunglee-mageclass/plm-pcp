@@ -1076,6 +1076,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
 
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
 
+  // FIX G3-A (família vazia invisível ao reabrir): as lanes de família (incl. vazias) só
+  // renderizam com `groupByCategoria=true`, mas esse estado não é persistido — reabrir uma
+  // subcoleção que JÁ TEM famílias declaradas (`categorias_tecido`) voltava sempre desligado,
+  // escondendo lanes (inclusive vazias) que o usuário criou numa sessão anterior. Liga
+  // automaticamente quando a subcoleção atual declara ≥1 família; NUNCA desliga sozinho — o
+  // usuário segue livre para desligar manualmente depois (só liga, dep = id da sub atual p/
+  // não reagir a cada edição de slot e não entrar em loop).
+  useEffect(() => {
+    if ((subAtual?.categorias_tecido?.length ?? 0) > 0) setGroupByCategoria(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subAtual?.subcolecao_id, subAtiva]);
+
   // Nome do tecido (Tecido 1) de um slot — SSOT usado no seed de recolhimento E no agrupamento por nome.
   const tecidoNomeDoSlot = (slot: PtSlot): string => {
     const t = slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
@@ -1470,11 +1482,29 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           <DialogContent className="max-w-sm">
             <DialogHeader><DialogTitle>Adicionar família</DialogTitle></DialogHeader>
             <div className="grid grid-cols-2 gap-2">
-              {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).map((c) => (
-                <Button key={c.id} variant="outline" size="sm" className="justify-start" onClick={() => addCategoria(c.id)}>{c.nome}</Button>
-              ))}
-              {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).length === 0 && (
-                <div className="col-span-2 text-xs text-muted-foreground">Todas as categorias já foram adicionadas.</div>
+              {/* FIX G3-B (diálogo barra recriar): antes FILTRAVA fora as já-adicionadas — se a lane
+                  ficasse escondida (groupByCategoria desligado ao reabrir), a família parecia não
+                  existir e "não deixava criar". Agora MOSTRA todas, desabilitando as já-presentes
+                  com indicação — o usuário entende que ela já existe (mesmo se a lane não estiver
+                  visível) em vez de achar que pode recriá-la. */}
+              {catTecidoNomes.map((c) => {
+                const jaAdicionada = (subAtual?.categorias_tecido ?? []).includes(c.id);
+                return (
+                  <Button
+                    key={c.id}
+                    variant="outline"
+                    size="sm"
+                    className="justify-start"
+                    disabled={jaAdicionada}
+                    title={jaAdicionada ? "Já adicionada a esta subcoleção" : undefined}
+                    onClick={() => addCategoria(c.id)}
+                  >
+                    {c.nome}{jaAdicionada ? " — já adicionada" : ""}
+                  </Button>
+                );
+              })}
+              {catTecidoNomes.length === 0 && (
+                <div className="col-span-2 text-xs text-muted-foreground">Nenhuma categoria de tecido cadastrada.</div>
               )}
             </div>
           </DialogContent>
