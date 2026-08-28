@@ -82,6 +82,9 @@ export type AttributeTabConfig = {
   fixedFilter?: { field: string; value: string };
   /** Nomes fixos do sistema (case-insensitive) que NÃO podem ser editados/excluídos. */
   protectedNames?: string[];
+  /** Coluna booleana por linha que marca item FIXO do sistema (ex.: `fixa`) — badge "fixo",
+   *  sem renomear/excluir; o toggle (`toggleField`) continua disponível. Soma-se a protectedNames. */
+  protectedFlagField?: string;
   /** Conjunto FIXO (ex.: os 12 meses): não dá pra criar nem excluir, só renomear. */
   fixed?: boolean;
   /** Coluna de ordenação da lista e dos dropdowns (ex.: "ordem"). Default: nameField. */
@@ -147,7 +150,9 @@ export function AttributeTab({
     () => new Set((config.protectedNames ?? []).map((n) => n.toLowerCase())),
     [config.protectedNames],
   );
-  const isProtected = (row: Row) => protectedSet.has(String(row[config.nameField] ?? "").toLowerCase());
+  const isProtected = (row: Row) =>
+    protectedSet.has(String(row[config.nameField] ?? "").toLowerCase()) ||
+    (!!config.protectedFlagField && row[config.protectedFlagField] === true);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: listKey,
@@ -330,7 +335,7 @@ export function AttributeTab({
   };
 
   // Exclusão em MASSA: só linhas não-protegidas; pula as em uso (conta config.usage) e reporta.
-  const selectableIds = useMemo(() => sorted.filter((r) => !isProtected(r)).map((r) => r.id), [sorted, protectedSet]);
+  const selectableIds = useMemo(() => sorted.filter((r) => !isProtected(r)).map((r) => r.id), [sorted, protectedSet, config.protectedFlagField]);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
   const toggleOne = (id: string) =>

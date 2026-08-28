@@ -127,6 +127,8 @@ const ATTRIBUTES: AttributeItem[] = [
         { table: "empresa_categorias_fornecedor", column: "categoria_fornecedor_id" },
         { table: "empresas", column: "categoria_fornecedor_id" },
       ],
+      toggleField: { field: "ativo", label: "Ativo", hint: "Desligar esconde a categoria de novos usos (não exclui)." },
+      protectedFlagField: "fixa",
     },
   },
   {
@@ -327,9 +329,10 @@ const ATTRIBUTES: AttributeItem[] = [
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
         { table: "tipos_colaborador", column: "categoria_terceirizado_id" },
       ],
-      // Corte e Oficina são fixos do sistema (semeados por loja); não podem ser
-      // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina.
-      protectedNames: ["corte", "oficina"],
+      // Corte, Oficina e PL são fixos do sistema (semeados por loja); não podem ser
+      // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina,
+      // "PL" a detecção de Private Label (src/lib/servico-confeccao.ts).
+      protectedNames: ["corte", "oficina", "pl"],
       toggleField: { field: "ativo", label: "Ativo", hint: "Desligar esconde o serviço de novos usos (não exclui)." },
     },
   },
