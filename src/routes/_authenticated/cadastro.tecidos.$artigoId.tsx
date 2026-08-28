@@ -157,8 +157,11 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
   });
 
   useEffect(() => {
-    if (artigo) setForm(artigo);
-  }, [artigo]);
+    // Só (re)hidrata sem edições pendentes — senão um refetch de ["artigo"]
+    // (invalidação alheia, refetchOnWindowFocus com staleTime=0) apagaria o que
+    // o usuário digitou e ainda não salvou.
+    if (artigo && !dirty) setForm(artigo);
+  }, [artigo, dirty]);
 
   // SEM default `= []`: um `[]` novo a cada render viraria dep instável do useEffect
   // abaixo → setCatIds em loop → "Maximum update depth exceeded" (React #185), crash
@@ -896,8 +899,7 @@ function VariantRow({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["variantes", variante.artigo_id] });
-      // preço da variante pode ter mudado o MAX → reflete no preço de referência do artigo.
-      qc.invalidateQueries({ queryKey: ["artigo", variante.artigo_id] });
+      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
