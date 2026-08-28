@@ -40,6 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -417,6 +418,66 @@ export function AttributeTab({
     setEditValue(String(row[config.nameField] ?? ""));
   };
 
+  // Sheet de edição mobile (lápis do card): TODOS os campos editáveis num único
+  // formulário, save = 1 UPDATE atômico (desktop continua com edição inline por campo).
+  const [sheetRow, setSheetRow] = useState<Row | null>(null);
+  const [sheetName, setSheetName] = useState("");
+  const [sheetExtra, setSheetExtra] = useState("");
+  const [sheetNum, setSheetNum] = useState("");
+  const [sheetEnum, setSheetEnum] = useState("");
+  const [sheetAtivo, setSheetAtivo] = useState(true);
+  const openEditSheet = (row: Row) => {
+    setSheetRow(row);
+    setSheetName(String(row[config.nameField] ?? ""));
+    setSheetExtra(config.extra ? (row[config.extra.field] ?? "") : "");
+    setSheetNum(config.extraNumber && row[config.extraNumber.field] != null ? String(row[config.extraNumber.field]) : "");
+    setSheetEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
+    setSheetAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
+  };
+
+  const sheetDirty = !!sheetRow && (
+    sheetName !== String(sheetRow[config.nameField] ?? "") ||
+    (!!config.extra && (sheetExtra || "") !== (sheetRow[config.extra.field] ?? "")) ||
+    (!!config.extraNumber && sheetNum !== (sheetRow[config.extraNumber.field] != null ? String(sheetRow[config.extraNumber.field]) : "")) ||
+    (!!config.extraEnum && sheetEnum !== String(sheetRow[config.extraEnum.field] ?? config.extraEnum.options[0].value)) ||
+    (!!config.toggleField && sheetAtivo !== (sheetRow[config.toggleField.field] !== false))
+  );
+  const { requestClose: requestSheetClose, confirm: sheetConfirm } = useUnsavedGuard({
+    dirty: sheetDirty,
+    onClose: () => setSheetRow(null),
+  });
+
+  const sheetSaveMut = useMutation({
+    mutationFn: async () => {
+      if (!sheetRow) return;
+      const v = sheetName.trim();
+      if (!v) throw new Error("Preencha o nome.");
+      const payload: Row = { [config.nameField]: v };
+      if (config.extra) {
+        if (config.extra.required && !sheetExtra) throw new Error(`Selecione ${config.extra.label}.`);
+        payload[config.extra.field] = sheetExtra || null;
+      }
+      if (config.extraNumber) {
+        const n = sheetNum.trim().replace(",", ".");
+        const num = n === "" ? null : Number(n);
+        if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
+        payload[config.extraNumber.field] = num;
+      }
+      if (config.extraEnum) payload[config.extraEnum.field] = sheetEnum || config.extraEnum.options[0].value;
+      if (config.toggleField) payload[config.toggleField.field] = sheetAtivo;
+      const { data, error } = await supabase.from(config.table as any).update(payload).eq("id", sheetRow.id).select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("Sem permissão para editar este item.");
+    },
+    onSuccess: () => {
+      toast.success("Atualizado.");
+      setSheetRow(null);
+      qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
+  });
+
   // Campo `extra` do dialog "Novo" — hoisted p/ poder ser renderizado antes OU depois
   // do Nome conforme `config.extraFirst` (mesmo conteúdo, só muda a posição).
   const extraField = config.extra && (
@@ -426,6 +487,28 @@ export function AttributeTab({
         {config.extra.required && <span className="text-destructive"> *</span>}
       </Label>
       <Select value={newExtra} onValueChange={setNewExtra}>
+        <SelectTrigger>
+          <SelectValue placeholder={`Selecione ${config.extra.label.toLowerCase()}…`} />
+        </SelectTrigger>
+        <SelectContent>
+          {extraOptions.map((opt) => (
+            <SelectItem key={opt.id} value={opt.id}>
+              {extraLabel(opt)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  // Mesmo campo `extra`, versão do Sheet de edição mobile (sheetExtra/setSheetExtra).
+  const sheetExtraField = config.extra && (
+    <div className="space-y-1.5">
+      <Label>
+        {config.extra.label}
+        {config.extra.required && <span className="text-destructive"> *</span>}
+      </Label>
+      <Select value={sheetExtra} onValueChange={setSheetExtra}>
         <SelectTrigger>
           <SelectValue placeholder={`Selecione ${config.extra.label.toLowerCase()}…`} />
         </SelectTrigger>
@@ -466,7 +549,7 @@ export function AttributeTab({
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table card-table-atrib">
           <TableHeader>
             <TableRow>
               {showCheck && (
@@ -502,14 +585,14 @@ export function AttributeTab({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={colCount} className="text-center py-8 text-muted-foreground">
+                <TableCell data-label="card" colSpan={colCount} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={colCount} className="text-center py-8 text-muted-foreground">
+                <TableCell data-label="card" colSpan={colCount} className="text-center py-8 text-muted-foreground">
                   Nenhum {config.singular.toLowerCase()} encontrado.
                 </TableCell>
               </TableRow>
@@ -537,8 +620,71 @@ export function AttributeTab({
                     </Select>
                   </TableCell>
                 );
+                // Sublinha do card mobile: Grupo/valores extra concatenados (§ plano 3.4).
+                const subParts: string[] = [];
+                if (config.extra && row[config.extra.field])
+                  subParts.push(extraMap.get(row[config.extra.field]) ?? "—");
+                if (config.extraEnum) {
+                  const opt = config.extraEnum.options.find(
+                    (o) => o.value === String(row[config.extraEnum!.field] ?? config.extraEnum!.options[0].value),
+                  );
+                  if (opt) subParts.push(opt.label);
+                }
+                if (config.extraNumber && row[config.extraNumber.field] != null && row[config.extraNumber.field] !== "")
+                  subParts.push(`${config.extraNumber.label}: ${String(row[config.extraNumber.field]).replace(".", ",")}`);
+                const sublinha = subParts.join(" · ");
                 return (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
+                  {/* MOBILE: card de leitura — .card-table-atrib esconde as demais td; editar = lápis → Sheet */}
+                  <TableCell data-label="card" className="md:hidden">
+                    <div className="flex items-center gap-1">
+                      {showCheck && (
+                        <span
+                          className="-ml-2 flex h-11 w-9 shrink-0 items-center justify-center"
+                          onClick={() => { if (!isProtected(row) && !readOnly) toggleOne(row.id); }}
+                        >
+                          {!isProtected(row) && !readOnly && (
+                            <Checkbox
+                              checked={selected.has(row.id)}
+                              onCheckedChange={() => toggleOne(row.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="Selecionar"
+                            />
+                          )}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1 py-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold">{row[config.nameField]}</span>
+                          {isProtected(row) && (
+                            <Badge variant="secondary" className="shrink-0 text-[10px]">fixo</Badge>
+                          )}
+                          {config.toggleField && row[config.toggleField.field] === false && (
+                            <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">Inativo</Badge>
+                          )}
+                        </div>
+                        {/* Altura reservada p/ até 2 linhas (min-h) mesmo sem sublinha ou com só 1 linha —
+                            todos os cards da MESMA lista saem com a mesma altura (uniformidade visual). */}
+                        <div className="line-clamp-2 min-h-[2rem] text-xs leading-4 text-muted-foreground">
+                          {sublinha}
+                        </div>
+                      </div>
+                      {!isProtected(row) && (
+                        <div className="flex shrink-0 items-center">
+                          <Button size="icon" variant="ghost" aria-label="Editar"
+                            onClick={() => openEditSheet(row)} disabled={readOnly}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {!config.fixed && (
+                            <Button size="icon" variant="ghost" aria-label="Excluir"
+                              onClick={() => startDelete(row)} disabled={readOnly}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
                   {showCheck && (
                     <TableCell className="w-10">
                       {!isProtected(row) && !readOnly && (
@@ -724,6 +870,67 @@ export function AttributeTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sheet de edição mobile (lápis do card de leitura) */}
+      {sheetRow && (
+        <Sheet open onOpenChange={(o) => { if (!o) requestSheetClose(); }}>
+          <SheetContent side="right" size="editor" className="flex flex-col gap-0 p-0">
+            <SheetHeader className="border-b p-4">
+              <div className="flex items-center gap-2">
+                <SheetTitle>Editar {config.singular}</SheetTitle>
+                <UnsavedIndicator show={sheetDirty} className="ml-auto shrink-0" />
+              </div>
+              <SheetDescription className="sr-only">
+                Editar os campos de {config.singular.toLowerCase()}.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {config.extraFirst && config.extra && sheetExtraField}
+              <div className="space-y-1.5">
+                <Label>Nome</Label>
+                <Input autoFocus value={sheetName} onChange={(e) => setSheetName(e.target.value)} />
+              </div>
+              {!config.extraFirst && config.extra && sheetExtraField}
+              {config.extraNumber && (
+                <div className="space-y-1.5">
+                  <Label>{config.extraNumber.label}</Label>
+                  <Input type="number" inputMode="decimal" min={0} step={config.extraNumber.step ?? "0.5"}
+                    value={sheetNum} onChange={(e) => setSheetNum(e.target.value)}
+                    placeholder={config.extraNumber.placeholder} />
+                </div>
+              )}
+              {config.extraEnum && (
+                <div className="space-y-1.5">
+                  <Label>{config.extraEnum.label}</Label>
+                  <Select value={sheetEnum} onValueChange={setSheetEnum}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {config.extraEnum.options.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {config.toggleField && (
+                <div className="flex items-center gap-2 pt-1" title={config.toggleField.hint}>
+                  <Switch checked={sheetAtivo} onCheckedChange={setSheetAtivo} aria-label={config.toggleField.label} />
+                  <span className="text-sm">{sheetAtivo ? "Ativo" : "Inativo"}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 border-t p-4">
+              <Button variant="outline" onClick={requestSheetClose}>
+                <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+              </Button>
+              <Button className="ml-auto" onClick={() => sheetSaveMut.mutate()} disabled={sheetSaveMut.isPending}>
+                {sheetSaveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+            <UnsavedChangesGuard confirm={sheetConfirm} message="Há alterações não salvas." />
+          </SheetContent>
+        </Sheet>
+      )}
 
       {/* Delete confirmation */}
       <AlertDialog

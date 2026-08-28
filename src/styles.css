@@ -466,6 +466,18 @@
   }
   table.card-table-foto > tbody > tr > td[data-label="card"]::before { content: none; }
 
+  /* Cadastro > Atributos (AttributeTab): no mobile cada linha vira card de LEITURA
+     compacto de 1 faixa (checkbox esq + Nome título + subtítulo cinza + lápis/lixeira
+     dir). As <td> de edição inline ficam ocultas; editar é só pelo lápis (Sheet).
+     Desktop intocado. ⚠️ loading/empty precisa de data-label="card". */
+  table.card-table-atrib > tbody > tr > td:not([data-label="card"]) { display: none; }
+  table.card-table-atrib > tbody > tr > td[data-label="card"] {
+    display: block;
+    padding: 0;
+    text-align: left;
+  }
+  table.card-table-atrib > tbody > tr > td[data-label="card"]::before { content: none; }
+
   /* Cadastro > Lojas: no mobile a linha (alça · nome · status · excluir) fica apertada
      numa linha só. Empilha em 2 linhas: L1 = alça + nome; L2 = status (esq) + excluir
      (dir). Grid 3 col: [alça | conteúdo | trilho-dir]; alça faz span nas 2 linhas. */
