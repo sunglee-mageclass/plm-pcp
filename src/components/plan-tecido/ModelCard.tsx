@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock } from "lucide-react";
+import { ChevronRight, Lock, ShoppingCart } from "lucide-react";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
 import { fmtInt } from "@/lib/format";
@@ -115,22 +115,16 @@ export function ModelCard({
   const toggleOpen = onToggleOpen ?? (() => setOpenLocal((o) => !o));
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
-  const [criandoCard, setCriandoCard] = useState(false);
   // Guarda vazio-sobre-preenchido (backend RAISE P0001, hint 'plan_tecido_sobrescrita'):
   // guarda a mensagem PT do banco p/ o 2º AlertDialog de confirmação.
   const [sobrescritaMsg, setSobrescritaMsg] = useState<string | null>(null);
 
-  // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome, categoria
-  // ou tecido. FIX G1 (card só-categoria não materializa): a guarda original só contava
-  // nome/tecido — um slot com SÓ categoria (produto ou família de tecido) preenchida nunca
-  // habilitava o botão, mesmo a RPC `_plan_tecido_criar_card_core` já aceitando categoria-only
-  // (com fallback de nome no servidor). `categoria_id` = categoria de PRODUTO (dropdown do
-  // card); `categoria_tecido_id` = família/lane de tecido — qualquer uma das duas basta.
-  const podeCriarCard =
-    !slot.modelo_id &&
-    (!!slot.nome || !!slot.categoria_id || !!slot.categoria_tecido_id || slot.materiais.some((m) => m.artigo_id));
+  // "Criar card no Planejamento" (que ficava aqui, por card) SAIU pra barra de seleção do
+  // PlanTecidoSheet (G6 — criação em massa). `podeCriarCard`/`criarCard` foram removidos deste
+  // componente; o predicado equivalente (`podeCriarCard`) foi replicado em PlanTecidoSheet.tsx
+  // pra uso da ação em massa — ver comentário lá.
 
-  // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar + auto-aplicar
+  // BOM do slot com a grade distribuída por proporção (compartilhado por aplicar + auto-aplicar
   // do save — fonte única em `buildMateriaisAplicar`, @/lib/plan-tecido/calc).
   const buildMateriais = () => buildMateriaisAplicar(slot);
 
@@ -158,33 +152,6 @@ export function ModelCard({
     // prévia (has_card=true) → o "a comprar" do Resumo muda. Sem isto só atualizava ao refocar (bug #2).
     if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
   };
-
-  async function criarCard() {
-    if (!colecaoId) return;
-    if (onEnsureSaved) { const ok = await onEnsureSaved(); if (!ok) return; }
-    const _slot = {
-      nome: slot.nome ?? null, ref: slot.ref ?? null, slot_id: slot.id ?? null,
-      linha_id: slot.linha_id ?? null, categoria_id: slot.categoria_id ?? null,
-      subcolecao_id: subcolecaoId ?? null,
-      preco_venda: slot.preco_venda ?? null,
-      custo_terceirizados_previsto: 0, // inerte: a MO nasce por-serviço no Planejamento (modelo_servico_mo)
-      custo_simulado: slot.custo_simulado ?? {},
-      referencia_paths: slot.referencia_paths ?? [], // G4 bug 6: leva a referência do rascunho p/ modelos.fotos_referencia (a RPC criar_card já migra)
-      materiais: buildMateriais(),
-    };
-    setCriandoCard(true);
-    try {
-      const { data, error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
-      if (error) throw error;
-      toast.success("Card criado no Planejamento.");
-      if (data) onChange({ ...slot, modelo_id: data as string }); // liga o slot no ato (botão vira "Aplicar")
-      invalidarModelo();
-    } catch (e) {
-      toast.error(mensagemErro(e, "Não foi possível criar o card."));
-    } finally {
-      setCriandoCard(false);
-    }
-  }
 
   const { data: categorias = [] } = useQuery({
     queryKey: ["plan-tecido-categorias"],
@@ -258,6 +225,12 @@ export function ModelCard({
     }
   }
 
+  // G5: carrinho — o card já foi COMPRADO (pedido feito) quando tem hint de OC do plano
+  // (plan_tecido_slot_oc, gravado pelo "Fazer pedido" da seleção) OU vínculo real do Dev
+  // (modelo_tecido_oc_links). Ícone no canto sup. direito; o nome reserva espaço (pr-6) pra
+  // truncar ANTES dele em vez de passar por baixo.
+  const comprado = (slotOcIds?.length ?? 0) > 0 || (vinculos?.length ?? 0) > 0;
+
   return (
     <>
       <div className={`rounded-lg border ${borderClass} relative`}>
@@ -270,6 +243,12 @@ export function ModelCard({
               className="h-4 w-4 max-md:h-6 max-md:w-6"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        )}
+        {/* Carrinho (G5): pedido já feito para este card — canto sup. direito, tom neutro. */}
+        {comprado && (
+          <div className="absolute right-1 top-1 z-10" title="Comprado (pedido feito)">
+            <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground" aria-label="Comprado (pedido feito)" />
           </div>
         )}
         {/* Foto FORA do <button> (não aninhar interativos): clicar abre o lightbox (item 12); o resto
@@ -286,7 +265,7 @@ export function ModelCard({
             {...(dragHandle?.listeners ?? {})}
             title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
           >
-          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>
+          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""} ${comprado ? "pr-6" : ""}`}>
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
@@ -405,19 +384,8 @@ export function ModelCard({
                     <span>{lancado ? "Modelo lançado — aplicar não altera o BOM." : "Modelo enviado ao CAD (travado). Destrave no Desenvolvimento para alterar; aplicar aqui não terá efeito."}</span>
                   </p>
                 )}
-                {!slot.modelo_id && (
-                  // card ainda não existe → criar
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                    disabled={!podeCriarCard || criandoCard}
-                    title={podeCriarCard ? "Cria o card em Plan. Produto com os dados deste item" : "Defina um nome, categoria ou tecido primeiro"}
-                    onClick={criarCard}
-                  >
-                    {criandoCard ? "Criando…" : "Criar card no Planejamento"}
-                  </Button>
-                )}
+                {/* "Criar card no Planejamento" saiu do card — agora é ação em massa na barra de
+                    seleção do PlanTecidoSheet (G6). */}
                 {/* OC vinculada no Desenvolvimento (read-only, congela custo) — ou hint do plano */}
                 {colecaoId && (
                   <div className="mt-2">

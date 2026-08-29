@@ -280,6 +280,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
   const [addCatOpen, setAddCatOpen] = useState(false);
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
+  // G6 (criar em massa) / G5 (pedido por seleção) — confirmação e progresso das 2 ações novas
+  // da barra de seleção.
+  const [criarCardsConfirm, setCriarCardsConfirm] = useState<{ elegiveis: string[]; pulados: string[] } | null>(null);
+  const [criandoCards, setCriandoCards] = useState(false);
+  const [pedidoSelecaoConfirm, setPedidoSelecaoConfirm] = useState<{ compraveis: string[]; comprados: string[] } | null>(null);
+  const [preparandoPedidoSelecao, setPreparandoPedidoSelecao] = useState(false);
+  const [slotIdsPedido, setSlotIdsPedido] = useState<string[] | null>(null); // slots do pedido POR SELEÇÃO (null = coleção inteira)
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
   const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
@@ -322,7 +329,6 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [formTipo, setFormTipo] = useState<"tecido" | "forro" | null>(null);
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
-  const [previaLoading, setPreviaLoading] = useState(false);
   // Auto-aplicar (bug #9): slots pré-explosão cujo "Aplicar ao modelo" bateu na guarda vazio-sobre-
   // preenchido (esvaziar cores/zerar grade) — o save já gravou o plano; aqui pedimos confirmação p/
   // espelhar no BOM. `null` = sem pendência; array = diálogo aberto listando os modelos.
@@ -1042,6 +1048,147 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     toast.success(catId ? "Categoria aplicada." : "Modelos sem categoria.");
   }
 
+  // Predicado equivalente ao antigo `podeCriarCard` do ModelCard (removido de lá — G6, ação em
+  // massa): slot ainda não ligado a um modelo, com nome, categoria (produto ou tecido) ou tecido
+  // escolhido. Mesma guarda do "Criar card" individual (fallback de nome fica a cargo do servidor).
+  const podeCriarCard = (slot: PtSlot): boolean =>
+    !slot.modelo_id &&
+    (!!slot.nome || !!slot.categoria_id || !!slot.categoria_tecido_id || slot.materiais.some((m) => m.artigo_id));
+
+  // Traduz a seleção (chaves) → slots da árvore inteira (mesmo padrão de aplicarCategoriaEmMassa),
+  // pareado com subcolecao_id de cada slot (necessário no payload de criação do card).
+  const slotsDaSelecao = (): { slot: PtSlot; subcolecaoId: string | null }[] => {
+    if (!arvore) return [];
+    const out: { slot: PtSlot; subcolecaoId: string | null }[] = [];
+    for (let si = 0; si < arvore.subcolecoes.length; si++) {
+      const sub = arvore.subcolecoes[si];
+      for (let li = 0; li < sub.linhas.length; li++)
+        for (let sli = 0; sli < sub.linhas[li].slots.length; sli++) {
+          const slot = sub.linhas[li].slots[sli];
+          if (selecao.has(chaveSlot(slot.id, si, li, sli))) out.push({ slot, subcolecaoId: sub.subcolecao_id ?? null });
+        }
+    }
+    return out;
+  };
+
+  // G6: "Criar cards" na barra de seleção — separa elegíveis (podeCriarCard, !modelo_id) dos já
+  // materializados (modelo_id != null) e abre o AlertDialog de confirmação (pula os já-feitos).
+  function handleCriarCardsClick() {
+    const itens = slotsDaSelecao();
+    const elegiveis = itens.filter((it) => podeCriarCard(it.slot)).map((it) => it.slot.id!).filter(Boolean);
+    const pulados = itens.filter((it) => !!it.slot.modelo_id).map((it) => it.slot.nome ?? it.slot.ref ?? "Modelo");
+    if (elegiveis.length === 0 && pulados.length === 0) {
+      toast.error("Nenhum dos selecionados tem dados suficientes (nome, categoria ou tecido) para criar o card.");
+      return;
+    }
+    setCriarCardsConfirm({ elegiveis, pulados });
+  }
+
+  // Confirmado: monta o payload em lote (mesmo shape que o antigo `criarCard` de 1 montava) →
+  // ensureSaved() → RPC batch → ESPELHA os modelo_id retornados no draft via `patch` (senão o
+  // próximo save manda modelo_id:null do draft velho e ZERA a materialização recém-criada).
+  async function confirmarCriarCards() {
+    const conf = criarCardsConfirm;
+    setCriarCardsConfirm(null);
+    if (!conf || conf.elegiveis.length === 0 || !arvore) { setSelecao(new Set()); return; }
+    setCriandoCards(true);
+    try {
+      if (!(await ensureSaved())) return;
+      const itens = slotsDaSelecao().filter((it) => it.slot.id && conf.elegiveis.includes(it.slot.id));
+      const _slots = itens.map(({ slot, subcolecaoId }) => ({
+        nome: slot.nome ?? null, ref: slot.ref ?? null, slot_id: slot.id ?? null,
+        linha_id: slot.linha_id ?? null, categoria_id: slot.categoria_id ?? null,
+        subcolecao_id: subcolecaoId,
+        preco_venda: slot.preco_venda ?? null,
+        custo_terceirizados_previsto: 0, // inerte: a MO nasce por-serviço no Planejamento (modelo_servico_mo)
+        custo_simulado: slot.custo_simulado ?? {},
+        referencia_paths: slot.referencia_paths ?? [],
+        materiais: buildMateriaisAplicar(slot),
+      }));
+      const { data, error } = await supabase.rpc("plan_tecido_criar_cards" as any, { _colecao_id: colecaoId, _slots });
+      if (error) throw error;
+      const criados = (data ?? []) as { slot_id: string; modelo_id: string }[];
+      if (criados.length > 0) {
+        // Espelha os modelo_id no draft ATUAL (pode ter avançado durante o await) via `patch` — funil
+        // único de escrita local (marca touched); sem isso o próximo save regrediria modelo_id p/ null.
+        const arv = arvoreLiveRef.current;
+        if (arv) {
+          const next = structuredClone(arv) as PtArvore;
+          const porSlot = new Map(criados.map((c) => [c.slot_id, c.modelo_id]));
+          for (const sub of next.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) {
+            const mid = s.id ? porSlot.get(s.id) : undefined;
+            if (mid) { s.modelo_id = mid; s.referencia_paths = []; } // migrou p/ modelos.fotos_referencia (RPC já migra no servidor)
+          }
+          patch(next);
+        }
+      }
+      invalidarModeloLote(criados.map((c) => c.modelo_id));
+      toast.success(`${criados.length} criado(s)${conf.pulados.length > 0 ? ` · ${conf.pulados.length} pulado(s) (já materializado)` : ""}.`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível criar os cards."));
+    } finally {
+      setCriandoCards(false);
+      setSelecao(new Set());
+    }
+  }
+
+  // Mesmas invalidações do ModelCard.invalidarModelo, agora em lote (N modelo_ids).
+  const invalidarModeloLote = (modeloIds: string[]) => {
+    void qc.invalidateQueries({ queryKey: ["modelo"] });
+    void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+    void qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+    for (const mid of new Set(modeloIds)) {
+      void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-tecidos", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-grades", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-precos-congelado", mid] });
+      void qc.invalidateQueries({ queryKey: ["dev-cad-precos-congelado", mid] });
+    }
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
+  };
+
+  // G5: "Fazer pedido" na barra de seleção — separa compráveis × já-comprados (mesma fonte do
+  // carrinho: slotOcMap ∪ vinculosMap por slot/modelo). Comprados NÃO bloqueiam — ficam fora do
+  // pedido, com aviso.
+  function handleFazerPedidoSelecaoClick() {
+    const itens = slotsDaSelecao();
+    const comprado = (slot: PtSlot): boolean =>
+      ((slot.id ? slotOcMap[slot.id] : undefined)?.length ?? 0) > 0 ||
+      ((slot.modelo_id ? vinculosMap[slot.modelo_id] : undefined)?.length ?? 0) > 0;
+    const compraveis = itens.filter((it) => !comprado(it.slot)).map((it) => it.slot.id!).filter(Boolean);
+    const comprados = itens.filter((it) => comprado(it.slot)).map((it) => it.slot.nome ?? it.slot.ref ?? "Modelo");
+    if (compraveis.length === 0) {
+      toast.error("Todos os selecionados já foram comprados.");
+      return;
+    }
+    if (comprados.length > 0) { setPedidoSelecaoConfirm({ compraveis, comprados }); return; }
+    void prosseguirPedidoSelecao(compraveis);
+  }
+
+  // ensureSaved() → prévia filtrada pelos slots compráveis → abre o wizard com `_slot_ids`.
+  async function prosseguirPedidoSelecao(slotIds: string[]) {
+    setPedidoSelecaoConfirm(null);
+    setPreparandoPedidoSelecao(true);
+    try {
+      if (!(await ensureSaved())) return;
+      const { data, error } = await supabase.rpc("plan_tecido_previa_pedido" as any, {
+        _colecao_id: colecaoId, _slot_ids: slotIds,
+      });
+      if (error) throw error;
+      setSlotIdsPedido(slotIds);
+      setPreviaData(data as PreviaRpc);
+      setPreviaOpen(true);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível carregar a prévia do pedido."));
+    } finally {
+      setPreparandoPedidoSelecao(false);
+      setSelecao(new Set());
+    }
+  }
+
   // Adiciona uma categoria (lane, mesmo vazia) à subcoleção ativa.
   function addCategoria(catId: string) {
     if (!arvore) return;
@@ -1063,22 +1210,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     patch(next);
   }
 
-  async function handleAbrirPrevia() {
-    setPreviaLoading(true);
-    try {
-      if (!(await ensureSaved())) return; // auto-salva; a prévia lê o plano do servidor
-      const { data, error } = await supabase.rpc("plan_tecido_previa_pedido" as any, {
-        _colecao_id: colecaoId,
-      });
-      if (error) throw error;
-      setPreviaData(data as PreviaRpc);
-      setPreviaOpen(true);
-    } catch (e) {
-      toast.error(mensagemErro(e, "Não foi possível carregar a prévia do pedido."));
-    } finally {
-      setPreviaLoading(false);
-    }
-  }
+  // "Fazer pedido" da COLEÇÃO INTEIRA (que usava esta função a partir do rodapé) foi REMOVIDO —
+  // pedido agora é SEMPRE por seleção (ver `handleFazerPedidoSelecaoClick`/`prosseguirPedidoSelecao`,
+  // que populam os MESMOS `previaData`/`previaOpen` com `_slot_ids`).
 
   // status por fornecedor (empresa_id do artigo) → selos no card e na subcoleção
   const { fornecedorDe, artigoMap } = useArtigosTecido();
@@ -1191,9 +1325,20 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         {view === "canvas" && selecao.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
             <span className="font-medium">{selecao.size} selecionado(s)</span>
-            <Button size="sm" variant="default" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
+            {/* Hierarquia visual (dono): "Aplicar…" são ações utilitárias/secundárias (outline,
+                brancas); "Criar cards"/"Fazer pedido" são as ações PRINCIPAIS da seleção (default,
+                azuis) — o destaque vai pra elas. */}
+            <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
+            {/* G6: cria os cards no Planejamento (pula os já materializados, com aviso). */}
+            <Button size="sm" variant="default" className="text-xs" disabled={criandoCards} onClick={handleCriarCardsClick}>
+              {criandoCards ? "Criando…" : "Criar cards"}
+            </Button>
+            {/* G5: pedido só dos selecionados (pula os já comprados, com aviso). */}
+            <Button size="sm" variant="default" className="text-xs" disabled={preparandoPedidoSelecao} onClick={handleFazerPedidoSelecaoClick}>
+              {preparandoPedidoSelecao ? "Carregando…" : "Fazer pedido"}
+            </Button>
             <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelecao(new Set())}>Limpar</Button>
           </div>
         )}
@@ -1494,24 +1639,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           );
         })() : null}
 
+        {/* "Fazer pedido" da COLEÇÃO INTEIRA saiu do rodapé (decisão do dono, G5): pedido passa a
+            ser SEMPRE por seleção, via o botão na barra de seleção múltipla (selecionar cards →
+            "Fazer pedido"). Único caminho agora; `handleAbrirPrevia`/`previaLoading` (que só esse
+            botão usava) foram removidos junto. */}
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
           <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoes() : requestClose())}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
-          <div className="ml-auto" />
-          <Button
-            variant="default"
-            size="sm"
-            className="max-sm:h-11"
-            disabled={previaLoading}
-            onClick={handleAbrirPrevia}
-          >
-            <ShoppingCart className="mr-1 h-4 w-4" />
-            <span className="hidden sm:inline">{previaLoading ? "Carregando…" : "Fazer pedido"}</span>
-            <span className="sm:hidden">{previaLoading ? "…" : "Pedido"}</span>
-          </Button>
-          <Button disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>
+          <Button className="ml-auto" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>
             {dirty ? "Salvar" : "Salvo"}
           </Button>
         </div>
@@ -1591,9 +1728,56 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         </AlertDialog>
 
 
-        {/* Fazer pedido — wizard paginado (1 página por OC, respeita fornecedores) */}
+        {/* G6: confirma "Criar cards" da seleção — avisa quantos serão pulados (já materializados). */}
+        <AlertDialog open={!!criarCardsConfirm} onOpenChange={(o) => { if (!o) setCriarCardsConfirm(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Criar {criarCardsConfirm?.elegiveis.length ?? 0} card(s) no Planejamento?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {(criarCardsConfirm?.pulados.length ?? 0) > 0
+                  ? <>{criarCardsConfirm?.pulados.length} já criado(s) serão pulados: {criarCardsConfirm?.pulados.join(", ")}.</>
+                  : "Todos os selecionados serão criados."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction disabled={(criarCardsConfirm?.elegiveis.length ?? 0) === 0} onClick={() => void confirmarCriarCards()}>
+                Criar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* G5: confirma "Fazer pedido" da seleção quando há cards já comprados — NÃO bloqueia,
+            só avisa que eles ficam fora deste pedido. */}
+        <AlertDialog open={!!pedidoSelecaoConfirm} onOpenChange={(o) => { if (!o) setPedidoSelecaoConfirm(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Alguns já foram comprados</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pedidoSelecaoConfirm?.comprados.length} já comprado(s) ficam FORA deste pedido: {pedidoSelecaoConfirm?.comprados.join(", ")}.
+                O pedido sai só dos demais ({pedidoSelecaoConfirm?.compraveis.length}).
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void prosseguirPedidoSelecao(pedidoSelecaoConfirm?.compraveis ?? [])}>
+                Continuar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Fazer pedido — wizard paginado (1 página por OC, respeita fornecedores). `slotIdsPedido`
+            != null = pedido POR SELEÇÃO (G5): o wizard grava o carrinho (plan_tecido_slot_oc) só
+            desses slots; null = rodapé da coleção inteira (comportamento de sempre, sem vínculo). */}
         {previaOpen && previaData && (
-          <FazerPedidoWizard previa={previaData} colecaoId={colecaoId} onClose={() => setPreviaOpen(false)} />
+          <FazerPedidoWizard
+            previa={previaData}
+            colecaoId={colecaoId}
+            slotIds={slotIdsPedido ?? undefined}
+            onClose={() => { setPreviaOpen(false); setSlotIdsPedido(null); }}
+          />
         )}
 
         {/* Auto-aplicar (bug #9): o save já gravou o plano, mas espelhar no BOM ESVAZIARIA cores/grade

@@ -59,7 +59,19 @@ function paginasDe(previa: PreviaRpc): Pagina[] {
   return pgs;
 }
 
-export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: PreviaRpc; colecaoId: string; onClose: () => void }) {
+export function FazerPedidoWizard({
+  previa,
+  colecaoId,
+  slotIds,
+  onClose,
+}: {
+  previa: PreviaRpc;
+  colecaoId: string;
+  /** G5: pedido POR SELEÇÃO de cards — grava o carrinho (plan_tecido_slot_oc) nos slots pedidos.
+   *  Ausente/vazio = pedido da coleção inteira (comportamento de sempre, sem vínculo por slot). */
+  slotIds?: string[];
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const paginas = useMemo(() => paginasDe(previa), [previa]);
   const [passo, setPasso] = useState(0);
@@ -132,7 +144,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
             .filter((it) => it.quantidade_pedida > 0),
         };
       }).filter((p) => p.itens.length > 0);
-      const { data, error } = await supabase.rpc("plan_tecido_fazer_pedido" as any, { _colecao_id: colecaoId, _pedidos });
+      const { data, error } = await supabase.rpc("plan_tecido_fazer_pedido" as any, {
+        _colecao_id: colecaoId, _pedidos, ...(slotIds?.length ? { _slot_ids: slotIds } : {}),
+      });
       if (error) throw error;
       return data as { criadas: number; ocs: string[] };
     },
@@ -148,6 +162,10 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" do Resumo cai após o pedido
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura-ocs", colecaoId] });
+      // G5: pedido por seleção grava plan_tecido_slot_oc — o carrinho (ShoppingCart) do card lê
+      // essa query; sem invalidar, só acende ao refocar a janela (trg_colab_bump/realtime cobre
+      // OUTRAS abas, não esta mesma sessão que acabou de gerar o pedido).
+      if (slotIds?.length) qc.invalidateQueries({ queryKey: ["plan-tecido-slot-oc", colecaoId] });
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível gerar os pedidos.")),
   });
