@@ -9,7 +9,12 @@ export type PtMaterial = { id?: string; artigo_id: string | null; artigo_nome?: 
 // markup da LINHA (que no Plan. Tecido vem da COLOCAÇÃO do card, não do modelo; ver engine.ts) na
 // formação de preço do slot. Seedado do modelo a cada carga (display-only; NÃO persistido como
 // coluna própria — viaja dentro do jsonb da árvore, mas o servidor não lê esta chave).
-export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; linha_id?: string | null; markup_editado?: number | null; usar_estoque?: boolean; materiais: PtMaterial[] };
+// referencia_paths: fotos de REFERÊNCIA (anexo, G4/ago2026) do card AINDA SEM modelo (rascunho) —
+// dado PRÓPRIO do slot, persistido em `plan_tecido_slots.referencia_paths`. Quando o slot JÁ tem
+// modelo_id, a referência mora em `modelos.fotos_referencia` (mesma coluna do Plan. Produto/Dev,
+// bucket "modelos") — este campo então é só o que sobrou do rascunho antes de materializar (a RPC
+// `_plan_tecido_criar_card_core` migra pra `fotos_referencia` na criação do card).
+export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; linha_id?: string | null; markup_editado?: number | null; usar_estoque?: boolean; referencia_paths?: string[]; materiais: PtMaterial[] };
 export type PtLinha = { id?: string; linha_id: string | null; categoria_id: string | null; ordem: number; slots: PtSlot[] };
 export type PtSub = { id?: string; subcolecao_id: string | null; ordem: number; categorias_tecido?: string[]; linhas: PtLinha[] };
 export type PtArvore = { plan_id?: string; colecao_id: string; subcolecoes: PtSub[] };

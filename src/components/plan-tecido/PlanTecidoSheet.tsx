@@ -599,17 +599,22 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         ref: m.ref ?? null,
         nome: m.nome ?? null,
         categoria_tecido_id,
-        // hierarquia de imagem: foto de modelo → desenho técnico → croqui → vazio
+        // hierarquia de imagem (decisão do dono, G4): foto de modelo → desenho técnico →
+        // croqui → foto de REFERÊNCIA → vazio. A referência só entra quando o modelo não tem
+        // foto própria — a foto do modelo sempre vence.
         thumb_path:
           (Array.isArray(m.fotos_modelo) ? m.fotos_modelo[0] : null) ||
           m.desenho_tecnico_url ||
           m.croqui_url ||
+          (Array.isArray(m.fotos_referencia) ? m.fotos_referencia[0] : null) ||
           null,
         subcolecao: m.subcolecao ?? null,
         subcolecao_id: m.subcolecao ? (subIdPorNome.get(m.subcolecao) ?? null) : null,
         linha_id: m.linha_id ?? null,
         markup_editado: m.markup_editado ?? null,
         categoria_id: m.categoria_principal_id ?? null,
+        // fotos de referência do modelo (G4) — mesma coluna do Plan. Produto/Dev (interop)
+        fotos_referencia: (m.fotos_referencia ?? []) as string[],
         proporcoes: (m.proporcoes ?? null) as Record<string, number> | null,
         materiais,
         // custo de materiais = Σ aviamentos/insumos do desenvolvimento (custo_previsto)

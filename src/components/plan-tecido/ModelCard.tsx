@@ -20,6 +20,7 @@ import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
+import { ReferenciaDialog } from "./ReferenciaDialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 
@@ -168,6 +169,7 @@ export function ModelCard({
       preco_venda: slot.preco_venda ?? null,
       custo_terceirizados_previsto: 0, // inerte: a MO nasce por-serviço no Planejamento (modelo_servico_mo)
       custo_simulado: slot.custo_simulado ?? {},
+      referencia_paths: slot.referencia_paths ?? [], // G4 bug 6: leva a referência do rascunho p/ modelos.fotos_referencia (a RPC criar_card já migra)
       materiais: buildMateriais(),
     };
     setCriandoCard(true);
@@ -271,9 +273,12 @@ export function ModelCard({
           </div>
         )}
         {/* Foto FORA do <button> (não aninhar interativos): clicar abre o lightbox (item 12); o resto
-            do header segue sendo o toggle/handle de arraste. */}
+            do header segue sendo o toggle/handle de arraste. Referência (G4) também fica fora —
+            é um Dialog próprio, não pode aninhar num <button>. */}
         <div className="flex w-full items-center gap-2 p-2">
-          <ModeloThumb path={slot.thumb_path} className="h-16 w-16" zoom alt={slot.nome ?? "Modelo"} />
+          {/* Hierarquia da imagem do card (G4): foto do modelo (thumb_path) vence; se não há
+              (ex.: rascunho sem modelo), cai na 1ª foto de referência anexada. */}
+          <ModeloThumb path={slot.thumb_path ?? slot.referencia_paths?.[0] ?? null} className="h-16 w-16" zoom alt={slot.nome ?? "Modelo"} />
           <button
             className={`flex min-w-0 flex-1 items-center gap-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
             onClick={toggleOpen}
@@ -321,6 +326,7 @@ export function ModelCard({
           {!isRevenda && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
+          <ReferenciaDialog slot={slot} onChange={onChange} />
         </div>
         {!open && necTecidos.length > 0 && (
           <div className="space-y-1.5 border-t px-2 py-1.5">

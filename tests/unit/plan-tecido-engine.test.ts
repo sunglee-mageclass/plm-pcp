@@ -42,6 +42,27 @@ describe("plan-tecido/engine", () => {
     expect(slot.materiais[0].variantes[0].grades).toEqual({ PP: 3, P: 4, M: 3 });
   });
 
+  it("slotDeModeloReal: seeda referencia_paths de modelos.fotos_referencia (G4)", () => {
+    const modelo: ModeloReal = {
+      id: "m1", ref: "REF1", nome: "Vestido", subcolecao: "Verão", subcolecao_id: "s1",
+      linha_id: "l1", categoria_id: null, proporcoes: null,
+      fotos_referencia: ["t1/fotos_referencia/x.jpg"],
+      materiais: [], grade: {},
+    };
+    const slot = slotDeModeloReal(modelo, 0);
+    expect(slot.referencia_paths).toEqual(["t1/fotos_referencia/x.jpg"]);
+  });
+
+  it("slotDeModeloReal: sem fotos_referencia no modelo seeda array vazio", () => {
+    const modelo: ModeloReal = {
+      id: "m1", ref: null, nome: null, subcolecao: null, subcolecao_id: null,
+      linha_id: null, categoria_id: null, proporcoes: null,
+      materiais: [], grade: {},
+    };
+    const slot = slotDeModeloReal(modelo, 0);
+    expect(slot.referencia_paths).toEqual([]);
+  });
+
   it("semearComModelos: bucket com qtd>modelos completa com slots vazios", () => {
     const modelo: ModeloReal = {
       id: "m1", ref: null, nome: null, subcolecao: "Verão", subcolecao_id: "s1",
@@ -67,6 +88,38 @@ describe("plan-tecido/engine", () => {
     expect(slot.modelo_id).toBe("M1");
     expect(slot.materiais).toHaveLength(1);
     expect(slot.ref).toBe("REF1");
+  });
+
+  it("mergeArvore: slot salvo SÓ com categoria de PRODUTO (sem tecido/modelo) sobrevive ao merge (fix 4.1)", () => {
+    // Bug reportado pelo dono: card vazio → escolhe só a categoria de PRODUTO (categoria_id, ex.
+    // Vestido/Blusa — não é categoria_tecido_id/lane) → Salvar → a categoria se desfazia (card
+    // voltava a vazio) porque savedTemDados não contava categoria_id como "dado do usuário".
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, categoria_id: "CAT_VESTIDO", custos_adicionais: [], materiais: [] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].categoria_id).toBe("CAT_VESTIDO");
+  });
+
+  it("mergeArvore: slot salvo SÓ com referência (rascunho sem tecido/modelo) sobrevive ao merge (G4)", () => {
+    // Mesma classe do fix 4.1: um slot rascunho com só uma foto de referência anexada (sem
+    // tecido/modelo) não pode ser descartado no merge — senão a referência some ao reabrir.
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, referencia_paths: ["t1/fotos_referencia/a.jpg"], custos_adicionais: [], materiais: [] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].referencia_paths).toEqual(["t1/fotos_referencia/a.jpg"]);
+  });
+
+  it("mergeArvore: referência de slot COM modelo usa o VIVO (modelos.fotos_referencia via seed), não o snapshot salvo", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "M1", slot_index: 0, referencia_paths: ["t1/fotos_referencia/vivo.jpg"], custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "M1", slot_index: 0, referencia_paths: ["t1/fotos_referencia/velho.jpg"], custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].referencia_paths).toEqual(["t1/fotos_referencia/vivo.jpg"]);
   });
 
   it("mergeArvore: MODELO REAL usa o BOM VIVO do seed (a.1); campos de plano do salvo vencem", () => {

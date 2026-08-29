@@ -41,6 +41,9 @@ export type ModeloReal = {
   // categoria de TECIDO derivada do Tecido 1 (artigo.categoria_tecido_id) — categoriza o card no
   // canvas AUTOMATICAMENTE (o dono não quer clicar "Agrupar por tecido"; é o default).
   categoria_tecido_id?: string | null;
+  // fotos de referência do MODELO REAL (`modelos.fotos_referencia`, G4) — fonte de exibição do
+  // slot quando ele já tem modelo_id (o rascunho usa `plan_tecido_slots.referencia_paths` direto).
+  fotos_referencia?: string[] | null;
   proporcoes: Record<string, number> | null;
   materiais: ModeloRealMaterial[];
   // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
@@ -120,6 +123,10 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     markup_editado: mr.markup_editado ?? null,
     // materiais (aviamentos/insumos) do desenvolvimento — editável em Custo & Preço
     custo_simulado: mr.materiais_custo ? { materiais: mr.materiais_custo } : undefined,
+    // referência (G4): slot COM modelo exibe direto de modelos.fotos_referencia (fonte real);
+    // o merge (abaixo) preserva o rascunho salvo (plan_tecido_slots.referencia_paths) só enquanto
+    // o slot ainda não tem modelo — aqui é sempre o BOM VIVO (mesmo princípio do resto do seed).
+    referencia_paths: mr.fotos_referencia ?? [],
     materiais,
   };
 }
@@ -197,10 +204,15 @@ export function semearArvore(input: SeedInput): PtArvore {
 const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}`;
 
 // Um slot salvo só tem "dados do usuário" se estiver ligado a um modelo, tiver material,
-// OU tiver uma categoria de tecido atribuída (lane). Slot salvo VAZIO (plano antigo
-// pré-semeadura) NÃO deve sobrescrever o modelo semeado.
+// tiver uma categoria de tecido atribuída (lane), uma categoria de PRODUTO (fix 4.1: um card
+// vazio com SÓ a categoria de produto escolhida — sem tecido/modelo — era descartado aqui e a
+// categoria sumia ao salvar/reabrir; a materialização em `podeCriarCard`/ModelCard.tsx já
+// aceitava categoria-only, mas o SAVE do plano em si não), OU tiver referência anexada (G4: um
+// slot rascunho com só uma foto de referência, sem tecido/modelo, não pode ser descartado no
+// merge — senão a referência some ao reabrir). Slot salvo VAZIO (plano antigo pré-semeadura)
+// NÃO deve sobrescrever o modelo semeado.
 const savedTemDados = (s?: PtSlot): s is PtSlot =>
-  !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id);
+  !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id || !!s.categoria_id || (s.referencia_paths?.length ?? 0) > 0);
 
 // Consumo EFETIVO de card real (auditoria jul/2026, decisão do dono): o BOM VIVO do Dev vence,
 // mas consumo VAZIO (0) no Dev cai no consumo digitado no PLANO salvo (mesmo artigo+tipo).
@@ -362,6 +374,11 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // antigo (null). NÃO forçamos o vivo aqui: o editor "Custo & Preço" do plano pode ter
             // ajustado esse custo (o salvo vence); só o BOM de TECIDO (materiais) puxa o vivo.
             custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
+            // referência (G4): slot COM modelo tem a referência REAL em modelos.fotos_referencia —
+            // o seed (`slot`, sempre o modelo vivo) VENCE sempre, IGUAL markup_editado (nunca o
+            // snapshot salvo do plano, que só reflete o rascunho pré-materialização e pode estar
+            // desatualizado/vazio). Slot SEM modelo (rascunho) é dado PRÓPRIO do plano → o salvo vence.
+            referencia_paths: effModeloId ? slot.referencia_paths : (saved.referencia_paths ?? slot.referencia_paths),
             // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
             // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
             // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
