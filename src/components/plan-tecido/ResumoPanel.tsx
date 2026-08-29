@@ -357,7 +357,7 @@ export function ResumoPanel({
                 <span className={!previaCarregada ? "text-muted-foreground" : totComprar > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>a comprar <b>{previaCarregada ? nMet(totComprar) : "…"}</b> m</span>
               </div>
             </div>
-            <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">a comprar</b> = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O <b className="font-semibold">Fazer pedido</b> usa a coleção inteira.</div>
+            <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">a comprar</b> = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O <b className="font-semibold">Fazer pedido</b> sai da seleção de cards.</div>
           </>
         )}
       </Secao>
