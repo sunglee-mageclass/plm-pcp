@@ -411,7 +411,7 @@
    uma linha "rótulo: valor" (rótulo vem de data-label). Só afeta tabelas com a
    classe .card-table; desktop fica intacto. A 1ª coluna (sem data-label) vira o
    título do card. */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   table.card-table thead { display: none; }
   table.card-table, table.card-table > tbody { display: block; width: 100%; }
   table.card-table > tbody > tr {
