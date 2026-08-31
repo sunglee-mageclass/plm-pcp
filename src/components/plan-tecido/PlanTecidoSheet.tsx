@@ -29,6 +29,7 @@ import {
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
+import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoFilter";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
@@ -278,7 +279,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const { requestClose, requestAction, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtiva, setSubAtiva] = useState(0);
-  const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
+  // Set vazio = Todos; `null` no set = "Sem categoria"; ids = categorias. MULTI (dono, ago/2026) —
+  // os chips antigos (single) misturavam categorias sem card nenhum e davam lista vazia.
+  const [catFilters, setCatFilters] = useState<Set<string | null>>(new Set());
   const [addCatOpen, setAddCatOpen] = useState(false);
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   // G6 (criar em massa) / G5 (pedido por seleção) — confirmação e progresso das 2 ações novas
@@ -1230,7 +1233,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     const sub = next.subcolecoes[subAtiva];
     sub.categorias_tecido = (sub.categorias_tecido ?? []).filter((c) => c !== catId);
     for (const ln of sub.linhas) for (const sl of ln.slots) if (sl.categoria_tecido_id === catId) sl.categoria_tecido_id = null;
-    if (catFilter === catId) setCatFilter(null);
+    if (catFilters.has(catId)) { const n = new Set(catFilters); n.delete(catId); setCatFilters(n); }
     patch(next);
   }
 
@@ -1327,14 +1330,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     requestAction(() => {
       reverterArvore();
       setSubAtiva(si);
-      setCatFilter(null);
+      setCatFilters(new Set());
       setSelecao(new Set());
       setRecolhidos(new Set());
       setView("canvas");
       onSubChange?.(subcolecaoId ?? "none");
     });
-  const chipCls = (active: boolean) =>
-    `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary"}`;
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
@@ -1453,7 +1454,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
             ...flat.map((f) => f.slot.categoria_tecido_id).filter((c): c is string => !!c),
           ])].sort((a, b) => (catTecidoNome(a) ?? "").localeCompare(catTecidoNome(b) ?? "", "pt-BR", { sensitivity: "base" }));
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
-          const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
+          const laneCats: (string | null)[] =
+            catFilters.size === 0 ? [...cats, null] : [...cats, null].filter((c) => catFilters.has(c));
           // 2º nível de agrupamento: nome do tecido (Tecido 1). `porNome` ordena ALFABÉTICO (dono),
           // com "Sem tecido" sempre por último; usado no modo por nome e como sub-grupo nas lanes.
           const tecidoNomeDoSlot = (slot: PtSlot): string => {
@@ -1602,15 +1604,6 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               )}
               <main className={`flex-1 overflow-y-auto p-3 ${mobileTab !== "canvas" ? "max-md:hidden" : ""}`}>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  {groupByCategoria && <>
-                    <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
-                    {cats.map((cid) => (
-                      <button key={cid} type="button" className={chipCls(catFilter === cid)} onClick={() => setCatFilter(cid)}>{catTecidoNome(cid) ?? "?"} ({slotsOf(cid).length})</button>
-                    ))}
-                    {flat.some((f) => !f.slot.categoria_tecido_id) && (
-                      <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
-                    )}
-                  </>}
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS
                         (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
@@ -1623,6 +1616,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       onToggleSecoes={toggleSecoes}
                       onToggleCards={toggleTodos}
                     />
+                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Só faz sentido
+                        agrupado por Família (senão não há lanes de categoria pra filtrar). */}
+                    {groupByCategoria && (
+                      <CategoriaTecidoFilter
+                        cats={cats}
+                        catNome={(id) => catTecidoNome(id) ?? "?"}
+                        contagem={(id) => slotsOf(id).length}
+                        temSemCategoria={flat.some((f) => !f.slot.categoria_tecido_id)}
+                        selecionadas={catFilters}
+                        onToggle={(id) => { const n = new Set(catFilters); n.has(id) ? n.delete(id) : n.add(id); setCatFilters(n); }}
+                        onLimpar={() => setCatFilters(new Set())}
+                      />
+                    )}
                     {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam). */}
                     <AgrupamentoButton groups={[
                       { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
