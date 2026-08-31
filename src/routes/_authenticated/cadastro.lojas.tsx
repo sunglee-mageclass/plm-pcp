@@ -27,6 +27,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -55,6 +59,7 @@ function LojasPage() {
   const [search, setSearch] = useState("");
   const [deleteRow, setDeleteRow] = useState<Loja | null>(null);
   const [novoNome, setNovoNome] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
 
   // Invalida a lista própria da tela E a query da tela de Direcionamento
   // (`["dir-lojas", tenantId]`, em expedicao.direcionamento.$modeloId.tsx) — prefixo
@@ -167,7 +172,7 @@ function LojasPage() {
         .insert({ nome, ordem: maxOrdem + 1, ativo: true });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Loja criada."); setNovoNome(""); invalidate(); },
+    onSuccess: () => { toast.success("Loja criada."); setNovoNome(""); setAddOpen(false); invalidate(); },
     onError: (e: any) =>
       toast.error(e?.code === "23505" ? "Já existe uma loja com esse nome." : mensagemErro(e, "Erro ao criar.")),
   });
@@ -272,29 +277,13 @@ function LojasPage() {
       </div>
 
       {!readOnly && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Plus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Adicionar loja"
-              value={novoNome}
-              onChange={(e) => setNovoNome(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && novoNome.trim() && !createMut.isPending) {
-                  e.preventDefault();
-                  createMut.mutate();
-                }
-              }}
-              className="pl-9"
-            />
-          </div>
-          <Button
-            onClick={() => createMut.mutate()}
-            disabled={!novoNome.trim() || createMut.isPending}
-          >
-            {createMut.isPending ? "Adicionando…" : "Adicionar"}
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          className="w-full max-sm:hidden"
+          onClick={() => { setNovoNome(""); setAddOpen(true); }}
+        >
+          <Plus className="h-4 w-4 mr-1" /> Adicionar loja
+        </Button>
       )}
 
       <div className="text-xs text-muted-foreground">
@@ -324,9 +313,26 @@ function LojasPage() {
 
       {!readOnly && (
         <MobileActionBar>
-          <div className="flex w-full items-center gap-2">
+          <Button
+            className="w-full"
+            onClick={() => { setNovoNome(""); setAddOpen(true); }}
+          >
+            <Plus className="h-4 w-4 mr-1" /> Adicionar loja
+          </Button>
+        </MobileActionBar>
+      )}
+
+      <Dialog open={addOpen} onOpenChange={(o) => { if (!createMut.isPending) setAddOpen(o); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova loja</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="nova-loja-nome">Nome da loja</Label>
             <Input
-              placeholder="Adicionar loja"
+              id="nova-loja-nome"
+              autoFocus
+              placeholder="Ex.: Loja Física"
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
               onKeyDown={(e) => {
@@ -336,16 +342,20 @@ function LojasPage() {
                 }
               }}
             />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={createMut.isPending}>
+              Cancelar
+            </Button>
             <Button
               onClick={() => createMut.mutate()}
               disabled={!novoNome.trim() || createMut.isPending}
-              className="shrink-0"
             >
-              <Plus className="h-4 w-4 mr-1" /> Adicionar
+              {createMut.isPending ? "Criando…" : "Criar"}
             </Button>
-          </div>
-        </MobileActionBar>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
