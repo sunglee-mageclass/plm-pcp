@@ -17,6 +17,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { brl, mesLimpo, fmtPct } from "@/lib/format";
 import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
@@ -440,7 +441,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
                 <MoneyInput inputMode="decimal" value={meta || ""} onChange={(e) => setMeta(Number(e.target.value) || 0)} /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Perda markup</span>
-                <div className="flex items-center gap-1"><Input inputMode="decimal" value={perda} onChange={(e) => setPerda(num(e.target.value))} /><span className="text-muted-foreground">%</span></div></label>
+                <div className="flex items-center gap-1"><NumberInput inputMode="decimal" value={perda} onChange={(e) => setPerda(Number(e.target.value) || 0)} /><span className="text-muted-foreground">%</span></div></label>
               {meta > 0 && (
                 /* Barra do planejado na MESMA linha da meta (mockup aprovado) — ocupa o resto da linha no lg. */
                 <div className="col-span-2 space-y-1 self-end sm:col-span-3 lg:col-span-3">
