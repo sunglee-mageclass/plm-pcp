@@ -590,12 +590,12 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         </div>
 
         <div className="p-4 border-t shrink-0 flex items-center gap-2">
-          <Button variant="outline" onClick={requestClose} className="shrink-0" aria-label="Voltar">
-            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+          <Button variant="outline" onClick={requestClose} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
+            <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
           </Button>
           {savedId && (
-            <Button variant="destructive" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
-              <Trash2 className="h-4 w-4 mr-1" />Excluir
+            <Button variant="destructive" className="shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
             </Button>
           )}
           {confirmada ? (
