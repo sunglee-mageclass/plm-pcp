@@ -679,8 +679,13 @@ devolve achados com `arquivo:linha` + severidade. Módulo bom = "sem achados" �
 - **Arquitetura & Dados**: `architect-system` (Vite+React+TanStack+Supabase multi-tenant,
   modularização, modos), `data-engineer` (schema, integridade, índices, RPCs/triggers, perf)
 - **Qualidade & Código**: `code-reviewer` (React+TanStack+Supabase+RLS), `qa-engineer`
-  (suíte Vitest unit + integração transacional + build/tsc/lint), `debug-expert` (causa raiz)
-- **UX**: `ux-tester` (usabilidade dos fluxos), `ui-ux-mobile` (mobile-first)
+  (suíte Vitest unit + integração transacional + build/tsc/lint), `debug-expert` (causa raiz),
+  `bug-hunter` (varredura proativa report-only — ficha no nível PAI do workspace,
+  `PLM + Criação/.claude/agents/`, invocável por nome; ver time 🛰️ no EQUIPES.md)
+- **UX**: `ux-tester` (usabilidade dos fluxos), `ui-ux-mobile` (mobile-first, lente de código),
+  `mobile-ui-auditor` (varredura mobile MEDIDA no navegador — 360/390/768; prova overflow
+  horizontal e drift de padrão com número + screenshot + `arquivo:linha`; ficha no nível PAI
+  do workspace, `PLM + Criação/.claude/agents/`, invocável por nome; **report-only**)
 - **Segurança & Infra**: `security-auditor` (RLS, RPCs DEFINER, storage, escalonamento,
   RPCs destrutivas), `devops-specialist` (db push --db-url, git, build, migrations)
 - **Processos** (conduzem o ciclo de trabalho, não auditam): `release-shipper` (leva UMA
