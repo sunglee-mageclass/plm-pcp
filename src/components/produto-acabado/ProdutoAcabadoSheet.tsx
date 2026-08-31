@@ -303,9 +303,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     [nivelMacro],
   );
 
-  // ── Produtos da coleção inteira — carregados 1x; a re-hidratação só acontece no load
-  //     inicial (ver effect abaixo). Sem colab/merge (fora de escopo) — invalidações de cache
-  //     posteriores (após criar/salvar) não perturbam os `drafts` já em memória, só a query. ──
+  // ── Produtos da coleção inteira — carregados 1x no load inicial (ver effect abaixo). Sem
+  //     colab/merge (fora de escopo) — invalidações de cache "de fundo" (após criar/salvar) não
+  //     perturbam os `drafts` já em memória, só a query. A ÚNICA re-hidratação fora do load
+  //     inicial é `reverterDrafts` (guarda por-subcoleção, abaixo), e só roda no descarte de uma
+  //     edição pendente de verdade (gateada por `dirty` no call-site) — nunca ao trocar de
+  //     subcoleção "limpo". ──
   const produtosQuery = useQuery({
     queryKey: ["produtos-acabados", colecaoId],
     queryFn: async () => {
@@ -355,14 +358,22 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Guarda por-subcoleção (ago/2026): "Descartar" ao trocar/sair de subcoleção precisa REVERTER
   // os drafts ao último SALVO antes de navegar — sem isso o usuário voltaria a ver a MESMA
   // edição pendente (ela mora em `drafts`, que sobrevive à troca de view/sub). Reidrata pelo
-  // MESMO caminho do load inicial (efeito acima, `produtosQuery.data` → `setDrafts`/`setBaseline`):
-  // `refetchQueries` + `getQueryData` na MESMA queryKey da `produtosQuery` (mesmo padrão do
-  // retry P0409 em `PlanTecidoSheet.tsx`) força o servidor a responder de novo e substitui
-  // `drafts`/`baseline` pelo resultado fresco. No-op quando limpo (o servidor devolve os MESMOS
-  // dados que já estão em `drafts`) — seguro chamar sempre; quem decide SE reverte é o
-  // `requestAction` (só roda a ação no discard, ou direto quando já estava limpo — nesse caso
-  // não há edição a perder).
+  // MESMO caminho do load inicial (efeito acima, `produtosQuery.data` → `setDrafts`/`setBaseline`).
+  // Achado de revisão (ago/2026): só CHAMAR isto quando `dirty` — o próprio wrapper (`requestAction`
+  // no call-site) gateia, então esta função assume que só roda com edição pendente de verdade.
+  // 2 passos: (1) SÍNCRONO — se o cache já tem o snapshot pré-edição (`qc.getQueryData`, o mesmo
+  // que alimentou o load inicial), aplica ele a `drafts`/`baseline` NA HORA, sem esperar rede —
+  // sem isso a janela do `await` deixava o usuário editar DE NOVO no meio do roundtrip e o
+  // `setDrafts(fresh)` tardio apagava essa 2ª edição sem aviso (achado da revisão: "navego limpo →
+  // edito durante o refetch → refetch resolve → perde sem dialog"). (2) `refetchQueries` em
+  // BACKGROUND pra garantir que o snapshot não está stale (outra aba/usuário pode ter salvo
+  // algo diferente) — se vier um resultado diferente do cache, substitui de novo.
   const reverterDrafts = useCallback(async () => {
+    const cached = qc.getQueryData<ProdutoDraft[]>(["produtos-acabados", colecaoId]);
+    if (cached) {
+      setDrafts(cached);
+      setBaseline(Object.fromEntries(cached.map((p) => [p.id, JSON.stringify(chaveDirty(p))])));
+    }
     await qc.refetchQueries({ queryKey: ["produtos-acabados", colecaoId] });
     const fresh = qc.getQueryData<ProdutoDraft[]>(["produtos-acabados", colecaoId]);
     if (!fresh) return;
@@ -443,10 +454,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Guarda por-subcoleção (ago/2026): embrulham `irParaSubcolecoes`/`abrirCanvasDe` com
   // `requestAction` — limpo, navega direto (mesmo comportamento de sempre); sujo, mostra o MESMO
   // AlertDialog "Descartar alterações?" já usado ao fechar o Sheet; "Descartar" reverte os drafts
-  // ao último salvo (`reverterDrafts`) e SÓ ENTÃO navega.
-  const irParaSubcolecoesGuarded = () => requestAction(() => { void reverterDrafts(); irParaSubcolecoes(); });
+  // ao último salvo (`reverterDrafts`) e SÓ ENTÃO navega. Achado de revisão (ago/2026): `reverterDrafts`
+  // só pode rodar quando HÁ edição pendente (`dirty`) — o wrapper é recriado a cada render, então o
+  // `dirty` fechado aqui é sempre o do clique. Chamar sempre (mesmo limpo) abria uma janela: navego
+  // limpo → começo a editar DENTRO do próprio refetch → o `setDrafts(fresh)` tardio apaga essa edição
+  // nova sem aviso nenhum (não passou pelo dialog, porque no clique estava limpo).
+  const irParaSubcolecoesGuarded = () => requestAction(() => { if (dirty) void reverterDrafts(); irParaSubcolecoes(); });
   const abrirCanvasDeGuarded = (sub: { id: string | null; nome: string | null }) =>
-    requestAction(() => { void reverterDrafts(); abrirCanvasDe(sub); });
+    requestAction(() => { if (dirty) void reverterDrafts(); abrirCanvasDe(sub); });
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
