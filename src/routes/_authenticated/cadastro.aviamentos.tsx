@@ -955,42 +955,46 @@ function AviamentoModal({
 
         <fieldset disabled={readOnly} className={isSheet ? "flex-1 overflow-y-auto" : "contents"}>
         <div className={`grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 ${isSheet ? "p-4" : "max-sm:overflow-y-auto"}`}>
+          {/* mobile: miniatura compacta (~96px) + "Enviar foto" AO LADO (economiza vertical).
+              desktop (md): a foto ocupa a coluna lateral como antes (aspect-square + botão embaixo). */}
           <div className="md:col-span-1 space-y-2">
             <Label>Foto</Label>
-            <div className="aspect-square bg-muted rounded-md overflow-hidden relative">
-              {fotoUrl ? (
-                <img src={fotoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                  <ImageOff className="h-10 w-10" />
-                </div>
-              )}
+            <div className="flex items-start gap-2 max-md:items-center md:block md:space-y-2">
+              <div className="h-24 w-24 shrink-0 bg-muted rounded-md overflow-hidden relative md:h-auto md:w-full md:aspect-square">
+                {fotoUrl ? (
+                  <img src={fotoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                    <ImageOff className="h-8 w-8 md:h-10 md:w-10" />
+                  </div>
+                )}
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="max-md:flex-1 md:w-full"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-1" />
+                )}
+                {form.foto_url ? "Trocar foto" : "Enviar foto"}
+              </Button>
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleUpload(f);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              ) : (
-                <Upload className="h-4 w-4 mr-1" />
-              )}
-              {form.foto_url ? "Trocar foto" : "Enviar foto"}
-            </Button>
           </div>
 
           <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
@@ -1160,12 +1164,12 @@ function AviamentoModal({
           </div>
         ) : (
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+            <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
+              <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
             </Button>
             {!readOnly && (
-              <Button className="ml-auto sm:ml-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              <Button className="ml-auto sm:ml-0 max-sm:aspect-square max-sm:px-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} aria-label="Salvar">
+                <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{saveMut.isPending ? "Salvando…" : "Salvar"}</span>
               </Button>
             )}
           </DialogFooter>
