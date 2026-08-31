@@ -28,6 +28,7 @@ import {
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
+import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
@@ -1610,14 +1611,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
                     )}
                   </>}
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS
                         (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
                     {(() => { const reais = flat.filter((f) => f.slot.modelo_id).length; const vagas = flat.length - reais;
                       return vagas > 0 ? <span className="hidden text-[11px] text-muted-foreground lg:inline">{flat.length} itens = {reais} modelos + {vagas} vagas</span> : null; })()}
-                    {/* Dois níveis (dono): "Seções" = grupos de nome/categoria; "Cards" = corpos. */}
-                    <Button size="sm" variant="ghost" onClick={toggleSecoes}>{todasSecoesRecolhidas ? "Expandir seções" : "Recolher seções"}</Button>
-                    <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir cards" : "Recolher cards"}</Button>
+                    {/* Dois níveis (dono): "Seções" = grupos de nome/categoria; "Cards" = corpos. Fundidos num menu só-ícone (mobile não estoura). */}
+                    <RecolherMenu
+                      todasSecoesRecolhidas={todasSecoesRecolhidas}
+                      todosRecolhidos={todosRecolhidos}
+                      onToggleSecoes={toggleSecoes}
+                      onToggleCards={toggleTodos}
+                    />
                     {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam). */}
                     <AgrupamentoButton groups={[
                       { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
