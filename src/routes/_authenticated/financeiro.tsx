@@ -787,7 +787,7 @@ function ParcelaDetailDialog({
   const payeeCnpj = temRep ? (parcela.representanteCnpj ?? null) : (parcela.empresaCnpj ?? null);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="md:max-w-3xl">
+      <DialogContent mobileFull className="md:max-w-3xl">
         <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
           <div><span className="text-muted-foreground">Empresa:</span> <b>{parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</b></div>
@@ -837,6 +837,9 @@ function ParcelaDetailDialog({
         )}
 
         <DialogFooter className="flex-row flex-wrap justify-end gap-2">
+          {/* mobileFull esconde o X no mobile — garante uma saída SEMPRE (o resto do footer é
+              condicional; parcela órfã + sem permissão deixaria o rodapé vazio e prenderia o usuário). */}
+          <Button size="sm" variant="outline" className="md:hidden mr-auto" onClick={onClose}>Fechar</Button>
           {st === "pago" && (
             <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
               <Printer className="h-4 w-4 mr-1" /> Imprimir recibo
