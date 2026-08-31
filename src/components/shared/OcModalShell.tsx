@@ -26,7 +26,7 @@ export function OcModalShell({
   discardMessage?: string;
 }) {
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
-  const grid = "grid grid-rows-[auto_minmax(0,1fr)_auto] !overflow-hidden";
+  const grid = "grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] !overflow-hidden";
   const guard = <UnsavedChangesGuard confirm={confirm} message={discardMessage} />;
   if (isEdit) {
     return (
