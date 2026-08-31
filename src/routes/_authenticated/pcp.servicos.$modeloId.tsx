@@ -1107,11 +1107,11 @@ export function TerceirizadosDetail({
   // guarda o descarte); na página inteira navega pela rota.
   const backButton = onClose ? (
     <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
-      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+      <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/pcp/servicos"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/pcp/servicos"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Link>
     </Button>
   );
   // "Voltar uma etapa" (secundário) vive na barra de ações do rodapé, logo à ESQUERDA
@@ -1128,8 +1128,8 @@ export function TerceirizadosDetail({
       <Pencil className="h-4 w-4" />
     </Button>
   ) : (
-    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-      <Save className="h-4 w-4 mr-2" /> Salvar
+    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+      <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
     </Button>
   );
 
