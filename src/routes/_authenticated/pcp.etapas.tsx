@@ -73,6 +73,7 @@ function EtapasPlPage() {
   const [busca, setBusca] = useState("");
   const [fColecao, setFColecao] = useFilterState("pcp-etapas", "Coleção", []);
   const [fFornecedor, setFFornecedor] = useFilterState("pcp-etapas", "Fornecedor", []);
+  const [fOrigem, setFOrigem] = useFilterState("pcp-etapas", "Origem", []);
   const [sortKey, setSortKey] = useState(SORT_NONE);
   const [collapsedCols, setCollapsedCols] = useState<Set<EtapaKey>>(new Set());
   const [minimizedCards, setMinimizedCards] = useState(false);
@@ -123,6 +124,7 @@ function EtapasPlPage() {
   const cards = useMemo(() => {
     let list = filteredCards;
     if (fFornecedor.length) list = list.filter((c) => fFornecedor.includes(c.empresa ?? ""));
+    if (fOrigem.length) list = list.filter((c) => fOrigem.includes(c.origem ?? "interno"));
     if (sortKey !== SORT_NONE) {
       list = [...list].sort((a, b) => {
         const av = (sortKey === "ref" ? a.ref : a.nome) ?? "";
@@ -131,7 +133,7 @@ function EtapasPlPage() {
       });
     }
     return list;
-  }, [filteredCards, fFornecedor, sortKey]);
+  }, [filteredCards, fFornecedor, fOrigem, sortKey]);
 
   const colunasAtivas = etapas.filter((e) => e.ativa);
   const contagemPorEtapa = colunasAtivas.map((col) => ({
@@ -217,6 +219,15 @@ function EtapasPlPage() {
                 value: fFornecedor,
                 onChange: setFFornecedor,
                 options: fornecedores.map((f) => ({ id: f, nome: f })),
+              },
+              {
+                label: "Origem",
+                value: fOrigem,
+                onChange: setFOrigem,
+                options: [
+                  { id: "interno", nome: "Interno" },
+                  { id: "revenda", nome: "Revenda" },
+                ],
               },
             ]}
           />

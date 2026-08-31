@@ -34,6 +34,7 @@ export type ModeloRow = {
   /** `modelos.lancado` — modelo lançado (fonte única de "Lançado"). Quando true, o card
    *  vai SÓ pra coluna terminal sintética "Finalizado" (sai do fluxo derivado). */
   lancado?: boolean | null;
+  origem?: string | null;
   cad?: CadRow[] | null;
 };
 
@@ -45,6 +46,7 @@ export type EtapaCard = {
   nome: string | null;
   fotoFontes: (string | null)[];
   empresa: string | null;
+  origem: string | null;
   etapa: EtapaKey | null;
   bloco: BlocoEtapa & { categoria_terceirizado_id: string };
 };
@@ -87,6 +89,7 @@ export function montarCards(rows: ModeloRow[], etapas: EtapaCfg[]): EtapaCard[] 
         nome: modelo.nome,
         fotoFontes: [modelo.fotos_modelo?.[0] ?? null, modelo.desenho_tecnico_url ?? null, modelo.croqui_url ?? null],
         empresa: t.empresa?.nome_fantasia ?? null,
+        origem: modelo.origem ?? null,
         etapa: etapaFinal,
         bloco: { ...bloco, categoria_terceirizado_id: t.categoria_terceirizado_id },
       });
