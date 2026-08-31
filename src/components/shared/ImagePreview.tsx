@@ -6,8 +6,12 @@ import { cn } from "@/lib/utils";
 // SSOT do estilo do lightbox — usado pelo ImagePreview e pelo AnexoThumbZoom (evita
 // as duas caixas divergirem de novo, como aconteceu antes deste fix: bg-transparent/
 // max-w-5xl duplicado nos dois lugares).
+// X sempre visível (disco escuro atrás do ícone branco — contrasta em croqui claro OU
+// foto escura); !opacity-100 porque o Close base (dialog.tsx) vem com opacity-70;
+// h-9 w-9 = alvo de toque ~36px. max-md:w-screen/h-dvh dá área "fora" ampla no mobile
+// pro clique-fora fechar (ver o container onClick dentro do ImagePreview/AnexoThumbZoom).
 export const LIGHTBOX_CONTENT_CLASS =
-  "max-w-5xl p-1 border-none bg-transparent shadow-none place-items-center [&>button]:!text-white [&>button]:top-2 [&>button]:right-2";
+  "max-w-5xl p-1 border-none bg-transparent shadow-none place-items-center max-md:w-screen max-md:h-dvh [&>button]:!text-white [&>button]:top-2 [&>button]:right-2 [&>button]:bg-black/60 [&>button]:rounded-full [&>button]:p-1.5 [&>button]:!opacity-100 [&>button]:h-9 [&>button]:w-9 [&>button]:flex [&>button]:items-center [&>button]:justify-center";
 
 export function ImagePreview({ src, alt, children, className }: {
   src: string;
@@ -53,11 +57,18 @@ export function ImagePreview({ src, alt, children, className }: {
             {/* Nome acessível do diálogo (exigido pelo Radix) — só p/ leitor de tela, sem
                 impacto visual (sr-only = position:absolute, fora do grid `place-items-center`). */}
             <DialogTitle className="sr-only">{alt || "Visualização de imagem"}</DialogTitle>
-            <img
-              src={src}
-              alt={alt}
-              className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl"
-            />
+            {/* No mobile o Content some quase do tamanho da imagem (área "fora" minúscula —
+                tocar fora quase não fechava). Este container preenche o Content
+                (max-md:w-screen/h-dvh acima) e captura o toque no espaço vazio; a imagem
+                dentro barra a propagação, então tocar NELA não fecha. */}
+            <div className="grid place-items-center w-full h-full" onClick={() => setOpen(false)}>
+              <img
+                src={src}
+                alt={alt}
+                onClick={(e) => e.stopPropagation()}
+                className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl [touch-action:pinch-zoom]"
+              />
+            </div>
           </DialogContent>
         </Dialog>
       </div>
