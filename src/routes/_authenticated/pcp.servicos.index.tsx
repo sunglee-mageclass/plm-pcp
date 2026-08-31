@@ -49,6 +49,7 @@ function TercListPage() {
   const [fMes, setFMes] = useFilterState("pcp-servicos", "Mês", []);
   const [fAno, setFAno] = useFilterState("pcp-servicos", "Ano", []);
   const [fStatus, setFStatus] = useFilterState("pcp-servicos", "Status Geral", []);
+  const [fOrigem, setFOrigem] = useFilterState("pcp-servicos", "Origem", []);
   const [printReq, setPrintReq] = useState<{ id: string; token: number } | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
@@ -57,7 +58,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -102,6 +103,7 @@ function TercListPage() {
           mes_id: m.mes_id,
           ano_id: m.ano_id,
           categoria_nome: m.categorias_produto?.nome ?? null,
+          origem: m.origem ?? null,
           cad_id: m.cad?.[0]?.id ?? null,
           statusGeral,
           temFotoPeca,
@@ -148,6 +150,7 @@ function TercListPage() {
     if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
     if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     if (fStatus.length && !fStatus.includes(r.statusGeral ?? "")) return false;
+    if (fOrigem.length && !fOrigem.includes(r.origem ?? "interno")) return false;
     return true;
   });
 
@@ -181,6 +184,10 @@ function TercListPage() {
                 { id: "pre_finalizado", nome: "Pré finalizado" },
                 { id: "finalizado", nome: "Finalizado" },
                 { id: "sem", nome: "Sem serviço" },
+              ] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
+                { id: "interno", nome: "Interno" },
+                { id: "revenda", nome: "Revenda" },
               ] },
             ]}
           />
