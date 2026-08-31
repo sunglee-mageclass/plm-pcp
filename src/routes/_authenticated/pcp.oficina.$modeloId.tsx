@@ -439,8 +439,8 @@ function OficinaDetailPage() {
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+            <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </div>
       </PageActionBar>
