@@ -119,3 +119,5 @@
 **Placeholder scan:** T1 tem as assinaturas dos helpers + as listas exatas (9 campos, 7 NA, 9 seções); T2/T3/T4 têm arquivo+âncora (linhas do secOrdem/cadMissing/podeEntrar/ModeloInfoSection/configuracoes). Rótulos key→label listados no T2 Step 5.
 **Type consistency:** `RevendaConfig {colunas:string[], requisitos:Record<string,string[]>, campos:Record<string,boolean>}` idêntico em T1(helper)/T2(save)/T3-T4(leitura). `revendaCampoVisivel(cfg,key)`/`revendaColunaPermitida`/`revendaRequisitos` mesma assinatura em todos os consumidores.
 **Riscos:** (a) byte-a-byte não-revenda — o branch `isRevenda?configRevenda:<hoje>` em secOrdem/cadMissing/podeEntrar; teste no fechamento compara não-revenda. (b) piloto2/3 já condicionais — combinar com `&&`, não sobrescrever. (c) `s5` gated por custos — revenda combina config `&&` custos. (d) dialog NA só p/ revenda — prop opt-in, normal intocado. (e) coluna label→key — gravar key, mostrar label.
+
+> **CORREÇÃO (T2):** a premissa 'sem migração' estava ERRADA — tenant_config tem 1 coluna jsonb tipada por chave. A migração 20260826130000 adiciona as 3 colunas (aditiva/idempotente). As Tasks 3/4 leem dessas colunas.
