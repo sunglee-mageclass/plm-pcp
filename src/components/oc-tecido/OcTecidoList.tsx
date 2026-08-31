@@ -89,7 +89,7 @@ export function OcTecidoList({
 
       <TabsContent value="encomendado" className="mt-4">
         {/* Mobile: lista de cards */}
-        <div className="space-y-2 sm:hidden">
+        <div className="space-y-2 md:hidden">
           {ocs.length > 0 && (
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Ordenar por</Label>
@@ -136,7 +136,7 @@ export function OcTecidoList({
         </div>
 
         {/* Desktop: tabela */}
-        <Card className="hidden sm:block">
+        <Card className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -186,7 +186,7 @@ export function OcTecidoList({
 
       <TabsContent value="recebido" className="mt-4">
         {/* Mobile: lista de cards */}
-        <div className="space-y-2 sm:hidden">
+        <div className="space-y-2 md:hidden">
           {ocs.length > 0 && (
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Ordenar por</Label>
@@ -237,7 +237,7 @@ export function OcTecidoList({
         </div>
 
         {/* Desktop: tabela */}
-        <Card className="hidden sm:block">
+        <Card className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
