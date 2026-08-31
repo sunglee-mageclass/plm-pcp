@@ -97,6 +97,10 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
 
   const onDiscard = useCallback(() => {
     if (pendingAction) {
+      // Achado de revisão: raro, mas possível (Back do navegador com o dialog do requestAction
+      // já aberto) — sem resetar o blocker aqui, ele fica "blocked" pendurado e o PRÓXIMO
+      // requestClose/navegação de rota reabriria um 2º dialog em cima do resultado desta ação.
+      if (navBlocked) blocker.reset?.();
       const action = pendingAction;
       setPendingAction(null);
       setOpen(false);
