@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft } from "lucide-react";
+import { Tag, Plus, Trash2, Search, Loader2, X, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -413,14 +413,23 @@ function EtiquetasPage() {
                   className="cursor-pointer"
                   onClick={() => openEdit(e)}
                 >
+                  {/* Desktop: checkbox em coluna própria. Mobile (modo card): a td do checkbox some
+                      (max-md:hidden) e o checkbox entra na linha do NOME (abaixo), lado a lado. */}
                   {isAdmin && (
-                    <TableCell className="w-10" data-label="" onClick={(ev) => ev.stopPropagation()}>
+                    <TableCell className="w-10 max-md:hidden" data-label="" onClick={(ev) => ev.stopPropagation()}>
                       {!readOnly && <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />}
                     </TableCell>
                   )}
                   <TableCell>
-                    <span className="font-medium">{e.nome}</span>
-                    {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
+                    <span className="flex items-center gap-2">
+                      {isAdmin && !readOnly && (
+                        <span className="hidden max-md:inline-flex" onClick={(ev) => ev.stopPropagation()}>
+                          <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />
+                        </span>
+                      )}
+                      <span className="font-medium">{e.nome}</span>
+                      {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
+                    </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground" data-label="Tipo">{e.tipo_insumo_id ? tipoMap.get(e.tipo_insumo_id) ?? "—" : "—"}</TableCell>
                   <TableCell className="capitalize" data-label="Unidade">{e.unidade}</TableCell>
@@ -571,10 +580,10 @@ function EtiquetasPage() {
             </div>
           </div>
           <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
-            <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+            <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0"><ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span></Button>
             {!readOnly && (
-              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              <Button className="ml-auto max-sm:aspect-square max-sm:px-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} aria-label="Salvar">
+                <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{saveMut.isPending ? "Salvando…" : "Salvar"}</span>
               </Button>
             )}
           </div>
