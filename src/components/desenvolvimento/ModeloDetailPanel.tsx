@@ -941,6 +941,23 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
     setAviamentosState(rows);
   }, [aviamentosData]);
 
+  // MESMO bug das etiquetas/tecidos (bug-fix ago/2026), agora no AVIAMENTO: a hidratação
+  // acima semeia `custo_previsto` do valor CRU do banco e o `aviamentoMap` (preço) resolve
+  // DEPOIS — sem este efeito o custo ficava preso no valor cru até o usuário forçar um
+  // recompute editando consumo/loss de uma linha. Recalcula as linhas quando os preços
+  // chegam/mudam, preservando consumo/loss/variante já digitados. Guard de map vazio (não
+  // zerar com preço 0 antes de `aviamentoMap` carregar) + guard de no-op (só troca o array
+  // se algum custo_previsto mudou de fato — evita re-render/ciclo em refetch de background).
+  useEffect(() => {
+    if (Object.keys(aviamentoMap).length === 0) return;
+    setAviamentosState((rows) => {
+      if (!rows.length) return rows;
+      const next = rows.map((r) => recomputeAviamento(r, aviamentoMap));
+      const mudou = next.some((r, i) => r.custo_previsto !== rows[i].custo_previsto);
+      return mudou ? next : rows;
+    });
+  }, [aviamentoMap, aviamentosData]);
+
   useEffect(() => {
     if (!modeloEtiquetasData) return;
     if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
