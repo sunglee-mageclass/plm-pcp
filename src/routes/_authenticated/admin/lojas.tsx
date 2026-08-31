@@ -3,7 +3,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } from "lucide-react";
+import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { formatCNPJ } from "@/lib/format";
@@ -20,7 +20,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
@@ -431,8 +431,9 @@ function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requ
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   requestCloseRef.current = requestClose;
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (submitting) return;
     if (!nome.trim()) {
       toast.error("Nome obrigatório");
       return;
@@ -465,48 +466,70 @@ function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requ
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0">
-          <div className="space-y-1">
-            <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: "Nova loja" }]} />
-            <div className="flex items-center gap-2">
-              <DialogTitle>Nova Loja</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-            </div>
-          </div>
-        </DialogHeader>
-        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
-          <div>
-            <Label htmlFor="nome">Nome *</Label>
-            <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
-          </div>
-          <div>
-            <Label htmlFor="cnpj">CNPJ</Label>
-            <Input id="cnpj" value={cnpj} onChange={(e) => setCnpj(formatCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" maxLength={18} />
-          </div>
-          <div>
-            <Label htmlFor="contato">Contato</Label>
-            <Input id="contato" value={contato} onChange={(e) => setContato(e.target.value)} maxLength={500} />
-          </div>
-          <div>
-            <Label htmlFor="logo">Logo</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="logo"
-                type="file"
-                accept="image/*"
-                onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
-              />
-              <Upload className="h-4 w-4 text-muted-foreground" />
-            </div>
+    <DialogContent fixedFooter mobileFull>
+      <DialogHeader>
+        <div className="space-y-1">
+          <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: "Nova loja" }]} />
+          <div className="flex items-center gap-2">
+            <DialogTitle>Nova Loja</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         </div>
-        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
-          <Button type="button" variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+      </DialogHeader>
+      <DialogBody className="space-y-4 py-4">
+        <div>
+          <Label htmlFor="nome">Nome *</Label>
+          <Input
+            id="nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
+            required
+            maxLength={255}
+          />
         </div>
-      </form>
+        <div>
+          <Label htmlFor="cnpj">CNPJ</Label>
+          <Input id="cnpj" value={cnpj} onChange={(e) => setCnpj(formatCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" maxLength={18} />
+        </div>
+        <div>
+          <Label htmlFor="contato">Contato</Label>
+          <Input id="contato" value={contato} onChange={(e) => setContato(e.target.value)} maxLength={500} />
+        </div>
+        <div>
+          <Label htmlFor="logo">Logo</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="logo"
+              type="file"
+              accept="image/*"
+              className="min-w-0"
+              onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+            />
+            <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </div>
+        </div>
+      </DialogBody>
+      <DialogFooter className="!flex-row items-center border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
+        <Button
+          variant="outline"
+          onClick={requestClose}
+          aria-label="Voltar"
+          className="max-sm:aspect-square max-sm:px-0"
+        >
+          <ArrowLeft className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">Voltar</span>
+        </Button>
+        <Button
+          onClick={() => onSubmit()}
+          disabled={submitting}
+          aria-label="Salvar"
+          className="ml-auto max-sm:aspect-square max-sm:px-0"
+        >
+          <Save className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">{submitting ? "Salvando…" : "Salvar"}</span>
+        </Button>
+      </DialogFooter>
       <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
     </DialogContent>
   );

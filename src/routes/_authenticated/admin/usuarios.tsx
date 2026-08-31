@@ -5,7 +5,7 @@ import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2, LogOut } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2, LogOut, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,7 +29,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+  Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
@@ -368,8 +368,9 @@ function NovoUsuarioModal({
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   requestCloseRef.current = requestClose;
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (submitting) return;
     if (!isEmail(email)) {
       toast.error("E-mail inválido — use um endereço completo (ex.: nome@empresa.com).");
       return;
@@ -392,58 +393,72 @@ function NovoUsuarioModal({
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0">
-          <div className="space-y-1">
-            <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Usuários" }, { label: "Novo usuário" }]} />
-            <div className="flex items-center gap-2">
-              <DialogTitle>Novo Usuário</DialogTitle>
-              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-            </div>
-          </div>
-        </DialogHeader>
-        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
-          <div>
-            <Label htmlFor="nome">Nome *</Label>
-            <Input id="nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
-          </div>
-          <div>
-            <Label htmlFor="email">Email *</Label>
-            <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
-          </div>
-          <div>
-            <Label htmlFor="password">Senha * (mín. 6)</Label>
-            <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
-          </div>
-          <div>
-            <Label>Loja *</Label>
-            <Select value={tenantId} onValueChange={setTenantId}>
-              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-              <SelectContent>
-                {tenants.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Papel *</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">Usuário</SelectItem>
-                <SelectItem value="tenant_admin">Admin da Loja</SelectItem>
-                <SelectItem value="super_admin">Super Admin</SelectItem>
-              </SelectContent>
-            </Select>
+    <DialogContent fixedFooter mobileFull>
+      <DialogHeader>
+        <div className="space-y-1">
+          <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Usuários" }, { label: "Novo usuário" }]} />
+          <div className="flex items-center gap-2">
+            <DialogTitle>Novo Usuário</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         </div>
-        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
-          <Button type="button" variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
+      </DialogHeader>
+      <DialogBody className="space-y-4 py-4">
+        <div>
+          <Label htmlFor="nome">Nome *</Label>
+          <Input id="nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
         </div>
-      </form>
+        <div>
+          <Label htmlFor="email">Email *</Label>
+          <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
+        </div>
+        <div>
+          <Label htmlFor="password">Senha * (mín. 6)</Label>
+          <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
+        </div>
+        <div>
+          <Label>Loja *</Label>
+          <Select value={tenantId} onValueChange={setTenantId}>
+            <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+            <SelectContent>
+              {tenants.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Papel *</Label>
+          <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="user">Usuário</SelectItem>
+              <SelectItem value="tenant_admin">Admin da Loja</SelectItem>
+              <SelectItem value="super_admin">Super Admin</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </DialogBody>
+      <DialogFooter className="!flex-row items-center border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
+        <Button
+          variant="outline"
+          onClick={requestClose}
+          aria-label="Voltar"
+          className="max-sm:aspect-square max-sm:px-0"
+        >
+          <ArrowLeft className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">Voltar</span>
+        </Button>
+        <Button
+          onClick={() => onSubmit()}
+          disabled={submitting}
+          aria-label="Criar"
+          className="ml-auto max-sm:aspect-square max-sm:px-0"
+        >
+          <Save className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">{submitting ? "Salvando…" : "Criar"}</span>
+        </Button>
+      </DialogFooter>
       <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
   );
@@ -555,8 +570,13 @@ function ResetSenhaModal({
   const [pwd, setPwd] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (submitting) return;
+    if (pwd.length < 6) {
+      toast.error("A senha deve ter no mínimo 6 caracteres.");
+      return;
+    }
     setSubmitting(true);
     try {
       await call({ data: { user_id: user.id, new_password: pwd } });
@@ -570,20 +590,44 @@ function ResetSenhaModal({
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0">
-          <DialogTitle>Redefinir senha — {user.nome}</DialogTitle>
-        </DialogHeader>
-        <div className="py-4 space-y-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
-          <Label htmlFor="pwd">Nova senha (mín. 6)</Label>
-          <Input id="pwd" type="password" autoComplete="new-password" minLength={6} maxLength={100} required value={pwd} onChange={(e) => setPwd(e.target.value)} />
-        </div>
-        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
-          <Button type="button" variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Redefinir"}</Button>
-        </div>
-      </form>
+    <DialogContent fixedFooter mobileFull>
+      <DialogHeader>
+        <DialogTitle>Redefinir senha — {user.nome}</DialogTitle>
+      </DialogHeader>
+      <DialogBody className="py-4 space-y-2">
+        <Label htmlFor="pwd">Nova senha (mín. 6)</Label>
+        <Input
+          id="pwd"
+          type="password"
+          autoComplete="new-password"
+          minLength={6}
+          maxLength={100}
+          required
+          value={pwd}
+          onChange={(e) => setPwd(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
+        />
+      </DialogBody>
+      <DialogFooter className="!flex-row items-center border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
+        <Button
+          variant="outline"
+          onClick={onClose}
+          aria-label="Voltar"
+          className="max-sm:aspect-square max-sm:px-0"
+        >
+          <ArrowLeft className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">Voltar</span>
+        </Button>
+        <Button
+          onClick={() => onSubmit()}
+          disabled={submitting}
+          aria-label="Redefinir"
+          className="ml-auto max-sm:aspect-square max-sm:px-0"
+        >
+          <Save className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">{submitting ? "Salvando…" : "Redefinir"}</span>
+        </Button>
+      </DialogFooter>
     </DialogContent>
   );
 }

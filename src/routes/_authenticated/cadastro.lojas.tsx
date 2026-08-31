@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft } from "lucide-react";
+import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -343,7 +343,7 @@ function LojasPage() {
               }}
             />
           </div>
-          <DialogFooter className="max-sm:flex-row max-sm:justify-start max-sm:space-x-2">
+          <DialogFooter className="!flex-row items-center max-sm:justify-start max-sm:space-x-2">
             <Button
               variant="outline"
               onClick={() => setAddOpen(false)}
@@ -357,9 +357,11 @@ function LojasPage() {
             <Button
               onClick={() => createMut.mutate()}
               disabled={!novoNome.trim() || createMut.isPending}
-              className="max-sm:flex-1"
+              aria-label="Criar"
+              className="ml-auto max-sm:aspect-square max-sm:px-0"
             >
-              {createMut.isPending ? "Criando…" : "Criar"}
+              <Save className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">{createMut.isPending ? "Criando…" : "Criar"}</span>
             </Button>
           </DialogFooter>
         </DialogContent>
