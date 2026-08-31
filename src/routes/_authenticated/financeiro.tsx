@@ -1241,7 +1241,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         {(p.oc_tecido_id || p.oc_aviamento_id || p.oc_etiqueta_id || p.oc_p_acabado_id) ? (
                           <button
                             type="button"
-                            className="text-primary hover:underline"
+                            className="inline-flex items-center text-primary hover:underline max-md:min-h-11"
                             onClick={(e) => { stop(e); setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id ?? p.oc_etiqueta_id ?? p.oc_p_acabado_id)! }); }}
                           >
                             {ocNumero(p)}
