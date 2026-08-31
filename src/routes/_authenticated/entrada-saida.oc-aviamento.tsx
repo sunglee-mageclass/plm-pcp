@@ -322,7 +322,7 @@ function OcAviamentoPage() {
 
           {/* Desktop: tabela */}
           <Card className="hidden sm:block">
-            <Table>
+            <Table className="card-table">
               <TableHeader>
                 <TableRow>
                   <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={sortEncomendado} />
@@ -340,11 +340,11 @@ function OcAviamentoPage() {
                 {sortEncomendado.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
-                    <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
-                    <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
-                    <TableCell>{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
-                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
-                    <TableCell className="w-10 py-0 text-right">
+                    <TableCell data-label="Fornecedor">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
+                    <TableCell data-label="Data Prevista">{fmtDate(o.data_prevista_entrega)}</TableCell>
+                    <TableCell data-label="Valor Previsto">{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
+                    <TableCell data-label="Prazo"><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
+                    <TableCell data-label="Ações" className="w-10 py-0 text-right">
                       <Button
                         size="iconSm"
                         variant="ghost"
@@ -406,7 +406,7 @@ function OcAviamentoPage() {
 
           {/* Desktop: tabela */}
           <Card className="hidden sm:block">
-            <Table>
+            <Table className="card-table">
               <TableHeader>
                 <TableRow>
                   <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={sortRecebido} />
@@ -423,10 +423,10 @@ function OcAviamentoPage() {
                 {sortRecebido.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
-                    <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
-                    <TableCell>{fmtDate(o.data_entrega)}</TableCell>
-                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
-                    <TableCell>{fmtMoney(itemsByOC[o.id]?.real ?? 0)}</TableCell>
+                    <TableCell data-label="Fornecedor">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
+                    <TableCell data-label="Data Entrega">{fmtDate(o.data_entrega)}</TableCell>
+                    <TableCell data-label="Prazo"><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
+                    <TableCell data-label="Valor Real">{fmtMoney(itemsByOC[o.id]?.real ?? 0)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
