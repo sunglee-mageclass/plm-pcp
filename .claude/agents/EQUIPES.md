@@ -13,6 +13,9 @@ orquestrador (sessão principal) consulta ESTE arquivo ao receber uma tarefa.
   `general-purpose`, `Explore`, `Plan`, `claude`, `code-simplifier:code-simplifier`,
   `statusline-setup` (e os de plugins tipo `claude-security:*`). Ao querer um papel do
   roster → general-purpose + conteúdo da ficha + modelo por política.
+  **Exceção**: fichas no nível PAI do workspace (`PLM + Criação/.claude/agents/` —
+  hoje `code-reviewer`, `bug-hunter` e `mobile-ui-auditor`) SÃO invocáveis por `subagent_type` quando a
+  sessão roda na pasta pai (raiz do workspace), que é o caso normal.
 - **Modelos por papel** (política do dono): sessão = Opus (coordenação) · planejar =
   **Fable** · executar = **Sonnet** · revisar rotina = **Opus** · revisar/planejar
   SENSÍVEL (banco destrutivo, RLS/RPC, financeiro, arquitetura) = **Fable**. O dono
@@ -42,6 +45,16 @@ orquestrador (sessão principal) consulta ESTE arquivo ao receber uma tarefa.
 | Revisão (automática) | `code-reviewer` | Opus |
 | Gate | `qa-engineer` (tsc≠build, anti-drift, suíte, E2E se UI) | Sonnet |
 | Pós (se mudou regra de negócio) | `docs-keeper` (3 docs + CLAUDE.md + memória) | Sonnet |
+
+### 🛰️ VARREDURA PROATIVA (caça-bug sem sintoma reportado / monitoramento)
+| Etapa | Ficha(s) | Modelo |
+|---|---|---|
+| Varredura completa (build → tsc → suíte → E2E → QA vivo no navegador → sanidade SQL) | `bug-hunter` (ficha no nível PAI: `PLM + Criação/.claude/agents/bug-hunter.md`, invocável por nome; **report-only**, evidência-ou-nada, zero invenção) | Opus |
+| Achado confirmado | segue o time 🐛 CORREÇÃO acima (diagnóstico `debug-expert` em diante) | — |
+
+Difere do 🐛 CORREÇÃO: lá existe um sintoma reportado; aqui a caça é proativa (pós-merge,
+checagem de saúde, "tá tudo funcionando?"). O `bug-hunter` nunca aplica fix nem escreve no
+banco (SELECT-only); suspeita sem reprodução 2× vai numa seção separada, não conta como bug.
 
 ### ✨ FEATURE (comportamento novo)
 | Etapa | Ficha(s)/SSOT | Modelo |
@@ -84,6 +97,7 @@ Aprovado → segue como FEATURE (do Plano em diante).
 |---|---|
 | Metodologia (SSOT) | `docs/ux-avaliacao-metodologia.md` (3 lentes via Playwright, axe/WCAG, severidade × viewport) |
 | Lentes | `ux-tester` (fluxos) + `ui-ux-mobile` (mobile) + `cognitive-ergonomist` (carga) — read-only |
+| Medição mobile (invocável por nome) | `mobile-ui-auditor` (ficha no nível PAI: `PLM + Criação/.claude/agents/mobile-ui-auditor.md`) — roda o app em **360/390/768** e PROVA overflow horizontal e drift de padrão com número medido + screenshot + `arquivo:linha`; **report-only**, nunca aplica fix. As 3 lentes acima leem o código; esta MEDE no navegador. |
 | Laudos anteriores | `docs/ux-avaliacao/` (baseline de jul/2026) |
 | Saída | laudo por tela + síntese priorizada → vira backlog do `product-lead` |
 
