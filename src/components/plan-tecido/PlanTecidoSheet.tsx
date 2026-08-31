@@ -24,7 +24,7 @@ import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
-  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, type SeedInput, type ModeloReal, type ModeloRealMaterial,
+  semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante, PtSlot, PtSub } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
@@ -883,8 +883,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       // em cada slot destacado no banner antes de salvar de novo (mesmo padrão do OC Tecido).
       if (conflitosSlotRef.current.length > 0)
         throw new Error("Resolva os conflitos de slot listados no aviso no topo antes de salvar.");
+      // Fix "lane congelada" (ago/2026): normaliza categoria_tecido_id=NULL no PAYLOAD (nunca no
+      // estado local — a tela não deve "piscar" a lane) quando ela bate com a auto do Tecido 1. Um
+      // slot salvo com NULL auto-preenche do vivo no próximo merge (comportamento já existente) →
+      // a lane passa a SEGUIR o cadastro; arraste manual pra lane DIFERENTE da auto persiste normal.
+      const arvorePayload = normalizarCategoriasAuto(arvore!, (id) => artigoMap.get(id)?.categoria_tecido_id ?? null);
       const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
-        _colecao_id: colecaoId, _arvore: arvore, _rev_base: revRef.current,
+        _colecao_id: colecaoId, _arvore: arvorePayload, _rev_base: revRef.current,
       });
       if (error) throw error;
     },

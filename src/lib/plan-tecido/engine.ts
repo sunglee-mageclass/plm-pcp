@@ -283,18 +283,56 @@ export function comGradeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | nul
   });
 }
 
+// artigo_id do Tecido 1 (tipo==='tecido' && numero===1) de um slot — SSOT usado por
+// moverParaFamiliaDoTecido (G2) E normalizarCategoriasAuto (bug lane congelada, ago/2026): a
+// "categoria auto" de um card é SEMPRE derivada deste mesmo artigo, nunca de forro/Tecido 2+.
+export const artigoTecido1Do = (s: PtSlot): string | null =>
+  s.materiais.find((m) => m.tipo === "tecido" && Number(m.numero) === 1)?.artigo_id ?? null;
+
 /** G2: trocar o ARTIGO do Tecido 1 (tipo==='tecido' && numero===1) move o card p/ a
  *  família (categoria de tecido) do artigo. Forro/Tecido 2+/bloco complementar NUNCA.
  *  Artigo sem família → não move. Fonte = artigos.categoria_tecido_id (a mesma da auto-cat do seed). */
 export function moverParaFamiliaDoTecido(
   prev: PtSlot, next: PtSlot, familiaDoArtigo: (artigoId: string) => string | null,
 ): { slot: PtSlot; lane: string } | null {
-  const tec1 = (s: PtSlot) => s.materiais.find((m) => m.tipo === "tecido" && Number(m.numero) === 1)?.artigo_id ?? null;
-  const a0 = tec1(prev), a1 = tec1(next);
+  const a0 = artigoTecido1Do(prev), a1 = artigoTecido1Do(next);
   if (!a1 || a1 === a0) return null;                        // sem tecido novo / mesmo artigo
   const fam = familiaDoArtigo(a1);
   if (!fam || (next.categoria_tecido_id ?? null) === fam) return null; // sem família / já lá
   return { slot: { ...next, categoria_tecido_id: fam }, lane: fam };
+}
+
+/**
+ * Bug "lane congelada" (ago/2026): `categoria_tecido_id` do slot é PERSISTIDA e o merge faz o
+ * SALVO vencer o vivo do cadastro (linha 357 acima) — se o cadastro do artigo é corrigido DEPOIS
+ * de salvar (ex.: Malha Begônia FORRO→MALHA), o card fica preso na categoria antiga pra sempre
+ * (o "manual salvo vence" do merge não distingue "usuário arrastou de propósito" de "isso era só
+ * o auto do seed quando salvou"). Fix: ANTES de enviar o payload do save, normaliza pra NULL a
+ * categoria de todo slot COM Tecido 1 resolvível cuja `categoria_tecido_id` bate com a categoria
+ * AUTO desse mesmo Tecido 1 (mesma fonte de `moverParaFamiliaDoTecido`/artigoTecido1Do) — um
+ * slot com NULL auto-preenche do vivo no merge (comportamento já existente), então a lane volta
+ * a SEGUIR o cadastro; só um arraste manual pra uma lane DIFERENTE da auto persiste de verdade.
+ * Slot sem Tecido 1 resolvível (sem modelo/sem tecido/artigo sem família) não tem "auto" — não
+ * mexe. PURA: não muta a árvore recebida, retorna uma cópia; usada só no payload do save, nunca
+ * no estado local (o usuário não deve ver a lane "piscar" pra null na tela).
+ */
+export function normalizarCategoriasAuto(arvore: PtArvore, categoriaAutoDoArtigo: (artigoId: string) => string | null): PtArvore {
+  return {
+    ...arvore,
+    subcolecoes: arvore.subcolecoes.map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((ln) => ({
+        ...ln,
+        slots: ln.slots.map((slot) => {
+          const artigoId = artigoTecido1Do(slot);
+          if (!artigoId) return slot; // sem Tecido 1 resolvível → sem "auto", não mexe
+          const auto = categoriaAutoDoArtigo(artigoId);
+          if (!auto || (slot.categoria_tecido_id ?? null) !== auto) return slot; // sem família / já diverge (manual de verdade)
+          return { ...slot, categoria_tecido_id: null };
+        }),
+      })),
+    })),
+  };
 }
 
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {

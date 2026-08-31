@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, type ModeloReal } from "@/lib/plan-tecido/engine";
-import type { PtSlot } from "@/lib/plan-tecido/types";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type ModeloReal } from "@/lib/plan-tecido/engine";
+import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -647,6 +647,74 @@ describe("plan-tecido/engine", () => {
       const prev = slot([mat({ artigo_id: "A" })]);
       const next = slot([mat({ artigo_id: null })]);
       expect(moverParaFamiliaDoTecido(prev, next, familiaDe({ A: "FAM_A" }))).toBeNull();
+    });
+  });
+
+  // Fix "lane congelada" (ago/2026): normaliza categoria_tecido_id=NULL no payload do save quando
+  // ela bate com a auto do Tecido 1 — assim o merge (categoria_tecido_id: saved ?? seed-auto)
+  // reaplica o cadastro vivo em vez de congelar no valor salvo antigo.
+  describe("normalizarCategoriasAuto (bug lane congelada)", () => {
+    const mat = (over: Record<string, unknown>) =>
+      ({ artigo_id: null, tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [], ...over });
+    const arvoreDe = (slots: PtSlot[]): PtArvore => ({
+      colecao_id: "c",
+      subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0, slots }] }],
+    });
+    const familiaDe = (fam: Record<string, string | null>) => (id: string) => fam[id] ?? null;
+
+    it("categoria salva === auto do Tecido 1 → normaliza pra NULL", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: "FAM_MALHA", materiais: [mat({ artigo_id: "A" })] } as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({ A: "FAM_MALHA" }));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBeNull();
+    });
+
+    it("categoria salva DIVERGE da auto (arraste manual do usuário) → preservada", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: "FAM_FORRO_MANUAL", materiais: [mat({ artigo_id: "A" })] } as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({ A: "FAM_MALHA" }));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("FAM_FORRO_MANUAL");
+    });
+
+    it("slot SEM modelo (rascunho, sem Tecido 1) → não mexe mesmo com categoria setada", () => {
+      const slot = { modelo_id: null, categoria_tecido_id: "CAT_X", materiais: [] } as unknown as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({}));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("CAT_X");
+    });
+
+    it("Tecido 1 sem artigo_id (vazio) → não mexe", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: "CAT_X", materiais: [mat({ artigo_id: null })] } as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({}));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("CAT_X");
+    });
+
+    it("artigo do Tecido 1 sem família cadastrada → não mexe (sem 'auto' pra comparar)", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: "CAT_X", materiais: [mat({ artigo_id: "SEM_FAMILIA" })] } as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({}));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("CAT_X");
+    });
+
+    it("categoria já NULL + auto existe → segue NULL (idempotente, sem no-op quebrar nada)", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: null, materiais: [mat({ artigo_id: "A" })] } as PtSlot;
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({ A: "FAM_MALHA" }));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBeNull();
+    });
+
+    it("Forro (não Tecido 1) com categoria batendo a família do FORRO não é tocado — só Tecido 1 decide o 'auto'", () => {
+      const slot = {
+        modelo_id: "m1", categoria_tecido_id: "FAM_FORRO",
+        materiais: [mat({ artigo_id: "A" }), mat({ tipo: "forro" as const, numero: 1, artigo_id: "F" })],
+      } as PtSlot;
+      // família do Tecido 1 (A) é FAM_MALHA — diferente da categoria salva (FAM_FORRO, que bateria
+      // com o forro F se o forro fosse (erroneamente) considerado) → PRESERVADA (não é o auto certo).
+      const out = normalizarCategoriasAuto(arvoreDe([slot]), familiaDe({ A: "FAM_MALHA", F: "FAM_FORRO" }));
+      expect(out.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("FAM_FORRO");
+    });
+
+    it("não muta a árvore original (pura) — estado local intacto pra não 'piscar' na tela", () => {
+      const slot = { modelo_id: "m1", categoria_tecido_id: "FAM_MALHA", materiais: [mat({ artigo_id: "A" })] } as PtSlot;
+      const original = arvoreDe([slot]);
+      const snapshotCategoria = original.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id;
+      normalizarCategoriasAuto(original, familiaDe({ A: "FAM_MALHA" }));
+      expect(original.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe(snapshotCategoria);
     });
   });
 });
