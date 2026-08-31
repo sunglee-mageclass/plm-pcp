@@ -63,6 +63,7 @@ type LancCard = {
   subcategoria1_id: string | null;
   subcategoria1_nome: string | null;
   conjunto_id: string | null;
+  origem: string | null;
   versao: number;
   fotos_modelo: string[];
   variantes: VarInfo[];
@@ -92,6 +93,7 @@ function LancamentosPage() {
   const [fGrupo, setFGrupo] = useFilterState("lancamentos", "Grupo", []);
   const [fRep, setFRep] = useFilterState("lancamentos", "Repetição", []);
   const [fSemana, setFSemana] = useFilterState("lancamentos", "Lançamento nº", []);
+  const [fOrigem, setFOrigem] = useFilterState("lancamentos", "Origem", []);
   const [fDe, setFDe] = useState(""); // data de lançamento — início do período
   const [fAte, setFAte] = useState(""); // data de lançamento — fim do período
   const [groupByCat, setGroupByCat] = useState(false);
@@ -114,7 +116,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
+        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, origem, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -199,6 +201,7 @@ function LancamentosPage() {
           subcategoria1_nome: (m as any).subcategorias1_produto?.nome ?? null,
           versao: Number(m.versao ?? 1),
           conjunto_id: (m as { conjunto_id?: string | null }).conjunto_id ?? null,
+          origem: m.origem ?? null,
           fotos_modelo: Array.isArray(m.fotos_modelo) ? m.fotos_modelo : [],
           variantes,
           gradeTotal,
@@ -255,16 +258,17 @@ function LancamentosPage() {
     if (fDe && (!c.data_lancamento || c.data_lancamento < fDe)) return false;
     if (fAte && (!c.data_lancamento || c.data_lancamento > fAte)) return false;
     if (fRep.length && !fRep.some((v) => (v === "rep" ? (c.versao ?? 1) > 1 : v === "uni" ? (c.versao ?? 1) <= 1 : false))) return false;
+    if (fOrigem.length && !fOrigem.includes(c.origem ?? "interno")) return false;
     return true;
   });
 
   // Badge de filtros ativos = multi-selects com ≥1 marcado + o Período (De/Até) como 1.
   const filtroCount =
-    [fGrupo, fColecao, fSubcolecao, fCat, fSub1, fLinha, fMes, fAno, fSemana, fRep].filter((v) => v.length > 0).length +
+    [fGrupo, fColecao, fSubcolecao, fCat, fSub1, fLinha, fMes, fAno, fSemana, fRep, fOrigem].filter((v) => v.length > 0).length +
     (fDe || fAte ? 1 : 0);
   const limparFiltros = () => {
     setFGrupo([]); setFColecao([]); setFSubcolecao([]); setFCat([]); setFSub1([]);
-    setFLinha([]); setFMes([]); setFAno([]); setFSemana([]); setFRep([]);
+    setFLinha([]); setFMes([]); setFAno([]); setFSemana([]); setFRep([]); setFOrigem([]);
     setFDe(""); setFAte("");
   };
 
@@ -457,6 +461,10 @@ function LancamentosPage() {
               { label: "Ano", value: fAno, onChange: setFAno, options: (anos as any[]).map((a) => ({ id: a.id, nome: a.nome })) },
               { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n })) },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
+                { id: "interno", nome: "Interno" },
+                { id: "revenda", nome: "Revenda" },
+              ] },
             ]}
           >
             {/* Período de lançamento (data_lancamento). Renderizado abaixo dos dropdowns. */}
