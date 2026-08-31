@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical } from "lucide-react";
+import { Store, Plus, Trash2, Search, Loader2, Lock, GripVertical, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -190,15 +190,25 @@ function LojasPage() {
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="space-y-1">
         <Breadcrumb items={[{ label: "Cadastro" }, { label: "Lojas" }]} />
-        <div className="flex items-start gap-3">
-          <Store className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-          <div>
-            <h1 className="font-display text-xl font-semibold tracking-tight">Lojas</h1>
-            <p className="text-sm text-muted-foreground">
-              Destinos do Direcionamento (ex.: E-commerce, Loja Física, franquias).
-              Arraste para reordenar; edite nome e status direto na lista.
-            </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Store className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+            <div>
+              <h1 className="font-display text-xl font-semibold tracking-tight">Lojas</h1>
+              <p className="text-sm text-muted-foreground">
+                Destinos do Direcionamento (ex.: E-commerce, Loja Física, franquias).
+                Arraste para reordenar; edite nome e status direto na lista.
+              </p>
+            </div>
           </div>
+          {!readOnly && (
+            <Button
+              className="shrink-0 max-sm:hidden"
+              onClick={() => { setNovoNome(""); setAddOpen(true); }}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Adicionar loja
+            </Button>
+          )}
         </div>
       </header>
 
@@ -276,16 +286,6 @@ function LojasPage() {
         </Table>
       </div>
 
-      {!readOnly && (
-        <Button
-          variant="outline"
-          className="w-full max-sm:hidden"
-          onClick={() => { setNovoNome(""); setAddOpen(true); }}
-        >
-          <Plus className="h-4 w-4 mr-1" /> Adicionar loja
-        </Button>
-      )}
-
       <div className="text-xs text-muted-foreground">
         <Badge variant="secondary">{filtered.length}</Badge> loja(s)
       </div>
@@ -343,13 +343,21 @@ function LojasPage() {
               }}
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={createMut.isPending}>
-              Cancelar
+          <DialogFooter className="max-sm:flex-row max-sm:justify-start max-sm:space-x-2">
+            <Button
+              variant="outline"
+              onClick={() => setAddOpen(false)}
+              disabled={createMut.isPending}
+              aria-label="Cancelar"
+              className="max-sm:aspect-square max-sm:px-0"
+            >
+              <ArrowLeft className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">Cancelar</span>
             </Button>
             <Button
               onClick={() => createMut.mutate()}
               disabled={!novoNome.trim() || createMut.isPending}
+              className="max-sm:flex-1"
             >
               {createMut.isPending ? "Criando…" : "Criar"}
             </Button>
