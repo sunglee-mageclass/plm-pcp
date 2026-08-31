@@ -38,6 +38,7 @@ function DirListPage() {
   const [fAno, setFAno] = useFilterState("direcionamento", "Ano", []);
   const [fLinha, setFLinha] = useFilterState("direcionamento", "Linha", []);
   const [fStatus, setFStatus] = useFilterState("direcionamento", "Status", []);
+  const [fOrigem, setFOrigem] = useFilterState("direcionamento", "Origem", []);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["dir-list"],
@@ -50,7 +51,7 @@ function DirListPage() {
       // linha). `cqLiberado` no filtro abaixo segue igual pros dois casos.
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -64,6 +65,7 @@ function DirListPage() {
           fotos_modelo: m.fotos_modelo, desenho_tecnico_url: m.desenho_tecnico_url, croqui_url: m.croqui_url,
           linha_nome: m.linha?.nome ?? null,
           categoria_nome: m.categorias_produto?.nome ?? null,
+          origem: m.origem ?? null,
           dir_status: m.cad?.[0]?.direcionamento_status ?? "pendente",
         }));
     },
@@ -93,6 +95,7 @@ function DirListPage() {
     if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     if (fLinha.length && !fLinha.includes(r.linha_id ?? "")) return false;
     if (fStatus.length && !fStatus.includes(r.dir_status ?? "")) return false;
+    if (fOrigem.length && !fOrigem.includes(r.origem ?? "interno")) return false;
     return true;
   });
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
@@ -121,6 +124,10 @@ function DirListPage() {
               { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
               { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
               { label: fl("linha"), value: fLinha, onChange: setFLinha, options: linhas as any[] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
+                { id: "interno", nome: "Interno" },
+                { id: "revenda", nome: "Revenda" },
+              ] },
             ]}
           />
         </div>
