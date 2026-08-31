@@ -274,7 +274,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     setDirty(false);
     onClose();
   }, [onClose]);
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
+  const { requestClose, requestAction, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtiva, setSubAtiva] = useState(0);
   const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
@@ -947,6 +947,26 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     catch { return false; }
   };
 
+  // Guarda por-subcoleção (ago/2026): "Descartar" ao trocar/sair de subcoleção precisa REVERTER
+  // a árvore ao último SALVO antes de navegar. Diferente do Produto Acabado (sem colab), aqui NÃO
+  // dá pra simplesmente refetchar `["plan-tecido-arvore", colecaoId]` — a `arvore` em tela não é
+  // o dado cru do servidor, é `mergeArvore(semearComModelos(seed), salvo)` (ver `computeFreshArvore`
+  // acima); refazer esse merge do zero recomputaria a MESMA coisa que já está em `planBaseRef.current`
+  // (mantido em dia pelo effect de reconciliação — L718-757 — a cada `salvo`/seed novo enquanto
+  // limpo, e no `onSuccess` do save). `planBaseRef.current` É o "último salvo" já resolvido: reusar
+  // ele evita um refetch supérfluo e, mais importante, evita mexer em `revRef`/`plan_rev` (que só
+  // deve avançar por um save de verdade ou pela reconciliação P0409 — reverter não é nenhum dos
+  // dois). Limpa também `touchedSlotIdsRef`/conflitos de slot pendentes (eram do trecho descartado).
+  // No-op quando limpo (`planBaseRef.current` já é igual à `arvore` atual nesse caso).
+  const reverterArvore = useCallback(() => {
+    if (!planBaseRef.current) return;
+    setArvore(planBaseRef.current);
+    setDirty(false);
+    touchedSlotIdsRef.current = new Set();
+    conflitosSlotRef.current = [];
+    setConflitosSlot([]);
+    setUltimoMergeSlot(null);
+  }, []);
 
   // Colab: rastreia os slots que EU editei (diff por id, mesmo padrão do setItemsTracked do OC
   // Tecido) — `patch` é o ÚNICO funil de escrita local (drag, aplicar em massa, categoria,
@@ -1298,6 +1318,20 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   }, [arvore, subInicial]);
 
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
+  // Guarda por-subcoleção (ago/2026): sujo → mesmo AlertDialog "Descartar alterações?" de sempre;
+  // "Descartar" reverte a árvore ao último salvo (`reverterArvore`) e SÓ ENTÃO navega. Limpo →
+  // `requestAction` chama a navegação direto (comportamento de sempre).
+  const irParaSubcolecoesGuarded = () => requestAction(() => { reverterArvore(); irParaSubcolecoes(); });
+  const abrirSubGuarded = (si: number, subcolecaoId: string | null) =>
+    requestAction(() => {
+      reverterArvore();
+      setSubAtiva(si);
+      setCatFilter(null);
+      setSelecao(new Set());
+      setRecolhidos(new Set());
+      setView("canvas");
+      onSubChange?.(subcolecaoId ?? "none");
+    });
   const chipCls = (active: boolean) =>
     `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary"}`;
 
@@ -1309,7 +1343,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
             <Breadcrumb items={[
               { label: "Estilo & Engenharia" },
               { label: "Plan. Tecido", onClick: requestClose },
-              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
+              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoesGuarded : undefined },
               ...(view === "canvas" && subAtual ? [{ label: nameOf(subNomes, subAtual.subcolecao_id) ?? "Sem subcoleção" }] : []),
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
@@ -1384,7 +1418,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 return (
                   <button key={sub.id ?? si} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
-                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); onSubChange?.(sub.subcolecao_id ?? "none"); }}>
+                    onClick={() => abrirSubGuarded(si, sub.subcolecao_id)}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
                       {status && <StatusBadge tone={status.green ? "success" : "warning"} className="shrink-0 rounded-full px-2 py-0.5 text-[11px] normal-case tracking-normal">{status.txt}</StatusBadge>}
@@ -1647,7 +1681,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
             "Fazer pedido"). Único caminho agora; `handleAbrirPrevia`/`previaLoading` (que só esse
             botão usava) foram removidos junto. */}
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoes() : requestClose())}>
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoesGuarded() : requestClose())}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
