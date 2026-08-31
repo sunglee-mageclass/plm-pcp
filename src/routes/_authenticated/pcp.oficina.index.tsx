@@ -99,7 +99,7 @@ function OficinaListPage() {
       </header>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
+        <table className="w-full text-sm card-table card-table-keep">
           <thead className="bg-muted/50 text-left">
             <tr>
               <SortTh label={fl("ref")} sortKey="ref" sortState={s} className="px-4 py-2" />

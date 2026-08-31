@@ -343,7 +343,7 @@ function ColecaoTab() {
         <Card className="p-4">
           <h3 className="font-semibold mb-3">Detalhe por linha</h3>
           <div className="overflow-auto max-h-[360px]">
-            <table className="w-full text-sm card-table">
+            <table className="w-full text-sm card-table card-table-keep">
               <thead className="text-left text-muted-foreground sticky top-0 bg-card">
                 <tr className="border-b">
                   <SortTh label="Linha" sortKey="nome" sortState={linhaSort} className="py-2 pr-3" />

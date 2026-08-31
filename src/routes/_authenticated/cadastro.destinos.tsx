@@ -133,7 +133,7 @@ function DestinosPage() {
       </div>
 
       <div className="rounded-lg border">
-        <Table className="card-table">
+        <Table className="card-table card-table-keep">
           <TableHeader>
             <TableRow>
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />

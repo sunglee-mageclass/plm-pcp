@@ -505,3 +505,19 @@
     grid-column: 3; grid-row: 2; justify-self: end; text-align: right;
   }
 }
+
+/* Opt-out do modo card só na faixa 768-1023 (tablet/desktop-estreito): estas tabelas
+   são estreitas o bastante p/ caber como TABELA; viram card à toa (só scroll vertical).
+   Abaixo de 768 (celular) o modo card do bloco base .card-table continua valendo. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  table.card-table-keep thead { display: table-header-group; }
+  table.card-table-keep,
+  table.card-table-keep > tbody { display: table; width: 100%; }
+  table.card-table-keep > tbody > tr {
+    display: table-row; border: 0; border-radius: 0; padding: 0; margin: 0; background: none;
+  }
+  table.card-table-keep > tbody > tr > td {
+    display: table-cell; text-align: initial; white-space: normal; padding: revert;
+  }
+  table.card-table-keep > tbody > tr > td::before { content: none; }
+}
