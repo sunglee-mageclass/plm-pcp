@@ -340,7 +340,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     });
     onClose();
   }, [drafts, onClose]);
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
+  const { requestClose, requestAction, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
 
   const marcarProdutoLimpo = (p: ProdutoDraft) => setBaseline((b) => ({ ...b, [p.id]: JSON.stringify(chaveDirty(p)) }));
 
@@ -351,6 +351,24 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosQuery.data, drafts]);
+
+  // Guarda por-subcoleção (ago/2026): "Descartar" ao trocar/sair de subcoleção precisa REVERTER
+  // os drafts ao último SALVO antes de navegar — sem isso o usuário voltaria a ver a MESMA
+  // edição pendente (ela mora em `drafts`, que sobrevive à troca de view/sub). Reidrata pelo
+  // MESMO caminho do load inicial (efeito acima, `produtosQuery.data` → `setDrafts`/`setBaseline`):
+  // `refetchQueries` + `getQueryData` na MESMA queryKey da `produtosQuery` (mesmo padrão do
+  // retry P0409 em `PlanTecidoSheet.tsx`) força o servidor a responder de novo e substitui
+  // `drafts`/`baseline` pelo resultado fresco. No-op quando limpo (o servidor devolve os MESMOS
+  // dados que já estão em `drafts`) — seguro chamar sempre; quem decide SE reverte é o
+  // `requestAction` (só roda a ação no discard, ou direto quando já estava limpo — nesse caso
+  // não há edição a perder).
+  const reverterDrafts = useCallback(async () => {
+    await qc.refetchQueries({ queryKey: ["produtos-acabados", colecaoId] });
+    const fresh = qc.getQueryData<ProdutoDraft[]>(["produtos-acabados", colecaoId]);
+    if (!fresh) return;
+    setDrafts(fresh);
+    setBaseline(Object.fromEntries(fresh.map((p) => [p.id, JSON.stringify(chaveDirty(p))])));
+  }, [qc, colecaoId]);
 
   // Resolve a subcoleção da URL (deep-link) uma vez, assim que a lista carregar.
   useEffect(() => {
@@ -421,6 +439,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     setView("canvas");
     onSubChange?.(sub.id ?? "none");
   };
+
+  // Guarda por-subcoleção (ago/2026): embrulham `irParaSubcolecoes`/`abrirCanvasDe` com
+  // `requestAction` — limpo, navega direto (mesmo comportamento de sempre); sujo, mostra o MESMO
+  // AlertDialog "Descartar alterações?" já usado ao fechar o Sheet; "Descartar" reverte os drafts
+  // ao último salvo (`reverterDrafts`) e SÓ ENTÃO navega.
+  const irParaSubcolecoesGuarded = () => requestAction(() => { void reverterDrafts(); irParaSubcolecoes(); });
+  const abrirCanvasDeGuarded = (sub: { id: string | null; nome: string | null }) =>
+    requestAction(() => { void reverterDrafts(); abrirCanvasDe(sub); });
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
   // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
@@ -496,7 +522,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             <Breadcrumb items={[
               { label: "Estilo & Engenharia" },
               { label: "Produto Acabado", onClick: requestClose },
-              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
+              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoesGuarded : undefined },
               ...(view === "canvas" && subAtual ? [{ label: subAtual.nome ?? "Sem subcoleção" }] : []),
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
@@ -522,7 +548,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 return (
                   <button key={sub.id ?? `__sem__${i}`} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
-                    onClick={() => abrirCanvasDe(sub)}>
+                    onClick={() => abrirCanvasDeGuarded(sub)}>
                     <div className="font-medium">{sub.nome ?? "Sem subcoleção"}</div>
                     <div className="text-xs text-muted-foreground">
                       {/* Item 2 do refino (FIX: comprometido é da subcoleção INTEIRA — manufaturados
@@ -668,7 +694,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         )}
 
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoes() : requestClose())}>
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoesGuarded() : requestClose())}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
