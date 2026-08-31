@@ -414,9 +414,10 @@ function EtiquetasPage() {
                   onClick={() => openEdit(e)}
                 >
                   {/* Desktop: checkbox em coluna própria. Mobile (modo card): a td do checkbox some
-                      (max-md:hidden) e o checkbox entra na linha do NOME (abaixo), lado a lado. */}
+                      e o checkbox entra na linha do NOME, lado a lado. ⚠️ precisa `!hidden` (important):
+                      a regra .card-table força `td{display:flex}` (esp. 0,1,3) e venceria um `hidden` simples. */}
                   {isAdmin && (
-                    <TableCell className="w-10 max-md:hidden" data-label="" onClick={(ev) => ev.stopPropagation()}>
+                    <TableCell className="w-10 max-md:!hidden" data-label="" onClick={(ev) => ev.stopPropagation()}>
                       {!readOnly && <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />}
                     </TableCell>
                   )}
