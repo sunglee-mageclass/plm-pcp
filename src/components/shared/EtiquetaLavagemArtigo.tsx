@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Upload, Trash2, ImageIcon } from "lucide-react";
+import { Upload, Trash2, ImageIcon, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ImagePreview } from "@/components/shared/ImagePreview";
+import { ImagePreview, AnexoThumbZoom } from "@/components/shared/ImagePreview";
 
 const BUCKET = "oc-tecido";
+
+// O campo aceita PDF além de imagem (accept="image/*,application/pdf") — detecta pelo
+// path pra desviar do <img> (nunca carrega PDF) pro tratamento correto em cada renderizador.
+const isPdfPath = (path: string) => /\.pdf(\?|$)/i.test(path);
+
+/** Nome legível do arquivo a partir do path do storage (remove prefixo uuid-). */
+function nomeArquivo(path: string): string {
+  const base = path.split("/").pop() ?? path;
+  return base.replace(/^[0-9a-f-]{36}-/i, "");
+}
 
 const urlCache = new Map<string, { url: string; exp: number }>();
 
@@ -58,6 +68,11 @@ async function uploadEtiqueta(file: File) {
 }
 
 function Thumb({ path, signed, onRemove }: { path: string; signed?: string; onRemove?: () => void }) {
+  // PDF: <img> nunca carrega esse tipo — delega miniatura+zoom+remover pro AnexoThumbZoom
+  // (já trata PDF via iframe e já embute o botão de remover, então retorna cedo p/ não duplicar).
+  if (isPdfPath(path)) {
+    return <AnexoThumbZoom url={signed} isPdf onRemove={onRemove} />;
+  }
   return (
     <div className="relative group">
       {signed ? (
@@ -118,15 +133,33 @@ export function EtiquetaLavagemArtigoView({
     <div className="space-y-1">
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="flex gap-2 flex-wrap">
-        {urls.map((p) => (
-          <ImagePreview key={p} src={signed[p]} alt="Etiqueta de lavagem">
-            <img
-              src={signed[p]}
-              alt="Etiqueta de lavagem"
-              className={`${dim} object-cover rounded border bg-muted cursor-zoom-in`}
-            />
-          </ImagePreview>
-        ))}
+        {urls.map((p) =>
+          isPdfPath(p) ? (
+            // AnexoThumbZoom é h-20/w-20 fixo — não respeita size="sm" (h-12) usado pelas
+            // 3 telas que consomem esta View (Explosão/CAD/Dev). Pra não quebrar o tamanho
+            // consistente da fileira nem duplicar um segundo componente de miniatura,
+            // usa um link simples com ícone de PDF no MESMO `dim`, nos dois tamanhos.
+            <a
+              key={p}
+              href={signed[p] ?? "#"}
+              target="_blank"
+              rel="noreferrer"
+              title="Abrir etiqueta (PDF)"
+              className={`${dim} rounded border bg-muted flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-accent transition`}
+            >
+              <FileText className={size === "sm" ? "h-4 w-4" : "h-6 w-6"} />
+              <span className="text-[9px] leading-none">PDF</span>
+            </a>
+          ) : (
+            <ImagePreview key={p} src={signed[p]} alt="Etiqueta de lavagem">
+              <img
+                src={signed[p]}
+                alt="Etiqueta de lavagem"
+                className={`${dim} object-cover rounded border bg-muted cursor-zoom-in`}
+              />
+            </ImagePreview>
+          ),
+        )}
       </div>
     </div>
   );
@@ -152,16 +185,40 @@ export function EtiquetaLavagemArtigoPrint({ artigoId }: { artigoId: string | nu
   if (!artigoId || urls.length === 0) return null;
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {urls.map((p) =>
-        signed[p] ? (
+      {urls.map((p) => {
+        if (isPdfPath(p)) {
+          // Nem <iframe> nem <img> renderizam PDF no papel (impressão) — mostra um bloco
+          // honesto com o nome do arquivo em vez de um espaço vazio/quebrado.
+          return (
+            <div
+              key={p}
+              style={{
+                maxHeight: 96,
+                minWidth: 90,
+                maxWidth: 150,
+                padding: "8px 10px",
+                border: "1px solid #ccc",
+                borderRadius: 4,
+                fontSize: 10,
+                lineHeight: 1.3,
+                wordBreak: "break-word",
+              }}
+            >
+              📄 Etiqueta (PDF)
+              <br />
+              {nomeArquivo(p)}
+            </div>
+          );
+        }
+        return signed[p] ? (
           <img
             key={p}
             src={signed[p]}
             alt="Etiqueta de lavagem"
             style={{ maxHeight: 96, maxWidth: 150, height: "auto", width: "auto", objectFit: "contain", border: "1px solid #ccc", borderRadius: 4 }}
           />
-        ) : null,
-      )}
+        ) : null;
+      })}
     </div>
   );
 }
