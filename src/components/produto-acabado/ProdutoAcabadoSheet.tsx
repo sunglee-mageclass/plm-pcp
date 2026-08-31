@@ -495,9 +495,9 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // (categoria/grupo) quanto na sub-seção do modo aninhado (grupo-categoria), sem duplicar o
   // JSX do `ProdutoCard`.
   const renderCardsRow = (itens: ProdutoDraft[]) => (
-    <div className="flex items-start gap-3 overflow-x-auto pb-2">
+    <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
       {itens.map((p) => (
-        <div key={p.id} className="w-[420px] max-md:w-[90vw] shrink-0">
+        <div key={p.id} className="w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start">
           <ProdutoCard
             produto={p}
             onChange={changeProduto}
@@ -686,14 +686,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                         <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
                         <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{vagasAtual} vaga(s)</span>
                       </div>
-                      <div className="flex items-start gap-3 overflow-x-auto pb-2">
+                      <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
                         {Array.from({ length: vagasAtual }, (_, i) => (
                           <button
                             key={i}
                             type="button"
                             onClick={() => setNovoOpen(true)}
                             title="Criar um novo produto nesta vaga"
-                            className="flex h-24 w-[420px] max-md:w-[90vw] shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
+                            className="flex h-24 w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
                           >
                             <Plus className="h-5 w-5" />
                             <span className="text-xs font-medium">Novo produto</span>
