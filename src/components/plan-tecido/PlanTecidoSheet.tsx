@@ -282,7 +282,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   // G6 (criar em massa) / G5 (pedido por seleção) — confirmação e progresso das 2 ações novas
   // da barra de seleção.
-  const [criarCardsConfirm, setCriarCardsConfirm] = useState<{ elegiveis: string[]; pulados: string[] } | null>(null);
+  const [criarCardsConfirm, setCriarCardsConfirm] = useState<{ elegiveis: string[]; pulados: string[]; semDados: number } | null>(null);
   const [criandoCards, setCriandoCards] = useState(false);
   const [pedidoSelecaoConfirm, setPedidoSelecaoConfirm] = useState<{ compraveis: string[]; comprados: string[] } | null>(null);
   const [preparandoPedidoSelecao, setPreparandoPedidoSelecao] = useState(false);
@@ -1071,17 +1071,20 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     return out;
   };
 
-  // G6: "Criar cards" na barra de seleção — separa elegíveis (podeCriarCard, !modelo_id) dos já
-  // materializados (modelo_id != null) e abre o AlertDialog de confirmação (pula os já-feitos).
+  // G6: "Criar cards" na barra de seleção — separa em 3 baldes: elegíveis (podeCriarCard,
+  // !modelo_id), já materializados (modelo_id != null) e sem dados suficientes (!modelo_id mas
+  // falha podeCriarCard — sem nome/categoria/tecido). Os 3 juntos cobrem a seleção inteira; o
+  // 3º balde só entra na contagem do aviso (não bloqueia os elegíveis).
   function handleCriarCardsClick() {
     const itens = slotsDaSelecao();
     const elegiveis = itens.filter((it) => podeCriarCard(it.slot)).map((it) => it.slot.id!).filter(Boolean);
     const pulados = itens.filter((it) => !!it.slot.modelo_id).map((it) => it.slot.nome ?? it.slot.ref ?? "Modelo");
+    const semDados = itens.filter((it) => !it.slot.modelo_id && !podeCriarCard(it.slot)).length;
     if (elegiveis.length === 0 && pulados.length === 0) {
       toast.error("Nenhum dos selecionados tem dados suficientes (nome, categoria ou tecido) para criar o card.");
       return;
     }
-    setCriarCardsConfirm({ elegiveis, pulados });
+    setCriarCardsConfirm({ elegiveis, pulados, semDados });
   }
 
   // Confirmado: monta o payload em lote (mesmo shape que o antigo `criarCard` de 1 montava) →
@@ -1123,7 +1126,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         }
       }
       invalidarModeloLote(criados.map((c) => c.modelo_id));
-      toast.success(`${criados.length} criado(s)${conf.pulados.length > 0 ? ` · ${conf.pulados.length} pulado(s) (já materializado)` : ""}.`);
+      toast.success(`${criados.length} criado(s)${conf.pulados.length > 0 ? ` · ${conf.pulados.length} pulado(s) (já materializado)` : ""}${conf.semDados > 0 ? ` · ${conf.semDados} sem dados (fora)` : ""}.`);
     } catch (e) {
       toast.error(mensagemErro(e, "Não foi possível criar os cards."));
     } finally {
@@ -1728,15 +1731,20 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         </AlertDialog>
 
 
-        {/* G6: confirma "Criar cards" da seleção — avisa quantos serão pulados (já materializados). */}
+        {/* G6: confirma "Criar cards" da seleção — avisa quantos serão pulados (já materializados)
+            e quantos ficam de fora por falta de dados (nem entram nos elegíveis nem nos pulados). */}
         <AlertDialog open={!!criarCardsConfirm} onOpenChange={(o) => { if (!o) setCriarCardsConfirm(null); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Criar {criarCardsConfirm?.elegiveis.length ?? 0} card(s) no Planejamento?</AlertDialogTitle>
               <AlertDialogDescription>
-                {(criarCardsConfirm?.pulados.length ?? 0) > 0
-                  ? <>{criarCardsConfirm?.pulados.length} já criado(s) serão pulados: {criarCardsConfirm?.pulados.join(", ")}.</>
-                  : "Todos os selecionados serão criados."}
+                {(criarCardsConfirm?.pulados.length ?? 0) > 0 &&
+                  <>{criarCardsConfirm?.pulados.length} já criado(s) serão pulados: {criarCardsConfirm?.pulados.join(", ")}. </>}
+                {(criarCardsConfirm?.semDados ?? 0) > 0 &&
+                  <>{criarCardsConfirm?.semDados} card{(criarCardsConfirm?.semDados ?? 0) > 1 ? "s" : ""} sem dados
+                  {" "}(nome, categoria ou tecido) ficará{(criarCardsConfirm?.semDados ?? 0) > 1 ? "ão" : ""} de fora. </>}
+                {(criarCardsConfirm?.pulados.length ?? 0) === 0 && (criarCardsConfirm?.semDados ?? 0) === 0 &&
+                  "Todos os selecionados serão criados."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
