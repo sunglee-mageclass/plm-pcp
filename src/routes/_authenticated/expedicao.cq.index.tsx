@@ -36,6 +36,7 @@ function CqListPage() {
   const [fMes, setFMes] = useFilterState("cq", "Mês", []);
   const [fAno, setFAno] = useFilterState("cq", "Ano", []);
   const [fStatus, setFStatus] = useFilterState("cq", "Status", []);
+  const [fOrigem, setFOrigem] = useFilterState("cq", "Origem", []);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cq-list"],
@@ -116,6 +117,7 @@ function CqListPage() {
     if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
     if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
     if (fStatus.length && !fStatus.includes(r.statusGeral ?? "")) return false;
+    if (fOrigem.length && !fOrigem.includes(r.origem ?? "interno")) return false;
     return true;
   });
 
@@ -147,6 +149,10 @@ function CqListPage() {
                 { id: "pendente", nome: "Pendente" },
                 { id: "pre_confirmado", nome: "Pré confirmado" },
                 { id: "confirmado", nome: "Confirmado" },
+              ] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
+                { id: "interno", nome: "Interno" },
+                { id: "revenda", nome: "Revenda" },
               ] },
             ]}
           />
