@@ -96,8 +96,13 @@ const DialogBody = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement
 DialogBody.displayName = "DialogBody";
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  // Padrão do sistema: botões SEMPRE lado a lado (mobile inclusive) — Voltar/Cancelar
+  // à esquerda, ação primária à direita (via `ml-auto` no call-site). `flex-wrap` deixa
+  // footers com muitos botões quebrarem em vez de estourar a borda. NÃO usar
+  // `flex-col-reverse` (empilhava no mobile — provado em 360px). `gap-2` no lugar de
+  // `space-x-2` p/ funcionar com o wrap.
   <div
-    className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
+    className={cn("flex flex-row flex-wrap items-center gap-2 sm:justify-end", className)}
     {...props}
   />
 );
