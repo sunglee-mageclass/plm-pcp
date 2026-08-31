@@ -71,8 +71,80 @@ type AuditRow = {
   dados: Record<string, { de: unknown; para: unknown }> | null; created_at: string;
 };
 
-const fmtVal = (v: unknown) =>
-  v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v);
+// ── Legibilidade do diff (ago/2026): UUID→nome, fotos, arrays ──────────────
+// O audit guarda valores CRUS. Sem tratamento a tela mostra UUID
+// ("Estilista: — → 301cb509-…"), path de storage e JSON — indecifrável.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Campos que o RPC audit_resolver_referencias sabe resolver (FK → nome). Os de
+// array (tecidos_planejados) são achatados item a item. Mantido em sincronia com
+// o _map do RPC (migration 20260831190000).
+const CAMPOS_FK = new Set([
+  "estilista_id", "modelista_id", "piloteiro1_id", "piloteiro2_id", "piloteiro3_id",
+  "recebimento_responsavel_id", "linha_id", "subcategoria1_id", "subcategoria2_id",
+  "categoria_principal_id", "categoria_secundaria_id", "categoria_tecido_id",
+  "categoria_aviamento_id", "subcategoria_aviamento_id", "colecao_id", "cor_id",
+  "cor_apelido_id", "empresa_id", "representante_id", "material_aviamento_id",
+  "conjunto_id", "mes_id", "ano_id", "tecidos_planejados",
+]);
+
+// Campos que guardam path(s) de storage — mostrar rótulo amigável, nunca o path.
+const CAMPOS_FOTO = new Set([
+  "croqui_url", "desenho_tecnico_url", "logo_url", "foto_url", "anexo_pedido_url",
+  "comprovante_url", "nf_url", "fotos_modelo", "fotos_referencia",
+  "etiqueta_lavagem_urls", "nfs", "nf_historico", "fotografado_variantes",
+]);
+
+// Ruído técnico — não mostrar no diff (decisão do dono: só ruído puro).
+const CAMPOS_OCULTOS = new Set(["tenant_id", "rev", "ref_auto"]);
+const ehCampoOculto = (k: string) => CAMPOS_OCULTOS.has(k) || /_at$/.test(k);
+
+// Coleta os pares {campo, id} de UUID (escalar OU dentro de array) de um diff,
+// só p/ campos FK — alimenta a chamada única do RPC por página.
+function coletarPares(dados: Record<string, { de: unknown; para: unknown }>): { campo: string; id: string }[] {
+  const out: { campo: string; id: string }[] = [];
+  for (const [campo, d] of Object.entries(dados)) {
+    if (!CAMPOS_FK.has(campo)) continue;
+    for (const v of [d?.de, d?.para]) {
+      if (typeof v === "string" && UUID_RE.test(v)) out.push({ campo, id: v });
+      else if (Array.isArray(v)) for (const it of v) if (typeof it === "string" && UUID_RE.test(it)) out.push({ campo, id: it });
+    }
+  }
+  return out;
+}
+
+// Um valor cru → texto legível. `nomes` = mapa UUID→nome do RPC.
+function valLegivel(campo: string, v: unknown, nomes: Record<string, string>): string {
+  if (v === null || v === undefined || v === "") return "—";
+
+  // Fotos / arquivos: nunca mostrar path.
+  if (CAMPOS_FOTO.has(campo)) {
+    if (Array.isArray(v)) return v.length === 0 ? "—" : `📷 ${v.length} arquivo(s)`;
+    return "📷 Arquivo";
+  }
+
+  // Array: FK → nomes; senão → contagem.
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "—";
+    if (CAMPOS_FK.has(campo)) {
+      const labels = v.map((it) => (typeof it === "string" && nomes[it]) || (typeof it === "string" && UUID_RE.test(it) ? "(removido)" : String(it)));
+      return labels.join(", ");
+    }
+    return `${v.length} item(s)`;
+  }
+
+  // Objeto (JSON) → contagem de chaves (ininteligível cru).
+  if (typeof v === "object") {
+    const n = Object.keys(v as object).length;
+    return n ? `${n} item(s)` : "—";
+  }
+
+  // Escalar: UUID de FK → nome; senão o próprio valor.
+  const s = String(v);
+  if (CAMPOS_FK.has(campo) && UUID_RE.test(s)) return nomes[s] ?? "(removido)";
+  return s;
+}
 
 // Filtro de data no FUSO DA LOJA (created_at é timestamptz; string crua era lida em UTC →
 // perdia eventos do fim do dia local). Converte o início do dia local para instante UTC.
@@ -141,6 +213,29 @@ function AuditoriaPage() {
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE));
+
+  // Resolve os UUID de FK (escalar ou em array) de TODA a página → nome, numa
+  // única chamada ao RPC. Fallback = "(removido)" p/ registro apagado.
+  const { data: nomes = {} } = useQuery({
+    queryKey: ["audit-nomes", rows.map((r) => r.id).join(",")],
+    enabled: rows.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const pares = rows.flatMap((r) => (r.dados ? coletarPares(r.dados) : []));
+      if (pares.length === 0) return {};
+      // dedup
+      const seen = new Set<string>();
+      const uniq = pares.filter((p) => {
+        const k = `${p.campo}|${p.id}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      const { data, error } = await supabase.rpc("audit_resolver_referencias" as any, { _pares: uniq });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, string>;
+    },
+  });
 
   if (loading) return null;
   if (!isSuperAdmin && !isTenantAdmin) return <Navigate to="/" replace />;
@@ -234,7 +329,9 @@ function AuditoriaPage() {
         ) : (
           rows.map((r) => {
             const meta = ACAO_META[r.acao] ?? { label: r.acao, tone: "neutral" as StatusTone };
-            const temDiff = r.dados && Object.keys(r.dados).length > 0;
+            // Campos visíveis = todos menos o ruído técnico (tenant_id, rev, ref_auto, *_at).
+            const campos = r.dados ? Object.entries(r.dados).filter(([k]) => !ehCampoOculto(k)) : [];
+            const temDiff = campos.length > 0;
             const open = expanded === r.id;
             const head = (
               <>
@@ -243,7 +340,7 @@ function AuditoriaPage() {
                   <div className="line-clamp-2 text-sm font-medium">{r.descricao ?? `${meta.label} ${r.entidade}`}</div>
                   <div className="text-xs text-muted-foreground">
                     {r.user_nome ?? "—"} · {format(parseISO(r.created_at), "dd/MM/yyyy HH:mm")}
-                    {temDiff ? ` · ${Object.keys(r.dados!).length} campo(s)` : ""}
+                    {temDiff ? ` · ${campos.length} campo(s)` : ""}
                   </div>
                 </div>
                 {temDiff ? (open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />) : null}
@@ -262,13 +359,13 @@ function AuditoriaPage() {
                   <div className="border-t bg-muted/30 px-4 py-3 text-xs">
                     <p className="mb-1.5 font-semibold text-muted-foreground">Alterações</p>
                     <ul className="space-y-1.5">
-                      {Object.entries(r.dados!).map(([campo, d]) => (
+                      {campos.map(([campo, d]) => (
                         <li key={campo} className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-1">
                           <span className="font-medium">{campoLabel(campo)}:</span>
-                          <span className="flex flex-wrap items-baseline gap-1 break-all">
-                            <span className="text-muted-foreground line-through">{fmtVal(d?.de)}</span>
+                          <span className="flex flex-wrap items-baseline gap-1 break-words">
+                            <span className="text-muted-foreground line-through">{valLegivel(campo, d?.de, nomes)}</span>
                             <span>→</span>
-                            <span>{fmtVal(d?.para)}</span>
+                            <span>{valLegivel(campo, d?.para, nomes)}</span>
                           </span>
                         </li>
                       ))}
