@@ -618,11 +618,12 @@ function CreateTecidoModal({
               Demais campos (fornecedor, preço, variantes…) podem ser preenchidos na próxima tela.
             </p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+          {/* mobile: lado a lado (Voltar só-ícone à esq · Criar e abrir preenche à dir), não empilhado */}
+          <DialogFooter className="max-sm:flex-row max-sm:justify-start max-sm:space-x-2">
+            <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
+              <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
             </Button>
-            <Button onClick={() => onSubmit({ nome, unidade_medida: unidade, ncm })} disabled={loading}>
+            <Button onClick={() => onSubmit({ nome, unidade_medida: unidade, ncm })} disabled={loading} className="max-sm:flex-1">
               {loading ? "Criando…" : "Criar e abrir"}
             </Button>
           </DialogFooter>
