@@ -653,6 +653,7 @@ function AviamentoCard({
 }
 
 type FormState = {
+  codigo: string;
   codigo_nome: string;
   empresa_id: string;
   representante_id: string;
@@ -671,6 +672,7 @@ type FormState = {
 };
 
 const emptyForm: FormState = {
+  codigo: "",
   codigo_nome: "",
   empresa_id: "",
   representante_id: "",
@@ -752,6 +754,7 @@ function AviamentoModal({
     setStagedVars([]);
     if (initial) {
       const next: FormState = {
+        codigo: initial.codigo ?? "",
         codigo_nome: initial.codigo_nome ?? "",
         empresa_id: initial.empresa_id ?? "",
         representante_id: initial.representante_id ?? "",
@@ -871,6 +874,10 @@ function AviamentoModal({
       // Nome é opcional — o identificador é o `codigo` automático.
       const nome = form.codigo_nome.trim();
       const payload = {
+        // Código EDITÁVEL: em branco → null → trigger fn_aviamento_codigo gera SIGLA-NNNN no INSERT;
+        // preenchido → usa o valor manual (o trigger respeita não-nulo). No UPDATE o trigger não roda;
+        // o UNIQUE (tenant, codigo) barra duplicado (erro 23505, tratado no onError).
+        codigo: form.codigo.trim() || null,
         codigo_nome: nome,
         empresa_id: form.empresa_id || null,
         representante_id: form.representante_id || null,
@@ -919,12 +926,20 @@ function AviamentoModal({
       toast.success(initial ? "Aviamento atualizado." : "Aviamento criado.");
       onSaved();
     },
-    onError: (e: any) =>
-      toast.error(
-        e?.code === "23505"
-          ? "Este código já existe neste fornecedor."
-          : mensagemErro(e, "Erro ao salvar."),
-      ),
+    onError: (e: any) => {
+      // 23505 pode vir de DOIS uniques: código-por-tenant (ux_aviamentos_tenant_codigo, agora que
+      // o código é editável) ou nome-por-fornecedor (uq_aviamento_codigo_fornecedor). Desambigua.
+      if (e?.code === "23505") {
+        const alvo = String(e?.message ?? "") + String(e?.details ?? "");
+        toast.error(
+          /tenant_codigo/i.test(alvo)
+            ? "Este código já está em uso. Escolha outro ou deixe em branco para gerar automático."
+            : "Este nome já existe neste fornecedor.",
+        );
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar."));
+    },
   });
 
   const handleOpenChange = (o: boolean) => {
@@ -1001,11 +1016,9 @@ function AviamentoModal({
             <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row">
               <Field label="Código" className="sm:w-48 sm:shrink-0">
                 <Input
-                  value={initial?.codigo ?? ""}
-                  readOnly
-                  disabled
-                  placeholder="Gerado ao salvar"
-                  className="font-mono"
+                  value={form.codigo}
+                  onChange={(e) => set("codigo", e.target.value)}
+                  placeholder="branco = automático"
                 />
               </Field>
               <Field label="NCM" className="flex-1">
