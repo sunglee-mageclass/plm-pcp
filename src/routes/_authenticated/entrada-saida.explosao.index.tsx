@@ -35,6 +35,7 @@ type Row = {
   categoria_nome: string | null;
   enviado_corte: boolean;
   situacao: ExplosaoSituacao;
+  origem: string | null;
 };
 
 function ExplosaoListPage() {
@@ -55,6 +56,7 @@ function ExplosaoListPage() {
   const [fColecao, setFColecao] = useFilterState("explosao", "Coleção", []);
   const [fMes, setFMes] = useFilterState("explosao", "Mês", []);
   const [fAno, setFAno] = useFilterState("explosao", "Ano", []);
+  const [fOrigem, setFOrigem] = useFilterState("explosao", "Origem", []);
   // Segmento Situação — Todos é o default (não esconde nada ao abrir a tela).
   const [fSituacao, setFSituacao] = useState<"todos" | "aguardando" | "enviados">("todos");
 
@@ -65,7 +67,7 @@ function ExplosaoListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
+          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, origem, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -84,6 +86,7 @@ function ExplosaoListPage() {
             mes_id: m.mes_id,
             ano_id: m.ano_id,
             categoria_nome: (m.categorias_produto as any)?.nome ?? null,
+            origem: m.origem ?? null,
             // Enviado para PCP (já cortado) → fica na lista, editável (lápis).
             enviado_corte,
             situacao: situacaoExplosao(enviado_corte, deficit_corte),
@@ -121,6 +124,7 @@ function ExplosaoListPage() {
     if (fColecao.length && !fColecao.includes(r.colecao ?? "")) return false;
     if (fMes.length && !fMes.includes(r.mes_id ?? "")) return false;
     if (fAno.length && !fAno.includes(r.ano_id ?? "")) return false;
+    if (fOrigem.length && !fOrigem.includes(r.origem ?? "interno")) return false;
     return true;
   });
   const counts = useMemo(() => {
@@ -169,6 +173,10 @@ function ExplosaoListPage() {
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Mês", value: fMes, onChange: setFMes, options: meses as any[] },
               { label: "Ano", value: fAno, onChange: setFAno, options: anos as any[] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
+                { id: "interno", nome: "Interno" },
+                { id: "revenda", nome: "Revenda" },
+              ] },
             ]}
           />
         </div>
