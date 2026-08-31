@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -1888,93 +1889,56 @@ function GradeEditor({
   };
   if (!tpl.variantes.length || !tpl.tamanhos.length)
     return <p className="text-xs text-muted-foreground">Sem grade planejada para destrinchar — defina a grade (tamanhos/variantes) do modelo primeiro.</p>;
-  // Colgroup COMPARTILHADO por TODAS as grades (Enviada/Cortada/Recebida/Defeito + Saldo) —
-  // com table-fixed, garante que cada coluna tenha a MESMA largura em todas as tabelas, então
-  // as colunas alinham verticalmente independente do conteúdo (input vs texto). (dono, ago/2026)
-  const colGroup = (
-    <colgroup>
-      <col className="w-28" />
-      {tpl.tamanhos.map((t) => <col key={t} className="w-14" />)}
-      <col className="w-12" />
-    </colgroup>
-  );
+  // Cada variante do template vira {num,label} pro MatrizGradeResponsiva — "num" aqui é
+  // POSICIONAL (índice na lista), só pra casar com a assinatura (num,tam)=>ReactNode; a chave
+  // real usada em cel()/set() continua sendo o v.id (uuid), mapeado de volta pelo índice.
+  const variantesMatriz = tpl.variantes.map((v, i) => ({ num: i, label: v.label }));
   return (
     <div className="space-y-3">
       {CAMPOS_GRADE.map(({ k, label }) => (
         <div key={k}>
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className="overflow-x-auto">
-            <table className="table-fixed text-xs tabular-nums">
-              {colGroup}
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="p-1 text-left font-medium">Variante</th>
-                  {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
-                  <th className="p-1 text-center font-medium">Σ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tpl.variantes.map((v) => {
-                  const total = tpl.tamanhos.reduce((s, t) => s + (Number(cel(v.id, t)[k]) || 0), 0);
-                  return (
-                    <tr key={v.id} className="border-t">
-                      <td className="truncate p-1" title={v.label}>{v.label}</td>
-                      {tpl.tamanhos.map((t) => {
-                        // Recebida não deveria superar a Cortada — alerta visual (não bloqueia o save).
-                        const alerta = k === "recebida" && recebidaExcedeCortada(cel(v.id, t));
-                        return (
-                          <td key={t} className="p-0.5">
-                            <input
-                              type="number" min={0} disabled={disabled}
-                              title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
-                              className={`h-7 max-md:h-11 w-full rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
-                              value={cel(v.id, t)[k] || ""}
-                              onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
-                              onFocus={() => onCampoFoco?.(`${label} · ${tamLabel(t)}`)}
-                              onBlur={() => onCampoFoco?.(null)}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="p-1 text-center font-medium">{total}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <MatrizGradeResponsiva
+            tamanhos={tpl.tamanhos}
+            variantes={variantesMatriz}
+            emptyLabel="Sem variantes."
+            total={(i) => tpl.tamanhos.reduce((s, t) => s + (Number(cel(tpl.variantes[i].id, t)[k]) || 0), 0)}
+            cellClass={(i, t) => (k === "recebida" && recebidaExcedeCortada(cel(tpl.variantes[i].id, t)) ? "border-destructive" : "")}
+            renderCell={(i, t) => {
+              const v = tpl.variantes[i];
+              // Recebida não deveria superar a Cortada — alerta visual (não bloqueia o save).
+              const alerta = k === "recebida" && recebidaExcedeCortada(cel(v.id, t));
+              return (
+                <input
+                  type="number" min={0} disabled={disabled}
+                  title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
+                  className={`h-8 max-md:h-11 w-full border-0 bg-background px-1 text-center disabled:opacity-60 ${alerta ? "text-destructive font-semibold" : ""}`}
+                  value={cel(v.id, t)[k] || ""}
+                  onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
+                  onFocus={() => onCampoFoco?.(`${label} · ${tamLabel(t)}`)}
+                  onBlur={() => onCampoFoco?.(null)}
+                />
+              );
+            }}
+          />
         </div>
       ))}
-      {/* Saldo a receber = Cortada − Recebida (derivado; negativo = recebido a mais). */}
+      {/* Saldo a receber = Cortada − Recebida (derivado; negativo = recebido a mais). Read-only. */}
       <div>
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo a receber (Cortada − Recebida)</div>
-        <div className="overflow-x-auto">
-          <table className="table-fixed text-xs tabular-nums">
-            {colGroup}
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="p-1 text-left font-medium">Variante</th>
-                {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
-                <th className="p-1 text-center font-medium">Σ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tpl.variantes.map((v) => {
-                let linhaTotal = 0;
-                return (
-                  <tr key={v.id} className="border-t">
-                    <td className="truncate p-1" title={v.label}>{v.label}</td>
-                    {tpl.tamanhos.map((t) => {
-                      const s = saldoCelula(cel(v.id, t)); linhaTotal += s;
-                      return <td key={t} className={`p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
-                    })}
-                    <td className={`p-1 text-center font-medium ${linhaTotal < 0 ? "text-destructive" : ""}`}>{linhaTotal}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <MatrizGradeResponsiva
+          tamanhos={tpl.tamanhos}
+          variantes={variantesMatriz}
+          emptyLabel="Sem variantes."
+          total={(i) => {
+            const soma = tpl.tamanhos.reduce((s, t) => s + saldoCelula(cel(tpl.variantes[i].id, t)), 0);
+            return <span className={soma < 0 ? "text-destructive font-semibold" : ""}>{soma}</span>;
+          }}
+          renderCell={(i, t) => {
+            const s = saldoCelula(cel(tpl.variantes[i].id, t));
+            return <div className={`px-1 py-1.5 text-center bg-muted/20 ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</div>;
+          }}
+        />
       </div>
     </div>
   );
