@@ -48,6 +48,19 @@ interface UseUnsavedGuardOpts {
  */
 export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseUnsavedGuardOpts) {
   const [open, setOpen] = useState(false);
+  // 3ª porta do guarda (ago/2026): navegação NÃO-rota (setState puro — ex.: trocar de sub-
+  // coleção num Sheet full-page, que nunca muda a URL/pathname). `requestClose`/`useBlocker`
+  // cobrem fechar o modal e navegação de ROTA; nenhum dos dois cobre um simples `setView(...)`.
+  // `pendingAction` guarda a ação a rodar (a "navegação" de troca de sub) até o usuário decidir
+  // no MESMO AlertDialog já usado pelos outros 2 gatilhos (`confirm.open` é compartilhado).
+  const [pendingAction, setPendingAction] = useState<null | (() => void)>(null);
+  const requestAction = useCallback(
+    (action: () => void) => {
+      if (dirty) { setPendingAction(() => action); setOpen(true); }
+      else action();
+    },
+    [dirty],
+  );
 
   // Full-page: intercepta navegação de rota. shouldBlockFn é gated por blockNav, então em
   // modais o blocker fica inerte. `enableBeforeUnload` TAMBÉM precisa ser gated: o padrão do
@@ -78,10 +91,18 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
 
   const onKeepEditing = useCallback(() => {
     if (navBlocked) blocker.reset?.();
+    setPendingAction(null);
     setOpen(false);
   }, [navBlocked, blocker]);
 
   const onDiscard = useCallback(() => {
+    if (pendingAction) {
+      const action = pendingAction;
+      setPendingAction(null);
+      setOpen(false);
+      action();
+      return;
+    }
     if (navBlocked) {
       blocker.proceed?.();
       setOpen(false);
@@ -89,10 +110,10 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
     }
     setOpen(false);
     onClose?.();
-  }, [navBlocked, blocker, onClose]);
+  }, [pendingAction, navBlocked, blocker, onClose]);
 
   const confirm: UnsavedConfirm = { open: open || navBlocked, onKeepEditing, onDiscard };
-  return { requestClose, confirm };
+  return { requestClose, requestAction, confirm };
 }
 
 interface UnsavedChangesGuardProps {
