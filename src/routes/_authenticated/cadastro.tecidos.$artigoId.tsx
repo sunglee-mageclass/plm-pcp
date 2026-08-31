@@ -356,17 +356,17 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
 
   const acoes = (
     <>
-      <Button variant="outline" onClick={requestClose}>
-        <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+      <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+        <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
       </Button>
       {!readOnly && (
-        <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
-          <Trash2 className="h-4 w-4 mr-1" /> Excluir
+        <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
         </Button>
       )}
-      <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-        <Save className="h-4 w-4 mr-1" />
-        {saveMut.isPending ? "Salvando…" : "Salvar"}
+      <Button className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+        <Save className="h-4 w-4 sm:mr-1" />
+        <span className="max-sm:sr-only">{saveMut.isPending ? "Salvando…" : "Salvar"}</span>
       </Button>
     </>
   );
