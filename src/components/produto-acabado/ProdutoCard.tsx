@@ -649,28 +649,30 @@ export function ProdutoCard({
                     ) : (
                       <div className="space-y-2">
                         {produto.variantes.map((v) => (
-                          <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
-                            <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{v.ordem}</span>
+                          <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
+                            <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground max-md:hidden">{v.ordem}</span>
                             <Select value={v.cor_id ?? ""} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
-                              <SelectTrigger className="w-40"><SelectValue placeholder="Cor base" /></SelectTrigger>
+                              <SelectTrigger className="w-40 max-md:w-full"><SelectValue placeholder="Cor base" /></SelectTrigger>
                               <SelectContent>{cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                             </Select>
                             <Select value={v.cor_apelido_id ?? ""} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
-                              <SelectTrigger className="w-40"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
+                              <SelectTrigger className="w-40 max-md:w-full"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
-                            <VarianteSwatch nome={corNome(v.cor_id) ?? undefined} label={varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })} />
-                            <div className="ml-auto flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">peso</span>
-                              <NumberInput integer className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
+                            <VarianteSwatch nome={corNome(v.cor_id) ?? undefined} label={varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })} className="max-md:w-full" />
+                            <div className="ml-auto flex items-center gap-2 max-md:ml-0 max-md:w-full">
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-muted-foreground">peso</span>
+                                <NumberInput integer className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-muted-foreground">qtd</span>
+                                <NumberInput integer className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
+                              </div>
+                              <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">qtd</span>
-                              <NumberInput integer className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
-                            </div>
-                            <Button type="button" size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
                           </div>
                         ))}
                       </div>
