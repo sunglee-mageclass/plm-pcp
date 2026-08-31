@@ -108,7 +108,7 @@ export function DateField({
   const maxDate = isoToDate(max ?? "");
 
   return (
-    <div className={cn("relative h-9", className)}>
+    <div className={cn("relative h-9 max-md:h-11", className)}>
       <Input
         id={id}
         inputMode="numeric"
@@ -123,7 +123,7 @@ export function DateField({
         title={title}
         onChange={(e) => onText(e.target.value)}
         onBlur={onBlurInternal}
-        className={cn("h-full w-full pr-9", inputClassName)}
+        className={cn("h-full w-full pr-9 max-md:pr-11", inputClassName)}
       />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -131,7 +131,7 @@ export function DateField({
             type="button"
             disabled={disabled || readOnly}
             aria-label="Abrir calendário"
-            className="absolute inset-y-0 right-0 grid w-9 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="absolute inset-y-0 right-0 grid w-9 max-md:w-11 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             <CalendarDays className="h-4 w-4" />
           </button>
