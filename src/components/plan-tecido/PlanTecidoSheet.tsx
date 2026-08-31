@@ -1517,7 +1517,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           const renderCards = (items: typeof flat, draggable: boolean) =>
             items.map(({ slot, li, sli, chave }) => draggable
               ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
-              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] max-md:w-[85vw] shrink-0">{cardOf(slot, li, sli, chave)}</div>);
+              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start">{cardOf(slot, li, sli, chave)}</div>);
           // Corpo de uma lane: vazio → placeholder; 2º nível ligado → sub-grupos por nome do tecido
           // (cada um uma linha horizontal, COLAPSÁVEL como as lanes); senão → cartões direto.
           const laneBody = (slots: typeof flat, draggable: boolean, laneId: string) =>
@@ -1541,7 +1541,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                           </button>
                           <span className="rounded-full border px-1.5 text-[10px]">{items.length}{nomeMetros > 0 ? ` · ${fmtMetros(nomeMetros)} m` : ""}</span>
                         </div>
-                        {!nomeRecolhido && <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>}
+                        {!nomeRecolhido && <div className="flex items-start gap-3 overflow-x-auto max-md:snap-x max-md:snap-mandatory">{renderCards(items, draggable)}</div>}
                       </div>
                     );
                   })
@@ -1656,7 +1656,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       // "Categoria de tecido" desligado: bloco único (sem lane/drag); 2º nível por nome
                       // continua valendo se ligado.
                       <section>
-                        <div className={groupByNome ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto"}>
+                        <div className={groupByNome ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto max-md:snap-x max-md:snap-mandatory"}>
                           {laneBody(flat, false, "__all__")}
                         </div>
                       </section>

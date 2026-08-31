@@ -11,7 +11,7 @@ export type DragHandle = { attributes: DraggableAttributes; listeners: Synthetic
 export function DroppableLane({ id, children, vertical }: { id: string; children: ReactNode; vertical?: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={`${vertical ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto"} rounded-lg pb-2 transition-shadow ${isOver ? "bg-primary/5 ring-2 ring-inset ring-primary/50" : ""}`}>
+    <div ref={setNodeRef} className={`${vertical ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto max-md:snap-x max-md:snap-mandatory"} rounded-lg pb-2 transition-shadow ${isOver ? "bg-primary/5 ring-2 ring-inset ring-primary/50" : ""}`}>
       {children}
     </div>
   );
@@ -26,7 +26,7 @@ export function DraggableCard({ id, children }: { id: string; children: (handle:
   const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({ id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 } : undefined;
   return (
-    <div ref={setNodeRef} style={style} className={`w-[360px] max-md:w-[85vw] shrink-0 ${isDragging ? "opacity-40" : ""}`}>
+    <div ref={setNodeRef} style={style} className={`w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start ${isDragging ? "opacity-40" : ""}`}>
       {children({ attributes, listeners })}
     </div>
   );
