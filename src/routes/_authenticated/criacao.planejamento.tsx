@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, MoreHorizontal, ExternalLink } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
+import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -180,6 +181,22 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
+  // Mover a seleção para um mix (update direto via RLS — precedente BulkEditDialog).
+  const bulkMoverMix = useMutation({
+    mutationFn: async (mixId: string | null) => {
+      const ids = [...selected];
+      if (!ids.length) return;
+      const { error } = await supabase.from("modelos").update({ mix_id: mixId } as any).in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cards movidos.");
+      clearSel(); setMixMassaOpen(false);
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao mover os cards")),
+  });
   // MO por serviço (spec 2026-08-06): aprovar/reprovar por linha vive no editor do detalhe
   // (`MaoObraEditor`, dentro do card aberto). O card FECHADO mostra o badge agregado (derivado
   // de `modelo_mo_resumo.estado`) e, na variante completa, a seção expandida `MoListaSection`
@@ -221,6 +238,10 @@ function PlanejamentoPage() {
   const [groupByOrigem, setGroupByOrigem] = useState(false);
   // Agrupar por Mix (eixo mais AMPLO — nível 1 quando ligado). Pertencimento único.
   const [groupByMix, setGroupByMix] = useState(false);
+  // Editar Mix no Plan. Produto: popover de escopo (coleção+subcoleção, ligado ao filtro) + dialog.
+  const [escopoOpen, setEscopoOpen] = useState(false);
+  const [mixDialogOpen, setMixDialogOpen] = useState(false);
+  const [mixMassaOpen, setMixMassaOpen] = useState(false);
   // Grupos EXPANDIDOS (por caminho único pai/filho). Vazio = todos RECOLHIDOS —
   // default pedido pelo dono (ago/2026): a lista abre com os grupos fechados.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -292,6 +313,18 @@ function PlanejamentoPage() {
     },
   });
   const mixNomeMap = useMemo(() => Object.fromEntries(mixes.map((m) => [m.id, m.nome])), [mixes]);
+  // nome da coleção → id (dos próprios modelos; fColecao guarda o NOME). Cobre o escopo do Editar Mix.
+  const colecaoIdPorNome = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const md of modelos) if (md.colecao && md.colecao_id) m[md.colecao] = md.colecao_id;
+    return m;
+  }, [modelos]);
+  // subcoleções por nome de coleção (dos modelos) — p/ o dropdown de escopo encadeado.
+  const subcolecoesPorColecao = useMemo(() => {
+    const m: Record<string, Set<string>> = {};
+    for (const md of modelos) if (md.colecao && md.subcolecao) (m[md.colecao] ??= new Set()).add(md.subcolecao);
+    return m;
+  }, [modelos]);
 
   const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
 
@@ -367,6 +400,16 @@ function PlanejamentoPage() {
     modelos.forEach((m) => m.subcolecao && s.add(m.subcolecao));
     return Array.from(s).sort();
   }, [modelos]);
+
+  // Escopo do mix no Plan. Produto = LIGADO ao filtro (bidirecional). Definido quando o filtro
+  // tem exatamente 1 coleção + 1 subcoleção. O popover de escopo lê/escreve fColecao/fSubcolecao.
+  const escopoCol = fColecao.length === 1 ? fColecao[0] : "";
+  const escopoSub = fSubcolecao.length === 1 ? fSubcolecao[0] : "";
+  const escopoMixDefinido = !!escopoCol && !!escopoSub;
+  const escopoColId = escopoCol ? (colecaoIdPorNome[escopoCol] ?? null) : null;
+  const setEscopoCol = (nome: string) => { setFColecao(nome ? [nome] : []); setFSubcolecao([]); };
+  const setEscopoSub = (nome: string) => setFSubcolecao(nome ? [nome] : []);
+  const abrirEditarMix = () => { if (escopoMixDefinido && escopoColId) { setEscopoOpen(false); setMixDialogOpen(true); } };
 
   // Coleção comum dos cards selecionados (p/ o BulkEditDialog oferecer as subcoleções
   // certas sem exigir escolher Coleção). null se a seleção mistura coleções (ou nenhuma).
@@ -721,6 +764,9 @@ function PlanejamentoPage() {
             <>
               <Button size="sm" variant="ghost" onClick={clearSel}>Limpar ({selected.size})</Button>
               <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
+              {escopoMixDefinido && (
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixMassaOpen(true)}><Boxes className="h-4 w-4" /> Mover p/ mix</Button>
+              )}
               <Button size="sm" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
               <Button size="sm" variant="destructive" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
                 <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
@@ -810,6 +856,35 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
+          {/* Editar Mix — abre popover de escopo (coleção+subcoleção, ligado ao filtro). */}
+          <Popover open={escopoOpen} onOpenChange={setEscopoOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="gap-1"><Boxes className="h-4 w-4" /> Editar Mix <ChevronDown className="h-3.5 w-3.5" /></Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 space-y-3">
+              <p className="text-sm font-medium">Editar mixes de qual escopo?</p>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Coleção</Label>
+                <Select value={escopoCol || undefined} onValueChange={setEscopoCol}>
+                  <SelectTrigger><SelectValue placeholder="— escolha —" /></SelectTrigger>
+                  <SelectContent>
+                    {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Subcoleção</Label>
+                <Select value={escopoSub || undefined} onValueChange={setEscopoSub} disabled={!escopoCol}>
+                  <SelectTrigger><SelectValue placeholder={escopoCol ? "— escolha —" : "— escolha a coleção —"} /></SelectTrigger>
+                  <SelectContent>
+                    {[...(subcolecoesPorColecao[escopoCol] ?? [])].sort().map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {escopoMixDefinido && <p className="text-[11px] text-muted-foreground">Ao editar, a tela também passa a filtrar por este escopo.</p>}
+              <Button className="w-full" disabled={!escopoMixDefinido || !escopoColId} onClick={abrirEditarMix}>Editar</Button>
+            </PopoverContent>
+          </Popover>
           <Button className="hidden md:inline-flex" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Novos Cards"><Layers className="h-4 w-4 mr-1" />Novos Cards</Button>
           <Button className="hidden md:inline-flex" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" />Novo Modelo</Button>
         </div>
@@ -898,6 +973,39 @@ function PlanejamentoPage() {
           onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarPlanTecido(); }}
         />
       )}
+
+      {/* Editar Mix (Plan. Produto) — escopo do popover (coleção+subcoleção filtradas). */}
+      {mixDialogOpen && escopoColId && escopoSub && (
+        <EditarMixDialog
+          colecaoId={escopoColId}
+          colecaoNome={escopoCol}
+          subcolecao={escopoSub}
+          breadcrumbBase={["Criação", "Planejamento de Produto"]}
+          onClose={() => setMixDialogOpen(false)}
+        />
+      )}
+
+      {/* Mover a seleção para um mix do escopo filtrado */}
+      <Dialog open={mixMassaOpen} onOpenChange={setMixMassaOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Mover {selected.size} card(s) para um mix</DialogTitle></DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            {(() => {
+              const doEscopo = mixes.filter((mx) => mx.colecao_id === escopoColId && mx.subcolecao === escopoSub);
+              return doEscopo.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Nenhum mix em <strong>{escopoCol} › {escopoSub}</strong>. Crie um em <strong>Editar Mix</strong>.
+                </div>
+              ) : (
+                doEscopo.map((mx) => (
+                  <Button key={mx.id} variant="outline" size="sm" className="justify-start gap-2" disabled={bulkMoverMix.isPending} onClick={() => bulkMoverMix.mutate(mx.id)}><Boxes className="h-3.5 w-3.5" /> {mx.nome}</Button>
+                ))
+              );
+            })()}
+            <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" disabled={bulkMoverMix.isPending} onClick={() => bulkMoverMix.mutate(null)}>Remover do mix</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {openBulk && (
         <BulkEditDialog

@@ -21,7 +21,8 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
-import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes } from "lucide-react";
+import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   semearComModelos, mergeArvore, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type SeedInput, type ModeloReal, type ModeloRealMaterial,
@@ -306,6 +307,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // fica a um clique no botão Agrupar.
   const [groupByCategoria, setGroupByCategoria] = useState(false);
   const [groupByNome, setGroupByNome] = useState(true);
+  const [mixDialogOpen, setMixDialogOpen] = useState(false);  // Editar Mix (escopo = subcoleção ativa)
+  const [mixMassaOpen, setMixMassaOpen] = useState(false);    // "Mover p/ mix" (barra de seleção)
   const openDrawer = (kind: DrawerKind, arg?: string) =>
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
   const detalharMobile = (kind: DrawerKind, arg?: string) => {
@@ -1077,6 +1080,33 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     toast.success(catId ? "Categoria aplicada." : "Modelos sem categoria.");
   }
 
+  // Mover os slots selecionados para um mix (ou removê-los, mixId=null). O mix vive em DOIS
+  // lugares (decisão 9): grava no slot.mix_id (árvore, persiste no save) SEMPRE; e, p/ slot com
+  // modelo REAL, também em modelos.mix_id na hora (update direto), pro Plan. Produto ver já.
+  async function aplicarMixEmMassa(mixId: string | null) {
+    if (!arvore) return;
+    const next = structuredClone(arvore) as PtArvore;
+    const modeloIds: string[] = [];
+    for (let si = 0; si < next.subcolecoes.length; si++)
+      for (let li = 0; li < next.subcolecoes[si].linhas.length; li++)
+        for (let sli = 0; sli < next.subcolecoes[si].linhas[li].slots.length; sli++) {
+          const slot = next.subcolecoes[si].linhas[li].slots[sli];
+          if (!selecao.has(chaveSlot(slot.id, si, li, sli))) continue;
+          slot.mix_id = mixId;
+          if (slot.modelo_id) modeloIds.push(slot.modelo_id);
+        }
+    patch(next);
+    setSelecao(new Set());
+    setMixMassaOpen(false);
+    if (modeloIds.length > 0) {
+      const { error } = await supabase.from("modelos").update({ mix_id: mixId } as any).in("id", modeloIds);
+      if (error) { toast.error(mensagemErro(error, "Erro ao mover modelos.")); return; }
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
+    }
+    toast.success(mixId ? "Movido para o mix." : "Removido do mix.");
+  }
+
   // Predicado equivalente ao antigo `podeCriarCard` do ModelCard (removido de lá — G6, ação em
   // massa): slot ainda não ligado a um modelo, com nome, categoria (produto ou tecido) ou tecido
   // escolhido. Mesma guarda do "Criar card" individual (fallback de nome fica a cargo do servidor).
@@ -1255,6 +1285,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
 
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
+  // Nome-texto da subcoleção ativa (casa com modelos.subcolecao) + mixes dela (p/ "Mover p/ mix").
+  const subNomeAtiva = subAtual?.subcolecao_id ? (nameOf(subNomes, subAtual.subcolecao_id) ?? "") : "";
+  const { data: mixesSub = [] } = useQuery({
+    queryKey: ["colecao-mixes", colecaoId, subNomeAtiva],
+    enabled: !!subNomeAtiva,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("colecao_mixes" as any).select("id, nome, ordem")
+        .eq("colecao_id", colecaoId).eq("subcolecao", subNomeAtiva).order("ordem");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; nome: string; ordem: number }[];
+    },
+  });
 
   // FIX G3-A (família vazia invisível ao reabrir): as lanes de família (incl. vazias) só
   // renderizam com `groupByCategoria=true`, mas esse estado não é persistido — reabrir uma
@@ -1373,6 +1416,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 brancas); "Criar cards"/"Fazer pedido" são as ações PRINCIPAIS da seleção (default,
                 azuis) — o destaque vai pra elas. */}
             <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
+            {subNomeAtiva && (
+              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setMixMassaOpen(true)}><Boxes className="h-3.5 w-3.5" /> Mover p/ mix</Button>
+            )}
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
             {/* G6: cria os cards no Planejamento (pula os já materializados, com aviso). */}
@@ -1641,6 +1687,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /> Família</Button>
+                    {/* Editar Mix — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
+                    {subNomeAtiva && (
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /> Editar Mix</Button>
+                    )}
                   </div>
                 </div>
                 <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
@@ -1740,6 +1790,36 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               {catTecidoNomes.length === 0 && (
                 <div className="col-span-2 text-xs text-muted-foreground">Nenhuma categoria de tecido cadastrada.</div>
               )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Editar Mix — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
+        {mixDialogOpen && subNomeAtiva && (
+          <EditarMixDialog
+            colecaoId={colecaoId}
+            colecaoNome={colecao?.nome ?? "Coleção"}
+            subcolecao={subNomeAtiva}
+            breadcrumbBase={["Criação", "Plan. Tecido"]}
+            onClose={() => setMixDialogOpen(false)}
+          />
+        )}
+
+        {/* Dialog: mover a seleção para um mix (ou remover) */}
+        <Dialog open={mixMassaOpen} onOpenChange={setMixMassaOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Mover {selecao.size} card(s) para um mix</DialogTitle></DialogHeader>
+            <div className="flex flex-col gap-1.5">
+              {mixesSub.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Nenhum mix nesta subcoleção. Crie um em <strong>Editar Mix</strong>.
+                </div>
+              ) : (
+                mixesSub.map((mx) => (
+                  <Button key={mx.id} variant="outline" size="sm" className="justify-start gap-2" onClick={() => aplicarMixEmMassa(mx.id)}><Boxes className="h-3.5 w-3.5" /> {mx.nome}</Button>
+                ))
+              )}
+              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarMixEmMassa(null)}>Remover do mix</Button>
             </div>
           </DialogContent>
         </Dialog>
