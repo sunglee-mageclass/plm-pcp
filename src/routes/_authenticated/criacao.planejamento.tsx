@@ -95,6 +95,7 @@ type Modelo = {
   markup_editado: number | null;
   origem: string | null;
   tecidos_planejados: string[] | null;
+  mix_id: string | null;
   lancado: boolean | null;
 };
 
@@ -218,6 +219,8 @@ function PlanejamentoPage() {
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const [groupByTecido, setGroupByTecido] = useState(true);
   const [groupByOrigem, setGroupByOrigem] = useState(false);
+  // Agrupar por Mix (eixo mais AMPLO — nível 1 quando ligado). Pertencimento único.
+  const [groupByMix, setGroupByMix] = useState(false);
   // Grupos EXPANDIDOS (por caminho único pai/filho). Vazio = todos RECOLHIDOS —
   // default pedido pelo dono (ago/2026): a lista abre com os grupos fechados.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -269,12 +272,26 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Modelo[];
     },
   });
+
+  // Mixes (Agrupamento por Mix): nome por id, p/ o splitter byMix e o editor.
+  const { data: mixes = [] } = useQuery({
+    queryKey: ["colecao-mixes-nomes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("colecao_mixes" as any)
+        .select("id, nome, colecao_id, subcolecao")
+        .order("ordem");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; nome: string; colecao_id: string | null; subcolecao: string | null }[];
+    },
+  });
+  const mixNomeMap = useMemo(() => Object.fromEntries(mixes.map((m) => [m.id, m.nome])), [mixes]);
 
   const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
 
@@ -521,6 +538,18 @@ function PlanejamentoPage() {
   // "__none__" (Sem categoria/linha/subcategoria/tecido) sempre por ÚLTIMO; o resto alfabético pt-BR.
   const sortSplits = (a: Split, b: Split) =>
     a.key === "__none__" ? 1 : b.key === "__none__" ? -1 : a.nome.localeCompare(b.nome, "pt-BR");
+  // Mix: pertencimento ÚNICO (cada modelo em no máximo 1 mix). "Sem mix" por último.
+  const byMix = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const key = m.mix_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(m); else map.set(key, [m]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem mix" : mixNomeMap[key] ?? "Sem mix", items: its }))
+      .sort(sortSplits);
+  };
   const byLinha = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
@@ -604,8 +633,10 @@ function PlanejamentoPage() {
       .sort(sortSplits);
   };
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
-  // Ordem = hierarquia de aninhamento. Tecido primeiro (nível 1), depois Categoria.
+  // Ordem = hierarquia de aninhamento. Mix é o eixo mais AMPLO (nível 1, decisão do dono),
+  // depois Categoria de tecido, Tecido, etc.
   const splitters: ((items: Modelo[]) => Split[])[] = [
+    groupByMix ? byMix : null,             // Mix = eixo mais amplo (curadoria manual, vem no topo)
     groupByCatTecido ? byCatTecido : null, // categoria de tecido é mais ampla que o tecido → nível acima
     groupByTecido ? byTecido : null,
     groupByLinha ? byLinha : null,
@@ -751,6 +782,7 @@ function PlanejamentoPage() {
           </Button>
           <AgrupamentoButton
             groups={[
+              { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => !v) },
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
               { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
