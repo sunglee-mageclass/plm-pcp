@@ -307,6 +307,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // fica a um clique no botão Agrupar.
   const [groupByCategoria, setGroupByCategoria] = useState(false);
   const [groupByNome, setGroupByNome] = useState(true);
+  const [groupByMix, setGroupByMix] = useState(false);        // lanes por MIX (exclui Família)
   const [mixDialogOpen, setMixDialogOpen] = useState(false);  // Editar Mix (escopo = subcoleção ativa)
   const [mixMassaOpen, setMixMassaOpen] = useState(false);    // "Mover p/ mix" (barra de seleção)
   const openDrawer = (kind: DrawerKind, arg?: string) =>
@@ -998,21 +999,40 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     setDirty(true);
   };
 
-  // solta o card numa lane → muda a categoria de tecido do modelo (id do drag = chave do slot)
+  // solta o card numa lane → muda a categoria de tecido (lane:) OU o mix (mixlane:) do slot.
+  // id do drag = chave do slot. Mix: também grava modelos.mix_id p/ modelo real (decisão 9).
   const handleDragEnd = (e: DragEndEvent) => {
     setDragId(null);
     const { active, over } = e;
     if (!over || !arvore) return;
     const chave = String(active.id);
     const laneId = String(over.id);
-    const alvo = laneId === "lane:__sem__" ? null : laneId.startsWith("lane:") ? laneId.slice(5) : undefined;
+    const ehMix = laneId.startsWith("mixlane:");
+    const alvo = laneId === "lane:__sem__" || laneId === "mixlane:__sem__"
+      ? null
+      : ehMix ? laneId.slice(8) : laneId.startsWith("lane:") ? laneId.slice(5) : undefined;
     if (alvo === undefined) return;
     const sub = arvore.subcolecoes[subAtiva];
     for (let li = 0; li < sub.linhas.length; li++) {
       const slots = sub.linhas[li].slots;
       for (let sli = 0; sli < slots.length; sli++) {
         if (chaveSlot(slots[sli].id, subAtiva, li, sli) !== chave) continue;
-        if ((slots[sli].categoria_tecido_id ?? null) === alvo) return; // já está nessa lane
+        const slot = slots[sli];
+        if (ehMix) {
+          if ((slot.mix_id ?? null) === alvo) return;          // já está nesse mix
+          const next = structuredClone(arvore) as PtArvore;
+          next.subcolecoes[subAtiva].linhas[li].slots[sli].mix_id = alvo;
+          patch(next);
+          if (slot.modelo_id) {
+            void supabase.from("modelos").update({ mix_id: alvo } as any).in("id", [slot.modelo_id]).then(({ error }) => {
+              if (error) { toast.error(mensagemErro(error, "Erro ao mover.")); return; }
+              qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+              qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
+            });
+          }
+          return;
+        }
+        if ((slot.categoria_tecido_id ?? null) === alvo) return; // já está nessa lane
         const next = structuredClone(arvore) as PtArvore;
         next.subcolecoes[subAtiva].linhas[li].slots[sli].categoria_tecido_id = alvo;
         patch(next);
@@ -1308,6 +1328,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       return (data ?? []) as unknown as { id: string; nome: string; ordem: number }[];
     },
   });
+  const mixNomeDe = (id: string | null | undefined) => mixesSub.find((m) => m.id === id)?.nome ?? null;
 
   // FIX G3-A (família vazia invisível ao reabrir): as lanes de família (incl. vazias) só
   // renderizam com `groupByCategoria=true`, mas esse estado não é persistido — reabrir uma
@@ -1517,6 +1538,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
           const laneCats: (string | null)[] =
             catFilters.size === 0 ? [...cats, null] : [...cats, null].filter((c) => catFilters.has(c));
+          // Lanes por MIX (eixo alternativo à Família): UNIÃO dos mixes cadastrados na subcoleção
+          // (mixesSub) + os mix_id presentes nos slots; "Sem mix" (null) sempre por último.
+          const slotsOfMix = (mid: string | null) => flat.filter((f) => (f.slot.mix_id ?? null) === mid);
+          const mixIdsPresentes = new Set(flat.map((f) => f.slot.mix_id).filter((x): x is string => !!x));
+          const laneMixIds = [...new Set<string>([...mixesSub.map((m) => m.id), ...mixIdsPresentes])]
+            .sort((a, b) => (mixNomeDe(a) ?? "").localeCompare(mixNomeDe(b) ?? "", "pt-BR", { sensitivity: "base" }));
+          const laneMixes: (string | null)[] = [...laneMixIds, null];
           // 2º nível de agrupamento: nome do tecido (Tecido 1). `porNome` ordena ALFABÉTICO (dono),
           // com "Sem tecido" sempre por último; usado no modo por nome e como sub-grupo nas lanes.
           const tecidoNomeDoSlot = (slot: PtSlot): string => {
@@ -1534,7 +1562,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           };
           // Chaves de TODAS as seções visíveis (lanes de categoria + sub-grupos de nome), p/ o
           // "Recolher/Expandir seções" (2º nível, além do de cards). Formato casa o render.
-          const allSectionKeys: string[] = groupByCategoria
+          const allSectionKeys: string[] = groupByMix
+            ? laneMixes.flatMap((mid) => {
+                const laneKey = `${subAtiva}:mix:${mid ?? "__sem__"}`;
+                const nomeKeys = groupByNome ? porNome(slotsOfMix(mid)).map(([nome]) => `${subAtiva}:nome:${nome}`) : [];
+                return [laneKey, ...nomeKeys];
+              })
+            : groupByCategoria
             ? laneCats.flatMap((cid) => {
                 const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
                 // chave canônica só por nome (G2/F3, SEM laneId) — casa com o seed e o laneBody
@@ -1690,9 +1724,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                         onLimpar={() => setCatFilters(new Set())}
                       />
                     )}
-                    {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam). */}
+                    {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam).
+                        Mix e Família são lanes EXCLUSIVAS (não faz sentido 2D): ligar uma desliga a outra. */}
                     <AgrupamentoButton groups={[
-                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
+                      { label: "Mix", active: groupByMix, onToggle: () => { setGroupByMix((v) => !v); if (!groupByMix) setGroupByCategoria(false); } },
+                      { label: "Família", active: groupByCategoria, onToggle: () => { setGroupByCategoria((v) => !v); if (!groupByCategoria) setGroupByMix(false); } },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
@@ -1705,7 +1741,27 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 </div>
                 <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
                   <div className="space-y-4">
-                    {groupByCategoria ? laneCats.map((cid) => {
+                    {groupByMix ? laneMixes.map((mid) => {
+                      const slots = slotsOfMix(mid);
+                      const laneKey = `${subAtiva}:mix:${mid ?? "__sem__"}`;
+                      const laneRecolhida = lanesRecolhidas.has(laneKey);
+                      return (
+                        <section key={mid ?? "__sem__"}>
+                          <div className="mb-1 flex items-center gap-2">
+                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+                              {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                              <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Mix") : "Sem mix"}</span>
+                            </button>
+                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
+                          </div>
+                          {!laneRecolhida && (
+                            <DroppableLane id={`mixlane:${mid ?? "__sem__"}`} vertical={groupByNome}>
+                              {laneBody(slots, true, `mix:${mid ?? "__sem__"}`)}
+                            </DroppableLane>
+                          )}
+                        </section>
+                      );
+                    }) : groupByCategoria ? laneCats.map((cid) => {
                       const slots = slotsOf(cid);
                       const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
                       const laneRecolhida = lanesRecolhidas.has(laneKey);
