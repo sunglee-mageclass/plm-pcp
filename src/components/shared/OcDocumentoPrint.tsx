@@ -131,10 +131,11 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
                   </tr>
                 ))}
               </tbody>
-              {modelo.totalPrevisto != null && (
+              {modelo.totalPrevisto != null && col.subtotal && (
                 <tfoot>
                   <tr>
-                    <td style={{ ...num, borderTop: "2px solid #333", fontWeight: 800, fontSize: 12, paddingTop: 8, paddingRight: 8 }} colSpan={2 + (col.preco ? 1 : 0)}>Total previsto</td>
+                    {/* label cobre todas as colunas MENOS a última (subtotal); o valor cai na subtotal. */}
+                    <td style={{ ...num, borderTop: "2px solid #333", fontWeight: 800, fontSize: 12, paddingTop: 8, paddingRight: 8 }} colSpan={3 + (col.preco ? 1 : 0)}>Total previsto</td>
                     <td style={{ ...num, borderTop: "2px solid #333", fontWeight: 800, fontSize: 12, paddingTop: 8, paddingRight: 8 }}>{modelo.totalPrevisto}</td>
                   </tr>
                 </tfoot>
@@ -156,7 +157,7 @@ export function OcDocumentoPrint({ modelo }: { modelo: OcDocModelo }) {
                 </tr>
                 {modelo.grade.proporcao && (
                   <tr>
-                    <td style={{ ...td, background: AZ, fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: 0.3 }}>Peso (proporção)</td>
+                    <td style={{ ...td, background: AZ, fontSize: 10, fontWeight: 600, color: "#555", whiteSpace: "nowrap" }} title="Proporção de grade (peso por tamanho)">Peso · proporção</td>
                     {modelo.grade.tamanhos.map((t) => <td key={t} style={{ ...td, ...center, background: AZ, fontSize: 10, fontWeight: 600, color: "#555" }}>{modelo.grade!.proporcao![t] ?? "—"}</td>)}
                     <td style={{ ...td, background: AZ }} />
                   </tr>
