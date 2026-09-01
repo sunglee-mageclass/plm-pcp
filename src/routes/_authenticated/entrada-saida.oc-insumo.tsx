@@ -35,6 +35,7 @@ import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import { useEstoqueInsumos, EstoqueInsumosTable } from "@/components/oc-insumo/EstoqueInsumosTab";
 import { printWithImages } from "@/lib/print";
 import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components/shared/OcDocumentoPrint";
+import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
@@ -145,6 +146,48 @@ function OcInsumoPage() {
     },
   });
 
+  const etqMapPag = useMemo(() => Object.fromEntries(etiquetas.map((e) => [e.id, e])), [etiquetas]);
+
+  // Monta o documento imprimível de UMA OC de insumo (busca itens; resolve etiqueta/variante).
+  const montarDocModeloInsumo = async (ocId: string): Promise<OcDocModelo> => {
+    const { data: oc, error: e1 } = await supabase.from("ocs_etiqueta" as any).select("*").eq("id", ocId).maybeSingle();
+    if (e1) throw e1;
+    const { data: rows, error: e2 } = await supabase
+      .from("ocs_etiqueta_itens" as any)
+      .select("etiqueta_id, variante_etiqueta_id, quantidade_pedida, preco, cancelado")
+      .eq("oc_etiqueta_id", ocId);
+    if (e2) throw e2;
+    const its = (rows ?? []).filter((r: any) => !r.cancelado);
+    const o = oc as any;
+    const empresa = o?.empresa_id ? empresas.find((e) => e.id === o.empresa_id) : null;
+    const rep = empresa?.representantes?.find((r) => r.id === o?.representante_id)?.nome ?? null;
+    let total = 0;
+    const itens: OcDocItem[] = (its as any[]).map((r) => {
+      const etq = etqMapPag[r.etiqueta_id];
+      const vari = etq?.variantes.find((v) => v.id === r.variante_etiqueta_id);
+      const preco = Number(r.preco ?? vari?.preco ?? etq?.preco ?? 0);
+      const sub = preco * Number(r.quantidade_pedida ?? 0);
+      total += sub;
+      const lbl = vari ? rowLabel(vari as any, etq?.formato_tamanho ?? "ambos") : "—";
+      return { nome: etq?.nome ?? "—", variante: lbl, qtd: `${r.quantidade_pedida} un`, preco: fmtMoney(preco), subtotal: fmtMoney(sub) };
+    });
+    return {
+      numero: o?.numero_pedido || "—",
+      familiaLabel: "Insumos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [{ k: "Empresa", v: empresa?.nome_fantasia ?? "—" }, { k: "Representante", v: rep ?? "—" }],
+      dados: [
+        { k: "Responsável", v: o?.responsavel_nome || "—" },
+        { k: "Data do pedido", v: o?.data_pedido ? fmtDate(o.data_pedido) : "—" },
+        { k: "Entrega prevista", v: o?.data_prevista_entrega ? fmtDate(o.data_prevista_entrega) : "—" },
+        { k: "Pagamento", v: o?.prazo_pagamento ? `${o.prazo_pagamento}${o?.quantidade_prazos ? ` · ${o.quantidade_prazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Insumo", variante: "Cor / Tamanho", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+    };
+  };
+
   const invalidate = () => ["ocs_etiqueta", "ocs-insumo-totals", "parcelas", "sidebar-badges", "estoque-insumos"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 
   const deleteMut = useMutation({
@@ -239,13 +282,16 @@ function OcInsumoPage() {
                     <TableCell>{fmtDate(tab === "encomendado" ? o.data_prevista_entrega : o.data_entrega)}</TableCell>
                     <TableCell>{fmtMoney((totals as any)[o.id]?.[tab === "encomendado" ? "previsto" : "real"] ?? 0)}</TableCell>
                     <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status={o.status} /></TableCell>
-                    <TableCell className="w-10 py-0 text-right">
+                    <TableCell className="w-16 py-0 text-right">
+                      <div className="flex items-center justify-end">
+                      {o.status === "encomendado" && <OcImprimirLinhaButton ocId={o.id} montarModelo={montarDocModeloInsumo} />}
                       {o.status === "encomendado" && (
                         <Button size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={readOnly}
                           onClick={(e) => { e.stopPropagation(); setDeleting(o); }} aria-label="Excluir">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

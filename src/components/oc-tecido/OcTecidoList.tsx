@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
+import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
@@ -16,7 +17,7 @@ import { EstoqueTecidosTable, type useEstoqueTecidos } from "./EstoqueTecidosTab
 
 export function OcTecidoList({
   tab, setTab,
-  ocs, empresaMap, onRowClick, onDelete,
+  ocs, empresaMap, onRowClick, onDelete, montarDocModelo,
   qtdRecebidaByOc, tecidosByOc, alertaBadgeByOc, estoque,
   tabCounts, rolosSlot,
 }: {
@@ -26,6 +27,7 @@ export function OcTecidoList({
   empresaMap: Record<string, string>;
   onRowClick: (id: string) => void;
   onDelete?: (oc: OC) => void;
+  montarDocModelo?: (ocId: string) => Promise<import("@/components/shared/OcDocumentoPrint").OcDocModelo>;
   qtdRecebidaByOc?: Record<string, string>;
   tecidosByOc?: Record<string, string>;
   alertaBadgeByOc?: Record<string, { label: string; tone: StatusTone } | null>;
@@ -165,17 +167,20 @@ export function OcTecidoList({
                   <TableCell className="max-w-[16rem] truncate" title={tecidosByOc?.[o.id] ?? ""}>{tecidosByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
-                  <TableCell className="w-10 py-0 text-right">
-                    {onDelete && (
-                      <Button
-                        size="iconSm"
-                        variant="ghost"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={(e) => { e.stopPropagation(); onDelete(o); }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                  <TableCell className="w-16 py-0 text-right">
+                    <div className="flex items-center justify-end">
+                      {montarDocModelo && <OcImprimirLinhaButton ocId={o.id} montarModelo={montarDocModelo} />}
+                      {onDelete && (
+                        <Button
+                          size="iconSm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={(e) => { e.stopPropagation(); onDelete(o); }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

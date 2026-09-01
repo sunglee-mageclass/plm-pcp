@@ -49,6 +49,7 @@ import { useEstoqueAviamentos, EstoqueAviamentosTable } from "@/components/oc-av
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
 import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components/shared/OcDocumentoPrint";
+import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
@@ -182,6 +183,44 @@ function OcAviamentoPage() {
     },
   });
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  // Monta o documento imprimível de UMA OC de aviamento (busca itens + aviamentos c/ preço/variantes).
+  const montarDocModeloAviamento = async (ocId: string): Promise<OcDocModelo> => {
+    const { data: oc, error: e1 } = await supabase.from("ocs_aviamento").select("*").eq("id", ocId).maybeSingle();
+    if (e1) throw e1;
+    const { data: rows, error: e2 } = await supabase
+      .from("ocs_aviamento_itens")
+      .select("aviamento_id, variante_aviamento_id, quantidade_pedida, cancelado, aviamentos:aviamento_id(codigo_nome, preco), variante:variante_aviamento_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+      .eq("oc_aviamento_id", ocId);
+    if (e2) throw e2;
+    const its = (rows ?? []).filter((r: any) => !r.cancelado);
+    const o = oc as any;
+    const empresa = o?.empresa_id ? empresas.find((e) => e.id === o.empresa_id) : null;
+    const rep = empresa?.representantes?.find((r) => r.id === o?.representante_id)?.nome ?? null;
+    let total = 0;
+    const itens: OcDocItem[] = (its as any[]).map((r) => {
+      const preco = Number(r.aviamentos?.preco ?? 0);
+      const sub = preco * Number(r.quantidade_pedida ?? 0);
+      total += sub;
+      const cor = [r.variante?.cor?.nome, r.variante?.apelido?.nome].filter(Boolean).join(" · ");
+      return { nome: r.aviamentos?.codigo_nome ?? "—", variante: cor || r.variante?.nome_variante || "—", qtd: `${r.quantidade_pedida} un`, preco: fmtMoney(preco), subtotal: fmtMoney(sub) };
+    });
+    return {
+      numero: o?.numero_pedido || "—",
+      familiaLabel: "Aviamentos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [{ k: "Empresa", v: empresa?.nome_fantasia ?? "—" }, { k: "Representante", v: rep ?? "—" }],
+      dados: [
+        { k: "Responsável", v: o?.responsavel_nome || "—" },
+        { k: "Data do pedido", v: o?.data_pedido ? fmtDate(o.data_pedido) : "—" },
+        { k: "Entrega prevista", v: o?.data_prevista_entrega ? fmtDate(o.data_prevista_entrega) : "—" },
+        { k: "Pagamento", v: o?.prazo_pagamento ? `${o.prazo_pagamento}${o?.quantidade_prazos ? ` · ${o.quantidade_prazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Aviamento", variante: "Cor / Variante", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+    };
+  };
 
   const deleteMut = useMutation({
     mutationFn: async (oc: OC) => {
@@ -345,7 +384,9 @@ function OcAviamentoPage() {
                     <TableCell data-label="Data Prevista">{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell data-label="Valor Previsto">{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
                     <TableCell data-label="Prazo"><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
-                    <TableCell data-label="Ações" className="w-10 py-0 text-right">
+                    <TableCell data-label="Ações" className="w-16 py-0 text-right">
+                      <div className="flex items-center justify-end">
+                      <OcImprimirLinhaButton ocId={o.id} montarModelo={montarDocModeloAviamento} />
                       <Button
                         size="iconSm"
                         variant="ghost"
@@ -354,6 +395,7 @@ function OcAviamentoPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

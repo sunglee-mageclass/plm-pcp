@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check, Printer } from "lucide-react";
 import { printWithImages } from "@/lib/print";
 import { OcDocumentoPrint, type OcDocModelo, type OcDocGrade } from "@/components/shared/OcDocumentoPrint";
+import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -127,6 +128,65 @@ function OcPaPage() {
   });
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
 
+  // Cores (base+apelido) p/ resolver o nome das variantes no documento imprimível da linha.
+  const { data: coresDoc = {} } = useQuery({
+    queryKey: ["oc-pa-cores-doc"],
+    queryFn: async () => {
+      const [c, ca] = await Promise.all([
+        supabase.from("cores").select("id, nome"),
+        supabase.from("cores_apelido").select("id, nome"),
+      ]);
+      const base = Object.fromEntries(((c.data ?? []) as any[]).map((x) => [x.id, x.nome]));
+      const apel = Object.fromEntries(((ca.data ?? []) as any[]).map((x) => [x.id, x.nome]));
+      return { base, apel } as { base: Record<string, string>; apel: Record<string, string> };
+    },
+  });
+
+  // Monta o documento imprimível de UMA OC de produto acabado (busca a OC completa — grade jsonb).
+  const montarDocModeloPa = async (ocId: string): Promise<OcDocModelo> => {
+    const { data: oc, error } = await supabase.from("ocs_p_acabado" as any).select("*, grupo:grupo_id(nome)").eq("id", ocId).maybeSingle();
+    if (error) throw error;
+    const o = oc as any;
+    const acessorioP = ehGrupoAcessorio(o?.grupo?.nome ?? null);
+    const tams: string[] = acessorioP ? [TAM_ACESSORIO] : DEFAULT_TAMANHOS;
+    const variantes = (o?.variantes ?? []) as { ordem: number; cor_id: string | null; cor_apelido_id: string | null }[];
+    const gradeD = (o?.grade_detalhe ?? {}) as Record<string, Record<string, { pedida?: number }>>;
+    const linhas = variantes.map((v) => {
+      const g = gradeD[String(v.ordem)] ?? {};
+      const celulas: Record<string, React.ReactNode> = {};
+      let totalLin = 0;
+      for (const t of tams) { const ped = Number(g[t]?.pedida ?? 0); celulas[t] = ped || "—"; totalLin += ped; }
+      const nome = varianteLabel({ cor: (coresDoc as any).base?.[v.cor_id ?? ""] ?? null, apelido: (coresDoc as any).apel?.[v.cor_apelido_id ?? ""] ?? null });
+      return { cor: nome || `Variante ${v.ordem}`, celulas, total: totalLin };
+    });
+    const totalPorTamanho: Record<string, React.ReactNode> = {};
+    let geral = 0;
+    for (const t of tams) { let s = 0; for (const v of variantes) s += Number(gradeD[String(v.ordem)]?.[t]?.pedida ?? 0); totalPorTamanho[t] = s; geral += s; }
+    const proporcao: Record<string, React.ReactNode> = {};
+    const gp = (o?.grade_proporcao ?? {}) as Record<string, number>;
+    for (const t of tams) proporcao[t] = gp[t] ?? "—";
+    const { totalDesc, unitReal } = cadeiaValores(Number(o?.qtd_total ?? 0), Number(o?.valor_unitario ?? 0), Number(o?.desconto_pct ?? 0));
+    const empresa = o?.empresa_id ? empresas.find((e) => e.id === o.empresa_id) : null;
+    const rep = empresa?.representantes?.find((r) => r.id === o?.representante_id)?.nome ?? null;
+    return {
+      numero: o?.numero || "—",
+      familiaLabel: "Produto Acabado (Revenda)",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [{ k: "Empresa", v: empresa?.nome_fantasia ?? "—" }, { k: "Representante", v: rep ?? "—" }],
+      dados: [
+        { k: "Data do pedido", v: o?.data_pedido ? fmtDate(o.data_pedido) : "—" },
+        { k: "Entrega prevista", v: o?.data_prevista ? fmtDate(o.data_prevista) : "—" },
+        { k: "Pagamento", v: o?.prazo_pagamento ? `${o.prazo_pagamento}${o?.parcelas_entrega ? ` · ${o.parcelas_entrega} parcela(s)` : ""}` : "—" },
+      ],
+      grade: {
+        produtoTitulo: `Produto: ${o?.nome_produto || "—"}${o?.numero ? ` (REF ${o.numero})` : ""}`,
+        tamanhos: tams, proporcao, linhas, totalPorTamanho, totalGeral: geral,
+        valores: [{ descricao: o?.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoney(unitReal), subtotal: fmtMoney(totalDesc) }],
+      },
+      totalPrevisto: fmtMoney(totalDesc),
+    };
+  };
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       // RPC (não .delete() cru): excluir_oc_p_acabado bloqueia (P0001) OC já recebida
@@ -193,6 +253,7 @@ function OcPaPage() {
             status="recebido"
             dataCol={{ label: "Data Entrega", get: (o) => fmtDate(o.data_entrega) }}
             onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+            montarDocModelo={montarDocModeloPa}
           />
         </TabsContent>
 
@@ -205,6 +266,7 @@ function OcPaPage() {
             status="encomendado"
             dataCol={{ label: "Data Prevista", get: (o) => fmtDate(o.data_prevista) }}
             onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+            montarDocModelo={montarDocModeloPa}
             onDelete={(o) => setDeleting(o)}
           />
         </TabsContent>
@@ -266,7 +328,7 @@ function OcPaPage() {
 
 // ── Lista (Encomendadas/Recebidas) — mobile cards + tabela desktop ──
 function OcPaListaTable({
-  ocs, empresaMap, isLoading, emptyLabel, status, dataCol, onRowClick, onDelete,
+  ocs, empresaMap, isLoading, emptyLabel, status, dataCol, onRowClick, onDelete, montarDocModelo,
 }: {
   ocs: OcPaRow[];
   empresaMap: Record<string, string>;
@@ -280,6 +342,7 @@ function OcPaListaTable({
   dataCol: { label: string; get: (o: OcPaRow) => string };
   onRowClick: (id: string) => void;
   onDelete?: (o: OcPaRow) => void;
+  montarDocModelo?: (ocId: string) => Promise<OcDocModelo>;
 }) {
   return (
     <>
@@ -331,13 +394,16 @@ function OcPaListaTable({
                 <TableCell>{dataCol.get(o)}</TableCell>
                 <TableCell><OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} /></TableCell>
                 <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMoney(o.valor_total_desconto)}</TableCell>
-                <TableCell className="w-10 py-0 text-right">
+                <TableCell className="w-16 py-0 text-right">
+                  <div className="flex items-center justify-end">
+                  {montarDocModelo && <OcImprimirLinhaButton ocId={o.id} montarModelo={montarDocModelo} />}
                   {onDelete && (
                     <Button size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive"
                       onClick={(e) => { e.stopPropagation(); onDelete(o); }}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

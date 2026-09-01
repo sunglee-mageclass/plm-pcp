@@ -130,6 +130,52 @@ function OcTecidoPage() {
 
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
 
+  // Monta o documento imprimível de UMA OC a partir do id (busca itens lazy — a lista só tem cabeçalho).
+  const montarDocModeloTecido = async (ocId: string): Promise<OcDocModelo> => {
+    const { data: oc, error: e1 } = await supabase.from("ocs_tecido").select("*").eq("id", ocId).maybeSingle();
+    if (e1) throw e1;
+    const { data: rows, error: e2 } = await supabase
+      .from("ocs_tecido_itens")
+      .select("artigo_id, artigo_numero, variante_tecido_id, quantidade_pedida, preco, cancelado, rendimento, artigos:artigo_id(nome, unidade_medida, preco, rendimento), variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+      .eq("oc_tecido_id", ocId);
+    if (e2) throw e2;
+    const its = (rows ?? []).filter((r: any) => !r.cancelado);
+    const empresa = (oc as any)?.empresa_id ? empresas.find((e) => e.id === (oc as any).empresa_id) : null;
+    const rep = empresa?.representantes?.find((r) => r.id === (oc as any)?.representante_id)?.nome ?? null;
+    const itens: OcDocItem[] = [];
+    let total = 0;
+    for (const n of [1, 2] as const) {
+      const grp = its.filter((r: any) => r.artigo_numero === n);
+      if (grp.length === 0) continue;
+      const un = (grp[0] as any).artigos?.unidade_medida === "kg" ? "kg" : "m";
+      let qtdArt = 0;
+      for (const r of grp as any[]) {
+        const preco = Number(r.preco ?? r.artigos?.preco ?? 0);
+        const sub = preco * Number(r.quantidade_pedida ?? 0);
+        total += sub; qtdArt += Number(r.quantidade_pedida ?? 0);
+        const cor = [r.variante?.cor?.nome, r.variante?.apelido?.nome].filter(Boolean).join(" · ");
+        itens.push({ nome: r.artigos?.nome ?? "—", variante: cor || r.variante?.nome_variante || "—", qtd: `${r.quantidade_pedida} ${un}`, preco: fmtMoney(preco), subtotal: fmtMoney(sub) });
+      }
+      itens.push({ nome: (grp[0] as any).artigos?.nome ?? "—", qtd: `${qtdArt} ${un}`, subtotalArtigo: true });
+    }
+    return {
+      numero: (oc as any)?.numero_pedido || "—",
+      familiaLabel: "Tecidos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [{ k: "Empresa", v: empresa?.nome_fantasia ?? "—" }, { k: "Representante", v: rep ?? "—" }],
+      dados: [
+        { k: "Responsável", v: (oc as any)?.responsavel_nome || "—" },
+        { k: "Data do pedido", v: (oc as any)?.data_pedido ? fmtDate((oc as any).data_pedido) : "—" },
+        { k: "Entrega prevista", v: (oc as any)?.data_prevista_entrega ? fmtDate((oc as any).data_prevista_entrega) : "—" },
+        { k: "Pagamento", v: (oc as any)?.prazo_pagamento ? `${(oc as any).prazo_pagamento}${(oc as any).quantidade_prazos ? ` · ${(oc as any).quantidade_prazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Artigo", variante: "Cor / Variante", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+      observacoes: [{ titulo: "Observações de entrega", texto: (oc as any)?.observacoes_entrega }],
+    };
+  };
+
   const deleteMut = useMutation({
     mutationFn: async (oc: OC) => {
       // Via RPC com guarda (excluir_oc_tecido): o `.delete()` cru cascateava ocs_tecido_itens →
@@ -301,6 +347,7 @@ function OcTecidoPage() {
         empresaMap={empresaMap}
         onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
         onDelete={(oc) => setDeleting(oc)}
+        montarDocModelo={montarDocModeloTecido}
         qtdRecebidaByOc={qtdRecebidaByOc}
         tecidosByOc={tecidosByOc}
         alertaBadgeByOc={alertaBadgeByOc}
