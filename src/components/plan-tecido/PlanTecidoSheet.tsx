@@ -1338,9 +1338,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // usuário segue livre para desligar manualmente depois (só liga, dep = id da sub atual p/
   // não reagir a cada edição de slot e não entrar em loop).
   useEffect(() => {
-    // NÃO force família se o usuário está no modo Mix (senão o auto-ligar desligava o Mix ao
-    // trocar de subcoleção). Só liga família automática quando o Mix está desligado.
-    if (!groupByMix && (subAtual?.categorias_tecido?.length ?? 0) > 0) setGroupByCategoria(true);
+    if ((subAtual?.categorias_tecido?.length ?? 0) > 0) setGroupByCategoria(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subAtual?.subcolecao_id, subAtiva]);
 
@@ -1713,9 +1711,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       onToggleSecoes={toggleSecoes}
                       onToggleCards={toggleTodos}
                     />
-                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Só faz sentido
-                        agrupado por Família (senão não há lanes de categoria pra filtrar). */}
-                    {groupByCategoria && (
+                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Só no modo
+                        Família PURO (com Mix aninhado, o filtro global não bate com as sub-lanes). */}
+                    {groupByCategoria && !groupByMix && (
                       <CategoriaTecidoFilter
                         cats={cats}
                         catNome={(id) => catTecidoNome(id) ?? "?"}
@@ -1726,20 +1724,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                         onLimpar={() => setCatFilters(new Set())}
                       />
                     )}
-                    {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam).
-                        Mix e Família são lanes EXCLUSIVAS (não faz sentido 2D): ligar uma desliga a outra. */}
+                    {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
+                        (amplo→fino): Mix › Família › Nome do tecido. */}
                     <AgrupamentoButton groups={[
-                      // Ligar Mix desliga Família (e vice-versa) SEM depender de valor stale: usa o
-                      // updater funcional e desliga o outro no MESMO clique.
-                      { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => { if (!v) setGroupByCategoria(false); return !v; }) },
-                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => { if (!v) setGroupByMix(false); return !v; }) },
+                      { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => !v) },
+                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
-                    <Button size="sm" variant="outline" className="gap-1" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /> Família</Button>
+                    <Button size="sm" variant="outline" aria-label="Adicionar família" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família</span></Button>
                     {/* Editar Mix — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
                     {subNomeAtiva && (
-                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /> Editar Mix</Button>
+                      <Button size="sm" variant="outline" aria-label="Editar Mix" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Mix</span></Button>
                     )}
                   </div>
                 </div>
@@ -1749,6 +1745,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       const slots = slotsOfMix(mid);
                       const laneKey = `${subAtiva}:mix:${mid ?? "__sem__"}`;
                       const laneRecolhida = lanesRecolhidas.has(laneKey);
+                      // Família ANINHADA dentro do mix: sub-lanes por categoria de tecido presentes NESTE mix.
+                      const catsNoMix = groupByCategoria
+                        ? [...new Set(slots.map((f) => f.slot.categoria_tecido_id).filter((c): c is string => !!c))]
+                            .sort((a, b) => (catTecidoNome(a) ?? "").localeCompare(catTecidoNome(b) ?? "", "pt-BR", { sensitivity: "base" }))
+                        : [];
+                      const laneCatsNoMix: (string | null)[] = [...catsNoMix, ...(slots.some((f) => !f.slot.categoria_tecido_id) ? [null] : [])];
                       return (
                         <section key={mid ?? "__sem__"}>
                           <div className="mb-1 flex items-center gap-2">
@@ -1759,9 +1761,36 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                             <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
                           </div>
                           {!laneRecolhida && (
-                            <DroppableLane id={`mixlane:${mid ?? "__sem__"}`} vertical={groupByNome}>
-                              {laneBody(slots, true, `mix:${mid ?? "__sem__"}`)}
-                            </DroppableLane>
+                            groupByCategoria ? (
+                              // Mix › Família: sub-lanes de família (droppable de família) dentro do mix.
+                              <div className="ml-5 space-y-3 border-l pl-3">
+                                {laneCatsNoMix.map((cid) => {
+                                  const fam = slots.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
+                                  const famKey = `${subAtiva}:mix:${mid ?? "__sem__"}:fam:${cid ?? "__sem__"}`;
+                                  const famRecolhida = lanesRecolhidas.has(famKey);
+                                  return (
+                                    <section key={cid ?? "__sem__"}>
+                                      <div className="mb-1 flex items-center gap-2">
+                                        <button type="button" onClick={() => toggleLane(famKey)} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+                                          {famRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                          <span className={`text-[13px] font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                                        </button>
+                                        <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{fam.length}</span>
+                                      </div>
+                                      {!famRecolhida && (
+                                        <DroppableLane id={`lane:${cid ?? "__sem__"}`} vertical={groupByNome}>
+                                          {laneBody(fam, true, `mix:${mid ?? "__sem__"}:fam:${cid ?? "__sem__"}`)}
+                                        </DroppableLane>
+                                      )}
+                                    </section>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <DroppableLane id={`mixlane:${mid ?? "__sem__"}`} vertical={groupByNome}>
+                                {laneBody(slots, true, `mix:${mid ?? "__sem__"}`)}
+                              </DroppableLane>
+                            )
                           )}
                         </section>
                       );

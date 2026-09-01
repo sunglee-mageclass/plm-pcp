@@ -190,11 +190,11 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
+        <Button variant="outline" size="sm" aria-label="Filtros" className="relative gap-2 max-sm:aspect-square max-sm:px-0">
           <Filter className="h-4 w-4" />
-          <span>Filtros</span>
+          <span className="max-sm:sr-only">Filtros</span>
           {computedCount > 0 && (
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:p-0 max-sm:text-[10px]">
               {computedCount}
             </Badge>
           )}
@@ -274,11 +274,11 @@ export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant={count > 0 ? "default" : "outline"} size="sm" className="gap-2">
+        <Button variant={count > 0 ? "default" : "outline"} size="sm" aria-label="Agrupar" className="relative gap-2 max-sm:aspect-square max-sm:px-0">
           <Group className="h-4 w-4" />
-          <span>Agrupar</span>
+          <span className="max-sm:sr-only">Agrupar</span>
           {count > 0 && (
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:p-0 max-sm:text-[10px]">
               {count}
             </Badge>
           )}

@@ -859,7 +859,7 @@ function PlanejamentoPage() {
           {/* Editar Mix — abre popover de escopo (coleção+subcoleção, ligado ao filtro). */}
           <Popover open={escopoOpen} onOpenChange={setEscopoOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="gap-1"><Boxes className="h-4 w-4" /> Editar Mix <ChevronDown className="h-3.5 w-3.5" /></Button>
+              <Button variant="outline" aria-label="Editar Mix" className="gap-1 max-sm:aspect-square max-sm:px-0"><Boxes className="h-4 w-4" /><span className="max-sm:sr-only"> Editar Mix</span><ChevronDown className="h-3.5 w-3.5 max-sm:hidden" /></Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 space-y-3">
               <p className="text-sm font-medium">Editar mixes de qual escopo?</p>

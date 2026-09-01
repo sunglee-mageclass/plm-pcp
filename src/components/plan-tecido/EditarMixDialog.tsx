@@ -212,15 +212,9 @@ export function EditarMixDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent fixedFooter mobileFull className="max-w-2xl">
         <DialogHeader>
-          <div className="flex items-start gap-2">
-            {/* mobileFull esconde o X; garante uma saída SEMPRE (mobile e desktop). */}
-            <Button variant="ghost" size="iconSm" aria-label="Voltar" className="mt-0.5 shrink-0" onClick={onClose}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0 space-y-1">
-              <Breadcrumb items={[...breadcrumbBase.map((label) => ({ label })), { label: `${colecaoNome} › ${subcolecao}` }]} />
-              <DialogTitle>Editar Mix</DialogTitle>
-            </div>
+          <div className="space-y-1">
+            <Breadcrumb items={[...breadcrumbBase.map((label) => ({ label })), { label: `${colecaoNome} › ${subcolecao}` }]} />
+            <DialogTitle>Editar Mix</DialogTitle>
           </div>
         </DialogHeader>
 
@@ -321,6 +315,10 @@ export function EditarMixDialog({
             </div>
           )}
           <div className="flex items-center gap-2">
+            {/* Voltar (só-ícone) no rodapé — padrão do sistema; garante saída no mobile (mobileFull esconde o X). */}
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
             <Input
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
