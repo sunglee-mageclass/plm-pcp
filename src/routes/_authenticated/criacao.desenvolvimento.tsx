@@ -625,8 +625,9 @@ function DesenvolvimentoPage() {
             <p className="text-sm text-muted-foreground">Kanban dos modelos planejados.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {/* ordem: lupa · recolher (desktop) · ordenar · filtros */}
+        {/* Padrão de toolbar: LUPA à esquerda · ações de lista (Recolher/Foco/Ordenar) no meio ·
+            Agrupar + Filtrar colados à direita (ml-auto). */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
           {/* Recolher/Expandir num BOTÃO ÚNICO com dropdown (ocupa menos espaço): "Colunas" = as
               colunas do kanban; "Tecidos" = os grupos dentro das colunas (só quando há agrupamento).
@@ -673,11 +674,6 @@ function DesenvolvimentoPage() {
               <span className="max-lg:sr-only">Foco revenda</span>
             </Button>
           )}
-          <AgrupamentoButton
-            groups={[
-              { label: "Tecido", active: groupByTecido, onToggle: toggleTecido },
-            ]}
-          />
           <Select value={s.sortKey ?? ""} onValueChange={(v) => s.toggle(v)}>
             <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm">
               <SelectValue placeholder="Ordenar por" />
@@ -688,6 +684,12 @@ function DesenvolvimentoPage() {
               ))}
             </SelectContent>
           </Select>
+          <div className="ml-auto flex items-center gap-2">
+          <AgrupamentoButton
+            groups={[
+              { label: "Tecido", active: groupByTecido, onToggle: toggleTecido },
+            ]}
+          />
           <FilterButton
             screen="desenvolvimento"
             filters={[
@@ -707,6 +709,7 @@ function DesenvolvimentoPage() {
               { label: "Ano", value: fAno, onChange: setFAno, options: anos },
             ]}
           />
+          </div>
         </div>
       </header>
 

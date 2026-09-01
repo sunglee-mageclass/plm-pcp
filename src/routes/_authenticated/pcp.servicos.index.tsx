@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusBadge as SharedStatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -167,11 +167,10 @@ function TercListPage() {
             <p className="text-sm text-muted-foreground">Acompanhamento de serviços por REF.</p>
           </div>
         </div>
+        {/* Padrão de toolbar: LUPA à esquerda · Filtrar colado à direita (ml-auto). */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
+          <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
+          <div className="ml-auto flex items-center gap-2">
           <FilterButton
             screen="pcp-servicos"
             filters={[
@@ -191,6 +190,7 @@ function TercListPage() {
               ] },
             ]}
           />
+          </div>
         </div>
       </header>
 

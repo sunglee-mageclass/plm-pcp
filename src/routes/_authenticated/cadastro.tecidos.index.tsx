@@ -348,8 +348,9 @@ function TecidosGallery() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
-
+        {/* Padrão de toolbar: LUPA à esquerda · ações de lista (Ordenar) no meio ·
+            Agrupar/Filtrar/Novo colados à direita (ml-auto), Novo por último. */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por nome…" />
           <Select value={sort} onValueChange={setSort}>
             <SelectTrigger className="h-8 w-40 text-sm">
@@ -361,21 +362,23 @@ function TecidosGallery() {
               ))}
             </SelectContent>
           </Select>
-          <AgrupamentoButton
-            groups={[
-              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-              { label: "Fornecedor", active: groupByForn, onToggle: () => setGroupByForn((v) => !v) },
-            ]}
-          />
-          <FilterButton
-            filters={[
-              { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
-              { label: "Categoria", value: catFilter, onChange: setCatFilter, options: categorias },
-            ]}
-          />
-          <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
-            <Plus className="h-4 w-4 mr-1" /> Novo
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <AgrupamentoButton
+              groups={[
+                { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+                { label: "Fornecedor", active: groupByForn, onToggle: () => setGroupByForn((v) => !v) },
+              ]}
+            />
+            <FilterButton
+              filters={[
+                { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia })) },
+                { label: "Categoria", value: catFilter, onChange: setCatFilter, options: categorias },
+              ]}
+            />
+            <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
+              <Plus className="h-4 w-4 mr-1" /> Novo
+            </Button>
+          </div>
         </div>
       </header>
 
