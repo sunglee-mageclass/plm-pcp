@@ -34,6 +34,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import { useEstoqueInsumos, EstoqueInsumosTable } from "@/components/oc-insumo/EstoqueInsumosTab";
 import { printWithImages } from "@/lib/print";
+import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components/shared/OcDocumentoPrint";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
@@ -313,6 +314,49 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [confirmUnmark, setConfirmUnmark] = useState(false);
   const [secAtiva, setSecAtiva] = useState("oci-sec-pedido");
   const savingRef = useRef(false);
+
+  // Documento imprimível da OC (pedido pro fornecedor). Itens = rows incluídas dos blocos.
+  const docModelo: OcDocModelo = useMemo(() => {
+    const itens: OcDocItem[] = [];
+    let total = 0;
+    for (const bl of blocks) {
+      const nomeInsumo = etqMap[bl.etiquetaId]?.nome ?? "—";
+      for (const r of bl.rows.filter((x) => x.incluido)) {
+        const preco = Number(r.preco ?? 0);
+        const qtd = Number(r.qtdPedida ?? 0);
+        const sub = preco * qtd;
+        total += sub;
+        itens.push({
+          nome: nomeInsumo,
+          variante: r.label || "—",
+          qtd: `${qtd} un`,
+          preco: fmtMoney(preco),
+          subtotal: fmtMoney(sub),
+        });
+      }
+    }
+    const empresaSel = empresas.find((e) => e.id === empresaId);
+    const repNome = empresaSel?.representantes?.find((r) => r.id === repId)?.nome ?? null;
+    return {
+      numero: numero || "—",
+      familiaLabel: "Insumos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [
+        { k: "Empresa", v: empresaSel?.nome_fantasia ?? "—" },
+        { k: "Representante", v: repNome ?? "—" },
+      ],
+      dados: [
+        { k: "Responsável", v: respNome || "—" },
+        { k: "Data do pedido", v: dataPedido ? fmtDate(dataPedido) : "—" },
+        { k: "Entrega prevista", v: dataPrevista ? fmtDate(dataPrevista) : "—" },
+        { k: "Pagamento", v: prazo ? `${prazo}${qtdPrazos ? ` · ${qtdPrazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Insumo", variante: "Cor / Tamanho", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, etqMap, empresas, empresaId, repId, respNome, numero, dataPedido, dataPrevista, prazo, qtdPrazos]);
 
   // Preview ao vivo do Nº de Pedido (só em criação): fornecedor = empresa selecionada;
   // material = insumo (etiqueta) do 1º bloco. Hook NÃO é dono do estado — só aumenta
@@ -659,6 +703,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
 
         <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4">
           <Button variant="outline" onClick={onClose} aria-label="Voltar"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Button>
+          <Button variant="outline" onClick={() => printWithImages()} aria-label="Imprimir pedido"><Printer className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Imprimir</span></Button>
           {isEdit && status === "encomendado" && !readOnly && (
             <Button variant="destructive" onClick={onDelete} aria-label="Excluir"><Trash2 className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Excluir</span></Button>
           )}
@@ -671,6 +716,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             {!isReadOnlyRecebimento && <Button onClick={() => doSave(false)} disabled={save.isPending}>Salvar</Button>}
           </div>
         </div>
+        <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>

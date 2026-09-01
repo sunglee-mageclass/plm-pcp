@@ -48,6 +48,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { useEstoqueAviamentos, EstoqueAviamentosTable } from "@/components/oc-aviamento/EstoqueAviamentosTab";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
+import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components/shared/OcDocumentoPrint";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
@@ -620,6 +621,47 @@ function OcDialog({
   });
   const aviMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
 
+  // Documento imprimível da OC (pedido pro fornecedor). Preço vem do cadastro (aviamentos.preco).
+  const docModelo: OcDocModelo = useMemo(() => {
+    const itens: OcDocItem[] = [];
+    let total = 0;
+    for (const it of items.filter((i) => !i.cancelado && i.aviamento_id)) {
+      const a = aviMap[it.aviamento_id];
+      const preco = Number(a?.preco ?? 0);
+      const sub = preco * it.quantidade_pedida;
+      total += sub;
+      const vari = it.variante_aviamento_id ? a?.variantes?.find((v) => v.id === it.variante_aviamento_id) : null;
+      itens.push({
+        nome: a?.codigo_nome ?? "—",
+        variante: vari ? varianteAviLabel(vari) : "—",
+        qtd: `${it.quantidade_pedida} un`,
+        preco: fmtMoney(preco),
+        subtotal: fmtMoney(sub),
+      });
+    }
+    const empresaSel = empresas.find((e) => e.id === draft.empresa_id);
+    const repNome = empresaSel?.representantes?.find((r) => r.id === draft.representante_id)?.nome ?? null;
+    return {
+      numero: draft.numero_pedido || "—",
+      familiaLabel: "Aviamentos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [
+        { k: "Empresa", v: empresaSel?.nome_fantasia ?? "—" },
+        { k: "Representante", v: repNome ?? "—" },
+      ],
+      dados: [
+        { k: "Responsável", v: draft.responsavel_nome || "—" },
+        { k: "Data do pedido", v: draft.data_pedido ? fmtDate(draft.data_pedido) : "—" },
+        { k: "Entrega prevista", v: draft.data_prevista_entrega ? fmtDate(draft.data_prevista_entrega) : "—" },
+        { k: "Pagamento", v: draft.prazo_pagamento ? `${draft.prazo_pagamento}${draft.quantidade_prazos ? ` · ${draft.quantidade_prazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Aviamento", variante: "Cor / Variante", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, items, aviMap, empresas]);
+
   const addItem = () => {
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
     setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", variante_aviamento_id: null, quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
@@ -1107,6 +1149,10 @@ function OcDialog({
             <ArrowLeft className="h-4 w-4 md:mr-1" />
             <span className="max-md:sr-only">Voltar</span>
           </Button>
+          <Button variant="outline" onClick={() => printWithImages()} aria-label="Imprimir pedido">
+            <Printer className="h-4 w-4 md:mr-1" />
+            <span className="max-md:sr-only">Imprimir</span>
+          </Button>
           {isEdit && onDelete && status === "encomendado" && (
             <Button variant="destructive" onClick={onDelete} aria-label="Excluir">
               <Trash2 className="h-4 w-4 md:mr-1" />
@@ -1131,6 +1177,7 @@ function OcDialog({
             </Button>
           </div>
         </div>
+        <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>

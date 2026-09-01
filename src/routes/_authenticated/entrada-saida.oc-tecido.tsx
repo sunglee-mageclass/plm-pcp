@@ -34,6 +34,7 @@ import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
 import type { StatusTone } from "@/components/shared/StatusBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { printWithImages } from "@/lib/print";
+import { OcDocumentoPrint, type OcDocModelo, type OcDocItem } from "@/components/shared/OcDocumentoPrint";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
@@ -939,6 +940,57 @@ function OcDialog({
   const itemsBy = (n: 1 | 2) => items.filter((i) => i.artigo_numero === n);
   const artigoIdFor = (n: 1 | 2) => itemsBy(n)[0]?.artigo_id ?? null;
 
+  // Documento imprimível da OC (pedido pro fornecedor). Traduz draft+items → modelo normalizado.
+  const empresaSel = draft.empresa_id ? empresas.find((e) => e.id === draft.empresa_id) : null;
+  const repNome = empresaSel?.representantes?.find((r) => r.id === draft.representante_id)?.nome ?? null;
+  const docModelo: OcDocModelo = useMemo(() => {
+    const itens: OcDocItem[] = [];
+    let total = 0;
+    for (const n of [1, 2] as const) {
+      const its = itemsBy(n).filter((i) => !i.cancelado);
+      if (its.length === 0) continue;
+      const a = artigoMap[artigoIdFor(n) ?? ""];
+      const un = a?.unidade_medida === "kg" ? "kg" : "m";
+      let qtdArt = 0;
+      for (const it of its) {
+        const preco = precoItem(it, artigoMap);
+        const sub = preco * it.quantidade_pedida;
+        total += sub; qtdArt += it.quantidade_pedida;
+        itens.push({
+          nome: a?.nome ?? "—",
+          variante: it.variante_tecido_id ? labelVariante(varianteMap[it.variante_tecido_id]) : "—",
+          qtd: `${it.quantidade_pedida} ${un}`,
+          preco: fmtMoney(preco),
+          subtotal: fmtMoney(sub),
+        });
+      }
+      // subtotal de qtd por artigo (o artigo tem variantes)
+      itens.push({ nome: a?.nome ?? "—", qtd: `${qtdArt} ${un}`, subtotalArtigo: true });
+    }
+    return {
+      numero: draft.numero_pedido || "—",
+      familiaLabel: "Tecidos",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [
+        { k: "Empresa", v: empresaSel?.nome_fantasia ?? "—" },
+        { k: "Representante", v: repNome ?? "—" },
+      ],
+      dados: [
+        { k: "Responsável", v: draft.responsavel_nome || "—" },
+        { k: "Data do pedido", v: draft.data_pedido ? fmtDate(draft.data_pedido) : "—" },
+        { k: "Entrega prevista", v: draft.data_prevista_entrega ? fmtDate(draft.data_prevista_entrega) : "—" },
+        { k: "Pagamento", v: draft.prazo_pagamento ? `${draft.prazo_pagamento}${draft.quantidade_prazos ? ` · ${draft.quantidade_prazos} parcela(s)` : ""}` : "—" },
+      ],
+      colunasItem: { nome: "Artigo", variante: "Cor / Variante", qtd: "Qtd pedida", preco: "Preço un.", subtotal: "Subtotal" },
+      itens,
+      totalPrevisto: fmtMoney(total),
+      observacoes: [
+        { titulo: "Observações de entrega", texto: draft.observacoes_entrega },
+      ],
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, items, artigoMap, varianteMap, empresas]);
+
   const setArtigo = (n: 1 | 2, artigoId: string) => {
     const rendimentoPadrao = artigoMap[artigoId]?.rendimento ?? null;
     setItemsTracked((prev) => [
@@ -1652,6 +1704,10 @@ function OcDialog({
             <ArrowLeft className="h-4 w-4 md:mr-1" />
             <span className="max-md:sr-only">Voltar</span>
           </Button>
+          <Button variant="outline" onClick={() => printWithImages()} aria-label="Imprimir pedido">
+            <Printer className="h-4 w-4 md:mr-1" />
+            <span className="max-md:sr-only">Imprimir</span>
+          </Button>
           {isEdit && onDelete && status === "encomendado" && (
             <Button variant="destructive" onClick={onDelete} aria-label="Excluir">
               <Trash2 className="h-4 w-4 md:mr-1" />
@@ -1677,6 +1733,7 @@ function OcDialog({
             </Button>
           </div>
         </div>
+        <OcDocumentoPrint modelo={docModelo} />
     </OcModalShell>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>

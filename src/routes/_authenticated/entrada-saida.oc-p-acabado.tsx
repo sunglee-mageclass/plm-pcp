@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Plus, ArrowLeft, Trash2, Check } from "lucide-react";
+import { ShoppingCart, Plus, ArrowLeft, Trash2, Check, Printer } from "lucide-react";
+import { printWithImages } from "@/lib/print";
+import { OcDocumentoPrint, type OcDocModelo, type OcDocGrade } from "@/components/shared/OcDocumentoPrint";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,7 +25,7 @@ import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { varianteLabel } from "@/lib/variante";
-import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { erroValidacao } from "@/components/produto-acabado/shared";
 import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
 import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
@@ -566,6 +568,55 @@ function OcPaDialog({
     },
   });
 
+  // Documento imprimível da OC (pedido pro fornecedor) — grade matriz + proporção + valores.
+  const docModelo: OcDocModelo = useMemo(() => {
+    const acessorioP = ehGrupoAcessorio(grupos.find((g) => g.id === draft.grupo_id)?.nome ?? null);
+    const tams = acessorioP ? [TAM_ACESSORIO] : tamanhos;
+    const corNomeP = (id: string | null) => cores.find((c) => c.id === id)?.nome ?? null;
+    const apelidoNomeP = (id: string | null) => coresApelido.find((c) => c.id === id)?.nome ?? null;
+    const linhas = draft.variantes.map((v) => {
+      const g = grade[String(v.ordem)] ?? {};
+      const celulas: Record<string, React.ReactNode> = {};
+      let totalLin = 0;
+      for (const t of tams) { const ped = Number(g[t]?.pedida ?? 0); celulas[t] = ped || "—"; totalLin += ped; }
+      return { cor: varianteLabel({ cor: corNomeP(v.cor_id), apelido: apelidoNomeP(v.cor_apelido_id) }) || `Variante ${v.ordem}`, celulas, total: totalLin };
+    });
+    const totalPorTamanho: Record<string, React.ReactNode> = {};
+    let geral = 0;
+    for (const t of tams) { let s = 0; for (const v of draft.variantes) s += Number(grade[String(v.ordem)]?.[t]?.pedida ?? 0); totalPorTamanho[t] = s; geral += s; }
+    const proporcao: Record<string, React.ReactNode> = {};
+    for (const t of tams) proporcao[t] = draft.grade_proporcao[t] ?? "—";
+    const { bruto, totalDesc, unitReal } = cadeiaValores(draft.qtd_total, draft.valor_unitario, draft.desconto_pct);
+    const gradeDoc: OcDocGrade = {
+      produtoTitulo: `Produto: ${draft.nome_produto || produtoVinculado?.nome || "—"}${numeroReal ? ` (REF ${numeroReal})` : ""}`,
+      tamanhos: tams,
+      proporcao,
+      linhas,
+      totalPorTamanho,
+      totalGeral: geral,
+      valores: [{ descricao: draft.nome_produto || "Produto — todas as cores/tamanhos", qtd: `${geral} pç`, precoUnit: fmtMoney(unitReal), subtotal: fmtMoney(totalDesc) }],
+    };
+    const empresaSelP = empresas.find((e) => e.id === draft.empresa_id);
+    const repNomeP = empresaSelP?.representantes?.find((r) => r.id === draft.representante_id)?.nome ?? null;
+    return {
+      numero: numeroReal || draft.numero || "—",
+      familiaLabel: "Produto Acabado (Revenda)",
+      emitidoEm: fmtDate(new Date().toISOString()),
+      fornecedor: [
+        { k: "Empresa", v: empresaSelP?.nome_fantasia ?? "—" },
+        { k: "Representante", v: repNomeP ?? "—" },
+      ],
+      dados: [
+        { k: "Data do pedido", v: draft.data_pedido ? fmtDate(draft.data_pedido) : "—" },
+        { k: "Entrega prevista", v: draft.data_prevista ? fmtDate(draft.data_prevista) : "—" },
+        { k: "Pagamento", v: draft.prazo_pagamento ? `${draft.prazo_pagamento}${draft.parcelas_entrega ? ` · ${draft.parcelas_entrega} parcela(s)` : ""}` : "—" },
+      ],
+      grade: gradeDoc,
+      totalPrevisto: fmtMoney(totalDesc),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, grade, grupos, tamanhos, cores, coresApelido, empresas, produtoVinculado, numeroReal]);
+
   const handleUpload = async (file: File, key: "anexo_pedido_url" | "anexo_nf_url") => {
     try {
       const path = await uploadFile(file, key);
@@ -777,6 +828,10 @@ function OcPaDialog({
             <ArrowLeft className="h-4 w-4 md:mr-1" />
             <span className="max-md:sr-only">Voltar</span>
           </Button>
+          <Button variant="outline" onClick={() => printWithImages()} aria-label="Imprimir pedido">
+            <Printer className="h-4 w-4 md:mr-1" />
+            <span className="max-md:sr-only">Imprimir</span>
+          </Button>
           {isEdit && status === "encomendado" && (
             <Button
               variant="destructive"
@@ -799,6 +854,7 @@ function OcPaDialog({
             </Button>
           </div>
         </div>
+        <OcDocumentoPrint modelo={docModelo} />
       </OcModalShell>
 
       <AlertDialog open={confirmReceber} onOpenChange={(o) => !o && setConfirmReceber(false)}>
