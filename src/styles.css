@@ -389,6 +389,9 @@
   /* Folga horizontal (5mm) — o conteúdo fica sempre DENTRO da área imprimível, com
      qualquer margem (default/mínima): nunca corta a borda direita das tabelas. */
   .print-area { display: block !important; width: auto !important; padding: 0 5mm !important; background: white !important; color: black !important; }
+  /* Blindagem contra múltiplas print-areas (lista com N botões de imprimir + o do sheet):
+     printWithImages marca as que NÃO são o alvo atual; elas continuam ocultas no papel. */
+  .print-area[data-print-skip] { display: none !important; }
   .print-area, .print-area * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-area table, .print-area tbody, .print-area tbody tr { background: white !important; color: black !important; }
   /* Linha de título/cabeçalho das tabelas em cinza claro (sem isto o print forçava branco). */

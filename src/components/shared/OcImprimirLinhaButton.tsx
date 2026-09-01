@@ -39,6 +39,9 @@ export function OcImprimirLinhaButton({
       toast.error(mensagemErro(err, "Erro ao preparar a impressão."));
     } finally {
       setCarregando(false);
+      // CRÍTICO: desmonta o documento após imprimir. Senão a .print-area deste botão fica no
+      // DOM e o próximo window.print() (de outra linha ou do sheet) imprimiria TODAS juntas.
+      setModelo(null);
     }
   };
 
