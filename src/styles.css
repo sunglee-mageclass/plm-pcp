@@ -400,6 +400,14 @@
   .print-area tbody tr.rel-az td { background: #eaf2fe !important; }
   .print-area tbody tr.rel-vd td { background: #e9f8ef !important; }
   .print-area section, .print-area .print-section { page-break-inside: avoid; break-inside: avoid; }
+  /* PÉ DO DOCUMENTO (assinaturas + rodapé institucional). Dois objetivos:
+     (1) o par assinatura+rodapé nunca parte no meio (break-inside: avoid);
+     (2) evitar a "folha órfã" com só a assinatura — `break-before: avoid` impede o
+     navegador de forçar uma quebra ANTES do pé, então se ele não cabe na folha atual
+     ele desce JUNTO com o último trecho de conteúdo (que também não pode partir), em vez
+     de sozinho. A âncora no pé da folha (quando há espaço) vem do container flex <DocFolha>
+     (ou a <section> flex da OS) + `margin-top:auto` no pé — style inline no TSX. */
+  .print-area .doc-pe { page-break-inside: avoid; break-inside: avoid; page-break-before: avoid; break-before: avoid; }
   /* Nada estoura à direita: tudo cabe na largura da folha; conteúdo longo quebra.
      table-layout: fixed força as colunas a respeitarem o 100% (encolhem em vez de vazar). */
   .print-area, .print-area * { box-sizing: border-box; max-width: 100%; }

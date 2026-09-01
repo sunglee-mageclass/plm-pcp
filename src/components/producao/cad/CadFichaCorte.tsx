@@ -42,8 +42,10 @@ const fmt2 = (n: number | null | undefined) => fmtNum(n);
 export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
   // Ficha Técnica inclui "Data Prevista" entre Data e Assinatura; Ficha de Corte não.
   const labels = dataPrevista ? ["Nome", "Data", "Data Prevista", "Assinatura"] : ["Nome", "Data", "Assinatura"];
+  // .doc-pe (styles.css @media print): a assinatura nunca parte no meio E não cai sozinha numa
+  // folha nova — se não couber, desce junto com o fim do conteúdo (evita a folha órfã).
   return (
-    <div style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: `repeat(${labels.length}, 1fr)`, gap: 24 }}>
+    <div className="doc-pe" style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: `repeat(${labels.length}, 1fr)`, gap: 24 }}>
       {labels.map((l) => (
         <div key={l}>
           <div style={{ borderBottom: "1px solid #000", height: 16 }} />

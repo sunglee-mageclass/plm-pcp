@@ -1,5 +1,6 @@
 import { format, parseISO } from "date-fns";
 import { PrintArea } from "@/components/shared/PrintArea";
+import { DocPapel, DocFolha, DocMarcaHeader, DocPeDocumento } from "@/components/shared/DocPrintCasca";
 import { brl } from "@/lib/format";
 
 type ComprovanteParcela = {
@@ -24,24 +25,23 @@ export function ComprovantePagamentoPrint({
   tipoLabel: string;
   ocNumero: string;
 }) {
+  const dataStr = new Date().toLocaleDateString("pt-BR");
   return (
     <PrintArea>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>COMPROVANTE DE PAGAMENTO</div>
-        <div style={{ fontSize: 11 }}>{new Date().toLocaleDateString("pt-BR")}</div>
-      </div>
-      <div style={{ fontSize: 13, lineHeight: 2 }}>
-        <div><b>Fornecedor:</b> {parcela.representanteNome ?? parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</div>
-        <div><b>Origem:</b> {tipoLabel} · Nº {ocNumero}</div>
-        <div><b>Parcela:</b> {parcela.numero_parcela}</div>
-        <div><b>Valor:</b> {brl(Number(parcela.valor))}</div>
-        <div><b>Vencimento:</b> {parcela.data_vencimento ? parcela.data_vencimento.slice(0, 10).split("-").reverse().join("/") : "—"}</div>
-        <div><b>Pago em:</b> {parcela.data_pagamento ? format(parseISO(parcela.data_pagamento), "dd/MM/yyyy") : "—"}</div>
-      </div>
-      <div style={{ marginTop: 48, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, fontSize: 12 }}>
-        <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Recebido por</div></div>
-        <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Data</div></div>
-      </div>
+      <DocPapel>
+        <DocFolha>
+          <DocMarcaHeader titulo="Comprovante de Pagamento" nomeUpper dataStr={dataStr} />
+          <div style={{ fontSize: 13, lineHeight: 2 }}>
+            <div><b>Fornecedor:</b> {parcela.representanteNome ?? parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</div>
+            <div><b>Origem:</b> {tipoLabel} · Nº {ocNumero}</div>
+            <div><b>Parcela:</b> {parcela.numero_parcela}</div>
+            <div><b>Valor:</b> {brl(Number(parcela.valor))}</div>
+            <div><b>Vencimento:</b> {parcela.data_vencimento ? parcela.data_vencimento.slice(0, 10).split("-").reverse().join("/") : "—"}</div>
+            <div><b>Pago em:</b> {parcela.data_pagamento ? format(parseISO(parcela.data_pagamento), "dd/MM/yyyy") : "—"}</div>
+          </div>
+          <DocPeDocumento tipo="recibo" dataStr={dataStr} />
+        </DocFolha>
+      </DocPapel>
     </PrintArea>
   );
 }

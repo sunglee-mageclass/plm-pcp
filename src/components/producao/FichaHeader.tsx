@@ -1,14 +1,21 @@
 /**
  * Cabeçalho padrão das fichas de impressão (Ficha Técnica e Ficha de Corte):
- * logo da loja + título + campos ROTULADOS minimalistas, inline. Campos: REF,
- * Modelo, Coleção, Linha, Categoria, Subcategoria (só se houver), Estilista,
- * Modelista e Piloteiro. (A "Data Prevista" não fica no cabeçalho — na Ficha
- * Técnica vai no rodapé de assinatura; na Ficha de Corte não é usada.)
+ * FAIXA DE MARCA da loja (logo + nome/CNPJ/contato — casca padronizada, igual aos demais
+ * printáveis) + título + campos ROTULADOS minimalistas, inline. Campos: REF, Modelo, Coleção,
+ * Linha, Categoria, Subcategoria (só se houver), Estilista, Modelista e Piloteiro. (A "Data
+ * Prevista" não fica no cabeçalho — na Ficha Técnica vai no rodapé de assinatura; na Ficha de
+ * Corte não é usada.) A marca vem do `useTenantBranding` (nome/CNPJ/contato); o `logo` continua
+ * aceito por prop p/ compatibilidade (as fichas já passam o `useTenantLogo`), mas se ausente
+ * cai no logo da marca.
  */
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useTenantBranding } from "@/hooks/useTenantBranding";
 
 export function FichaHeader({ title, modelo, logo }: { title: string; modelo: any; logo?: string | null }) {
   const fl = useFieldLabels();
+  const loja = useTenantBranding();
+  const logoSrc = logo ?? loja.logoUrl;
+  const nomeLoja = loja.nome ?? "WISH360";
   const m = modelo ?? {};
   const versao = Number(m?.versao ?? 1);
   const refText = `${m?.ref ?? "—"}${versao > 1 ? ` ↻ v${versao}` : ""}`;
@@ -42,10 +49,17 @@ export function FichaHeader({ title, modelo, logo }: { title: string; modelo: an
     ));
   };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 8 }}>
-      {logo && <img src={logo} alt="logo" style={{ height: 44, objectFit: "contain" }} />}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px" }}>{title}</h1>
+    <div style={{ fontFamily: "Helvetica, Arial, sans-serif", color: "#1a1a1a", marginBottom: 8 }}>
+      {/* Faixa de marca (casca padronizada): logo + nome/CNPJ/contato. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        {logoSrc && <img src={logoSrc} alt="" style={{ maxHeight: 38, maxWidth: 96, objectFit: "contain" }} />}
+        <div style={{ fontSize: 12, color: "#444" }}>
+          <b style={{ color: "#1a1a1a" }}>{nomeLoja}</b>{loja.cnpj ? ` · CNPJ ${loja.cnpj}` : ""}{loja.contato ? ` · ${loja.contato}` : ""}
+        </div>
+      </div>
+      {/* Título + campos identitários da ficha (miolo — inalterado). */}
+      <div style={{ borderBottom: "2px solid #000", paddingBottom: 6 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", textTransform: "uppercase", letterSpacing: 0.3 }}>{title}</h1>
         <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha1)}</div>
         <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha2)}</div>
         <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha3)}</div>

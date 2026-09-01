@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { PrintArea } from "@/components/shared/PrintArea";
+import { DocMarcaHeader, DocPeDocumento } from "@/components/shared/DocPrintCasca";
 
 export type OSItem = {
   servico: string;
@@ -65,15 +66,17 @@ export function OrdemServicoTerceirizados({
             // avoid conflitava com a quebra e deixava 2 serviços na mesma folha.)
             pageBreakBefore: i > 0 ? "always" : "auto",
             breakBefore: i > 0 ? "page" : "auto",
+            fontFamily: "Helvetica, Arial, sans-serif",
+            color: "#1a1a1a",
+            // Coluna flex de altura da folha: ANCORA o pé (assinatura+rodapé, marginTop:auto)
+            // no rodapé da página; se o conteúdo enche, o pé desce junto (sem folha órfã).
+            display: "flex",
+            flexDirection: "column",
+            minHeight: "273mm",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>ORDEM DE SERVIÇO</div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{it.servico}</div>
-            </div>
-            <div style={{ fontSize: 11, textAlign: "right" }}>{dataStr}</div>
-          </div>
+          {/* Cabeçalho de marca repete POR página (cada serviço é uma OS que circula sozinha). */}
+          <DocMarcaHeader titulo="Ordem de Serviço" nomeUpper subtitulo={it.servico} dataStr={dataStr} />
 
           <div style={{ fontSize: 12, lineHeight: 1.8, marginBottom: 12 }}>
             <div><b>Modelo:</b> {modelo?.ref ?? "—"} — {modelo?.nome ?? ""}{modelo?.colecao ? ` · ${modelo.colecao}` : ""}</div>
@@ -116,10 +119,7 @@ export function OrdemServicoTerceirizados({
             <div style={{ fontSize: 12, marginBottom: 8 }}><b>Observações:</b> {it.observacao}</div>
           )}
 
-          <div style={{ marginTop: 48, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, fontSize: 12 }}>
-            <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Recebido por</div></div>
-            <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Data</div></div>
-          </div>
+          <DocPeDocumento tipo="servico" dataStr={dataStr} />
         </section>
       ))}
     </PrintArea>

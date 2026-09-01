@@ -1,5 +1,6 @@
 import { cell, cellH } from "@/components/producao/cad/types";
 import { PrintArea } from "@/components/shared/PrintArea";
+import { DocPapel, DocFolha, DocMarcaHeader, DocPeDocumento } from "@/components/shared/DocPrintCasca";
 
 type Loja = { id: string; nome: string };
 type VarState = {
@@ -101,29 +102,34 @@ export function RomaneioDirecionamento({
     </table>
   );
 
+  const subtitulo = (
+    <>
+      {modelo?.ref ?? "—"} — {modelo?.nome ?? ""}{modelo?.colecao ? ` · ${modelo.colecao}` : ""} · <b>{confirmado ? "Separado" : "Pendente"}</b>
+    </>
+  );
   return (
     <PrintArea>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>ROMANEIO DE DIRECIONAMENTO</div>
-          <div style={{ fontSize: 13 }}>{modelo?.ref ?? "—"} — {modelo?.nome ?? ""}{modelo?.colecao ? ` · ${modelo.colecao}` : ""}</div>
-        </div>
-        <div style={{ fontSize: 11, textAlign: "right" }}>{confirmado ? "Separado" : "Pendente"}<br />{dataStr}</div>
-      </div>
+      <DocPapel>
+        <DocFolha>
+          <DocMarcaHeader titulo="Romaneio de Direcionamento" nomeUpper subtitulo={subtitulo} dataStr={dataStr} />
 
-      {variantes.map((v) => (
-        <div key={v.variante_numero} className="print-section" style={{ marginBottom: 14 }}>
-          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>{labelByNumero?.[v.variante_numero] ?? `Variante ${v.variante_numero}`}</div>
-          {tabela(linhasVariante(v))}
-        </div>
-      ))}
+          {variantes.map((v) => (
+            <div key={v.variante_numero} className="print-section" style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>{labelByNumero?.[v.variante_numero] ?? `Variante ${v.variante_numero}`}</div>
+              {tabela(linhasVariante(v))}
+            </div>
+          ))}
 
-      {variantes.length > 1 && (
-        <div className="print-section" style={{ marginTop: 10 }}>
-          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Total geral (todas as variantes)</div>
-          {tabela({ real: gReal, porLoja: gPorLoja, dir: gDir })}
-        </div>
-      )}
+          {variantes.length > 1 && (
+            <div className="print-section" style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Total geral (todas as variantes)</div>
+              {tabela({ real: gReal, porLoja: gPorLoja, dir: gDir })}
+            </div>
+          )}
+
+          <DocPeDocumento tipo="expedicao" dataStr={dataStr} />
+        </DocFolha>
+      </DocPapel>
     </PrintArea>
   );
 }
