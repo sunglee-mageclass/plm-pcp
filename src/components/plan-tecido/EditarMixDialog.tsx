@@ -9,10 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { ModeloThumb } from "@/components/plan-tecido/ModeloThumb";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+/** Vaga vazia da árvore do Plan. Tecido (slot sem modelo). Só existe no Plan. Tecido, então
+ *  entra por props: a lista + o callback que grava mix_id no slot (o dialog não muta a árvore). */
+export type VagaMix = { slotId: string; ref?: string | null; nome?: string | null; mixId: string | null; catTecidoNome?: string | null; tecidoNome?: string | null };
 
 /**
  * Editor de MIXES de uma (coleção, subcoleção). Compartilhado por Plan. Tecido e Plan.
@@ -26,16 +31,22 @@ import {
  */
 
 type Mix = { id: string; nome: string; ordem: number };
-type ModeloLite = { id: string; nome: string | null; ref: string | null; mix_id: string | null; fotos_referencia: string[] | null; fotos_modelo: string[] | null };
+type ModeloLite = {
+  id: string; nome: string | null; ref: string | null; ref_auto: string | null; mix_id: string | null;
+  categoria_principal_id: string | null; tecidos_planejados: string[] | null;
+  fotos_modelo: string[] | null; fotos_referencia: string[] | null;
+};
 
 export function EditarMixDialog({
-  colecaoId, colecaoNome, subcolecao, breadcrumbBase, onClose,
+  colecaoId, colecaoNome, subcolecao, breadcrumbBase, onClose, vagas, onMoverVagas,
 }: {
   colecaoId: string;
   colecaoNome: string;
   subcolecao: string;
   breadcrumbBase: string[];      // ex.: ["Criação", "Plan. Tecido"]
   onClose: () => void;
+  vagas?: VagaMix[];             // vagas vazias da subcoleção (só Plan. Tecido)
+  onMoverVagas?: (slotIds: string[], mixId: string | null) => void;  // grava slot.mix_id na árvore
 }) {
   const qc = useQueryClient();
   const [novoNome, setNovoNome] = useState("");
@@ -68,7 +79,7 @@ export function EditarMixDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, mix_id, fotos_referencia, fotos_modelo")
+        .select("id, nome, ref, ref_auto, mix_id, categoria_principal_id, tecidos_planejados, fotos_modelo, fotos_referencia")
         .eq("colecao_id", colecaoId)
         .eq("subcolecao", subcolecao)
         .order("created_at", { ascending: false });
@@ -76,6 +87,29 @@ export function EditarMixDialog({
       return (data ?? []) as unknown as ModeloLite[];
     },
   });
+
+  // Nomes de categoria de produto e de artigo (tecido) — p/ identificar o modelo no picker.
+  const { data: catMap = {} } = useQuery({
+    queryKey: ["mix-categorias-produto"],
+    queryFn: async () => {
+      const { data } = await supabase.from("categorias_produto").select("id, nome");
+      return Object.fromEntries(((data ?? []) as any[]).map((c) => [c.id, c.nome])) as Record<string, string>;
+    },
+  });
+  const { data: artigoMap = {} } = useQuery({
+    queryKey: ["mix-artigos-nome"],
+    queryFn: async () => {
+      const { data } = await supabase.from("artigos").select("id, nome");
+      return Object.fromEntries(((data ?? []) as any[]).map((a) => [a.id, a.nome])) as Record<string, string>;
+    },
+  });
+  const catNome = (m: ModeloLite) => (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null) ?? null;
+  const tecido1Nome = (m: ModeloLite) => {
+    const a = (m.tecidos_planejados ?? []).find(Boolean);
+    return a ? (artigoMap[a] ?? null) : null;
+  };
+  const fotoDe = (m: ModeloLite) => m.fotos_modelo?.[0] ?? m.fotos_referencia?.[0] ?? null;
+  const refDe = (m: ModeloLite) => m.ref ?? m.ref_auto ?? null;
 
   // Nomes já usados no tenant (autocomplete).
   const { data: nomesUsados = [] } = useQuery({
@@ -87,11 +121,13 @@ export function EditarMixDialog({
     },
   });
 
+  // Contador do mix = modelos + vagas reservadas.
   const countByMix = useMemo(() => {
     const m: Record<string, number> = {};
     for (const md of modelos) if (md.mix_id) m[md.mix_id] = (m[md.mix_id] ?? 0) + 1;
+    for (const v of vagas ?? []) if (v.mixId) m[v.mixId] = (m[v.mixId] ?? 0) + 1;
     return m;
-  }, [modelos]);
+  }, [modelos, vagas]);
 
   const nomeExiste = (nome: string, exceptId?: string) =>
     mixList.some((mx) => mx.id !== exceptId && mx.nome.trim().toLowerCase() === nome.trim().toLowerCase());
@@ -158,6 +194,19 @@ export function EditarMixDialog({
 
   const modelosDoMix = (mixId: string) => modelos.filter((m) => m.mix_id === mixId);
   const modelosSemMix = modelos.filter((m) => !m.mix_id);
+  const vagasDoMix = (mixId: string) => (vagas ?? []).filter((v) => v.mixId === mixId);
+  const vagasSemMix = (vagas ?? []).filter((v) => !v.mixId);
+  // seleção do picker: modelos (id) e vagas (slotId). Set separado p/ vagas.
+  const [pickVagas, setPickVagas] = useState<Set<string>>(new Set());
+  const [pickBusca, setPickBusca] = useState("");
+  const totalPick = pickSel.size + pickVagas.size;
+
+  // Filtro do picker: casa nome, REF, tecido 1 e categoria (sem acento).
+  const q = semAcento(pickBusca.trim());
+  const modeloMatch = (m: ModeloLite) =>
+    !q || semAcento([m.nome, refDe(m), catNome(m), tecido1Nome(m)].filter(Boolean).join(" ")).includes(q);
+  const vagaMatch = (v: VagaMix) =>
+    !q || semAcento([v.nome, v.ref, v.catTecidoNome, v.tecidoNome, "vaga card vago"].filter(Boolean).join(" ")).includes(q);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -212,7 +261,8 @@ export function EditarMixDialog({
                     <div className="flex flex-wrap items-start gap-2 p-3">
                       {mods.map((m) => (
                         <div key={m.id} className="w-16">
-                          <div className="relative aspect-[3/4] overflow-hidden rounded-md bg-muted">
+                          <div className="relative">
+                            <ModeloThumb path={fotoDe(m)} className="aspect-[3/4] w-16" alt={m.nome ?? ""} />
                             <button
                               className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
                               aria-label="Tirar do mix"
@@ -221,14 +271,30 @@ export function EditarMixDialog({
                               <X className="h-3 w-3" />
                             </button>
                           </div>
-                          <div className="mt-1 truncate text-center text-[10px] text-muted-foreground">{m.ref ?? "s/ ref"}</div>
+                          <div className="mt-0.5 truncate text-center text-[10px] font-medium leading-tight">{m.nome ?? "Sem nome"}</div>
+                          <div className="truncate text-center text-[9px] text-muted-foreground tabular-nums">{refDe(m) ?? "s/ ref"}</div>
+                        </div>
+                      ))}
+                      {vagasDoMix(mx.id).map((v) => (
+                        <div key={v.slotId} className="w-16">
+                          <div className="relative flex aspect-[3/4] w-16 items-center justify-center rounded-md border border-dashed bg-muted text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            vaga
+                            <button
+                              className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
+                              aria-label="Tirar do mix"
+                              onClick={() => onMoverVagas?.([v.slotId], null)}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <div className="mt-0.5 truncate text-center text-[9px] text-muted-foreground">Card vago</div>
                         </div>
                       ))}
                       <button
                         className="flex h-[88px] w-16 flex-col items-center justify-center gap-1 rounded-md border border-dashed text-[10px] font-semibold text-muted-foreground hover:bg-muted"
-                        onClick={() => { setPickFor(mx.id); setPickSel(new Set()); }}
+                        onClick={() => { setPickFor(mx.id); setPickSel(new Set()); setPickVagas(new Set()); }}
                       >
-                        <Plus className="h-4 w-4" />Adicionar<br />modelos
+                        <Plus className="h-4 w-4" />Adicionar
                       </button>
                     </div>
                   )}
@@ -282,39 +348,85 @@ export function EditarMixDialog({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Picker de modelos p/ adicionar ao mix */}
-      <Dialog open={!!pickFor} onOpenChange={(o) => !o && setPickFor(null)}>
+      {/* Picker de modelos (e vagas) p/ adicionar ao mix */}
+      <Dialog open={!!pickFor} onOpenChange={(o) => { if (!o) { setPickFor(null); setPickSel(new Set()); setPickVagas(new Set()); setPickBusca(""); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Adicionar modelos ao mix</DialogTitle>
+            <DialogTitle>Adicionar ao mix</DialogTitle>
           </DialogHeader>
-          <div className="grid max-h-[60vh] grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 overflow-auto py-2">
-            {modelosSemMix.length === 0 ? (
-              <p className="col-span-full py-6 text-center text-sm text-muted-foreground">Todos os modelos desta subcoleção já estão em algum mix.</p>
+          <Input
+            autoFocus
+            value={pickBusca}
+            onChange={(e) => setPickBusca(e.target.value)}
+            placeholder="Buscar por nome, REF, tecido ou categoria…"
+          />
+          {(() => {
+            const modelosFiltrados = modelosSemMix.filter(modeloMatch);
+            const vagasFiltradas = vagasSemMix.filter(vagaMatch);
+            return (
+          <div className="max-h-[55vh] space-y-1.5 overflow-auto py-2">
+            {modelosSemMix.length === 0 && vagasSemMix.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Todos os cards desta subcoleção já estão em algum mix.</p>
+            ) : modelosFiltrados.length === 0 && vagasFiltradas.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Nenhum card encontrado para “{pickBusca}”.</p>
             ) : (
-              modelosSemMix.map((m) => {
-                const sel = pickSel.has(m.id);
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setPickSel((prev) => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}
-                    className={`relative overflow-hidden rounded-md border text-left ${sel ? "outline outline-2 outline-primary" : ""}`}
-                  >
-                    {sel && <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">✓</span>}
-                    <div className="aspect-[3/4] bg-muted" />
-                    <div className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">{m.ref ?? m.nome ?? "modelo"}</div>
-                  </button>
-                );
-              })
+              <>
+                {modelosFiltrados.map((m) => {
+                  const sel = pickSel.has(m.id);
+                  const cat = catNome(m), tec = tecido1Nome(m);
+                  const sub = [cat, tec].filter(Boolean).join(" · ");
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setPickSel((prev) => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}
+                      className={`flex w-full items-center gap-2.5 rounded-md border px-2 py-1.5 text-left ${sel ? "border-primary bg-primary/5" : "hover:bg-muted"}`}
+                    >
+                      <ModeloThumb path={fotoDe(m)} className="h-12 w-9" alt={m.nome ?? ""} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{m.nome ?? "Sem nome"}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground tabular-nums">{refDe(m) ?? "s/ ref"}</span>
+                        {sub && <span className="block truncate text-[11px] text-muted-foreground">{sub}</span>}
+                      </span>
+                      {sel && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">✓</span>}
+                    </button>
+                  );
+                })}
+                {vagasFiltradas.map((v) => {
+                  const sel = pickVagas.has(v.slotId);
+                  const sub = [v.catTecidoNome, v.tecidoNome].filter(Boolean).join(" · ");
+                  return (
+                    <button
+                      key={v.slotId}
+                      onClick={() => setPickVagas((prev) => { const n = new Set(prev); n.has(v.slotId) ? n.delete(v.slotId) : n.add(v.slotId); return n; })}
+                      className={`flex w-full items-center gap-2.5 rounded-md border border-dashed px-2 py-1.5 text-left ${sel ? "border-primary bg-primary/5" : "hover:bg-muted"}`}
+                    >
+                      <span className="flex h-12 w-9 shrink-0 items-center justify-center rounded bg-muted text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">vaga</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-muted-foreground">{v.nome || "Card vago"}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">— não planejado —</span>
+                        {sub && <span className="block truncate text-[11px] text-muted-foreground">{sub}</span>}
+                      </span>
+                      {sel && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">✓</span>}
+                    </button>
+                  );
+                })}
+              </>
             )}
           </div>
+            );
+          })()}
           <div className="flex items-center gap-2 border-t pt-3">
-            <Button variant="outline" className="ml-auto" onClick={() => setPickFor(null)}>Cancelar</Button>
+            <Button variant="outline" className="ml-auto" onClick={() => { setPickFor(null); setPickSel(new Set()); setPickVagas(new Set()); setPickBusca(""); }}>Cancelar</Button>
             <Button
-              disabled={pickSel.size === 0 || mover.isPending}
-              onClick={() => { if (pickFor) mover.mutate({ ids: [...pickSel], mixId: pickFor }, { onSuccess: () => setPickFor(null) }); }}
+              disabled={totalPick === 0 || mover.isPending}
+              onClick={() => {
+                if (!pickFor) return;
+                if (pickVagas.size > 0) onMoverVagas?.([...pickVagas], pickFor);
+                if (pickSel.size > 0) mover.mutate({ ids: [...pickSel], mixId: pickFor });
+                setPickFor(null); setPickSel(new Set()); setPickVagas(new Set()); setPickBusca("");
+              }}
             >
-              Adicionar {pickSel.size > 0 ? `(${pickSel.size})` : ""}
+              Adicionar {totalPick > 0 ? `(${totalPick})` : ""}
             </Button>
           </div>
         </DialogContent>

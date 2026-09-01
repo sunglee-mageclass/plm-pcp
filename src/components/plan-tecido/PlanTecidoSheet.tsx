@@ -1080,10 +1080,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     toast.success(catId ? "Categoria aplicada." : "Modelos sem categoria.");
   }
 
-  // Mover os slots selecionados para um mix (ou removê-los, mixId=null). O mix vive em DOIS
-  // lugares (decisão 9): grava no slot.mix_id (árvore, persiste no save) SEMPRE; e, p/ slot com
-  // modelo REAL, também em modelos.mix_id na hora (update direto), pro Plan. Produto ver já.
-  async function aplicarMixEmMassa(mixId: string | null) {
+  // Núcleo: grava mix_id nos slots que casam `matches` (por posição). O mix vive em DOIS lugares
+  // (decisão 9): slot.mix_id na árvore (persiste no save) SEMPRE; p/ modelo REAL, também
+  // modelos.mix_id na hora (update direto), pro Plan. Produto ver já. `toast` opcional (silencioso
+  // quando chamado pelo picker de vagas do EditarMixDialog).
+  async function aplicarMixCore(matches: (slot: PtSlot, si: number, li: number, sli: number) => boolean, mixId: string | null, comToast = true) {
     if (!arvore) return;
     const next = structuredClone(arvore) as PtArvore;
     const modeloIds: string[] = [];
@@ -1091,20 +1092,29 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       for (let li = 0; li < next.subcolecoes[si].linhas.length; li++)
         for (let sli = 0; sli < next.subcolecoes[si].linhas[li].slots.length; sli++) {
           const slot = next.subcolecoes[si].linhas[li].slots[sli];
-          if (!selecao.has(chaveSlot(slot.id, si, li, sli))) continue;
+          if (!matches(slot, si, li, sli)) continue;
           slot.mix_id = mixId;
           if (slot.modelo_id) modeloIds.push(slot.modelo_id);
         }
     patch(next);
-    setSelecao(new Set());
-    setMixMassaOpen(false);
     if (modeloIds.length > 0) {
       const { error } = await supabase.from("modelos").update({ mix_id: mixId } as any).in("id", modeloIds);
       if (error) { toast.error(mensagemErro(error, "Erro ao mover modelos.")); return; }
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
     }
-    toast.success(mixId ? "Movido para o mix." : "Removido do mix.");
+    if (comToast) toast.success(mixId ? "Movido para o mix." : "Removido do mix.");
+  }
+  // Barra de seleção → mover a seleção.
+  async function aplicarMixEmMassa(mixId: string | null) {
+    await aplicarMixCore((slot, si, li, sli) => selecao.has(chaveSlot(slot.id, si, li, sli)), mixId);
+    setSelecao(new Set());
+    setMixMassaOpen(false);
+  }
+  // Picker de VAGAS do EditarMixDialog → mover vagas por slot.id (sem tocar a seleção).
+  async function aplicarMixEmSlots(slotIds: string[], mixId: string | null) {
+    const set = new Set(slotIds);
+    await aplicarMixCore((slot) => !!slot.id && set.has(slot.id), mixId, false);
   }
 
   // Predicado equivalente ao antigo `podeCriarCard` do ModelCard (removido de lá — G6, ação em
@@ -1802,6 +1812,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
             subcolecao={subNomeAtiva}
             breadcrumbBase={["Criação", "Plan. Tecido"]}
             onClose={() => setMixDialogOpen(false)}
+            vagas={(subAtual?.linhas ?? []).flatMap((l) =>
+              l.slots.filter((sl) => !sl.modelo_id && sl.id).map((sl) => ({
+                slotId: sl.id!,
+                nome: sl.nome ?? null,
+                ref: sl.ref ?? null,
+                mixId: sl.mix_id ?? null,
+                catTecidoNome: sl.categoria_tecido_id ? (catTecidoNome(sl.categoria_tecido_id) ?? null) : null,
+                tecidoNome: (() => { const a = sl.materiais.find((m) => m.tipo === "tecido" && m.artigo_id)?.artigo_id; return a ? (artigoMap.get(a)?.nome ?? null) : null; })(),
+              }))
+            )}
+            onMoverVagas={(slotIds, mixId) => { void aplicarMixEmSlots(slotIds, mixId); }}
           />
         )}
 
