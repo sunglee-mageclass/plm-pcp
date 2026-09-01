@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ArrowLeft } from "lucide-react";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { semAcento } from "@/lib/busca";
@@ -212,9 +212,15 @@ export function EditarMixDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent fixedFooter mobileFull className="max-w-2xl">
         <DialogHeader>
-          <div className="space-y-1">
-            <Breadcrumb items={[...breadcrumbBase.map((label) => ({ label })), { label: `${colecaoNome} › ${subcolecao}` }]} />
-            <DialogTitle>Editar Mix</DialogTitle>
+          <div className="flex items-start gap-2">
+            {/* mobileFull esconde o X; garante uma saída SEMPRE (mobile e desktop). */}
+            <Button variant="ghost" size="iconSm" aria-label="Voltar" className="mt-0.5 shrink-0" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 space-y-1">
+              <Breadcrumb items={[...breadcrumbBase.map((label) => ({ label })), { label: `${colecaoNome} › ${subcolecao}` }]} />
+              <DialogTitle>Editar Mix</DialogTitle>
+            </div>
           </div>
         </DialogHeader>
 

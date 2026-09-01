@@ -1338,7 +1338,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // usuário segue livre para desligar manualmente depois (só liga, dep = id da sub atual p/
   // não reagir a cada edição de slot e não entrar em loop).
   useEffect(() => {
-    if ((subAtual?.categorias_tecido?.length ?? 0) > 0) setGroupByCategoria(true);
+    // NÃO force família se o usuário está no modo Mix (senão o auto-ligar desligava o Mix ao
+    // trocar de subcoleção). Só liga família automática quando o Mix está desligado.
+    if (!groupByMix && (subAtual?.categorias_tecido?.length ?? 0) > 0) setGroupByCategoria(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subAtual?.subcolecao_id, subAtiva]);
 
@@ -1727,8 +1729,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam).
                         Mix e Família são lanes EXCLUSIVAS (não faz sentido 2D): ligar uma desliga a outra. */}
                     <AgrupamentoButton groups={[
-                      { label: "Mix", active: groupByMix, onToggle: () => { setGroupByMix((v) => !v); if (!groupByMix) setGroupByCategoria(false); } },
-                      { label: "Família", active: groupByCategoria, onToggle: () => { setGroupByCategoria((v) => !v); if (!groupByCategoria) setGroupByMix(false); } },
+                      // Ligar Mix desliga Família (e vice-versa) SEM depender de valor stale: usa o
+                      // updater funcional e desliga o outro no MESMO clique.
+                      { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => { if (!v) setGroupByCategoria(false); return !v; }) },
+                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => { if (!v) setGroupByMix(false); return !v; }) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
