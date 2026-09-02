@@ -592,7 +592,7 @@ function PlanejamentoPage() {
       if (arr) arr.push(m); else map.set(key, [m]);
     });
     return Array.from(map.entries())
-      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem mix" : mixNomeMap[key] ?? "Sem mix", items: its }))
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem família" : mixNomeMap[key] ?? "Sem família", items: its }))
       .sort(sortSplits);
   };
   const byLinha = (items: Modelo[]): Split[] => {
@@ -767,7 +767,7 @@ function PlanejamentoPage() {
               <Button size="sm" variant="ghost" onClick={clearSel}>Limpar ({selected.size})</Button>
               <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
               {escopoMixDefinido && (
-                <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixMassaOpen(true)}><Boxes className="h-4 w-4" /> Mover p/ mix</Button>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixMassaOpen(true)}><Boxes className="h-4 w-4" /> Mover p/ família</Button>
               )}
               <Button size="sm" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
               <Button size="sm" variant="destructive" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
@@ -830,7 +830,7 @@ function PlanejamentoPage() {
           </Button>
           <AgrupamentoButton
             groups={[
-              { label: "Mix", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
+              { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
               { label: "Linha", active: groupByLinha, onToggle: () => agrup.toggle("linha", !groupByLinha) },
               { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
               { label: "Subcategoria", active: groupBySub1, onToggle: () => agrup.toggle("sub1", !groupBySub1) },
@@ -858,13 +858,13 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
-          {/* Editar Mix — abre popover de escopo (coleção+subcoleção, ligado ao filtro). */}
+          {/* Editar Fam. — abre popover de escopo (coleção+subcoleção, ligado ao filtro). */}
           <Popover open={escopoOpen} onOpenChange={setEscopoOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" aria-label="Editar Mix" className="gap-1 max-sm:aspect-square max-sm:px-0"><Boxes className="h-4 w-4" /><span className="max-sm:sr-only"> Editar Mix</span><ChevronDown className="h-3.5 w-3.5 max-sm:hidden" /></Button>
+              <Button variant="outline" aria-label="Editar Família de Produtos" className="gap-1 max-sm:aspect-square max-sm:px-0"><Boxes className="h-4 w-4" /><span className="max-sm:sr-only"> Editar Fam.</span><ChevronDown className="h-3.5 w-3.5 max-sm:hidden" /></Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 space-y-3">
-              <p className="text-sm font-medium">Editar mixes de qual escopo?</p>
+              <p className="text-sm font-medium">Editar famílias de qual escopo?</p>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Coleção</Label>
                 <Select value={escopoCol || undefined} onValueChange={setEscopoCol}>
@@ -987,16 +987,16 @@ function PlanejamentoPage() {
         />
       )}
 
-      {/* Mover a seleção para um mix do escopo filtrado */}
+      {/* Mover a seleção para uma família do escopo filtrado */}
       <Dialog open={mixMassaOpen} onOpenChange={setMixMassaOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Mover {selected.size} card(s) para um mix</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Mover {selected.size} card(s) para uma família</DialogTitle></DialogHeader>
           <div className="flex flex-col gap-1.5">
             {(() => {
               const doEscopo = mixes.filter((mx) => mx.colecao_id === escopoColId && mx.subcolecao === escopoSub);
               return doEscopo.length === 0 ? (
                 <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Nenhum mix em <strong>{escopoCol} › {escopoSub}</strong>. Crie um em <strong>Editar Mix</strong>.
+                  Nenhuma família em <strong>{escopoCol} › {escopoSub}</strong>. Crie uma em <strong>Editar Fam.</strong>.
                 </div>
               ) : (
                 doEscopo.map((mx) => (
@@ -1004,7 +1004,7 @@ function PlanejamentoPage() {
                 ))
               );
             })()}
-            <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" disabled={bulkMoverMix.isPending} onClick={() => bulkMoverMix.mutate(null)}>Remover do mix</Button>
+            <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" disabled={bulkMoverMix.isPending} onClick={() => bulkMoverMix.mutate(null)}>Remover da família</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -149,8 +149,8 @@ export function EditarMixDialog({
       if (error) throw error;
       return data as string;
     },
-    onSuccess: (id) => { toast.success("Mix criado."); setNovoNome(""); setSelMix(id); invalidateTudo(); },
-    onError: (e) => toast.error(mensagemErro(e, "Erro ao criar mix.")),
+    onSuccess: (id) => { toast.success("Família criada."); setNovoNome(""); setSelMix(id); invalidateTudo(); },
+    onError: (e) => toast.error(mensagemErro(e, "Erro ao criar família.")),
   });
 
   const renomear = useMutation({
@@ -160,7 +160,7 @@ export function EditarMixDialog({
       });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Mix renomeado."); setEditId(null); invalidateTudo(); },
+    onSuccess: () => { toast.success("Família renomeada."); setEditId(null); invalidateTudo(); },
     onError: (e) => toast.error(mensagemErro(e, "Erro ao renomear.")),
   });
 
@@ -169,7 +169,7 @@ export function EditarMixDialog({
       const { error } = await supabase.rpc("excluir_colecao_mix" as any, { _id: id });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Mix excluído."); setDelMix(null); invalidateTudo(); },
+    onSuccess: () => { toast.success("Família excluída."); setDelMix(null); invalidateTudo(); },
     onError: (e) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
@@ -214,14 +214,14 @@ export function EditarMixDialog({
         <DialogHeader>
           <div className="space-y-1">
             <Breadcrumb items={[...breadcrumbBase.map((label) => ({ label })), { label: `${colecaoNome} › ${subcolecao}` }]} />
-            <DialogTitle>Editar Mix</DialogTitle>
+            <DialogTitle>Editar Família de Produtos</DialogTitle>
           </div>
         </DialogHeader>
 
         <div className="min-h-0 space-y-3 overflow-y-auto py-3">
           {mixList.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Nenhum mix nesta subcoleção. Digite um nome abaixo e clique <strong>Criar</strong>.
+              Nenhuma família de produtos nesta subcoleção. Digite um nome abaixo e clique <strong>Criar</strong>.
             </div>
           ) : (
             mixList.map((mx) => {
@@ -265,7 +265,7 @@ export function EditarMixDialog({
                             <ModeloThumb path={fotoDe(m)} className="aspect-[3/4] w-16" alt={m.nome ?? ""} />
                             <button
                               className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
-                              aria-label="Tirar do mix"
+                              aria-label="Tirar da família"
                               onClick={() => mover.mutate({ ids: [m.id], mixId: null })}
                             >
                               <X className="h-3 w-3" />
@@ -281,7 +281,7 @@ export function EditarMixDialog({
                             vaga
                             <button
                               className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
-                              aria-label="Tirar do mix"
+                              aria-label="Tirar da família"
                               onClick={() => onMoverVagas?.([v.slotId], null)}
                             >
                               <X className="h-3 w-3" />
@@ -323,24 +323,24 @@ export function EditarMixDialog({
               value={novoNome}
               onChange={(e) => setNovoNome(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && podeCriar) { e.preventDefault(); criar.mutate(novoNome); } }}
-              placeholder="Como deseja chamar esse mix?"
+              placeholder="Como deseja chamar essa família?"
               className={dup ? "border-destructive" : ""}
             />
             <Button onClick={() => criar.mutate(novoNome)} disabled={!podeCriar}>
               {criar.isPending ? "Criando…" : "Criar"}
             </Button>
           </div>
-          {dup && <p className="mt-1.5 text-xs text-destructive">Este mix já existe nesta subcoleção.</p>}
+          {dup && <p className="mt-1.5 text-xs text-destructive">Esta família já existe nesta subcoleção.</p>}
         </div>
       </DialogContent>
 
-      {/* Excluir mix */}
+      {/* Excluir família de produtos */}
       <AlertDialog open={!!delMix} onOpenChange={(o) => !o && setDelMix(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir mix?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir família de produtos?</AlertDialogTitle>
             <AlertDialogDescription>
-              Excluir <strong>{delMix?.nome}</strong>? Os {delMix ? (countByMix[delMix.id] ?? 0) : 0} modelo(s) voltam a ficar <strong>sem mix</strong> (não são apagados).
+              Excluir <strong>{delMix?.nome}</strong>? Os {delMix ? (countByMix[delMix.id] ?? 0) : 0} modelo(s) voltam a ficar <strong>sem família</strong> (não são apagados).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -352,11 +352,11 @@ export function EditarMixDialog({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Picker de modelos (e vagas) p/ adicionar ao mix */}
+      {/* Picker de modelos (e vagas) p/ adicionar à família */}
       <Dialog open={!!pickFor} onOpenChange={(o) => { if (!o) { setPickFor(null); setPickSel(new Set()); setPickVagas(new Set()); setPickBusca(""); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Adicionar ao mix</DialogTitle>
+            <DialogTitle>Adicionar à família</DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
@@ -370,7 +370,7 @@ export function EditarMixDialog({
             return (
           <div className="max-h-[55vh] space-y-1.5 overflow-auto py-2">
             {modelosSemMix.length === 0 && vagasSemMix.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Todos os cards desta subcoleção já estão em algum mix.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">Todos os cards desta subcoleção já estão em alguma família.</p>
             ) : modelosFiltrados.length === 0 && vagasFiltradas.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum card encontrado para “{pickBusca}”.</p>
             ) : (

@@ -1128,7 +1128,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
     }
-    if (comToast) toast.success(mixId ? "Movido para o mix." : "Removido do mix.");
+    if (comToast) toast.success(mixId ? "Movido para a família." : "Removido da família.");
   }
   // Barra de seleção → mover a seleção.
   async function aplicarMixEmMassa(mixId: string | null) {
@@ -1453,7 +1453,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 azuis) — o destaque vai pra elas. */}
             <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
             {subNomeAtiva && (
-              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setMixMassaOpen(true)}><Boxes className="h-3.5 w-3.5" /> Mover p/ mix</Button>
+              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setMixMassaOpen(true)}><Boxes className="h-3.5 w-3.5" /> Mover p/ família</Button>
             )}
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
             <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
@@ -1730,17 +1730,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       />
                     )}
                     {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
-                        (amplo→fino): Mix › Família › Nome do tecido. */}
+                        (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. */}
                     <AgrupamentoButton groups={[
-                      { label: "Mix", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
+                      { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
                       { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
                     <Button size="sm" variant="outline" aria-label="Adicionar família" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família</span></Button>
-                    {/* Editar Mix — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
+                    {/* Editar Fam. — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
                     {subNomeAtiva && (
-                      <Button size="sm" variant="outline" aria-label="Editar Mix" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Mix</span></Button>
+                      <Button size="sm" variant="outline" aria-label="Editar Família de Produtos" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Fam.</span></Button>
                     )}
                   </div>
                 </div>
@@ -1748,6 +1748,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                   <div className="space-y-4">
                     {groupByMix ? laneMixes.map((mid) => {
                       const slots = slotsOfMix(mid);
+                      // key técnica de lane — "mix" aqui é identificador interno, não texto visível.
                       const laneKey = `${subAtiva}:mix:${mid ?? "__sem__"}`;
                       const laneRecolhida = lanesRecolhidas.has(laneKey);
                       // Família ANINHADA dentro do mix: sub-lanes por categoria de tecido presentes NESTE mix.
@@ -1761,7 +1762,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                           <div className="mb-1 flex items-center gap-2">
                             <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
                               {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                              <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Mix") : "Sem mix"}</span>
+                              <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Família") : "Sem família"}</span>
                             </button>
                             <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
                           </div>
@@ -1920,21 +1921,21 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           />
         )}
 
-        {/* Dialog: mover a seleção para um mix (ou remover) */}
+        {/* Dialog: mover a seleção para uma família (ou remover) */}
         <Dialog open={mixMassaOpen} onOpenChange={setMixMassaOpen}>
           <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle>Mover {selecao.size} card(s) para um mix</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Mover {selecao.size} card(s) para uma família</DialogTitle></DialogHeader>
             <div className="flex flex-col gap-1.5">
               {mixesSub.length === 0 ? (
                 <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Nenhum mix nesta subcoleção. Crie um em <strong>Editar Mix</strong>.
+                  Nenhuma família nesta subcoleção. Crie uma em <strong>Editar Fam.</strong>.
                 </div>
               ) : (
                 mixesSub.map((mx) => (
                   <Button key={mx.id} variant="outline" size="sm" className="justify-start gap-2" onClick={() => aplicarMixEmMassa(mx.id)}><Boxes className="h-3.5 w-3.5" /> {mx.nome}</Button>
                 ))
               )}
-              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarMixEmMassa(null)}>Remover do mix</Button>
+              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarMixEmMassa(null)}>Remover da família</Button>
             </div>
           </DialogContent>
         </Dialog>
