@@ -35,6 +35,7 @@ import {
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { brl } from "@/lib/format";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
@@ -228,16 +229,17 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao lançar")),
   });
-  const [groupByCat, setGroupByCat] = useState(false);
-  const [groupByLinha, setGroupByLinha] = useState(false);
-  const [groupBySub1, setGroupBySub1] = useState(false);
-  const [groupByRep, setGroupByRep] = useState(false);
-  const [groupByCatTecido, setGroupByCatTecido] = useState(false);
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
-  const [groupByTecido, setGroupByTecido] = useState(true);
-  const [groupByOrigem, setGroupByOrigem] = useState(false);
+  const agrup = useAgrupamentoState("criacao-planejamento", ["tecido"]);
+  const groupByCat = agrup.isOn("categoria");
+  const groupByLinha = agrup.isOn("linha");
+  const groupBySub1 = agrup.isOn("sub1");
+  const groupByRep = agrup.isOn("repeticao");
+  const groupByCatTecido = agrup.isOn("cat-tecido");
+  const groupByTecido = agrup.isOn("tecido");
+  const groupByOrigem = agrup.isOn("origem");
   // Agrupar por Mix (eixo mais AMPLO — nível 1 quando ligado). Pertencimento único.
-  const [groupByMix, setGroupByMix] = useState(false);
+  const groupByMix = agrup.isOn("mix");
   // Editar Mix no Plan. Produto: popover de escopo (coleção+subcoleção, ligado ao filtro) + dialog.
   const [escopoOpen, setEscopoOpen] = useState(false);
   const [mixDialogOpen, setMixDialogOpen] = useState(false);
@@ -828,14 +830,14 @@ function PlanejamentoPage() {
           </Button>
           <AgrupamentoButton
             groups={[
-              { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => !v) },
-              { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
-              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-              { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
-              { label: "Categoria de tecido", active: groupByCatTecido, onToggle: () => setGroupByCatTecido((v) => !v) },
-              { label: "Tecido", active: groupByTecido, onToggle: () => setGroupByTecido((v) => !v) },
-              { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
-              { label: "Origem", active: groupByOrigem, onToggle: () => setGroupByOrigem((v) => !v) },
+              { label: "Mix", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
+              { label: "Linha", active: groupByLinha, onToggle: () => agrup.toggle("linha", !groupByLinha) },
+              { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
+              { label: "Subcategoria", active: groupBySub1, onToggle: () => agrup.toggle("sub1", !groupBySub1) },
+              { label: "Categoria de tecido", active: groupByCatTecido, onToggle: () => agrup.toggle("cat-tecido", !groupByCatTecido) },
+              { label: "Tecido", active: groupByTecido, onToggle: () => agrup.toggle("tecido", !groupByTecido) },
+              { label: "Repetição", active: groupByRep, onToggle: () => agrup.toggle("repeticao", !groupByRep) },
+              { label: "Origem", active: groupByOrigem, onToggle: () => agrup.toggle("origem", !groupByOrigem) },
             ]}
           />
           <FilterButton

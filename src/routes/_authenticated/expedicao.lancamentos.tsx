@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { useSort } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { LayoutGrid } from "lucide-react";
 
@@ -96,10 +97,11 @@ function LancamentosPage() {
   const [fOrigem, setFOrigem] = useFilterState("lancamentos", "Origem", []);
   const [fDe, setFDe] = useState(""); // data de lançamento — início do período
   const [fAte, setFAte] = useState(""); // data de lançamento — fim do período
-  const [groupByCat, setGroupByCat] = useState(false);
-  const [groupByLinha, setGroupByLinha] = useState(false);
-  const [groupBySub1, setGroupBySub1] = useState(false);
-  const [groupByRep, setGroupByRep] = useState(false);
+  const agrup = useAgrupamentoState("lancamentos");
+  const groupByCat = agrup.isOn("categoria");
+  const groupByLinha = agrup.isOn("linha");
+  const groupBySub1 = agrup.isOn("sub1");
+  const groupByRep = agrup.isOn("repeticao");
 
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
@@ -440,10 +442,10 @@ function LancamentosPage() {
           <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
           <AgrupamentoButton
             groups={[
-              { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
-              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-              { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
-              { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
+              { label: "Linha", active: groupByLinha, onToggle: () => agrup.toggle("linha", !groupByLinha) },
+              { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
+              { label: "Subcategoria", active: groupBySub1, onToggle: () => agrup.toggle("sub1", !groupBySub1) },
+              { label: "Repetição", active: groupByRep, onToggle: () => agrup.toggle("repeticao", !groupByRep) },
             ]}
           />
           <FilterButton

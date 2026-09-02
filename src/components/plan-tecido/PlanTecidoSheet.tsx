@@ -17,6 +17,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { AgrupamentoButton } from "@/components/shared/filters";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
@@ -306,8 +307,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // (pedido do dono, jul/2026): abre agrupado por nome com os grupos colapsados. Categoria (com drag)
   // fica a um clique no botão Agrupar.
   const [groupByCategoria, setGroupByCategoria] = useState(false);
-  const [groupByNome, setGroupByNome] = useState(true);
-  const [groupByMix, setGroupByMix] = useState(false);        // lanes por MIX (exclui Família)
+  // "nome" e "mix" persistem por usuário no banco (segue dispositivo); "categoria/Família" fica
+  // como estado local porque o useEffect logo abaixo o liga automaticamente quando a subcoleção
+  // declara famílias (workaround FIX G3-A) — não migrar p/ não perder esse comportamento.
+  const agrup = useAgrupamentoState("plan-tecido-sheet", ["nome"]);
+  const groupByNome = agrup.isOn("nome");
+  const groupByMix = agrup.isOn("mix");                       // lanes por MIX (exclui Família)
   const [mixDialogOpen, setMixDialogOpen] = useState(false);  // Editar Mix (escopo = subcoleção ativa)
   const [mixMassaOpen, setMixMassaOpen] = useState(false);    // "Mover p/ mix" (barra de seleção)
   const openDrawer = (kind: DrawerKind, arg?: string) =>
@@ -1727,9 +1732,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
                         (amplo→fino): Mix › Família › Nome do tecido. */}
                     <AgrupamentoButton groups={[
-                      { label: "Mix", active: groupByMix, onToggle: () => setGroupByMix((v) => !v) },
+                      { label: "Mix", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
                       { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
-                      { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
+                      { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
                     <Button size="sm" variant="outline" aria-label="Adicionar família" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família</span></Button>

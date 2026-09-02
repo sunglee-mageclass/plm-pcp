@@ -24,6 +24,7 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { useSort } from "@/components/shared/sort";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -87,8 +88,9 @@ const SORT_FIELDS = [
 
 // Agrupamento combinável DENTRO de cada coluna de status (mesmo padrão do Planejamento). Por
 // enquanto só "tecido"; adicionar dimensão = +splitter + +item no AgrupamentoButton. Persiste
-// os agrupamentos ativos (lista) por usuário.
-const GROUPBY_LS = "desenv-groupby";
+// os agrupamentos ativos (lista) por usuário no banco (segue o dispositivo) via
+// `useAgrupamentoState`. A chave legada de localStorage "desenv-groupby" é migrada 1×/usuário
+// pelo próprio `useUiPrefs` (seed idempotente — só se o banco ainda não tiver a pref).
 
 function useOpts(table: string, key = "nome") {
   return useQuery({
@@ -154,14 +156,9 @@ function DesenvolvimentoPage() {
   // Popover do botão único "Recolher/Expandir" (junta colunas + tecidos p/ ocupar menos espaço).
   const [recolherOpen, setRecolherOpen] = useState(false);
   // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
-  const [groupByTecido, setGroupByTecido] = useState<boolean>(() => {
-    try { return (localStorage.getItem(GROUPBY_LS) ?? "tecido").includes("tecido"); } catch { return true; }
-  });
-  const toggleTecido = () => setGroupByTecido((v) => {
-    const nv = !v;
-    try { localStorage.setItem(GROUPBY_LS, nv ? "tecido" : ""); } catch { /* ignore */ }
-    return nv;
-  });
+  const agrup = useAgrupamentoState("desenvolvimento", ["tecido"]);
+  const groupByTecido = agrup.isOn("tecido");
+  const toggleTecido = () => agrup.toggle("tecido", !groupByTecido);
   // Colapso por grupo — path = "status/grupo[/subgrupo…]" (sessão, igual Planejamento).
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // "tocou nos tecidos" = o usuário mexeu num grupo (individual ou pelo botão) → para de auto-recolher.

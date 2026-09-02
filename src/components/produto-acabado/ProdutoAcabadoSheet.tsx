@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton } from "@/components/shared/filters";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useOrcamento } from "@/components/otb/orcamento";
@@ -31,25 +32,12 @@ type SubRow = { id: string; nome: string; ordem: number };
 // marcáveis juntos → lane por Grupo, com sub-seções por Categoria dentro (Grupo › Categoria
 // aninhado, "Sem categoria" sempre por último); só "Grupo" → lanes de grupo; só "Categoria" →
 // lanes de categoria (comportamento padrão de sempre); NENHUM marcado → lista plana "Todos".
-// Persiste por navegador, mesmo padrão de `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave
-// própria, try/catch) — formato novo é uma lista separada por vírgula das opções ativas
-// ("grupo", "categoria", "grupo,categoria" ou "" pra nenhuma); migra os 3 valores antigos
-// (exclusivos, pré-refino) sem quebrar a preferência já salva do usuário.
-const AGRUPAR_LS = "produto-acabado-agrupar";
+// Persiste por USUÁRIO no banco (segue o dispositivo) via `useAgrupamentoState` — dimensões
+// ativas guardadas como lista ("grupo"/"categoria"). A chave legada de localStorage
+// "produto-acabado-agrupar" (incl. os valores antigos exclusivos "grupo"/"categoria"/
+// "grupo-categoria") é migrada 1×/usuário pelo `useUiPrefs` (seed idempotente — só se o banco
+// ainda não tiver a pref, então não sobrescreve outro dispositivo).
 type AgruparEstado = { grupo: boolean; categoria: boolean };
-function lerAgruparSalvo(): AgruparEstado {
-  try {
-    const v = localStorage.getItem(AGRUPAR_LS);
-    if (v === null) return { categoria: true, grupo: false }; // nunca usou o toggle — default histórico
-    if (v === "grupo-categoria") return { grupo: true, categoria: true }; // valor antigo (exclusivo)
-    if (v === "categoria") return { categoria: true, grupo: false }; // valor antigo (exclusivo)
-    if (v === "grupo") return { grupo: true, categoria: false }; // valor antigo (exclusivo)
-    const partes = v.split(",").filter(Boolean); // formato novo (combinável)
-    return { categoria: partes.includes("categoria"), grupo: partes.includes("grupo") };
-  } catch {
-    return { categoria: true, grupo: false };
-  }
-}
 
 // B1 (FIX WAVE, causa raiz): estas opções são gerenciadas no Cadastro (grupos/categorias/
 // subcategorias de produto, cores) — igual a `useOpts`/os `useQuery` de grupos_produto em
@@ -169,13 +157,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
   const [planModeloId, setPlanModeloId] = useState<string | null>(null);
-  const [agrupar, setAgruparState] = useState<AgruparEstado>(lerAgruparSalvo);
-  const setAgrupar = (patch: Partial<AgruparEstado>) =>
-    setAgruparState((s) => {
-      const next = { ...s, ...patch };
-      try { localStorage.setItem(AGRUPAR_LS, [next.grupo && "grupo", next.categoria && "categoria"].filter(Boolean).join(",")); } catch { /* ignore */ }
-      return next;
-    });
+  const agrup = useAgrupamentoState("produto-acabado", ["categoria"]);
+  const agrupar: AgruparEstado = { grupo: agrup.isOn("grupo"), categoria: agrup.isOn("categoria") };
+  const setAgrupar = (patch: Partial<AgruparEstado>) => {
+    const next = { ...agrupar, ...patch };
+    agrup.set([next.grupo && "grupo", next.categoria && "categoria"].filter(Boolean) as string[]);
+  };
   const resolvedInicialRef = useRef({ done: false });
 
   // Fix (dono, ago/2026 — "aviso de descarte 2x"): confirmar "Descartar" na saída REAL (fechar o

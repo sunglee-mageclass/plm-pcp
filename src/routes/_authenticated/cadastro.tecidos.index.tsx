@@ -19,6 +19,7 @@ import { brl } from "@/lib/format";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -97,8 +98,10 @@ function TecidosGallery() {
   const [empresaFilter, setEmpresaFilter] = useFilterState("cad-tecidos", "Fornecedor", []);
   const [catFilter, setCatFilter] = useFilterState("cad-tecidos", "Categoria", []);
   const [sort, setSort] = useState<string>("nome");
-  const [groupByCat, setGroupByCat] = useState(false);
-  const [groupByForn, setGroupByForn] = useState(false);
+  // Agrupamento persistido POR USUÁRIO no banco (segue dispositivo). Dimensões: "categoria"/"fornecedor".
+  const agrup = useAgrupamentoState("cad-tecidos");
+  const groupByCat = agrup.isOn("categoria");
+  const groupByForn = agrup.isOn("fornecedor");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = (path: string) =>
     setCollapsed((prev) => {
@@ -365,8 +368,8 @@ function TecidosGallery() {
           <div className="ml-auto flex items-center gap-2">
             <AgrupamentoButton
               groups={[
-                { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-                { label: "Fornecedor", active: groupByForn, onToggle: () => setGroupByForn((v) => !v) },
+                { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
+                { label: "Fornecedor", active: groupByForn, onToggle: () => agrup.toggle("fornecedor", !groupByForn) },
               ]}
             />
             <FilterButton

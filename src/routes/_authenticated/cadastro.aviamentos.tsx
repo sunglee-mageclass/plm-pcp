@@ -21,6 +21,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel } from "@/lib/variante";
 import { brl } from "@/lib/format";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
@@ -140,11 +141,12 @@ function AviamentosGallery() {
   const compact = useCompactCards(gridRef, cols) && !isMobile;
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
-  const [groupByCat, setGroupByCat] = useState(false);
-  const [groupBySub, setGroupBySub] = useState(false);
-  const [groupByCorBase, setGroupByCorBase] = useState(false);
-  const [groupByCorApelido, setGroupByCorApelido] = useState(false);
-  const [groupByFornecedor, setGroupByFornecedor] = useState(false);
+  const agrup = useAgrupamentoState("cad-aviamentos");
+  const groupByCat = agrup.isOn("categoria");
+  const groupBySub = agrup.isOn("subcategoria");
+  const groupByCorBase = agrup.isOn("cor-base");
+  const groupByCorApelido = agrup.isOn("cor-apelido");
+  const groupByFornecedor = agrup.isOn("fornecedor");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = (path: string) =>
     setCollapsed((prev) => {
@@ -444,11 +446,11 @@ function AviamentosGallery() {
           </Select>
           <AgrupamentoButton
             groups={[
-              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-              { label: "Subcategoria", active: groupBySub, onToggle: () => setGroupBySub((v) => !v) },
-              { label: "Cor base", active: groupByCorBase, onToggle: () => setGroupByCorBase((v) => !v) },
-              { label: "Cor apelido", active: groupByCorApelido, onToggle: () => setGroupByCorApelido((v) => !v) },
-              { label: "Fornecedor", active: groupByFornecedor, onToggle: () => setGroupByFornecedor((v) => !v) },
+              { label: "Categoria", active: groupByCat, onToggle: () => agrup.toggle("categoria", !groupByCat) },
+              { label: "Subcategoria", active: groupBySub, onToggle: () => agrup.toggle("subcategoria", !groupBySub) },
+              { label: "Cor base", active: groupByCorBase, onToggle: () => agrup.toggle("cor-base", !groupByCorBase) },
+              { label: "Cor apelido", active: groupByCorApelido, onToggle: () => agrup.toggle("cor-apelido", !groupByCorApelido) },
+              { label: "Fornecedor", active: groupByFornecedor, onToggle: () => agrup.toggle("fornecedor", !groupByFornecedor) },
             ]}
           />
           <FilterButton
