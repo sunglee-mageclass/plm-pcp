@@ -155,10 +155,11 @@ function DesenvolvimentoPage() {
   const [terminalAberta, setTerminalAberta] = useState(false);
   // Popover do botão único "Recolher/Expandir" (junta colunas + tecidos p/ ocupar menos espaço).
   const [recolherOpen, setRecolherOpen] = useState(false);
-  // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
+  // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Tecido default ON; Origem opt-in.
   const agrup = useAgrupamentoState("desenvolvimento", ["tecido"]);
   const groupByTecido = agrup.isOn("tecido");
   const toggleTecido = () => agrup.toggle("tecido", !groupByTecido);
+  const groupByOrigem = agrup.isOn("origem");
   // Colapso por grupo — path = "status/grupo[/subgrupo…]" (sessão, igual Planejamento).
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // "tocou nos tecidos" = o usuário mexeu num grupo (individual ou pelo botão) → para de auto-recolher.
@@ -387,18 +388,42 @@ function DesenvolvimentoPage() {
 
   // Agrupamento aninhado (mesmo padrão do Planejamento). Splitters ativos aninham nesta ordem.
   type Split = { key: string; nome: string; items: Modelo[] };
+  // Rótulos "sem tecido" (o comum e o de revenda) — ficam no FIM da coluna; revenda depois do interno.
+  const ehSemTecido = (nome: string) => nome === "Sem tecido" || nome === "Sem tecido — Revenda";
   const byTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     for (const m of items) {
-      const nome = tecidoPrincipalMap.get(m.id) ?? "Sem tecido";
+      // Revenda nunca tem tecido → lane própria "Sem tecido — Revenda" (separa dos internos
+      // pendentes). MAS só quando NÃO se agrupa por Origem — aí a dimensão Origem já separa e o
+      // sufixo seria redundante (decisão do dono; evita lane repetida/vazia).
+      const semTec = (!groupByOrigem && m.origem === "revenda") ? "Sem tecido — Revenda" : "Sem tecido";
+      const nome = tecidoPrincipalMap.get(m.id) ?? semTec;
       const arr = map.get(nome); if (arr) arr.push(m); else map.set(nome, [m]);
     }
     return Array.from(map.entries())
       .map(([nome, its]) => ({ key: nome, nome, items: its }))
-      .sort((a, b) => (a.nome === "Sem tecido" ? 1 : b.nome === "Sem tecido" ? -1 : a.nome.localeCompare(b.nome, "pt-BR")));
+      .sort((a, b) => {
+        const sa = ehSemTecido(a.nome), sb = ehSemTecido(b.nome);
+        if (sa && sb) return a.nome.localeCompare(b.nome, "pt-BR"); // "Sem tecido" antes de "… — Revenda"
+        if (sa) return 1;
+        if (sb) return -1;
+        return a.nome.localeCompare(b.nome, "pt-BR");
+      });
+  };
+  // Origem (interno/revenda) — reusa o padrão do Planejamento. Interno (NULL/default) antes de Revenda.
+  const byOrigem = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    for (const m of items) {
+      const key = (m.origem ?? "interno") === "revenda" ? "revenda" : "interno";
+      const arr = map.get(key); if (arr) arr.push(m); else map.set(key, [m]);
+    }
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "revenda" ? "Revenda" : "Interno", items: its }))
+      .sort((a, b) => (a.key === "interno" ? -1 : b.key === "interno" ? 1 : 0));
   };
   const splitters: ((items: Modelo[]) => Split[])[] = [
-    groupByTecido ? byTecido : null,
+    groupByOrigem ? byOrigem : null,   // eixo mais AMPLO (1º)
+    groupByTecido ? byTecido : null,   // aninhado dentro
   ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; items?: Modelo[]; subgroups?: Grupo[] };
   const buildGroups = (items: Modelo[], depth: number): Grupo[] =>
@@ -685,6 +710,7 @@ function DesenvolvimentoPage() {
           <AgrupamentoButton
             groups={[
               { label: "Tecido", active: groupByTecido, onToggle: toggleTecido },
+              { label: "Origem", active: groupByOrigem, onToggle: () => agrup.toggle("origem", !groupByOrigem) },
             ]}
           />
           <FilterButton
