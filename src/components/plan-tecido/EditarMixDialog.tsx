@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { ModeloThumb } from "@/components/plan-tecido/ModeloThumb";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -34,7 +34,7 @@ type Mix = { id: string; nome: string; ordem: number };
 type ModeloLite = {
   id: string; nome: string | null; ref: string | null; ref_auto: string | null; mix_id: string | null;
   categoria_principal_id: string | null; tecidos_planejados: string[] | null;
-  fotos_modelo: string[] | null; fotos_referencia: string[] | null;
+  fotos_modelo: string[] | null; desenho_tecnico_url: string | null; croqui_url: string | null; fotos_referencia: string[] | null;
 };
 
 export function EditarMixDialog({
@@ -79,7 +79,7 @@ export function EditarMixDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, mix_id, categoria_principal_id, tecidos_planejados, fotos_modelo, fotos_referencia")
+        .select("id, nome, ref, ref_auto, mix_id, categoria_principal_id, tecidos_planejados, fotos_modelo, desenho_tecnico_url, croqui_url, fotos_referencia")
         .eq("colecao_id", colecaoId)
         .eq("subcolecao", subcolecao)
         .order("created_at", { ascending: false });
@@ -108,7 +108,10 @@ export function EditarMixDialog({
     const a = (m.tecidos_planejados ?? []).find(Boolean);
     return a ? (artigoMap[a] ?? null) : null;
   };
-  const fotoDe = (m: ModeloLite) => m.fotos_modelo?.[0] ?? m.fotos_referencia?.[0] ?? null;
+  // Imagem do modelo por disponibilidade (hierarquia pedida pelo dono):
+  // foto do modelo → desenho técnico → desenho croqui → referência. O ModeloResumoFoto pega
+  // a 1ª fonte truthy e trata PDF/placeholder (croqui/desenho podem ser PDF).
+  const fotoFontes = (m: ModeloLite) => [m.fotos_modelo?.[0], m.desenho_tecnico_url, m.croqui_url, m.fotos_referencia?.[0]];
   const refDe = (m: ModeloLite) => m.ref ?? m.ref_auto ?? null;
 
   // Nomes já usados no tenant (autocomplete).
@@ -262,7 +265,7 @@ export function EditarMixDialog({
                       {mods.map((m) => (
                         <div key={m.id} className="w-16">
                           <div className="relative">
-                            <ModeloThumb path={fotoDe(m)} className="aspect-[3/4] w-16" alt={m.nome ?? ""} />
+                            <ModeloResumoFoto fontes={fotoFontes(m)} className="aspect-[3/4] w-16" nome={m.nome ?? ""} />
                             <button
                               className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
                               aria-label="Tirar da família"
@@ -385,7 +388,7 @@ export function EditarMixDialog({
                       onClick={() => setPickSel((prev) => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}
                       className={`flex w-full items-center gap-2.5 rounded-md border px-2 py-1.5 text-left ${sel ? "border-primary bg-primary/5" : "hover:bg-muted"}`}
                     >
-                      <ModeloThumb path={fotoDe(m)} className="h-12 w-9" alt={m.nome ?? ""} />
+                      <ModeloResumoFoto fontes={fotoFontes(m)} className="h-12 w-9" nome={m.nome ?? ""} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">{m.nome ?? "Sem nome"}</span>
                         <span className="block truncate text-[11px] text-muted-foreground tabular-nums">{refDe(m) ?? "s/ ref"}</span>
