@@ -1479,7 +1479,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         {view === "canvas" && selecao.size > 0 && (
           <div className="flex flex-col gap-2 border-b bg-amber-50 px-3 py-2 max-sm:gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
             <span className="font-medium max-sm:text-xs sm:text-sm">{selecao.size} selecionado(s)</span>
-            <div className="flex flex-wrap items-center gap-2 max-sm:gap-1.5 sm:ml-auto">
+            <div className="flex flex-wrap items-center gap-2 max-sm:justify-end max-sm:gap-1.5 sm:ml-auto">
               {/* Aplicar categoria/tecido/forro — DESKTOP: 3 botões separados. */}
               <Button size="sm" variant="outline" className="text-xs max-sm:hidden" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
               <Button size="sm" variant="outline" className="text-xs max-sm:hidden" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
