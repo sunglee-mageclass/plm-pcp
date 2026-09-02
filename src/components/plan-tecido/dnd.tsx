@@ -18,6 +18,35 @@ export function DroppableLane({ id, children, vertical }: { id: string; children
 }
 
 /**
+ * Prefixa o id do CORPO da lane (`lane:…`/`mixlane:…`) para o id do HEADER droppable
+ * (`lanehdr:…`/`mixlanehdr:…`). Ids DISTINTOS de propósito: se header e corpo usassem o MESMO id,
+ * o @dnd-kit (Map keyed por id) deixaria o corpo — montado depois — "ganhar" o slot; ao RECOLHER,
+ * o unmount do corpo DESREGISTRARIA a entrada e o header (que não re-registra, dep `[id]` imutável)
+ * pararia de aceitar drop após 1 ciclo abrir→fechar. Com ids próprios, os ciclos de vida ficam
+ * desacoplados. O `handleDragEnd` traduz `*hdr:` de volta ao id do corpo. */
+export function idHeaderDaLane(idCorpo: string): string {
+  return idCorpo.startsWith("mixlane:") ? `mixlanehdr:${idCorpo.slice(8)}`
+    : idCorpo.startsWith("lane:") ? `lanehdr:${idCorpo.slice(5)}`
+    : `hdr:${idCorpo}`;
+}
+
+/**
+ * Cabeçalho de lane que TAMBÉM é zona de drop, com id PRÓPRIO (`lanehdr:…`/`mixlanehdr:…`) derivado
+ * do id do corpo. Sempre montado (fica FORA do `{!laneRecolhida && …}`), então aceita soltar um card
+ * numa lane RECOLHIDA (a lane permanece fechada; o card entra e o contador sobe). Só aplica `ref` +
+ * className (nenhum listener) → o botão chevron/toggle e o X seguem 100% clicáveis; o drop só dispara
+ * no fim do arraste. Realça (âmbar) enquanto um card paira por cima (`isOver`).
+ * `idCorpo` = o MESMO id passado à `DroppableLane` do corpo (`lane:…`/`mixlane:…`). */
+export function DroppableLaneHeader({ idCorpo, children }: { idCorpo: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: idHeaderDaLane(idCorpo) });
+  return (
+    <div ref={setNodeRef} className={`rounded-md transition-colors ${isOver ? "bg-primary/10 ring-2 ring-inset ring-primary/50" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+/**
  * Card arrastável. O drag é iniciado pela ALÇA (o header do card) — passada via children(handle).
  * Assim o corpo (inputs/botões/dropdowns) segue 100% clicável; a distância de ativação (no sensor)
  * deixa o clique simples passar (ex.: recolher/expandir o card).

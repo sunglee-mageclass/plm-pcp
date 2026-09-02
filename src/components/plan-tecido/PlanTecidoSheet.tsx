@@ -41,7 +41,7 @@ import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/Faze
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { DroppableLane, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
+import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
 
 type Nome = { id: string; nome: string };
 
@@ -1011,39 +1011,56 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     const { active, over } = e;
     if (!over || !arvore) return;
     const chave = String(active.id);
-    const laneId = String(over.id);
+    // O alvo pode ser o CORPO (`lane:`/`mixlane:`) ou o HEADER (`lanehdr:`/`mixlanehdr:`, ids
+    // próprios p/ desacoplar o ciclo de vida — ver dnd.tsx). Normaliza o header → id do corpo.
+    let laneId = String(over.id);
+    if (laneId.startsWith("mixlanehdr:")) laneId = `mixlane:${laneId.slice(11)}`;
+    else if (laneId.startsWith("lanehdr:")) laneId = `lane:${laneId.slice(8)}`;
     const ehMix = laneId.startsWith("mixlane:");
     const alvo = laneId === "lane:__sem__" || laneId === "mixlane:__sem__"
       ? null
       : ehMix ? laneId.slice(8) : laneId.startsWith("lane:") ? laneId.slice(5) : undefined;
     if (alvo === undefined) return;
-    const sub = arvore.subcolecoes[subAtiva];
-    for (let li = 0; li < sub.linhas.length; li++) {
-      const slots = sub.linhas[li].slots;
-      for (let sli = 0; sli < slots.length; sli++) {
-        if (chaveSlot(slots[sli].id, subAtiva, li, sli) !== chave) continue;
-        const slot = slots[sli];
-        if (ehMix) {
-          if ((slot.mix_id ?? null) === alvo) return;          // já está nesse mix
-          const next = structuredClone(arvore) as PtArvore;
-          next.subcolecoes[subAtiva].linhas[li].slots[sli].mix_id = alvo;
-          patch(next);
-          if (slot.modelo_id) {
-            void supabase.from("modelos").update({ mix_id: alvo } as any).in("id", [slot.modelo_id]).then(({ error }) => {
-              if (error) { toast.error(mensagemErro(error, "Erro ao mover.")); return; }
-              qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-              qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
-            });
-          }
-          return;
+
+    // Arrastar MÚLTIPLOS: se o card arrastado faz parte da seleção (e há +de 1), move a seleção
+    // inteira; senão, só o card arrastado. `campo` = qual atributo a lane de destino define.
+    const emMassa = selecao.has(chave) && selecao.size > 1;
+    const alvoChaves = emMassa ? selecao : new Set([chave]);
+    const campo: "mix_id" | "categoria_tecido_id" = ehMix ? "mix_id" : "categoria_tecido_id";
+
+    // Varre a árvore INTEIRA (a seleção pode cruzar subcoleções, como aplicarCategoria/MixEmMassa):
+    // aplica o alvo aos slots cujas chaves estão em `alvoChaves`; coleta os modelo_id p/ o update.
+    const next = structuredClone(arvore) as PtArvore;
+    const modeloIds: string[] = [];
+    let mudou = false;
+    for (let si = 0; si < next.subcolecoes.length; si++)
+      for (let li = 0; li < next.subcolecoes[si].linhas.length; li++)
+        for (let sli = 0; sli < next.subcolecoes[si].linhas[li].slots.length; sli++) {
+          const slot = next.subcolecoes[si].linhas[li].slots[sli];
+          if (!alvoChaves.has(chaveSlot(slot.id, si, li, sli))) continue;
+          if ((slot[campo] ?? null) === alvo) continue;          // já está lá — não conta como mudança
+          slot[campo] = alvo;
+          mudou = true;
+          if (ehMix && slot.modelo_id) modeloIds.push(slot.modelo_id);
         }
-        if ((slot.categoria_tecido_id ?? null) === alvo) return; // já está nessa lane
-        const next = structuredClone(arvore) as PtArvore;
-        next.subcolecoes[subAtiva].linhas[li].slots[sli].categoria_tecido_id = alvo;
-        patch(next);
-        return;
-      }
+    if (!mudou) return;
+
+    // Garante a lane de categoria na subcoleção ativa (espelha aplicarCategoriaEmMassa).
+    if (!ehMix && alvo) {
+      const sub = next.subcolecoes[subAtiva];
+      sub.categorias_tecido = [...new Set([...(sub.categorias_tecido ?? []), alvo])];
     }
+    patch(next);
+
+    // Mix vive também em modelos.mix_id (Plan. Produto lê de lá) → update na hora.
+    if (ehMix && modeloIds.length > 0) {
+      void supabase.from("modelos").update({ mix_id: alvo } as any).in("id", modeloIds).then(({ error }) => {
+        if (error) { toast.error(mensagemErro(error, "Erro ao mover.")); return; }
+        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+        qc.invalidateQueries({ queryKey: ["colecao-mixes-nomes"] });
+      });
+    }
+    if (emMassa) setSelecao(new Set());   // lote movido → limpa a seleção (decisão do dono)
   };
 
   // Aplica um material (Tecido 1) em todos os slots selecionados (estado local)
@@ -1759,13 +1776,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       const laneCatsNoMix: (string | null)[] = [...catsNoMix, ...(slots.some((f) => !f.slot.categoria_tecido_id) ? [null] : [])];
                       return (
                         <section key={mid ?? "__sem__"}>
-                          <div className="mb-1 flex items-center gap-2">
-                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
-                              {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                              <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Família") : "Sem família"}</span>
-                            </button>
-                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
-                          </div>
+                          {/* Header droppable (id próprio, derivado do corpo) → aceita soltar card na lane mesmo RECOLHIDA. */}
+                          <DroppableLaneHeader idCorpo={`mixlane:${mid ?? "__sem__"}`}>
+                            <div className="mb-1 flex items-center gap-2">
+                              <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+                                {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Família") : "Sem família"}</span>
+                              </button>
+                              <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
+                            </div>
+                          </DroppableLaneHeader>
                           {!laneRecolhida && (
                             groupByCategoria ? (
                               // Mix › Família: sub-lanes de família (droppable de família) dentro do mix.
@@ -1776,13 +1796,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                                   const famRecolhida = lanesRecolhidas.has(famKey);
                                   return (
                                     <section key={cid ?? "__sem__"}>
-                                      <div className="mb-1 flex items-center gap-2">
-                                        <button type="button" onClick={() => toggleLane(famKey)} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
-                                          {famRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                          <span className={`text-[13px] font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
-                                        </button>
-                                        <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{fam.length}</span>
-                                      </div>
+                                      {/* Header droppable da família aninhada (id próprio, derivado do corpo). */}
+                                      <DroppableLaneHeader idCorpo={`lane:${cid ?? "__sem__"}`}>
+                                        <div className="mb-1 flex items-center gap-2">
+                                          <button type="button" onClick={() => toggleLane(famKey)} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+                                            {famRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            <span className={`text-[13px] font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                                          </button>
+                                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{fam.length}</span>
+                                        </div>
+                                      </DroppableLaneHeader>
                                       {!famRecolhida && (
                                         <DroppableLane id={`lane:${cid ?? "__sem__"}`} vertical={groupByNome}>
                                           {laneBody(fam, true, `mix:${mid ?? "__sem__"}:fam:${cid ?? "__sem__"}`)}
@@ -1807,15 +1830,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       const laneMetros = slots.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
                       return (
                         <section key={cid ?? "__sem__"}>
-                          <div className="mb-1 flex items-center gap-2">
-                            {/* nome DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
-                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
-                              {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                              <span className={`text-sm font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
-                            </button>
-                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${fmtMetros(laneMetros)} m` : ""}</span>
-                            {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
-                          </div>
+                          {/* Header droppable (id próprio, derivado do corpo) → aceita soltar card na lane mesmo RECOLHIDA. */}
+                          <DroppableLaneHeader idCorpo={`lane:${cid ?? "__sem__"}`}>
+                            <div className="mb-1 flex items-center gap-2">
+                              {/* nome DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
+                              <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+                                {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                <span className={`text-sm font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                              </button>
+                              <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${fmtMetros(laneMetros)} m` : ""}</span>
+                              {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
+                            </div>
+                          </DroppableLaneHeader>
                           {!laneRecolhida && (
                             <DroppableLane id={`lane:${cid ?? "__sem__"}`} vertical={groupByNome}>
                               {laneBody(slots, true, cid ?? "__sem__")}
@@ -1835,8 +1861,14 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                   </div>
                   <DragOverlay dropAnimation={null}>
                     {dragId ? (
-                      <div className="w-[300px] rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm font-semibold shadow-lg">
+                      <div className="relative w-[300px] rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm font-semibold shadow-lg">
                         {nomeDoChave(dragId) ?? "Modelo"}
+                        {/* Arrastando um card que faz parte de uma seleção múltipla → badge com o total. */}
+                        {selecao.has(dragId) && selecao.size > 1 && (
+                          <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground shadow">
+                            {selecao.size}
+                          </span>
+                        )}
                       </div>
                     ) : null}
                   </DragOverlay>
