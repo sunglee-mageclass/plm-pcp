@@ -51,11 +51,13 @@ export function DroppableLaneHeader({ idCorpo, children }: { idCorpo: string; ch
  * Assim o corpo (inputs/botões/dropdowns) segue 100% clicável; a distância de ativação (no sensor)
  * deixa o clique simples passar (ex.: recolher/expandir o card).
  */
-export function DraggableCard({ id, children }: { id: string; children: (handle: DragHandle) => ReactNode }) {
+export function DraggableCard({ id, children, esmaecido }: { id: string; children: (handle: DragHandle) => ReactNode; esmaecido?: boolean }) {
   const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({ id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 } : undefined;
+  // `isDragging` = o card segurado; `esmaecido` = companheiro de uma seleção múltipla em arraste
+  // (some junto, reforçando "movendo vários"). Mesma opacidade nos dois.
   return (
-    <div ref={setNodeRef} style={style} className={`w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start ${isDragging ? "opacity-40" : ""}`}>
+    <div ref={setNodeRef} style={style} className={`w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start transition-opacity ${isDragging || esmaecido ? "opacity-40" : ""}`}>
       {children({ attributes, listeners })}
     </div>
   );

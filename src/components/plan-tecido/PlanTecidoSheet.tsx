@@ -40,7 +40,7 @@ import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status"
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
-import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, pointerWithin, rectIntersection, type DragEndEvent, type CollisionDetection } from "@dnd-kit/core";
 import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
 
 type Nome = { id: string; nome: string };
@@ -49,6 +49,16 @@ type Nome = { id: string; nome: string };
 function chaveSlot(slotId: string | undefined, si: number, li: number, sli: number): string {
   return slotId ?? `${si}-${li}-${sli}`;
 }
+
+// Detecção de colisão do DnD: prioriza `pointerWithin` (resolve pelo PONTO do cursor — preciso com
+// lanes ANINHADAS, ex.: família dentro do header de um mix, cujos rects se sobrepõem) e cai em
+// `rectIntersection` (o default) quando o ponteiro não está dentro de nenhum droppable (gaps entre
+// lanes). Sem isto, o default `rectIntersection` sozinho resolvia o alvo errado no modo aninhado
+// (soltar numa família registrava como soltar no mix, e vice-versa).
+const dndCollision: CollisionDetection = (args) => {
+  const byPointer = pointerWithin(args);
+  return byPointer.length > 0 ? byPointer : rectIntersection(args);
+};
 
 // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) — extraído do effect de seed p/
 // ser reutilizável também pelo merge colab (mesma regra, 3 chamadores).
@@ -1633,11 +1643,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               dragHandle={dragHandle}
               selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
           );
+          // Arrastando um card que faz parte de uma seleção múltipla → os OUTROS cards da seleção
+          // também esmaecem (o card segurado já esmaece via isDragging), pra "todos saírem juntos".
+          const arrastandoSelecao = !!dragId && selecao.has(dragId) && selecao.size > 1;
           // Cartões de uma lista (arrastáveis só no modo categoria, onde soltar reatribui a categoria).
           const renderCards = (items: typeof flat, draggable: boolean) =>
-            items.map(({ slot, li, sli, chave }) => draggable
-              ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
-              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start">{cardOf(slot, li, sli, chave)}</div>);
+            items.map(({ slot, li, sli, chave }) => {
+              // esmaece os companheiros de seleção (não o próprio dragId — DraggableCard já cuida dele).
+              const esmaecido = arrastandoSelecao && chave !== dragId && selecao.has(chave);
+              return draggable
+                ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave} esmaecido={esmaecido}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
+                : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] max-md:w-[85vw] shrink-0 max-md:snap-start">{cardOf(slot, li, sli, chave)}</div>;
+            });
           // Corpo de uma lane: vazio → placeholder; 2º nível ligado → sub-grupos por nome do tecido
           // (cada um uma linha horizontal, COLAPSÁVEL como as lanes); senão → cartões direto.
           const laneBody = (slots: typeof flat, draggable: boolean, laneId: string) =>
@@ -1761,7 +1778,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     )}
                   </div>
                 </div>
-                <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
+                <DndContext sensors={dndSensors} collisionDetection={dndCollision} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
                   <div className="space-y-4">
                     {groupByMix ? laneMixes.map((mid) => {
                       const slots = slotsOfMix(mid);
@@ -1860,17 +1877,28 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     )}
                   </div>
                   <DragOverlay dropAnimation={null}>
-                    {dragId ? (
-                      <div className="relative w-[300px] rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm font-semibold shadow-lg">
-                        {nomeDoChave(dragId) ?? "Modelo"}
-                        {/* Arrastando um card que faz parte de uma seleção múltipla → badge com o total. */}
-                        {selecao.has(dragId) && selecao.size > 1 && (
-                          <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground shadow">
-                            {selecao.size}
-                          </span>
-                        )}
-                      </div>
-                    ) : null}
+                    {dragId ? (() => {
+                      const emMassa = selecao.has(dragId) && selecao.size > 1;
+                      return (
+                        <div className="relative w-[300px]">
+                          {/* Sensação de "monte": 2 cards fantasma empilhados atrás quando arrasta vários. */}
+                          {emMassa && (
+                            <>
+                              <div aria-hidden className="absolute inset-0 translate-x-2 translate-y-2 rotate-3 rounded-lg border-2 border-primary/50 bg-card shadow" />
+                              <div aria-hidden className="absolute inset-0 translate-x-1 translate-y-1 rotate-1 rounded-lg border-2 border-primary/70 bg-card shadow" />
+                            </>
+                          )}
+                          <div className="relative rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm font-semibold shadow-lg">
+                            {nomeDoChave(dragId) ?? "Modelo"}
+                            {emMassa && (
+                              <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-primary-foreground shadow">
+                                {selecao.size}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })() : null}
                   </DragOverlay>
                 </DndContext>
               </main>
