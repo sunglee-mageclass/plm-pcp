@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { corApelidoLabel } from "@/lib/variante";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NumberInput } from "@/components/shared/NumberInput";
 import {
@@ -22,7 +23,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
-import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
@@ -1471,28 +1472,44 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         </div>
 
 
-        {/* Barra de seleção múltipla (só no canvas) */}
+        {/* Barra de seleção múltipla (só no canvas). Desktop: botões de texto numa linha. Mobile:
+            "N selecionado(s)" menor no topo + botões compactados em ÍCONES (texto vira sr-only;
+            os 3 "Aplicar" viram 1 Popover). Hierarquia (dono): "Aplicar…"/"Mover" = secundárias
+            (outline); "Criar cards"/"Fazer pedido" = principais (default/azul); Limpar = ghost. */}
         {view === "canvas" && selecao.size > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
-            <span className="font-medium">{selecao.size} selecionado(s)</span>
-            {/* Hierarquia visual (dono): "Aplicar…" são ações utilitárias/secundárias (outline,
-                brancas); "Criar cards"/"Fazer pedido" são as ações PRINCIPAIS da seleção (default,
-                azuis) — o destaque vai pra elas. */}
-            <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
-            {subNomeAtiva && (
-              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setMixMassaOpen(true)}><Boxes className="h-3.5 w-3.5" /> Mover p/ família</Button>
-            )}
-            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
-            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
-            {/* G6: cria os cards no Planejamento (pula os já materializados, com aviso). */}
-            <Button size="sm" variant="default" className="text-xs" disabled={criandoCards} onClick={handleCriarCardsClick}>
-              {criandoCards ? "Criando…" : "Criar cards"}
-            </Button>
-            {/* G5: pedido só dos selecionados (pula os já comprados, com aviso). */}
-            <Button size="sm" variant="default" className="text-xs" disabled={preparandoPedidoSelecao} onClick={handleFazerPedidoSelecaoClick}>
-              {preparandoPedidoSelecao ? "Carregando…" : "Fazer pedido"}
-            </Button>
-            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelecao(new Set())}>Limpar</Button>
+          <div className="flex flex-col gap-2 border-b bg-amber-50 px-3 py-2 max-sm:gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
+            <span className="font-medium max-sm:text-xs sm:text-sm">{selecao.size} selecionado(s)</span>
+            <div className="flex flex-wrap items-center gap-2 max-sm:gap-1.5 sm:ml-auto">
+              {/* Aplicar categoria/tecido/forro — DESKTOP: 3 botões separados. */}
+              <Button size="sm" variant="outline" className="text-xs max-sm:hidden" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
+              <Button size="sm" variant="outline" className="text-xs max-sm:hidden" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
+              <Button size="sm" variant="outline" className="text-xs max-sm:hidden" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
+              {/* Aplicar — MOBILE: 1 botão (ícone) → Popover com as 3 opções. */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant="outline" aria-label="Aplicar" className="aspect-square px-0 sm:hidden"><Tag className="h-4 w-4" /></Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-44 space-y-1 p-1.5">
+                  <Button size="sm" variant="ghost" className="w-full justify-start gap-2 text-xs" onClick={() => setAplicarCatOpen(true)}><Tag className="h-3.5 w-3.5" /> Aplicar categoria</Button>
+                  <Button size="sm" variant="ghost" className="w-full justify-start gap-2 text-xs" onClick={() => setFormTipo("tecido")}><Ruler className="h-3.5 w-3.5" /> Aplicar tecido</Button>
+                  <Button size="sm" variant="ghost" className="w-full justify-start gap-2 text-xs" onClick={() => setFormTipo("forro")}><Ruler className="h-3.5 w-3.5" /> Aplicar forro</Button>
+                </PopoverContent>
+              </Popover>
+              {/* Mover p/ família — responsivo (ícone Boxes no mobile). */}
+              {subNomeAtiva && (
+                <Button size="sm" variant="outline" aria-label="Mover p/ família" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" onClick={() => setMixMassaOpen(true)}><Boxes className="h-4 w-4" /><span className="max-sm:sr-only"> Mover p/ família</span></Button>
+              )}
+              {/* Criar cards (principal) — ícone + no mobile. G6: pula os já materializados. */}
+              <Button size="sm" variant="default" aria-label="Criar cards" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={criandoCards} onClick={handleCriarCardsClick}>
+                <Plus className="h-4 w-4" /><span className="max-sm:sr-only"> {criandoCards ? "Criando…" : "Criar cards"}</span>
+              </Button>
+              {/* Fazer pedido (principal) — ícone carrinho no mobile. G5: pula os já comprados. */}
+              <Button size="sm" variant="default" aria-label="Fazer pedido" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={preparandoPedidoSelecao} onClick={handleFazerPedidoSelecaoClick}>
+                <ShoppingCart className="h-4 w-4" /><span className="max-sm:sr-only"> {preparandoPedidoSelecao ? "Carregando…" : "Fazer pedido"}</span>
+              </Button>
+              {/* Limpar — ícone vassoura no mobile. */}
+              <Button size="sm" variant="ghost" aria-label="Limpar seleção" className="gap-1 text-xs text-muted-foreground max-sm:aspect-square max-sm:px-0" onClick={() => setSelecao(new Set())}><BrushCleaning className="h-4 w-4" /><span className="max-sm:sr-only"> Limpar</span></Button>
+            </div>
           </div>
         )}
 

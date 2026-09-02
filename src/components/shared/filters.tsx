@@ -194,7 +194,7 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
           <Filter className="h-4 w-4" />
           <span className="max-sm:sr-only">Filtros</span>
           {computedCount > 0 && (
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:p-0 max-sm:text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:justify-center max-sm:rounded-full max-sm:p-0 max-sm:text-[10px]">
               {computedCount}
             </Badge>
           )}
@@ -278,7 +278,7 @@ export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
           <Group className="h-4 w-4" />
           <span className="max-sm:sr-only">Agrupar</span>
           {count > 0 && (
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:p-0 max-sm:text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs max-sm:absolute max-sm:-right-1 max-sm:-top-1 max-sm:ml-0 max-sm:h-4 max-sm:min-w-4 max-sm:justify-center max-sm:rounded-full max-sm:p-0 max-sm:text-[10px]">
               {count}
             </Badge>
           )}
