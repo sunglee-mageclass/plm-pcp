@@ -31,39 +31,45 @@ const OUTRA_MOEDA = "__outra__";
 const DIRETA = "__direta__";
 
 /** Select de moeda: lista fixa (MOEDAS) + "Adicionar moeda…" (código livre) — e, opcionalmente,
- *  a opção "Direta (sem M2)" para a moeda intermediária. Quando o valor atual não está na lista
- *  fixa (moeda livre já escolhida) OU o usuário escolhe "Adicionar moeda", mostra um input de
- *  código livre ao lado. */
+ *  a opção "Direta (sem M2)" para a moeda intermediária. Uma moeda livre já escolhida entra como
+ *  opção própria no dropdown (o Select consegue exibi-la); "Adicionar moeda…" abre um input de
+ *  código ao lado para digitar/trocar. */
 function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean }) {
   const ehDireta = permitirDireta && value === null;
-  const naLista = value != null && MOEDAS.some((m) => m.code === value);
-  const [modoLivre, setModoLivre] = useState(value != null && !naLista);
-  const selectValue = ehDireta ? DIRETA : modoLivre ? OUTRA_MOEDA : (value ?? "");
+  const naLista = value != null && value !== "" && MOEDAS.some((m) => m.code === value);
+  const ehLivre = value != null && value !== "" && !naLista; // moeda livre já com código
+  const [adicionando, setAdicionando] = useState(false);
+  // O valor selecionado no Select: direta / código livre existente / código fixo / (adicionando).
+  const selectValue = adicionando ? OUTRA_MOEDA : ehDireta ? DIRETA : (value ?? "");
   return (
     <div className="flex items-center gap-2">
       <Select
         value={selectValue}
         onValueChange={(v) => {
-          if (v === DIRETA) { setModoLivre(false); onChange(null); }
-          else if (v === OUTRA_MOEDA) { setModoLivre(true); onChange(""); }
-          else { setModoLivre(false); onChange(v); }
+          if (v === DIRETA) { setAdicionando(false); onChange(null); }
+          else if (v === OUTRA_MOEDA) { setAdicionando(true); onChange(""); }
+          else { setAdicionando(false); onChange(v); }
         }}
       >
-        <SelectTrigger className={modoLivre ? "w-32" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
+        <SelectTrigger className={adicionando ? "w-32" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
         <SelectContent>
           {permitirDireta && <SelectItem value={DIRETA}>Direta (sem M2)</SelectItem>}
           {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
+          {/* moeda livre já escolhida aparece como opção selecionável (senão o Select fica em branco) */}
+          {ehLivre && <SelectItem value={value!}>{value} (outra)</SelectItem>}
           <SelectItem value={OUTRA_MOEDA}>Adicionar moeda…</SelectItem>
         </SelectContent>
       </Select>
-      {modoLivre && (
+      {adicionando && (
         <Input
+          autoFocus
           className="w-24"
           placeholder="Código"
           maxLength={6}
-          value={naLista ? "" : (value ?? "")}
+          value={value ?? ""}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
-          title="Código da moeda (ex.: JPY, MXN)"
+          onBlur={() => { if (value) setAdicionando(false); }}
+          title="Código da moeda (ex.: JPY, MXN) — Enter/sair para confirmar"
         />
       )}
     </div>
@@ -103,7 +109,9 @@ export function ProdutoImportadoCard({
   // Accordion CONTROLADO (state próprio) — com `defaultValue` (uncontrolled) a seção fechava
   // ao editar um campo (re-render do card resetava o estado interno do Radix). Controlar aqui
   // fixa quais seções estão abertas independentemente de re-renders do draft.
-  const [secoesAbertas, setSecoesAbertas] = useState<string[]>(["identificacao"]);
+  // Começa com TODAS fechadas: o card aberto mostra só os 7 títulos (compacto, tamanho de bloco),
+  // e o usuário abre a seção que quer — senão o card fica gigante com as 7 seções empilhadas.
+  const [secoesAbertas, setSecoesAbertas] = useState<string[]>([]);
 
   const grupoNome = grupos.find((g) => g.id === draft.grupo_id)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === draft.categoria_id)?.nome ?? "";
@@ -168,9 +176,7 @@ export function ProdutoImportadoCard({
   const removeEtapa = (ordem: number) => onChange({ etapas: draft.etapas.filter((e) => e.ordem !== ordem) });
 
   return (
-    // max-w contém o card aberto (feedback do dono: estava do tamanho da tela). Fechado, o
-    // header já é compacto; aberto, fica numa largura de "bloco" em vez de esticar até a borda.
-    <div className="w-full max-w-3xl rounded-lg border bg-card">
+    <div className="rounded-lg border bg-card">
       <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
@@ -216,7 +222,18 @@ export function ProdutoImportadoCard({
           <Accordion type="multiple" value={secoesAbertas} onValueChange={setSecoesAbertas} className="[&>div]:border-b-0">
             {/* ── 1 · Identificação ────────────────────────────── */}
             <AccordionItem value="identificacao">
-              <AccordionTrigger className="text-xs font-semibold">1 · Identificação</AccordionTrigger>
+              {/* Foto = ícone de clipe ao LADO do título da seção 1 (feedback do dono). Fora do
+                  AccordionTrigger (botão dentro de botão é inválido) — flex-row com o trigger. */}
+              <div className="flex items-center">
+                <AccordionTrigger className="text-xs font-semibold">1 · Identificação</AccordionTrigger>
+                <Button
+                  type="button" variant="ghost" size="iconSm" disabled
+                  className="ml-2 shrink-0 text-muted-foreground"
+                  title="Anexar foto (chega com a persistência, próxima fase)."
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+              </div>
               <AccordionContent>
                 <div className="space-y-3">
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
@@ -264,15 +281,6 @@ export function ProdutoImportadoCard({
                       <DateField className="flex-1" value={draft.data_entrega ?? ""} onChange={(e) => onChange({ data_entrega: e.target.value || null })} />
                     </div>
                   </div>
-                  {/* Foto = botão de CLIPE (feedback do dono, igual ao anexo do Plan. Tecido).
-                      Upload real (tenantPrefix/storage) chega com a persistência (próxima fase). */}
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm">Foto</Label>
-                    <Button type="button" variant="outline" size="sm" disabled className="gap-1"
-                      title="Anexar foto chega quando a persistência estiver pronta (próxima fase).">
-                      <Paperclip className="h-3.5 w-3.5" /> Anexar
-                    </Button>
-                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -282,7 +290,7 @@ export function ProdutoImportadoCard({
               <AccordionTrigger className="text-xs font-semibold">2 · Grade &amp; proporção</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">Proporção de grade (peso)</Label>
+                  <Label className="text-sm">Proporção de grade</Label>
                   <div className="flex flex-wrap gap-1">
                     {tamanhos.map((t) => {
                       const peso = draft.grade_proporcao[t] ?? 0;
@@ -491,7 +499,15 @@ export function ProdutoImportadoCard({
                 <div className="space-y-3">
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
-                      <Label className="w-[150px] shrink-0 text-sm">Cotação final (R$)</Label>
+                      <Label className="w-[150px] shrink-0 text-sm">Moeda da cotação</Label>
+                      <div className="flex-1">
+                        {/* Moeda de ORIGEM da cotação final (converte → BRL). É a intermediária (M2);
+                            editável aqui também para o dono não precisar voltar à seção 4. */}
+                        <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[150px] shrink-0 text-sm">Cotação {simboloMoeda(moedaExibicaoM2)}→R$</Label>
                       <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.cotacao_final} onChange={(e) => onChange({ cotacao_final: Number(e.target.value) || 0 })} />
                     </div>
                     <div className="flex items-center gap-3">

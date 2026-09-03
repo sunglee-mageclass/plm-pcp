@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, PanelLeft, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { emptyDraft, resumoDrafts, type ProdutoImportadoDraft } from "./shared";
 import { fmtMoeda } from "@/lib/moeda";
+
+type SubRow = { id: string; nome: string; ordem: number };
 
 function useOpt(table: string) {
   return useQuery({
@@ -62,11 +64,15 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   onSubChange?: (subId: string | null) => void;
   onClose: () => void;
 }) {
+  const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
+  const [subAtual, setSubAtual] = useState<{ id: string | null; nome: string | null } | null>(null);
   const [drafts, setDrafts] = useState<ProdutoImportadoDraft[]>([]);
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [novoOpen, setNovoOpen] = useState(false);
+  const [resumoOpen, setResumoOpen] = useState(false);
   const [baseline, setBaseline] = useState<string>("[]");
   const [carregado, setCarregado] = useState(false);
+  const resolvedInicialRef = useRef({ done: false });
 
   const { data: colecao } = useQuery({
     queryKey: ["colecao-nome", colecaoId],
@@ -74,6 +80,15 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       const { data, error } = await supabase.from("colecoes").select("id, nome").eq("id", colecaoId).maybeSingle();
       if (error) throw error;
       return data as { id: string; nome: string } | null;
+    },
+  });
+
+  const { data: subList = [] } = useQuery({
+    queryKey: ["colecao-subcolecoes", colecaoId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("colecao_subcolecoes" as any).select("id, nome, ordem").eq("colecao_id", colecaoId).order("ordem");
+      if (error) throw error;
+      return (data ?? []) as unknown as SubRow[];
     },
   });
 
@@ -103,6 +118,24 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       setCarregado(true);
     }
   }, [carregado, produtosQuery.isSuccess, produtosQuery.isError, produtosQuery.data]);
+
+  // Resolve a subcoleção da URL (deep-link) uma vez, assim que a lista carregar — mesmo
+  // padrão do Produto Acabado (`ProdutoAcabadoSheet.tsx`).
+  useEffect(() => {
+    if (subInicial == null || resolvedInicialRef.current.done) return;
+    if (subInicial === "none") {
+      resolvedInicialRef.current.done = true;
+      setSubAtual({ id: null, nome: null });
+      setView("canvas");
+      return;
+    }
+    const found = subList.find((s) => s.id === subInicial);
+    if (found) {
+      resolvedInicialRef.current.done = true;
+      setSubAtual({ id: found.id, nome: found.nome });
+      setView("canvas");
+    }
+  }, [subInicial, subList]);
 
   // ── Opções (taxonomia, cores, fornecedores, tamanhos) — mesmas tabelas do Produto Acabado. ──
   const { data: grupos = [] } = useOpt("grupos_produto");
@@ -142,10 +175,19 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // um fecha os demais — o card fechado é compacto (só o header-resumo).
   const toggleCard = (id: string) => setOpenCards((s) => (s.has(id) ? new Set() : new Set([id])));
 
+  const produtosDeSub = (nome: string | null) => drafts.filter((d) => (d.subcolecao ?? null) === nome);
+
+  const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
+  const abrirCanvasDe = (sub: { id: string | null; nome: string | null }) => {
+    setSubAtual(sub);
+    setView("canvas");
+    onSubChange?.(sub.id ?? "none");
+  };
+
   const criarDraft = (dados: { nome: string; grupo_id: string | null; categoria_id: string | null; subcategoria1_id: string | null; subcategoria2_id: string | null }) => {
-    const novo: ProdutoImportadoDraft = { ...emptyDraft(colecaoId, subInicial ?? null), id: novoIdLocal(), ...dados };
+    const novo: ProdutoImportadoDraft = { ...emptyDraft(colecaoId, subAtual?.nome ?? null), id: novoIdLocal(), ...dados };
     setDrafts((ds) => [...ds, novo]);
-    setOpenCards((s) => new Set([...s, novo.id!]));
+    setOpenCards((s) => new Set([novo.id!]));
   };
 
   // TODO (próxima fase): trocar por RPC real (`salvar_produto_importado` + `salvar_
@@ -158,6 +200,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     setBaseline(JSON.stringify(drafts));
   };
 
+  const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" size="full" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
@@ -166,7 +210,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             <Breadcrumb items={[
               { label: "Estilo & Engenharia" },
               { label: "Produto Importado", onClick: requestClose },
-              { label: colecao?.nome ?? "…" },
+              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
+              ...(view === "canvas" && subAtual ? [{ label: subAtual.nome ?? "Sem subcoleção" }] : []),
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
@@ -174,43 +219,53 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 
         {!carregado ? (
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
+        ) : view === "subcolecoes" ? (
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-semibold tracking-tight">Subcoleções</h2>
+                <p className="text-sm text-muted-foreground">Escolha uma subcoleção para planejar os produtos importados.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {[...subList.map((s) => ({ id: s.id as string | null, nome: s.nome as string | null })), { id: null, nome: null }].map((sub, i) => {
+                const itens = produtosDeSub(sub.nome);
+                return (
+                  <button key={sub.id ?? `__sem__${i}`} type="button"
+                    className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
+                    onClick={() => abrirCanvasDe(sub)}>
+                    <div className="font-medium">{sub.nome ?? "Sem subcoleção"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      <b className="text-foreground">{itens.length}</b> produto(s)
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ) : (
           <main className="flex-1 overflow-y-auto p-4">
-            {/* Barra de resumo (feedback do dono): totais da coleção — peças, custo landed,
-                atacado, varejo. Sticky para acompanhar a rolagem. Mesma fonte única de custo. */}
-            {drafts.length > 0 && (() => {
-              const r = resumoDrafts(drafts);
-              const Item = ({ label, valor, tone }: { label: string; valor: string; tone?: string }) => (
-                <div className="flex min-w-[7rem] flex-col">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
-                  <span className={`text-sm font-semibold tabular-nums ${tone ?? ""}`}>{valor}</span>
-                </div>
-              );
-              return (
-                <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-3">
-                  <Item label="Produtos" valor={`${r.produtos}`} />
-                  <Item label="Peças" valor={r.pecas.toLocaleString("pt-BR")} />
-                  {/* Custo de COMPRA (landed) e poder de venda em VAREJO (com markup) — decisão do
-                      dono: o resumo mostra quanto custa comprar e quanto vale vender no varejo. */}
-                  <Item label="Custo de compra" valor={fmtMoeda(r.custoTotalBrl, "BRL")} />
-                  <Item label="Poder de venda (varejo)" valor={fmtMoeda(r.varejoTotalBrl, "BRL")} tone="text-emerald-700" />
-                </div>
-              );
-            })()}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground">{drafts.length} produto(s)</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s)</span>
+                {produtosSub.length > 0 && (
+                  <Button size="sm" variant="outline" className="gap-1" onClick={() => setResumoOpen(true)}>
+                    <PanelLeft className="h-3.5 w-3.5" /> Resumo
+                  </Button>
+                )}
+              </div>
               <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
                 <Plus className="h-3.5 w-3.5" /> Novo produto
               </Button>
             </div>
 
-            {drafts.length === 0 ? (
+            {produtosSub.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Nenhum produto importado ainda — clique em "Novo produto".
+                Nenhum produto importado nesta subcoleção ainda — clique em "Novo produto".
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3">
-                {drafts.map((d) => (
+                {produtosSub.map((d) => (
                   <ProdutoImportadoCard
                     key={d.id}
                     draft={d}
@@ -234,8 +289,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         )}
 
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={requestClose}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Voltar
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoes() : requestClose())}>
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <div className="ml-auto" />
           <Button disabled={!dirty} onClick={salvar}>
@@ -254,6 +310,36 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           subcats2={subcats2}
           onCriar={criarDraft}
         />
+
+        {/* Resumo = painel LATERAL ESQUERDO (feedback do dono): abre da esquerda p/ direita.
+            Escopo = subcoleção ATUAL (mesmo escopo do `ResumoRevendaPanel` do Produto Acabado,
+            que resume só `produtosSub`, não a coleção inteira). */}
+        <Sheet open={resumoOpen} onOpenChange={setResumoOpen}>
+          <SheetContent side="left" className="w-80 p-0">
+            <div className="border-b p-4">
+              <h2 className="font-display text-base font-semibold">Resumo da subcoleção</h2>
+              <p className="text-xs text-muted-foreground">{colecao?.nome ?? ""}{subAtual ? ` · ${subAtual.nome ?? "Sem subcoleção"}` : ""}</p>
+            </div>
+            {(() => {
+              const r = resumoDrafts(produtosSub);
+              const Linha = ({ label, valor, tone }: { label: string; valor: string; tone?: string }) => (
+                <div className="flex items-center justify-between border-b py-2.5">
+                  <span className="text-sm text-muted-foreground">{label}</span>
+                  <span className={`text-sm font-semibold tabular-nums ${tone ?? ""}`}>{valor}</span>
+                </div>
+              );
+              return (
+                <div className="p-4">
+                  <Linha label="Produtos" valor={`${r.produtos}`} />
+                  <Linha label="Peças" valor={r.pecas.toLocaleString("pt-BR")} />
+                  {/* Custo de COMPRA (landed) + poder de venda em VAREJO (com markup) — decisão do dono. */}
+                  <Linha label="Custo de compra" valor={fmtMoeda(r.custoTotalBrl, "BRL")} />
+                  <Linha label="Poder de venda (varejo)" valor={fmtMoeda(r.varejoTotalBrl, "BRL")} tone="text-emerald-700" />
+                </div>
+              );
+            })()}
+          </SheetContent>
+        </Sheet>
       </SheetContent>
     </Sheet>
   );
