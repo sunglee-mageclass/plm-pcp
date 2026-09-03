@@ -73,6 +73,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       { key: "criacao_plan_tecido", label: "Planejamento de Tecido", shortLabel: "Plan. Tecido", description: "Necessidade de tecido × estoque × OCs por coleção — antes de comprar." },
       { key: "criacao_produto_acabado", label: "Produto Acabado", description: "Planeje produtos de revenda (comprar pronto) por coleção.", gate: "produto_acabado" },
+      { key: "criacao_produto_importado", label: "Produto Importado", description: "Planeje produtos importados (comprar do exterior, com cotação de moeda) por coleção.", gate: "produto_importado" },
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
         sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",

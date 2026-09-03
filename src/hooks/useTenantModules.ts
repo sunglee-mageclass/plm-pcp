@@ -16,6 +16,7 @@ export type ModuleKey =
   | "dashboard"
   | "otb"
   | "produto_acabado"
+  | "produto_importado"
   | "etapas_pl";
 
 const DEFAULTS: Record<ModuleKey, boolean> = {
@@ -27,6 +28,7 @@ const DEFAULTS: Record<ModuleKey, boolean> = {
   dashboard: true,
   otb: false, // opt-in
   produto_acabado: false, // opt-in
+  produto_importado: false, // opt-in
   etapas_pl: false, // opt-in
 };
 
@@ -43,6 +45,7 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   dashboard: "/dashboard",
   otb: "/otb",
   produto_acabado: "/criacao/produto-acabado",
+  produto_importado: "/criacao/produto-importado",
   etapas_pl: "/pcp",
 };
 
