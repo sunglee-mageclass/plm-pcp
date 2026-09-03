@@ -7,6 +7,7 @@ import { corApelidoLabel } from "@/lib/variante";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ReplicarCardsDialog } from "@/components/plan-tecido/ReplicarCardsDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NumberInput } from "@/components/shared/NumberInput";
 import {
@@ -23,7 +24,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
-import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning, CopyPlus } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
@@ -301,6 +302,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // da barra de seleção.
   const [criarCardsConfirm, setCriarCardsConfirm] = useState<{ elegiveis: string[]; pulados: string[]; semDados: number } | null>(null);
   const [criandoCards, setCriandoCards] = useState(false);
+  // "Replicar card(s)": payload (modelos elegíveis + nº ignorados) alimenta o dialog de destino.
+  const [replicarPayload, setReplicarPayload] = useState<{ modeloIds: string[]; nIgnorados: number } | null>(null);
+  const [replicando, setReplicando] = useState(false);
   const [pedidoSelecaoConfirm, setPedidoSelecaoConfirm] = useState<{ compraveis: string[]; comprados: string[] } | null>(null);
   const [preparandoPedidoSelecao, setPreparandoPedidoSelecao] = useState(false);
   const [slotIdsPedido, setSlotIdsPedido] = useState<string[] | null>(null); // slots do pedido POR SELEÇÃO (null = coleção inteira)
@@ -1257,6 +1261,56 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     }
   }
 
+  // "Replicar" na barra de seleção — copia cards MATERIALIZADOS (com modelo_id) p/ outra (coleção,
+  // subcoleção). Só internos: revenda/vagas são ignoradas (aviso). Abre o dialog de destino.
+  function handleReplicarClick() {
+    const itens = slotsDaSelecao();
+    const modeloIds = itens
+      .filter((it) => it.slot.modelo_id && (origemMap[it.slot.modelo_id!] ?? null) !== "revenda")
+      .map((it) => it.slot.modelo_id!) as string[];
+    const nIgnorados = itens.length - modeloIds.length; // vaga sem modelo OU revenda
+    if (modeloIds.length === 0) {
+      toast.error("Selecione ao menos um card materializado (interno) para replicar.");
+      return;
+    }
+    setReplicarPayload({ modeloIds, nIgnorados });
+  }
+
+  async function confirmarReplicar(destinoColId: string, destinoSubId: string | null) {
+    const payload = replicarPayload;
+    if (!payload) return;
+    setReplicando(true);
+    try {
+      if (!(await ensureSaved())) return; // salva a ORIGEM antes (evita perder edições / rev velho)
+      // Trava do destino só quando é a coleção aberta (temos o rev); senão NULL (RPC só INSERE).
+      const revBase = destinoColId === colecaoId ? revRef.current : null;
+      const { data, error } = await supabase.rpc("replicar_cards_plan_tecido" as any, {
+        _destino_colecao_id: destinoColId,
+        _destino_subcolecao_id: destinoSubId,
+        _modelo_ids: payload.modeloIds,
+        _rev_base: revBase,
+      });
+      if (error) throw error;
+      const res = (data ?? []) as { origem_modelo_id: string; novo_modelo_id: string; slot_id: string }[];
+      invalidarModeloLote(res.map((r) => r.novo_modelo_id));
+      // Invalida a árvore/coleção do DESTINO (rev novo + slots ocupados) — e a da origem se for a mesma.
+      for (const cid of new Set([destinoColId, colecaoId])) {
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", cid] });
+        void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", cid] });
+      }
+      setReplicarPayload(null);
+      toast.success(`${res.length} card(s) replicado(s).`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível replicar os cards."));
+    } finally {
+      setReplicando(false);
+      setSelecao(new Set());
+    }
+  }
+
   // Mesmas invalidações do ModelCard.invalidarModelo, agora em lote (N modelo_ids).
   const invalidarModeloLote = (modeloIds: string[]) => {
     void qc.invalidateQueries({ queryKey: ["modelo"] });
@@ -1499,6 +1553,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               {subNomeAtiva && (
                 <Button size="sm" variant="outline" aria-label="Mover p/ família" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" onClick={() => setMixMassaOpen(true)}><Boxes className="h-4 w-4" /><span className="max-sm:sr-only"> Mover p/ família</span></Button>
               )}
+              {/* Replicar p/ outra coleção/subcoleção — só cards materializados (com modelo); revenda ignorada. */}
+              <Button size="sm" variant="outline" aria-label="Replicar em outra coleção/subcoleção" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={replicando} onClick={handleReplicarClick}><CopyPlus className="h-4 w-4" /><span className="max-sm:sr-only"> Replicar</span></Button>
               {/* Criar cards (principal) — ícone + no mobile. G6: pula os já materializados. */}
               <Button size="sm" variant="default" aria-label="Criar cards" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={criandoCards} onClick={handleCriarCardsClick}>
                 <Plus className="h-4 w-4" /><span className="max-sm:sr-only"> {criandoCards ? "Criando…" : "Criar cards"}</span>
@@ -1784,11 +1840,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                         (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. */}
                     <AgrupamentoButton groups={[
                       { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
-                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
+                      { label: "Família de Tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
                     ]} />
                     {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
-                    <Button size="sm" variant="outline" aria-label="Adicionar família" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família</span></Button>
+                    <Button size="sm" variant="outline" aria-label="Adicionar família de tecido" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família de Tecido</span></Button>
                     {/* Editar Fam. — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
                     {subNomeAtiva && (
                       <Button size="sm" variant="outline" aria-label="Editar Família de Produtos" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Fam.</span></Button>
@@ -1815,7 +1871,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                             <div className="mb-1 flex items-center gap-2">
                               <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
                                 {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Família") : "Sem família"}</span>
+                                <span className={`text-sm font-semibold ${mid ? "text-foreground" : "text-muted-foreground"}`}>{mid ? (mixNomeDe(mid) ?? "Família de produtos") : "Sem família de produtos"}</span>
                               </button>
                               <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} card(s)</span>
                             </div>
@@ -1835,7 +1891,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                                         <div className="mb-1 flex items-center gap-2">
                                           <button type="button" onClick={() => toggleLane(famKey)} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
                                             {famRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                            <span className={`text-[13px] font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                                            <span className={`text-[13px] font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem família de tecido"}</span>
                                           </button>
                                           <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{fam.length}</span>
                                         </div>
@@ -1870,7 +1926,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                               {/* nome DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
                               <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
                                 {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                <span className={`text-sm font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                                <span className={`text-sm font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem família de tecido"}</span>
                               </button>
                               <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${fmtMetros(laneMetros)} m` : ""}</span>
                               {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
@@ -2025,7 +2081,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               {(subAtual?.categorias_tecido ?? []).map((cid) => (
                 <Button key={cid} variant="outline" size="sm" className="justify-start gap-2" onClick={() => aplicarCategoriaEmMassa(cid)}><Tag className="h-3.5 w-3.5" /> {catTecidoNome(cid) ?? "?"}</Button>
               ))}
-              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarCategoriaEmMassa(null)}>Sem categoria</Button>
+              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarCategoriaEmMassa(null)}>Sem família de tecido</Button>
               {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).length > 0 && (
                 <div className="mt-1 border-t pt-2">
                   <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Nova categoria</div>
@@ -2053,6 +2109,20 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           )}
         </AlertDialog>
 
+
+        {/* Replicar card(s) → dialog de (coleção, subcoleção) destino. Monta só quando há payload
+            (nasce limpo). A RPC replica materializando + versionando + ocupando vagas no destino. */}
+        {replicarPayload && (
+          <ReplicarCardsDialog
+            open={!!replicarPayload}
+            onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
+            nEleg={replicarPayload.modeloIds.length}
+            nIgnorados={replicarPayload.nIgnorados}
+            colecaoAtualId={colecaoId}
+            replicando={replicando}
+            onConfirmar={confirmarReplicar}
+          />
+        )}
 
         {/* G6: confirma "Criar cards" da seleção — avisa quantos serão pulados (já materializados)
             e quantos ficam de fora por falta de dados (nem entram nos elegíveis nem nos pulados). */}
