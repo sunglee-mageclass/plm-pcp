@@ -168,12 +168,39 @@ export function semearComModelos(input: SeedComModelosInput): PtArvore {
   }
 
   // 2) Garante os buckets do plano (mesmo sem modelo) e completa com slots VAZIOS até a qtd.
+  // No fluxo ORÇAMENTO, um modelo real cuja categoria NÃO tem bucket próprio consome o bucket
+  // RESTANTE (categoria=null, o catch-all) — senão ele fica na sua lane de categoria E o restante
+  // gera vaga sobrando (ex.: OTB planeja 1 "sem categoria", mas o card tem categoria "Vestido" →
+  // antes: 1 modelo + 1 vaga fantasma; agora: o Vestido abate o restante → 0 vaga). O split por
+  // categoria fica intacto: um modelo de categoria X que TEM bucket X consome o bucket X.
+  const catsComBucketPorSub = new Map<string, Set<string>>(); // subcolecao_id → categorias com bucket próprio
+  if (input.tipo !== "poder_venda") {
+    for (const b of input.buckets) {
+      if (b.categoria_id == null) continue;
+      const key = b.subcolecao_id ?? "__none__";
+      let s = catsComBucketPorSub.get(key);
+      if (!s) { s = new Set(); catsComBucketPorSub.set(key, s); }
+      s.add(b.categoria_id);
+    }
+  }
+  const orfaosPorSub = (subcolecao_id: string | null): number => {
+    // modelos reais da sub cuja categoria NÃO tem bucket próprio (categoria null OU categoria sem split).
+    const comBucket = catsComBucketPorSub.get(subcolecao_id ?? "__none__") ?? new Set<string>();
+    return input.modelos.filter((mr) =>
+      (mr.subcolecao_id ?? null) === (subcolecao_id ?? null) && !(mr.categoria_id && comBucket.has(mr.categoria_id)),
+    ).length;
+  };
   for (const b of input.buckets) {
     const sub = getSub(b.subcolecao_id);
     const ln = input.tipo === "poder_venda"
       ? getLinha(sub, b.linha_id, null)
       : getLinha(sub, null, b.categoria_id);
-    const faltam = Math.max(0, b.qtd) - ln.slots.length;
+    // Bucket RESTANTE (categoria=null) no orçamento: desconta os órfãos-de-bucket da subcoleção
+    // (que estão em OUTRAS lanes). Buckets COM categoria própria e PV: comportamento de sempre.
+    const jaContados = (input.tipo !== "poder_venda" && b.categoria_id == null)
+      ? orfaosPorSub(b.subcolecao_id)
+      : ln.slots.length;
+    const faltam = Math.max(0, b.qtd) - jaContados;
     for (let i = 0; i < faltam; i++) ln.slots.push(slotVazio(ln.slots.length));
   }
 

@@ -717,4 +717,43 @@ describe("plan-tecido/engine", () => {
       expect(original.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe(snapshotCategoria);
     });
   });
+
+  describe("semearComModelos: órfão-de-bucket consome o restante (orçamento)", () => {
+    const modeloReal = (categoria_id: string | null): ModeloReal => ({
+      id: `m-${categoria_id ?? "null"}`, nome: "M", ref: null, subcolecao_id: "s1",
+      linha_id: null, categoria_id, proporcoes: null, fotos_referencia: null, materiais: [],
+    } as unknown as ModeloReal);
+
+    it("modelo de categoria SEM bucket próprio consome o bucket RESTANTE (sem-cat) → 0 vaga", () => {
+      // OTB planejou 1 sem categoria (bucket restante); o card real tem categoria "Vestido" (órfão).
+      const arv = semearComModelos({ colecao_id: "c", tipo: "orcamento",
+        buckets: [{ subcolecao_id: "s1", linha_id: null, categoria_id: null, qtd: 1 }],
+        modelos: [modeloReal("Vestido")] });
+      const slots = arv.subcolecoes[0].linhas.flatMap((l) => l.slots);
+      expect(slots.filter((s) => s.modelo_id).length).toBe(1);
+      expect(slots.filter((s) => !s.modelo_id).length).toBe(0); // sem vaga fantasma
+    });
+
+    it("split por categoria intacto: modelo de categoria X consome o bucket X; órfão consome o restante", () => {
+      // buckets: Vestido:1 + restante(sem-cat):1. Modelos: 1 Vestido + 1 Saia (sem bucket próprio).
+      const arv = semearComModelos({ colecao_id: "c", tipo: "orcamento",
+        buckets: [
+          { subcolecao_id: "s1", linha_id: null, categoria_id: "Vestido", qtd: 1 },
+          { subcolecao_id: "s1", linha_id: null, categoria_id: null, qtd: 1 },
+        ],
+        modelos: [modeloReal("Vestido"), modeloReal("Saia")] });
+      const slots = arv.subcolecoes[0].linhas.flatMap((l) => l.slots);
+      expect(slots.filter((s) => s.modelo_id).length).toBe(2);
+      expect(slots.filter((s) => !s.modelo_id).length).toBe(0); // Vestido→bucket Vestido; Saia→restante
+    });
+
+    it("ainda gera vaga quando faltam modelos: restante qtd=2, só 1 órfão → 1 vaga", () => {
+      const arv = semearComModelos({ colecao_id: "c", tipo: "orcamento",
+        buckets: [{ subcolecao_id: "s1", linha_id: null, categoria_id: null, qtd: 2 }],
+        modelos: [modeloReal("Vestido")] });
+      const slots = arv.subcolecoes[0].linhas.flatMap((l) => l.slots);
+      expect(slots.filter((s) => s.modelo_id).length).toBe(1);
+      expect(slots.filter((s) => !s.modelo_id).length).toBe(1); // planejou 2, tem 1 → 1 vaga real
+    });
+  });
 });
