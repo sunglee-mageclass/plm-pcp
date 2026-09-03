@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { ArrowDownAZ, ArrowDownZA } from "lucide-react";
 import { useSort } from "@/components/shared/sort";
+import { SearchToggle } from "@/components/shared/filters";
+import { useBuscaColecaoSub } from "@/hooks/useBuscaColecaoSub";
 import { ProdutoAcabadoSheet } from "@/components/produto-acabado/ProdutoAcabadoSheet";
 
 // Coleção e subcoleção ABERTAS vivem na URL (?colecao=&sub=) — mesmo padrão do Plan.
@@ -78,14 +80,17 @@ function ProdutoAcabadoListPage() {
 
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  const [search, setSearch] = useState("");
+  const { matchColecao } = useBuscaColecaoSub(); // busca por nome de coleção OU de subcoleção contida
 
   const filtered = useMemo(() => {
     return colecoes.filter((c) => {
       if (fMes !== "all" && c.mes_id !== fMes) return false;
       if (fAno !== "all" && c.ano_id !== fAno) return false;
+      if (!matchColecao(c.id, c.nome ?? "", search)) return false;
       return true;
     });
-  }, [colecoes, fMes, fAno]);
+  }, [colecoes, fMes, fAno, search, matchColecao]);
 
   const sort = useSort(filtered, { key: "nome" });
   const nomeDe = (opts: Opt[], id: string | null) => opts.find((o) => o.id === id)?.nome ?? null;
@@ -144,6 +149,7 @@ function ProdutoAcabadoListPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar coleção ou subcoleção…" />
           <Button variant="outline" size="sm" className="gap-1" onClick={() => sort.toggle("nome")} title="Ordenar por nome">
             {sort.sortDir === "asc" ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowDownZA className="h-4 w-4" />}
             <span className="hidden sm:inline">{sort.sortDir === "asc" ? "A–Z" : "Z–A"}</span>

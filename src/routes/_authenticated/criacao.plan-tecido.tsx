@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -8,7 +8,8 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { ArrowDownAZ, ArrowDownZA, Layers } from "lucide-react";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useBuscaColecaoSub } from "@/hooks/useBuscaColecaoSub";
 import { useSort } from "@/components/shared/sort";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { PlanTecidoSheet } from "@/components/plan-tecido/PlanTecidoSheet";
@@ -96,6 +97,8 @@ function PlanTecidoListPage() {
   const [fAno, setFAno] = useFilterState("plan-tecido", "Ano", []);
   const [fStatus, setFStatus] = useFilterState("plan-tecido", "Status", []);
   const [fTipo, setFTipo] = useFilterState("plan-tecido", "Tipo", []);
+  const [search, setSearch] = useState("");
+  const { matchColecao } = useBuscaColecaoSub(); // busca por nome de coleção OU de subcoleção contida
 
   const filtered = useMemo(() => {
     return colecoes.filter((c) => {
@@ -103,9 +106,10 @@ function PlanTecidoListPage() {
       if (fAno.length && !fAno.includes(c.ano_id ?? "")) return false;
       if (fStatus.length && !fStatus.includes(c.status ?? "")) return false;
       if (fTipo.length && !fTipo.includes(c.tipo ?? "")) return false;
+      if (!matchColecao(c.id, c.nome ?? "", search)) return false;
       return true;
     });
-  }, [colecoes, fMes, fAno, fStatus, fTipo]);
+  }, [colecoes, fMes, fAno, fStatus, fTipo, search, matchColecao]);
 
   const sort = useSort(filtered, { key: "nome" });
   const nomeDe = (opts: Opt[], id: string | null) => opts.find((o) => o.id === id)?.nome ?? null;
@@ -128,6 +132,7 @@ function PlanTecidoListPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar coleção ou subcoleção…" />
           <Button
             variant="outline"
             size="sm"

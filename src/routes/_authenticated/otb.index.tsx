@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Target, Plus } from "lucide-react";
 import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
@@ -22,6 +22,7 @@ import { useOrcamento } from "@/components/otb/orcamento";
 import { brl, mesLimpo } from "@/lib/format";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useBuscaColecaoSub } from "@/hooks/useBuscaColecaoSub";
 
 export const Route = createFileRoute("/_authenticated/otb/")({
   component: () => (
@@ -62,6 +63,8 @@ function OtbPage() {
     c.tipo === "poder_venda" ? setPvOpen({ id: c.id }) : setOpenId(c.id);
   const [fAno, setFAno] = useFilterState("otb", "Ano", []);
   const [fMes, setFMes] = useFilterState("otb", "Mês", []);
+  const [search, setSearch] = useState("");
+  const { matchColecao } = useBuscaColecaoSub(); // busca por nome de coleção OU de subcoleção contida
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
   const { data: colecoes = [] } = useQuery({
@@ -176,7 +179,8 @@ function OtbPage() {
   });
 
   const colecoesFiltradas = colecoes.filter(
-    (c) => (!fAno.length || fAno.includes(c.ano_id ?? "")) && (!fMes.length || fMes.includes(c.mes_id ?? "")),
+    (c) => (!fAno.length || fAno.includes(c.ano_id ?? "")) && (!fMes.length || fMes.includes(c.mes_id ?? ""))
+      && matchColecao(c.id, c.nome ?? "", search),
   );
 
   if (!isModuleEnabled("otb")) {
@@ -189,6 +193,7 @@ function OtbPage() {
         <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div><h1 className="font-display text-xl font-semibold tracking-tight">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
         <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar coleção ou subcoleção…" />
           <FilterButton filters={[
             { label: "Ano", value: fAno, onChange: setFAno, options: anos },
             { label: "Mês", value: fMes, onChange: setFMes, options: meses },
