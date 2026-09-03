@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, ImagePlus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, ImagePlus, MoreHorizontal, Paperclip, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,49 @@ import {
 // label exibido de um tamanho cadastrado ("34|PPP" → "PPP") — mesmo helper usado em
 // GradeSection.tsx (Plan. Tecido) / ProdutoCard.tsx (Produto Acabado).
 const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
+
+const OUTRA_MOEDA = "__outra__";
+const DIRETA = "__direta__";
+
+/** Select de moeda: lista fixa (MOEDAS) + "Adicionar moeda…" (código livre) — e, opcionalmente,
+ *  a opção "Direta (sem M2)" para a moeda intermediária. Quando o valor atual não está na lista
+ *  fixa (moeda livre já escolhida) OU o usuário escolhe "Adicionar moeda", mostra um input de
+ *  código livre ao lado. */
+function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean }) {
+  const ehDireta = permitirDireta && value === null;
+  const naLista = value != null && MOEDAS.some((m) => m.code === value);
+  const [modoLivre, setModoLivre] = useState(value != null && !naLista);
+  const selectValue = ehDireta ? DIRETA : modoLivre ? OUTRA_MOEDA : (value ?? "");
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={selectValue}
+        onValueChange={(v) => {
+          if (v === DIRETA) { setModoLivre(false); onChange(null); }
+          else if (v === OUTRA_MOEDA) { setModoLivre(true); onChange(""); }
+          else { setModoLivre(false); onChange(v); }
+        }}
+      >
+        <SelectTrigger className={modoLivre ? "w-32" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
+        <SelectContent>
+          {permitirDireta && <SelectItem value={DIRETA}>Direta (sem M2)</SelectItem>}
+          {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
+          <SelectItem value={OUTRA_MOEDA}>Adicionar moeda…</SelectItem>
+        </SelectContent>
+      </Select>
+      {modoLivre && (
+        <Input
+          className="w-24"
+          placeholder="Código"
+          maxLength={6}
+          value={naLista ? "" : (value ?? "")}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          title="Código da moeda (ex.: JPY, MXN)"
+        />
+      )}
+    </div>
+  );
+}
 
 export function ProdutoImportadoCard({
   draft,
@@ -57,6 +100,10 @@ export function ProdutoImportadoCard({
   onExcluir: () => void;
 }) {
   const [confirmExcluir, setConfirmExcluir] = useState(false);
+  // Accordion CONTROLADO (state próprio) — com `defaultValue` (uncontrolled) a seção fechava
+  // ao editar um campo (re-render do card resetava o estado interno do Radix). Controlar aqui
+  // fixa quais seções estão abertas independentemente de re-renders do draft.
+  const [secoesAbertas, setSecoesAbertas] = useState<string[]>(["identificacao"]);
 
   const grupoNome = grupos.find((g) => g.id === draft.grupo_id)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === draft.categoria_id)?.nome ?? "";
@@ -121,7 +168,9 @@ export function ProdutoImportadoCard({
   const removeEtapa = (ordem: number) => onChange({ etapas: draft.etapas.filter((e) => e.ordem !== ordem) });
 
   return (
-    <div className="rounded-lg border bg-card">
+    // max-w contém o card aberto (feedback do dono: estava do tamanho da tela). Fechado, o
+    // header já é compacto; aberto, fica numa largura de "bloco" em vez de esticar até a borda.
+    <div className="w-full max-w-3xl rounded-lg border bg-card">
       <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
@@ -164,7 +213,7 @@ export function ProdutoImportadoCard({
 
       {open && (
         <div className="border-t px-3 pb-3">
-          <Accordion type="multiple" defaultValue={["identificacao"]} className="[&>div]:border-b-0">
+          <Accordion type="multiple" value={secoesAbertas} onValueChange={setSecoesAbertas} className="[&>div]:border-b-0">
             {/* ── 1 · Identificação ────────────────────────────── */}
             <AccordionItem value="identificacao">
               <AccordionTrigger className="text-xs font-semibold">1 · Identificação</AccordionTrigger>
@@ -173,7 +222,13 @@ export function ProdutoImportadoCard({
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">REF</Label>
-                      <Input className="flex-1" disabled value="—" title="A REF é gerada quando o produto for salvo no banco (próxima fase)." />
+                      <Input
+                        className="flex-1"
+                        value={draft.ref ?? ""}
+                        placeholder="Gerada ao salvar (ou digite manual)"
+                        title="Deixe em branco para a REF automática ao salvar, ou digite uma REF manual."
+                        onChange={(e) => onChange({ ref: e.target.value || null })}
+                      />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Nome</Label>
@@ -209,20 +264,14 @@ export function ProdutoImportadoCard({
                       <DateField className="flex-1" value={draft.data_entrega ?? ""} onChange={(e) => onChange({ data_entrega: e.target.value || null })} />
                     </div>
                   </div>
-                  <div className="space-y-1.5">
+                  {/* Foto = botão de CLIPE (feedback do dono, igual ao anexo do Plan. Tecido).
+                      Upload real (tenantPrefix/storage) chega com a persistência (próxima fase). */}
+                  <div className="flex items-center gap-2">
                     <Label className="text-sm">Foto</Label>
-                    {/* Placeholder nesta fase — upload real (tenantPrefix/storage) fica pra
-                        quando a persistência existir; por ora só o affordance visual. Compacto
-                        (feedback do dono: estava grande demais). */}
-                    <button
-                      type="button"
-                      disabled
-                      title="Upload de foto chega quando a persistência estiver pronta (próxima fase)."
-                      className="flex h-16 w-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground opacity-60"
-                    >
-                      <ImagePlus className="h-4 w-4" />
-                      <span className="text-[10px]">Foto</span>
-                    </button>
+                    <Button type="button" variant="outline" size="sm" disabled className="gap-1"
+                      title="Anexar foto chega quando a persistência estiver pronta (próxima fase).">
+                      <Paperclip className="h-3.5 w-3.5" /> Anexar
+                    </Button>
                   </div>
                 </div>
               </AccordionContent>
@@ -338,32 +387,23 @@ export function ProdutoImportadoCard({
                       só a previsão de valor/moeda/cotação. */}
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Valor unit. ({simboloMoeda(draft.moeda_compra)})</Label>
-                    <NumberInput className="flex-1" placeholder="0,00" value={draft.valor_unitario_m1} onChange={(e) => onChange({ valor_unitario_m1: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.valor_unitario_m1} onChange={(e) => onChange({ valor_unitario_m1: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Moeda de compra</Label>
                     <div className="flex-1">
-                      <Select value={draft.moeda_compra} onValueChange={(v) => onChange({ moeda_compra: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}</SelectContent>
-                      </Select>
+                      <MoedaSelect value={draft.moeda_compra} onChange={(v) => onChange({ moeda_compra: v ?? "" })} />
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Moeda intermediária</Label>
                     <div className="flex-1">
-                      <Select value={draft.moeda_intermediaria ?? "__direta__"} onValueChange={(v) => onChange({ moeda_intermediaria: v === "__direta__" ? null : v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__direta__">Direta (sem M2)</SelectItem>
-                          {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta />
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Cotação de ref.</Label>
-                    <NumberInput className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -379,11 +419,11 @@ export function ProdutoImportadoCard({
                 <div className="max-w-sm space-y-2 rounded-md border p-3">
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Peso (kg)</Label>
-                    <NumberInput className="flex-1" placeholder="0,00" value={draft.peso_kg} onChange={(e) => onChange({ peso_kg: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.peso_kg} onChange={(e) => onChange({ peso_kg: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Transporte ({simboloMoeda(moedaExibicaoM2)}/kg)</Label>
-                    <NumberInput className="flex-1" placeholder="0,00" value={draft.transporte_m2} onChange={(e) => onChange({ transporte_m2: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.transporte_m2} onChange={(e) => onChange({ transporte_m2: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -452,7 +492,7 @@ export function ProdutoImportadoCard({
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Cotação final (R$)</Label>
-                      <NumberInput className="flex-1" placeholder="0,00" value={draft.cotacao_final} onChange={(e) => onChange({ cotacao_final: Number(e.target.value) || 0 })} />
+                      <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.cotacao_final} onChange={(e) => onChange({ cotacao_final: Number(e.target.value) || 0 })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Markup atacado</Label>

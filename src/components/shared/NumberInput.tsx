@@ -49,7 +49,16 @@ export const NumberInput = forwardRef<HTMLInputElement, InputProps>(function Num
       type="text"
       inputMode={integer ? "numeric" : "decimal"}
       value={text}
-      onFocus={(e) => { focused.current = true; setText(toEdit(value)); onFocus?.(e); }}
+      onFocus={(e) => {
+        focused.current = true;
+        setText(toEdit(value));
+        // Cursor ao FIM (não no início) — permite começar a apagar da direita ao editar um
+        // valor já preenchido. requestAnimationFrame: o setText acima só reflete no próximo
+        // paint, então posicionamos a seleção depois que o novo texto está no DOM.
+        const el = e.currentTarget;
+        requestAnimationFrame(() => { const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* noop */ } });
+        onFocus?.(e);
+      }}
       onBlur={(e) => { focused.current = false; setText(toDisplay(value)); onBlur?.(e); }}
       onChange={(e) => {
         const raw = e.target.value;

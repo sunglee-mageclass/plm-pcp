@@ -190,9 +190,10 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                 <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-3">
                   <Item label="Produtos" valor={`${r.produtos}`} />
                   <Item label="Peças" valor={r.pecas.toLocaleString("pt-BR")} />
-                  <Item label="Custo total" valor={fmtMoeda(r.custoTotalBrl, "BRL")} />
-                  <Item label="Atacado" valor={fmtMoeda(r.atacadoTotalBrl, "BRL")} tone="text-primary" />
-                  <Item label="Varejo" valor={fmtMoeda(r.varejoTotalBrl, "BRL")} tone="text-emerald-700" />
+                  {/* Custo de COMPRA (landed) e poder de venda em VAREJO (com markup) — decisão do
+                      dono: o resumo mostra quanto custa comprar e quanto vale vender no varejo. */}
+                  <Item label="Custo de compra" valor={fmtMoeda(r.custoTotalBrl, "BRL")} />
+                  <Item label="Poder de venda (varejo)" valor={fmtMoeda(r.varejoTotalBrl, "BRL")} tone="text-emerald-700" />
                 </div>
               );
             })()}
