@@ -543,10 +543,12 @@ function PlanejamentoPage() {
         markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         maoObra={(() => {
-          // MO exibida = a MESMA que `custoMat` subtrai (senão Custo+MO não recompõem o total).
-          // Chaveada por `confirmado` (qual caminho a RPC usou p/ `real`), NÃO por lançamento/CQ.
-          const c = (custoMap as any)[m.id];
-          return c?.confirmado ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
+          // MO exibida = a mão de obra PLANEJADA do modelo (Σ modelo_servico_mo), que bate com o
+          // badge "MO aprovada/pendente" e a linha detalhada. NÃO usar `mao_obra_real` da RPC: essa
+          // é só serviço EXTERNO ÷ grade (=0 p/ modelo cuja MO é toda por serviço interno, como o
+          // Vestal) — mostraria "R$ 0,00" e a MO do card "sumiria". Ver custoMat abaixo: materiais e
+          // mão de obra são DOIS números independentes, não uma soma que recompõe o `real`.
+          return (custoMap as any)[m.id]?.mao_obra_previsto ?? null;
         })()}
         custoMat={(() => {
           const p = piFor(m);
