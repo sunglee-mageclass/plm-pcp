@@ -543,18 +543,22 @@ function PlanejamentoPage() {
         markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         maoObra={(() => {
-          const ls = lancStatusDe(m);
+          // MO exibida = a MESMA que `custoMat` subtrai (senão Custo+MO não recompõem o total).
+          // Chaveada por `confirmado` (qual caminho a RPC usou p/ `real`), NÃO por lançamento/CQ.
           const c = (custoMap as any)[m.id];
-          return ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
+          return c?.confirmado ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
         })()}
         custoMat={(() => {
           const p = piFor(m);
           const custo = p.custo > 0 ? p.custo : null;
           if (custo == null) return null;
-          const ls = lancStatusDe(m);
           const c = (custoMap as any)[m.id];
-          const maoObra = ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
-          return maoObra != null ? custo - maoObra : custo;
+          // Materiais = custo − a MO que JÁ está embutida em `real`. A RPC embute mao_obra_real
+          // quando veio do CAD (confirmado), senão a prevista (fallback custo_peca_previsto).
+          // Chavear por `confirmado`, NÃO por lançamento/CQ — era esse o bug do "26,23" (subtraía
+          // a MO prevista de um `real` que só tinha a real=0).
+          const moEmbutida = c?.confirmado ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
+          return moEmbutida != null ? custo - moEmbutida : custo;
         })()}
         moEstado={(moResumoLista as Record<string, { estado: string }>)[m.id]?.estado ?? null}
         linhasMO={(moResumoLista as Record<string, { linhas?: MoLinha[] }>)[m.id]?.linhas ?? []}
