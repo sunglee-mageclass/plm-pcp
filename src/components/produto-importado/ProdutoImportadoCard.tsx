@@ -209,18 +209,19 @@ export function ProdutoImportadoCard({
                       <DateField className="flex-1" value={draft.data_entrega ?? ""} onChange={(e) => onChange({ data_entrega: e.target.value || null })} />
                     </div>
                   </div>
-                  <div className="max-w-sm space-y-1.5">
+                  <div className="space-y-1.5">
                     <Label className="text-sm">Foto</Label>
                     {/* Placeholder nesta fase — upload real (tenantPrefix/storage) fica pra
-                        quando a persistência existir; por ora só o affordance visual. */}
+                        quando a persistência existir; por ora só o affordance visual. Compacto
+                        (feedback do dono: estava grande demais). */}
                     <button
                       type="button"
                       disabled
                       title="Upload de foto chega quando a persistência estiver pronta (próxima fase)."
-                      className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground opacity-60"
+                      className="flex h-16 w-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground opacity-60"
                     >
-                      <ImagePlus className="h-5 w-5" />
-                      <span className="text-xs">Adicionar foto</span>
+                      <ImagePlus className="h-4 w-4" />
+                      <span className="text-[10px]">Foto</span>
                     </button>
                   </div>
                 </div>
@@ -260,6 +261,21 @@ export function ProdutoImportadoCard({
               <AccordionTrigger className="text-xs font-semibold">3 · Variantes</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-2">
+                  {/* Qtd total ANTES das variantes (feedback do dono): o usuário digita a total
+                      primeiro; o rateio por peso distribui automaticamente ao adicionar variantes.
+                      Bidirecional: editar a qtd de uma variante recalcula a total = Σ variantes. */}
+                  <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-2">
+                    <Label className="shrink-0 text-sm font-medium">Quantidade total</Label>
+                    <NumberInput
+                      integer
+                      blankZero
+                      placeholder="0"
+                      className="h-8 w-28"
+                      value={draft.qtd_total}
+                      onChange={(e) => setQtdTotal(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
+                    />
+                    <span className="text-xs text-muted-foreground">distribuída por peso nas variantes abaixo</span>
+                  </div>
                   <div className="flex items-center justify-between">
                     <Label className="text-sm">Cor, peso e quantidade</Label>
                     <Button type="button" variant="outline" size="sm" onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
@@ -318,17 +334,8 @@ export function ProdutoImportadoCard({
               <AccordionTrigger className="text-xs font-semibold">4 · Quantidade &amp; previsão</AccordionTrigger>
               <AccordionContent>
                 <div className="max-w-sm space-y-2 rounded-md border p-3">
-                  <div className="flex items-center gap-3">
-                    <Label className="w-[150px] shrink-0 text-sm">Qtd total</Label>
-                    <NumberInput
-                      integer
-                      blankZero
-                      placeholder="0"
-                      className="flex-1"
-                      value={draft.qtd_total}
-                      onChange={(e) => setQtdTotal(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
-                    />
-                  </div>
+                  {/* Qtd total mora na seção Variantes (o usuário a digita antes das cores). Aqui
+                      só a previsão de valor/moeda/cotação. */}
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Valor unit. ({simboloMoeda(draft.moeda_compra)})</Label>
                     <NumberInput className="flex-1" placeholder="0,00" value={draft.valor_unitario_m1} onChange={(e) => onChange({ valor_unitario_m1: Number(e.target.value) || 0 })} />

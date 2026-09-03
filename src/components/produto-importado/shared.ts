@@ -165,6 +165,24 @@ export function somaPercentualPorBase(etapas: EtapaImportadoDraft[], base: "merc
   return etapas.filter((e) => e.base === base).reduce((s, e) => s + (Number(e.percentual) || 0), 0);
 }
 
+/** Resumo agregado de uma lista de drafts (barra de resumo do planejador). Tudo em BRL
+ *  landed × quantidade — o "poder de compra/venda" da coleção. Custos e preços vêm da mesma
+ *  fonte única (custoDoDraft/precosDoDraft → moeda.ts). */
+export type ResumoImportado = { produtos: number; pecas: number; custoTotalBrl: number; atacadoTotalBrl: number; varejoTotalBrl: number };
+export function resumoDrafts(drafts: ProdutoImportadoDraft[]): ResumoImportado {
+  let pecas = 0, custoTotalBrl = 0, atacadoTotalBrl = 0, varejoTotalBrl = 0;
+  for (const d of drafts) {
+    const qtd = Number(d.qtd_total) || 0;
+    const custo = custoDoDraft(d);
+    const precos = precosDoDraft(d, custo);
+    pecas += qtd;
+    custoTotalBrl += custo.unitarioBrl * qtd;
+    atacadoTotalBrl += precos.atacado * qtd;
+    varejoTotalBrl += precos.varejo * qtd;
+  }
+  return { produtos: drafts.length, pecas, custoTotalBrl, atacadoTotalBrl, varejoTotalBrl };
+}
+
 /** Validação client-side do draft — retorna a MENSAGEM do primeiro problema encontrado, ou
  *  `null` se está tudo certo. Regras (Fase 1): nome obrigatório; Σ% de mercadoria = 100;
  *  Σ% de frete = 100; qtd_total > 0. */

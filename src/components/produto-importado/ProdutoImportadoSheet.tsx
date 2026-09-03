@@ -13,7 +13,8 @@ import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
-import { emptyDraft, type ProdutoImportadoDraft } from "./shared";
+import { emptyDraft, resumoDrafts, type ProdutoImportadoDraft } from "./shared";
+import { fmtMoeda } from "@/lib/moeda";
 
 function useOpt(table: string) {
   return useQuery({
@@ -137,7 +138,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const patchDraft = (id: string, patch: Partial<ProdutoImportadoDraft>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   const removeDraft = (id: string) => setDrafts((ds) => ds.filter((d) => d.id !== id));
-  const toggleCard = (id: string) => setOpenCards((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
+  // um fecha os demais — o card fechado é compacto (só o header-resumo).
+  const toggleCard = (id: string) => setOpenCards((s) => (s.has(id) ? new Set() : new Set([id])));
 
   const criarDraft = (dados: { nome: string; grupo_id: string | null; categoria_id: string | null; subcategoria1_id: string | null; subcategoria2_id: string | null }) => {
     const novo: ProdutoImportadoDraft = { ...emptyDraft(colecaoId, subInicial ?? null), id: novoIdLocal(), ...dados };
@@ -173,6 +176,26 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
         ) : (
           <main className="flex-1 overflow-y-auto p-4">
+            {/* Barra de resumo (feedback do dono): totais da coleção — peças, custo landed,
+                atacado, varejo. Sticky para acompanhar a rolagem. Mesma fonte única de custo. */}
+            {drafts.length > 0 && (() => {
+              const r = resumoDrafts(drafts);
+              const Item = ({ label, valor, tone }: { label: string; valor: string; tone?: string }) => (
+                <div className="flex min-w-[7rem] flex-col">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+                  <span className={`text-sm font-semibold tabular-nums ${tone ?? ""}`}>{valor}</span>
+                </div>
+              );
+              return (
+                <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-3">
+                  <Item label="Produtos" valor={`${r.produtos}`} />
+                  <Item label="Peças" valor={r.pecas.toLocaleString("pt-BR")} />
+                  <Item label="Custo total" valor={fmtMoeda(r.custoTotalBrl, "BRL")} />
+                  <Item label="Atacado" valor={fmtMoeda(r.atacadoTotalBrl, "BRL")} tone="text-primary" />
+                  <Item label="Varejo" valor={fmtMoeda(r.varejoTotalBrl, "BRL")} tone="text-emerald-700" />
+                </div>
+              );
+            })()}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-muted-foreground">{drafts.length} produto(s)</span>
               <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
@@ -185,7 +208,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                 Nenhum produto importado ainda — clique em "Novo produto".
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3">
                 {drafts.map((d) => (
                   <ProdutoImportadoCard
                     key={d.id}
