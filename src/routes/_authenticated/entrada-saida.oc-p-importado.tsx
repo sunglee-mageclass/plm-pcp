@@ -36,6 +36,7 @@ import {
   type Draft, type GradeDetalhe, type OcImportadoRow, type OcImportadoTab, type OcImportadoStatus,
 } from "@/components/oc-p-importado/shared";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-importado")({
   validateSearch: (s: Record<string, unknown>): { tab?: OcImportadoTab; oc?: string } => ({
@@ -217,8 +218,9 @@ function OcImpPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as OcImportadoTab)}>
         <TabsList>
           <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
-          <TabsTrigger value="encomendado">
+          <TabsTrigger value="encomendado" className="relative">
             Encomendadas{tabCounts ? ` ${tabCounts.encomendado}` : ""}
+            <AtrasadasBadge chave="oc_importado_atrasada" />
           </TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
@@ -387,29 +389,20 @@ function OcImpListaTable({
   );
 }
 
-// ── Estoque — produto importado NÃO tem RPC de estoque dedicada nesta fase; lê direto de
-// `produtos_importados` × `ocs_importado.grade_detalhe` (Σ recebida − defeito por OC recebida,
-// agrupado por produto). Mesma lógica de leitura de `cad_grades`/grade_detalhe já usada no
-// resto do sistema — sem RPC nova (decisão do escopo desta fase). ──
+// ── Estoque (RPC estoque_p_importado) — produto × variante × real/direcionado/em mãos.
+// Espelha EstoquePaTable (revenda): a RPC lê o derivado JÁ materializado (`cad_grades.
+// grade_total_real`, gravado por `receber_oc_importado`) e desconta o direcionamento
+// (`direcionamento_lojas`, mesma tabela da revenda). em_maos = real − direcionado. ──
 function EstoqueImpTable() {
-  const { data: recebidas = [], isLoading } = useQuery({
-    queryKey: ["ocs_importado", "recebidas-estoque"],
+  const { data, isLoading } = useQuery({
+    queryKey: ["estoque_p_importado"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_importado" as any)
-        .select("id, produto_importado_id, nome_produto, variantes, grade_detalhe")
-        .eq("status", "recebido")
-        .not("produto_importado_id", "is", null);
+      const { data, error } = await supabase.rpc("estoque_p_importado" as any);
       if (error) throw error;
-      return (data ?? []) as unknown as {
-        id: string; produto_importado_id: string; nome_produto: string;
-        variantes: { ordem: number; cor_id: string | null; cor_apelido_id: string | null }[];
-        grade_detalhe: Record<string, Record<string, { recebida?: number; defeito?: number }>>;
-      }[];
+      return (data ?? {}) as Record<string, Record<string, { real: number; direcionado: number; em_maos: number }>>;
     },
   });
-
-  const produtoIds = useMemo(() => [...new Set(recebidas.map((r) => r.produto_importado_id))], [recebidas]);
+  const produtoIds = useMemo(() => Object.keys(data ?? {}), [data]);
   const { data: produtos = [] } = useQuery({
     queryKey: ["produtos-importados-estoque", produtoIds],
     enabled: produtoIds.length > 0,
@@ -419,44 +412,39 @@ function EstoqueImpTable() {
       return (data ?? []) as unknown as { id: string; nome: string; ref: string | null }[];
     },
   });
-  const { data: cores = [] } = useQuery({
-    queryKey: ["cores-estoque-importado"],
+  const { data: variantes = [] } = useQuery({
+    queryKey: ["produto-importado-variantes-estoque", produtoIds],
+    enabled: produtoIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("cores").select("id, nome");
+      const { data, error } = await supabase
+        .from("produto_importado_variantes" as any)
+        .select("produto_importado_id, ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .in("produto_importado_id", produtoIds);
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string | null }[];
-    },
-  });
-  const { data: coresApelido = [] } = useQuery({
-    queryKey: ["cores-apelido-estoque-importado"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("cores_apelido").select("id, nome");
-      if (error) throw error;
-      return (data ?? []) as { id: string; nome: string | null }[];
+      return (data ?? []) as unknown as { produto_importado_id: string; ordem: number; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[];
     },
   });
   const produtoMap = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos]);
-  const corNome = (id: string | null) => cores.find((c) => c.id === id)?.nome ?? null;
-  const apelidoNome = (id: string | null) => coresApelido.find((c) => c.id === id)?.nome ?? null;
+  const varianteMap = useMemo(
+    () => Object.fromEntries(variantes.map((v) => [`${v.produto_importado_id}:${v.ordem}`, v])),
+    [variantes],
+  );
 
   const rows = useMemo(() => {
-    const acc = new Map<string, { produtoId: string; produtoNome: string; ref: string | null; variante: string; real: number }>();
-    for (const oc of recebidas) {
-      const produto = produtoMap[oc.produto_importado_id];
-      for (const v of oc.variantes ?? []) {
-        const g = oc.grade_detalhe?.[String(v.ordem)] ?? {};
-        let real = 0;
-        for (const cel of Object.values(g)) real += Math.max(0, Number(cel?.recebida ?? 0) - Number(cel?.defeito ?? 0));
-        const key = `${oc.produto_importado_id}:${v.ordem}`;
-        const nomeVariante = `${v.ordem} · ${varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })}`;
-        const atual = acc.get(key);
-        if (atual) atual.real += real;
-        else acc.set(key, { produtoId: oc.produto_importado_id, produtoNome: produto?.nome ?? oc.nome_produto, ref: produto?.ref ?? null, variante: nomeVariante, real });
+    const out: { produtoId: string; produtoNome: string; ref: string | null; variante: string; real: number; direcionado: number; emMaos: number }[] = [];
+    for (const [produtoId, porVariante] of Object.entries(data ?? {})) {
+      const produto = produtoMap[produtoId];
+      for (const [numero, v] of Object.entries(porVariante)) {
+        const info = varianteMap[`${produtoId}:${numero}`];
+        out.push({
+          produtoId, produtoNome: produto?.nome ?? "—", ref: produto?.ref ?? null,
+          variante: `${numero} · ${varianteLabel({ cor: info?.cor?.nome, apelido: info?.apelido?.nome })}`,
+          real: v.real, direcionado: v.direcionado, emMaos: v.em_maos,
+        });
       }
     }
-    return [...acc.values()].sort((a, b) => a.produtoNome.localeCompare(b.produtoNome, "pt-BR"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recebidas, produtoMap, cores, coresApelido]);
+    return out.sort((a, b) => a.produtoNome.localeCompare(b.produtoNome, "pt-BR"));
+  }, [data, produtoMap, varianteMap]);
 
   return (
     <Card>
@@ -465,18 +453,22 @@ function EstoqueImpTable() {
           <TableRow>
             <TableHead>Produto</TableHead>
             <TableHead>Variante</TableHead>
-            <TableHead className="text-right">Recebido (real)</TableHead>
+            <TableHead className="text-right">Real</TableHead>
+            <TableHead className="text-right">Direcionado</TableHead>
+            <TableHead className="text-right">Em mãos</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {!isLoading && rows.length === 0 && (
-            <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-8">Nenhum produto recebido ainda.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhum produto recebido ainda.</TableCell></TableRow>
           )}
           {rows.map((r, i) => (
             <TableRow key={i}>
               <TableCell className="font-medium">{r.produtoNome}{r.ref ? <span className="text-muted-foreground"> · {r.ref}</span> : null}</TableCell>
               <TableCell>{r.variante}</TableCell>
-              <TableCell className="text-right tabular-nums font-semibold">{r.real}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.real}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.direcionado}</TableCell>
+              <TableCell className="text-right tabular-nums font-semibold">{r.emMaos}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -780,7 +772,7 @@ function OcImpDialog({
       markClean();
       qc.invalidateQueries({ queryKey: ["ocs_importado"] });
       qc.invalidateQueries({ queryKey: ["oc-importado", savedId] });
-      qc.invalidateQueries({ queryKey: ["ocs_importado", "recebidas-estoque"] });
+      qc.invalidateQueries({ queryKey: ["estoque_p_importado"] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       qc.invalidateQueries({ queryKey: ["produtos-importados"] });
       onSaved();
