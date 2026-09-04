@@ -616,8 +616,14 @@ pra sempre se configurada como requisito isolado). **`grade_cortada_lancada`** (
 bloco-fonte de confecção (PL/Oficina, `detalhado`+`ativo`, resolvido por `_resolver_fonte_confeccao`,
 feature Grade Cortada) tem `cortada > 0` em alguma célula do `grade_detalhe`; opt-in — só faz
 sentido pra loja que usa a quantidade detalhada por tamanho×variante, modelo sem bloco-fonte nunca
-satisfaz (mesma classe do `anexo_croqui`). Candidatas AVALIADAS e descartadas: MO por serviço já
-coberta por `servico_aprovado` (mesma key, sem duplicar); preço de venda já existe como
+satisfaz (mesma classe do `anexo_croqui`). **Variantes de gatilho de "Aprovação de custo" (Fase 3B,
+set/2026, `20260906140000_kanban_mo_variantes_gatilho.sql`):** além de `servico_aprovado` (toda MO
+aprovada; relabel "— aprovada"), 2 keys NOVAS lendo direto `modelo_servico_mo`: **`servico_mo_decidido`**
+(nenhuma linha pendente — reprovada JÁ conta como decidida; vacuosamente true sem linha, paridade c/
+`servico_aprovado`) e **`servico_mo_preenchido`** (≥1 linha com `valor>0`; false sem linha). Todas
+módulo Planejamento/seção s5. Catálogo (37 chaves)+RPC+anti-drift atualizados. O tipo `Condicao`
+ganhou campo `aviso?` (armadilha em âmbar no RequisitosStatusDialog) + descrições PT em todas.
+Candidatas descartadas: preço de venda já existe como
 `preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
 `origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não
 entram no kanban de Desenvolvimento. **`cad_confirmado` APOSENTADA → `cad_preenchido` (ago/2026,
