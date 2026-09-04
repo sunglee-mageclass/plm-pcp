@@ -1,5 +1,9 @@
-import { useMemo, useState } from "react";
-import { ChevronRight, ImagePlus, MoreHorizontal, Paperclip, Plus, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronRight, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
+import { uploadFile } from "@/components/oc-tecido/shared";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +116,23 @@ export function ProdutoImportadoCard({
   // Começa com TODAS fechadas: o card aberto mostra só os 7 títulos (compacto, tamanho de bloco),
   // e o usuário abre a seção que quer — senão o card fica gigante com as 7 seções empilhadas.
   const [secoesAbertas, setSecoesAbertas] = useState<string[]>([]);
+  // Upload de foto: input escondido + path em draft.foto_url (bucket "oc-tecido", como o resto).
+  // A URL assinada dá o preview; a RPC de salvar já persiste foto_url.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const fotoUrl = useSignedUrl(draft.foto_url, "oc-tecido");
+  const anexarFoto = async (file: File | undefined) => {
+    if (!file) return;
+    setEnviandoFoto(true);
+    try {
+      const path = await uploadFile(file, "produto-importado");
+      onChange({ foto_url: path });
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao anexar a foto."));
+    } finally {
+      setEnviandoFoto(false);
+    }
+  };
 
   const grupoNome = grupos.find((g) => g.id === draft.grupo_id)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === draft.categoria_id)?.nome ?? "";
@@ -188,8 +209,8 @@ export function ProdutoImportadoCard({
     <div className="rounded-lg border bg-card">
       <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
-          <ImagePlus className="h-6 w-6" />
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground">
+          {fotoUrl ? <img src={fotoUrl} alt={draft.nome || "Produto"} className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{draft.nome || "Sem nome"}</div>
@@ -240,15 +261,33 @@ export function ProdutoImportadoCard({
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Foto</Label>
-                      {/* Clipe de anexo (por dentro da seção 1, feedback do dono). Upload real chega
-                          com a persistência de imagem — por ora só o affordance. */}
-                      <Button
-                        type="button" variant="outline" size="sm" disabled
-                        className="gap-1 text-muted-foreground"
-                        title="Anexar foto (chega com a persistência de imagem)."
-                      >
-                        <Paperclip className="h-3.5 w-3.5" /> Anexar
-                      </Button>
+                      {/* Anexo real: input escondido → uploadFile → path em draft.foto_url. */}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => { anexarFoto(e.target.files?.[0]); e.target.value = ""; }}
+                      />
+                      {draft.foto_url ? (
+                        <div className="flex items-center gap-2">
+                          {fotoUrl ? (
+                            <img src={fotoUrl} alt="Foto do produto" className="h-10 w-10 rounded-md border object-cover" />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted text-muted-foreground"><ImagePlus className="h-4 w-4" /></div>
+                          )}
+                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                            {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Trocar
+                          </Button>
+                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground hover:text-destructive" title="Remover foto" onClick={() => onChange({ foto_url: null })}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                          {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Anexar
+                        </Button>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">REF</Label>
