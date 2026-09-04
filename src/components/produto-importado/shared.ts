@@ -237,12 +237,13 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
   return { dados, variantes, etapas };
 }
 
-/** Validação client-side do draft — retorna a MENSAGEM do primeiro problema encontrado, ou
- *  `null` se está tudo certo. Regras (Fase 1): nome obrigatório; Σ% de mercadoria = 100;
- *  Σ% de frete = 100; qtd_total > 0. */
+/** Validação client-side do draft para SALVAR (rascunho) — retorna a MENSAGEM do primeiro problema,
+ *  ou `null` se está tudo certo. Regras LENIENTES: nome obrigatório; Σ% de mercadoria = 100 e Σ% de
+ *  frete = 100 QUANDO há etapas da base. NÃO exige `qtd_total > 0` — um produto pode ser salvo como
+ *  rascunho (a quantidade se preenche depois; só o "Fazer pedido" exige qtd, ver `validarParaPedido`).
+ *  Isso corrige a "falha ao salvar" (um produto recém-criado tem qtd 0 e bloqueava o save de todos). */
 export function validarDraft(draft: ProdutoImportadoDraft): string | null {
   if (!draft.nome.trim()) return "Informe o nome do produto.";
-  if (!(Number(draft.qtd_total) > 0)) return "Qtd total precisa ser maior que zero.";
   const somaMerc = somaPercentualPorBase(draft.etapas, "mercadoria");
   if (draft.etapas.some((e) => e.base === "mercadoria") && somaMerc !== 100) {
     return `Σ% das etapas de mercadoria (${somaMerc}%) precisa fechar 100%.`;
@@ -251,5 +252,14 @@ export function validarDraft(draft: ProdutoImportadoDraft): string | null {
   if (draft.etapas.some((e) => e.base === "frete") && somaFrete !== 100) {
     return `Σ% das etapas de frete (${somaFrete}%) precisa fechar 100%.`;
   }
+  return null;
+}
+
+/** Validação ESTRITA para "Fazer pedido" (gerar a OC) — tudo do `validarDraft` + exige qtd_total > 0
+ *  (não faz sentido pedir 0 peças). Usada só no fluxo de OC, não no salvar do rascunho. */
+export function validarParaPedido(draft: ProdutoImportadoDraft): string | null {
+  const base = validarDraft(draft);
+  if (base) return base;
+  if (!(Number(draft.qtd_total) > 0)) return "Qtd total precisa ser maior que zero.";
   return null;
 }

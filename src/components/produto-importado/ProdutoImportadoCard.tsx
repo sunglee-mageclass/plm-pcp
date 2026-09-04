@@ -29,7 +29,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { MOEDAS, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
-  custoDoDraft, precosDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarDraft,
+  custoDoDraft, precosDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 
@@ -238,7 +238,7 @@ export function ProdutoImportadoCard({
   // compatível, `_touched` é só um campo extra ignorado pela função).
   const fazerPedidoMut = useMutation({
     mutationFn: async () => {
-      const erro = validarDraft(draft);
+      const erro = validarParaPedido(draft);
       if (erro) throw erroValidacao(erro);
       if (!variantesBatemComTotal(draft)) {
         throw erroValidacao(

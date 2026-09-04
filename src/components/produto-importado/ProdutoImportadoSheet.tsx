@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, BrushCleaning, ClipboardList, CopyPlus, PanelLeft, Plus } from "lucide-react";
+import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { AgrupamentoButton } from "@/components/shared/filters";
+import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -321,7 +322,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const removeDraft = (id: string) => excluirMut.mutate(id);
   // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
   // um fecha os demais — o card fechado é compacto (só o header-resumo).
-  const toggleCard = (id: string) => setOpenCards((s) => (s.has(id) ? new Set() : new Set([id])));
+  // Abre/fecha um card. Permite VÁRIOS abertos (necessário p/ o "Expandir todos" do RecolherMenu).
+  const toggleCard = (id: string) => setOpenCards((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Lanes (agrupamentos) recolhidas — Set de laneKey ("__sem__" p/ null). Vazio = todas expandidas.
+  const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set());
+  const laneRecolhida = (laneKey: string | null) => lanesRecolhidas.has(laneKey ?? "__sem__");
+  const toggleLane = (laneKey: string | null) => setLanesRecolhidas((s) => { const k = laneKey ?? "__sem__"; const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const toggleSel = (id: string) => setSelecao((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // "Replicar card(s)" — só produtos JÁ PERSISTIDOS (id não-local) e MATERIALIZADOS (modelo_id
@@ -490,6 +496,14 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosSub, categorias, grupos, nivelMacro]);
 
+  // Recolher/expandir TODOS os cards (RecolherMenu). `todosRecolhidos` = nenhum aberto.
+  const idsSub = produtosSub.map((d) => d.id!).filter(Boolean);
+  const todosRecolhidos = idsSub.every((id) => !openCards.has(id));
+  const toggleTodos = () => setOpenCards(todosRecolhidos ? new Set(idsSub) : new Set());
+  // Recolher/expandir TODAS as lanes (agrupamentos). `todasSecoesRecolhidas` = todas recolhidas.
+  const todasSecoesRecolhidas = laneKeys.length > 0 && laneKeys.every((k) => laneRecolhida(k));
+  const toggleSecoes = () => setLanesRecolhidas(todasSecoesRecolhidas ? new Set() : new Set(laneKeys.map((k) => k ?? "__sem__")));
+
   // Ordena as sub-lanes de categoria DENTRO de um grupo (modo aninhado) — mesma regra de
   // ordenação das lanes macro (alfabética PT-BR, `null`/"Sem categoria" por último).
   const subLaneKeysDe = useCallback(
@@ -641,6 +655,14 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                   </div>
                   <span className="hidden text-sm text-muted-foreground md:inline">{produtosSub.length} produto(s) · {pecasSub} pç</span>
                   <div className="flex items-center gap-2">
+                    {produtosSub.length > 0 && (
+                      <RecolherMenu
+                        todasSecoesRecolhidas={todasSecoesRecolhidas}
+                        todosRecolhidos={todosRecolhidos}
+                        onToggleSecoes={toggleSecoes}
+                        onToggleCards={toggleTodos}
+                      />
+                    )}
                     <AgrupamentoButton groups={[
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
@@ -673,17 +695,20 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                     const itens = produtosSub.filter((p) => macroCampo(p) === laneKey);
                     if (itens.length === 0) return null;
                     const pecas = itens.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
+                    const recolhida = laneRecolhida(laneKey);
                     const header = (
-                      <div className="mb-1.5 flex items-center gap-2">
+                      <button type="button" onClick={() => toggleLane(laneKey)} title={recolhida ? "Expandir" : "Recolher"}
+                        className="mb-1.5 flex items-center gap-2 rounded p-0.5 text-left hover:bg-muted">
+                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${recolhida ? "" : "rotate-90"}`} />
                         <span className={`text-sm font-semibold ${laneKey ? "" : "text-muted-foreground"}`}>{laneKey ? macroNome(laneKey) : macroFallback}</span>
                         <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
-                      </div>
+                      </button>
                     );
                     if (!agrupamentoAninhado) {
                       return (
                         <section key={laneKey ?? "__sem__"}>
                           {header}
-                          {renderCardsRow(itens)}
+                          {!recolhida && renderCardsRow(itens)}
                         </section>
                       );
                     }
@@ -691,7 +716,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                     return (
                       <section key={laneKey ?? "__sem__"}>
                         {header}
-                        <div className="space-y-3 border-l-2 pl-3">
+                        {!recolhida && <div className="space-y-3 border-l-2 pl-3">
                           {subKeys.map((subKey) => {
                             const subItens = itens.filter((p) => p.categoria_id === subKey);
                             const subPecas = subItens.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
@@ -705,7 +730,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                               </div>
                             );
                           })}
-                        </div>
+                        </div>}
                       </section>
                     );
                   })}
