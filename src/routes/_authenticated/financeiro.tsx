@@ -68,6 +68,7 @@ type Parcela = {
   oc_aviamento_id: string | null;
   oc_etiqueta_id: string | null;
   oc_p_acabado_id: string | null;
+  oc_importado_id: string | null;
   empresa_id: string | null;
   numero_parcela: number;
   valor: number;
@@ -85,6 +86,7 @@ type Parcela = {
   ocs_aviamento?: { numero_pedido: string | null } | null;
   ocs_etiqueta?: { numero_pedido: string | null } | null;
   ocs_p_acabado?: { numero_pedido: string | null } | null;
+  ocs_importado?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; tone: StatusTone } | null;
 };
 
@@ -231,8 +233,9 @@ function FinanceiroPage() {
       const aviamentoIds = Array.from(new Set(list.map((p) => p.oc_aviamento_id).filter(Boolean))) as string[];
       const etiquetaIds = Array.from(new Set(list.map((p) => p.oc_etiqueta_id).filter(Boolean))) as string[];
       const pAcabadoIds = Array.from(new Set(list.map((p) => p.oc_p_acabado_id).filter(Boolean))) as string[];
+      const pImportadoIds = Array.from(new Set(list.map((p) => p.oc_importado_id).filter(Boolean))) as string[];
 
-      const [empresasRes, tecidoRes, aviamentoRes, etiquetaRes, pAcabadoRes] = await Promise.all([
+      const [empresasRes, tecidoRes, aviamentoRes, etiquetaRes, pAcabadoRes, pImportadoRes] = await Promise.all([
         empresaIds.length
           ? supabase.from("empresas").select("id,nome_fantasia,cnpj").in("id", empresaIds)
           : Promise.resolve({ data: [], error: null } as const),
@@ -251,14 +254,21 @@ function FinanceiroPage() {
         pAcabadoIds.length
           ? supabase.from("ocs_p_acabado" as any).select("id,numero, empresa_id, representante:representante_id(nome,cnpj)").in("id", pAcabadoIds)
           : Promise.resolve({ data: [], error: null } as const),
+        // `ocs_importado` está fora do types.ts (mesma classe do p_acabado); coluna do
+        // nº do pedido também é `numero` (não `numero_pedido`).
+        pImportadoIds.length
+          ? supabase.from("ocs_importado" as any).select("id,numero, empresa_id, representante:representante_id(nome,cnpj)").in("id", pImportadoIds)
+          : Promise.resolve({ data: [], error: null } as const),
       ]);
       if (empresasRes.error) throw empresasRes.error;
       if (tecidoRes.error) throw tecidoRes.error;
       if (aviamentoRes.error) throw aviamentoRes.error;
       if (etiquetaRes.error) throw etiquetaRes.error;
       if (pAcabadoRes.error) throw pAcabadoRes.error;
+      if (pImportadoRes.error) throw pImportadoRes.error;
       const etqData = (etiquetaRes.data ?? []) as any[];
       const pAcData = (pAcabadoRes.data ?? []) as any[];
+      const pImpData = (pImportadoRes.data ?? []) as any[];
 
       const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
       // CNPJ da empresa (payee quando a OC é direto no fornecedor, sem representante).
@@ -267,16 +277,19 @@ function FinanceiroPage() {
       const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       const etqMap = new Map(etqData.map((o: any) => [o.id, o.numero_pedido as string | null]));
       const pAcMap = new Map(pAcData.map((o: any) => [o.id, o.numero as string | null]));
+      const pImpMap = new Map(pImpData.map((o: any) => [o.id, o.numero as string | null]));
       // Representante da OC (se houver): o financeiro paga o rep — distingue "via representante".
       const tecRepMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       const aviRepMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       const etqRepMap = new Map(etqData.map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       const pAcRepMap = new Map(pAcData.map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
+      const pImpRepMap = new Map(pImpData.map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       // CNPJ do representante da OC (payee quando a compra é via representante).
       const tecRepCnpjMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
       const aviRepCnpjMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
       const etqRepCnpjMap = new Map(etqData.map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
       const pAcRepCnpjMap = new Map(pAcData.map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
+      const pImpRepCnpjMap = new Map(pImpData.map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
       // Badge de alerta (troca/cancelamento/etc.) por OC de tecido.
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
@@ -294,8 +307,8 @@ function FinanceiroPage() {
         .map((p) => {
         const empNome = p.empresa_id ? (empMap.get(p.empresa_id) ?? "—") : null;
         const empCnpj = p.empresa_id ? (empCnpjMap.get(p.empresa_id) ?? null) : null;
-        const repNome = p.oc_tecido_id ? tecRepMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepMap.get(p.oc_aviamento_id) : p.oc_etiqueta_id ? etqRepMap.get(p.oc_etiqueta_id) : p.oc_p_acabado_id ? pAcRepMap.get(p.oc_p_acabado_id) : null;
-        const repCnpj = p.oc_tecido_id ? tecRepCnpjMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepCnpjMap.get(p.oc_aviamento_id) : p.oc_etiqueta_id ? etqRepCnpjMap.get(p.oc_etiqueta_id) : p.oc_p_acabado_id ? pAcRepCnpjMap.get(p.oc_p_acabado_id) : null;
+        const repNome = p.oc_tecido_id ? tecRepMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepMap.get(p.oc_aviamento_id) : p.oc_etiqueta_id ? etqRepMap.get(p.oc_etiqueta_id) : p.oc_p_acabado_id ? pAcRepMap.get(p.oc_p_acabado_id) : p.oc_importado_id ? pImpRepMap.get(p.oc_importado_id) : null;
+        const repCnpj = p.oc_tecido_id ? tecRepCnpjMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepCnpjMap.get(p.oc_aviamento_id) : p.oc_etiqueta_id ? etqRepCnpjMap.get(p.oc_etiqueta_id) : p.oc_p_acabado_id ? pAcRepCnpjMap.get(p.oc_p_acabado_id) : p.oc_importado_id ? pImpRepCnpjMap.get(p.oc_importado_id) : null;
         return {
         ...p,
         empresas: empNome ? { nome: empNome } : null,
@@ -309,6 +322,7 @@ function FinanceiroPage() {
         ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
         ocs_etiqueta: p.oc_etiqueta_id ? { numero_pedido: etqMap.get(p.oc_etiqueta_id) ?? null } : null,
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
+        ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
         ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
         };
       });
@@ -754,11 +768,11 @@ function ParcelaDetailDialog({
   const recalcMut = useMutation({
     mutationFn: async () => {
       if (!parcela) return;
-      // `_recalcular_parcelas_core` suporta tecido/aviamento/p_acabado (FF1, ago/2026,
-      // migração 20260811100000). Insumo (etiqueta) fica de fora — tem gerador próprio
-      // (`recalcular_parcelas_etiqueta`) que já roda automático a cada save da OC; o
-      // botão nem aparece pra esse tipo (ver JSX abaixo).
-      const ocId = parcela.oc_tecido_id ?? parcela.oc_aviamento_id ?? parcela.oc_p_acabado_id;
+      // `_recalcular_parcelas_core` suporta tecido/aviamento/p_acabado/p_importado (FF1,
+      // ago/2026, migração 20260811100000). Insumo (etiqueta) fica de fora — tem gerador
+      // próprio (`recalcular_parcelas_etiqueta`) que já roda automático a cada save da OC;
+      // o botão nem aparece pra esse tipo (ver JSX abaixo).
+      const ocId = parcela.oc_tecido_id ?? parcela.oc_aviamento_id ?? parcela.oc_p_acabado_id ?? parcela.oc_importado_id;
       if (!ocId) throw new Error("Parcela sem OC vinculada");
       const { data, error } = await supabase.rpc("recalcular_parcelas" as any, {
         _oc_id: ocId,
@@ -768,8 +782,13 @@ function ParcelaDetailDialog({
       return data as any;
     },
     onSuccess: (data: any) => {
+      // O ramo p_importado do _recalcular_parcelas_core regera das etapas e não devolve as
+      // contagens (criadas/deletadas/preservadas) — mostra mensagem genérica nesse caso.
+      const temContagem = data && (data.criadas != null || data.deletadas != null || data.preservadas_pagas != null);
       toast.success(
-        `Parcelas recalculadas: ${data?.criadas ?? 0} criadas, ${data?.deletadas ?? 0} removidas, ${data?.preservadas_pagas ?? 0} pagas preservadas.`,
+        temContagem
+          ? `Parcelas recalculadas: ${data?.criadas ?? 0} criadas, ${data?.deletadas ?? 0} removidas, ${data?.preservadas_pagas ?? 0} pagas preservadas.`
+          : "Parcelas recalculadas.",
       );
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       onClose();
@@ -779,8 +798,8 @@ function ParcelaDetailDialog({
 
   if (!parcela) return null;
   const st = effectiveStatus(parcela, hoje);
-  const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? parcela.ocs_etiqueta?.numero_pedido ?? parcela.ocs_p_acabado?.numero_pedido ?? "—";
-  const tipoLabel = parcela.tipo_oc === "tecido" ? "OC de Tecido" : parcela.tipo_oc === "aviamento" ? "OC de Aviamento" : parcela.tipo_oc === "etiqueta" ? "OC de Insumo" : parcela.tipo_oc === "p_acabado" ? "Produto Acabado" : parcela.tipo_oc;
+  const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? parcela.ocs_etiqueta?.numero_pedido ?? parcela.ocs_p_acabado?.numero_pedido ?? parcela.ocs_importado?.numero_pedido ?? "—";
+  const tipoLabel = parcela.tipo_oc === "tecido" ? "OC de Tecido" : parcela.tipo_oc === "aviamento" ? "OC de Aviamento" : parcela.tipo_oc === "etiqueta" ? "OC de Insumo" : parcela.tipo_oc === "p_acabado" ? "Produto Acabado" : parcela.tipo_oc === "p_importado" ? "Produto Importado" : parcela.tipo_oc;
   // O financeiro paga o REPRESENTANTE quando a OC foi via rep; senão, a empresa.
   // O CNPJ mostrado é o do payee (rep se houver, senão a empresa).
   const temRep = !!parcela.representanteNome;
@@ -850,11 +869,11 @@ function ParcelaDetailDialog({
               <Upload className="h-4 w-4 mr-1" /> {parcela.comprovante_url ? "Trocar comprovante" : "Anexar comprovante"}
             </Button>
           )}
-          {(parcela.oc_tecido_id || parcela.oc_aviamento_id || parcela.oc_etiqueta_id || parcela.oc_p_acabado_id) && (
+          {(parcela.oc_tecido_id || parcela.oc_aviamento_id || parcela.oc_etiqueta_id || parcela.oc_p_acabado_id || parcela.oc_importado_id) && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onOpenOc(parcela.tipo_oc, (parcela.oc_tecido_id ?? parcela.oc_aviamento_id ?? parcela.oc_etiqueta_id ?? parcela.oc_p_acabado_id)!)}
+              onClick={() => onOpenOc(parcela.tipo_oc, (parcela.oc_tecido_id ?? parcela.oc_aviamento_id ?? parcela.oc_etiqueta_id ?? parcela.oc_p_acabado_id ?? parcela.oc_importado_id)!)}
             >
               Abrir OC
             </Button>
@@ -944,8 +963,9 @@ function parcelaOrigemLabel(p: Parcela): string {
     : p.tipo_oc === "aviamento" ? "OC de Aviamento"
     : p.tipo_oc === "etiqueta" ? "OC de Insumo"
     : p.tipo_oc === "p_acabado" ? "Produto Acabado"
+    : p.tipo_oc === "p_importado" ? "Produto Importado"
     : (p.tipo_oc ?? "OC");
-  const num = p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? p.ocs_etiqueta?.numero_pedido ?? p.ocs_p_acabado?.numero_pedido ?? "—";
+  const num = p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? p.ocs_etiqueta?.numero_pedido ?? p.ocs_p_acabado?.numero_pedido ?? p.ocs_importado?.numero_pedido ?? "—";
   return `${tipoLabel} · Nº ${num} · parc. ${p.numero_parcela}`;
 }
 
@@ -1101,7 +1121,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
     });
   }, [parcelas, tipo, fornecedor, status, dataIni, dataFim]);
 
-  const ocNumero = (p: Parcela) => p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? p.ocs_etiqueta?.numero_pedido ?? p.ocs_p_acabado?.numero_pedido ?? "—";
+  const ocNumero = (p: Parcela) => p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? p.ocs_etiqueta?.numero_pedido ?? p.ocs_p_acabado?.numero_pedido ?? p.ocs_importado?.numero_pedido ?? "—";
 
   // Ordena pelo valor CRU (nº do pedido, valor numérico, data ISO de vencimento, etc.),
   // não pelo texto formatado exibido nas células.
@@ -1127,6 +1147,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
             { v: "aviamento", l: "Aviamentos" },
             { v: "etiqueta", l: "Insumos" },
             { v: "p_acabado", l: "Produto Acabado" },
+            { v: "p_importado", l: "Produto Importado" },
           ].map((o) => (
             <Button key={o.v} size="sm" variant={tipo === o.v ? "secondary" : "ghost"} onClick={() => setTipo(o.v)}>{o.l}</Button>
           ))}
@@ -1241,11 +1262,11 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     <td className="py-2 pr-3">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3" data-label="Nº Pedido">
                       <span className="inline-flex items-center gap-2">
-                        {(p.oc_tecido_id || p.oc_aviamento_id || p.oc_etiqueta_id || p.oc_p_acabado_id) ? (
+                        {(p.oc_tecido_id || p.oc_aviamento_id || p.oc_etiqueta_id || p.oc_p_acabado_id || p.oc_importado_id) ? (
                           <button
                             type="button"
                             className="inline-flex items-center text-primary hover:underline max-md:min-h-11"
-                            onClick={(e) => { stop(e); setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id ?? p.oc_etiqueta_id ?? p.oc_p_acabado_id)! }); }}
+                            onClick={(e) => { stop(e); setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id ?? p.oc_etiqueta_id ?? p.oc_p_acabado_id ?? p.oc_importado_id)! }); }}
                           >
                             {ocNumero(p)}
                           </button>
@@ -1759,6 +1780,17 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
         const d = data as any;
         return { ...d, numero_pedido: d.numero, data_prevista_entrega: d.data_prevista } as any;
       }
+      if (view!.tipo === "p_importado") {
+        // Fora do types.ts (mesma classe do p_acabado); `numero` aliased pra `numero_pedido`.
+        const { data } = await supabase
+          .from("ocs_importado" as any)
+          .select("*, empresas:empresa_id(nome_fantasia)")
+          .eq("id", view!.id)
+          .maybeSingle();
+        if (!data) return null;
+        const d = data as any;
+        return { ...d, numero_pedido: d.numero, data_prevista_entrega: d.data_prevista } as any;
+      }
       const { data } = await supabase
         .from("ocs_aviamento")
         .select("*, empresas:empresa_id(nome_fantasia), ocs_aviamento_itens(quantidade_pedida, quantidade_recebida, aviamentos:aviamento_id(codigo_nome))")
@@ -1782,14 +1814,28 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
       );
   }, [view?.tipo, oc]);
 
-  const itens: any[] = view?.tipo === "tecido" ? (oc?.ocs_tecido_itens ?? []) : view?.tipo === "etiqueta" ? (oc?.ocs_etiqueta_itens ?? []) : view?.tipo === "p_acabado" ? itensPAcabado : (oc?.ocs_aviamento_itens ?? []);
-  const tipoTxt = view?.tipo === "tecido" ? "de Tecido" : view?.tipo === "etiqueta" ? "de Insumo" : view?.tipo === "p_acabado" ? "de Produto Acabado" : "de Aviamento";
+  // p_importado espelha p_acabado byte-a-byte: mesmo shape de `grade_detalhe` (ver
+  // 20260905120000_ocs_importado_tabelas.sql).
+  const itensPImportado = useMemo(() => {
+    if (view?.tipo !== "p_importado" || !oc?.grade_detalhe) return [];
+    return Object.entries(oc.grade_detalhe as Record<string, Record<string, { pedida?: number; recebida?: number }>>)
+      .flatMap(([ordem, porTamanho]) =>
+        Object.entries(porTamanho ?? {}).map(([tamanho, g]) => ({
+          _nome: `${oc?.nome_produto ?? "—"} · variante ${ordem}${tamanho && tamanho !== "UN" ? ` · ${tamanho}` : ""}`,
+          quantidade_pedida: Number(g?.pedida ?? 0),
+          quantidade_recebida: Number(g?.recebida ?? 0),
+        })),
+      );
+  }, [view?.tipo, oc]);
+
+  const itens: any[] = view?.tipo === "tecido" ? (oc?.ocs_tecido_itens ?? []) : view?.tipo === "etiqueta" ? (oc?.ocs_etiqueta_itens ?? []) : view?.tipo === "p_acabado" ? itensPAcabado : view?.tipo === "p_importado" ? itensPImportado : (oc?.ocs_aviamento_itens ?? []);
+  const tipoTxt = view?.tipo === "tecido" ? "de Tecido" : view?.tipo === "etiqueta" ? "de Insumo" : view?.tipo === "p_acabado" ? "de Produto Acabado" : view?.tipo === "p_importado" ? "de Produto Importado" : "de Aviamento";
   const itemNome = (it: any) =>
     view?.tipo === "tecido"
       ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${corApelidoLabel(it.variantes_tecido.cor.nome, it.variantes_tecido.apelido?.nome)}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
       : view?.tipo === "etiqueta"
         ? [it.etiquetas?.nome ?? "—", it.variantes_etiqueta?.cor?.nome, it.variantes_etiqueta?.tamanho?.replace("|", " ")].filter(Boolean).join(" · ")
-        : view?.tipo === "p_acabado"
+        : (view?.tipo === "p_acabado" || view?.tipo === "p_importado")
           ? (it._nome ?? "—")
           : (it.aviamentos?.codigo_nome ?? "—");
   const fmtD = (d: string | null) => (d ? format(parseISO(d), "dd/MM/yyyy") : "—");
@@ -2103,7 +2149,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
       <div className="flex flex-wrap items-center justify-end gap-2">
         {/* Origem: ver o gráfico + totais por OC, por Serviço, ou ambos. */}
         <div className="mr-auto flex rounded-md border p-0.5 overflow-x-auto">
-          {([["all", "Todos"], ["tecido", "Tecidos"], ["aviamento", "Aviamentos"], ["etiqueta", "Insumos"], ["p_acabado", "Produto Acabado"], ["servico", "Serviços"]] as const).map(([o, lbl]) => (
+          {([["all", "Todos"], ["tecido", "Tecidos"], ["aviamento", "Aviamentos"], ["etiqueta", "Insumos"], ["p_acabado", "Produto Acabado"], ["p_importado", "Produto Importado"], ["servico", "Serviços"]] as const).map(([o, lbl]) => (
             <Button key={o} type="button" size="sm" variant={fOrigem === o ? "secondary" : "ghost"} className="h-7 px-3 text-xs" onClick={() => setFOrigem(o)}>
               {lbl}
             </Button>

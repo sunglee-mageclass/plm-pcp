@@ -52,6 +52,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "entrada_oc_tecido", label: "OC Tecido", description: "Ordens de compra de tecidos e recebimento." },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", description: "CQ de tecido reprovado: trocar ou cancelar.", modes: ["full"] },
       { key: "entrada_oc_p_acabado", label: "OC P. Acabado", description: "Ordens de compra de produto acabado (revenda) e recebimento.", modes: ["full"], gate: "produto_acabado" },
+      { key: "entrada_oc_p_importado", label: "OC P. Importado", description: "Ordens de compra de produto importado (exterior) e recebimento.", modes: ["full"], gate: "produto_importado" },
       { key: "entrada_oc_aviamento", label: "OC Aviamento", description: "Ordens de compra de aviamentos." },
       { key: "entrada_oc_insumo", label: "OC Insumo", description: "Ordens de compra de insumos.", modes: ["full"] },
       { key: "entrada_os_tecido", label: "OS Tecido", description: "Ordens de saída / baixa de tecidos.", modes: ["stock"] },

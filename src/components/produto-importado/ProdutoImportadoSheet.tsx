@@ -367,6 +367,35 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   });
   const salvar = () => salvarMut.mutate();
 
+  // Salva UM produto (não a tela inteira) — usado pelo "Fazer pedido" do card (fase 2, OC):
+  // persiste ANTES de gerar a OC, pra nunca criar um pedido em cima de rascunho ainda não
+  // salvo (mesmo cuidado do `onSalvarProduto`/"Fazer pedido" da revenda, `ProdutoCard.tsx`).
+  // Devolve o id definitivo do banco e já patcheia o draft local (mesmo id, sem esperar o
+  // refetch de `["produtos-importados", colecaoId]`).
+  const salvarUmProduto = async (d: ProdutoImportadoDraft): Promise<string> => {
+    const erro = validarDraft(d);
+    if (erro) throw new Error(erro);
+    const isLocal = !d.id || d.id.startsWith("novo-");
+    const { dados, variantes, etapas } = montarPayload(d);
+    const { data, error } = await supabase.rpc("salvar_produto_importado" as any, {
+      _id: isLocal ? null : d.id,
+      _dados: dados,
+      _variantes: variantes,
+      _etapas: etapas,
+    });
+    if (error) throw error;
+    const novoId = data as string;
+    if (isLocal) {
+      const idAntigo = d.id!;
+      patchDraft(idAntigo, { id: novoId });
+      // Mantém o card aberto/selecionado sob o NOVO id (senão "Fazer pedido" fecharia o card
+      // visualmente — `openCards` rastreia por id, e o id local "novo-..." deixou de existir).
+      setOpenCards((s) => (s.has(idAntigo) ? new Set([novoId]) : s));
+    }
+    qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+    return novoId;
+  };
+
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
 
@@ -417,6 +446,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             empresas={empresas}
             tamanhos={tamanhos}
             onExcluir={() => removeDraft(d.id!)}
+            onSalvarProduto={salvarUmProduto}
+            onPedidoCriado={() => {
+              // A navegação pra OC (`/entrada-saida/oc-p-importado?oc=<id>`) acontece dentro do
+              // próprio card (tem `useNavigate`); aqui só a higiene de cache dos vizinhos —
+              // espelha `invalidarVizinhos` do `ProdutoCard` (revenda).
+              qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+            }}
           />
         </div>
       ))}
