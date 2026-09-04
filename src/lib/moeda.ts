@@ -21,7 +21,7 @@ export type Moeda = { code: string; nome: string; simbolo: string };
 export const MOEDAS: Moeda[] = [
   { code: "BRL", nome: "Real", simbolo: "R$" },
   { code: "USD", nome: "Dólar americano", simbolo: "US$" },
-  { code: "RMB", nome: "Yuan (RMB)", simbolo: "¥" },
+  { code: "RMB", nome: "Yuan", simbolo: "¥" },
   { code: "PYG", nome: "Guarani", simbolo: "₲" },
 ];
 
