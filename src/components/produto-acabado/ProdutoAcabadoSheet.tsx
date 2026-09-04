@@ -673,19 +673,19 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                         <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
                         <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{vagasAtual} vaga(s)</span>
                       </div>
+                      {/* UM bloco só (feedback do dono): N blocos idênticos eram ruído e nem
+                          batiam com o nº real de vagas — o badge "N vaga(s)" já comunica o total. */}
                       <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
-                        {Array.from({ length: vagasAtual }, (_, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => setNovoOpen(true)}
-                            title="Criar um novo produto nesta vaga"
-                            className="flex h-24 w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
-                          >
-                            <Plus className="h-5 w-5" />
-                            <span className="text-xs font-medium">Novo produto</span>
-                          </button>
-                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setNovoOpen(true)}
+                          title="Criar um novo produto nesta subcoleção"
+                          className="flex h-24 w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
+                        >
+                          <Plus className="h-5 w-5" />
+                          <span className="text-xs font-medium">Novo produto</span>
+                          <span className="text-[11px] text-muted-foreground">de {vagasAtual} vaga{vagasAtual === 1 ? "" : "s"}</span>
+                        </button>
                       </div>
                     </section>
                   )}

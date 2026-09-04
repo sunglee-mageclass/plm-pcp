@@ -130,6 +130,15 @@ export function ProdutoImportadoCard({
   const somaPercMerc = somaPercentualPorBase(draft.etapas, "mercadoria");
   const somaPercFrete = somaPercentualPorBase(draft.etapas, "frete");
 
+  // ── Pills de resumo (seção FECHADA) — mesmo padrão do Produto Acabado ("2 · Preço"): um
+  //    resumo de 1 linha à direita do título quando a seção não está expandida. Sempre
+  //    calculados via os helpers já existentes (shared.ts/moeda.ts) — nunca aritmética nova.
+  const pillVariantes = draft.variantes.length > 0 ? `${draft.variantes.length} cores · ${draft.qtd_total} pç` : null;
+  const pillQuantidade = draft.valor_unitario_m1 > 0 && draft.cotacao_ref > 0 ? `${simboloMoeda(draft.moeda_compra)} ${draft.valor_unitario_m1} ÷ ${draft.cotacao_ref} = ${fmtMoeda(valorProdutoM2, moedaExibicaoM2)}` : null;
+  const pillFrete = valorTranspM2 > 0 ? `${fmtMoeda(valorTranspM2, moedaExibicaoM2)}/pç` : null;
+  const pillPagamentos = draft.etapas.length > 0 ? draft.etapas.map((e) => `${e.percentual}%`).join(" · ") : null;
+  const pillValores = precos.varejo > 0 ? `varejo ${fmtMoeda(precos.varejo, "BRL")}` : null;
+
   // ── 2 · Grade & proporção ──
   const setPeso = (tam: string, peso: number) => {
     const grade_proporcao = { ...draft.grade_proporcao, [tam]: peso };
@@ -315,7 +324,14 @@ export function ProdutoImportadoCard({
 
             {/* ── 3 · Variantes ─────────────────────────────────── */}
             <AccordionItem value="variantes">
-              <AccordionTrigger className="text-xs font-semibold">3 · Variantes</AccordionTrigger>
+              <AccordionTrigger className="text-xs font-semibold">
+                <span className="flex flex-1 items-center justify-between pr-2">
+                  <span>3 · Variantes</span>
+                  {pillVariantes && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">{pillVariantes}</span>
+                  )}
+                </span>
+              </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-2">
                   {/* Qtd total ANTES das variantes (feedback do dono): o usuário digita a total
@@ -388,7 +404,14 @@ export function ProdutoImportadoCard({
 
             {/* ── 4 · Quantidade & previsão ─────────────────────── */}
             <AccordionItem value="quantidade">
-              <AccordionTrigger className="text-xs font-semibold">4 · Quantidade &amp; previsão</AccordionTrigger>
+              <AccordionTrigger className="text-xs font-semibold">
+                <span className="flex flex-1 items-center justify-between pr-2">
+                  <span>4 · Quantidade &amp; previsão</span>
+                  {pillQuantidade && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">{pillQuantidade}</span>
+                  )}
+                </span>
+              </AccordionTrigger>
               <AccordionContent>
                 <div className="max-w-sm space-y-2 rounded-md border p-3">
                   {/* Qtd total mora na seção Variantes (o usuário a digita antes das cores). Aqui
@@ -422,7 +445,14 @@ export function ProdutoImportadoCard({
 
             {/* ── 5 · Frete ──────────────────────────────────────── */}
             <AccordionItem value="frete">
-              <AccordionTrigger className="text-xs font-semibold">5 · Frete</AccordionTrigger>
+              <AccordionTrigger className="text-xs font-semibold">
+                <span className="flex flex-1 items-center justify-between pr-2">
+                  <span>5 · Frete</span>
+                  {pillFrete && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">{pillFrete}</span>
+                  )}
+                </span>
+              </AccordionTrigger>
               <AccordionContent>
                 <div className="max-w-sm space-y-2 rounded-md border p-3">
                   <div className="flex items-center gap-3">
@@ -442,7 +472,14 @@ export function ProdutoImportadoCard({
 
             {/* ── 6 · Pagamentos ─────────────────────────────────── */}
             <AccordionItem value="pagamentos">
-              <AccordionTrigger className="text-xs font-semibold">6 · Pagamentos</AccordionTrigger>
+              <AccordionTrigger className="text-xs font-semibold">
+                <span className="flex flex-1 items-center justify-between pr-2">
+                  <span>6 · Pagamentos</span>
+                  {pillPagamentos && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">{pillPagamentos}</span>
+                  )}
+                </span>
+              </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-3">
                   <div className="flex max-w-sm items-center gap-3 rounded-md border p-3">
@@ -494,7 +531,14 @@ export function ProdutoImportadoCard({
 
             {/* ── 7 · Valores ────────────────────────────────────── */}
             <AccordionItem value="valores">
-              <AccordionTrigger className="text-xs font-semibold">7 · Valores</AccordionTrigger>
+              <AccordionTrigger className="text-xs font-semibold">
+                <span className="flex flex-1 items-center justify-between pr-2">
+                  <span>7 · Valores</span>
+                  {pillValores && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">{pillValores}</span>
+                  )}
+                </span>
+              </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-3">
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
