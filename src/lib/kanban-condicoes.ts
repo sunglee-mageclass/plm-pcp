@@ -192,6 +192,39 @@ export function requisitosHerdados(
 }
 
 /**
+ * REGRESSÃO automática (Fase 2, set/2026) — dado o status ATUAL do card, a ordem do board, os
+ * requisitos por coluna (+ exceções) e o mapa de condições satisfeitas, devolve a coluna-ALVO
+ * para onde o card deve VOLTAR se um requisito de etapa anterior deixou de ser cumprido:
+ * a PRIMEIRA coluna (na ordem) cujos requisitos EFETIVOS (cascata) incluem alguma condição não
+ * satisfeita. Só regride se o card está À FRENTE dessa coluna — senão devolve null (nada a fazer).
+ *
+ * ⚠️ ESSA lógica é ESPELHADA MANUALMENTE em SQL em `_kanban_regredir_modelo` (migration
+ * 20260906120000) — o trigger no banco faz o move real no evento. Este helper é o SSOT
+ * testável em TS (`tests/unit/kanban-regressao.test.ts`); o espelho SQL é validado por teste
+ * transacional no banco (não roda no Vitest). Ao mudar QUALQUER um dos dois, atualize o outro
+ * e re-rode os dois testes — não há trava automática de drift SQL↔TS.
+ */
+export function colunaRegressaoAlvo(
+  statusAtual: string,
+  ordemColunas: string[],
+  requisitosPorStatus: Record<string, string[]> | undefined,
+  satisfeitas: Record<string, boolean>,
+  excecoesPorStatus?: Record<string, string[]>,
+): string | null {
+  const curIdx = ordemColunas.indexOf(statusAtual);
+  if (curIdx < 0) return null; // status fora do board conhecido → não mexe
+  for (let i = 0; i < ordemColunas.length; i++) {
+    const efetivos = requisitosEfetivos(ordemColunas[i], ordemColunas, requisitosPorStatus, excecoesPorStatus);
+    const falha = efetivos.some((k) => !satisfeitas[k]);
+    if (falha) {
+      // primeira coluna que falha = alvo; só regride se o card está à frente dela
+      return curIdx > i ? ordemColunas[i] : null;
+    }
+  }
+  return null;
+}
+
+/**
  * Fluxo de Revenda (ago/2026) — condições ESTRUTURALMENTE impossíveis para modelos
  * `origem==='revenda'` (nunca passam por tecido/CAD/explosão/serviços de confecção/grade
  * cortada — ver invariante #13 no CLAUDE.md). Usado só para ESMAECER essas opções no dialog

@@ -858,6 +858,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       // Gate "Lançar" no Planejamento (prontidão) + badge da sidebar.
       qc.invalidateQueries({ queryKey: ["plan-cq-pronto"] }),
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
+      // Desmarcar/editar CQ pode REGREDIR o card no kanban (Fase 2) — refresca o board de Dev.
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }),
     ]);
   };
 
@@ -1014,6 +1016,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         qc.invalidateQueries({ queryKey: ["dir-list"] }),
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
         qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] }),
+        qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }),
       ]);
       // A RPC já desfez o CQ no servidor — fecha SEM pedir confirmação de descarte.
       (onForceClose ?? onClose)?.();

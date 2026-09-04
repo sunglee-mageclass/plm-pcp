@@ -724,6 +724,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
       qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      // Reprovar MO pode REGREDIR o card no kanban (Fase 2) — refresca o board de Desenvolvimento.
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       onSaved?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),

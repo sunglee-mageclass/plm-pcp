@@ -120,6 +120,8 @@ function invalidarAposAprovarMO(qc: QueryClient, modeloId: string) {
   // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem isto o
   // Dev não ficava sabendo de aprovações feitas aqui sem refetch manual.
   qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+  // Reprovar MO pode REGREDIR o card no kanban (Fase 2) — refresca o board de Desenvolvimento.
+  qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
 }
 
 function PlanejamentoPage() {
