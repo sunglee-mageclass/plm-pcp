@@ -46,6 +46,8 @@ export function GradeDestrinchada({
       renderCell={(num, t) => (
         <NumberInput
           integer
+          blankZero
+          placeholder="0"
           disabled={disabled}
           className="h-8 max-md:h-11 w-full border-0 text-center"
           value={cel(num, t)[campo]}

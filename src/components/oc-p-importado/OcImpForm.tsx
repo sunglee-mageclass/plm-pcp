@@ -562,7 +562,7 @@ export function OcImpForm({
         <OcSecTitle n={5}>Anexos</OcSecTitle>
         <div className="grid sm:grid-cols-2 gap-4">
           <FileField
-            label="Pedido (PDF)"
+            label="Pedido (PDF ou imagem)"
             path={draft.anexo_pedido_url}
             bucket="oc-tecido"
             disabled={disabled}
