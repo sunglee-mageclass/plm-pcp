@@ -53,7 +53,7 @@ import { matchesTable } from "@/lib/realtime-invalidation-map";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
-import { REVENDA_COND_NA } from "@/lib/kanban-condicoes";
+import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
@@ -104,6 +104,9 @@ const DEFAULTS = {
   modo_oc_rolo: "ambos" as "oc" | "rolo" | "ambos",
   // Requisitos de entrada por status do kanban: { status_key: [chave_condicao] }.
   kanban_requisitos: {} as Record<string, string[]>,
+  // CASCATA: exceções por etapa — herdados que o admin desligou naquela etapa (com alerta).
+  // Vazio = cascata pura (cada etapa herda os requisitos das anteriores na ordem do board).
+  kanban_requisitos_excecoes: {} as Record<string, string[]>,
   // Etapa (KEY snake da coluna do kanban) A PARTIR da qual um modelo pode ser enviado à
   // Explosão. "" ⇒ ausente ⇒ 'aprovado' (histórico). Semântica "a partir da etapa": na
   // etapa escolhida OU em qualquer posterior. Ver kanban-status.ts `podeEnviarExplosao`.
@@ -207,6 +210,10 @@ function ConfiguracoesLojaPage() {
         (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
           ? ((r as any).kanban_requisitos as Record<string, string[]>)
           : DEFAULTS.kanban_requisitos,
+      kanban_requisitos_excecoes:
+        (r as any).kanban_requisitos_excecoes && typeof (r as any).kanban_requisitos_excecoes === "object" && !Array.isArray((r as any).kanban_requisitos_excecoes)
+          ? ((r as any).kanban_requisitos_excecoes as Record<string, string[]>)
+          : DEFAULTS.kanban_requisitos_excecoes,
       explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
       ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
       leadtime:
@@ -356,6 +363,10 @@ function ConfiguracoesLojaPage() {
           const ghost = checked && !explosaoCfgSet;
           const refChecked = !refOrphan && key === refEffectiveKey;
           const refGhost = refChecked && !refCfgSet;
+          // CASCATA: ordem das colunas (por key) e requisitos herdados desta etapa.
+          const ordemColunas = cfg.status_kanban.map(resolveStatusKey);
+          const herdados = requisitosHerdados(key, ordemColunas, cfg.kanban_requisitos ?? {});
+          const nomeDaEtapa = (sk: string) => cfg.status_kanban.find((l) => resolveStatusKey(l) === sk) ?? sk;
           return (
             <>
               <RequisitosStatusButton
@@ -368,6 +379,16 @@ function ConfiguracoesLojaPage() {
                     return { ...c, kanban_requisitos: map };
                   })
                 }
+                herdados={herdados}
+                excecoes={cfg.kanban_requisitos_excecoes?.[key] ?? []}
+                onExcecoesChange={(next) =>
+                  setCfg((c) => {
+                    const map = { ...(c.kanban_requisitos_excecoes ?? {}) };
+                    if (next.length) map[key] = next; else delete map[key];
+                    return { ...c, kanban_requisitos_excecoes: map };
+                  })
+                }
+                nomeEtapa={nomeDaEtapa}
               />
               <EnvioExplosaoToggle
                 label={label}

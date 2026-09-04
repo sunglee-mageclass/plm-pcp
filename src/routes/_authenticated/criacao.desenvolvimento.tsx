@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
-import { requisitosOk, type Condicao } from "@/lib/kanban-condicoes";
+import { requisitosOk, requisitosEfetivos, type Condicao } from "@/lib/kanban-condicoes";
 import { lerRevendaConfig, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -215,14 +215,20 @@ function DesenvolvimentoPage() {
   });
 
   // Requisitos de entrada por status (motor de regras) + condições satisfeitas por modelo.
-  const { data: kanbanRequisitos = {} } = useQuery({
+  const { data: kanbanReqCfg = { requisitos: {}, excecoes: {} } } = useQuery({
     queryKey: ["tenant-kanban-requisitos", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("kanban_requisitos").eq("tenant_id", tenantId).maybeSingle();
-      return ((data as any)?.kanban_requisitos ?? {}) as Record<string, string[]>;
+      const { data } = await supabase.from("tenant_config").select("kanban_requisitos, kanban_requisitos_excecoes").eq("tenant_id", tenantId).maybeSingle();
+      return {
+        requisitos: ((data as any)?.kanban_requisitos ?? {}) as Record<string, string[]>,
+        // Exceções da CASCATA: herdados que o admin desligou por etapa (com alerta). Vazio = cascata pura.
+        excecoes: ((data as any)?.kanban_requisitos_excecoes ?? {}) as Record<string, string[]>,
+      };
     },
   });
+  const kanbanRequisitos = kanbanReqCfg.requisitos;
+  const kanbanExcecoes = kanbanReqCfg.excecoes;
 
   // Config de REVENDA por loja (colunas permitidas + requisitos próprios) — só afeta cards
   // `origem==='revenda'`. `lerRevendaConfig` tolera as 3 chaves faltando (fallbacks documentados).
@@ -301,10 +307,14 @@ function DesenvolvimentoPage() {
       return m;
     },
   });
-  // Um card pode ENTRAR no status? (requisitos do status ⊆ condições satisfeitas do modelo)
-  // Revenda (`origem==='revenda'`) usa a config PRÓPRIA: coluna fora de `revenda_kanban_colunas`
-  // é BLOQUEADA, e os requisitos vêm de `revenda_kanban_requisitos` (não do kanban interno).
-  // Fluxo interno (não-revenda) permanece byte-a-byte idêntico.
+  // Ordem das colunas do board (SSOT `status_kanban`) — base da CASCATA de requisitos.
+  const ordemColunas = useMemo(() => statusKanban.map((s) => s.key), [statusKanban]);
+  // Um card pode ENTRAR no status? (requisitos EFETIVOS do status ⊆ condições satisfeitas do modelo)
+  // CASCATA (set/2026): p/ o fluxo INTERNO, entrar na etapa N exige os requisitos de TODAS as etapas
+  // anteriores (ordem do board) + os próprios (menos exceções da etapa) — via `requisitosEfetivos`.
+  // Assim o card não pula da etapa 1 pra 5 sem cumprir 2/3/4. Revenda (`origem==='revenda'`) usa a
+  // config PRÓPRIA (coluna fora de `revenda_kanban_colunas` = BLOQUEADA; requisitos de
+  // `revenda_kanban_requisitos`), SEM cascata — fluxo próprio, intocado.
   const podeEntrar = (modeloId: string, statusKey: string) => {
     const m = modelos.find((x) => x.id === modeloId);
     if (m?.origem === "revenda") {
@@ -313,7 +323,8 @@ function DesenvolvimentoPage() {
       }
       return requisitosOk(revendaRequisitos(revendaCfg, statusKey), (condicoesMap as any)[modeloId] ?? {});
     }
-    return requisitosOk((kanbanRequisitos as any)[statusKey], (condicoesMap as any)[modeloId] ?? {});
+    const efetivos = requisitosEfetivos(statusKey, ordemColunas, kanbanRequisitos, kanbanExcecoes);
+    return requisitosOk(efetivos, (condicoesMap as any)[modeloId] ?? {});
   };
 
   const colecoes = useMemo(() => {

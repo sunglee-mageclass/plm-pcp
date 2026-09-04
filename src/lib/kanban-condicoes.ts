@@ -134,6 +134,64 @@ export function requisitosOk(requisitos: string[] | undefined, satisfeitas: Reco
 }
 
 /**
+ * CASCATA de requisitos (set/2026) — para ENTRAR numa etapa, o card precisa cumprir os
+ * requisitos de todas as etapas ANTERIORES (na ordem do board) + os próprios da etapa. Assim
+ * o card não pula da etapa 1 pra 5 sem passar por 2/3/4.
+ *
+ * `requisitosEfetivos(statusKey, ordemColunas, requisitosPorStatus, excecoesPorStatus?)` =
+ * UNIÃO (dedup) dos requisitos PRÓPRIOS de todas as colunas da posição 0 até a de `statusKey`
+ * (inclusive), MENOS as exceções configuradas na etapa `statusKey` (herdados que o admin
+ * desligou ali, com alerta). `statusKey` fora de `ordemColunas` → só o próprio (fallback seguro).
+ *
+ * A config guarda por etapa APENAS os requisitos próprios (incremental) — a herança é computada
+ * aqui, então reordenar colunas recalcula sozinho e não há duplicação de dados.
+ */
+export function requisitosEfetivos(
+  statusKey: string,
+  ordemColunas: string[],
+  requisitosPorStatus: Record<string, string[]> | undefined,
+  excecoesPorStatus?: Record<string, string[]>,
+): string[] {
+  const reqs = requisitosPorStatus ?? {};
+  const idx = ordemColunas.indexOf(statusKey);
+  // Fora da ordem conhecida: só os próprios daquele status (não dá pra herdar sem posição).
+  if (idx < 0) return [...new Set(reqs[statusKey] ?? [])];
+  const acc = new Set<string>();
+  for (let i = 0; i <= idx; i++) {
+    for (const k of reqs[ordemColunas[i]] ?? []) acc.add(k);
+  }
+  // Exceções: herdados que o admin desligou NESTA etapa (nunca removem da etapa de origem —
+  // valem só como "ignorar aqui"). Só faz sentido subtrair o que NÃO é próprio desta etapa,
+  // mas subtrair direto é seguro: se fosse próprio, o admin o desmarcaria como próprio, não como exceção.
+  const exc = excecoesPorStatus?.[statusKey] ?? [];
+  const propriosDaEtapa = new Set(reqs[statusKey] ?? []);
+  for (const k of exc) if (!propriosDaEtapa.has(k)) acc.delete(k);
+  return [...acc];
+}
+
+/**
+ * Requisitos HERDADOS de uma etapa (os que vêm das etapas anteriores, não os próprios) — usado
+ * pela UI de config pra mostrar quais requisitos são herdados (marcados com selo de origem) vs
+ * próprios (editáveis). Devolve `{key, origem}` onde `origem` = a 1ª etapa (na ordem) que exige a key.
+ */
+export function requisitosHerdados(
+  statusKey: string,
+  ordemColunas: string[],
+  requisitosPorStatus: Record<string, string[]> | undefined,
+): { key: string; origem: string }[] {
+  const reqs = requisitosPorStatus ?? {};
+  const idx = ordemColunas.indexOf(statusKey);
+  if (idx <= 0) return [];
+  const propriosDaEtapa = new Set(reqs[statusKey] ?? []);
+  const vistos = new Map<string, string>(); // key → 1ª etapa que a exige
+  for (let i = 0; i < idx; i++) {
+    for (const k of reqs[ordemColunas[i]] ?? []) if (!vistos.has(k)) vistos.set(k, ordemColunas[i]);
+  }
+  // Herdado = veio de etapa anterior E não é próprio desta etapa (se for próprio, conta como próprio).
+  return [...vistos.entries()].filter(([k]) => !propriosDaEtapa.has(k)).map(([key, origem]) => ({ key, origem }));
+}
+
+/**
  * Fluxo de Revenda (ago/2026) — condições ESTRUTURALMENTE impossíveis para modelos
  * `origem==='revenda'` (nunca passam por tecido/CAD/explosão/serviços de confecção/grade
  * cortada — ver invariante #13 no CLAUDE.md). Usado só para ESMAECER essas opções no dialog
