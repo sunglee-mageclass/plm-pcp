@@ -31,6 +31,10 @@ export type Condicao = {
   secao?: CondicaoSecao;
   /** Dica do que a RPC checa (só documentação; a lógica real mora na RPC). */
   descricao?: string;
+  /** ARMADILHA: aviso âmbar exibido na config quando a condição TRAVA em certos cenários (ex.:
+   *  requer estrutura opt-in que nem todo modelo tem). Ajuda o admin a não exigir algo que
+   *  travaria o card pra sempre. Só apresentação — não afeta a avaliação. */
+  aviso?: string;
 };
 
 export const MODULOS: { key: CondicaoModulo; label: string }[] = [
@@ -44,40 +48,42 @@ export const MODULOS: { key: CondicaoModulo; label: string }[] = [
 
 export const CONDICOES: Condicao[] = [
   // ── Planejamento ──────────────────────────────────────────────
-  { key: "categoria_definida", label: "Categoria definida", modulo: "planejamento", secao: "s1", descricao: "categoria_principal_id não nulo" },
-  { key: "subcategoria1_definida", label: "Subcategoria 1 definida", modulo: "planejamento", secao: "s1" },
-  { key: "subcategoria2_definida", label: "Subcategoria 2 definida", modulo: "planejamento", secao: "s1" },
-  { key: "estilista_definido", label: "Estilista definido", modulo: "planejamento", secao: "s1" },
-  { key: "linha_definida", label: "Linha definida", modulo: "planejamento", secao: "s1" },
-  { key: "colecao_preenchida", label: "Coleção preenchida", modulo: "planejamento", secao: "s1" },
-  { key: "tecido_planejado", label: "Tecido planejado (≥ 1)", modulo: "planejamento", descricao: "tecidos_planejados com ≥1 item" },
-  { key: "ordem_criacao_enviada", label: "Ordem de Criação enviada", modulo: "planejamento" },
-  { key: "preco_venda_preenchido", label: "Preço para venda preenchido", modulo: "planejamento" },
-  { key: "data_lancamento_preenchida", label: "Data de Lançamento preenchida", modulo: "planejamento" },
-  { key: "lancado", label: "Lançado", modulo: "planejamento" },
+  { key: "categoria_definida", label: "Categoria definida", modulo: "planejamento", secao: "s1", descricao: "A Categoria do produto foi escolhida no card." },
+  { key: "subcategoria1_definida", label: "Subcategoria 1 definida", modulo: "planejamento", secao: "s1", descricao: "A Subcategoria 1 foi escolhida no card." },
+  { key: "subcategoria2_definida", label: "Subcategoria 2 definida", modulo: "planejamento", secao: "s1", descricao: "A Subcategoria 2 foi escolhida (nem toda categoria usa a 2ª).", aviso: "Nem todo produto tem Subcategoria 2 — exigir isto trava categorias que só usam a Subcategoria 1." },
+  { key: "estilista_definido", label: "Estilista definido", modulo: "planejamento", secao: "s1", descricao: "O Estilista responsável foi escolhido." },
+  { key: "linha_definida", label: "Linha definida", modulo: "planejamento", secao: "s1", descricao: "A Linha (que carrega o markup) foi escolhida." },
+  { key: "colecao_preenchida", label: "Coleção preenchida", modulo: "planejamento", secao: "s1", descricao: "O campo Coleção não está vazio." },
+  { key: "tecido_planejado", label: "Tecido planejado (≥ 1)", modulo: "planejamento", descricao: "Ao menos um tecido foi planejado no card (setor Tecido Planejado)." },
+  { key: "ordem_criacao_enviada", label: "Ordem de Criação enviada", modulo: "planejamento", descricao: "A Ordem de Criação foi enviada — o modelo entrou no Desenvolvimento." },
+  { key: "preco_venda_preenchido", label: "Preço para venda preenchido", modulo: "planejamento", descricao: "O Preço para venda foi informado (maior que zero)." },
+  { key: "data_lancamento_preenchida", label: "Data de Lançamento preenchida", modulo: "planejamento", descricao: "A Data de Lançamento foi informada." },
+  { key: "lancado", label: "Lançado", modulo: "planejamento", descricao: "O modelo foi Lançado (botão-foguete do Planejamento).", aviso: "Ao lançar, o card sai do fluxo normal e vai para a coluna terminal 'Lançado' — exigir isto como requisito de entrada de outra coluna nunca é satisfeito." },
   // A key `servico_aprovado` (histórica) É a APROVAÇÃO DE CUSTO/mão de obra, feita no card
   // do Planejamento (modelos.custo_terceirizados_aprovado). Módulo Planejamento; key mantida.
-  // Aparece na §8 Custos do Sheet (badge de mão de obra).
-  { key: "servico_aprovado", label: "Aprovação de custo", modulo: "planejamento", secao: "s5", descricao: "custo_terceirizados_aprovado (derivado de modelo_servico_mo) = true" },
+  // Aparece na §8 Custos do Sheet (badge de mão de obra). Ver as variantes servico_mo_* abaixo.
+  { key: "servico_aprovado", label: "Aprovação de custo — aprovada", modulo: "planejamento", secao: "s5", descricao: "Toda a mão de obra por serviço está APROVADA (nenhuma linha pendente ou reprovada; modelo sem nenhuma linha conta como liberado)." },
+  { key: "servico_mo_decidido", label: "Aprovação de custo — decidida (sem pendências)", modulo: "planejamento", secao: "s5", descricao: "Toda linha de mão de obra foi DECIDIDA (aprovada ou reprovada) — nenhuma pendente. Diferente de 'aprovada': aqui uma linha reprovada já conta como decidida." },
+  { key: "servico_mo_preenchido", label: "Aprovação de custo — valor preenchido", modulo: "planejamento", secao: "s5", descricao: "Existe ao menos uma linha de mão de obra com VALOR informado (> 0), independentemente de aprovação.", aviso: "Só olha se há valor lançado — não garante que a mão de obra foi aprovada. Use junto/no lugar de 'aprovada' conforme o rigor da etapa." },
 
   // ── Desenvolvimento ───────────────────────────────────────────
-  { key: "modelista_definido", label: "Modelista definido", modulo: "desenvolvimento", secao: "s1" },
-  { key: "piloteiro_definido", label: "Piloteiro definido (≥ 1)", modulo: "desenvolvimento", secao: "s1" },
-  { key: "data_desenho_tecnico", label: "Data do Desenho Técnico preenchida", modulo: "desenvolvimento", secao: "s1" },
-  { key: "data_piloto1", label: "Data de Piloto I preenchida", modulo: "desenvolvimento", secao: "s1" },
-  { key: "data_piloto2", label: "Data de Piloto II preenchida", modulo: "desenvolvimento", secao: "s1" },
-  { key: "data_piloto3", label: "Data de Piloto III preenchida", modulo: "desenvolvimento", secao: "s1" },
-  { key: "data_aprovacao", label: "Data de Aprovação preenchida", modulo: "desenvolvimento", secao: "s1" },
-  { key: "grade_preenchida", label: "Grade preenchida", modulo: "desenvolvimento", secao: "s4", descricao: "soma de modelo_grades.grade_total > 0" },
-  { key: "grade_todas_variantes", label: "Grade preenchida (todas as variantes)", modulo: "desenvolvimento", secao: "s4", descricao: "toda variante do Tecido 1 tem grade_total > 0" },
-  { key: "tecido_com_variante", label: "Tecido com variante (≥ 1)", modulo: "desenvolvimento", secao: "s2" },
-  { key: "aviamento_definido", label: "Aviamento definido (≥ 1)", modulo: "desenvolvimento", secao: "s3" },
+  { key: "modelista_definido", label: "Modelista definido", modulo: "desenvolvimento", secao: "s1", descricao: "O Modelista responsável foi escolhido." },
+  { key: "piloteiro_definido", label: "Piloteiro definido (≥ 1)", modulo: "desenvolvimento", secao: "s1", descricao: "Ao menos um Piloteiro (I, II ou III) foi escolhido." },
+  { key: "data_desenho_tecnico", label: "Data do Desenho Técnico preenchida", modulo: "desenvolvimento", secao: "s1", descricao: "A Data do Desenho Técnico foi informada." },
+  { key: "data_piloto1", label: "Data de Piloto I preenchida", modulo: "desenvolvimento", secao: "s1", descricao: "A Data de Piloto I foi informada." },
+  { key: "data_piloto2", label: "Data de Piloto II preenchida", modulo: "desenvolvimento", secao: "s1", descricao: "A Data de Piloto II foi informada.", aviso: "Nem todo modelo tem 2ª pilotagem — exigir isto trava modelos que fecham no Piloto I." },
+  { key: "data_piloto3", label: "Data de Piloto III preenchida", modulo: "desenvolvimento", secao: "s1", descricao: "A Data de Piloto III foi informada.", aviso: "Nem todo modelo tem 3ª pilotagem — exigir isto trava modelos que fecham antes." },
+  { key: "data_aprovacao", label: "Data de Aprovação preenchida", modulo: "desenvolvimento", secao: "s1", descricao: "A Data de Aprovação do modelo foi informada." },
+  { key: "grade_preenchida", label: "Grade preenchida", modulo: "desenvolvimento", secao: "s4", descricao: "A grade do modelo tem quantidade (soma das peças maior que zero)." },
+  { key: "grade_todas_variantes", label: "Grade preenchida (todas as variantes)", modulo: "desenvolvimento", secao: "s4", descricao: "TODA variante do Tecido 1 tem grade preenchida (mais estrito que 'Grade preenchida').", aviso: "Considera só as variantes do Tecido 1 (tecido principal) — variantes de outros tecidos não entram na conta." },
+  { key: "tecido_com_variante", label: "Tecido com variante (≥ 1)", modulo: "desenvolvimento", secao: "s2", descricao: "Há ao menos um tecido com pelo menos uma variante (cor) escolhida." },
+  { key: "aviamento_definido", label: "Aviamento definido (≥ 1)", modulo: "desenvolvimento", secao: "s3", descricao: "Ao menos um aviamento foi adicionado ao modelo." },
   // Anexos (§9 do Sheet) — sub-seleções: a loja escolhe QUAIS anexos são exigidos.
-  { key: "anexo_croqui", label: "Anexo: Croqui", modulo: "desenvolvimento", secao: "s6", descricao: "croqui_url preenchido" },
-  { key: "desenho_tecnico_anexado", label: "Anexo: Desenho Técnico", modulo: "desenvolvimento", secao: "s6" },
-  { key: "anexo_modelo", label: "Anexo: Foto do Modelo", modulo: "desenvolvimento", secao: "s6", descricao: "fotos_modelo com ≥1 item" },
-  { key: "ficha_medida_anexada", label: "Anexo: Ficha de Medida", modulo: "desenvolvimento", secao: "s6" },
-  { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento" },
+  { key: "anexo_croqui", label: "Anexo: Croqui", modulo: "desenvolvimento", secao: "s6", descricao: "O anexo de Croqui foi enviado." },
+  { key: "desenho_tecnico_anexado", label: "Anexo: Desenho Técnico", modulo: "desenvolvimento", secao: "s6", descricao: "O anexo de Desenho Técnico foi enviado." },
+  { key: "anexo_modelo", label: "Anexo: Foto do Modelo", modulo: "desenvolvimento", secao: "s6", descricao: "Ao menos uma Foto do Modelo foi enviada." },
+  { key: "ficha_medida_anexada", label: "Anexo: Ficha de Medida", modulo: "desenvolvimento", secao: "s6", descricao: "O anexo de Ficha de Medida foi enviado." },
+  { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento", descricao: "O modelo foi enviado à Explosão (materializa o CAD e a grade planejada)." },
 
   // ── CAD ───────────────────────────────────────────────────────
   // `cad_confirmado` (semântica "enviado ao corte") foi APOSENTADA (ago/2026, decisão do dono):
@@ -90,28 +96,28 @@ export const CONDICOES: Condicao[] = [
   // deixa ZERADOS até entrada manual são `cad_tecidos.tamanho_folha` e
   // `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` — exatamente os campos que
   // `CadTecidosSection.tsx` deixa editar. `cad_preenchido` = ≥1 desses > 0.
-  { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "cad_tecidos/cad_tecido_variantes com folhas ou metragem planejada preenchidas (não só copiado do BOM)" },
+  { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "A seção 4 (CAD) do card tem folhas ou metragem planejada preenchidas — não apenas o que veio copiado do BOM." },
 
   // ── Serviços ──────────────────────────────────────────────────
-  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
+  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos", descricao: "Todos os serviços do modelo foram finalizados (entregues, com quantidade recebida ou defeito lançada).", aviso: "Modelo sem nenhum serviço nunca satisfaz — só faz sentido para etapas após o envio ao corte/Serviços." },
   // Grade Cortada (ago/2026): bloco-fonte de confecção (PL/Oficina, destrinchado) reportou
   // CORTADA > 0 em alguma célula do grade_detalhe. Opt-in: só faz sentido pra loja que usa a
   // quantidade detalhada por tamanho×variante — modelo sem bloco-fonte nunca satisfaz.
-  { key: "grade_cortada_lancada", label: "Grade Cortada lançada", modulo: "servicos", descricao: "bloco-fonte de confecção com cortada > 0 em alguma célula" },
+  { key: "grade_cortada_lancada", label: "Grade Cortada lançada", modulo: "servicos", descricao: "O bloco de confecção detalhado reportou quantidade CORTADA (> 0) em alguma célula da grade.", aviso: "Só funciona para lojas que usam a quantidade detalhada por tamanho×variante — modelo sem bloco de confecção detalhado nunca satisfaz." },
 
   // ── Controle de Qualidade ─────────────────────────────────────
-  { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq" },
-  { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq" },
+  { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq", descricao: "O Controle de Qualidade Pré (até a costura) foi confirmado." },
+  { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq", descricao: "O Controle de Qualidade Pós (acabamento) foi confirmado.", aviso: "Modelo SEM serviço pós-costura nunca confirma o Pós — exigir isto sozinho trava esses modelos. Prefira 'CQ liberado (Pré + Pós)'." },
   // Espelha o gate único `cqLiberado()` (src/lib/cq-status.ts) já usado por Direcionamento/
   // Lançar/Lançamentos: Pré confirmado E (só se há serviço pós-costura ATIVO) Pós confirmado.
   // Preferir esta condição a `cq_pos_confirmado` sozinha — aquela nunca libera modelo sem
   // pós-costura (status_pos fica 'pendente' pra sempre nesse caso).
-  { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "Pré confirmado e, se há serviço pós-costura ativo, Pós também confirmado" },
+  { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "CQ Pré confirmado e — só se houver serviço pós-costura ativo — o CQ Pós também. É o gate seguro de CQ (não trava modelos sem acabamento)." },
 
   // ── Direcionamento ────────────────────────────────────────────
   // Label alinhado ao badge "Separado"/toast "Direcionamento confirmado — Separado" da tela
   // (expedicao.direcionamento.$modeloId.tsx) — key `direcionamento_feito` MANTIDA, só rótulo.
-  { key: "direcionamento_feito", label: "Direcionamento — separado", modulo: "direcionamento", descricao: "direcionamento_confirmado_at preenchido (badge \"Separado\" na tela)" },
+  { key: "direcionamento_feito", label: "Direcionamento — separado", modulo: "direcionamento", descricao: "O Direcionamento foi confirmado (a peça foi separada por loja — badge \"Separado\" na tela)." },
 ];
 
 /** Condições que alimentam o selo de uma seção do Sheet (mapa secao → condições). */

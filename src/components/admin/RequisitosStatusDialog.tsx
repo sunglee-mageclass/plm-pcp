@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ListChecks, ArrowDownToLine } from "lucide-react";
+import { ListChecks, ArrowDownToLine, AlertTriangle } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -156,6 +156,12 @@ export function RequisitosStatusButton({
                             </span>
                           )}
                           {c.descricao && <span className="block text-xs text-muted-foreground">{c.descricao}</span>}
+                          {c.aviso && (
+                            <span className="mt-0.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-500">
+                              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                              <span>{c.aviso}</span>
+                            </span>
+                          )}
                         </span>
                       </label>
                     );
