@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { rotuloOrigem } from "@/lib/origem";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 type StatusOpt = { value: string; label: string };
@@ -67,7 +68,8 @@ export function ModeloInfoSection({
   /** `modelos.origem` — definido pelo fluxo que criou o modelo (Planejamento/Revenda),
    *  NÃO editável aqui. Só EXIBIR (read-only). */
   origem?: string | null;
-  /** Modelo de revenda? (`modelos.origem==='revenda'`). Governa a config de campos abaixo. */
+  /** Modelo comprado? (`modelos.origem` ∈ {revenda, importado}). A visibilidade real dos campos
+   *  vem de `campoVisivel` (config de comprado); este flag fica só p/ compatibilidade. */
   isRevenda?: boolean;
   /** Campo `key` visível? Fluxo INTERNO sempre true (nada esconde). Revenda consulta a config
    *  da loja (default: os 9 campos de Info Básicas OFF). Montada no Panel via `revendaCampoVisivel`. */
@@ -174,12 +176,12 @@ export function ModeloInfoSection({
             }
             options={grupoId ? categorias.filter((c) => c.grupo_id === grupoId) : categorias}
           />
-          {/* Origem — só-leitura, definida pelo fluxo que criou o modelo (Planejamento vs Revenda). */}
+          {/* Origem — só-leitura, definida pelo fluxo que criou o modelo (Planejamento/Revenda/Importado). */}
           <Field label="Origem">
             <Input
               readOnly
               className="bg-muted/50 cursor-default"
-              value={origem === "revenda" ? "Revenda" : "Produção própria"}
+              value={rotuloOrigem(origem)}
             />
           </Field>
         </div>

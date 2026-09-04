@@ -153,16 +153,29 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     queryFn: async () => (await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId)).data ?? [],
   });
 
-  // Revenda (Produto Acabado, Task 7): modelo `origem='revenda'` não tem Tecido Principal
-  // (nunca passa por CAD/cad_tecidos — ver receber_oc_p_acabado, Task 3) — rótulo de
+  // Comprado (Revenda/Importado): modelo comprado não tem Tecido Principal (nunca passa
+  // por CAD/cad_tecidos — ver receber_oc_p_acabado / receber_oc_importado) — rótulo de
   // variante vem do produto vinculado (cor base · apelido), ordem = mesma chave usada em
-  // `modelo_grades`/`cad_grades` (`variante_numero`). 1 query, só quando origem=revenda.
+  // `modelo_grades`/`cad_grades` (`variante_numero`). Cada origem lê a SUA tabela:
+  // revenda → produtos_acabados; importado → produtos_importados (mesmo shape de variante).
   const { data: paVariantes } = useQuery({
     queryKey: ["pa-variantes", modeloId],
     enabled: (modelo as any)?.origem === "revenda",
     queryFn: async () => {
       const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
         .select("id, produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: impVariantes } = useQuery({
+    queryKey: ["imp-variantes", modeloId],
+    enabled: (modelo as any)?.origem === "importado",
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("produtos_importados" as any) as any)
+        .select("id, produto_importado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -246,10 +259,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       })
       .sort((a, b) => a.num - b.num);
     if (vs.length) return vs;
-    // Revenda (Task 7): sem Tecido Principal — rótulo vem das variantes do produto
-    // acabado vinculado (cor base · apelido, na mesma ordem/chave de modelo_grades).
-    if ((modelo as any)?.origem === "revenda") {
-      const pv = (((paVariantes as any)?.produto_acabado_variantes ?? []) as any[])
+    // Comprado (Revenda/Importado): sem Tecido Principal — rótulo vem das variantes do
+    // produto vinculado (cor base · apelido, na mesma ordem/chave de modelo_grades). Cada
+    // origem lê a sua fonte: revenda → produto_acabado_variantes; importado → produto_importado_variantes.
+    const compradoVars =
+      (modelo as any)?.origem === "revenda"
+        ? ((paVariantes as any)?.produto_acabado_variantes ?? [])
+        : (modelo as any)?.origem === "importado"
+          ? ((impVariantes as any)?.produto_importado_variantes ?? [])
+          : [];
+    if (compradoVars.length) {
+      const pv = (compradoVars as any[])
         .filter((v) => v.ordem != null)
         .map((v) => {
           const lbl = varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome });
@@ -261,7 +281,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     return (modeloGrades as any[])
       .map((g) => ({ num: Number(g.variante_numero), label: `Variante ${g.variante_numero}` }))
       .sort((a, b) => a.num - b.num);
-  }, [mainFabric, modeloGrades, modelo, paVariantes]);
+  }, [mainFabric, modeloGrades, modelo, paVariantes, impVariantes]);
 
   const labelByNumero = useMemo(() => {
     const m: Record<number, string> = {};

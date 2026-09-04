@@ -60,6 +60,7 @@ import {
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
 import { lerRevendaConfig, revendaCampoVisivel, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
+import { ehOrigemComprada } from "@/lib/origem";
 import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
@@ -303,13 +304,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
     },
   });
   const maoObraPorServico = Number(moResumo?.total) || 0;
-  // Revenda usa a config PRÓPRIA: coluna fora de `revenda_kanban_colunas` é BLOQUEADA e os
-  // requisitos vêm de `revenda_kanban_requisitos` (não do kanban interno). Fluxo interno
-  // (não-revenda) permanece byte-a-byte idêntico. (`modelo` só é lido em tempo de render.)
+  // Comprado (revenda/importado) usa a config compartilhada de comprado: coluna fora de
+  // `revenda_kanban_colunas` é BLOQUEADA e os requisitos vêm de `revenda_kanban_requisitos`
+  // (não do kanban interno). Fluxo interno (fabricado) permanece byte-a-byte idêntico.
   const podeEntrarStatus = (statusKey: string) => {
-    if (modelo?.origem === "revenda") {
+    if (ehOrigemComprada(modelo?.origem)) {
       if (!revendaColunaPermitida(revendaCfg, statusKey)) {
-        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de revenda", modulo: "desenvolvimento" }] as Condicao[] };
+        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de comprado", modulo: "desenvolvimento" }] as Condicao[] };
       }
       return requisitosOk(revendaRequisitos(revendaCfg, statusKey), condicoesModelo as Record<string, boolean>);
     }
@@ -1533,13 +1534,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
-  // Revenda (`modelos.origem`, fora do `draft` — nunca editado aqui): a MO por serviço não se
-  // aplica (compra pronta de terceiro; paridade com o Planejamento, que também esconde o
-  // editor p/ revenda). Também governa quais seções/campos aparecem e afrouxa o gate de envio.
-  const isRevenda = modelo?.origem === "revenda";
-  // Campo/seção `key` visível? Fluxo INTERNO (não-revenda) SEMPRE true (nada esconde — byte-a-byte
-  // idêntico ao de hoje). Revenda consulta a config da loja (default: os 9 campos + 3 seções OFF).
-  const campoVisivel = (key: string) => !isRevenda || revendaCampoVisivel(revendaCfg, key);
+  // Comprado (`modelos.origem` ∈ {revenda, importado}, fora do `draft` — nunca editado aqui): a
+  // MO por serviço não se aplica (compra pronta de terceiro; paridade com o Planejamento, que
+  // também esconde o editor). Também governa quais seções/campos aparecem e afrouxa o gate de envio.
+  const isComprado = ehOrigemComprada(modelo?.origem);
+  // Campo/seção `key` visível? Fluxo INTERNO (fabricado) SEMPRE true (nada esconde — byte-a-byte
+  // idêntico ao de hoje). Comprado consulta a config da loja (default: os 9 campos + 3 seções OFF).
+  const campoVisivel = (key: string) => !isComprado || revendaCampoVisivel(revendaCfg, key);
   // Cada pendência aponta a SEÇÃO do accordion onde se resolve (o rodapé vira link que abre a seção).
   const cadMissing: { label: string; sec: string }[] = [];
   if (podeEnviarEtapa) {
@@ -2747,7 +2748,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                 draft={draft}
                 setDraft={setDraftTracked}
                 origem={modelo?.origem ?? null}
-                isRevenda={isRevenda}
+                isRevenda={isComprado}
                 campoVisivel={campoVisivel}
                 colab={{ focadoPor }}
                 linhas={linhas.data ?? []}
@@ -2971,8 +2972,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               )}
               {/* Mão de obra POR SERVIÇO — MESMO editor do Planejamento (bidirecional, mesma
                   tabela/RPCs `modelo_servico_mo`); valor persiste no Salvar do card, aprovar/
-                  reprovar é imediato. Oculto p/ revenda (MO não se aplica). */}
-              {!isRevenda && (
+                  reprovar é imediato. Oculto p/ comprado (revenda/importado — MO não se aplica). */}
+              {!isComprado && (
                 <Card className="p-4">
                   <Label className="mb-2 block">Mão de obra por serviço</Label>
                   <MaoObraEditor

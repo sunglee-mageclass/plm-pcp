@@ -12,6 +12,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
 import { requisitosOk, requisitosEfetivos, type Condicao } from "@/lib/kanban-condicoes";
 import { lerRevendaConfig, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
+import { ehOrigemComprada, normalizarOrigem, rotuloOrigem, rotuloOrigemLane } from "@/lib/origem";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -312,14 +313,14 @@ function DesenvolvimentoPage() {
   // Um card pode ENTRAR no status? (requisitos EFETIVOS do status ⊆ condições satisfeitas do modelo)
   // CASCATA (set/2026): p/ o fluxo INTERNO, entrar na etapa N exige os requisitos de TODAS as etapas
   // anteriores (ordem do board) + os próprios (menos exceções da etapa) — via `requisitosEfetivos`.
-  // Assim o card não pula da etapa 1 pra 5 sem cumprir 2/3/4. Revenda (`origem==='revenda'`) usa a
-  // config PRÓPRIA (coluna fora de `revenda_kanban_colunas` = BLOQUEADA; requisitos de
-  // `revenda_kanban_requisitos`), SEM cascata — fluxo próprio, intocado.
+  // Assim o card não pula da etapa 1 pra 5 sem cumprir 2/3/4. COMPRADO (revenda/importado) usa a
+  // config compartilhada de comprado (coluna fora de `revenda_kanban_colunas` = BLOQUEADA; requisitos
+  // de `revenda_kanban_requisitos`), SEM cascata — fluxo próprio, intocado.
   const podeEntrar = (modeloId: string, statusKey: string) => {
     const m = modelos.find((x) => x.id === modeloId);
-    if (m?.origem === "revenda") {
+    if (ehOrigemComprada(m?.origem)) {
       if (!revendaColunaPermitida(revendaCfg, statusKey)) {
-        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de revenda", modulo: "desenvolvimento" }] as Condicao[] };
+        return { ok: false, faltando: [{ key: "__revenda_coluna", label: "fora do fluxo de comprado", modulo: "desenvolvimento" }] as Condicao[] };
       }
       return requisitosOk(revendaRequisitos(revendaCfg, statusKey), (condicoesMap as any)[modeloId] ?? {});
     }
@@ -399,15 +400,19 @@ function DesenvolvimentoPage() {
 
   // Agrupamento aninhado (mesmo padrão do Planejamento). Splitters ativos aninham nesta ordem.
   type Split = { key: string; nome: string; items: Modelo[] };
-  // Rótulos "sem tecido" (o comum e o de revenda) — ficam no FIM da coluna; revenda depois do interno.
-  const ehSemTecido = (nome: string) => nome === "Sem tecido" || nome === "Sem tecido — Revenda";
+  // Rótulos "sem tecido" (o comum e os de comprado "Sem tecido — Revenda/Importado") — ficam no
+  // FIM da coluna; os de comprado depois do interno. Prefixo cobre qualquer origem comprada.
+  const ehSemTecido = (nome: string) => nome === "Sem tecido" || nome.startsWith("Sem tecido — ");
   const byTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     for (const m of items) {
-      // Revenda nunca tem tecido → lane própria "Sem tecido — Revenda" (separa dos internos
-      // pendentes). MAS só quando NÃO se agrupa por Origem — aí a dimensão Origem já separa e o
-      // sufixo seria redundante (decisão do dono; evita lane repetida/vazia).
-      const semTec = (!groupByOrigem && m.origem === "revenda") ? "Sem tecido — Revenda" : "Sem tecido";
+      // Comprado (revenda/importado) nunca tem tecido → lane própria "Sem tecido — <Origem>"
+      // (separa dos internos pendentes). MAS só quando NÃO se agrupa por Origem — aí a dimensão
+      // Origem já separa e o sufixo seria redundante (decisão do dono; evita lane repetida/vazia).
+      const semTec =
+        !groupByOrigem && ehOrigemComprada(m.origem)
+          ? `Sem tecido — ${rotuloOrigem(m.origem)}`
+          : "Sem tecido";
       const nome = tecidoPrincipalMap.get(m.id) ?? semTec;
       const arr = map.get(nome); if (arr) arr.push(m); else map.set(nome, [m]);
     }
@@ -421,16 +426,17 @@ function DesenvolvimentoPage() {
         return a.nome.localeCompare(b.nome, "pt-BR");
       });
   };
-  // Origem (interno/revenda) — reusa o padrão do Planejamento. Interno (NULL/default) antes de Revenda.
+  // Origem (interno/revenda/importado) — reusa o padrão do Planejamento. Interno (NULL/default)
+  // primeiro, depois as origens compradas.
   const byOrigem = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     for (const m of items) {
-      const key = (m.origem ?? "interno") === "revenda" ? "revenda" : "interno";
+      const key = normalizarOrigem(m.origem);
       const arr = map.get(key); if (arr) arr.push(m); else map.set(key, [m]);
     }
     return Array.from(map.entries())
-      .map(([key, its]) => ({ key, nome: key === "revenda" ? "Revenda" : "Interno", items: its }))
-      .sort((a, b) => (a.key === "interno" ? -1 : b.key === "interno" ? 1 : 0));
+      .map(([key, its]) => ({ key, nome: rotuloOrigemLane(key), items: its }))
+      .sort((a, b) => (a.key === "interno" ? -1 : b.key === "interno" ? 1 : a.nome.localeCompare(b.nome, "pt-BR")));
   };
   const splitters: ((items: Modelo[]) => Split[])[] = [
     groupByOrigem ? byOrigem : null,   // eixo mais AMPLO (1º)
@@ -735,7 +741,7 @@ function DesenvolvimentoPage() {
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: grupos },
-              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }, { id: "importado", nome: "Importado" }] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: categoriasFiltradasPorGrupo },
               { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
               { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })) },
@@ -1008,7 +1014,7 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
   return (
-    <div className={`relative border rounded-md p-2 space-y-2 ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : "bg-card"}`} title={modelo.origem === "revenda" ? "Revenda" : undefined}>
+    <div className={`relative border rounded-md p-2 space-y-2 ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : modelo.origem === "importado" ? "bg-[var(--tone-neutral-bg)]" : "bg-card"}`} title={ehOrigemComprada(modelo.origem) ? rotuloOrigem(modelo.origem) : undefined}>
       {naExplosao && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
@@ -1067,9 +1073,9 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
         onDragStartCard?.();
       }}
       onDragEnd={() => onDragEndCard?.()}
-      className={`relative border rounded-md p-2 hover:shadow-md transition-shadow ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : "bg-card"} ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""} ${dragging ? "opacity-50 ring-2 ring-primary" : ""}`}
+      className={`relative border rounded-md p-2 hover:shadow-md transition-shadow ${modelo.origem === "revenda" ? "bg-[var(--tone-info-bg)]" : modelo.origem === "importado" ? "bg-[var(--tone-neutral-bg)]" : "bg-card"} ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""} ${dragging ? "opacity-50 ring-2 ring-primary" : ""}`}
       onClick={onOpen}
-      title={modelo.origem === "revenda" ? "Revenda" : undefined}
+      title={ehOrigemComprada(modelo.origem) ? rotuloOrigem(modelo.origem) : undefined}
       {...handlers}
     >
       {naExplosao && (

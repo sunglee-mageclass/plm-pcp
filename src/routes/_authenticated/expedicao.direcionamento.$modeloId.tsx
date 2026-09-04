@@ -117,14 +117,27 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       return data;
     },
   });
-  // Revenda (Produto Acabado, Task 7): modelo `origem='revenda'` não tem Tecido
-  // Principal (nunca passa por CAD/cad_tecidos) — rótulo vem do produto vinculado.
+  // Comprado (Revenda/Importado): modelo comprado não tem Tecido Principal (nunca passa
+  // por CAD/cad_tecidos) — rótulo vem do produto vinculado. Cada origem lê a SUA tabela:
+  // revenda → produtos_acabados; importado → produtos_importados (mesmo shape de variante).
   const { data: paVariantes } = useQuery({
     queryKey: ["pa-variantes", modeloId],
     enabled: (modelo as any)?.origem === "revenda",
     queryFn: async () => {
       const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
         .select("id, produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: impVariantes } = useQuery({
+    queryKey: ["imp-variantes", modeloId],
+    enabled: (modelo as any)?.origem === "importado",
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("produtos_importados" as any) as any)
+        .select("id, produto_importado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -141,16 +154,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       const lbl = varianteLabel({ nome: vt?.nome_variante, cor: vt?.cor?.nome, apelido: vt?.apelido?.nome });
       m[Number(v.ordem)] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `Variante ${v.ordem}`;
     });
-    // Revenda (Task 7): sem Tecido Principal — fallback pras variantes do produto vinculado.
-    if (Object.keys(m).length === 0 && (modelo as any)?.origem === "revenda") {
-      (((paVariantes as any)?.produto_acabado_variantes ?? []) as any[]).forEach((v) => {
+    // Comprado (Revenda/Importado): sem Tecido Principal — fallback pras variantes do
+    // produto vinculado. Cada origem lê a sua fonte (produto_acabado/produto_importado).
+    if (Object.keys(m).length === 0) {
+      const compradoVars =
+        (modelo as any)?.origem === "revenda"
+          ? ((paVariantes as any)?.produto_acabado_variantes ?? [])
+          : (modelo as any)?.origem === "importado"
+            ? ((impVariantes as any)?.produto_importado_variantes ?? [])
+            : [];
+      (compradoVars as any[]).forEach((v) => {
         if (v.ordem == null) return;
         const lbl = varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome });
         m[Number(v.ordem)] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `Variante ${v.ordem}`;
       });
     }
     return m;
-  }, [mainFabric, modelo, paVariantes]);
+  }, [mainFabric, modelo, paVariantes, impVariantes]);
 
   // Apenas os tamanhos presentes na Grade Real (cadastrados), na ordem do
   // tenant_config — não traz os tamanhos da config que o modelo não usa.

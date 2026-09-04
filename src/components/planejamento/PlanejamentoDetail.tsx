@@ -54,6 +54,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { ehOrigemComprada } from "@/lib/origem";
 import { varianteLabel } from "@/lib/variante";
 import { erroValidacao } from "@/components/produto-acabado/shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
@@ -427,7 +428,12 @@ export function PlanejamentoDetail({
   // Revenda (Produto Acabado, Task 7): card revenda ganha campo de preço atacado + grade
   // cor×tamanho + atalhos pro planejador Produto Acabado — só quando o módulo está ligado.
   const paOn = isModuleEnabled("produto_acabado");
+  // isRevenda = ESPECÍFICO de revenda (edição de preço atacado/grade via `produtos_acabados`).
+  // isComprado = revenda OU importado — a semântica "comprado vs fabricado" (esconder tecido/
+  // custo/MO). Importado tem tela própria de edição (`criacao.produto-importado`), então aqui
+  // só herda o ESCONDER; nunca entra nos blocos de edição de revenda (`produtos_acabados`).
   const isRevenda = draft.origem === "revenda";
+  const isComprado = ehOrigemComprada(draft.origem);
   const navigate = useNavigate();
   const orc = useOrcamento();
   const { data: colecoes = [] } = useQuery({
@@ -1746,8 +1752,8 @@ export function PlanejamentoDetail({
             </Secao>
           )}
 
-          {/* SETOR 4 — Tecido Planejado (oculto p/ revenda — sem tecido) */}
-          {!isRevenda && (
+          {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
+          {!isComprado && (
           <Secao titulo="Tecido Planejado">
             <MultiArtigosField
               label=""
@@ -1759,9 +1765,9 @@ export function PlanejamentoDetail({
           </Secao>
           )}
 
-          {/* SETOR — Simulação de custo (oculto p/ revenda — custo vem do produto/OC, não do
+          {/* SETOR — Simulação de custo (oculto p/ comprado — custo vem do produto/OC, não do
               BOM/CAD manufaturado). Após Tecido Planejado; isolada do custo/preço real. */}
-          {!isRevenda && (
+          {!isComprado && (
           <Secao titulo="Simulação de custo">
             <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -1811,9 +1817,9 @@ export function PlanejamentoDetail({
           {/* Mão de obra POR SERVIÇO (spec 2026-08-06): lista de serviços com valor (R$),
               estado por linha (pendente/aprovado/reprovado) e aprovar/reprovar por serviço.
               Gated: ver custos (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar
-              da página; aprovar/reprovar é imediato. Oculto p/ revenda (Task 7) — o gate de MO
-              já libera sozinho sem linha nenhuma (invariante #8), só a UI some. */}
-          {!isRevenda && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+              da página; aprovar/reprovar é imediato. Oculto p/ comprado (revenda/importado) — o
+              gate de MO já libera sozinho sem linha nenhuma (invariante #8), só a UI some. */}
+          {!isComprado && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
             <Secao titulo="Mão de obra">
               <MaoObraEditor
                 linhas={moLinhas}

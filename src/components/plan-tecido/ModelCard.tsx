@@ -8,6 +8,7 @@ import { ChevronRight, Lock, ShoppingCart } from "lucide-react";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
 import { fmtInt } from "@/lib/format";
+import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -94,7 +95,7 @@ export function ModelCard({
   maoObraEstado?: string;
   maoObraServico?: number | null;
   versao?: number | null;
-  /** `modelos.origem` ("interno"|"revenda") — espelho de revenda: badge + esconde controles de tecido. */
+  /** `modelos.origem` ("interno"|"revenda"|"importado") — espelho de comprado: badge + esconde controles de tecido. */
   origem?: string | null;
   /** Fase do modelo no fluxo (item 10) — badge/3ª linha ao lado da foto; a fase MAIS avançada verdadeira. */
   fase?: { label: string; tone: "success" | "warning" | "info" | "neutral" } | null;
@@ -178,9 +179,9 @@ export function ModelCard({
   // plan_tecido_slots.usar_estoque fica INERTE — o save segue preservando o valor existente (round-trip
   // do arvore), mas a UI não expõe mais o checkbox nem sinaliza o card (borda/selo). Régua única agora:
   // vinculou OC/rolo = consome o físico daquela fonte; não vinculou = compra.
-  // Espelho de revenda: NÃO planeja tecido (card informativo, ocupa a vaga do bucket — não
-  // filtrar/esconder o card em si, só os controles de tecido dentro dele).
-  const isRevenda = origem === "revenda";
+  // Espelho de comprado (revenda/importado): NÃO planeja tecido (card informativo, ocupa a vaga
+  // do bucket — não filtrar/esconder o card em si, só os controles de tecido dentro dele).
+  const isComprado = ehOrigemComprada(origem);
   // peças = grade total do Tecido 1 (base do modelo)
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
   const borderClass = open ? "border-primary" : "";
@@ -269,9 +270,9 @@ export function ModelCard({
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
-              {isRevenda && (
-                <span title="Espelho de produto de revenda — sem tecido a planejar">
-                  <StatusBadge tone="info" className="shrink-0">Revenda</StatusBadge>
+              {isComprado && (
+                <span title={`Espelho de produto ${rotuloOrigem(origem).toLowerCase()} — sem tecido a planejar`}>
+                  <StatusBadge tone="info" className="shrink-0">{rotuloOrigem(origem)}</StatusBadge>
                 </span>
               )}
             </div>
@@ -283,7 +284,7 @@ export function ModelCard({
                 {slot.ref}
               </div>
             )}
-            {!isRevenda && (
+            {!isComprado && (
               <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
                 <span><span className="num">{pieces}</span> pç</span>
                 <span aria-hidden className="opacity-60">·</span>
@@ -297,12 +298,12 @@ export function ModelCard({
               </div>
             )}
           </div>
-          {!isRevenda && fornecTotal ? (
+          {!isComprado && fornecTotal ? (
             fornecCom === fornecTotal
               ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">✓ fornec.</StatusBadge>
               : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
           ) : null}
-          {!isRevenda && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
+          {!isComprado && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
           <ReferenciaDialog slot={slot} onChange={onChange} />
@@ -329,7 +330,7 @@ export function ModelCard({
             {/* Pós-explosão (enviado_cad): o BOM já foi explodido pelo CAD — o card TRAVA a edição de
                 tecido (cor/pç/consumo/tecido). A régua do dono: até a Explosão, o card manda; a partir
                 dela, ajuste no PCP/CAD. (O gate real está no servidor — aqui é só o aviso + inputs off.) */}
-            {!isRevenda && travado && (
+            {!isComprado && travado && (
               <div className="flex items-start gap-1.5 border-t bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
                 <Lock className="mt-0.5 h-3 w-3 shrink-0" />
                 <span><b>Enviado à Explosão</b> — edição de tecido pelo PCP/CAD. O card está travado aqui.</span>
@@ -338,7 +339,7 @@ export function ModelCard({
             {/* Proporção por tamanho (fixa no topo, não colapsável) — só a DISTRIBUIÇÃO; a quantidade
                 (peças) é o 'pç' por cor no bloco do tecido. Antes chamava "Grade" e colidia com a badge.
                 Revenda: não há tecido a planejar — controle escondido (card informativo). */}
-            {!isRevenda && (
+            {!isComprado && (
               <div className="border-t bg-muted/20 pb-1">
                 <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
                 <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} readOnly={!!travado} />
@@ -363,7 +364,7 @@ export function ModelCard({
                 única agora é por VÍNCULO (OC/rolo abaixo, no hint), não por um flag de card. */}
             {/* "Aplicar ao modelo"/"Criar card" empurram BOM de TECIDO + o hint de OC de tecido —
                 nenhum dos dois se aplica a um espelho de revenda (sem BOM de tecido). */}
-            {colecaoId && !isRevenda && (
+            {colecaoId && !isComprado && (
               <div className="border-t px-2 py-1">
                 {slot.modelo_id ? (
                   // card existe → aplicar grade nele
@@ -413,7 +414,7 @@ export function ModelCard({
             )}
             <Accordion type="multiple" defaultValue={["mat"]} className="border-t px-2">
               {/* Materiais de TECIDO/FORRO — não existem num espelho de revenda. */}
-              {!isRevenda && (
+              {!isComprado && (
                 <AccordionItem value="mat">
                   <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
                   <AccordionContent>

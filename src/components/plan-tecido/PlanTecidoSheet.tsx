@@ -38,6 +38,7 @@ import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
+import { ehOrigemComprada } from "@/lib/origem";
 import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
@@ -871,7 +872,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           if (!slot.id || !slot.modelo_id || !touchedIds.has(slot.id)) continue;
           if (lancadoSet.has(slot.modelo_id)) continue;                    // lançado: BOM imutável
           if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
-          if ((origemMap[slot.modelo_id] ?? null) === "revenda") continue; // revenda: sem BOM de tecido
+          if (ehOrigemComprada(origemMap[slot.modelo_id])) continue;        // comprado (revenda/importado): sem BOM de tecido
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
           alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: buildMateriaisAplicar(slot) });
         }
@@ -1262,13 +1263,14 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   }
 
   // "Replicar" na barra de seleção — copia cards MATERIALIZADOS (com modelo_id) p/ outra (coleção,
-  // subcoleção). Só internos: revenda/vagas são ignoradas (aviso). Abre o dialog de destino.
+  // subcoleção). Só internos: comprado (revenda/importado, que têm replicar próprio) e vagas são
+  // ignorados (aviso). Abre o dialog de destino.
   function handleReplicarClick() {
     const itens = slotsDaSelecao();
     const modeloIds = itens
-      .filter((it) => it.slot.modelo_id && (origemMap[it.slot.modelo_id!] ?? null) !== "revenda")
+      .filter((it) => it.slot.modelo_id && !ehOrigemComprada(origemMap[it.slot.modelo_id!]))
       .map((it) => it.slot.modelo_id!) as string[];
-    const nIgnorados = itens.length - modeloIds.length; // vaga sem modelo OU revenda
+    const nIgnorados = itens.length - modeloIds.length; // vaga sem modelo OU comprado
     if (modeloIds.length === 0) {
       toast.error("Selecione ao menos um card materializado (interno) para replicar.");
       return;

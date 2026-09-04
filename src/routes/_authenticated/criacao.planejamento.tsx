@@ -26,6 +26,7 @@ import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
+import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from "@/components/ui/popover";
 import {
@@ -642,17 +643,18 @@ function PlanejamentoPage() {
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
-  // Origem: Interno (padrão/NULL) × Revenda — mesma leitura do filtro (fOrigem acima).
+  // Origem: Interno (padrão/NULL) × Revenda × Importado — mesma leitura do filtro (fOrigem acima).
   const byOrigem = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
-      const key = (m.origem ?? "interno") === "revenda" ? "revenda" : "interno";
+      const key = normalizarOrigem(m.origem);
       const arr = map.get(key);
       if (arr) arr.push(m); else map.set(key, [m]);
     });
     return Array.from(map.entries())
-      .map(([key, its]) => ({ key, nome: key === "revenda" ? "Revenda" : "Interno", items: its }))
-      .sort(sortSplits);
+      .map(([key, its]) => ({ key, nome: rotuloOrigemLane(key), items: its }))
+      // Interno (fabricado) primeiro; depois as origens compradas em ordem alfabética.
+      .sort((a, b) => (a.key === "interno" ? -1 : b.key === "interno" ? 1 : a.nome.localeCompare(b.nome, "pt-BR")));
   };
   // Categoria de tecido: MULTI-PERTENCIMENTO (deriva da categoria dos tecidos_planejados do modelo).
   // Um modelo com tecidos de categorias diferentes aparece em cada categoria.
@@ -860,7 +862,7 @@ function PlanejamentoPage() {
               { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: sub1Opts.map((s) => ({ id: s.id, nome: s.nome })) },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: colecoes.map((c) => ({ id: c, nome: c })) },
               { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: subcolecoes.map((c) => ({ id: c, nome: c })) },
-              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }, { id: "importado", nome: "Importado" }] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
@@ -1124,8 +1126,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         <div className="p-2 space-y-1">
           <div className="flex items-center gap-1">
             <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-            {modelo.origem === "revenda" && (
-              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            {ehOrigemComprada(modelo.origem) && (
+              <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">{rotuloOrigemLane(modelo.origem)}</StatusBadge>
             )}
             <button
               type="button"
@@ -1182,8 +1184,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         <div className="p-3 space-y-1.5">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-            {modelo.origem === "revenda" && (
-              <StatusBadge tone="info" className="normal-case tracking-normal shrink-0">Revenda</StatusBadge>
+            {ehOrigemComprada(modelo.origem) && (
+              <StatusBadge tone="info" className="normal-case tracking-normal shrink-0">{rotuloOrigemLane(modelo.origem)}</StatusBadge>
             )}
             <VersaoBadge versao={modelo.versao} />
             <button
@@ -1251,9 +1253,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           )}
           {/* Seção EXPANDIDA de MO por serviço (spec 2026-08-11, Task 2 — decisão do dono: sempre
               visível, não popover). Aprovar/reprovar POR SERVIÇO direto da lista, sem abrir o
-              card. Oculta p/ revenda (não tem MO, invariante #8/§Revenda) e p/ "sem_servico" (o
-              badge acima já cobre esse caso; a seção sozinha ficaria vazia). */}
-          {(podeVerCustos || podeAprovarMaoObra) && moEstado !== "sem_servico" && modelo.origem !== "revenda" && (
+              card. Oculta p/ comprado (revenda/importado — não tem MO, invariante #8/§Revenda) e p/
+              "sem_servico" (o badge acima já cobre esse caso; a seção sozinha ficaria vazia). */}
+          {(podeVerCustos || podeAprovarMaoObra) && moEstado !== "sem_servico" && !ehOrigemComprada(modelo.origem) && (
             <MoListaSection
               linhas={linhasMO}
               podeVerCustos={podeVerCustos}

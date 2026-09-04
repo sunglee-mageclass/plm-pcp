@@ -7,6 +7,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
+import { ehOrigemComprada } from "@/lib/origem";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ModeloFotoHoverRow, ModeloResumoLinhaMobile } from "@/components/shared/ModeloFotoHover";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
@@ -41,16 +42,16 @@ function CqListPage() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cq-list"],
     queryFn: async () => {
-      // Revenda (Produto Acabado, Task 7): nunca passa por Desenvolvimento/CAD, então
+      // Comprado (Revenda/Importado): nunca passa por Desenvolvimento/CAD, então
       // `enviado_cad` fica sempre false — o `cad` (com `cad_grades`/`controle_qualidade`)
-      // nasce direto em `receber_oc_p_acabado` (Task 3) na chegada da OC. O `.or(...)`
-      // abaixo garante que esses modelos entram na busca; o gate de entrada abaixo
-      // (`origem==='revenda' ? temCad : enviado_corte && preFinalizado`) os libera sem
-      // depender de corte/Serviços, que revenda nunca tem.
+      // nasce direto em `receber_oc_p_acabado`/`receber_oc_importado` na chegada da OC. O
+      // `.or(...)` abaixo garante que esses modelos entram na busca; o gate de entrada
+      // abaixo (`ehOrigemComprada ? temCad : enviado_corte && preFinalizado`) os libera sem
+      // depender de corte/Serviços, que comprado nunca tem.
       const { data, error } = await supabase
         .from("modelos")
         .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
-        .or("enviado_cad.eq.true,origem.eq.revenda")
+        .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado")
         .order("created_at", { ascending: false });
       if (error) throw error;
       // O CQ abre quando o PRÉ (até costura) finaliza — dentro do item se troca Pré/Pós.
@@ -92,9 +93,10 @@ function CqListPage() {
         // Premissa: todo modelo produzível tem serviço de costura (pré). Um modelo com
         // SÓ serviço pós-costura (sem pré) não entra no CQ por aqui — caso inexistente
         // hoje (etapa default 'ate_costura'); se surgir, relaxar este gate.
-        // Revenda (Task 7): sem corte/Serviços — o gatilho de entrada é a OC recebida,
-        // sinalizada pela EXISTÊNCIA do cad-espelho (`receber_oc_p_acabado`, Task 3).
-        .filter((r: any) => (r.origem === "revenda" ? r.temCad : r.enviado_corte && r.preFinalizado));
+        // Comprado (Revenda/Importado): sem corte/Serviços — o gatilho de entrada é a OC
+        // recebida, sinalizada pela EXISTÊNCIA do cad-espelho (`receber_oc_p_acabado`/
+        // `receber_oc_importado`).
+        .filter((r: any) => (ehOrigemComprada(r.origem) ? r.temCad : r.enviado_corte && r.preFinalizado));
     },
   });
 
@@ -153,6 +155,7 @@ function CqListPage() {
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
                 { id: "interno", nome: "Interno" },
                 { id: "revenda", nome: "Revenda" },
+                { id: "importado", nome: "Importado" },
               ] },
             ]}
           />
