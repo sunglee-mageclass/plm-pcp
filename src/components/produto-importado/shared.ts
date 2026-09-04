@@ -183,6 +183,54 @@ export function resumoDrafts(drafts: ProdutoImportadoDraft[]): ResumoImportado {
   return { produtos: drafts.length, pecas, custoTotalBrl, atacadoTotalBrl, varejoTotalBrl };
 }
 
+/** Monta o payload `{dados, variantes, etapas}` esperado por `salvar_produto_importado`
+ *  a partir do draft. `dados` só leva os escalares do produto (nada de `id`/`variantes`/
+ *  `etapas`/`ref`/`_touched` — a RPC ignora chaves extras, mas mantemos o shape enxuto);
+ *  datas já são string "YYYY-MM-DD" ou null no draft — passam direto. Markups vazios (0 ou
+ *  null) viram `null` (a RPC trata `null` como "sem markup configurado", preservando o
+ *  valor atual do modelo espelho em vez de zerar o preço). */
+export function montarPayload(draft: ProdutoImportadoDraft): {
+  dados: Record<string, unknown>;
+  variantes: Omit<VarianteImportadoDraft, "_touched">[];
+  etapas: EtapaImportadoDraft[];
+} {
+  const dados = {
+    nome: draft.nome,
+    // REF: só envia se o usuário digitou uma manual (senão null → o trigger gera a automática).
+    ref: draft.ref || null,
+    grupo_id: draft.grupo_id,
+    categoria_id: draft.categoria_id,
+    subcategoria1_id: draft.subcategoria1_id,
+    subcategoria2_id: draft.subcategoria2_id,
+    colecao_id: draft.colecao_id,
+    subcolecao: draft.subcolecao,
+    semana: draft.semana,
+    empresa_id: draft.empresa_id,
+    representante_id: draft.representante_id,
+    ref_fornecedor: draft.ref_fornecedor || null,
+    composicao: draft.composicao || null,
+    grade_proporcao: draft.grade_proporcao,
+    qtd_total: draft.qtd_total,
+    foto_url: draft.foto_url,
+    data_pedido: draft.data_pedido,
+    data_prevista: draft.data_prevista,
+    data_entrega: draft.data_entrega,
+    moeda_compra: draft.moeda_compra,
+    moeda_intermediaria: draft.moeda_intermediaria,
+    valor_unitario_m1: draft.valor_unitario_m1,
+    cotacao_ref: draft.cotacao_ref,
+    peso_kg: draft.peso_kg,
+    transporte_m2: draft.transporte_m2,
+    desconto_pct: draft.desconto_pct,
+    cotacao_final: draft.cotacao_final,
+    markup_atacado: draft.markup_atacado || null,
+    markup_varejo: draft.markup_varejo || null,
+  };
+  const variantes = draft.variantes.map(({ ordem, cor_id, cor_apelido_id, peso, qtd }) => ({ ordem, cor_id, cor_apelido_id, peso, qtd }));
+  const etapas = draft.etapas.map(({ ordem, rotulo, base, percentual, data_vencimento, cotacao }) => ({ ordem, rotulo, base, percentual, data_vencimento, cotacao }));
+  return { dados, variantes, etapas };
+}
+
 /** Validação client-side do draft — retorna a MENSAGEM do primeiro problema encontrado, ou
  *  `null` se está tudo certo. Regras (Fase 1): nome obrigatório; Σ% de mercadoria = 100;
  *  Σ% de frete = 100; qtd_total > 0. */

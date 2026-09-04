@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, PanelLeft, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,12 +12,13 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
-import { emptyDraft, type ProdutoImportadoDraft } from "./shared";
+import { emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -49,26 +50,101 @@ function useOptCat(table: string, fk: string) {
   });
 }
 
-/** Linha crua de `produtos_importados` — shape provisório (a tabela real/RPC de leitura
- *  chegam na fase seguinte). Usado só para preencher a lista quando já existir dado; a
- *  query tolera erro/tabela ausente e cai em lista vazia (Fase 1 nunca trava a tela por
- *  causa disso — o objetivo é ter uma tela NAVEGÁVEL mesmo sem backend pronto). */
-type ProdutoImportadoRow = { id: string; nome: string; colecao_id: string | null; subcolecao: string | null };
+/** Linha crua de `produtos_importados` — TODOS os escalares + variantes/etapas embedadas
+ *  (`produto_importado_variantes`/`produto_importado_etapas`, FK `produto_importado_id`).
+ *  A query tolera erro/tabela ausente e cai em lista vazia (empty-state "nenhum produto"
+ *  em vez de travar a tela). */
+type ProdutoImportadoRow = {
+  id: string;
+  nome: string;
+  grupo_id: string | null;
+  categoria_id: string | null;
+  subcategoria1_id: string | null;
+  subcategoria2_id: string | null;
+  colecao_id: string | null;
+  subcolecao: string | null;
+  semana: string | null;
+  empresa_id: string | null;
+  representante_id: string | null;
+  ref_fornecedor: string | null;
+  ref: string | null;
+  composicao: string | null;
+  foto_url: string | null;
+  data_pedido: string | null;
+  data_prevista: string | null;
+  data_entrega: string | null;
+  grade_proporcao: Record<string, number> | null;
+  qtd_total: number | null;
+  moeda_compra: string | null;
+  moeda_intermediaria: string | null;
+  valor_unitario_m1: number | null;
+  cotacao_ref: number | null;
+  peso_kg: number | null;
+  transporte_m2: number | null;
+  desconto_pct: number | null;
+  cotacao_final: number | null;
+  markup_atacado: number | null;
+  markup_varejo: number | null;
+  variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
+  etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
+};
+
+/** Mapeia uma linha crua do banco (com embeds) pro `ProdutoImportadoDraft` completo —
+ *  variantes/etapas ordenadas por `ordem`; falta de variante/etapa cai no default do
+ *  `emptyDraft` (nunca deixa o card sem nenhuma linha pra editar). */
+function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
+  const base = emptyDraft(r.colecao_id, r.subcolecao);
+  const variantes = [...(r.variantes ?? [])].sort((a, b) => a.ordem - b.ordem);
+  const etapas = [...(r.etapas ?? [])].sort((a, b) => a.ordem - b.ordem);
+  return {
+    ...base,
+    id: r.id,
+    nome: r.nome,
+    grupo_id: r.grupo_id,
+    categoria_id: r.categoria_id,
+    subcategoria1_id: r.subcategoria1_id,
+    subcategoria2_id: r.subcategoria2_id,
+    colecao_id: r.colecao_id,
+    subcolecao: r.subcolecao,
+    semana: r.semana,
+    empresa_id: r.empresa_id,
+    representante_id: r.representante_id,
+    ref_fornecedor: r.ref_fornecedor ?? "",
+    ref: r.ref,
+    composicao: r.composicao ?? "",
+    foto_url: r.foto_url,
+    data_pedido: r.data_pedido,
+    data_prevista: r.data_prevista,
+    data_entrega: r.data_entrega,
+    grade_proporcao: r.grade_proporcao ?? {},
+    qtd_total: Number(r.qtd_total) || 0,
+    moeda_compra: r.moeda_compra ?? "RMB",
+    moeda_intermediaria: r.moeda_intermediaria,
+    valor_unitario_m1: Number(r.valor_unitario_m1) || 0,
+    cotacao_ref: Number(r.cotacao_ref) || 0,
+    peso_kg: Number(r.peso_kg) || 0,
+    transporte_m2: Number(r.transporte_m2) || 0,
+    desconto_pct: Number(r.desconto_pct) || 0,
+    cotacao_final: Number(r.cotacao_final) || 0,
+    markup_atacado: r.markup_atacado,
+    markup_varejo: r.markup_varejo,
+    variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
+    etapas: etapas.length > 0 ? etapas : base.etapas,
+  };
+}
 
 let idSeq = 0;
 const novoIdLocal = () => `novo-${Date.now()}-${idSeq++}`;
 
 /**
- * Sheet do planejador Produto Importado (Fase 1 — TELA NAVEGÁVEL, sem persistência no
- * banco ainda). Layout REFATORADO (set/2026) pra bater FIELMENTE com
- * `ProdutoAcabadoSheet.tsx`: canvas em 3 colunas (rail + aside de resumo fixo no desktop +
- * main), cards compactos de 420px em lanes por categoria/grupo (agrupamento combinável via
+ * Sheet do planejador Produto Importado. Layout REFATORADO (set/2026) pra bater FIELMENTE
+ * com `ProdutoAcabadoSheet.tsx`: canvas em 3 colunas (rail + aside de resumo fixo no desktop
+ * + main), cards compactos de 420px em lanes por categoria/grupo (agrupamento combinável via
  * `AgrupamentoButton`), vagas do OTB (bloco único enxuto, ver `renderVagas` abaixo).
- * Ainda sem colab/DnD/multi-seleção/OC (fora de escopo desta fase — Produto Importado não
- * tem OC na Fase 1; rodapé só tem Subcoleções + Salvar).
- *
- * TODO (fase seguinte): trocar o `useState` local por RPCs reais (`salvar_produto_
- * importado`, leitura de `produtos_importados`) — hoje o Salvar só avisa "em breve".
+ * PERSISTÊNCIA REAL (Fase 1 backend): carrega `produtos_importados` com variantes+etapas
+ * embedadas; Salvar chama `salvar_produto_importado` por produto; excluir chama
+ * `excluir_produto_importado`. Ainda sem colab/DnD/multi-seleção/OC (Fase 2/3 — Produto
+ * Importado não tem OC na Fase 1; rodapé só tem Subcoleções + Salvar).
  */
 export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChange, onClose }: {
   colecaoId: string;
@@ -86,6 +162,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [baseline, setBaseline] = useState<string>("[]");
   const [carregado, setCarregado] = useState(false);
   const resolvedInicialRef = useRef({ done: false });
+  const qc = useQueryClient();
   const agrup = useAgrupamentoState("produto-importado", ["categoria"]);
   const agrupar: AgruparEstado = { grupo: agrup.isOn("grupo"), categoria: agrup.isOn("categoria") };
   const setAgrupar = (patch: Partial<AgruparEstado>) => {
@@ -121,14 +198,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     return b ? Math.max(0, b.total - b.realizado) : 0;
   };
 
-  // Tenta carregar produtos já existentes (Fase 2 em diante) — se a tabela ainda não tem
-  // RLS/RPC pronta ou vier vazia, cai em lista vazia sem quebrar a tela (empty-state
-  // "nenhum produto"). `as any` porque `produtos_importados` está fora do types.ts (igual
-  // ao padrão de `ocs_p_acabado`/`produtos_acabados`).
+  // Carrega os produtos COMPLETOS da coleção — escalares + variantes/etapas embedadas.
+  // `as any` porque `produtos_importados` está fora do types.ts (igual ao padrão de
+  // `ocs_p_acabado`/`produtos_acabados`). `retry:false` + tolerância a erro: se a tabela/RPC
+  // ainda não estiver pronta em alguma loja, cai em lista vazia sem travar a tela.
   const produtosQuery = useQuery({
     queryKey: ["produtos-importados", colecaoId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("produtos_importados" as any).select("id, nome, colecao_id, subcolecao").eq("colecao_id", colecaoId);
+      const { data, error } = await supabase
+        .from("produtos_importados" as any)
+        .select("*, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
+        .eq("colecao_id", colecaoId);
       if (error) throw error;
       return (data ?? []) as unknown as ProdutoImportadoRow[];
     },
@@ -138,10 +218,10 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   useEffect(() => {
     if (carregado) return;
     // Sucesso OU erro (tabela/RPC ainda não pronta): resolve como "sem produtos" e libera a
-    // tela — Fase 1 é sobre navegar/cotar localmente, não sobre a leitura do banco.
+    // tela — nunca trava a navegação por causa disso.
     if (produtosQuery.isSuccess || produtosQuery.isError) {
       const linhas = produtosQuery.data ?? [];
-      const iniciais: ProdutoImportadoDraft[] = linhas.map((r) => ({ ...emptyDraft(r.colecao_id, r.subcolecao), id: r.id, nome: r.nome }));
+      const iniciais: ProdutoImportadoDraft[] = linhas.map(draftDeRow);
       setDrafts(iniciais);
       setBaseline(JSON.stringify(iniciais));
       setCarregado(true);
@@ -212,7 +292,24 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
 
   const patchDraft = (id: string, patch: Partial<ProdutoImportadoDraft>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
-  const removeDraft = (id: string) => setDrafts((ds) => ds.filter((d) => d.id !== id));
+
+  // Excluir: rascunho local (id "novo-...", nunca salvo) só sai do estado; produto que JÁ
+  // existe no banco passa pela RPC com guarda antes de sair da tela.
+  const excluirMut = useMutation({
+    mutationFn: async (id: string) => {
+      if (!id.startsWith("novo-")) {
+        const { error } = await supabase.rpc("excluir_produto_importado" as any, { _produto_id: id });
+        if (error) throw error;
+      }
+      return id;
+    },
+    onSuccess: (id) => {
+      setDrafts((ds) => ds.filter((d) => d.id !== id));
+      qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao excluir.")),
+  });
+  const removeDraft = (id: string) => excluirMut.mutate(id);
   // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
   // um fecha os demais — o card fechado é compacto (só o header-resumo).
   const toggleCard = (id: string) => setOpenCards((s) => (s.has(id) ? new Set() : new Set([id])));
@@ -232,15 +329,43 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     setOpenCards(new Set([novo.id!]));
   };
 
-  // TODO (próxima fase): trocar por RPC real (`salvar_produto_importado` + `salvar_
-  // variantes_importado`/etapas) — por ora só sinaliza que a persistência ainda não existe,
-  // sem perder o rascunho em memória.
-  const salvar = () => {
-    // eslint-disable-next-line no-console
-    console.log("[produto-importado] TODO: persistência via RPC na próxima fase.", drafts);
-    toast.info("Em breve: persistência no banco. Por ora o rascunho fica só nesta tela.");
-    setBaseline(JSON.stringify(drafts));
-  };
+  // Salva TODOS os drafts (simples — mesmo padrão do Produto Acabado): cada um vira uma
+  // chamada a `salvar_produto_importado` (upsert; `_id` local "novo-..." → null = criação).
+  // Depois de salvar, drafts locais recebem o id definitivo do banco.
+  const salvarMut = useMutation({
+    mutationFn: async () => {
+      // Valida TODOS os drafts no cliente ANTES de qualquer INSERT — senão um produto com
+      // Σ%≠100 (rejeitado pelo servidor) abortaria o Promise.all no meio, deixando os já
+      // criados no banco sem o id refletido no estado local (dupla no próximo save).
+      for (const d of drafts) {
+        const erro = validarDraft(d);
+        if (erro) throw new Error(`${d.nome || "Produto sem nome"}: ${erro}`);
+      }
+      const atualizados = await Promise.all(
+        drafts.map(async (d) => {
+          const isLocal = !d.id || d.id.startsWith("novo-");
+          const { dados, variantes, etapas } = montarPayload(d);
+          const { data, error } = await supabase.rpc("salvar_produto_importado" as any, {
+            _id: isLocal ? null : d.id,
+            _dados: dados,
+            _variantes: variantes,
+            _etapas: etapas,
+          });
+          if (error) throw error;
+          return isLocal ? { ...d, id: data as string } : d;
+        }),
+      );
+      return atualizados;
+    },
+    onSuccess: (atualizados) => {
+      setDrafts(atualizados);
+      setBaseline(JSON.stringify(atualizados));
+      toast.success("Produtos importados salvos.");
+      qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao salvar")),
+  });
+  const salvar = () => salvarMut.mutate();
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
@@ -482,8 +607,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <div className="ml-auto" />
-          <Button disabled={!dirty} onClick={salvar}>
-            {dirty ? "Salvar" : "Salvo"}
+          <Button disabled={!dirty || salvarMut.isPending} onClick={salvar}>
+            {salvarMut.isPending ? "Salvando…" : dirty ? "Salvar" : "Salvo"}
           </Button>
         </div>
 
