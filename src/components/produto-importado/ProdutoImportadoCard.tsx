@@ -230,22 +230,26 @@ export function ProdutoImportadoCard({
         <div className="border-t px-3 pb-3">
           <Accordion type="multiple" value={secoesAbertas} onValueChange={setSecoesAbertas} className="[&>div]:border-b-0">
             {/* ── 1 · Identificação ────────────────────────────── */}
+            {/* Trigger igual às outras 6 seções: linha INTEIRA clicável (não envolver num flex com
+                outro elemento, senão o trigger encolhe pro tamanho do texto). A foto (clipe) vai
+                POR DENTRO do conteúdo, como um campo normal. */}
             <AccordionItem value="identificacao">
-              {/* Foto = ícone de clipe ao LADO do título da seção 1 (feedback do dono). Fora do
-                  AccordionTrigger (botão dentro de botão é inválido) — flex-row com o trigger. */}
-              <div className="flex items-center">
-                <AccordionTrigger className="text-xs font-semibold">1 · Identificação</AccordionTrigger>
-                <Button
-                  type="button" variant="ghost" size="iconSm" disabled
-                  className="ml-2 shrink-0 text-muted-foreground"
-                  title="Anexar foto (chega com a persistência, próxima fase)."
-                >
-                  <Paperclip className="h-4 w-4" />
-                </Button>
-              </div>
+              <AccordionTrigger className="text-xs font-semibold">1 · Identificação</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-3">
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[130px] shrink-0 text-sm">Foto</Label>
+                      {/* Clipe de anexo (por dentro da seção 1, feedback do dono). Upload real chega
+                          com a persistência de imagem — por ora só o affordance. */}
+                      <Button
+                        type="button" variant="outline" size="sm" disabled
+                        className="gap-1 text-muted-foreground"
+                        title="Anexar foto (chega com a persistência de imagem)."
+                      >
+                        <Paperclip className="h-3.5 w-3.5" /> Anexar
+                      </Button>
+                    </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">REF</Label>
                       <Input
