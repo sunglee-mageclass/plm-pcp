@@ -31,6 +31,11 @@ export type EtapaImportadoDraft = {
 
 export type ProdutoImportadoDraft = {
   id?: string | null;
+  /** `modelos.id` do card materializado (espelho 1:1) — null se ainda não tem card no
+   *  Planejamento. Usado pela ação "Replicar card(s)": só drafts JÁ PERSISTIDOS e com
+   *  `modelo_id` preenchido podem ser replicados (a RPC `replicar_produtos_importados`
+   *  ignora silenciosamente quem não tem card). */
+  modelo_id?: string | null;
   nome: string;
   grupo_id: string | null;
   categoria_id: string | null;
@@ -78,6 +83,7 @@ export type ProdutoImportadoDraft = {
 export function emptyDraft(colecaoId: string | null, subcolecao: string | null): ProdutoImportadoDraft {
   return {
     id: null,
+    modelo_id: null,
     nome: "",
     grupo_id: null,
     categoria_id: null,

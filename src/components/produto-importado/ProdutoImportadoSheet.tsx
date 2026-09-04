@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, PanelLeft, Plus } from "lucide-react";
+import { ArrowLeft, BrushCleaning, ClipboardList, CopyPlus, PanelLeft, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-ac
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
+import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import { emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
 
 type SubRow = { id: string; nome: string; ordem: number };
@@ -56,6 +57,7 @@ function useOptCat(table: string, fk: string) {
  *  em vez de travar a tela). */
 type ProdutoImportadoRow = {
   id: string;
+  modelo_id: string | null;
   nome: string;
   grupo_id: string | null;
   categoria_id: string | null;
@@ -99,6 +101,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
   return {
     ...base,
     id: r.id,
+    modelo_id: r.modelo_id,
     nome: r.nome,
     grupo_id: r.grupo_id,
     categoria_id: r.categoria_id,
@@ -159,6 +162,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [novoOpen, setNovoOpen] = useState(false);
   const [resumoAberto, setResumoAberto] = useState(true);
   const [resumoMobileOpen, setResumoMobileOpen] = useState(false);
+  // Seleção múltipla (por `d.id`) — barra de seleção sticky com a ação "Replicar card(s)"
+  // (espelha `PlanTecidoSheet`, Plan. Tecido). `replicarPayload` guarda os ids ELEGÍVEIS
+  // (já persistidos e com modelo_id) + o nº ignorados até o dialog confirmar o destino.
+  const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; nIgnorados: number } | null>(null);
+  const [replicando, setReplicando] = useState(false);
   const [baseline, setBaseline] = useState<string>("[]");
   const [carregado, setCarregado] = useState(false);
   const resolvedInicialRef = useRef({ done: false });
@@ -207,7 +216,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     queryFn: async () => {
       const { data, error } = await supabase
         .from("produtos_importados" as any)
-        .select("*, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
+        .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
         .eq("colecao_id", colecaoId);
       if (error) throw error;
       return (data ?? []) as unknown as ProdutoImportadoRow[];
@@ -313,6 +322,75 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
   // um fecha os demais — o card fechado é compacto (só o header-resumo).
   const toggleCard = (id: string) => setOpenCards((s) => (s.has(id) ? new Set() : new Set([id])));
+  const toggleSel = (id: string) => setSelecao((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // "Replicar card(s)" — só produtos JÁ PERSISTIDOS (id não-local) e MATERIALIZADOS (modelo_id
+  // preenchido) são elegíveis; a RPC ignora silenciosamente quem não tem card, mas contamos
+  // aqui pra avisar ANTES (nIgnorados). Abre o dialog de destino (coleção/subcoleção).
+  function handleReplicarClick() {
+    const selecionados = drafts.filter((d) => d.id && selecao.has(d.id));
+    const elegiveis = selecionados.filter((d) => d.id && !d.id.startsWith("novo-") && !!d.modelo_id);
+    const produtoIds = elegiveis.map((d) => d.id as string);
+    const nIgnorados = selecionados.length - elegiveis.length; // rascunho local não-salvo OU sem card no Planejamento
+    if (produtoIds.length === 0) {
+      toast.error("Selecione ao menos um produto materializado (com card no Planejamento) para replicar.");
+      return;
+    }
+    setReplicarPayload({ produtoIds, nIgnorados });
+  }
+
+  async function confirmarReplicar(destinoColId: string, destinoSubId: string | null) {
+    const payload = replicarPayload;
+    if (!payload) return;
+    setReplicando(true);
+    try {
+      const { data, error } = await supabase.rpc("replicar_produtos_importados" as any, {
+        _destino_colecao_id: destinoColId,
+        _destino_subcolecao_id: destinoSubId,
+        _produto_ids: payload.produtoIds,
+      });
+      if (error) throw error;
+      const res = (data ?? []) as { origem_produto_id: string; novo_produto_id: string; novo_modelo_id: string }[];
+      for (const cid of new Set([destinoColId, colecaoId])) {
+        void qc.invalidateQueries({ queryKey: ["produtos-importados", cid] });
+        void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      }
+      setReplicarPayload(null);
+      setSelecao(new Set());
+      toast.success(`${res.length} card(s) replicado(s).`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao replicar"));
+    } finally {
+      setReplicando(false);
+    }
+  }
+
+  // "Criar card(s) no Planejamento" (ação em massa) — materializa o espelho `modelos` dos
+  // selecionados JÁ PERSISTIDOS que ainda NÃO têm card (modelo_id nulo). Só depois de virar card o
+  // produto pode ser replicado (versionamento) e aparece no Planejamento de Produto.
+  async function criarCardsClick() {
+    const selecionados = drafts.filter((d) => d.id && selecao.has(d.id));
+    const idsSemCard = selecionados.filter((d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id).map((d) => d.id as string);
+    const nLocais = selecionados.filter((d) => !d.id || d.id.startsWith("novo-")).length;
+    if (idsSemCard.length === 0) {
+      toast.info(nLocais > 0 ? "Salve os rascunhos antes de criar o card." : "Os selecionados já têm card no Planejamento.");
+      return;
+    }
+    setReplicando(true);
+    try {
+      const { data, error } = await supabase.rpc("criar_cards_produto_importado" as any, { _produto_ids: idsSemCard });
+      if (error) throw error;
+      const res = (data ?? []) as { produto_id: string; modelo_id: string }[];
+      void qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+      void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      setSelecao(new Set());
+      toast.success(`${res.length} card(s) criado(s) no Planejamento.`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao criar card(s)"));
+    } finally {
+      setReplicando(false);
+    }
+  }
 
   const produtosDeSub = (nome: string | null) => drafts.filter((d) => (d.subcolecao ?? null) === nome);
 
@@ -437,6 +515,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             onChange={(patch) => patchDraft(d.id!, patch)}
             open={openCards.has(d.id!)}
             onToggleOpen={() => toggleCard(d.id!)}
+            selected={selecao.has(d.id!)}
+            onToggleSelect={() => toggleSel(d.id!)}
             grupos={grupos}
             categorias={categorias}
             subcats1={subcats1}
@@ -510,6 +590,24 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
+            {/* Barra de seleção múltipla (só no canvas, quando há seleção) — mesmo padrão do
+                Plan. Tecido (`PlanTecidoSheet`): sticky, âmbar, ação principal "Replicar". */}
+            {selecao.size > 0 && (
+              <div className="flex flex-row flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 max-sm:gap-1.5">
+                <span className="font-medium max-sm:text-xs sm:text-sm">{selecao.size} selecionado(s)</span>
+                <div className="ml-auto flex flex-wrap items-center gap-2 max-sm:gap-1.5">
+                  <Button size="sm" variant="outline" aria-label="Criar card(s) no Planejamento" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={replicando} onClick={criarCardsClick}>
+                    <ClipboardList className="h-4 w-4" /><span className="max-sm:sr-only"> Criar card</span>
+                  </Button>
+                  <Button size="sm" variant="outline" aria-label="Replicar em outra coleção/subcoleção" className="gap-1 text-xs max-sm:aspect-square max-sm:px-0" disabled={replicando} onClick={handleReplicarClick}>
+                    <CopyPlus className="h-4 w-4" /><span className="max-sm:sr-only"> Replicar</span>
+                  </Button>
+                  <Button size="sm" variant="ghost" aria-label="Limpar seleção" className="gap-1 text-xs text-muted-foreground max-sm:aspect-square max-sm:px-0" onClick={() => setSelecao(new Set())}>
+                    <BrushCleaning className="h-4 w-4" /><span className="max-sm:sr-only"> Limpar</span>
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="flex flex-1 overflow-hidden">
               <div className="hidden w-[46px] shrink-0 flex-col items-center gap-1.5 border-r pt-3 md:flex">
                 <button type="button" onClick={() => setResumoAberto((v) => !v)} title="Resumo"
@@ -659,6 +757,22 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           subcats2={subcats2}
           onCriar={criarDraft}
         />
+
+        {/* Replicar card(s) → dialog de (coleção, subcoleção) destino. Monta só quando há
+            payload (nasce limpo). A RPC replica materializando + versionando + ocupando
+            vaga no destino; produtos sem card (modelo_id nulo) já foram filtrados como
+            ignorados antes de abrir o dialog. */}
+        {replicarPayload && (
+          <ReplicarImportadoDialog
+            open={!!replicarPayload}
+            onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
+            nEleg={replicarPayload.produtoIds.length}
+            nIgnorados={replicarPayload.nIgnorados}
+            colecaoAtualId={colecaoId}
+            replicando={replicando}
+            onConfirmar={confirmarReplicar}
+          />
+        )}
 
         {/* Resumo MOBILE — Sheet lateral esquerdo (só existe < md; no desktop o aside fixo
             acima já cobre o mesmo painel). */}

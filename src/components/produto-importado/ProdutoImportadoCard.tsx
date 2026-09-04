@@ -10,6 +10,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal } from "@/components/produto-acabado/shared";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -90,6 +91,8 @@ export function ProdutoImportadoCard({
   onChange,
   open,
   onToggleOpen,
+  selected,
+  onToggleSelect,
   grupos,
   categorias,
   subcats1,
@@ -106,6 +109,9 @@ export function ProdutoImportadoCard({
   onChange: (patch: Partial<ProdutoImportadoDraft>) => void;
   open: boolean;
   onToggleOpen: () => void;
+  /** Seleção múltipla (barra de seleção do Sheet) — opcional; sem `onToggleSelect` não renderiza o checkbox. */
+  selected?: boolean;
+  onToggleSelect?: () => void;
   grupos: Opt[];
   categorias: CatOpt[];
   subcats1: SubOpt[];
@@ -292,8 +298,20 @@ export function ProdutoImportadoCard({
   });
 
   return (
-    <div className="rounded-lg border bg-card">
-      <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
+    <div className="relative rounded-lg border bg-card">
+      {/* Checkbox de seleção múltipla (barra de seleção do Sheet) — canto sup. esquerdo,
+          absoluto (mesmo padrão do ModelCard, Plan. Tecido). Só renderiza com onToggleSelect. */}
+      {onToggleSelect && (
+        <div className="absolute left-1 top-1 z-10">
+          <Checkbox
+            checked={selected ?? false}
+            onCheckedChange={onToggleSelect}
+            className="h-4 w-4 max-md:h-6 max-md:w-6 bg-background/80 shadow-sm"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+      <button type="button" onClick={onToggleOpen} className={`flex w-full items-start gap-2 p-3 text-left ${onToggleSelect ? "pl-8" : ""}`}>
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground">
           {fotoUrl ? <img src={fotoUrl} alt={draft.nome || "Produto"} className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" />}
