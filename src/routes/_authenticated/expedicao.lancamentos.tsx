@@ -116,10 +116,12 @@ function LancamentosPage() {
     queryKey: ["lancamentos-cards", meses, anos],
     queryFn: async () => {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
+      // Comprado (revenda/importado) nunca seta `enviado_cad` — mas é lançável e deve aparecer
+      // aqui como HISTÓRICO. Mesmo escape de CQ/Direcionamento (`origem.eq.revenda/importado`).
       const { data: modelos, error } = await supabase
         .from("modelos")
         .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, markup_editado, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, origem, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
-        .eq("enviado_cad", true)
+        .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado")
         .eq("lancado", true);
       if (error) throw error;
 
@@ -466,6 +468,7 @@ function LancamentosPage() {
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [
                 { id: "interno", nome: "Interno" },
                 { id: "revenda", nome: "Revenda" },
+                { id: "importado", nome: "Importado" },
               ] },
             ]}
           >
