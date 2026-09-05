@@ -30,9 +30,11 @@ export function usePlanejamentoOpts() {
   const { data: linhas = [] } = useQuery({
     queryKey: ["opt", "linhas", "com-markup"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("linhas").select("id, nome, markup").order("nome");
+      // markup_min/markup_max são colunas novas (migration 20260907120000); types.ts gerado ainda
+      // não as conhece → cast via unknown (padrão do projeto p/ colunas fora do types.ts).
+      const { data, error } = await supabase.from("linhas").select("id, nome, markup, markup_min, markup_max").order("nome");
       if (error) throw error;
-      return (data ?? []) as LinhaOpt[];
+      return (data ?? []) as unknown as LinhaOpt[];
     },
   });
   const { data: artigos = [] } = useQuery({

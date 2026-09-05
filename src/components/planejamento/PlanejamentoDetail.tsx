@@ -549,7 +549,12 @@ export function PlanejamentoDetail({
   // fechar com `custo` (`.real` do RPC = real-quando-confirmado, senão custo_peca_previsto).
   const maoObraSetor = Number(custoReal ? (custoData as any)?.mao_obra_real : (custoData as any)?.mao_obra_previsto) || 0;
   const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
-  const linhaNomeSetor = linhas.find((l) => l.id === draft.linha_id)?.nome ?? null;
+  const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
+  const linhaNomeSetor = linhaSetor?.nome ?? null;
+  // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
+  const linhaFaixas = linhaSetor
+    ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
+    : null;
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
@@ -1558,6 +1563,20 @@ export function PlanejamentoDetail({
                     { label: "Markup sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
                   ]}
                 />
+                {/* Faixas de markup da Linha (Mín/Ideal/Máx) — só leitura (Fase A). O cálculo da
+                    M.O. sugerida por faixa (base = preço de venda) é Fase B. */}
+                {linhaFaixas && (linhaFaixas.min != null || linhaFaixas.max != null) && (
+                  <InfoStrip
+                    compact
+                    titulo="Faixa de markup"
+                    procedencia={`faixa da linha ${linhaNomeSetor ?? ""} — multiplicador ×`}
+                    itens={[
+                      { label: "Mínimo", valor: linhaFaixas.min != null ? `${linhaFaixas.min.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                      { op: "·", label: "Ideal", valor: linhaFaixas.ideal != null ? `${linhaFaixas.ideal.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                      { op: "·", label: "Máximo", valor: linhaFaixas.max != null ? `${linhaFaixas.max.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                    ]}
+                  />
+                )}
                 {podeVerCustos && (
                   <div className="grid gap-1">
                     <Label>

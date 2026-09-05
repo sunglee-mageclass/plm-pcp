@@ -26,6 +26,7 @@ import { isServicoConfeccao, isServicoPL } from "@/lib/servico-confeccao";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { GradeTamanhosCard } from "@/components/shared/GradeTamanhosCard";
+import { LinhasCard } from "@/components/cadastro/LinhasCard";
 
 export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
   component: () => (
@@ -42,7 +43,9 @@ type AttributeItem = {
   label: string;
   group: GroupKey;
   config?: AttributeTabConfig;
-  custom?: "grade"; // seção especial (não é tabela): Grade de Tamanhos (tenant_config)
+  // seção especial: "grade" = Grade de Tamanhos (tenant_config, sem config); "linha" = Linha
+  // com 3 markups (Mín/Ideal/Máx) — usa card dedicado (LinhasCard) mas MANTÉM `config` p/ label/count.
+  custom?: "grade" | "linha";
 };
 
 const ATTRIBUTES: AttributeItem[] = [
@@ -306,13 +309,14 @@ const ATTRIBUTES: AttributeItem[] = [
     value: "linhas",
     label: "Linha",
     group: "PRODUTO",
+    // Card dedicado (LinhasCard): 3 markups Mín/Ideal/Máx (multiplicador ×). `config` mantido só
+    // p/ label/count/usage; a edição NÃO passa pelo AttributeTab genérico (decisão do dono: isolar).
+    custom: "linha",
     config: {
       table: "linhas",
       nameField: "nome",
       singular: "Linha",
       plural: "Linhas",
-      // Markup (pode ser decimal) por Linha — usado em cálculos de preço.
-      extraNumber: { field: "markup", label: "Markup", placeholder: "ex.: 2,5", step: "0.01" },
       usage: [
         { table: "modelos", column: "linha_id" },
         { table: "colecao_pv_itens", column: "linha_id" },
@@ -629,6 +633,11 @@ function AtributosPage() {
 
           {selected.custom === "grade" ? (
             <GradeTamanhosCard />
+          ) : selected.custom === "linha" ? (
+            <LinhasCard
+              key={selected.value}
+              onChanged={() => qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })}
+            />
           ) : (
             activeConfig && (
               <AttributeTab
