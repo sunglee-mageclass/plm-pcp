@@ -36,6 +36,8 @@ export type ProdutoImportadoDraft = {
    *  `modelo_id` preenchido podem ser replicados (a RPC `replicar_produtos_importados`
    *  ignora silenciosamente quem não tem card). */
   modelo_id?: string | null;
+  /** Família de produtos (colecao_mixes). Read-only aqui — associada pelo EditarMixDialog (#4b). */
+  mix_id?: string | null;
   nome: string;
   grupo_id: string | null;
   categoria_id: string | null;
@@ -84,6 +86,7 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
   return {
     id: null,
     modelo_id: null,
+    mix_id: null,
     nome: "",
     grupo_id: null,
     categoria_id: null,

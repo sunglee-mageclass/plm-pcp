@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ArrowLeft, PanelLeft, Plus, ShoppingCart } from "lucide-react";
+import { ArrowLeft, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -18,6 +18,7 @@ import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail
 import { ProdutoCard } from "./ProdutoCard";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
+import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
@@ -96,6 +97,7 @@ function rowToDraft(row: any): ProdutoDraft {
     markup_atacado: row.markup_atacado != null ? Number(row.markup_atacado) : null,
     markup_varejo: row.markup_varejo != null ? Number(row.markup_varejo) : null,
     modelo_id: row.modelo_id,
+    mix_id: row.mix_id ?? null,
     variantes,
     modeloPrecoVenda: row.modelo?.preco_venda != null ? Number(row.modelo.preco_venda) : null,
     modeloPrecoAtacado: row.modelo?.preco_atacado != null ? Number(row.modelo.preco_atacado) : null,
@@ -126,7 +128,7 @@ const SELECT_PRODUTO = `
   id, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-  markup_atacado, markup_varejo, modelo_id,
+  markup_atacado, markup_varejo, modelo_id, mix_id,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url),
   ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
@@ -153,6 +155,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [resumoAberto, setResumoAberto] = useState(true);
   const [novoOpen, setNovoOpen] = useState(false);
+  const [mixDialogOpen, setMixDialogOpen] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
@@ -597,6 +600,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
                     ]} />
+                    {subAtual?.nome && (
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixDialogOpen(true)}>
+                        <Users className="h-3.5 w-3.5" /> Editar Fam.
+                      </Button>
+                    )}
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
                       <Plus className="h-3.5 w-3.5" /> Novo produto
                     </Button>
@@ -736,6 +744,40 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
           }}
         />
+
+        {/* Editar Família de Produtos (#4b) — reusa o EditarMixDialog do Plan.Tecido. Os produtos
+            MATERIALIZADOS (modelo_id != null) entram pela query `modelos` do próprio dialog; os
+            RASCUNHOS (modelo_id null, sem espelho) entram como "vagas" — a fonte externa que o
+            dialog já suporta — e o callback grava `produtos_acabados.mix_id`. */}
+        {mixDialogOpen && subAtual?.nome && (
+          <EditarMixDialog
+            colecaoId={colecaoId}
+            colecaoNome={colecao?.nome ?? ""}
+            subcolecao={subAtual.nome}
+            breadcrumbBase={["Estilo & Engenharia", "Produto Acabado"]}
+            onClose={() => {
+              setMixDialogOpen(false);
+              // Excluir uma família zera `produtos_*.mix_id` (on delete set null) no banco sem passar
+              // pelo meu onMoverVagas — re-sincroniza SÓ o mix_id (leve; mix_id é read-only, nunca dirty).
+              void supabase.from("produtos_acabados" as any).select("id, mix_id").eq("colecao_id", colecaoId)
+                .then(({ data }) => {
+                  if (!data) return;
+                  const map = new Map((data as any[]).map((r) => [r.id, r.mix_id ?? null]));
+                  setDrafts((ds) => (ds ? ds.map((p) => (map.has(p.id) ? { ...p, mix_id: map.get(p.id)! } : p)) : ds));
+                });
+              qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+            }}
+            vagas={produtosDeSub(subAtual.nome)
+              .filter((p) => !p.modelo_id)
+              .map((p) => ({ slotId: p.id, ref: p.ref, nome: p.nome, mixId: p.mix_id }))}
+            onMoverVagas={async (produtoIds, mixId) => {
+              const { error } = await supabase.from("produtos_acabados" as any).update({ mix_id: mixId }).in("id", produtoIds);
+              if (error) { toast.error(mensagemErro(error, "Erro ao mover para a família.")); return; }
+              setDrafts((ds) => (ds ? ds.map((p) => (produtoIds.includes(p.id) ? { ...p, mix_id: mixId } : p)) : ds));
+              qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+            }}
+          />
+        )}
 
         {/* Fazer pedido (rodapé): escolhe um produto da subcoleção sem OC vinculada e abre o
             card dele — a criação em si acontece no botão "Fazer pedido" da seção 3 do card

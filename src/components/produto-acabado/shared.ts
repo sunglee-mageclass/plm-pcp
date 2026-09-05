@@ -70,6 +70,10 @@ export type ProdutoDraft = {
   markup_atacado: number | null;
   markup_varejo: number | null;
   modelo_id: string | null;
+  // Família de produtos (colecao_mixes). Read-only aqui — associada pelo EditarMixDialog (#4b),
+  // NÃO por `montarDadosProduto` (o save do produto não toca mix_id). Alimenta o agrupamento
+  // por família e é passada ao dialog p/ os rascunhos (modelo_id null).
+  mix_id: string | null;
   variantes: VarianteDraft[];
   // Enriquecimento read-only (embeds) — nunca editados aqui:
   modeloPrecoVenda: number | null;

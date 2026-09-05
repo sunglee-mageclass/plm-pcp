@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus } from "lucide-react";
+import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-ac
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
 import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
+import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import { emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
 
@@ -59,6 +60,7 @@ function useOptCat(table: string, fk: string) {
 type ProdutoImportadoRow = {
   id: string;
   modelo_id: string | null;
+  mix_id: string | null;
   nome: string;
   grupo_id: string | null;
   categoria_id: string | null;
@@ -103,6 +105,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     ...base,
     id: r.id,
     modelo_id: r.modelo_id,
+    mix_id: r.mix_id ?? null,
     nome: r.nome,
     grupo_id: r.grupo_id,
     categoria_id: r.categoria_id,
@@ -161,6 +164,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [drafts, setDrafts] = useState<ProdutoImportadoDraft[]>([]);
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [novoOpen, setNovoOpen] = useState(false);
+  const [mixDialogOpen, setMixDialogOpen] = useState(false);
   const [resumoAberto, setResumoAberto] = useState(true);
   const [resumoMobileOpen, setResumoMobileOpen] = useState(false);
   // Seleção múltipla (por `d.id`) — barra de seleção sticky com a ação "Replicar card(s)"
@@ -667,6 +671,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
                     ]} />
+                    {subAtual?.nome && (
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setMixDialogOpen(true)}>
+                        <Users className="h-3.5 w-3.5" /> Editar Fam.
+                      </Button>
+                    )}
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
                       <Plus className="h-3.5 w-3.5" /> Novo produto
                     </Button>
@@ -782,6 +791,40 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           subcats2={subcats2}
           onCriar={criarDraft}
         />
+
+        {/* Editar Família de Produtos (#4b) — reusa o EditarMixDialog. Materializados entram pela
+            query `modelos` do dialog; RASCUNHOS persistidos (modelo_id null, id não-"novo-") entram
+            como "vagas" e o callback grava `produtos_importados.mix_id`. Rascunho local ("novo-",
+            não salvo) NÃO entra — sem linha no banco. */}
+        {mixDialogOpen && subAtual?.nome && (
+          <EditarMixDialog
+            colecaoId={colecaoId}
+            colecaoNome={colecao?.nome ?? ""}
+            subcolecao={subAtual.nome}
+            breadcrumbBase={["Estilo & Engenharia", "Produto Importado"]}
+            onClose={() => {
+              setMixDialogOpen(false);
+              // Excluir família zera produtos_importados.mix_id (on delete set null) — re-sincroniza
+              // só o mix_id dos drafts (leve; read-only, nunca dirty).
+              void supabase.from("produtos_importados" as any).select("id, mix_id").eq("colecao_id", colecaoId)
+                .then(({ data }) => {
+                  if (!data) return;
+                  const map = new Map((data as any[]).map((r) => [r.id, r.mix_id ?? null]));
+                  setDrafts((ds) => ds.map((d) => (d.id && map.has(d.id) ? { ...d, mix_id: map.get(d.id)! } : d)));
+                });
+              qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+            }}
+            vagas={produtosDeSub(subAtual.nome)
+              .filter((d) => d.id && !d.id.startsWith("novo-") && !d.modelo_id)
+              .map((d) => ({ slotId: d.id as string, ref: d.ref, nome: d.nome, mixId: d.mix_id ?? null }))}
+            onMoverVagas={async (produtoIds, mixId) => {
+              const { error } = await supabase.from("produtos_importados" as any).update({ mix_id: mixId }).in("id", produtoIds);
+              if (error) { toast.error(mensagemErro(error, "Erro ao mover para a família.")); return; }
+              setDrafts((ds) => ds.map((d) => (d.id && produtoIds.includes(d.id) ? { ...d, mix_id: mixId } : d)));
+              qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+            }}
+          />
+        )}
 
         {/* Replicar card(s) → dialog de (coleção, subcoleção) destino. Monta só quando há
             payload (nasce limpo). A RPC replica materializando + versionando + ocupando
