@@ -1555,28 +1555,24 @@ export function PlanejamentoDetail({
                     },
                   ]}
                 />
+                {/* Bloco ÚNICO sobre markup: o sugerido da linha + as 3 faixas (Mín/Ideal/Máx),
+                    quando a linha as define. Faixas = só leitura (Fase A); o cálculo da M.O.
+                    sugerida por faixa (base = preço de venda) é Fase B. */}
                 <InfoStrip
                   compact
-                  titulo="Markup sugerido"
+                  titulo="Markup"
                   procedencia={`markup da linha do Cadastro (${linhaNomeSetor ?? "sem linha"}), ao vivo`}
                   itens={[
-                    { label: "Markup sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
+                    { label: "Sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
+                    ...(linhaFaixas && (linhaFaixas.min != null || linhaFaixas.max != null)
+                      ? [
+                          { op: "·", label: "Mínimo", valor: linhaFaixas.min != null ? `${linhaFaixas.min.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                          { op: "·", label: "Ideal", valor: linhaFaixas.ideal != null ? `${linhaFaixas.ideal.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                          { op: "·", label: "Máximo", valor: linhaFaixas.max != null ? `${linhaFaixas.max.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
+                        ]
+                      : []),
                   ]}
                 />
-                {/* Faixas de markup da Linha (Mín/Ideal/Máx) — só leitura (Fase A). O cálculo da
-                    M.O. sugerida por faixa (base = preço de venda) é Fase B. */}
-                {linhaFaixas && (linhaFaixas.min != null || linhaFaixas.max != null) && (
-                  <InfoStrip
-                    compact
-                    titulo="Faixa de markup"
-                    procedencia={`faixa da linha ${linhaNomeSetor ?? ""} — multiplicador ×`}
-                    itens={[
-                      { label: "Mínimo", valor: linhaFaixas.min != null ? `${linhaFaixas.min.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
-                      { op: "·", label: "Ideal", valor: linhaFaixas.ideal != null ? `${linhaFaixas.ideal.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
-                      { op: "·", label: "Máximo", valor: linhaFaixas.max != null ? `${linhaFaixas.max.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—" },
-                    ]}
-                  />
-                )}
                 {podeVerCustos && (
                   <div className="grid gap-1">
                     <Label>
