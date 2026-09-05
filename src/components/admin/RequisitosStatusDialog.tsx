@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ListChecks, ArrowDownToLine, AlertTriangle } from "lucide-react";
+import { ListChecks, ArrowDownToLine } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { MODULOS, CONDICOES } from "@/lib/kanban-condicoes";
+import { CondicaoInfo } from "@/components/shared/CondicaoInfo";
 
 /**
  * Botão "Requisitos" por status do kanban → dialog com as condições agrupadas por
@@ -137,29 +138,25 @@ export function RequisitosStatusButton({
                           onCheckedChange={(v) => (ehHerdado ? toggleHerdado(c.key, !!v, c.label) : toggle(c.key, !!v))}
                           className="mt-0.5"
                         />
-                        <span className="text-sm leading-tight">
+                        <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 text-sm leading-tight">
                           {c.label}
+                          {/* "i" explicativo (hover no desktop) — substitui a parede de texto: a
+                              descrição e o aviso de armadilha vêm sob demanda, não empilhados. */}
+                          <CondicaoInfo descricao={c.descricao} aviso={c.aviso} />
                           {na && (
-                            <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
+                            <span className="rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
                               n/a revenda
                             </span>
                           )}
                           {ehHerdado && (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
+                            <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">
                               <ArrowDownToLine className="h-3 w-3" />
                               herdado{nomeEtapa ? ` de ${nomeEtapa(origem!)}` : ""}
                             </span>
                           )}
                           {ehHerdado && excSet.has(c.key) && (
-                            <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">
                               exceção — não exigido aqui
-                            </span>
-                          )}
-                          {c.descricao && <span className="block text-xs text-muted-foreground">{c.descricao}</span>}
-                          {c.aviso && (
-                            <span className="mt-0.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-500">
-                              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                              <span>{c.aviso}</span>
                             </span>
                           )}
                         </span>

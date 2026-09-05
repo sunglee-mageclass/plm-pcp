@@ -60,6 +60,7 @@ import {
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
 import { lerRevendaConfig, revendaCampoVisivel, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
+import { CondicaoInfo } from "@/components/shared/CondicaoInfo";
 import { ehOrigemComprada } from "@/lib/origem";
 import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
@@ -1616,10 +1617,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   // todos os status) que caem numa seção, o selo dela passa a refletir isso: verde "ok" quando
   // todos batem, âmbar "falta X" quando não. Seção sem requisito configurado → null (cai no selo
   // neutro/informativo). Reaproveita o condicoesModelo que o painel já calcula.
+  // Requisitos configurados (união de todas as colunas) — POR ORIGEM: comprado (revenda/importado)
+  // usa a config de revenda (`revenda_kanban_requisitos`); interno usa a `kanban_requisitos`. Sem
+  // isto, um card de revenda mostrava "falta X" de requisitos INTERNOS (que não são os dele) —
+  // fast-follow da invariante #13, e o ponto do dono: "revenda tem seus próprios requisitos".
   const requiredUnion = (() => {
-    const req = ((tenantCfg as any)?.kanban_requisitos ?? {}) as Record<string, string[]>;
+    const req = (isComprado ? revendaCfg.requisitos : (tenantCfg as any)?.kanban_requisitos) ?? {};
     const s = new Set<string>();
-    for (const arr of Object.values(req)) for (const k of arr ?? []) s.add(k);
+    for (const arr of Object.values(req as Record<string, string[]>)) for (const k of arr ?? []) s.add(k);
     return s;
   })();
   const reqBadge = (sec: string): ReactNode | null => {
@@ -1628,11 +1633,18 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
     const faltam = conds.filter((c) => !(condicoesModelo as Record<string, boolean>)[c.key]);
     if (faltam.length === 0) return <SecBadge tone="ok"><Check className="h-3 w-3" />ok</SecBadge>;
     const labels = faltam.map((c) => c.label.replace(/^Anexo: /, ""));
+    // "i" explicativo: quando falta UM requisito, mostra o "i" DELE ao lado do selo (esclarece o
+    // que é aquele X). Quando faltam vários, o title do selo já lista todos. Requisitos vêm de
+    // `requiredUnion` (por origem: revenda usa os seus — ver acima), então nunca esclarece um
+    // requisito interno num card de revenda.
     return (
-      <SecBadge tone="warn" title={`Falta: ${labels.join(", ")}`}>
-        <AlertTriangle className="h-3 w-3" />
-        {faltam.length === 1 ? `falta ${labels[0].toLowerCase()}` : `faltam ${faltam.length}`}
-      </SecBadge>
+      <span className="ml-auto inline-flex items-center gap-1">
+        <SecBadge tone="warn" title={`Falta: ${labels.join(", ")}`}>
+          <AlertTriangle className="h-3 w-3" />
+          {faltam.length === 1 ? `falta ${labels[0].toLowerCase()}` : `faltam ${faltam.length}`}
+        </SecBadge>
+        {faltam.length === 1 && <CondicaoInfo descricao={faltam[0].descricao} aviso={faltam[0].aviso} />}
+      </span>
     );
   };
 
