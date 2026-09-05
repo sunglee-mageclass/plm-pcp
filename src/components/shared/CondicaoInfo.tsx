@@ -18,7 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export function CondicaoInfo({ descricao, aviso }: { descricao?: string; aviso?: string }) {
   if (!descricao && !aviso) return null;
   return (
-    <TooltipProvider>
+    // delayDuration=0 → abre instantâneo ao passar o mouse (o padrão do Radix é ~700ms).
+    <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
