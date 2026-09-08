@@ -80,6 +80,17 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - Roles: `super_admin` (gestão global de lojas/usuários — quem cria, ativa/inativa,
   **reseta** e **exclui** loja; atribui o admin da loja), `tenant_admin` (admin da loja)
   e permissões por-página em `user_permissions` (canView/canEdit, respeitado na sidebar).
+- **Papéis/roles customizados (set/2026, ver [[project_papeis_customizados]]):** presets de
+  permissão reutilizáveis POR LOJA. `papeis`+`papel_permissoes` (tenant-scoped) + `users.papel_id`
+  (vínculo). **Permissão efetiva = exceção do usuário (`user_permissions`) SENÃO papel SENÃO negado**,
+  resolvida AO VIVO por `_perm_efetiva(uuid)` (EXECUTE revogado dos 3, inv. #9). `user_can_view`/
+  `user_can_edit` leem dele; o front lê via RPC `minhas_permissoes_efetivas()` (o `useAuth` NÃO faz
+  mais `select user_permissions` direto). `set_user_permissions` grava só o DELTA vs o papel (exceção
+  negativa = linha `ver=false` explícita; sem papel = grava tudo, retrocompat). RPCs `salvar_papel`/
+  `excluir_papel` (guarda: bloqueia papel em uso)/`definir_papel_usuario`, authz via
+  `_papel_tenant_autorizado`. Gestão em Gerenciar Usuários (`GerenciarPapeisDialog`+`PapelSelect`);
+  editor de papel reusa a grade do `PermissoesModal` (`PapelEditor`). Só role `user` usa papel
+  (admins furam). Papéis GLOBAIS ficaram fora de escopo (são por-loja).
 - **Modularização**: 7 módulos liga/desliga por loja em `tenant_config.modules` (jsonb):
   `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` + **`otb`** (hook
   `useTenantModules`). ⚠️ **`otb` é OPT-IN (default OFF)** — sobrescrito p/ `false` em
