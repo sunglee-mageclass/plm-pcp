@@ -115,6 +115,10 @@ const DEFAULTS = {
   // Desenvolvimento (e a REF automática é revelada `ref_auto → ref`). "" ⇒ ausente ⇒
   // 'aprovado' (histórico). Mesma régua de `refCampoVisivel`/`_ref_exibir_gate`.
   ref_exibir_status: "" as string,
+  // Toggle opt-in: mostra no Sheet do Planejamento os 2 blocos de análise de markup por faixa
+  // ("Preço por faixa" + "M.O. que cabe"). Default OFF — a Fase A (faixas no bloco Markup) NÃO
+  // depende disto. Lido em PlanejamentoDetail (ramo manufaturado).
+  markup_analise_faixa: false as boolean,
   // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
   // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
   // slaServico = etapa cujo prazo (na matriz do Leadtime) vem do "SLA de Serviços" da
@@ -216,6 +220,7 @@ function ConfiguracoesLojaPage() {
           : DEFAULTS.kanban_requisitos_excecoes,
       explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
       ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
+      markup_analise_faixa: !!(r as any).markup_analise_faixa,
       leadtime:
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
@@ -545,6 +550,29 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
       </>)}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Planejamento — análise de markup</CardTitle>
+          <CardDescription>
+            Mostra, no card do Planejamento, dois blocos por faixa de markup (mín/ideal/máx da Linha):
+            o <b>preço que cada faixa pede</b> e a <b>mão de obra que ainda cabe</b>. Desligado por padrão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Switch
+              id="markup-analise-faixa"
+              checked={cfg.markup_analise_faixa}
+              onCheckedChange={(v) => setCfg((c) => ({ ...c, markup_analise_faixa: !!v }))}
+              aria-label="Análise de markup por faixa"
+            />
+            <Label htmlFor="markup-analise-faixa" className="cursor-pointer font-normal">
+              Análise de markup por faixa (Preço por faixa + M.O. que cabe)
+            </Label>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

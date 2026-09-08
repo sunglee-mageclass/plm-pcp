@@ -654,6 +654,16 @@ export function PlanejamentoDetail({
   // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
   // Produto Acabado (Task 6); colunas da grade = interseção com `grade_proporcao`.
   const tenantIdAtivo = useActiveTenantId();
+  // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
+  // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
+  const { data: markupFaixaOn = false } = useQuery({
+    queryKey: ["tenant-config-markup-analise", tenantIdAtivo],
+    enabled: !!tenantIdAtivo,
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("markup_analise_faixa").eq("tenant_id", tenantIdAtivo).maybeSingle();
+      return !!(data as any)?.markup_analise_faixa;
+    },
+  });
   const { data: tenantTamanhosRevenda = DEFAULT_TAMANHOS } = useQuery({
     queryKey: ["tenant-config-tamanhos-planejamento", tenantIdAtivo],
     enabled: !!tenantIdAtivo && isRevenda && paOn,
@@ -1592,8 +1602,8 @@ export function PlanejamentoDetail({
                   ]}
                 />
                 {/* Fase B — preço que cada faixa de markup pede (custo real × markup). Semáforo no
-                    preço de venda. Sempre visível (decisão do dono): sem custo/faixa vira "—". */}
-                {podeVerCustos && (
+                    preço de venda. Opt-in via Config da Loja (markup_analise_faixa); sem custo/faixa → "—". */}
+                {podeVerCustos && markupFaixaOn && (
                   <InfoStrip
                     compact
                     titulo="Preço por faixa de markup"
@@ -1618,8 +1628,9 @@ export function PlanejamentoDetail({
                 )}
                 {/* Fase B (2ª visão) — M.O. que ainda cabe por faixa (precoVenda/markup − materiais).
                     SÓ com preço de venda DIGITADO (decisão do dono): sem ele, tudo "—" + dica — senão
-                    a base cairia no sugerido e os tetos colapsariam perto da M.O. real. */}
-                {podeVerCustos && (
+                    a base cairia no sugerido e os tetos colapsariam perto da M.O. real.
+                    Opt-in via Config da Loja (markup_analise_faixa), junto do bloco acima. */}
+                {podeVerCustos && markupFaixaOn && (
                   <InfoStrip
                     compact
                     titulo="M.O. que cabe por faixa"
