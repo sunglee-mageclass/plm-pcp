@@ -134,7 +134,7 @@ export function ReplicarCardsDialog({
 
           <p className="text-xs text-muted-foreground">
             {nEleg} card(s) → <b>{colNome}</b> › <b>{subNome}</b>. Copia tecido, forro, grade, variantes,
-            foto e consumo; nasce como nova versão do original.
+            foto e consumo; <b>mantém a mesma REF</b> — nasce como nova versão do original.
             {nIgnorados > 0 && <> · <span className="text-amber-600">{nIgnorados} ignorado(s)</span> (vaga sem modelo ou revenda).</>}
           </p>
         </div>
