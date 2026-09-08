@@ -92,9 +92,9 @@ function UsuariosPage() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin", "users"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("users")
-        .select("id,nome,email,tenant_id,role,ativo,papel_id") // papel_id: types.ts pendente de regen
+        .select("id,nome,email,tenant_id,role,ativo,papel_id")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as AppUser[];

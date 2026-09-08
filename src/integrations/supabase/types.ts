@@ -860,6 +860,7 @@ export type Database = {
           nome: string
           ordem: number
           tenant_id: string | null
+          valor_padrao: number | null
         }
         Insert: {
           ativo?: boolean
@@ -869,6 +870,7 @@ export type Database = {
           nome: string
           ordem?: number
           tenant_id?: string | null
+          valor_padrao?: number | null
         }
         Update: {
           ativo?: boolean
@@ -878,6 +880,7 @@ export type Database = {
           nome?: string
           ordem?: number
           tenant_id?: string | null
+          valor_padrao?: number | null
         }
         Relationships: [
           {
@@ -2112,6 +2115,9 @@ export type Database = {
       linhas: {
         Row: {
           created_at: string | null
+          custo_ideal: number | null
+          custo_max: number | null
+          custo_min: number | null
           id: string
           markup: number | null
           markup_max: number | null
@@ -2121,6 +2127,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          custo_ideal?: number | null
+          custo_max?: number | null
+          custo_min?: number | null
           id?: string
           markup?: number | null
           markup_max?: number | null
@@ -2130,6 +2139,9 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          custo_ideal?: number | null
+          custo_max?: number | null
+          custo_min?: number | null
           id?: string
           markup?: number | null
           markup_max?: number | null

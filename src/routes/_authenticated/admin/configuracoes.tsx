@@ -220,7 +220,7 @@ function ConfiguracoesLojaPage() {
           : DEFAULTS.kanban_requisitos_excecoes,
       explosao_envio_status: (r as any).explosao_envio_status ?? DEFAULTS.explosao_envio_status,
       ref_exibir_status: (r as any).ref_exibir_status ?? DEFAULTS.ref_exibir_status,
-      markup_analise_faixa: !!(r as any).markup_analise_faixa,
+      markup_analise_faixa: !!r.markup_analise_faixa,
       leadtime:
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }

@@ -92,7 +92,7 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
         .select("id, nome, markup, markup_min, markup_max, custo_min, custo_ideal, custo_max")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as unknown as Linha[];
+      return (data ?? []) as Linha[];
     },
   });
 
@@ -114,7 +114,7 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
       const err = validarFaixas(min, ideal, max); if (err) throw new Error(err);
       const cMin = parseMk(novoCustoMin), cIdeal = parseMk(novoCustoIdeal), cMax = parseMk(novoCustoMax);
       const errC = validarFaixas(cMin, cIdeal, cMax, "Custo"); if (errC) throw new Error(errC);
-      const { error } = await supabase.from("linhas").insert({ nome, markup: ideal, markup_min: min, markup_max: max, custo_min: cMin, custo_ideal: cIdeal, custo_max: cMax } as any);
+      const { error } = await supabase.from("linhas").insert({ nome, markup: ideal, markup_min: min, markup_max: max, custo_min: cMin, custo_ideal: cIdeal, custo_max: cMax });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -156,7 +156,7 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
       const err = validarFaixas(min, ideal, max); if (err) throw new Error(err);
       const cMin = parseMk(edCustoMin), cIdeal = parseMk(edCustoIdeal), cMax = parseMk(edCustoMax);
       const errC = validarFaixas(cMin, cIdeal, cMax, "Custo"); if (errC) throw new Error(errC);
-      const { error } = await supabase.from("linhas").update({ nome, markup: ideal, markup_min: min, markup_max: max, custo_min: cMin, custo_ideal: cIdeal, custo_max: cMax } as any).eq("id", id);
+      const { error } = await supabase.from("linhas").update({ nome, markup: ideal, markup_min: min, markup_max: max, custo_min: cMin, custo_ideal: cIdeal, custo_max: cMax }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {

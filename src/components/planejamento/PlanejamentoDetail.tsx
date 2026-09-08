@@ -504,8 +504,7 @@ export function PlanejamentoDetail({
   const { data: catsServico = [] } = useQuery({
     queryKey: ["cats-servico-ativas"],
     queryFn: async () => {
-      // valor_padrao (M.O. sugerida por serviço) — coluna nova; types.ts pendente de regen p/ ela → cast.
-      const { data, error } = await (supabase.from("categorias_terceirizado") as any)
+      const { data, error } = await supabase.from("categorias_terceirizado")
         .select("id, nome, ativo, valor_padrao").order("ordem").order("nome");
       if (error) throw error;
       return (data ?? []) as { id: string; nome: string; ativo: boolean; valor_padrao: number | null }[];

@@ -81,9 +81,9 @@ function UsuariosLojaPage() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["loja", "users"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("users")
-        .select("id,nome,email,role,ativo,papel_id") // papel_id: types.ts pendente de regen
+        .select("id,nome,email,role,ativo,papel_id")
         .neq("role", "super_admin")
         .order("nome");
       if (error) throw error;
