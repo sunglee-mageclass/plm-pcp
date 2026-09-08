@@ -37,7 +37,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, type CustoSimInput } from "@/lib/preco";
+import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -563,6 +563,16 @@ export function PlanejamentoDetail({
   const pfIdeal = precoPorFaixa(custo, linhaFaixas?.ideal);
   const pfMax = precoPorFaixa(custo, linhaFaixas?.max);
   const precoStatus = statusPreco(precoEfetivo, pfMin.definido, pfMin.preco, pfIdeal.definido, pfIdeal.preco);
+
+  // Fase B (2ª visão) — M.O. que ainda CABE por faixa = precoVenda/markup − materiais. Responde
+  // "quanto posso pagar de mão de obra?". ⚠️ Usa o preço de venda DIGITADO (`draft.preco_venda`),
+  // NÃO o efetivo — sem preço de venda real a base cairia no sugerido (custo×ideal) e os tetos
+  // colapsariam perto da M.O. real (visão inútil; foi o que confundiu). Sem preço → tudo "—".
+  const precoVendaDigitado = Number(draft.preco_venda) > 0 ? Number(draft.preco_venda) : 0;
+  const moMin = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.min);
+  const moIdeal = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.ideal);
+  const moMax = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.max);
+  const moStatus = statusMO(maoObraSetor, moMin.atingivel, moMin.moMax, moIdeal.atingivel, moIdeal.moMax);
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
@@ -1601,6 +1611,34 @@ export function PlanejamentoDetail({
                           precoStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
                           : precoStatus === "min" ? <StatusBadge tone="warning">abaixo do ideal</StatusBadge>
                           : precoStatus === "abaixo" ? <StatusBadge tone="danger">abaixo do mínimo</StatusBadge>
+                          : undefined,
+                      },
+                    ]}
+                  />
+                )}
+                {/* Fase B (2ª visão) — M.O. que ainda cabe por faixa (precoVenda/markup − materiais).
+                    SÓ com preço de venda DIGITADO (decisão do dono): sem ele, tudo "—" + dica — senão
+                    a base cairia no sugerido e os tetos colapsariam perto da M.O. real. */}
+                {podeVerCustos && (
+                  <InfoStrip
+                    compact
+                    titulo="M.O. que cabe por faixa"
+                    procedencia={precoVendaDigitado > 0
+                      ? "quanto de mão de obra cabe p/ o markup cair em cada faixa (base: preço p/ venda)"
+                      : "defina o preço p/ venda para ver a M.O. que cabe"}
+                    itens={[
+                      { label: "Até mínimo", valor: moMin.atingivel ? brl(moMin.moMax) : "—" },
+                      { op: "·", label: "Até ideal", hint: "(alvo)", valor: moIdeal.atingivel ? brl(moIdeal.moMax) : "—" },
+                      { op: "·", label: "Até máximo", valor: moMax.atingivel ? brl(moMax.moMax) : "—" },
+                      {
+                        op: "→",
+                        label: "M.O. real",
+                        hi: true,
+                        valor: custo > 0 ? brl(maoObraSetor) : "—",
+                        badge: precoVendaDigitado <= 0 ? undefined
+                          : moStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
+                          : moStatus === "min" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
+                          : moStatus === "estoura" ? <StatusBadge tone="danger">acima do mínimo</StatusBadge>
                           : undefined,
                       },
                     ]}

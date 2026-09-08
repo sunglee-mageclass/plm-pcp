@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco } from "@/lib/preco";
+import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO } from "@/lib/preco";
 
 describe("preco — custoSimulado (simulação de custo do Planejamento)", () => {
   it("tecido = consumo × preço/m; total soma aviamento + mão de obra", () => {
@@ -112,5 +112,50 @@ describe("preco — Fase B: statusPreco (semáforo do preço de venda)", () => {
   it("só a faixa mín definida (ideal ausente) ainda decide", () => {
     expect(statusPreco(90, true, 84, false, 0)).toBe("min");
     expect(statusPreco(70, true, 84, false, 0)).toBe("abaixo");
+  });
+});
+
+describe("preco — Fase B (2ª visão): moPorFaixa (M.O. que cabe por faixa)", () => {
+  it("MO_max = precoVenda / markup − materiais; mín < ideal < máx ⇒ decrescente", () => {
+    // preço de venda 210, materiais 40; faixas 2,0 / 2,5 / 3,0
+    const min = moPorFaixa(210, 40, 2.0);
+    const ideal = moPorFaixa(210, 40, 2.5);
+    const max = moPorFaixa(210, 40, 3.0);
+    expect(min.moMax).toBeCloseTo(210 / 2.0 - 40, 5); // 65
+    expect(ideal.moMax).toBeCloseTo(210 / 2.5 - 40, 5); // 44
+    expect(max.moMax).toBeCloseTo(210 / 3.0 - 40, 5); // 30
+    expect(min.moMax).toBeGreaterThan(ideal.moMax);
+    expect(ideal.moMax).toBeGreaterThan(max.moMax);
+    expect(min.atingivel && ideal.atingivel && max.atingivel).toBe(true);
+  });
+
+  it("materiais que já estouram o markup → moMax<0 → inatingível", () => {
+    const r = moPorFaixa(210, 80, 3.0); // 70 − 80 = −10
+    expect(r.moMax).toBeCloseTo(-10, 5);
+    expect(r.atingivel).toBe(false);
+  });
+
+  it("sem preço de venda ou sem markup → inatingível (o chamador passa 0 sem preço digitado)", () => {
+    expect(moPorFaixa(0, 40, 2.5)).toEqual({ markup: 2.5, moMax: 0, atingivel: false });
+    expect(moPorFaixa(210, 40, 0)).toEqual({ markup: 0, moMax: 0, atingivel: false });
+    expect(moPorFaixa(null, null, null)).toEqual({ markup: 0, moMax: 0, atingivel: false });
+  });
+});
+
+describe("preco — Fase B (2ª visão): statusMO (semáforo da M.O. real)", () => {
+  // tetos: ideal 44, mín 65 (materiais 40, preço 210)
+  it("M.O. real dentro do ideal → 'ideal' (verde), inclusive no teto exato", () => {
+    expect(statusMO(30, true, 65, true, 44)).toBe("ideal");
+    expect(statusMO(44, true, 65, true, 44)).toBe("ideal");
+  });
+  it("acima do ideal mas dentro do mín → 'min' (âmbar)", () => {
+    expect(statusMO(55, true, 65, true, 44)).toBe("min");
+    expect(statusMO(65, true, 65, true, 44)).toBe("min");
+  });
+  it("acima do teto da mín → 'estoura' (vermelho)", () => {
+    expect(statusMO(80, true, 65, true, 44)).toBe("estoura");
+  });
+  it("sem nenhum teto atingível → 'indef' (—)", () => {
+    expect(statusMO(30, false, 0, false, 0)).toBe("indef");
   });
 });

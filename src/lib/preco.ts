@@ -82,6 +82,45 @@ export function statusPreco(precoVendaEfetivo: unknown, minDef: boolean, precoMi
 }
 
 /**
+ * Markup Fase B (2ª visão) — M.O. que ainda CABE para o preço de VENDA cair numa faixa de markup.
+ *
+ *   MO_max(faixa) = precoVenda / markup_da_faixa − materiais
+ * Complementa `precoPorFaixa` (responde "quanto posso pagar de mão de obra?"). ⚠️ Exige o preço de
+ * VENDA digitado (o chamador passa 0 quando não há) — sem ele a base cairia no sugerido (=custo×markup)
+ * e os tetos colapsariam perto da própria M.O. real (visão inútil). `atingivel = false` quando falta
+ * preço/markup OU quando os materiais já estouram o markup (moMax < 0) → a UI mostra "—".
+ * (A fórmula em si é correta; o descrédito da 1ª entrega veio de DADOS DE TESTE — M.O. absurda como
+ * R$300 numa peça de R$47 —, não de erro de conta.)
+ */
+export type FaixaMO = { markup: number; moMax: number; atingivel: boolean };
+
+export function moPorFaixa(precoVenda: unknown, materiais: unknown, markup: unknown): FaixaMO {
+  const preco = Number(precoVenda) || 0;
+  const mat = Number(materiais) || 0;
+  const mk = Number(markup) || 0;
+  if (!(mk > 0) || !(preco > 0)) return { markup: mk, moMax: 0, atingivel: false };
+  const moMax = preco / mk - mat;
+  return { markup: mk, moMax, atingivel: moMax >= 0 };
+}
+
+/**
+ * Semáforo da M.O. real do modelo contra os tetos das faixas (mín/ideal da LINHA).
+ * 'ideal' (verde) = M.O. real cabe até o teto da faixa ideal; 'min' (âmbar) = cabe só até o teto da
+ * mín; 'estoura' (vermelho) = passa até do teto da mín; 'indef' = sem base p/ decidir. ≤ inclusivo.
+ */
+export type StatusMO = "ideal" | "min" | "estoura" | "indef";
+
+export function statusMO(moReal: unknown, moMinAtingivel: boolean, moMinMax: unknown, moIdealAtingivel: boolean, moIdealMax: unknown): StatusMO {
+  const real = Number(moReal) || 0;
+  const idealMax = Number(moIdealMax) || 0;
+  const minMax = Number(moMinMax) || 0;
+  if (moIdealAtingivel && real <= idealMax) return "ideal";
+  if (moMinAtingivel && real <= minMax) return "min";
+  if (moIdealAtingivel || moMinAtingivel) return "estoura";
+  return "indef";
+}
+
+/**
  * Simulação de custo do Planejamento (manual, isolada do custo real do BOM/CAD).
  * Valores previstos que o usuário digita no card. Ver design 2026-07-21.
  */
