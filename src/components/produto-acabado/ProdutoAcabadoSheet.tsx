@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ArrowLeft, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
+import { ArrowLeft, ChevronRight, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -19,6 +19,7 @@ import { ProdutoCard } from "./ProdutoCard";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
+import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
@@ -393,6 +394,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const changeProduto = (next: ProdutoDraft) => setDrafts((ds) => (ds ? ds.map((p) => (p.id === next.id ? next : p)) : ds));
   const removeProduto = (id: string) => setDrafts((ds) => (ds ? ds.filter((p) => p.id !== id) : ds));
   const toggleCard = (id: string) => setOpenCards((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Recolher/expandir (#2.1 — RecolherMenu, espelha o Importado). Lanes recolhidas: Set de laneKey
+  // ("__sem__" p/ null). Vazio = todas expandidas.
+  const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set());
+  const laneRecolhida = (laneKey: string | null) => lanesRecolhidas.has(laneKey ?? "__sem__");
+  const toggleLane = (laneKey: string | null) => setLanesRecolhidas((s) => { const k = laneKey ?? "__sem__"; const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   const produtosDeSub = (nome: string | null) => (drafts ?? []).filter((p) => (p.subcolecao ?? null) === nome);
 
@@ -466,6 +472,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosSub, categorias, grupos, nivelMacro]);
+
+  // Recolher/expandir TODOS (#2.1). Cards: todos recolhidos = nenhum id da subcoleção em openCards.
+  const idsSub = produtosSub.map((p) => p.id).filter(Boolean);
+  const todosRecolhidos = idsSub.length > 0 && idsSub.every((id) => !openCards.has(id));
+  const toggleTodos = () => setOpenCards(todosRecolhidos ? new Set(idsSub) : new Set());
+  // Seções (lanes): todas recolhidas = toda laneKey em lanesRecolhidas. Só faz sentido quando há agrupamento.
+  const todasSecoesRecolhidas = !semAgrupamento && laneKeys.length > 0 && laneKeys.every((k) => laneRecolhida(k));
+  const toggleSecoes = () => setLanesRecolhidas(todasSecoesRecolhidas ? new Set() : new Set(laneKeys.map((k) => k ?? "__sem__")));
 
   // Ordena as sub-lanes de categoria DENTRO de um grupo (modo "grupo-categoria" aninhado) —
   // mesma regra de ordenação das lanes macro (alfabética PT-BR, `null`/"Sem categoria" por
@@ -609,6 +623,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç</span>
                   <div className="flex items-center gap-2">
+                    {produtosSub.length > 0 && (
+                      <RecolherMenu
+                        todasSecoesRecolhidas={todasSecoesRecolhidas}
+                        todosRecolhidos={todosRecolhidos}
+                        onToggleSecoes={toggleSecoes}
+                        onToggleCards={toggleTodos}
+                      />
+                    )}
                     <AgrupamentoButton groups={[
                       { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
                       { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
@@ -645,11 +667,19 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     const itens = produtosSub.filter((p) => macroCampo(p) === laneKey);
                     if (itens.length === 0) return null;
                     const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
+                    const recolhida = laneRecolhida(laneKey);
+                    // Header CLICÁVEL: recolhe/expande a lane (#2.1, espelha o Importado).
                     const header = (
-                      <div className="mb-1.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleLane(laneKey)}
+                        title={recolhida ? "Expandir" : "Recolher"}
+                        className="mb-1.5 flex items-center gap-2 rounded p-0.5 text-left hover:bg-muted"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${recolhida ? "" : "rotate-90"}`} />
                         <span className={`text-sm font-semibold ${laneKey ? "" : "text-muted-foreground"}`}>{laneKey ? macroNome(laneKey) : macroFallback}</span>
                         <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
-                      </div>
+                      </button>
                     );
                     // Grupo + Categoria combinados (item 1 do refino): lane de grupo com
                     // sub-seções por categoria dentro — "Sem categoria" sempre por último
@@ -658,7 +688,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       return (
                         <section key={laneKey ?? "__sem__"}>
                           {header}
-                          {renderCardsRow(itens)}
+                          {!recolhida && renderCardsRow(itens)}
                         </section>
                       );
                     }
@@ -666,6 +696,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     return (
                       <section key={laneKey ?? "__sem__"}>
                         {header}
+                        {!recolhida && (
                         <div className="space-y-3 border-l-2 pl-3">
                           {subKeys.map((subKey) => {
                             const subItens = itens.filter((p) => p.categoria_id === subKey);
@@ -681,6 +712,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                             );
                           })}
                         </div>
+                        )}
                       </section>
                     );
                   })}
