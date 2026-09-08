@@ -16,6 +16,7 @@ import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/Fo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -55,6 +56,8 @@ export function ProdutoCard({
   onChange,
   open,
   onToggleOpen,
+  selected,
+  onToggleSelect,
   grupos,
   categorias,
   subcats1,
@@ -76,6 +79,9 @@ export function ProdutoCard({
   onChange: (next: ProdutoDraft) => void;
   open: boolean;
   onToggleOpen: () => void;
+  /** Seleção múltipla (barra de ações do Sheet, #2.2) — opcional; sem `onToggleSelect` não renderiza o checkbox. */
+  selected?: boolean;
+  onToggleSelect?: () => void;
   grupos: Opt[];
   categorias: CatOpt[];
   subcats1: SubOpt[];
@@ -364,8 +370,19 @@ export function ProdutoCard({
   const identidadeTravada = temOc;
 
   return (
-    <div id={`produto-card-${produto.id}`} className="scroll-mt-3 rounded-lg border bg-card">
-      <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
+    <div id={`produto-card-${produto.id}`} className="relative scroll-mt-3 rounded-lg border bg-card">
+      {/* Checkbox de seleção múltipla (#2.2) — só quando o Sheet passa onToggleSelect. */}
+      {onToggleSelect && (
+        <div className="absolute left-1 top-1 z-10">
+          <Checkbox
+            checked={selected ?? false}
+            onCheckedChange={onToggleSelect}
+            className="h-4 w-4 max-md:h-6 max-md:w-6 bg-background/80 shadow-sm"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          />
+        </div>
+      )}
+      <button type="button" onClick={onToggleOpen} className={`flex w-full items-start gap-2 p-3 text-left ${onToggleSelect ? "pl-8" : ""}`}>
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         <ModeloResumoFoto fontes={produto.modeloThumbFontes} nome={produto.nome} className="h-16 w-16" />
         <div className="min-w-0 flex-1">

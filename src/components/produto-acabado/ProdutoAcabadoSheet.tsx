@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ArrowLeft, ChevronRight, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
+import { ArrowLeft, BrushCleaning, ChevronRight, ClipboardList, CopyPlus, PanelLeft, Plus, ShoppingCart, Users } from "lucide-react";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -20,6 +20,7 @@ import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
+import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
@@ -157,6 +158,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [resumoAberto, setResumoAberto] = useState(true);
   const [novoOpen, setNovoOpen] = useState(false);
   const [mixDialogOpen, setMixDialogOpen] = useState(false);
+  // Multi-seleção p/ ações em massa (#2.2 Replicar) — espelha o Importado.
+  const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; nIgnorados: number } | null>(null);
+  const [replicando, setReplicando] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
@@ -399,6 +404,73 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set());
   const laneRecolhida = (laneKey: string | null) => lanesRecolhidas.has(laneKey ?? "__sem__");
   const toggleLane = (laneKey: string | null) => setLanesRecolhidas((s) => { const k = laneKey ?? "__sem__"; const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleSel = (id: string) => setSelecao((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // Replicar em massa (#2.2, espelha o Importado). Só produtos MATERIALIZADOS (com modelo_id) são
+  // elegíveis — a RPC precisa da raiz da família p/ versionar; sem card = ignorado (aviso).
+  const handleReplicarClick = () => {
+    const selecionados = (drafts ?? []).filter((d) => selecao.has(d.id));
+    const elegiveis = selecionados.filter((d) => !!d.modelo_id);
+    const produtoIds = elegiveis.map((d) => d.id);
+    const nIgnorados = selecionados.length - elegiveis.length;
+    if (produtoIds.length === 0) {
+      toast.error("Selecione ao menos um produto com card no Planejamento para replicar.");
+      return;
+    }
+    setReplicarPayload({ produtoIds, nIgnorados });
+  };
+  // Criar card em massa (#2.3, espelha o Importado). Só rascunhos SEM card (modelo_id null).
+  const criarCardsClick = async () => {
+    const selecionados = (drafts ?? []).filter((d) => selecao.has(d.id));
+    const idsSemCard = selecionados.filter((d) => !d.modelo_id).map((d) => d.id);
+    if (idsSemCard.length === 0) {
+      toast.info("Os selecionados já têm card no Planejamento.");
+      return;
+    }
+    setReplicando(true);
+    try {
+      const { data, error } = await supabase.rpc("criar_cards_produto_acabado" as any, { _produto_ids: idsSemCard });
+      if (error) throw error;
+      const res = (data ?? []) as { produto_id: string; modelo_id: string }[];
+      // Patch local: cada produto recém-materializado ganha o modelo_id (habilita Replicar/esconde criar).
+      setDrafts((ds) => (ds ? ds.map((p) => {
+        const hit = res.find((r) => r.produto_id === p.id);
+        return hit ? { ...p, modelo_id: hit.modelo_id } : p;
+      }) : ds));
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      setSelecao(new Set());
+      toast.success(`${res.length} card(s) criado(s) no Planejamento.`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao criar card(s)."));
+    } finally {
+      setReplicando(false);
+    }
+  };
+  const confirmarReplicar = async (destinoColId: string, destinoSubId: string | null) => {
+    const payload = replicarPayload;
+    if (!payload) return;
+    setReplicando(true);
+    try {
+      const { data, error } = await supabase.rpc("replicar_produtos_acabados" as any, {
+        _destino_colecao_id: destinoColId, _destino_subcolecao_id: destinoSubId, _produto_ids: payload.produtoIds,
+      });
+      if (error) throw error;
+      const res = (data ?? []) as { origem_produto_id: string; novo_produto_id: string; novo_modelo_id: string }[];
+      for (const cid of new Set([destinoColId, colecaoId])) {
+        qc.invalidateQueries({ queryKey: ["produtos-acabados", cid] });
+      }
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      setReplicarPayload(null);
+      setSelecao(new Set());
+      toast.success(`${res.length} card(s) replicado(s).`);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao replicar."));
+    } finally {
+      setReplicando(false);
+    }
+  };
 
   const produtosDeSub = (nome: string | null) => (drafts ?? []).filter((p) => (p.subcolecao ?? null) === nome);
 
@@ -507,6 +579,8 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             onChange={changeProduto}
             open={openCards.has(p.id)}
             onToggleOpen={() => toggleCard(p.id)}
+            selected={selecao.has(p.id)}
+            onToggleSelect={() => toggleSel(p.id)}
             grupos={grupos}
             categorias={categorias}
             subcats1={subcats1}
@@ -620,6 +694,23 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 </aside>
               )}
               <main className="flex-1 overflow-y-auto p-3">
+                {/* Barra de ações em massa (#2.2) — aparece com seleção; Replicar + Limpar seleção. */}
+                {selecao.size > 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
+                    <span className="text-sm font-medium">{selecao.size} selecionado(s)</span>
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="outline" className="gap-1" disabled={replicando} onClick={criarCardsClick}>
+                        <ClipboardList className="h-3.5 w-3.5" /> Criar card
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1" disabled={replicando} onClick={handleReplicarClick}>
+                        <CopyPlus className="h-3.5 w-3.5" /> Replicar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="gap-1" onClick={() => setSelecao(new Set())}>
+                        <BrushCleaning className="h-3.5 w-3.5" /> Limpar seleção
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç</span>
                   <div className="flex items-center gap-2">
@@ -821,6 +912,21 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
               setDrafts((ds) => (ds ? ds.map((p) => (produtoIds.includes(p.id) ? { ...p, mix_id: mixId } : p)) : ds));
               qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
             }}
+          />
+        )}
+
+        {/* Replicar card(s) → dialog de (coleção, subcoleção) destino (#2.2). Monta só quando há
+            payload. A RPC replica materializando + versionando; produtos sem card (modelo_id nulo)
+            já foram filtrados como ignorados antes de abrir o dialog. */}
+        {replicarPayload && (
+          <ReplicarAcabadoDialog
+            open={!!replicarPayload}
+            onOpenChange={(o) => { if (!o && !replicando) setReplicarPayload(null); }}
+            nEleg={replicarPayload.produtoIds.length}
+            nIgnorados={replicarPayload.nIgnorados}
+            colecaoAtualId={colecaoId}
+            replicando={replicando}
+            onConfirmar={confirmarReplicar}
           />
         )}
 
