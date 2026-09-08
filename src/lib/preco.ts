@@ -121,27 +121,6 @@ export function statusMO(moReal: unknown, moMinAtingivel: boolean, moMinMax: unk
 }
 
 /**
- * Semáforo do CUSTO real do modelo contra a faixa-ALVO da LINHA (custo mín/ideal/máx, por peça).
- * O custo real vem do BOM (não muda); isto só sinaliza caro/barato vs. a meta:
- *   custo ≤ ideal → 'ideal' (verde, dentro/abaixo da meta ideal)
- *   custo ≤ máx   → 'ok'    (âmbar, ainda aceitável)
- *   custo > máx   → 'acima' (vermelho, acima da meta) — o ÚNICO alarme
- *   'indef' = sem custo real ou sem faixa-alvo cadastrada.
- * Custo ABAIXO do mínimo NÃO alarma (custo baixo é bom — decisão do dono). ≤ inclusivo.
- */
-export type StatusCusto = "ideal" | "ok" | "acima" | "indef";
-
-export function statusCusto(custoReal: unknown, idealDef: boolean, custoIdeal: unknown, maxDef: boolean, custoMax: unknown): StatusCusto {
-  const c = Number(custoReal) || 0;
-  const ideal = Number(custoIdeal) || 0;
-  const max = Number(custoMax) || 0;
-  if (!(c > 0) || (!idealDef && !maxDef)) return "indef";
-  if (idealDef && c <= ideal) return "ideal";
-  if (maxDef && c <= max) return "ok";
-  return "acima";
-}
-
-/**
  * Simulação de custo do Planejamento (manual, isolada do custo real do BOM/CAD).
  * Valores previstos que o usuário digita no card. Ver design 2026-07-21.
  */

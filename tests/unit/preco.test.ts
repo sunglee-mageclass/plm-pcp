@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, statusCusto } from "@/lib/preco";
+import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO } from "@/lib/preco";
 
 describe("preco — custoSimulado (simulação de custo do Planejamento)", () => {
   it("tecido = consumo × preço/m; total soma aviamento + mão de obra", () => {
@@ -160,26 +160,3 @@ describe("preco — Fase B (2ª visão): statusMO (semáforo da M.O. real)", () 
   });
 });
 
-describe("preco — faixa-alvo de custo: statusCusto (semáforo do custo real vs. meta da Linha)", () => {
-  // meta: ideal 110, máx 140
-  it("custo ≤ ideal → 'ideal' (verde), inclusive abaixo do mínimo (custo baixo é bom)", () => {
-    expect(statusCusto(100, true, 110, true, 140)).toBe("ideal");
-    expect(statusCusto(110, true, 110, true, 140)).toBe("ideal"); // no ideal exato
-    expect(statusCusto(40, true, 110, true, 140)).toBe("ideal");  // bem abaixo → não alarma
-  });
-  it("entre ideal e máx → 'ok' (âmbar)", () => {
-    expect(statusCusto(125, true, 110, true, 140)).toBe("ok");
-    expect(statusCusto(140, true, 110, true, 140)).toBe("ok"); // no máx exato
-  });
-  it("acima do máx → 'acima' (vermelho) — o único alarme", () => {
-    expect(statusCusto(160, true, 110, true, 140)).toBe("acima");
-  });
-  it("sem custo real ou sem faixa-alvo → 'indef' (—)", () => {
-    expect(statusCusto(0, true, 110, true, 140)).toBe("indef");
-    expect(statusCusto(125, false, 0, false, 0)).toBe("indef");
-  });
-  it("só o máx definido (sem ideal) ainda decide", () => {
-    expect(statusCusto(120, false, 0, true, 140)).toBe("ok");
-    expect(statusCusto(150, false, 0, true, 140)).toBe("acima");
-  });
-});

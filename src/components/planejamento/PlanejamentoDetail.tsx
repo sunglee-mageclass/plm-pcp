@@ -37,7 +37,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, statusCusto, type CustoSimInput } from "@/lib/preco";
+import { precoInfo, custoSimulado, moPorFaixa, statusMO, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -562,21 +562,7 @@ export function PlanejamentoDetail({
   const linhaFaixas = linhaSetor
     ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
     : null;
-  // Fase B (reformulada) — PREÇO que cada faixa de markup pede = custo real × markup (mín/ideal/máx
-  // da LINHA). Usa só o custo TOTAL (confiável); NÃO decompõe materiais/M.O. (a M.O. interna prevista
-  // não está dentro do custo → "materiais = custo − MO" dava valores sem sentido). Semáforo compara o
-  // preço de venda efetivo: ≥ ideal (verde) / ≥ mín (âmbar) / < mín (vermelho); preço alto não alarma.
-  const pfMin = precoPorFaixa(custo, linhaFaixas?.min);
-  const pfIdeal = precoPorFaixa(custo, linhaFaixas?.ideal);
-  const pfMax = precoPorFaixa(custo, linhaFaixas?.max);
-  const precoStatus = statusPreco(precoEfetivo, pfMin.definido, pfMin.preco, pfIdeal.definido, pfIdeal.preco);
-  // Faixa-ALVO de custo da Linha (custo mín/ideal/máx por peça) → semáforo do custo real (BOM) vs.
-  // meta. Consultivo; aparece só quando a linha tem faixa-alvo cadastrada. Custo real INTOCADO.
-  const custoIdealAlvo = linhaSetor?.custo_ideal ?? null;
-  const custoMaxAlvo = linhaSetor?.custo_max ?? null;
-  const custoStatus = statusCusto(custo, custoIdealAlvo != null, custoIdealAlvo, custoMaxAlvo != null, custoMaxAlvo);
-
-  // Fase B (2ª visão) — M.O. que ainda CABE por faixa = precoVenda/markup − materiais. Responde
+  // Fase B — M.O. que ainda CABE por faixa = precoVenda/markup − materiais. Responde
   // "quanto posso pagar de mão de obra?". ⚠️ Usa o preço de venda DIGITADO (`draft.preco_venda`),
   // NÃO o efetivo — sem preço de venda real a base cairia no sugerido (custo×ideal) e os tetos
   // colapsariam perto da M.O. real (visão inútil; foi o que confundiu). Sem preço → tudo "—".
@@ -1597,17 +1583,6 @@ export function PlanejamentoDetail({
                       badge: !custoReal ? <StatusBadge tone="warning">previsto</StatusBadge> : undefined,
                       valor: custo > 0 ? brl(custo) : "—",
                     },
-                    // Semáforo do custo real vs. a faixa-ALVO da Linha (se cadastrada). Consultivo.
-                    ...(custoStatus !== "indef"
-                      ? [{
-                          op: "·",
-                          label: "vs. meta",
-                          hint: custoIdealAlvo != null ? `(ideal ${brl(custoIdealAlvo)})` : undefined,
-                          valor: custoStatus === "ideal" ? <StatusBadge tone="success">dentro da meta</StatusBadge>
-                            : custoStatus === "ok" ? <StatusBadge tone="warning">no limite</StatusBadge>
-                            : <StatusBadge tone="danger">acima da meta</StatusBadge>,
-                        }]
-                      : []),
                   ]}
                 />
                 {/* Bloco ÚNICO sobre markup: o sugerido da linha + as 3 faixas (Mín/Ideal/Máx),
@@ -1627,35 +1602,10 @@ export function PlanejamentoDetail({
                       : []),
                   ]}
                 />
-                {/* Fase B — preço que cada faixa de markup pede (custo real × markup). Semáforo no
-                    preço de venda. Opt-in via Config da Loja (markup_analise_faixa); sem custo/faixa → "—". */}
-                {podeVerCustos && markupFaixaOn && (
-                  <InfoStrip
-                    compact
-                    titulo="Preço por faixa de markup"
-                    procedencia="preço sugerido para cada faixa de markup"
-                    itens={[
-                      { label: "Mínimo", valor: pfMin.definido ? brl(pfMin.preco) : "—" },
-                      { op: "·", label: "Ideal", hint: "(alvo)", valor: pfIdeal.definido ? brl(pfIdeal.preco) : "—" },
-                      { op: "·", label: "Máximo", valor: pfMax.definido ? brl(pfMax.preco) : "—" },
-                      {
-                        op: "→",
-                        label: "Preço p/ venda",
-                        hi: true,
-                        valor: precoEfetivo > 0 ? brl(precoEfetivo) : "—",
-                        badge:
-                          precoStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
-                          : precoStatus === "min" ? <StatusBadge tone="warning">abaixo do ideal</StatusBadge>
-                          : precoStatus === "abaixo" ? <StatusBadge tone="danger">abaixo do mínimo</StatusBadge>
-                          : undefined,
-                      },
-                    ]}
-                  />
-                )}
-                {/* Fase B (2ª visão) — M.O. que ainda cabe por faixa (precoVenda/markup − materiais).
+                {/* Fase B — M.O. que ainda cabe por faixa (precoVenda/markup − materiais).
                     SÓ com preço de venda DIGITADO (decisão do dono): sem ele, tudo "—" + dica — senão
                     a base cairia no sugerido e os tetos colapsariam perto da M.O. real.
-                    Opt-in via Config da Loja (markup_analise_faixa), junto do bloco acima. */}
+                    Opt-in via Config da Loja (markup_analise_faixa). */}
                 {podeVerCustos && markupFaixaOn && (
                   <InfoStrip
                     compact

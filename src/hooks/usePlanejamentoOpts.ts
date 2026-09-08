@@ -30,7 +30,7 @@ export function usePlanejamentoOpts() {
   const { data: linhas = [] } = useQuery({
     queryKey: ["opt", "linhas", "com-markup"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("linhas").select("id, nome, markup, markup_min, markup_max, custo_min, custo_ideal, custo_max").order("nome");
+      const { data, error } = await supabase.from("linhas").select("id, nome, markup, markup_min, markup_max").order("nome");
       if (error) throw error;
       return (data ?? []) as LinhaOpt[];
     },
