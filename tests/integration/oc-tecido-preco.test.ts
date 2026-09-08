@@ -15,6 +15,11 @@ describe.skipIf(!hasDb)("OC de tecido dita o preço (Fase A)", () => {
 
       // slate limpo no cadastro da variante (pra ver a sincronização + histórico do zero)
       await c.query(`update variantes_tecido set preco=null, historico_precos='[]'::jsonb where id=$1`, [av.var]);
+      // ISOLAMENTO: a variante escolhida (limit 1) pode ter OCs REAIS mais recentes na Loja Teste,
+      // cujo preço a RPC de sync faria ganhar (a OC mais recente dita o cadastro). Remove os itens
+      // de OC preexistentes dessa variante DENTRO da txn revertida, p/ o cadastro refletir só as
+      // OCs deste teste (senão o assert pega o preço da OC real — foi o falso-negativo do 23,4).
+      await c.query(`delete from ocs_tecido_itens where variante_tecido_id=$1`, [av.var]);
 
       const oc = { numero_pedido: "ITEST-OCP", empresa_id: emp.id, data_prevista_entrega: "2026-08-01",
         prazo_pagamento: "30", quantidade_prazos: 1, parcelas_recebimento: [], status: "encomendado" };
@@ -41,6 +46,8 @@ describe.skipIf(!hasDb)("OC de tecido dita o preço (Fase A)", () => {
         c, `select a.id art, v.id var from variantes_tecido v join artigos a on a.id=v.artigo_id where a.tenant_id=$1 limit 1`, [TENANT_TESTE]);
       if (!emp || !av) return;
       await c.query(`update variantes_tecido set preco=null, historico_precos='[]'::jsonb where id=$1`, [av.var]);
+      // ISOLAMENTO (idem teste acima): zera OCs reais preexistentes dessa variante na txn revertida.
+      await c.query(`delete from ocs_tecido_itens where variante_tecido_id=$1`, [av.var]);
 
       const mkOc = (numero: string, dataPedido: string, preco: number) => ({
         oc: { numero_pedido: numero, empresa_id: emp.id, data_pedido: dataPedido, data_prevista_entrega: "2026-12-01",

@@ -3,21 +3,18 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
 
 // Direcionamento multi-lojas — tudo em txn revertida (BEGIN…ROLLBACK): nada é gravado.
 describe.skipIf(!hasDb)("Multi-lojas fase 1 — cadastro lojas_direcionamento", () => {
-  it("todo tenant tem E-commerce (default, ordem 1) e Loja Física (ordem 2) semeadas", async () => {
+  it("loja NOVA nasce com E-commerce (default, ordem 1) e Loja Física (ordem 2) semeadas", async () => {
+    // Cria um tenant EFÊMERO (revertido no ROLLBACK) e roda o seed nele — em vez de checar
+    // "todos os tenants", que dá falso-negativo porque lojas reais RENOMEIAM/expandem as suas
+    // (o cadastro é editável: a Ave Rara tem Moema/Morumbi/BH/RJ/Atacado, sem "Loja Física"
+    // literal). O invariante REAL é "loja nova/reset nasce com as 2".
     await withTx(async (c) => {
-      const faltando = await um<{ n: string }>(
-        c,
-        `select count(*) as n from tenants t
-          where not exists (select 1 from lojas_direcionamento l
-                             where l.tenant_id = t.id and l.is_default and l.nome = 'E-commerce')
-             or not exists (select 1 from lojas_direcionamento l
-                             where l.tenant_id = t.id and l.nome = 'Loja Física')`,
-      );
-      expect(Number(faltando.n)).toBe(0);
+      const t = await um<{ id: string }>(c, `insert into tenants (nome) values ('__ITEST_SEED_DIR__') returning id`);
+      await c.query(`select public._seed_tenant_defaults($1)`, [t.id]);
       const seeds = await c.query(
         `select nome, ativo, is_default, ordem from lojas_direcionamento
           where tenant_id = $1 order by ordem`,
-        [TENANT_TESTE],
+        [t.id],
       );
       expect(seeds.rows[0]).toMatchObject({ nome: "E-commerce", ativo: true, is_default: true, ordem: 1 });
       expect(seeds.rows[1]).toMatchObject({ nome: "Loja Física", ativo: true, is_default: false, ordem: 2 });
