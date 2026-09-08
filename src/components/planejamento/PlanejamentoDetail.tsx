@@ -153,8 +153,10 @@ function limparCustoSim(s: CustoSimInput | null | undefined): CustoSimInput | nu
 // Seção colapsável do detalhe do card — expandida por default; estado local por seção
 // (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
 // (O que abre COLAPSADO por default são os GRUPOS da lista — pedido do dono, ago/2026.)
-function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+function Secao({ titulo, children, defaultOpen = true }: { titulo: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  // Sheet abre com as seções RECOLHIDAS por padrão (exceto "Informações Gerais do Produto",
+  // que passa defaultOpen); reduz o scroll inicial. O usuário expande o que precisa.
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="space-y-3">
       <button
@@ -1513,7 +1515,7 @@ export function PlanejamentoDetail({
           </Secao>
 
           {/* SETOR 2 — Coleção */}
-          <Secao titulo="Coleção">
+          <Secao titulo="Coleção" defaultOpen={false}>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {otbOn ? (
                 <FieldSelect
@@ -1558,7 +1560,7 @@ export function PlanejamentoDetail({
 
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {isEdit && (
-          <Secao titulo="Preço">
+          <Secao titulo="Preço" defaultOpen={false}>
             {!isRevenda ? (
               // MANUFATURADO — §K: custo/markup/preço vêm de OUTRA etapa (BOM/CAD +
               // Serviços; linha do Cadastro; cálculo de preco.ts) → tira de resumo + atalho
@@ -1569,7 +1571,6 @@ export function PlanejamentoDetail({
                 <InfoStrip
                   compact
                   titulo="Custo"
-                  procedencia="vem do Desenvolvimento (BOM/CAD) + Serviços"
                   link={modeloId ? { onClick: () => setVerDevModeloId(modeloId), label: "Ver no Desenvolvimento" } : undefined}
                   itens={[
                     { label: "Materiais", valor: custo > 0 ? brl(materiaisSetor) : "—" },
@@ -1589,7 +1590,6 @@ export function PlanejamentoDetail({
                 <InfoStrip
                   compact
                   titulo="Markup"
-                  procedencia={`markup da linha do Cadastro (${linhaNomeSetor ?? "sem linha"}), ao vivo`}
                   itens={[
                     { label: "Sugerido", hint: linhaNomeSetor ? `(${linhaNomeSetor})` : "(linha)", valor: markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
                     ...(linhaFaixas && (linhaFaixas.min != null || linhaFaixas.max != null)
@@ -1657,12 +1657,7 @@ export function PlanejamentoDetail({
                 )}
                 {podeVerCustos && (
                   <div className="grid gap-1">
-                    <Label>
-                      Markup aplicado{" "}
-                      <span className="font-normal text-muted-foreground text-xs">
-                        — forma o preço, congelado no modelo (em uso: {markupAplicado > 0 ? `${fmtNum(markupAplicado)}×` : "—"})
-                      </span>
-                    </Label>
+                    <Label>Markup aplicado</Label>
                     <div className="relative">
                       <NumberInput
                         blankZero
@@ -1683,16 +1678,13 @@ export function PlanejamentoDetail({
                 <InfoStrip
                   compact
                   titulo="Preço"
-                  procedencia="custo × markup aplicado · cálculo de preco.ts"
                   itens={[
                     { label: "Preço", hint: "(custo × markup aplicado)", valor: preco > 0 ? brl(preco) : "—" },
                     { op: "→", label: "Preço sugerido", hint: "(arredonda ,90)", valor: precoSug > 0 ? brl(precoSug) : "—" },
                   ]}
                 />
                 <div className="grid gap-1">
-                  <Label>
-                    Preço para venda <span className="font-normal text-muted-foreground text-xs">— campo desta tela</span>
-                  </Label>
+                  <Label>Preço para venda</Label>
                   <NumberInput
                     value={draft.preco_venda && draft.preco_venda > 0 ? draft.preco_venda : ""}
                     placeholder={precoSug > 0 ? brl(precoSug) : undefined}
@@ -1703,7 +1695,6 @@ export function PlanejamentoDetail({
                 <InfoStrip
                   compact
                   titulo="Markup real"
-                  procedencia="derivado ao vivo: preço efetivo ÷ custo"
                   itens={[
                     { label: "Markup real", valor: markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—" },
                   ]}
@@ -1763,7 +1754,7 @@ export function PlanejamentoDetail({
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
           {isEdit && isRevenda && paOn && (
-            <Secao titulo="Produto Acabado">
+            <Secao titulo="Produto Acabado" defaultOpen={false}>
               {produtoRevendaLoading ? (
                 <p className="text-sm text-muted-foreground">Carregando…</p>
               ) : produtoRevenda ? (
@@ -1797,7 +1788,7 @@ export function PlanejamentoDetail({
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {isEdit && isRevenda && paOn && produtoRevenda && (
-            <Secao titulo="Grade">
+            <Secao titulo="Grade" defaultOpen={false}>
               {variantesRevenda.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   O produto vinculado ainda não tem variantes de cor — cadastre-as no Produto Acabado.
@@ -1851,7 +1842,7 @@ export function PlanejamentoDetail({
 
           {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
           {!isComprado && (
-          <Secao titulo="Tecido Planejado">
+          <Secao titulo="Tecido Planejado" defaultOpen={false}>
             <MultiArtigosField
               label=""
               value={draft.tecidos_planejados}
@@ -1865,7 +1856,7 @@ export function PlanejamentoDetail({
           {/* SETOR — Simulação de custo (oculto p/ comprado — custo vem do produto/OC, não do
               BOM/CAD manufaturado). Após Tecido Planejado; isolada do custo/preço real. */}
           {!isComprado && (
-          <Secao titulo="Simulação de custo">
+          <Secao titulo="Simulação de custo" defaultOpen={false}>
             <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>Estimativa — <strong>não</strong> é o custo nem o preço real (esses vêm do BOM/CAD).</span>
@@ -1917,7 +1908,7 @@ export function PlanejamentoDetail({
               da página; aprovar/reprovar é imediato. Oculto p/ comprado (revenda/importado) — o
               gate de MO já libera sozinho sem linha nenhuma (invariante #8), só a UI some. */}
           {!isComprado && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
-            <Secao titulo="Mão de obra">
+            <Secao titulo="Mão de obra" defaultOpen={false}>
               <MaoObraEditor
                 linhas={moLinhas}
                 categorias={catsServico}
@@ -1940,7 +1931,7 @@ export function PlanejamentoDetail({
           )}
 
           {/* SETOR 5 — Anexos */}
-          <Secao titulo="Anexos">
+          <Secao titulo="Anexos" defaultOpen={false}>
             <div className="grid sm:grid-cols-2 gap-4">
               <SingleFileField
                 label="Foto do Croqui"
@@ -1967,7 +1958,7 @@ export function PlanejamentoDetail({
 
           {/* SETOR 6 — Lançamento (gate: CAD + CQ liberado + valor de serviços aprovado) */}
           {isEdit && (
-            <Secao titulo="Lançamento">
+            <Secao titulo="Lançamento" defaultOpen={false}>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="grid gap-1 flex-1 min-w-[180px]">
                   <Label>Data de Lançamento</Label>
@@ -2016,7 +2007,7 @@ export function PlanejamentoDetail({
             </Secao>
           )}
           {isEdit && modeloId && (
-            <Secao titulo="Produto Relacionado">
+            <Secao titulo="Produto Relacionado" defaultOpen={false}>
               <ProdutoRelacionadoSetor modeloId={modeloId} />
             </Secao>
           )}
