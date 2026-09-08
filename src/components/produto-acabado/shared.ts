@@ -69,6 +69,9 @@ export type ProdutoDraft = {
   // `salvar_produto_acabado`) em `modelos.preco_atacado`/`preco_venda` do espelho.
   markup_atacado: number | null;
   markup_varejo: number | null;
+  // Foto PRÓPRIA do produto (#2.4) — path no bucket "oc-tecido" (como o Importado). O thumb do
+  // card usa esta com fallback pra do modelo espelho.
+  foto_url: string | null;
   modelo_id: string | null;
   // Família de produtos (colecao_mixes). Read-only aqui — associada pelo EditarMixDialog (#4b),
   // NÃO por `montarDadosProduto` (o save do produto não toca mix_id). Alimenta o agrupamento
@@ -192,6 +195,7 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
     desconto_pct: p.oc ? p.oc.desconto_pct : p.desconto_pct,
     markup_atacado: p.markup_atacado,
     markup_varejo: p.markup_varejo,
+    foto_url: p.foto_url ?? null,
     redistribuir: "false",
   };
 }

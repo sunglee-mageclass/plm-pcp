@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, ShoppingCart, Link2, Eraser } from "lucide-react";
+import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, ShoppingCart, Link2, Eraser, ImagePlus, Loader2, Paperclip, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
+import { uploadFile } from "@/components/oc-tecido/shared";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
   variantesBatemComTotal, erroValidacao,
@@ -119,6 +121,23 @@ export function ProdutoCard({
   const [criandoCard, setCriandoCard] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [fazendoPedido, setFazendoPedido] = useState(false);
+  // Foto PRÓPRIA do produto (#2.4) — upload real (bucket "oc-tecido", como o Importado); a URL
+  // assinada dá o preview. O thumb do card usa esta com fallback pra do modelo espelho.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const fotoUrl = useSignedUrl(produto.foto_url, "oc-tecido");
+  const anexarFoto = async (file: File | undefined) => {
+    if (!file) return;
+    setEnviandoFoto(true);
+    try {
+      const path = await uploadFile(file, "produto-acabado");
+      onChange({ ...produto, foto_url: path });
+    } catch (e) {
+      toast.error(mensagemErro(e, "Falha ao anexar a foto."));
+    } finally {
+      setEnviandoFoto(false);
+    }
+  };
 
   const grupoNome = grupos.find((g) => g.id === produto.grupo_id)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === produto.categoria_id)?.nome ?? "";
@@ -384,7 +403,14 @@ export function ProdutoCard({
       )}
       <button type="button" onClick={onToggleOpen} className={`flex w-full items-start gap-2 p-3 text-left ${onToggleSelect ? "pl-8" : ""}`}>
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-        <ModeloResumoFoto fontes={produto.modeloThumbFontes} nome={produto.nome} className="h-16 w-16" />
+        {/* Thumb (#2.4): foto PRÓPRIA do produto tem prioridade; sem ela, cai na do modelo espelho. */}
+        {fotoUrl ? (
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
+            <img src={fotoUrl} alt={produto.nome} className="h-full w-full object-cover" />
+          </div>
+        ) : (
+          <ModeloResumoFoto fontes={produto.modeloThumbFontes} nome={produto.nome} className="h-16 w-16" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{produto.nome}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
@@ -507,6 +533,31 @@ export function ProdutoCard({
                       OC — não fazem parte desta trava. */}
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Identidade</p>
+                    {/* Foto própria do produto (#2.4) — upload/preview/trocar/remover. */}
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[150px] shrink-0 text-sm">Foto</Label>
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { anexarFoto(e.target.files?.[0]); e.target.value = ""; }} />
+                      {produto.foto_url ? (
+                        <div className="flex items-center gap-2">
+                          {fotoUrl ? (
+                            <img src={fotoUrl} alt="Foto do produto" className="h-10 w-10 rounded-md border object-cover" />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted text-muted-foreground"><ImagePlus className="h-4 w-4" /></div>
+                          )}
+                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                            {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Trocar
+                          </Button>
+                          <Button type="button" variant="ghost" size="iconSm" title="Remover foto" onClick={() => onChange({ ...produto, foto_url: null })}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                          {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Anexar
+                        </Button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Nome</Label>
                       <Input className="flex-1" disabled={identidadeTravada} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
