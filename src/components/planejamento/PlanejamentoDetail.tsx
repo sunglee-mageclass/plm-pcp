@@ -546,11 +546,16 @@ export function PlanejamentoDetail({
   const { custo, markupLinha: markup, markupAplicado, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
 
-  // Composição do custo (materiais + mão de obra) p/ o InfoStrip §K do setor Preço, no ramo
-  // MANUFATURADO. Mesma régua do card da lista: materiais = custo total − mão de obra. A MO
-  // acompanha a base do total (real quando o custo confirma, previsto senão) pra a soma sempre
-  // fechar com `custo` (`.real` do RPC = real-quando-confirmado, senão custo_peca_previsto).
+  // Composição do custo — MESMA régua do card da lista (criacao.planejamento.tsx:548-567).
+  //  • maoObraPlanejada = SEMPRE a M.O. PLANEJADA (Σ modelo_servico_mo = mao_obra_previsto). É o que
+  //    o produto REALMENTE tem de M.O.; usada na exibição "M.O. real" da Fase B e no semáforo.
+  //    NUNCA mao_obra_real — essa é só serviço EXTERNO ÷ grade e fica 0 quando a M.O. é toda INTERNA
+  //    (modelo confirmado), fazendo a M.O. "sumir" (R$ 0,00) apesar de existir — o bug que o dono
+  //    pegou no bloco "M.O. que cabe". Ver memória project_custo_calculo_bugs.
+  //  • maoObraSetor = a M.O. EMBUTIDA no `.real` (confirmado → mao_obra_real; senão a prevista). Só
+  //    esta fecha a soma Materiais + M.O. = Custo total do InfoStrip "Custo" (por isso segue aqui).
   const maoObraSetor = Number(custoReal ? (custoData as any)?.mao_obra_real : (custoData as any)?.mao_obra_previsto) || 0;
+  const maoObraPlanejada = Number((custoData as any)?.mao_obra_previsto) || 0;
   const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   const linhaNomeSetor = linhaSetor?.nome ?? null;
@@ -580,7 +585,9 @@ export function PlanejamentoDetail({
   const moMin = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.min);
   const moIdeal = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.ideal);
   const moMax = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.max);
-  const moStatus = statusMO(maoObraSetor, moMin.atingivel, moMin.moMax, moIdeal.atingivel, moIdeal.moMax);
+  // Semáforo compara a M.O. PLANEJADA (o que o produto tem) contra os tetos — NÃO a embutida no
+  // real (que zera com M.O. interna e daria "0" enganoso).
+  const moStatus = statusMO(maoObraPlanejada, moMin.atingivel, moMin.moMax, moIdeal.atingivel, moIdeal.moMax);
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
@@ -1580,7 +1587,10 @@ export function PlanejamentoDetail({
                   link={modeloId ? { onClick: () => setVerDevModeloId(modeloId), label: "Ver no Desenvolvimento" } : undefined}
                   itens={[
                     { label: "Materiais", valor: custo > 0 ? brl(materiaisSetor) : "—" },
-                    { op: "+", label: "Mão de obra", valor: custo > 0 ? brl(maoObraSetor) : "—" },
+                    // M.O. exibida = a PLANEJADA (o que o produto tem), como no card da lista — NÃO a
+                    // embutida no real (que zera com M.O. interna). Materiais e M.O. são números
+                    // independentes; a soma pode não fechar com M.O. interna confirmada (aceito).
+                    { op: "+", label: "Mão de obra", valor: custo > 0 ? brl(maoObraPlanejada) : "—" },
                     {
                       op: "=",
                       label: "Custo total",
@@ -1624,7 +1634,7 @@ export function PlanejamentoDetail({
                   <InfoStrip
                     compact
                     titulo="Preço por faixa de markup"
-                    procedencia="preço que cada faixa de markup pede (custo real × markup)"
+                    procedencia="preço sugerido para cada faixa de markup"
                     itens={[
                       { label: "Mínimo", valor: pfMin.definido ? brl(pfMin.preco) : "—" },
                       { op: "·", label: "Ideal", hint: "(alvo)", valor: pfIdeal.definido ? brl(pfIdeal.preco) : "—" },
@@ -1652,17 +1662,17 @@ export function PlanejamentoDetail({
                     compact
                     titulo="M.O. que cabe por faixa"
                     procedencia={precoVendaDigitado > 0
-                      ? "quanto de mão de obra cabe p/ o markup cair em cada faixa (base: preço p/ venda)"
-                      : "defina o preço p/ venda para ver a M.O. que cabe"}
+                      ? "mão de obra sugerida para cada faixa de markup"
+                      : "preencha o preço para venda para ver os valores sugeridos"}
                     itens={[
                       { label: "Até mínimo", valor: moMin.atingivel ? brl(moMin.moMax) : "—" },
                       { op: "·", label: "Até ideal", hint: "(alvo)", valor: moIdeal.atingivel ? brl(moIdeal.moMax) : "—" },
                       { op: "·", label: "Até máximo", valor: moMax.atingivel ? brl(moMax.moMax) : "—" },
                       {
                         op: "→",
-                        label: "M.O. real",
+                        label: "M.O. do modelo",
                         hi: true,
-                        valor: custo > 0 ? brl(maoObraSetor) : "—",
+                        valor: custo > 0 ? brl(maoObraPlanejada) : "—",
                         badge: precoVendaDigitado <= 0 ? undefined
                           : moStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
                           : moStatus === "min" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
