@@ -5,7 +5,7 @@ import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2, LogOut, Save } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck, ShieldHalf, ArrowLeft, Pencil, Trash2, LogOut, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/admin.functions";
 import { isEmail } from "@/lib/email";
 import { PermissoesModal } from "@/components/admin/PermissoesModal";
+import { GerenciarPapeisDialog, PapelSelect } from "@/components/admin/GerenciarPapeisDialog";
 import { UserActionsMenu, type UserAction } from "@/components/admin/UserActionsMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ type AppUser = {
   tenant_id: string | null;
   role: string;
   ativo: boolean;
+  papel_id: string | null;
 };
 type Tenant = { id: string; nome: string };
 
@@ -67,6 +69,7 @@ function UsuariosPage() {
   const editRequestCloseRef = useRef<(() => void) | null>(null);
   const [resetting, setResetting] = useState<AppUser | null>(null);
   const [permUser, setPermUser] = useState<AppUser | null>(null);
+  const [papeisTenant, setPapeisTenant] = useState<string | null>(null);
   const [editing, setEditing] = useState<AppUser | null>(null);
   const [deleting, setDeleting] = useState<AppUser | null>(null);
   const [confirmLogout, setConfirmLogout] = useState<AppUser | null>(null);
@@ -89,9 +92,9 @@ function UsuariosPage() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin", "users"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("users")
-        .select("id,nome,email,tenant_id,role,ativo")
+        .select("id,nome,email,tenant_id,role,ativo,papel_id") // papel_id: types.ts pendente de regen
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as AppUser[];
@@ -194,17 +197,28 @@ function UsuariosPage() {
         </Dialog>
       </div>
 
-      <div className="max-w-sm">
-        <Label className="text-xs text-muted-foreground">Filtrar por loja</Label>
-        <Select value={tenantFilter} onValueChange={setTenantFilter}>
-          <SelectTrigger className={filtroAtivoClass(tenantFilter !== "all")}><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas as lojas</SelectItem>
-            {tenants.map((t) => (
-              <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex items-end gap-2 flex-wrap">
+        <div className="max-w-sm flex-1 min-w-[220px]">
+          <Label className="text-xs text-muted-foreground">Filtrar por loja</Label>
+          <Select value={tenantFilter} onValueChange={setTenantFilter}>
+            <SelectTrigger className={filtroAtivoClass(tenantFilter !== "all")}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as lojas</SelectItem>
+              {tenants.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {/* Papéis são POR LOJA: escolha uma loja no filtro para gerenciar os papéis dela. */}
+        <Button
+          variant="outline"
+          disabled={tenantFilter === "all"}
+          title={tenantFilter === "all" ? "Escolha uma loja no filtro para gerenciar os papéis dela" : undefined}
+          onClick={() => setPapeisTenant(tenantFilter)}
+        >
+          <ShieldHalf className="h-4 w-4" /> Gerenciar papéis
+        </Button>
       </div>
 
       <div className="border rounded-lg">
@@ -214,23 +228,32 @@ function UsuariosPage() {
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
               <SortHead label="Email" sortKey="email" sortState={sortState} />
               <SortHead label="Loja" sortKey="loja" sortState={sortState} />
-              <SortHead label="Papel" sortKey="role" sortState={sortState} />
+              <SortHead label="Perfil" sortKey="role" sortState={sortState} />
+              <TableHead>Papel</TableHead>
               <SortHead label="Status" sortKey="ativo" sortState={sortState} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <SkeletonTableRow cols={6} />
+              <SkeletonTableRow cols={7} />
             ) : sorted.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário encontrado.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário encontrado.</TableCell></TableRow>
             ) : (
               sorted.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
                   <TableCell data-label="Loja" className="text-sm">{u.tenant_id ? tenantMap[u.tenant_id] ?? "—" : "—"}</TableCell>
-                  <TableCell data-label="Papel"><RoleBadge role={u.role} /></TableCell>
+                  <TableCell data-label="Perfil"><RoleBadge role={u.role} /></TableCell>
+                  <TableCell data-label="Papel">
+                    {/* Papel só p/ usuário comum COM loja; admins furam. Escopo = loja do usuário. */}
+                    {u.role === "user" && u.tenant_id ? (
+                      <PapelSelect userId={u.id} tenantId={u.tenant_id} papelId={u.papel_id} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell data-label="Status">
                     {u.ativo
                       ? <StatusBadge tone="success">Ativo</StatusBadge>
@@ -272,9 +295,13 @@ function UsuariosPage() {
       {permUser && (
         <PermissoesModal
           mode="super"
-          user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id, role: permUser.role }}
+          user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id, role: permUser.role, papel_id: permUser.papel_id }}
           onClose={() => setPermUser(null)}
         />
+      )}
+
+      {papeisTenant && (
+        <GerenciarPapeisDialog tenantId={papeisTenant} open={!!papeisTenant} onClose={() => setPapeisTenant(null)} />
       )}
 
       <Sheet open={!!editing} onOpenChange={(v) => { if (!v) { const rc = editRequestCloseRef.current; if (rc) rc(); else setEditing(null); } }}>

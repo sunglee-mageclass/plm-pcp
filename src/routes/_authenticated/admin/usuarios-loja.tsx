@@ -4,14 +4,16 @@ import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useRef, type MutableRefObject } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, ShieldCheck, LogOut, Trash2, ArrowLeft } from "lucide-react";
+import { Users, Plus, ShieldCheck, ShieldHalf, LogOut, Trash2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { isEmail } from "@/lib/email";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { createStoreUser, deleteStoreUser } from "@/lib/tenant-admin.functions";
 import { PermissoesModal } from "@/components/admin/PermissoesModal";
+import { GerenciarPapeisDialog, PapelSelect } from "@/components/admin/GerenciarPapeisDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,13 +45,16 @@ type LojaUser = {
   email: string;
   role: string;
   ativo: boolean;
+  papel_id: string | null;
 };
 
 function UsuariosLojaPage() {
   const { isTenantAdmin, isSuperAdmin, loading, user } = useAuth();
+  const tenantId = useActiveTenantId();
   const qc = useQueryClient();
   const callDelete = useServerFn(deleteStoreUser);
   const [open, setOpen] = useState(false);
+  const [papeisOpen, setPapeisOpen] = useState(false);
   const novoRequestCloseRef = useRef<(() => void) | null>(null);
   const [permUser, setPermUser] = useState<LojaUser | null>(null);
   const [deleting, setDeleting] = useState<LojaUser | null>(null);
@@ -76,9 +81,9 @@ function UsuariosLojaPage() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["loja", "users"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("users")
-        .select("id,nome,email,role,ativo")
+        .select("id,nome,email,role,ativo,papel_id") // papel_id: types.ts pendente de regen
         .neq("role", "super_admin")
         .order("nome");
       if (error) throw error;
@@ -114,13 +119,18 @@ function UsuariosLojaPage() {
             </p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={(o) => { if (!o) { const rc = novoRequestCloseRef.current; if (rc) rc(); else setOpen(false); } else setOpen(true); }}>
-          <DialogTrigger asChild>
-            <Button className="max-sm:hidden"><Plus className="h-4 w-4" /> Novo Usuário</Button>
-          </DialogTrigger>
-          {/* Monta só quando aberto → campos e baseline do guarda nascem limpos a cada abertura. */}
-          {open && <NovoUsuarioModal onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />}
-        </Dialog>
+        <div className="flex items-center gap-2 max-sm:hidden">
+          <Button variant="outline" onClick={() => setPapeisOpen(true)}>
+            <ShieldHalf className="h-4 w-4" /> Gerenciar papéis
+          </Button>
+          <Dialog open={open} onOpenChange={(o) => { if (!o) { const rc = novoRequestCloseRef.current; if (rc) rc(); else setOpen(false); } else setOpen(true); }}>
+            <DialogTrigger asChild>
+              <Button><Plus className="h-4 w-4" /> Novo Usuário</Button>
+            </DialogTrigger>
+            {/* Monta só quando aberto → campos e baseline do guarda nascem limpos a cada abertura. */}
+            {open && <NovoUsuarioModal onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />}
+          </Dialog>
+        </div>
       </div>
 
       <div className="border rounded-lg">
@@ -129,22 +139,31 @@ function UsuariosLojaPage() {
             <TableRow>
               <SortHead label="Nome" sortKey="nome" sortState={s} />
               <SortHead label="Email" sortKey="email" sortState={s} />
-              <SortHead label="Papel" sortKey="role" sortState={s} />
+              <SortHead label="Perfil" sortKey="role" sortState={s} />
+              <TableHead>Papel</TableHead>
               <SortHead label="Status" sortKey="ativo" sortState={s} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <SkeletonTableRow cols={5} />
+              <SkeletonTableRow cols={6} />
             ) : sorted.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário.</TableCell></TableRow>
             ) : (
               sorted.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
-                  <TableCell data-label="Papel"><RoleBadge role={u.role} /></TableCell>
+                  <TableCell data-label="Perfil"><RoleBadge role={u.role} /></TableCell>
+                  <TableCell data-label="Papel">
+                    {/* Papel só se aplica a usuário comum (admins furam todas as permissões). */}
+                    {u.role === "user" && tenantId ? (
+                      <PapelSelect userId={u.id} tenantId={tenantId} papelId={u.papel_id} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell data-label="Status">
                     {u.ativo
                       ? <StatusBadge tone="success">Ativo</StatusBadge>
@@ -166,6 +185,10 @@ function UsuariosLojaPage() {
       </div>
 
       {permUser && <PermissoesModal mode="tenant" user={permUser} onClose={() => setPermUser(null)} />}
+
+      {papeisOpen && tenantId && (
+        <GerenciarPapeisDialog tenantId={tenantId} open={papeisOpen} onClose={() => setPapeisOpen(false)} />
+      )}
 
       <AlertDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
         <AlertDialogContent>
