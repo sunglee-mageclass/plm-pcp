@@ -37,7 +37,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, type CustoSimInput } from "@/lib/preco";
+import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, statusCusto, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -504,10 +504,11 @@ export function PlanejamentoDetail({
   const { data: catsServico = [] } = useQuery({
     queryKey: ["cats-servico-ativas"],
     queryFn: async () => {
+      // valor_padrao (M.O. sugerida por serviço) — coluna nova; types.ts pendente de regen p/ ela → cast.
       const { data, error } = await (supabase.from("categorias_terceirizado") as any)
-        .select("id, nome, ativo").order("ordem").order("nome");
+        .select("id, nome, ativo, valor_padrao").order("ordem").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; ativo: boolean }[];
+      return (data ?? []) as { id: string; nome: string; ativo: boolean; valor_padrao: number | null }[];
     },
   });
   // Resumo da MO por serviço (RPC mascara valor/total p/ quem não vê custos; {} p/ quem não vê
@@ -565,6 +566,11 @@ export function PlanejamentoDetail({
   const pfIdeal = precoPorFaixa(custo, linhaFaixas?.ideal);
   const pfMax = precoPorFaixa(custo, linhaFaixas?.max);
   const precoStatus = statusPreco(precoEfetivo, pfMin.definido, pfMin.preco, pfIdeal.definido, pfIdeal.preco);
+  // Faixa-ALVO de custo da Linha (custo mín/ideal/máx por peça) → semáforo do custo real (BOM) vs.
+  // meta. Consultivo; aparece só quando a linha tem faixa-alvo cadastrada. Custo real INTOCADO.
+  const custoIdealAlvo = linhaSetor?.custo_ideal ?? null;
+  const custoMaxAlvo = linhaSetor?.custo_max ?? null;
+  const custoStatus = statusCusto(custo, custoIdealAlvo != null, custoIdealAlvo, custoMaxAlvo != null, custoMaxAlvo);
 
   // Fase B (2ª visão) — M.O. que ainda CABE por faixa = precoVenda/markup − materiais. Responde
   // "quanto posso pagar de mão de obra?". ⚠️ Usa o preço de venda DIGITADO (`draft.preco_venda`),
@@ -1582,6 +1588,17 @@ export function PlanejamentoDetail({
                       badge: !custoReal ? <StatusBadge tone="warning">previsto</StatusBadge> : undefined,
                       valor: custo > 0 ? brl(custo) : "—",
                     },
+                    // Semáforo do custo real vs. a faixa-ALVO da Linha (se cadastrada). Consultivo.
+                    ...(custoStatus !== "indef"
+                      ? [{
+                          op: "·",
+                          label: "vs. meta",
+                          hint: custoIdealAlvo != null ? `(ideal ${brl(custoIdealAlvo)})` : undefined,
+                          valor: custoStatus === "ideal" ? <StatusBadge tone="success">dentro da meta</StatusBadge>
+                            : custoStatus === "ok" ? <StatusBadge tone="warning">no limite</StatusBadge>
+                            : <StatusBadge tone="danger">acima da meta</StatusBadge>,
+                        }]
+                      : []),
                   ]}
                 />
                 {/* Bloco ÚNICO sobre markup: o sugerido da linha + as 3 faixas (Mín/Ideal/Máx),

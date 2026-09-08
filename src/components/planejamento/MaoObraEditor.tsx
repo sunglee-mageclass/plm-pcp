@@ -10,7 +10,7 @@ import type { MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
-export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean };
+export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; valor_padrao?: number | null };
 
 /**
  * Editor de MO POR SERVIÇO (Planejamento). VALOR é rascunho local (persiste no Salvar da página
@@ -49,7 +49,10 @@ export function MaoObraEditor({
     onChangeLinhas(linhas.filter((l) => l.categoria_terceirizado_id !== id));
   const adicionar = () => {
     if (!addSel) return;
-    onChangeLinhas([...linhas, { categoria_terceirizado_id: addSel, valor: null, aprovado: null }]);
+    // Sugestão: pré-preenche o valor com o `valor_padrao` do serviço (M.O. sugerida por serviço).
+    // Fica editável; só afeta a linha NOVA. Sem padrão (null) → campo vazio, como antes.
+    const padrao = categorias.find((c) => c.id === addSel)?.valor_padrao ?? null;
+    onChangeLinhas([...linhas, { categoria_terceirizado_id: addSel, valor: padrao != null && padrao > 0 ? padrao : null, aprovado: null }]);
     setAddSel("");
   };
 

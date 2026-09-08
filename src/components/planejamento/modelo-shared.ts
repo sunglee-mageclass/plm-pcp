@@ -14,7 +14,7 @@ export const BUCKET = "modelos";
 export type Opt = { id: string; nome: string };
 export type CatOpt = { id: string; nome: string; grupo_id: string | null };
 export type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null };
-export type LinhaOpt = { id: string; nome: string; markup: number | null; markup_min: number | null; markup_max: number | null };
+export type LinhaOpt = { id: string; nome: string; markup: number | null; markup_min: number | null; markup_max: number | null; custo_min: number | null; custo_ideal: number | null; custo_max: number | null };
 export type SubOpt = { id: string; nome: string; categoria_id: string | null };
 
 // `color` = badge tonalizado (bg claro + texto escuro; passa WCAG AA, ao contrário do

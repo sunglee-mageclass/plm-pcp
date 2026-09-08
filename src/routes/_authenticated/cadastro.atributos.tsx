@@ -344,6 +344,9 @@ const ATTRIBUTES: AttributeItem[] = [
           { value: "pos_costura", label: "Pós costura" },
         ],
       },
+      // Valor sugerido de M.O. por peça deste serviço — pré-preenche o campo no card do modelo
+      // ao adicionar o serviço (editável). Só sugestão; não altera custo (ver migration 20260908260000).
+      extraNumber: { field: "valor_padrao", label: "Valor padrão (R$/peça)", placeholder: "0,00", step: "0.01" },
       usage: [
         { table: "empresa_categorias_servico", column: "categoria_terceirizado_id" }, // CASCADE — vínculo empresa↔serviço
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
