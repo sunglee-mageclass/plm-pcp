@@ -37,7 +37,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { precoInfo, custoSimulado, type CustoSimInput } from "@/lib/preco";
+import { precoInfo, custoSimulado, moPorFaixa, statusMO, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -540,7 +540,7 @@ export function PlanejamentoDetail({
 
   // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
   const custoReal = !!custoData?.confirmado;
-  const { custo, markupLinha: markup, markupAplicado, preco, sugerido: precoSug, markupReal } =
+  const { custo, markupLinha: markup, markupAplicado, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
 
   // Composição do custo (materiais + mão de obra) p/ o InfoStrip §K do setor Preço, no ramo
@@ -555,6 +555,13 @@ export function PlanejamentoDetail({
   const linhaFaixas = linhaSetor
     ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
     : null;
+  // Fase B — M.O. que cabe por faixa (base = preço EFETIVO: venda digitado senão o sugerido).
+  // MO_max(faixa) = precoEfetivo/markup − materiais; o alvo é SEMPRE a faixa da LINHA (markup
+  // editado do modelo não move a meta). Semáforo pinta a M.O. real (maoObraSetor).
+  const moMin = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.min);
+  const moIdeal = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.ideal);
+  const moMax = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.max);
+  const moStatus = statusMO(maoObraSetor, moMin.atingivel, moMin.moMax, moIdeal.atingivel, moIdeal.moMax);
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
@@ -1573,6 +1580,31 @@ export function PlanejamentoDetail({
                       : []),
                   ]}
                 />
+                {/* Fase B — M.O. que cabe por faixa (base = preço efetivo). Tetos por faixa +
+                    semáforo na M.O. real. Sempre visível (decisão do dono): sem base vira "—". */}
+                {podeVerCustos && (
+                  <InfoStrip
+                    compact
+                    titulo="M.O. que cabe por faixa"
+                    procedencia="quanto de mão de obra cabe p/ o markup cair em cada faixa (base: preço efetivo)"
+                    itens={[
+                      { label: "Até mínimo", valor: moMin.atingivel ? brl(moMin.moMax) : "—" },
+                      { op: "·", label: "Até ideal", hint: "(alvo)", valor: moIdeal.atingivel ? brl(moIdeal.moMax) : "—" },
+                      { op: "·", label: "Até máximo", valor: moMax.atingivel ? brl(moMax.moMax) : "—" },
+                      {
+                        op: "→",
+                        label: "M.O. real",
+                        hi: true,
+                        valor: custo > 0 ? brl(maoObraSetor) : "—",
+                        badge:
+                          moStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
+                          : moStatus === "min" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
+                          : moStatus === "estoura" ? <StatusBadge tone="danger">acima do mínimo</StatusBadge>
+                          : undefined,
+                      },
+                    ]}
+                  />
+                )}
                 {podeVerCustos && (
                   <div className="grid gap-1">
                     <Label>

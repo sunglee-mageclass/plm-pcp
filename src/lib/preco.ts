@@ -47,6 +47,47 @@ export function precoInfo(custo: unknown, markupLinha: unknown, precoVenda: unkn
 }
 
 /**
+ * Markup Fase B — M.O. máxima que cabe para o preço cair numa faixa de markup.
+ *
+ * Invertendo preço = custo × markup, com custo = materiais + mão de obra:
+ *   MO_max(faixa) = precoEfetivo / markup_da_faixa − materiais
+ * Como mín < ideal < máx ⇒ MO_max(mín) > MO_max(ideal) > MO_max(máx) — a faixa máx é
+ * a M.O. mais apertada. `atingivel = false` quando não há base (markup/preço ≤ 0) ou
+ * quando os materiais sozinhos já estouram o markup (moMax < 0) — aí a faixa é inatingível
+ * e a UI mostra "—" em vez de um número negativo enganoso.
+ */
+export type FaixaMO = { markup: number; moMax: number; atingivel: boolean };
+
+export function moPorFaixa(precoEfetivo: unknown, materiais: unknown, markup: unknown): FaixaMO {
+  const preco = Number(precoEfetivo) || 0;
+  const mat = Number(materiais) || 0;
+  const mk = Number(markup) || 0;
+  if (!(mk > 0) || !(preco > 0)) return { markup: mk, moMax: 0, atingivel: false };
+  const moMax = preco / mk - mat;
+  return { markup: mk, moMax, atingivel: moMax >= 0 };
+}
+
+/**
+ * Semáforo da M.O. real do modelo contra os tetos das faixas (mín/ideal da LINHA).
+ * 'ideal' (verde) = M.O. real cabe até o teto da faixa ideal; 'min' (âmbar) = cabe só até
+ * o teto da mín (entre ideal e mín); 'estoura' (vermelho) = passa até do teto da mín.
+ * 'indef' = sem base p/ decidir (faixa ideal e mín ausentes/inatingíveis).
+ * Comparações inclusivas (≤) — bater o teto exato ainda "cabe".
+ */
+export type StatusFaixa = "ideal" | "min" | "estoura" | "indef";
+
+export function statusMO(moReal: unknown, moMinAtingivel: boolean, moMinMax: unknown, moIdealAtingivel: boolean, moIdealMax: unknown): StatusFaixa {
+  const real = Number(moReal) || 0;
+  const idealMax = Number(moIdealMax) || 0;
+  const minMax = Number(moMinMax) || 0;
+  if (moIdealAtingivel && real <= idealMax) return "ideal";
+  if (moMinAtingivel && real <= minMax) return "min";
+  // Estoura só faz sentido quando há ALGUM teto de referência atingível; senão indef.
+  if (moIdealAtingivel || moMinAtingivel) return "estoura";
+  return "indef";
+}
+
+/**
  * Simulação de custo do Planejamento (manual, isolada do custo real do BOM/CAD).
  * Valores previstos que o usuário digita no card. Ver design 2026-07-21.
  */
