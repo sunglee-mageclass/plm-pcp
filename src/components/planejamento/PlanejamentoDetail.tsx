@@ -37,7 +37,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
-import { precoInfo, custoSimulado, moPorFaixa, statusMO, type CustoSimInput } from "@/lib/preco";
+import { precoInfo, custoSimulado, precoPorFaixa, statusPreco, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -555,13 +555,14 @@ export function PlanejamentoDetail({
   const linhaFaixas = linhaSetor
     ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
     : null;
-  // Fase B — M.O. que cabe por faixa (base = preço EFETIVO: venda digitado senão o sugerido).
-  // MO_max(faixa) = precoEfetivo/markup − materiais; o alvo é SEMPRE a faixa da LINHA (markup
-  // editado do modelo não move a meta). Semáforo pinta a M.O. real (maoObraSetor).
-  const moMin = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.min);
-  const moIdeal = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.ideal);
-  const moMax = moPorFaixa(precoEfetivo, materiaisSetor, linhaFaixas?.max);
-  const moStatus = statusMO(maoObraSetor, moMin.atingivel, moMin.moMax, moIdeal.atingivel, moIdeal.moMax);
+  // Fase B (reformulada) — PREÇO que cada faixa de markup pede = custo real × markup (mín/ideal/máx
+  // da LINHA). Usa só o custo TOTAL (confiável); NÃO decompõe materiais/M.O. (a M.O. interna prevista
+  // não está dentro do custo → "materiais = custo − MO" dava valores sem sentido). Semáforo compara o
+  // preço de venda efetivo: ≥ ideal (verde) / ≥ mín (âmbar) / < mín (vermelho); preço alto não alarma.
+  const pfMin = precoPorFaixa(custo, linhaFaixas?.min);
+  const pfIdeal = precoPorFaixa(custo, linhaFaixas?.ideal);
+  const pfMax = precoPorFaixa(custo, linhaFaixas?.max);
+  const precoStatus = statusPreco(precoEfetivo, pfMin.definido, pfMin.preco, pfIdeal.definido, pfIdeal.preco);
 
   // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
   // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
@@ -1580,26 +1581,26 @@ export function PlanejamentoDetail({
                       : []),
                   ]}
                 />
-                {/* Fase B — M.O. que cabe por faixa (base = preço efetivo). Tetos por faixa +
-                    semáforo na M.O. real. Sempre visível (decisão do dono): sem base vira "—". */}
+                {/* Fase B — preço que cada faixa de markup pede (custo real × markup). Semáforo no
+                    preço de venda. Sempre visível (decisão do dono): sem custo/faixa vira "—". */}
                 {podeVerCustos && (
                   <InfoStrip
                     compact
-                    titulo="M.O. que cabe por faixa"
-                    procedencia="quanto de mão de obra cabe p/ o markup cair em cada faixa (base: preço efetivo)"
+                    titulo="Preço por faixa de markup"
+                    procedencia="preço que cada faixa de markup pede (custo real × markup)"
                     itens={[
-                      { label: "Até mínimo", valor: moMin.atingivel ? brl(moMin.moMax) : "—" },
-                      { op: "·", label: "Até ideal", hint: "(alvo)", valor: moIdeal.atingivel ? brl(moIdeal.moMax) : "—" },
-                      { op: "·", label: "Até máximo", valor: moMax.atingivel ? brl(moMax.moMax) : "—" },
+                      { label: "Mínimo", valor: pfMin.definido ? brl(pfMin.preco) : "—" },
+                      { op: "·", label: "Ideal", hint: "(alvo)", valor: pfIdeal.definido ? brl(pfIdeal.preco) : "—" },
+                      { op: "·", label: "Máximo", valor: pfMax.definido ? brl(pfMax.preco) : "—" },
                       {
                         op: "→",
-                        label: "M.O. real",
+                        label: "Preço p/ venda",
                         hi: true,
-                        valor: custo > 0 ? brl(maoObraSetor) : "—",
+                        valor: precoEfetivo > 0 ? brl(precoEfetivo) : "—",
                         badge:
-                          moStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
-                          : moStatus === "min" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
-                          : moStatus === "estoura" ? <StatusBadge tone="danger">acima do mínimo</StatusBadge>
+                          precoStatus === "ideal" ? <StatusBadge tone="success">dentro do ideal</StatusBadge>
+                          : precoStatus === "min" ? <StatusBadge tone="warning">abaixo do ideal</StatusBadge>
+                          : precoStatus === "abaixo" ? <StatusBadge tone="danger">abaixo do mínimo</StatusBadge>
                           : undefined,
                       },
                     ]}

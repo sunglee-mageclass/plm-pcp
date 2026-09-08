@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precoSugerido, precoInfo, custoSimulado, moPorFaixa, statusMO } from "@/lib/preco";
+import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco } from "@/lib/preco";
 
 describe("preco — custoSimulado (simulação de custo do Planejamento)", () => {
   it("tecido = consumo × preço/m; total soma aviamento + mão de obra", () => {
@@ -68,52 +68,49 @@ describe("preco — markup aplicado por modelo (4º parâmetro, markup_editado)"
   });
 });
 
-describe("preco — Fase B: moPorFaixa (M.O. que cabe por faixa de markup)", () => {
-  it("MO_max = preço / markup − materiais; mín < ideal < máx ⇒ MO decrescente", () => {
-    // preço efetivo 210, materiais 40; faixas 2,0 / 2,5 / 3,0
-    const min = moPorFaixa(210, 40, 2.0);
-    const ideal = moPorFaixa(210, 40, 2.5);
-    const max = moPorFaixa(210, 40, 3.0);
-    expect(min.moMax).toBeCloseTo(210 / 2.0 - 40, 5); // 65
-    expect(ideal.moMax).toBeCloseTo(210 / 2.5 - 40, 5); // 44
-    expect(max.moMax).toBeCloseTo(210 / 3.0 - 40, 5); // 30
-    expect(min.moMax).toBeGreaterThan(ideal.moMax);
-    expect(ideal.moMax).toBeGreaterThan(max.moMax);
-    expect(min.atingivel && ideal.atingivel && max.atingivel).toBe(true);
+describe("preco — Fase B: precoPorFaixa (preço que cada faixa de markup pede)", () => {
+  it("preço = custo × markup; mín < ideal < máx ⇒ preços crescentes", () => {
+    // custo 42; faixas 2,0 / 2,5 / 3,0
+    const min = precoPorFaixa(42, 2.0);
+    const ideal = precoPorFaixa(42, 2.5);
+    const max = precoPorFaixa(42, 3.0);
+    expect(min.preco).toBeCloseTo(84, 5);
+    expect(ideal.preco).toBeCloseTo(105, 5);
+    expect(max.preco).toBeCloseTo(126, 5);
+    expect(min.preco).toBeLessThan(ideal.preco);
+    expect(ideal.preco).toBeLessThan(max.preco);
+    expect(min.definido && ideal.definido && max.definido).toBe(true);
   });
 
-  it("materiais que já estouram o markup → moMax<0 → inatingível", () => {
-    // materiais 80, preço 210, markup 3 → 70 − 80 = −10 (a faixa máx não cabe)
-    const r = moPorFaixa(210, 80, 3.0);
-    expect(r.moMax).toBeCloseTo(-10, 5);
-    expect(r.atingivel).toBe(false);
-  });
-
-  it("sem preço ou sem markup → inatingível (base ausente), sem número negativo", () => {
-    expect(moPorFaixa(0, 40, 2.5)).toEqual({ markup: 2.5, moMax: 0, atingivel: false });
-    expect(moPorFaixa(210, 40, 0)).toEqual({ markup: 0, moMax: 0, atingivel: false });
-    expect(moPorFaixa(null, null, null)).toEqual({ markup: 0, moMax: 0, atingivel: false });
+  it("sem custo ou sem markup → não definido (UI mostra —)", () => {
+    expect(precoPorFaixa(0, 2.5)).toEqual({ markup: 2.5, preco: 0, definido: false });
+    expect(precoPorFaixa(42, 0)).toEqual({ markup: 0, preco: 0, definido: false });
+    expect(precoPorFaixa(null, null)).toEqual({ markup: 0, preco: 0, definido: false });
   });
 });
 
-describe("preco — Fase B: statusMO (semáforo da M.O. real)", () => {
-  // tetos: ideal 44, mín 65 (materiais 40, preço 210)
-  it("M.O. real dentro do ideal → 'ideal' (verde), inclusive no teto exato", () => {
-    expect(statusMO(30, true, 65, true, 44)).toBe("ideal");
-    expect(statusMO(44, true, 65, true, 44)).toBe("ideal"); // bate o teto ainda cabe
+describe("preco — Fase B: statusPreco (semáforo do preço de venda)", () => {
+  // preços das faixas: mín 84, ideal 105 (custo 42)
+  it("preço ≥ ideal → 'ideal' (verde), inclusive no valor exato", () => {
+    expect(statusPreco(120, true, 84, true, 105)).toBe("ideal");
+    expect(statusPreco(105, true, 84, true, 105)).toBe("ideal");
   });
-  it("acima do ideal mas dentro do mín → 'min' (âmbar)", () => {
-    expect(statusMO(55, true, 65, true, 44)).toBe("min");
-    expect(statusMO(65, true, 65, true, 44)).toBe("min"); // teto da mín inclusivo
+  it("preço alto NUNCA alarma (markup alto = lucro)", () => {
+    expect(statusPreco(500, true, 84, true, 105)).toBe("ideal");
   });
-  it("acima do teto da mín → 'estoura' (vermelho)", () => {
-    expect(statusMO(80, true, 65, true, 44)).toBe("estoura");
+  it("entre mín e ideal → 'min' (âmbar)", () => {
+    expect(statusPreco(99, true, 84, true, 105)).toBe("min");
+    expect(statusPreco(84, true, 84, true, 105)).toBe("min"); // teto da mín inclusivo
   });
-  it("sem nenhum teto atingível → 'indef' (—)", () => {
-    expect(statusMO(30, false, 0, false, 0)).toBe("indef");
+  it("abaixo do mínimo → 'abaixo' (vermelho)", () => {
+    expect(statusPreco(70, true, 84, true, 105)).toBe("abaixo");
   });
-  it("só a faixa mín atingível (ideal inatingível) ainda decide", () => {
-    expect(statusMO(50, true, 65, false, 0)).toBe("min");
-    expect(statusMO(70, true, 65, false, 0)).toBe("estoura");
+  it("sem preço ou sem faixa → 'indef' (—)", () => {
+    expect(statusPreco(0, true, 84, true, 105)).toBe("indef");
+    expect(statusPreco(99, false, 0, false, 0)).toBe("indef");
+  });
+  it("só a faixa mín definida (ideal ausente) ainda decide", () => {
+    expect(statusPreco(90, true, 84, false, 0)).toBe("min");
+    expect(statusPreco(70, true, 84, false, 0)).toBe("abaixo");
   });
 });
