@@ -215,8 +215,8 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
         </Dialog>
       </div>
 
-      <div className="rounded-md border">
-        <Table>
+      <div className="rounded-md border max-md:border-0">
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
@@ -239,16 +239,16 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
                       ? <Input value={edNome} onChange={(e) => setEdNome(e.target.value)} className="h-8" />
                       : <span className="text-sm">{l.nome}</span>}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {editing ? <NumberInput blankZero placeholder="—" value={edMin} onChange={(e) => setEdMin(e.target.value)} aria-invalid={edInval.min} className={"h-8 text-right" + (edInval.min ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup_min)}
+                  <TableCell data-label="Mínimo" className="text-right tabular-nums">
+                    {editing ? <NumberInput blankZero placeholder="—" value={edMin} onChange={(e) => setEdMin(e.target.value)} aria-invalid={edInval.min} className={"h-8 text-right max-md:w-24" + (edInval.min ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup_min)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {editing ? <NumberInput blankZero placeholder="—" value={edIdeal} onChange={(e) => setEdIdeal(e.target.value)} aria-invalid={edInval.ideal} className={"h-8 text-right" + (edInval.ideal ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup)}
+                  <TableCell data-label="Ideal" className="text-right tabular-nums">
+                    {editing ? <NumberInput blankZero placeholder="—" value={edIdeal} onChange={(e) => setEdIdeal(e.target.value)} aria-invalid={edInval.ideal} className={"h-8 text-right max-md:w-24" + (edInval.ideal ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {editing ? <NumberInput blankZero placeholder="—" value={edMax} onChange={(e) => setEdMax(e.target.value)} aria-invalid={edInval.max} className={"h-8 text-right" + (edInval.max ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup_max)}
+                  <TableCell data-label="Máximo" className="text-right tabular-nums">
+                    {editing ? <NumberInput blankZero placeholder="—" value={edMax} onChange={(e) => setEdMax(e.target.value)} aria-invalid={edInval.max} className={"h-8 text-right max-md:w-24" + (edInval.max ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup_max)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell data-label="Ações" className="text-right">
                     {editing ? (
                       <div className="flex justify-end gap-1">
                         <Button size="iconSm" variant="ghost" onClick={() => salvarMut.mutate(l.id)} disabled={salvarMut.isPending || edTemErro} title={edTemErro ? "Corrija a ordem Mín ≤ Ideal ≤ Máx" : "Salvar"}><Check className="h-4 w-4" /></Button>

@@ -612,9 +612,13 @@ export function AttributeTab({
                 const sublinha = subParts.join(" · ");
                 return (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
-                  {/* MOBILE: card de leitura — .card-table-atrib esconde as demais td; editar = lápis → Sheet */}
+                  {/* MOBILE: card de leitura — .card-table-atrib esconde as demais td; editar = lápis → Sheet.
+                      `items-start` + a PRIMEIRA linha (checkbox/nome/ações) com h-11: o checkbox e os
+                      botões ficam alinhados com o NOME (não com o centro do card), então não desalinham
+                      quando há sublinha (ex.: Cor apelido) nem quando não há (ex.: Cores base). A
+                      sublinha, quando existe, cai ABAIXO dessa linha. */}
                   <TableCell data-label="card" className="md:hidden">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-start gap-1">
                       {showCheck && (
                         <span
                           className="-ml-2 flex h-11 w-9 shrink-0 items-center justify-center"
@@ -630,8 +634,8 @@ export function AttributeTab({
                           )}
                         </span>
                       )}
-                      <div className="min-w-0 flex-1 py-1">
-                        <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex h-11 items-center gap-2">
                           <span className="truncate text-sm font-semibold">{row[config.nameField]}</span>
                           {isProtected(row) && (
                             <Badge variant="secondary" className="shrink-0 text-[10px]">fixo</Badge>
@@ -640,13 +644,15 @@ export function AttributeTab({
                             <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">Inativo</Badge>
                           )}
                         </div>
-                        {/* Altura reservada p/ até 2 linhas (min-h) mesmo sem sublinha ou com só 1 linha —
-                            todos os cards da MESMA lista saem com a mesma altura (uniformidade visual). */}
-                        <div className="line-clamp-2 min-h-[2rem] text-xs leading-4 text-muted-foreground">
-                          {sublinha}
-                        </div>
+                        {/* Sublinha só quando HÁ conteúdo (Grupo/extra/enum) — sem reservar altura vazia
+                            (o desalinhamento das listas só-nome vinha do min-h vazio). */}
+                        {sublinha && (
+                          <div className="line-clamp-2 pb-1 text-xs leading-4 text-muted-foreground">
+                            {sublinha}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex shrink-0 items-center">
+                      <div className="flex h-11 shrink-0 items-center">
                         <Button size="icon" variant="ghost" aria-label="Editar"
                           onClick={() => openEditSheet(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
