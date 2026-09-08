@@ -324,6 +324,39 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     onError: (e: any) => toast.error(mensagemErro(e, "Falha ao excluir.")),
   });
   const removeDraft = (id: string) => excluirMut.mutate(id);
+
+  // "Limpar card" (#4c): zera o rascunho mantendo o card na lista. Rascunho LOCAL ("novo-") =
+  // reset só no estado (nada no banco); PERSISTIDO = RPC dedicada (o save usa COALESCE e não
+  // zeraria o nome). Preserva id/colecao/subcolecao/modelo_id(null)/mix_id/ref.
+  const limparMut = useMutation({
+    mutationFn: async (d: ProdutoImportadoDraft) => {
+      if (d.id && !d.id.startsWith("novo-")) {
+        const { error } = await supabase.rpc("limpar_produto_importado" as any, { _produto_id: d.id });
+        if (error) throw error;
+      }
+      return d;
+    },
+    onSuccess: (d) => {
+      // Estado zerado = card recém-criado (emptyDraft: 1 variante + 3 etapas default), preservando
+      // a identidade (id/modelo_id/mix_id/ref). A RPC zera as moedas p/ RMB/USD (default do emptyDraft),
+      // então banco e front ficam COERENTES (achado D2).
+      const vazio = emptyDraft(d.colecao_id, d.subcolecao);
+      const persistido = !!d.id && !d.id.startsWith("novo-");
+      setDrafts((ds) => {
+        const next = ds.map((x) => (x.id === d.id
+          ? { ...vazio, id: d.id, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null }
+          : x));
+        // Persistido: o produto já está limpo no banco → rebaseline p/ o Sheet não ficar "sujo"
+        // por um estado já salvo (achado C4/D2). Local ("novo-"): segue como rascunho não salvo.
+        if (persistido) setBaseline(JSON.stringify(next));
+        return next;
+      });
+      if (persistido) qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+      toast.success("Card limpo.");
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao limpar.")),
+  });
+  const limparDraft = (d: ProdutoImportadoDraft) => limparMut.mutate(d);
   // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
   // um fecha os demais — o card fechado é compacto (só o header-resumo).
   // Abre/fecha um card. Permite VÁRIOS abertos (necessário p/ o "Expandir todos" do RecolherMenu).
@@ -544,6 +577,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             empresas={empresas}
             tamanhos={tamanhos}
             onExcluir={() => removeDraft(d.id!)}
+            onLimpar={() => limparDraft(d)}
             onSalvarProduto={salvarUmProduto}
             onPedidoCriado={() => {
               // A navegação pra OC (`/entrada-saida/oc-p-importado?oc=<id>`) acontece dentro do

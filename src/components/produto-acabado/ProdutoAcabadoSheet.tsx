@@ -507,6 +507,19 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => patchProduto(p.id, { oc })}
             onExcluido={() => removeProduto(p.id)}
+            onLimpo={() => {
+              // RPC já zerou no banco: zera o draft local (mesmos campos; preserva id/col/sub/ref/mix)
+              // E rebaseline, senão o Sheet ficaria "sujo" p/ um estado já persistido (achado C4).
+              const limpo: ProdutoDraft = {
+                ...p,
+                nome: "", grupo_id: null, categoria_id: null, subcategoria1_id: null, subcategoria2_id: null,
+                semana: null, empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
+                grade_proporcao: {}, qtd_total: 0, valor_unitario: 0, desconto_pct: 0, insumos_total: 0,
+                markup_atacado: null, markup_varejo: null, variantes: [],
+              };
+              changeProduto(limpo);
+              marcarProdutoLimpo(limpo);
+            }}
             onAbrirPlanejamento={setPlanModeloId}
           />
         </div>

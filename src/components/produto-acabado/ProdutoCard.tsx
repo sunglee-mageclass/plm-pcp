@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, ShoppingCart, Link2 } from "lucide-react";
+import { ChevronRight, MoreHorizontal, ExternalLink, RefreshCw, Plus, Trash2, ShoppingCart, Link2, Eraser } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,7 @@ export function ProdutoCard({
   onCardCriado,
   onOcVinculada,
   onExcluido,
+  onLimpo,
   onAbrirPlanejamento,
 }: {
   produto: ProdutoDraft;
@@ -97,6 +98,8 @@ export function ProdutoCard({
   onCardCriado: (modeloId: string) => void;
   onOcVinculada: (oc: OcVinculadaInfo | null) => void;
   onExcluido: () => void;
+  /** Após limpar (#4c): o Sheet zera o draft no estado E rebaseline (produto já limpo no banco). */
+  onLimpo: () => void;
   /** Abre o `PlanejamentoDetail` INLINE no sheet-pai (ProdutoAcabadoSheet) em vez de navegar
    *  pra `/criacao/planejamento` — ausente (outros usos futuros do ProdutoCard) cai no navigate
    *  antigo como fallback. */
@@ -105,6 +108,7 @@ export function ProdutoCard({
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [confirmExcluir, setConfirmExcluir] = useState(false);
+  const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [vincularOpen, setVincularOpen] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
   const [aplicando, setAplicando] = useState(false);
@@ -210,6 +214,24 @@ export function ProdutoCard({
     },
     onSuccess: () => { toast.success("Produto excluído."); setConfirmExcluir(false); onExcluido(); invalidarVizinhos(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
+  });
+
+  // "Limpar card" (#4c): zera os campos do RASCUNHO (mantém o card vazio na lista). RPC dedicada
+  // (o save normal usa COALESCE e não zeraria o nome). Preserva id/colecao/subcolecao/ref/mix.
+  const limparMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("limpar_produto_acabado" as any, { _produto_id: produto.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Card limpo.");
+      setConfirmLimpar(false);
+      // O Sheet reflete o estado zerado no draft E rebaseline (o produto já está limpo no banco —
+      // sem isto o Sheet ficaria "sujo" p/ um estado já persistido, achado C4 da revisão).
+      onLimpo();
+      invalidarVizinhos();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao limpar.")),
   });
 
   // ── OC vinculada (seção 3) ──
@@ -409,6 +431,19 @@ export function ProdutoCard({
               </button>
             </PopoverClose>
             <div className="my-1 border-t" />
+            {/* Limpar card (#4c): zera o rascunho mantendo o card vazio. Só em rascunho (sem card)
+                e sem OC vinculada — a RPC também barra no servidor. */}
+            <PopoverClose asChild>
+              <button
+                type="button"
+                disabled={!!produto.modelo_id || temOc}
+                title={produto.modelo_id ? "Este produto já tem card" : temOc ? "Desvincule a OC antes de limpar" : "Zera os campos, mantendo o card vazio"}
+                onClick={() => setConfirmLimpar(true)}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Eraser className="h-4 w-4 shrink-0" /> Limpar card
+              </button>
+            </PopoverClose>
             <button
               type="button"
               onClick={() => setConfirmExcluir(true)}
@@ -825,6 +860,25 @@ export function ProdutoCard({
                 Excluir
               </AlertDialogAction>
             )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Limpar card (#4c) — zera o rascunho, mantém o card vazio na lista */}
+      <AlertDialog open={confirmLimpar} onOpenChange={setConfirmLimpar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpar card?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Os campos deste rascunho (nome, categoria, variantes, valores…) serão zerados. O card
+              continua na lista, vazio, na mesma posição — a REF é preservada. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => limparMut.mutate()}>
+              Limpar
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

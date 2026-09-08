@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, ShoppingCart } from "lucide-react";
+import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
 import { fmtInt } from "@/lib/format";
@@ -119,6 +120,23 @@ export function ModelCard({
   // Guarda vazio-sobre-preenchido (backend RAISE P0001, hint 'plan_tecido_sobrescrita'):
   // guarda a mensagem PT do banco p/ o 2º AlertDialog de confirmação.
   const [sobrescritaMsg, setSobrescritaMsg] = useState<string | null>(null);
+  const [confirmLimpar, setConfirmLimpar] = useState(false);
+
+  // "Limpar slot" (#4c): zera o rascunho do slot MANTENDO a vaga (id/slot_index). Só p/ slot SEM
+  // modelo (vaga). É estado LOCAL da árvore (persiste no Save do Plan.Tecido — delete+reinsert),
+  // sem RPC. Preserva id/slot_index; limpa materiais/BOM/categoria/mix/proporções/custos/nome/ref.
+  const limparSlot = () => {
+    onChange({
+      id: slot.id, slot_index: slot.slot_index, modelo_id: null,
+      ref: null, nome: null, thumb_path: null, referencia_paths: [],
+      proporcoes: null, categoria_id: null, categoria_tecido_id: null, mix_id: null,
+      linha_id: null, markup_editado: null, preco_venda: null,
+      custo_simulado: null, custo_terceirizados_previsto: null, custos_adicionais: [],
+      usar_estoque: slot.usar_estoque, materiais: [],
+    });
+    setConfirmLimpar(false);
+    toast.success("Slot limpo.");
+  };
 
   // "Criar card no Planejamento" (que ficava aqui, por card) SAIU pra barra de seleção do
   // PlanTecidoSheet (G6 — criação em massa). `podeCriarCard`/`criarCard` foram removidos deste
@@ -307,6 +325,31 @@ export function ModelCard({
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
           <ReferenciaDialog slot={slot} onChange={onChange} />
+          {/* Limpar slot (#4c): só em VAGA (slot sem modelo). Zera o rascunho mantendo a vaga. */}
+          {!slot.modelo_id && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Mais ações"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </span>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => setConfirmLimpar(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted"
+                >
+                  <Eraser className="h-4 w-4 shrink-0" /> Limpar slot
+                </button>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {!open && necTecidos.length > 0 && (
           <div className="space-y-1.5 border-t px-2 py-1.5">
@@ -516,6 +559,23 @@ export function ModelCard({
             <AlertDialogAction variant="destructive" disabled={aplicandoGrade} onClick={() => aplicarAoModelo(true)}>
               Aplicar mesmo assim
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Limpar slot (#4c) — zera o rascunho da vaga, mantém a vaga na lista */}
+      <AlertDialog open={confirmLimpar} onOpenChange={setConfirmLimpar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpar slot?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Zera os dados deste slot (tecidos, categoria, família, custos, nome…). A vaga continua
+              na lista, vazia, na mesma posição. A limpeza é aplicada ao salvar o plano.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={limparSlot}>Limpar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import { ChevronRight, Eraser, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadFile } from "@/components/oc-tecido/shared";
@@ -102,6 +102,7 @@ export function ProdutoImportadoCard({
   empresas,
   tamanhos,
   onExcluir,
+  onLimpar,
   onSalvarProduto,
   onPedidoCriado,
 }: {
@@ -121,6 +122,8 @@ export function ProdutoImportadoCard({
   empresas: EmpresaFornecedor[];
   tamanhos: string[];
   onExcluir: () => void;
+  /** Limpar card (#4c): zera o rascunho mantendo o card vazio. O Sheet decide local vs RPC. */
+  onLimpar?: () => void;
   /** Save de UM produto (RPC `salvar_produto_importado`), reusado do `ProdutoImportadoSheet` —
    *  "Fazer pedido" chama isto ANTES de gerar a OC, pra nunca criar um pedido em cima de um
    *  rascunho ainda não persistido (espelha `ProdutoCard.onSalvarProduto`, revenda). Opcional:
@@ -132,6 +135,7 @@ export function ProdutoImportadoCard({
 }) {
   const navigate = useNavigate();
   const [confirmExcluir, setConfirmExcluir] = useState(false);
+  const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [fazendoPedido, setFazendoPedido] = useState(false);
   // Accordion CONTROLADO (state próprio) — com `defaultValue` (uncontrolled) a seção fechava
   // ao editar um campo (re-render do card resetava o estado interno do Radix). Controlar aqui
@@ -338,6 +342,21 @@ export function ProdutoImportadoCard({
             </span>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
+            {/* Limpar card (#4c): zera o rascunho mantendo o card vazio. Só em rascunho (sem card).
+                Guarda de OC é no servidor (o draft do importado não rastreia OC). */}
+            {onLimpar && (
+              <PopoverClose asChild>
+                <button
+                  type="button"
+                  disabled={!!draft.modelo_id}
+                  title={draft.modelo_id ? "Este produto já tem card" : "Zera os campos, mantendo o card vazio"}
+                  onClick={() => setConfirmLimpar(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Eraser className="h-4 w-4 shrink-0" /> Limpar card
+                </button>
+              </PopoverClose>
+            )}
             <PopoverClose asChild>
               <button
                 type="button"
@@ -759,11 +778,28 @@ export function ProdutoImportadoCard({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir produto?</AlertDialogTitle>
-            <AlertDialogDescription>Esta ação remove o rascunho local — nada foi persistido no banco ainda (Fase 1).</AlertDialogDescription>
+            <AlertDialogDescription>Esta ação remove o produto e suas variantes/etapas. Não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => { setConfirmExcluir(false); onExcluir(); }}>Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Limpar card (#4c) — zera o rascunho, mantém o card vazio na lista */}
+      <AlertDialog open={confirmLimpar} onOpenChange={setConfirmLimpar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpar card?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Os campos deste rascunho (nome, categoria, variantes, etapas, câmbio…) serão zerados. O
+              card continua na lista, vazio, na mesma posição — a REF é preservada. Não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirmLimpar(false); onLimpar?.(); }}>Limpar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
