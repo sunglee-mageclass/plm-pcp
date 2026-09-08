@@ -54,10 +54,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
     queryKey: ["papel-perms", user.papel_id],
     enabled: !!user.papel_id && !isAdminRole,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("papel_permissoes")
         .select("pagina,pode_ver,pode_editar")
-        .eq("papel_id", user.papel_id);
+        .eq("papel_id", user.papel_id!); // enabled: !!user.papel_id garante presença
       if (error) throw error;
       return data as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
     },
@@ -323,10 +323,10 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
     queryKey: ["papel-perms", papel.id],
     enabled: !!papel.id,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("papel_permissoes")
         .select("pagina,pode_ver,pode_editar")
-        .eq("papel_id", papel.id);
+        .eq("papel_id", papel.id!); // enabled: !!papel.id garante presença
       if (error) throw error;
       return data as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
     },

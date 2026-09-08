@@ -39,8 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // devolve exatamente as user_permissions dele (retrocompatível). Ver #4d.
           const [{ data: rolesData }, { data: permsData }] = await Promise.all([
             supabase.from("user_roles").select("role").eq("user_id", uid),
-            // RPC nova (#4d) — types.ts pendente de regen (precisa supabase login); cast.
-            supabase.rpc("minhas_permissoes_efetivas" as any),
+            supabase.rpc("minhas_permissoes_efetivas"),
           ]);
           const roles = (rolesData ?? []).map((r) => r.role);
           setIsSuperAdmin(roles.includes("super_admin"));

@@ -25,13 +25,15 @@ export const salvarPapel = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context }) => {
-    const { data: pid, error } = await context.supabase.rpc("salvar_papel" as any, {
-      _id: data.id,
+    const { data: pid, error } = await context.supabase.rpc("salvar_papel", {
+      // _id (null = criar novo) e _descricao são nullable na RPC SQL, mas o types.ts gerado
+      // os marca como string não-nula — cast pontual no argumento nullable (não no cliente todo).
+      _id: data.id as string,
       _tenant_id: data.tenant_id,
       _nome: data.nome,
-      _descricao: data.descricao,
+      _descricao: data.descricao as string,
       _perms: data.perms,
-    } as any);
+    });
     if (error) throw new Error(error.message);
     return { id: pid as string };
   });
@@ -41,10 +43,10 @@ export const excluirPapel = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(z.object({ id: z.string().uuid(), tenant_id: z.string().uuid() }))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.rpc("excluir_papel" as any, {
+    const { error } = await context.supabase.rpc("excluir_papel", {
       _id: data.id,
       _tenant_id: data.tenant_id,
-    } as any);
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -60,11 +62,11 @@ export const definirPapelUsuario = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.rpc("definir_papel_usuario" as any, {
+    const { error } = await context.supabase.rpc("definir_papel_usuario", {
       _user_id: data.user_id,
-      _papel_id: data.papel_id,
+      _papel_id: data.papel_id as string, // null = desvincular (nullable na RPC; types marca não-nulo)
       _tenant_id: data.tenant_id,
-    } as any);
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });

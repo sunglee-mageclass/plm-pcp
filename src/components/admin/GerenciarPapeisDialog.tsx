@@ -24,10 +24,10 @@ export function usePapeis(tenantId: string | null | undefined) {
     queryKey: ["papeis", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("papeis")
         .select("id,nome,descricao,tenant_id")
-        .eq("tenant_id", tenantId)
+        .eq("tenant_id", tenantId!) // enabled: !!tenantId garante presença em runtime
         .order("nome");
       if (error) throw error;
       return data as Papel[];

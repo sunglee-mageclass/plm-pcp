@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
   public: {
     Tables: {
       anos: {
@@ -89,6 +94,7 @@ export type Database = {
           id: string
           largura_estimada: number | null
           mes_id: string | null
+          ncm: string | null
           nome: string
           preco: number | null
           preco_por_metro: number | null
@@ -109,6 +115,7 @@ export type Database = {
           id?: string
           largura_estimada?: number | null
           mes_id?: string | null
+          ncm?: string | null
           nome: string
           preco?: number | null
           preco_por_metro?: number | null
@@ -129,6 +136,7 @@ export type Database = {
           id?: string
           largura_estimada?: number | null
           mes_id?: string | null
+          ncm?: string | null
           nome?: string
           preco?: number | null
           preco_por_metro?: number | null
@@ -374,6 +382,7 @@ export type Database = {
           data_corte_pronto: string | null
           data_enviado_corte: string | null
           data_previsao_corte: string | null
+          deficit_corte: Json | null
           direcionamento_confirmado_at: string | null
           direcionamento_status: string
           enviado_corte: boolean | null
@@ -392,6 +401,7 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
+          deficit_corte?: Json | null
           direcionamento_confirmado_at?: string | null
           direcionamento_status?: string
           enviado_corte?: boolean | null
@@ -410,6 +420,7 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
+          deficit_corte?: Json | null
           direcionamento_confirmado_at?: string | null
           direcionamento_status?: string
           enviado_corte?: boolean | null
@@ -450,6 +461,7 @@ export type Database = {
           numero: number
           quantidade_enviar: number | null
           quantidade_separar: number | null
+          variante_aviamento_id: string | null
         }
         Insert: {
           aviamento_id?: string | null
@@ -460,6 +472,7 @@ export type Database = {
           numero: number
           quantidade_enviar?: number | null
           quantidade_separar?: number | null
+          variante_aviamento_id?: string | null
         }
         Update: {
           aviamento_id?: string | null
@@ -470,6 +483,7 @@ export type Database = {
           numero?: number
           quantidade_enviar?: number | null
           quantidade_separar?: number | null
+          variante_aviamento_id?: string | null
         }
         Relationships: [
           {
@@ -484,6 +498,13 @@ export type Database = {
             columns: ["cad_id"]
             isOneToOne: false
             referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_aviamentos_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
             referencedColumns: ["id"]
           },
         ]
@@ -590,6 +611,7 @@ export type Database = {
       cad_tecido_variantes: {
         Row: {
           cad_tecido_id: string | null
+          complementa_variante_ids: string[] | null
           created_at: string | null
           id: string
           metragem_enviada: number | null
@@ -601,6 +623,7 @@ export type Database = {
         }
         Insert: {
           cad_tecido_id?: string | null
+          complementa_variante_ids?: string[] | null
           created_at?: string | null
           id?: string
           metragem_enviada?: number | null
@@ -612,6 +635,7 @@ export type Database = {
         }
         Update: {
           cad_tecido_id?: string | null
+          complementa_variante_ids?: string[] | null
           created_at?: string | null
           id?: string
           metragem_enviada?: number | null
@@ -723,19 +747,25 @@ export type Database = {
       }
       categorias_fornecedor: {
         Row: {
+          ativo: boolean
           created_at: string | null
+          fixa: boolean
           id: string
           nome: string
           tenant_id: string | null
         }
         Insert: {
+          ativo?: boolean
           created_at?: string | null
+          fixa?: boolean
           id?: string
           nome: string
           tenant_id?: string | null
         }
         Update: {
+          ativo?: boolean
           created_at?: string | null
+          fixa?: boolean
           id?: string
           nome?: string
           tenant_id?: string | null
@@ -823,6 +853,7 @@ export type Database = {
       }
       categorias_terceirizado: {
         Row: {
+          ativo: boolean
           created_at: string | null
           etapa: string
           id: string
@@ -831,6 +862,7 @@ export type Database = {
           tenant_id: string | null
         }
         Insert: {
+          ativo?: boolean
           created_at?: string | null
           etapa?: string
           id?: string
@@ -839,6 +871,7 @@ export type Database = {
           tenant_id?: string | null
         }
         Update: {
+          ativo?: boolean
           created_at?: string | null
           etapa?: string
           id?: string
@@ -884,6 +917,44 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      colecao_mixes: {
+        Row: {
+          colecao_id: string | null
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          subcolecao: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          ordem?: number
+          subcolecao?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          subcolecao?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecao_mixes_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
             referencedColumns: ["id"]
           },
         ]
@@ -1112,6 +1183,7 @@ export type Database = {
           nome: string
           orcamento: number | null
           perda_markup: number
+          plan_rev: number
           poder_venda_meta: number | null
           status: string
           tenant_id: string | null
@@ -1126,6 +1198,7 @@ export type Database = {
           nome: string
           orcamento?: number | null
           perda_markup?: number
+          plan_rev?: number
           poder_venda_meta?: number | null
           status?: string
           tenant_id?: string | null
@@ -1140,6 +1213,7 @@ export type Database = {
           nome?: string
           orcamento?: number | null
           perda_markup?: number
+          plan_rev?: number
           poder_venda_meta?: number | null
           status?: string
           tenant_id?: string | null
@@ -1183,6 +1257,7 @@ export type Database = {
           data_recebimento_entregue: string | null
           data_recebimento_enviado_oficina: string | null
           data_recebimento_prevista: string | null
+          datas_conserto_pos: Json
           fotografado_variantes: Json
           fotografado_variantes_pos: Json
           id: string
@@ -1191,6 +1266,7 @@ export type Database = {
           pecas_faltantes: number | null
           pecas_incompletas: number | null
           pecas_sem_etiqueta: number | null
+          rev: number
           status: string
           status_pos: string
           tenant_id: string | null
@@ -1208,6 +1284,7 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
+          datas_conserto_pos?: Json
           fotografado_variantes?: Json
           fotografado_variantes_pos?: Json
           id?: string
@@ -1216,6 +1293,7 @@ export type Database = {
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
+          rev?: number
           status?: string
           status_pos?: string
           tenant_id?: string | null
@@ -1233,6 +1311,7 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
+          datas_conserto_pos?: Json
           fotografado_variantes?: Json
           fotografado_variantes_pos?: Json
           id?: string
@@ -1241,6 +1320,7 @@ export type Database = {
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
+          rev?: number
           status?: string
           status_pos?: string
           tenant_id?: string | null
@@ -1501,6 +1581,61 @@ export type Database = {
           },
         ]
       }
+      direcionamento_lojas: {
+        Row: {
+          cad_id: string
+          created_at: string
+          grades: Json
+          id: string
+          loja_id: string
+          tenant_id: string
+          updated_at: string
+          variante_numero: number
+        }
+        Insert: {
+          cad_id: string
+          created_at?: string
+          grades?: Json
+          id?: string
+          loja_id: string
+          tenant_id: string
+          updated_at?: string
+          variante_numero: number
+        }
+        Update: {
+          cad_id?: string
+          created_at?: string
+          grades?: Json
+          id?: string
+          loja_id?: string
+          tenant_id?: string
+          updated_at?: string
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "direcionamento_lojas_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direcionamento_lojas_loja_id_fkey"
+            columns: ["loja_id"]
+            isOneToOne: false
+            referencedRelation: "lojas_direcionamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direcionamento_lojas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_categorias_fornecedor: {
         Row: {
           categoria_fornecedor_id: string
@@ -1586,6 +1721,7 @@ export type Database = {
           municipio: string | null
           nome_fantasia: string
           observacoes: string | null
+          prazo_pagamento: string | null
           razao_social: string | null
           situacao_cadastral: string | null
           telefone: string | null
@@ -1605,6 +1741,7 @@ export type Database = {
           municipio?: string | null
           nome_fantasia: string
           observacoes?: string | null
+          prazo_pagamento?: string | null
           razao_social?: string | null
           situacao_cadastral?: string | null
           telefone?: string | null
@@ -1624,6 +1761,7 @@ export type Database = {
           municipio?: string | null
           nome_fantasia?: string
           observacoes?: string | null
+          prazo_pagamento?: string | null
           razao_social?: string | null
           situacao_cadastral?: string | null
           telefone?: string | null
@@ -1793,6 +1931,7 @@ export type Database = {
           representante_id: string | null
           tamanho: string | null
           tenant_id: string | null
+          tipo_insumo_id: string | null
           unidade: string
         }
         Insert: {
@@ -1807,6 +1946,7 @@ export type Database = {
           representante_id?: string | null
           tamanho?: string | null
           tenant_id?: string | null
+          tipo_insumo_id?: string | null
           unidade?: string
         }
         Update: {
@@ -1821,6 +1961,7 @@ export type Database = {
           representante_id?: string | null
           tamanho?: string | null
           tenant_id?: string | null
+          tipo_insumo_id?: string | null
           unidade?: string
         }
         Relationships: [
@@ -1843,6 +1984,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "etiquetas_tipo_insumo_id_fkey"
+            columns: ["tipo_insumo_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_insumo"
             referencedColumns: ["id"]
           },
         ]
@@ -1966,6 +2114,8 @@ export type Database = {
           created_at: string | null
           id: string
           markup: number | null
+          markup_max: number | null
+          markup_min: number | null
           nome: string
           tenant_id: string | null
         }
@@ -1973,6 +2123,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           markup?: number | null
+          markup_max?: number | null
+          markup_min?: number | null
           nome: string
           tenant_id?: string | null
         }
@@ -1980,12 +2132,52 @@ export type Database = {
           created_at?: string | null
           id?: string
           markup?: number | null
+          markup_max?: number | null
+          markup_min?: number | null
           nome?: string
           tenant_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "linhas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lojas_direcionamento: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          is_default: boolean
+          nome: string
+          ordem: number | null
+          tenant_id: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          nome: string
+          ordem?: number | null
+          tenant_id: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          nome?: string
+          ordem?: number | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lojas_direcionamento_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -2142,6 +2334,7 @@ export type Database = {
           loss_percent: number | null
           modelo_id: string | null
           numero: number
+          variante_aviamento_id: string | null
         }
         Insert: {
           aviamento_id?: string | null
@@ -2152,6 +2345,7 @@ export type Database = {
           loss_percent?: number | null
           modelo_id?: string | null
           numero: number
+          variante_aviamento_id?: string | null
         }
         Update: {
           aviamento_id?: string | null
@@ -2162,6 +2356,7 @@ export type Database = {
           loss_percent?: number | null
           modelo_id?: string | null
           numero?: number
+          variante_aviamento_id?: string | null
         }
         Relationships: [
           {
@@ -2178,7 +2373,44 @@ export type Database = {
             referencedRelation: "modelos"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "modelo_aviamentos_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      modelo_bom_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          modelo_id: string
+          origem: string | null
+          payload: Json
+          tenant_id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modelo_id: string
+          origem?: string | null
+          payload: Json
+          tenant_id: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modelo_id?: string
+          origem?: string | null
+          payload?: Json
+          tenant_id?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       modelo_etiquetas: {
         Row: {
@@ -2431,6 +2663,67 @@ export type Database = {
           },
         ]
       }
+      modelo_servico_mo: {
+        Row: {
+          aprovado: boolean | null
+          categoria_terceirizado_id: string | null
+          created_at: string
+          id: string
+          modelo_id: string
+          motivo_reprovacao: string | null
+          observacoes: string | null
+          tenant_id: string | null
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          aprovado?: boolean | null
+          categoria_terceirizado_id?: string | null
+          created_at?: string
+          id?: string
+          modelo_id: string
+          motivo_reprovacao?: string | null
+          observacoes?: string | null
+          tenant_id?: string | null
+          updated_at?: string
+          valor?: number
+        }
+        Update: {
+          aprovado?: boolean | null
+          categoria_terceirizado_id?: string | null
+          created_at?: string
+          id?: string
+          modelo_id?: string
+          motivo_reprovacao?: string | null
+          observacoes?: string | null
+          tenant_id?: string | null
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_servico_mo_categoria_terceirizado_id_fkey"
+            columns: ["categoria_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_servico_mo_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_servico_mo_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modelo_tecido_oc_links: {
         Row: {
           created_at: string
@@ -2500,6 +2793,7 @@ export type Database = {
       }
       modelo_tecido_variantes: {
         Row: {
+          complementa_variante_ids: string[] | null
           created_at: string | null
           id: string
           modelo_tecido_id: string | null
@@ -2508,6 +2802,7 @@ export type Database = {
           variante_tecido_id: string | null
         }
         Insert: {
+          complementa_variante_ids?: string[] | null
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
@@ -2516,6 +2811,7 @@ export type Database = {
           variante_tecido_id?: string | null
         }
         Update: {
+          complementa_variante_ids?: string[] | null
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
@@ -2605,9 +2901,10 @@ export type Database = {
           custo_aviamento_total: number | null
           custo_entretela_total: number | null
           custo_forro_total: number | null
-          custo_simulado: Json | null
           custo_peca_previsto: number | null
+          custo_simulado: Json | null
           custo_tecido_total: number | null
+          custo_terceirizados_aprovado: boolean | null
           custo_terceirizados_previsto: number | null
           custos_adicionais: Json
           data_aprovacao: string | null
@@ -2625,12 +2922,16 @@ export type Database = {
           id: string
           lancado: boolean
           linha_id: string | null
+          markup_editado: number | null
           mes_id: string | null
+          mix_id: string | null
           modelista_id: string | null
           modelo_base_id: string | null
           motivo_cancelamento: string | null
+          motivo_reprovacao_mao_obra: string | null
           nome: string
           observacoes_gerais: string | null
+          observacoes_mao_obra: string | null
           observacoes_tecnicas: string | null
           ordem_criacao_enviada: boolean
           ordem_criacao_enviada_at: string | null
@@ -2638,9 +2939,12 @@ export type Database = {
           piloteiro1_id: string | null
           piloteiro2_id: string | null
           piloteiro3_id: string | null
+          preco_atacado: number | null
           preco_venda: number | null
           proporcoes: Json | null
           ref: string | null
+          ref_auto: string | null
+          rev: number
           revisao_pendente: Json
           semana: string | null
           status_desenvolvimento: string | null
@@ -2665,9 +2969,10 @@ export type Database = {
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
-          custo_simulado?: Json | null
           custo_peca_previsto?: number | null
+          custo_simulado?: Json | null
           custo_tecido_total?: number | null
+          custo_terceirizados_aprovado?: boolean | null
           custo_terceirizados_previsto?: number | null
           custos_adicionais?: Json
           data_aprovacao?: string | null
@@ -2685,12 +2990,16 @@ export type Database = {
           id?: string
           lancado?: boolean
           linha_id?: string | null
+          markup_editado?: number | null
           mes_id?: string | null
+          mix_id?: string | null
           modelista_id?: string | null
           modelo_base_id?: string | null
           motivo_cancelamento?: string | null
+          motivo_reprovacao_mao_obra?: string | null
           nome: string
           observacoes_gerais?: string | null
+          observacoes_mao_obra?: string | null
           observacoes_tecnicas?: string | null
           ordem_criacao_enviada?: boolean
           ordem_criacao_enviada_at?: string | null
@@ -2698,9 +3007,12 @@ export type Database = {
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
+          preco_atacado?: number | null
           preco_venda?: number | null
           proporcoes?: Json | null
           ref?: string | null
+          ref_auto?: string | null
+          rev?: number
           revisao_pendente?: Json
           semana?: string | null
           status_desenvolvimento?: string | null
@@ -2725,9 +3037,10 @@ export type Database = {
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
-          custo_simulado?: Json | null
           custo_peca_previsto?: number | null
+          custo_simulado?: Json | null
           custo_tecido_total?: number | null
+          custo_terceirizados_aprovado?: boolean | null
           custo_terceirizados_previsto?: number | null
           custos_adicionais?: Json
           data_aprovacao?: string | null
@@ -2745,12 +3058,16 @@ export type Database = {
           id?: string
           lancado?: boolean
           linha_id?: string | null
+          markup_editado?: number | null
           mes_id?: string | null
+          mix_id?: string | null
           modelista_id?: string | null
           modelo_base_id?: string | null
           motivo_cancelamento?: string | null
+          motivo_reprovacao_mao_obra?: string | null
           nome?: string
           observacoes_gerais?: string | null
+          observacoes_mao_obra?: string | null
           observacoes_tecnicas?: string | null
           ordem_criacao_enviada?: boolean
           ordem_criacao_enviada_at?: string | null
@@ -2758,9 +3075,12 @@ export type Database = {
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
+          preco_atacado?: number | null
           preco_venda?: number | null
           proporcoes?: Json | null
           ref?: string | null
+          ref_auto?: string | null
+          rev?: number
           revisao_pendente?: Json
           semana?: string | null
           status_desenvolvimento?: string | null
@@ -2820,6 +3140,13 @@ export type Database = {
             columns: ["mes_id"]
             isOneToOne: false
             referencedRelation: "meses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_mix_id_fkey"
+            columns: ["mix_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_mixes"
             referencedColumns: ["id"]
           },
           {
@@ -2968,6 +3295,7 @@ export type Database = {
           oc_aviamento_id: string | null
           quantidade_pedida: number | null
           quantidade_recebida: number | null
+          variante_aviamento_id: string | null
         }
         Insert: {
           aviamento_id?: string | null
@@ -2977,6 +3305,7 @@ export type Database = {
           oc_aviamento_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
+          variante_aviamento_id?: string | null
         }
         Update: {
           aviamento_id?: string | null
@@ -2986,6 +3315,7 @@ export type Database = {
           oc_aviamento_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
+          variante_aviamento_id?: string | null
         }
         Relationships: [
           {
@@ -3000,6 +3330,13 @@ export type Database = {
             columns: ["oc_aviamento_id"]
             isOneToOne: false
             referencedRelation: "ocs_aviamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_aviamento_itens_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
             referencedColumns: ["id"]
           },
         ]
@@ -3141,6 +3478,434 @@ export type Database = {
           },
         ]
       }
+      ocs_importado: {
+        Row: {
+          anexo_nf_url: string | null
+          anexo_pedido_url: string | null
+          categoria_id: string | null
+          composicao: string | null
+          cotacao_final: number
+          cotacao_ref: number
+          created_at: string
+          custo_unitario_landed_real: number
+          data_entrega: string | null
+          data_pedido: string
+          data_prevista: string | null
+          desconto_pct: number
+          devolucao: string | null
+          empresa_id: string | null
+          grade_detalhe: Json
+          grade_proporcao: Json
+          grupo_id: string | null
+          id: string
+          moeda_compra: string
+          moeda_intermediaria: string | null
+          nome_produto: string
+          nota_fiscal: string | null
+          numero: string | null
+          peso_kg: number
+          produto_importado_id: string | null
+          qtd_total: number
+          ref_fornecedor: string | null
+          representante_id: string | null
+          responsavel_recebimento_id: string | null
+          revisao: string | null
+          status: string
+          subcategoria1_id: string | null
+          subcategoria2_id: string | null
+          tenant_id: string
+          transporte_m2: number
+          updated_at: string
+          valor_bruto: number
+          valor_total_desconto: number
+          valor_unitario_m1: number
+          valor_unitario_real: number
+          variantes: Json
+        }
+        Insert: {
+          anexo_nf_url?: string | null
+          anexo_pedido_url?: string | null
+          categoria_id?: string | null
+          composicao?: string | null
+          cotacao_final?: number
+          cotacao_ref?: number
+          created_at?: string
+          custo_unitario_landed_real?: number
+          data_entrega?: string | null
+          data_pedido?: string
+          data_prevista?: string | null
+          desconto_pct?: number
+          devolucao?: string | null
+          empresa_id?: string | null
+          grade_detalhe?: Json
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          moeda_compra?: string
+          moeda_intermediaria?: string | null
+          nome_produto: string
+          nota_fiscal?: string | null
+          numero?: string | null
+          peso_kg?: number
+          produto_importado_id?: string | null
+          qtd_total?: number
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          responsavel_recebimento_id?: string | null
+          revisao?: string | null
+          status?: string
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          tenant_id: string
+          transporte_m2?: number
+          updated_at?: string
+          valor_bruto?: number
+          valor_total_desconto?: number
+          valor_unitario_m1?: number
+          valor_unitario_real?: number
+          variantes?: Json
+        }
+        Update: {
+          anexo_nf_url?: string | null
+          anexo_pedido_url?: string | null
+          categoria_id?: string | null
+          composicao?: string | null
+          cotacao_final?: number
+          cotacao_ref?: number
+          created_at?: string
+          custo_unitario_landed_real?: number
+          data_entrega?: string | null
+          data_pedido?: string
+          data_prevista?: string | null
+          desconto_pct?: number
+          devolucao?: string | null
+          empresa_id?: string | null
+          grade_detalhe?: Json
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          moeda_compra?: string
+          moeda_intermediaria?: string | null
+          nome_produto?: string
+          nota_fiscal?: string | null
+          numero?: string | null
+          peso_kg?: number
+          produto_importado_id?: string | null
+          qtd_total?: number
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          responsavel_recebimento_id?: string | null
+          revisao?: string | null
+          status?: string
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          tenant_id?: string
+          transporte_m2?: number
+          updated_at?: string
+          valor_bruto?: number
+          valor_total_desconto?: number
+          valor_unitario_m1?: number
+          valor_unitario_real?: number
+          variantes?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_importado_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_produto_importado_id_fkey"
+            columns: ["produto_importado_id"]
+            isOneToOne: false
+            referencedRelation: "produtos_importados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_responsavel_recebimento_id_fkey"
+            columns: ["responsavel_recebimento_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_subcategoria1_id_fkey"
+            columns: ["subcategoria1_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias1_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_subcategoria2_id_fkey"
+            columns: ["subcategoria2_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias2_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_importado_etapas: {
+        Row: {
+          base: string
+          cotacao: number
+          data_vencimento: string | null
+          id: string
+          oc_importado_id: string
+          ordem: number
+          percentual: number
+          rotulo: string | null
+          tenant_id: string
+        }
+        Insert: {
+          base: string
+          cotacao?: number
+          data_vencimento?: string | null
+          id?: string
+          oc_importado_id: string
+          ordem: number
+          percentual?: number
+          rotulo?: string | null
+          tenant_id: string
+        }
+        Update: {
+          base?: string
+          cotacao?: number
+          data_vencimento?: string | null
+          id?: string
+          oc_importado_id?: string
+          ordem?: number
+          percentual?: number
+          rotulo?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_importado_etapas_oc_importado_id_fkey"
+            columns: ["oc_importado_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_importado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_importado_etapas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_p_acabado: {
+        Row: {
+          anexo_nf_url: string | null
+          anexo_pedido_url: string | null
+          categoria_id: string | null
+          composicao: string | null
+          created_at: string
+          data_entrega: string | null
+          data_pedido: string
+          data_prevista: string | null
+          desconto_pct: number
+          devolucao: string | null
+          empresa_id: string | null
+          grade_detalhe: Json
+          grade_proporcao: Json
+          grupo_id: string | null
+          id: string
+          nome_produto: string
+          nota_fiscal: string | null
+          numero: string | null
+          parcelas_entrega: number
+          prazo_pagamento: string
+          produto_acabado_id: string | null
+          qtd_total: number
+          ref_fornecedor: string | null
+          representante_id: string | null
+          responsavel_recebimento_id: string | null
+          revisao: string | null
+          status: string
+          subcategoria1_id: string | null
+          subcategoria2_id: string | null
+          tenant_id: string
+          updated_at: string
+          valor_bruto: number
+          valor_total_desconto: number
+          valor_unitario: number
+          valor_unitario_real: number
+          variantes: Json
+        }
+        Insert: {
+          anexo_nf_url?: string | null
+          anexo_pedido_url?: string | null
+          categoria_id?: string | null
+          composicao?: string | null
+          created_at?: string
+          data_entrega?: string | null
+          data_pedido?: string
+          data_prevista?: string | null
+          desconto_pct?: number
+          devolucao?: string | null
+          empresa_id?: string | null
+          grade_detalhe?: Json
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          nome_produto: string
+          nota_fiscal?: string | null
+          numero?: string | null
+          parcelas_entrega?: number
+          prazo_pagamento?: string
+          produto_acabado_id?: string | null
+          qtd_total?: number
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          responsavel_recebimento_id?: string | null
+          revisao?: string | null
+          status?: string
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          tenant_id: string
+          updated_at?: string
+          valor_bruto?: number
+          valor_total_desconto?: number
+          valor_unitario?: number
+          valor_unitario_real?: number
+          variantes?: Json
+        }
+        Update: {
+          anexo_nf_url?: string | null
+          anexo_pedido_url?: string | null
+          categoria_id?: string | null
+          composicao?: string | null
+          created_at?: string
+          data_entrega?: string | null
+          data_pedido?: string
+          data_prevista?: string | null
+          desconto_pct?: number
+          devolucao?: string | null
+          empresa_id?: string | null
+          grade_detalhe?: Json
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          nome_produto?: string
+          nota_fiscal?: string | null
+          numero?: string | null
+          parcelas_entrega?: number
+          prazo_pagamento?: string
+          produto_acabado_id?: string | null
+          qtd_total?: number
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          responsavel_recebimento_id?: string | null
+          revisao?: string | null
+          status?: string
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+          valor_bruto?: number
+          valor_total_desconto?: number
+          valor_unitario?: number
+          valor_unitario_real?: number
+          variantes?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_p_acabado_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_produto_acabado_id_fkey"
+            columns: ["produto_acabado_id"]
+            isOneToOne: false
+            referencedRelation: "produtos_acabados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_responsavel_recebimento_id_fkey"
+            columns: ["responsavel_recebimento_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_subcategoria1_id_fkey"
+            columns: ["subcategoria1_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias1_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_subcategoria2_id_fkey"
+            columns: ["subcategoria2_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias2_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_p_acabado_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ocs_tecido: {
         Row: {
           anexo_pedido_url: string | null
@@ -3164,9 +3929,12 @@ export type Database = {
           parcelas_recebimento: Json
           prazo_pagamento: string | null
           quantidade_prazos: number | null
+          recebimento_responsavel_id: string | null
+          recebimento_responsavel_nome: string | null
           representante_id: string | null
           responsavel_id: string | null
           responsavel_nome: string | null
+          rev: number
           rolo_codigo: string | null
           rolo_origem_item_id: string | null
           rolo_prateleira: string | null
@@ -3198,9 +3966,12 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          recebimento_responsavel_id?: string | null
+          recebimento_responsavel_nome?: string | null
           representante_id?: string | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
+          rev?: number
           rolo_codigo?: string | null
           rolo_origem_item_id?: string | null
           rolo_prateleira?: string | null
@@ -3232,9 +4003,12 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          recebimento_responsavel_id?: string | null
+          recebimento_responsavel_nome?: string | null
           representante_id?: string | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
+          rev?: number
           rolo_codigo?: string | null
           rolo_origem_item_id?: string | null
           rolo_prateleira?: string | null
@@ -3250,6 +4024,13 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_recebimento_responsavel_id_fkey"
+            columns: ["recebimento_responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
             referencedColumns: ["id"]
           },
           {
@@ -3432,6 +4213,7 @@ export type Database = {
           ordem_saida_id: string
           reserva: number | null
           tenant_id: string | null
+          variante_aviamento_id: string | null
         }
         Insert: {
           aviamento_id?: string | null
@@ -3441,6 +4223,7 @@ export type Database = {
           ordem_saida_id: string
           reserva?: number | null
           tenant_id?: string | null
+          variante_aviamento_id?: string | null
         }
         Update: {
           aviamento_id?: string | null
@@ -3450,6 +4233,7 @@ export type Database = {
           ordem_saida_id?: string
           reserva?: number | null
           tenant_id?: string | null
+          variante_aviamento_id?: string | null
         }
         Relationships: [
           {
@@ -3471,6 +4255,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ordens_saida_aviamento_itens_variante_aviamento_id_fkey"
+            columns: ["variante_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_aviamento"
             referencedColumns: ["id"]
           },
         ]
@@ -3584,17 +4375,310 @@ export type Database = {
           },
         ]
       }
+      otb_simulacao_linhas: {
+        Row: {
+          cores: number
+          id: string
+          linha_id: string | null
+          num_modelos: number
+          ordem: number
+          prof_cor: number
+          tenant_id: string | null
+          unidade_id: string
+        }
+        Insert: {
+          cores?: number
+          id?: string
+          linha_id?: string | null
+          num_modelos?: number
+          ordem?: number
+          prof_cor?: number
+          tenant_id?: string | null
+          unidade_id: string
+        }
+        Update: {
+          cores?: number
+          id?: string
+          linha_id?: string | null
+          num_modelos?: number
+          ordem?: number
+          prof_cor?: number
+          tenant_id?: string | null
+          unidade_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "otb_simulacao_linhas_linha_id_fkey"
+            columns: ["linha_id"]
+            isOneToOne: false
+            referencedRelation: "linhas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "otb_simulacao_linhas_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "otb_simulacao_unidades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      otb_simulacao_modelos: {
+        Row: {
+          categoria_id: string | null
+          consumo: number
+          id: string
+          linha_ref_id: string
+          modelo_id: string | null
+          prof_por_cor: Json
+          slot_index: number
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id?: string | null
+          consumo?: number
+          id?: string
+          linha_ref_id: string
+          modelo_id?: string | null
+          prof_por_cor?: Json
+          slot_index?: number
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string | null
+          consumo?: number
+          id?: string
+          linha_ref_id?: string
+          modelo_id?: string | null
+          prof_por_cor?: Json
+          slot_index?: number
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "otb_simulacao_modelos_linha_ref_id_fkey"
+            columns: ["linha_ref_id"]
+            isOneToOne: false
+            referencedRelation: "otb_simulacao_linhas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "otb_simulacao_modelos_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      otb_simulacao_unidades: {
+        Row: {
+          id: string
+          oc_tecido_id: string | null
+          simulacao_id: string
+          subcolecao_id: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          id?: string
+          oc_tecido_id?: string | null
+          simulacao_id: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          id?: string
+          oc_tecido_id?: string | null
+          simulacao_id?: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "otb_simulacao_unidades_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "otb_simulacao_unidades_simulacao_id_fkey"
+            columns: ["simulacao_id"]
+            isOneToOne: false
+            referencedRelation: "otb_simulacoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "otb_simulacao_unidades_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      otb_simulacao_variantes: {
+        Row: {
+          id: string
+          oc_tecido_item_id: string | null
+          ordem: number
+          tenant_id: string | null
+          unidade_id: string
+        }
+        Insert: {
+          id?: string
+          oc_tecido_item_id?: string | null
+          ordem?: number
+          tenant_id?: string | null
+          unidade_id: string
+        }
+        Update: {
+          id?: string
+          oc_tecido_item_id?: string | null
+          ordem?: number
+          tenant_id?: string | null
+          unidade_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "otb_simulacao_variantes_oc_tecido_item_id_fkey"
+            columns: ["oc_tecido_item_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "otb_simulacao_variantes_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "otb_simulacao_unidades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      otb_simulacoes: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          nome: string
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          nome: string
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "otb_simulacoes_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      papeis: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "papeis_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      papel_permissoes: {
+        Row: {
+          created_at: string
+          id: string
+          pagina: string
+          papel_id: string
+          pode_editar: boolean
+          pode_ver: boolean
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pagina: string
+          papel_id: string
+          pode_editar?: boolean
+          pode_ver?: boolean
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pagina?: string
+          papel_id?: string
+          pode_editar?: boolean
+          pode_ver?: boolean
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "papel_permissoes_papel_id_fkey"
+            columns: ["papel_id"]
+            isOneToOne: false
+            referencedRelation: "papeis"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "papel_permissoes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parcelas: {
         Row: {
           comprovante_url: string | null
           created_at: string | null
           data_pagamento: string | null
           data_vencimento: string
+          dias_offset: number | null
           empresa_id: string | null
           id: string
           numero_parcela: number
           oc_aviamento_id: string | null
           oc_etiqueta_id: string | null
+          oc_importado_id: string | null
+          oc_p_acabado_id: string | null
           oc_tecido_id: string | null
           status: string | null
           tenant_id: string | null
@@ -3606,11 +4690,14 @@ export type Database = {
           created_at?: string | null
           data_pagamento?: string | null
           data_vencimento: string
+          dias_offset?: number | null
           empresa_id?: string | null
           id?: string
           numero_parcela: number
           oc_aviamento_id?: string | null
           oc_etiqueta_id?: string | null
+          oc_importado_id?: string | null
+          oc_p_acabado_id?: string | null
           oc_tecido_id?: string | null
           status?: string | null
           tenant_id?: string | null
@@ -3622,11 +4709,14 @@ export type Database = {
           created_at?: string | null
           data_pagamento?: string | null
           data_vencimento?: string
+          dias_offset?: number | null
           empresa_id?: string | null
           id?: string
           numero_parcela?: number
           oc_aviamento_id?: string | null
           oc_etiqueta_id?: string | null
+          oc_importado_id?: string | null
+          oc_p_acabado_id?: string | null
           oc_tecido_id?: string | null
           status?: string | null
           tenant_id?: string | null
@@ -3653,6 +4743,20 @@ export type Database = {
             columns: ["oc_etiqueta_id"]
             isOneToOne: false
             referencedRelation: "ocs_etiqueta"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_oc_importado_id_fkey"
+            columns: ["oc_importado_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_importado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_oc_p_acabado_id_fkey"
+            columns: ["oc_p_acabado_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_p_acabado"
             referencedColumns: ["id"]
           },
           {
@@ -3711,6 +4815,579 @@ export type Database = {
             columns: ["producao_terceirizado_id"]
             isOneToOne: false
             referencedRelation: "producao_terceirizados"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          tenant_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: true
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_linhas: {
+        Row: {
+          categoria_id: string | null
+          id: string
+          linha_id: string | null
+          ordem: number
+          sub_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id?: string | null
+          id?: string
+          linha_id?: string | null
+          ordem?: number
+          sub_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string | null
+          id?: string
+          linha_id?: string | null
+          ordem?: number
+          sub_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_linhas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_linhas_linha_id_fkey"
+            columns: ["linha_id"]
+            isOneToOne: false
+            referencedRelation: "linhas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_linhas_sub_id_fkey"
+            columns: ["sub_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_materiais: {
+        Row: {
+          artigo_id: string | null
+          consumo: number
+          id: string
+          loss_percent: number
+          numero: number
+          ordem: number
+          slot_id: string
+          tenant_id: string | null
+          tipo: string
+        }
+        Insert: {
+          artigo_id?: string | null
+          consumo?: number
+          id?: string
+          loss_percent?: number
+          numero?: number
+          ordem?: number
+          slot_id: string
+          tenant_id?: string | null
+          tipo?: string
+        }
+        Update: {
+          artigo_id?: string | null
+          consumo?: number
+          id?: string
+          loss_percent?: number
+          numero?: number
+          ordem?: number
+          slot_id?: string
+          tenant_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_materiais_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_materiais_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_oc_aplicada: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          oc_tecido_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          oc_tecido_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          oc_tecido_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_oc_aplicada_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_oc_aplicada_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_ocs: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          oc_tecido_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          oc_tecido_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          oc_tecido_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_ocs_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_ocs_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_paleta: {
+        Row: {
+          artigo_id: string
+          colecao_id: string
+          created_at: string
+          id: string
+          papel: string
+          tenant_id: string | null
+        }
+        Insert: {
+          artigo_id: string
+          colecao_id: string
+          created_at?: string
+          id?: string
+          papel?: string
+          tenant_id?: string | null
+        }
+        Update: {
+          artigo_id?: string
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          papel?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_paleta_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_paleta_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_slot_oc: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          oc_tecido_id: string
+          slot_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          oc_tecido_id: string
+          slot_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          oc_tecido_id?: string
+          slot_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_slot_oc_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slot_oc_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slot_oc_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_slots: {
+        Row: {
+          categoria_id: string | null
+          categoria_tecido_id: string | null
+          custo_simulado: Json | null
+          custo_terceirizados_previsto: number | null
+          custos_adicionais: Json
+          id: string
+          linha_ref_id: string
+          mix_id: string | null
+          modelo_id: string | null
+          nome: string | null
+          preco_venda: number | null
+          proporcoes: Json | null
+          referencia_paths: string[]
+          slot_index: number
+          tenant_id: string | null
+          usar_estoque: boolean
+        }
+        Insert: {
+          categoria_id?: string | null
+          categoria_tecido_id?: string | null
+          custo_simulado?: Json | null
+          custo_terceirizados_previsto?: number | null
+          custos_adicionais?: Json
+          id?: string
+          linha_ref_id: string
+          mix_id?: string | null
+          modelo_id?: string | null
+          nome?: string | null
+          preco_venda?: number | null
+          proporcoes?: Json | null
+          referencia_paths?: string[]
+          slot_index?: number
+          tenant_id?: string | null
+          usar_estoque?: boolean
+        }
+        Update: {
+          categoria_id?: string | null
+          categoria_tecido_id?: string | null
+          custo_simulado?: Json | null
+          custo_terceirizados_previsto?: number | null
+          custos_adicionais?: Json
+          id?: string
+          linha_ref_id?: string
+          mix_id?: string | null
+          modelo_id?: string | null
+          nome?: string | null
+          preco_venda?: number | null
+          proporcoes?: Json | null
+          referencia_paths?: string[]
+          slot_index?: number
+          tenant_id?: string | null
+          usar_estoque?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_slots_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slots_categoria_tecido_id_fkey"
+            columns: ["categoria_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slots_linha_ref_id_fkey"
+            columns: ["linha_ref_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_linhas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slots_mix_id_fkey"
+            columns: ["mix_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_mixes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_slots_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_snapshots: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          payload: Json
+          plan_id: string
+          tenant_id: string
+          user_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          payload: Json
+          plan_id: string
+          tenant_id: string
+          user_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          plan_id?: string
+          tenant_id?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      plan_tecido_subcolecao_categorias: {
+        Row: {
+          categoria_id: string
+          created_at: string | null
+          id: string
+          ordem: number
+          subcolecao_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id: string
+          created_at?: string | null
+          id?: string
+          ordem?: number
+          subcolecao_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string
+          created_at?: string | null
+          id?: string
+          ordem?: number
+          subcolecao_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_subcolecao_categorias_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_subcolecao_categorias_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_subcolecoes: {
+        Row: {
+          id: string
+          ordem: number
+          plan_id: string
+          subcolecao_id: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          id?: string
+          ordem?: number
+          plan_id: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          id?: string
+          ordem?: number
+          plan_id?: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_subcolecoes_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_subcolecoes_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_tecido_variantes: {
+        Row: {
+          cor_apelido_id: string | null
+          cor_id: string | null
+          grade_total: number
+          grades: Json
+          id: string
+          material_id: string
+          multiplicador: number
+          ordem: number
+          tenant_id: string | null
+          variante_tecido_id: string | null
+        }
+        Insert: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          grade_total?: number
+          grades?: Json
+          id?: string
+          material_id: string
+          multiplicador?: number
+          ordem?: number
+          tenant_id?: string | null
+          variante_tecido_id?: string | null
+        }
+        Update: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          grade_total?: number
+          grades?: Json
+          id?: string
+          material_id?: string
+          multiplicador?: number
+          ordem?: number
+          tenant_id?: string | null
+          variante_tecido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_tecido_variantes_cor_apelido_id_fkey"
+            columns: ["cor_apelido_id"]
+            isOneToOne: false
+            referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_variantes_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_variantes_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "plan_tecido_materiais"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_tecido_variantes_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
             referencedColumns: ["id"]
           },
         ]
@@ -3810,17 +5487,27 @@ export type Database = {
           data_enviado: string | null
           data_prevista: string | null
           desconto_total: number
+          detalhado: boolean
           empresa_id: string | null
+          grade_detalhe: Json
           id: string
           interno: boolean
           multa_total: number
+          nf_entrada: Json
+          nf_saida: Json
           numero_parcelas: number
           observacao: string | null
+          peca_foto: boolean
+          peca_foto_data: string | null
           preco_metro_unidade: number | null
+          pt_aprovacao: string | null
+          pt_data_entrada: string | null
+          pt_data_saida: string | null
           quantidade_defeito: number | null
           quantidade_enviada: number | null
           quantidade_recebida: number | null
           representante_id: string | null
+          rev: number
           status: string | null
           tecidos_enviados: Json | null
           tenant_id: string | null
@@ -3837,17 +5524,27 @@ export type Database = {
           data_enviado?: string | null
           data_prevista?: string | null
           desconto_total?: number
+          detalhado?: boolean
           empresa_id?: string | null
+          grade_detalhe?: Json
           id?: string
           interno?: boolean
           multa_total?: number
+          nf_entrada?: Json
+          nf_saida?: Json
           numero_parcelas?: number
           observacao?: string | null
+          peca_foto?: boolean
+          peca_foto_data?: string | null
           preco_metro_unidade?: number | null
+          pt_aprovacao?: string | null
+          pt_data_entrada?: string | null
+          pt_data_saida?: string | null
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
           representante_id?: string | null
+          rev?: number
           status?: string | null
           tecidos_enviados?: Json | null
           tenant_id?: string | null
@@ -3864,17 +5561,27 @@ export type Database = {
           data_enviado?: string | null
           data_prevista?: string | null
           desconto_total?: number
+          detalhado?: boolean
           empresa_id?: string | null
+          grade_detalhe?: Json
           id?: string
           interno?: boolean
           multa_total?: number
+          nf_entrada?: Json
+          nf_saida?: Json
           numero_parcelas?: number
           observacao?: string | null
+          peca_foto?: boolean
+          peca_foto_data?: string | null
           preco_metro_unidade?: number | null
+          pt_aprovacao?: string | null
+          pt_data_entrada?: string | null
+          pt_data_saida?: string | null
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
           representante_id?: string | null
+          rev?: number
           status?: string | null
           tecidos_enviados?: Json | null
           tenant_id?: string | null
@@ -3917,6 +5624,527 @@ export type Database = {
           },
           {
             foreignKeyName: "producao_terceirizados_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produto_acabado_variantes: {
+        Row: {
+          cor_apelido_id: string | null
+          cor_id: string | null
+          id: string
+          ordem: number
+          peso: number
+          produto_acabado_id: string
+          qtd: number
+          tenant_id: string
+        }
+        Insert: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          id?: string
+          ordem: number
+          peso?: number
+          produto_acabado_id: string
+          qtd?: number
+          tenant_id: string
+        }
+        Update: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          id?: string
+          ordem?: number
+          peso?: number
+          produto_acabado_id?: string
+          qtd?: number
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_acabado_variantes_cor_apelido_id_fkey"
+            columns: ["cor_apelido_id"]
+            isOneToOne: false
+            referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_acabado_variantes_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_acabado_variantes_produto_acabado_id_fkey"
+            columns: ["produto_acabado_id"]
+            isOneToOne: false
+            referencedRelation: "produtos_acabados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_acabado_variantes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produto_importado_etapas: {
+        Row: {
+          base: string
+          cotacao: number
+          data_vencimento: string | null
+          id: string
+          ordem: number
+          percentual: number
+          produto_importado_id: string
+          rotulo: string | null
+          tenant_id: string
+        }
+        Insert: {
+          base: string
+          cotacao?: number
+          data_vencimento?: string | null
+          id?: string
+          ordem: number
+          percentual?: number
+          produto_importado_id: string
+          rotulo?: string | null
+          tenant_id: string
+        }
+        Update: {
+          base?: string
+          cotacao?: number
+          data_vencimento?: string | null
+          id?: string
+          ordem?: number
+          percentual?: number
+          produto_importado_id?: string
+          rotulo?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_importado_etapas_produto_importado_id_fkey"
+            columns: ["produto_importado_id"]
+            isOneToOne: false
+            referencedRelation: "produtos_importados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_importado_etapas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produto_importado_variantes: {
+        Row: {
+          cor_apelido_id: string | null
+          cor_id: string | null
+          id: string
+          ordem: number
+          peso: number
+          produto_importado_id: string
+          qtd: number
+          tenant_id: string
+        }
+        Insert: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          id?: string
+          ordem: number
+          peso?: number
+          produto_importado_id: string
+          qtd?: number
+          tenant_id: string
+        }
+        Update: {
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          id?: string
+          ordem?: number
+          peso?: number
+          produto_importado_id?: string
+          qtd?: number
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_importado_variantes_cor_apelido_id_fkey"
+            columns: ["cor_apelido_id"]
+            isOneToOne: false
+            referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_importado_variantes_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_importado_variantes_produto_importado_id_fkey"
+            columns: ["produto_importado_id"]
+            isOneToOne: false
+            referencedRelation: "produtos_importados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_importado_variantes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produtos_acabados: {
+        Row: {
+          categoria_id: string | null
+          colecao_id: string | null
+          composicao: string | null
+          created_at: string
+          desconto_pct: number
+          empresa_id: string | null
+          foto_url: string | null
+          grade_proporcao: Json
+          grupo_id: string | null
+          id: string
+          insumos_total: number
+          markup_atacado: number | null
+          markup_varejo: number | null
+          mix_id: string | null
+          modelo_id: string | null
+          nome: string
+          qtd_total: number
+          ref: string | null
+          ref_fornecedor: string | null
+          representante_id: string | null
+          semana: string | null
+          subcategoria1_id: string | null
+          subcategoria2_id: string | null
+          subcolecao: string | null
+          tenant_id: string
+          updated_at: string
+          valor_unitario: number
+        }
+        Insert: {
+          categoria_id?: string | null
+          colecao_id?: string | null
+          composicao?: string | null
+          created_at?: string
+          desconto_pct?: number
+          empresa_id?: string | null
+          foto_url?: string | null
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          insumos_total?: number
+          markup_atacado?: number | null
+          markup_varejo?: number | null
+          mix_id?: string | null
+          modelo_id?: string | null
+          nome: string
+          qtd_total?: number
+          ref?: string | null
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          semana?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          subcolecao?: string | null
+          tenant_id: string
+          updated_at?: string
+          valor_unitario?: number
+        }
+        Update: {
+          categoria_id?: string | null
+          colecao_id?: string | null
+          composicao?: string | null
+          created_at?: string
+          desconto_pct?: number
+          empresa_id?: string | null
+          foto_url?: string | null
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          insumos_total?: number
+          markup_atacado?: number | null
+          markup_varejo?: number | null
+          mix_id?: string | null
+          modelo_id?: string | null
+          nome?: string
+          qtd_total?: number
+          ref?: string | null
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          semana?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          subcolecao?: string | null
+          tenant_id?: string
+          updated_at?: string
+          valor_unitario?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produtos_acabados_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_mix_id_fkey"
+            columns: ["mix_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_mixes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_subcategoria1_id_fkey"
+            columns: ["subcategoria1_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias1_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_subcategoria2_id_fkey"
+            columns: ["subcategoria2_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias2_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_acabados_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produtos_importados: {
+        Row: {
+          categoria_id: string | null
+          colecao_id: string | null
+          composicao: string | null
+          cotacao_final: number
+          cotacao_ref: number
+          created_at: string
+          data_entrega: string | null
+          data_pedido: string | null
+          data_prevista: string | null
+          desconto_pct: number
+          empresa_id: string | null
+          foto_url: string | null
+          grade_proporcao: Json
+          grupo_id: string | null
+          id: string
+          markup_atacado: number | null
+          markup_varejo: number | null
+          mix_id: string | null
+          modelo_id: string | null
+          moeda_compra: string
+          moeda_intermediaria: string | null
+          nome: string
+          peso_kg: number
+          qtd_total: number
+          ref: string | null
+          ref_fornecedor: string | null
+          representante_id: string | null
+          semana: string | null
+          subcategoria1_id: string | null
+          subcategoria2_id: string | null
+          subcolecao: string | null
+          tenant_id: string
+          transporte_m2: number
+          updated_at: string
+          valor_unitario_m1: number
+        }
+        Insert: {
+          categoria_id?: string | null
+          colecao_id?: string | null
+          composicao?: string | null
+          cotacao_final?: number
+          cotacao_ref?: number
+          created_at?: string
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista?: string | null
+          desconto_pct?: number
+          empresa_id?: string | null
+          foto_url?: string | null
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          markup_atacado?: number | null
+          markup_varejo?: number | null
+          mix_id?: string | null
+          modelo_id?: string | null
+          moeda_compra?: string
+          moeda_intermediaria?: string | null
+          nome: string
+          peso_kg?: number
+          qtd_total?: number
+          ref?: string | null
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          semana?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          subcolecao?: string | null
+          tenant_id: string
+          transporte_m2?: number
+          updated_at?: string
+          valor_unitario_m1?: number
+        }
+        Update: {
+          categoria_id?: string | null
+          colecao_id?: string | null
+          composicao?: string | null
+          cotacao_final?: number
+          cotacao_ref?: number
+          created_at?: string
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista?: string | null
+          desconto_pct?: number
+          empresa_id?: string | null
+          foto_url?: string | null
+          grade_proporcao?: Json
+          grupo_id?: string | null
+          id?: string
+          markup_atacado?: number | null
+          markup_varejo?: number | null
+          mix_id?: string | null
+          modelo_id?: string | null
+          moeda_compra?: string
+          moeda_intermediaria?: string | null
+          nome?: string
+          peso_kg?: number
+          qtd_total?: number
+          ref?: string | null
+          ref_fornecedor?: string | null
+          representante_id?: string | null
+          semana?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
+          subcolecao?: string | null
+          tenant_id?: string
+          transporte_m2?: number
+          updated_at?: string
+          valor_unitario_m1?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produtos_importados_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_mix_id_fkey"
+            columns: ["mix_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_mixes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_subcategoria1_id_fkey"
+            columns: ["subcategoria1_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias1_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_subcategoria2_id_fkey"
+            columns: ["subcategoria2_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias2_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_importados_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -4180,19 +6408,28 @@ export type Database = {
       tenant_config: {
         Row: {
           campos_editaveis: Json | null
+          confeccao_prioridade: Json
           corte_interno: boolean | null
           created_at: string | null
           estoque_critico_aviamento: number | null
           estoque_critico_threshold: number
           etapas_acabamento: Json | null
+          explosao_envio_status: string | null
           formato_mes: string | null
           id: string
           kanban_requisitos: Json
+          kanban_requisitos_excecoes: Json
           leadtime: Json | null
+          markup_analise_faixa: boolean
           modo_baixa_estoque: string
           modo_oc_rolo: string
           modules: Json
           oficina_interna: boolean | null
+          pcp_etapas: Json | null
+          ref_exibir_status: string | null
+          revenda_campos: Json
+          revenda_kanban_colunas: Json
+          revenda_kanban_requisitos: Json
           status_kanban: Json | null
           tab_labels: Json
           tamanhos_grade: Json | null
@@ -4202,19 +6439,28 @@ export type Database = {
         }
         Insert: {
           campos_editaveis?: Json | null
+          confeccao_prioridade?: Json
           corte_interno?: boolean | null
           created_at?: string | null
           estoque_critico_aviamento?: number | null
           estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
+          explosao_envio_status?: string | null
           formato_mes?: string | null
           id?: string
           kanban_requisitos?: Json
+          kanban_requisitos_excecoes?: Json
           leadtime?: Json | null
+          markup_analise_faixa?: boolean
           modo_baixa_estoque?: string
           modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
+          pcp_etapas?: Json | null
+          ref_exibir_status?: string | null
+          revenda_campos?: Json
+          revenda_kanban_colunas?: Json
+          revenda_kanban_requisitos?: Json
           status_kanban?: Json | null
           tab_labels?: Json
           tamanhos_grade?: Json | null
@@ -4224,19 +6470,28 @@ export type Database = {
         }
         Update: {
           campos_editaveis?: Json | null
+          confeccao_prioridade?: Json
           corte_interno?: boolean | null
           created_at?: string | null
           estoque_critico_aviamento?: number | null
           estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
+          explosao_envio_status?: string | null
           formato_mes?: string | null
           id?: string
           kanban_requisitos?: Json
+          kanban_requisitos_excecoes?: Json
           leadtime?: Json | null
+          markup_analise_faixa?: boolean
           modo_baixa_estoque?: string
           modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
+          pcp_etapas?: Json | null
+          ref_exibir_status?: string | null
+          revenda_campos?: Json
+          revenda_kanban_colunas?: Json
+          revenda_kanban_requisitos?: Json
           status_kanban?: Json | null
           tab_labels?: Json
           tamanhos_grade?: Json | null
@@ -4323,6 +6578,38 @@ export type Database = {
           },
         ]
       }
+      tipos_insumo: {
+        Row: {
+          created_at: string
+          id: string
+          nome: string
+          protegido: boolean
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nome: string
+          protegido?: boolean
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nome?: string
+          protegido?: boolean
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tipos_insumo_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_permissions: {
         Row: {
           created_at: string | null
@@ -4389,6 +6676,51 @@ export type Database = {
         }
         Relationships: []
       }
+      user_ui_prefs: {
+        Row: {
+          id: string
+          pref_key: string
+          scope: string
+          tenant_id: string | null
+          updated_at: string | null
+          user_id: string
+          value: Json
+        }
+        Insert: {
+          id?: string
+          pref_key: string
+          scope: string
+          tenant_id?: string | null
+          updated_at?: string | null
+          user_id: string
+          value: Json
+        }
+        Update: {
+          id?: string
+          pref_key?: string
+          scope?: string
+          tenant_id?: string | null
+          updated_at?: string | null
+          user_id?: string
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_ui_prefs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_ui_prefs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           ativo: boolean | null
@@ -4396,6 +6728,7 @@ export type Database = {
           email: string
           id: string
           nome: string
+          papel_id: string | null
           role: string
           tenant_id: string | null
         }
@@ -4405,6 +6738,7 @@ export type Database = {
           email: string
           id: string
           nome: string
+          papel_id?: string | null
           role?: string
           tenant_id?: string | null
         }
@@ -4414,12 +6748,91 @@ export type Database = {
           email?: string
           id?: string
           nome?: string
+          papel_id?: string | null
           role?: string
           tenant_id?: string | null
         }
         Relationships: [
           {
+            foreignKeyName: "users_papel_id_fkey"
+            columns: ["papel_id"]
+            isOneToOne: false
+            referencedRelation: "papeis"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "users_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      variantes_aviamento: {
+        Row: {
+          aviamento_id: string | null
+          codigo_variante: string | null
+          cor_apelido_id: string | null
+          cor_id: string | null
+          created_at: string | null
+          foto_url: string | null
+          historico_precos: Json
+          id: string
+          nome_variante: string | null
+          preco: number | null
+          tenant_id: string | null
+        }
+        Insert: {
+          aviamento_id?: string | null
+          codigo_variante?: string | null
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          created_at?: string | null
+          foto_url?: string | null
+          historico_precos?: Json
+          id?: string
+          nome_variante?: string | null
+          preco?: number | null
+          tenant_id?: string | null
+        }
+        Update: {
+          aviamento_id?: string | null
+          codigo_variante?: string | null
+          cor_apelido_id?: string | null
+          cor_id?: string | null
+          created_at?: string | null
+          foto_url?: string | null
+          historico_precos?: Json
+          id?: string
+          nome_variante?: string | null
+          preco?: number | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variantes_aviamento_aviamento_id_fkey"
+            columns: ["aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "aviamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variantes_aviamento_cor_apelido_id_fkey"
+            columns: ["cor_apelido_id"]
+            isOneToOne: false
+            referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variantes_aviamento_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variantes_aviamento_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -4571,6 +6984,18 @@ export type Database = {
         Args: { _nova_qtd: number; _rolo_id: string }
         Returns: undefined
       }
+      _aplicar_plan_tecido_grade_core: {
+        Args: { _slot_id: string; _variantes: Json }
+        Returns: Json
+      }
+      _aplicar_produto_ao_modelo_core: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _aplicar_reais_do_grade_detalhe: {
+        Args: { _cad_id: string; _fonte: string }
+        Returns: undefined
+      }
       _aplicar_resolucao_alerta_tecido_core: {
         Args: {
           _acao: string
@@ -4581,13 +7006,53 @@ export type Database = {
         }
         Returns: undefined
       }
+      _aplicar_sim_no_modelo_core: {
+        Args: {
+          _grade: Json
+          _modelo_id: string
+          _oc_id: string
+          _variantes: Json
+        }
+        Returns: undefined
+      }
+      _aprovar_servico_mo_core: {
+        Args: {
+          _aprovado: boolean
+          _categoria_terceirizado_id: string
+          _modelo_id: string
+          _motivo: string
+        }
+        Returns: undefined
+      }
+      _avaliar_condicoes_kanban_core: {
+        Args: { _ids: string[]; _tenant: string }
+        Returns: Json
+      }
       _aviamento_sigla: { Args: { _nome: string }; Returns: string }
       _baixar_estoque_tecido_corte_core: {
         Args: { _cad_id: string }
         Returns: Json
       }
       _cancelar_rolo_core: { Args: { _rolo_id: string }; Returns: undefined }
+      _categoria_eh_confeccao: { Args: { _nome: string }; Returns: boolean }
+      _categoria_eh_pl: { Args: { _nome: string }; Returns: boolean }
       _cq_liberado: { Args: { _cad_id: string }; Returns: boolean }
+      _criar_card_produto_acabado_core: {
+        Args: { _produto_id: string }
+        Returns: string
+      }
+      _criar_card_produto_importado_core: {
+        Args: { _produto_id: string }
+        Returns: string
+      }
+      _criar_cards_produto_acabado_lote_core: {
+        Args: { _produto_ids: string[] }
+        Returns: Json
+      }
+      _criar_cards_produto_importado_lote_core: {
+        Args: { _produto_ids: string[] }
+        Returns: Json
+      }
       _criar_rolo_core: {
         Args: {
           _artigo_id: string
@@ -4599,6 +7064,7 @@ export type Database = {
         }
         Returns: string
       }
+      _custo_unitario_modelos_core: { Args: { _ids: string[] }; Returns: Json }
       _dashboard_colecao_core: {
         Args: {
           p_colecao?: string
@@ -4639,6 +7105,16 @@ export type Database = {
         }
         Returns: Json
       }
+      _dashboard_producao_servicos_core: {
+        Args: {
+          p_categoria?: string
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
+        Returns: Json
+      }
       _desmarcar_cq_core: { Args: { _cad_id: string }; Returns: Json }
       _desmarcar_cq_pos_core: { Args: { _cad_id: string }; Returns: Json }
       _desmarcar_recebimento_oc_core: {
@@ -4656,9 +7132,11 @@ export type Database = {
       _estoque_aviamento_core: {
         Args: { _tenant: string }
         Returns: {
+          apelido: string
           baixa: number
           categoria: string
           categoria_id: string
+          cor: string
           fisico: number
           fornecedor: string
           fornecedor_id: string
@@ -4668,6 +7146,9 @@ export type Database = {
           previsto: number
           recebido: number
           reservado: number
+          variante_codigo: string
+          variante_id: string
+          variante_nome: string
         }[]
       }
       _estoque_etiqueta_core: {
@@ -4684,6 +7165,8 @@ export type Database = {
           variante_id: string
         }[]
       }
+      _estoque_p_acabado_core: { Args: { _tenant: string }; Returns: Json }
+      _estoque_p_importado_core: { Args: { _tenant: string }; Returns: Json }
       _estoque_tecido_core: {
         Args: { _tenant: string }
         Returns: {
@@ -4697,11 +7180,88 @@ export type Database = {
           variante_tecido_id: string
         }[]
       }
+      _excluir_oc_importado_core: {
+        Args: { _oc_id: string }
+        Returns: undefined
+      }
+      _excluir_oc_p_acabado_core: {
+        Args: { _oc_id: string }
+        Returns: undefined
+      }
+      _excluir_oc_tecido_core: { Args: { _oc_id: string }; Returns: undefined }
+      _excluir_produto_acabado_core: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _excluir_produto_importado_core: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
       _excluir_rolo_core: { Args: { _rolo_id: string }; Returns: undefined }
+      _explosao_envio_gate: {
+        Args: { _status: string; _tenant: string }
+        Returns: Record<string, unknown>
+      }
+      _gerar_parcelas_importado: {
+        Args: { _oc_id: string }
+        Returns: undefined
+      }
       _gerar_rolos_recebimento_core: {
         Args: { _oc_id: string; _rolos: Json }
         Returns: number
       }
+      _grade_soma_pares: {
+        Args: { _complementa_ids: string[]; _modelo_id: string }
+        Returns: number
+      }
+      _grupo_eh_acessorio: { Args: { _grupo_id: string }; Returns: boolean }
+      _imp_custo_landed: { Args: { _produto_id: string }; Returns: number }
+      _imp_etapas_brl_oc: {
+        Args: { _oc_id: string }
+        Returns: {
+          base: string
+          data_vencimento: string
+          ordem: number
+          rotulo: string
+          valor_brl: number
+        }[]
+      }
+      _imp_recalcular_landed_real_oc: {
+        Args: { _oc_id: string }
+        Returns: undefined
+      }
+      _imp_recomputar_precos_modelo: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _kanban_regredir_modelo: {
+        Args: { _modelo_id: string }
+        Returns: undefined
+      }
+      _kanban_resolve_key: { Args: { _label_or_key: string }; Returns: string }
+      _kanban_slug: { Args: { _s: string }; Returns: string }
+      _kanban_status_rows: {
+        Args: { _tenant: string }
+        Returns: {
+          key: string
+          lbl: string
+          ord: number
+        }[]
+      }
+      _limpar_produto_acabado_core: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _limpar_produto_importado_core: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _mo_liberada: { Args: { _modelo_id: string }; Returns: boolean }
+      _modelo_bom_snapshot: {
+        Args: { _modelo_id: string; _origem?: string }
+        Returns: undefined
+      }
+      _modelo_mo_resumo_core: { Args: { _ids: string[] }; Returns: Json }
       _modelo_no_periodo: {
         Args: {
           p_ano_id: string
@@ -4711,6 +7271,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      _modelo_ref_next_num: { Args: { _tenant: string }; Returns: number }
+      _modelo_ref_sigla: {
+        Args: { _cat: string; _grupo: string; _sub: string }
+        Returns: string
+      }
+      _modelos_mo_a_aprovar_count_core: { Args: never; Returns: number }
+      _norm3: { Args: { _s: string }; Returns: string }
       _otb_colecao_totais: {
         Args: { _tenant: string }
         Returns: {
@@ -4725,6 +7292,164 @@ export type Database = {
         Args: { _colecao_id: string; _tenant: string }
         Returns: Json
       }
+      _pa_grade_pedida_only: { Args: { _grade: Json }; Returns: Json }
+      _pa_grade_variante: {
+        Args: { _grade_proporcao: Json; _grupo_id: string; _qtd: number }
+        Returns: Json
+      }
+      _pa_recomputar_precos_modelo: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      _papel_tenant_autorizado: {
+        Args: { _tenant_id: string }
+        Returns: string
+      }
+      _perm_efetiva: {
+        Args: { _user_id: string }
+        Returns: {
+          pagina: string
+          pode_editar: boolean
+          pode_ver: boolean
+        }[]
+      }
+      _plan_tecido_aplicar_ao_modelo_core: {
+        Args: {
+          _confirmar_sobrescrita?: boolean
+          _materiais: Json
+          _slot_id: string
+        }
+        Returns: string
+      }
+      _plan_tecido_arvore_core: { Args: { _colecao_id: string }; Returns: Json }
+      _plan_tecido_cobertura_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: {
+          coberto_m: number
+          variante_tecido_id: string
+        }[]
+      }
+      _plan_tecido_cobertura_ocs_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: {
+          coberto_m: number
+          numero_pedido: string
+          oc_tecido_id: string
+          status: string
+          variante_tecido_id: string
+        }[]
+      }
+      _plan_tecido_criar_card_core: {
+        Args: { _colecao_id: string; _slot: Json; _tenant: string }
+        Returns: string
+      }
+      _plan_tecido_criar_cards_core: {
+        Args: { _colecao_id: string; _slots: Json; _tenant: string }
+        Returns: Json
+      }
+      _plan_tecido_desfazer_pedido_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: number
+      }
+      _plan_tecido_estoque_core: {
+        Args: { _tenant: string; _variante_ids: string[] }
+        Returns: {
+          a_receber: number
+          fisico: number
+          previsto: number
+          reservado: number
+          variante_tecido_id: string
+        }[]
+      }
+      _plan_tecido_fases_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: Json
+      }
+      _plan_tecido_fazer_pedido_core: {
+        Args: {
+          _colecao_id: string
+          _pedidos: Json
+          _slot_ids?: string[]
+          _tenant: string
+        }
+        Returns: Json
+      }
+      _plan_tecido_gravar_bom_core: {
+        Args: { _materiais: Json; _modelo: string }
+        Returns: undefined
+      }
+      _plan_tecido_nec_variante_core: {
+        Args: { _colecao_id: string; _slot_ids?: string[]; _tenant: string }
+        Returns: {
+          artigo_id: string
+          nec_m: number
+          variante_tecido_id: string
+        }[]
+      }
+      _plan_tecido_previa_pedido_core: {
+        Args: { _colecao_id: string; _slot_ids?: string[]; _tenant: string }
+        Returns: Json
+      }
+      _plan_tecido_set_oc_aplicada_core: {
+        Args: { _colecao_id: string; _oc_ids: string[]; _tenant: string }
+        Returns: number
+      }
+      _plan_tecido_set_paleta_core: {
+        Args: { _colecao_id: string; _itens: Json; _tenant: string }
+        Returns: number
+      }
+      _plan_tecido_set_referencia_core: {
+        Args: { _modelo_id: string; _paths: string[]; _tenant: string }
+        Returns: undefined
+      }
+      _plan_tecido_set_slot_oc_core: {
+        Args: {
+          _colecao_id: string
+          _oc_ids: string[]
+          _slot_id: string
+          _tenant: string
+        }
+        Returns: number
+      }
+      _plan_tecido_situacao_ocs_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: {
+          artigo_id: string
+          artigo_nome: string
+          comprometida_m: number
+          data_pedido: string
+          entregue_m: number
+          numero: string
+          oc_tecido_id: string
+          pedida_m: number
+          status: string
+          usada_m: number
+          variante_label: string
+          variante_tecido_id: string
+        }[]
+      }
+      _plan_tecido_snapshot: { Args: { _plan_id: string }; Returns: undefined }
+      _plan_tecido_status_pedidos_core: {
+        Args: { _tenant: string }
+        Returns: {
+          colecao_id: string
+          status: string
+        }[]
+      }
+      _plan_tecido_vinculos_modelo_core: {
+        Args: { _colecao_id: string; _tenant: string }
+        Returns: {
+          modelo_id: string
+          numero_pedido: string
+          oc_tecido_id: string
+          tecidos: string
+        }[]
+      }
+      _poda_variantes_cad: {
+        Args: { _cad_id: string; _modelo_id: string }
+        Returns: undefined
+      }
+      _pode_ver_custos: { Args: never; Returns: boolean }
       _preco_tecido_por_metro: {
         Args: {
           _artigo_id: string
@@ -4732,6 +7457,11 @@ export type Database = {
           _numero: number
           _tipo: string
         }
+        Returns: number
+      }
+      _produto_acabado_ref_next: { Args: { _tenant: string }; Returns: number }
+      _produto_importado_ref_next: {
+        Args: { _tenant: string }
         Returns: number
       }
       _ranking_oficinas_core: {
@@ -4744,10 +7474,23 @@ export type Database = {
         Args: { _oc_id: string; _tipo: string }
         Returns: Json
       }
+      _receber_oc_importado_core: {
+        Args: { _dados: Json; _grade: Json; _oc_id: string }
+        Returns: Json
+      }
+      _receber_oc_p_acabado_core: {
+        Args: { _dados: Json; _grade: Json; _oc_id: string }
+        Returns: Json
+      }
       _receber_reposicao_troca_core: {
         Args: { _data: string; _metragem: number; _original_item_id: string }
         Returns: undefined
       }
+      _ref_exibir_gate: {
+        Args: { _status: string; _tenant: string }
+        Returns: boolean
+      }
+      _ref_norm: { Args: { _s: string }; Returns: string }
       _remover_metragem_oc_core: {
         Args: {
           _metragem: number
@@ -4756,6 +7499,35 @@ export type Database = {
         }
         Returns: string
       }
+      _replicar_cards_plan_tecido_core: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _modelo_ids: string[]
+          _rev_base: number
+          _tenant: string
+        }
+        Returns: Json
+      }
+      _replicar_produtos_acabados_core: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _produto_ids: string[]
+          _tenant: string
+        }
+        Returns: Json
+      }
+      _replicar_produtos_importados_core: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _produto_ids: string[]
+          _tenant: string
+        }
+        Returns: Json
+      }
+      _resolver_fonte_confeccao: { Args: { _cad_id: string }; Returns: string }
       _reverter_ajuste_estoque_core: {
         Args: { _baixa_id: string }
         Returns: undefined
@@ -4785,6 +7557,7 @@ export type Database = {
           _confirmar?: boolean
           _cq: Json
           _reais: Json
+          _rev_base?: Json
           _variantes: Json
         }
         Returns: Json
@@ -4807,27 +7580,80 @@ export type Database = {
         }
         Returns: undefined
       }
+      _salvar_grade_revenda_core: {
+        Args: { _grades: Json; _modelo_id: string; _rev_base?: number }
+        Returns: undefined
+      }
+      _salvar_markups_produto_acabado_core: {
+        Args: {
+          _markup_atacado: number
+          _markup_varejo: number
+          _produto_id: string
+        }
+        Returns: undefined
+      }
       _salvar_modelo_bom_core: {
         Args: {
           _aviamentos: Json
           _grades: Json
           _modelo_id: string
+          _rev_base?: number
           _tecidos: Json
         }
+        Returns: undefined
+      }
+      _salvar_modelo_servico_mo_core: {
+        Args: { _linhas: Json; _modelo_id: string }
         Returns: undefined
       }
       _salvar_oc_aviamento_core: {
         Args: { _itens: Json; _oc: Json; _oc_id: string }
         Returns: string
       }
+      _salvar_oc_importado_core: {
+        Args: { _dados: Json; _etapas: Json; _grade: Json; _id: string }
+        Returns: string
+      }
+      _salvar_oc_p_acabado_core: {
+        Args: { _dados: Json; _grade: Json; _id: string }
+        Returns: string
+      }
       _salvar_oc_tecido_core: {
-        Args: { _itens: Json; _oc: Json; _oc_id: string }
+        Args: { _itens: Json; _oc: Json; _oc_id: string; _rev_base?: number }
+        Returns: string
+      }
+      _salvar_plan_tecido_core: {
+        Args: { _arvore: Json; _colecao_id: string; _rev_base?: number }
+        Returns: string
+      }
+      _salvar_produto_acabado_core: {
+        Args: { _dados: Json; _id: string; _variantes: Json }
+        Returns: string
+      }
+      _salvar_produto_importado_core: {
+        Args: { _dados: Json; _etapas: Json; _id: string; _variantes: Json }
         Returns: string
       }
       _seed_tenant_defaults: { Args: { _tid: string }; Returns: undefined }
+      _split_maior_resto: {
+        Args: { _pesos: Json; _total: number }
+        Returns: Json
+      }
       _trocar_rolo_core: {
         Args: { _nova_metragem?: number; _rolo_id: string }
         Returns: string
+      }
+      _variante_aviamento_em_uso: {
+        Args: { _variante_id: string }
+        Returns: number
+      }
+      _vincular_oc_p_acabado_core: {
+        Args: { _oc_id: string; _produto_id: string }
+        Returns: undefined
+      }
+      _voltar_cq_para_servico_core: {
+        Args: { _cad_id: string }
+        Returns: undefined
       }
       _wipe_tenant_core: {
         Args: { _full: boolean; _tid: string }
@@ -4838,6 +7664,14 @@ export type Database = {
         Returns: undefined
       }
       ajustes_estoque_lista: { Args: never; Returns: Json }
+      aplicar_plan_tecido_grade: {
+        Args: { _slot_id: string; _variantes: Json }
+        Returns: Json
+      }
+      aplicar_produto_ao_modelo: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
       aplicar_resolucao_alerta_tecido: {
         Args: {
           _acao: string
@@ -4848,6 +7682,29 @@ export type Database = {
         }
         Returns: undefined
       }
+      aplicar_simulacao: {
+        Args: { _simulacao_id: string; _unidade_id: string }
+        Returns: Json
+      }
+      aplicar_simulacao_modelo: {
+        Args: {
+          _grade: Json
+          _modelo_id: string
+          _oc_id: string
+          _variantes: Json
+        }
+        Returns: undefined
+      }
+      aprovar_servico_mo: {
+        Args: {
+          _aprovado: boolean
+          _categoria_terceirizado_id: string
+          _modelo_id: string
+          _motivo: string
+        }
+        Returns: undefined
+      }
+      audit_resolver_referencias: { Args: { _pares: Json }; Returns: Json }
       avaliar_condicoes_kanban: { Args: { _ids: string[] }; Returns: Json }
       baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
       baixar_os: {
@@ -4869,6 +7726,35 @@ export type Database = {
       cq_set_oficina_desconto_multa: {
         Args: { _cad_id: string; _desconto: number; _multa: number }
         Returns: undefined
+      }
+      criar_card_produto_acabado: {
+        Args: { _produto_id: string }
+        Returns: string
+      }
+      criar_card_produto_importado: {
+        Args: { _produto_id: string }
+        Returns: string
+      }
+      criar_card_simulacao: {
+        Args: {
+          _categoria_id: string
+          _colecao_id: string
+          _grade: Json
+          _linha_id: string
+          _oc_id: string
+          _semana: string
+          _subcolecao_id: string
+          _variantes: Json
+        }
+        Returns: string
+      }
+      criar_cards_produto_acabado: {
+        Args: { _produto_ids: string[] }
+        Returns: Json
+      }
+      criar_cards_produto_importado: {
+        Args: { _produto_ids: string[] }
+        Returns: Json
       }
       criar_rolo: {
         Args: {
@@ -4923,6 +7809,20 @@ export type Database = {
         }
         Returns: Json
       }
+      dashboard_producao_servicos: {
+        Args: {
+          p_categoria?: string
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
+        Returns: Json
+      }
+      definir_papel_usuario: {
+        Args: { _papel_id: string; _tenant_id: string; _user_id: string }
+        Returns: undefined
+      }
       desmarcar_cq: { Args: { _cad_id: string }; Returns: Json }
       desmarcar_cq_pos: { Args: { _cad_id: string }; Returns: Json }
       desmarcar_os: {
@@ -4964,9 +7864,11 @@ export type Database = {
       estoque_aviamento: {
         Args: never
         Returns: {
+          apelido: string
           baixa: number
           categoria: string
           categoria_id: string
+          cor: string
           fisico: number
           fornecedor: string
           fornecedor_id: string
@@ -4976,6 +7878,9 @@ export type Database = {
           previsto: number
           recebido: number
           reservado: number
+          variante_codigo: string
+          variante_id: string
+          variante_nome: string
         }[]
       }
       estoque_etiqueta: {
@@ -4992,6 +7897,8 @@ export type Database = {
           variante_id: string
         }[]
       }
+      estoque_p_acabado: { Args: never; Returns: Json }
+      estoque_p_importado: { Args: never; Returns: Json }
       estoque_tecido: {
         Args: never
         Returns: {
@@ -5007,10 +7914,35 @@ export type Database = {
       }
       estoque_tecido_por_artigo: { Args: never; Returns: Json }
       excluir_cad: { Args: { _cad_id: string }; Returns: undefined }
+      excluir_colecao_mix: { Args: { _id: string }; Returns: undefined }
       excluir_loja: { Args: { _tenant_id: string }; Returns: undefined }
+      excluir_loja_direcionamento: {
+        Args: { _loja_id: string }
+        Returns: undefined
+      }
       excluir_mix_padrao: { Args: { _id: string }; Returns: undefined }
+      excluir_oc_importado: { Args: { _oc_id: string }; Returns: undefined }
+      excluir_oc_p_acabado: { Args: { _oc_id: string }; Returns: undefined }
+      excluir_oc_tecido: { Args: { _oc_id: string }; Returns: undefined }
+      excluir_papel: {
+        Args: { _id: string; _tenant_id: string }
+        Returns: undefined
+      }
+      excluir_produto_acabado: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      excluir_produto_importado: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
       excluir_rolo: { Args: { _rolo_id: string }; Returns: undefined }
+      excluir_simulacao: { Args: { _id: string }; Returns: undefined }
       excluir_tecido: { Args: { _artigo_id: string }; Returns: Json }
+      excluir_variante_aviamento: {
+        Args: { _variante_id: string }
+        Returns: Json
+      }
       excluir_variante_tecido: { Args: { _variante_id: string }; Returns: Json }
       forcar_logout: { Args: { _user_id: string }; Returns: undefined }
       gerar_rolos_recebimento: {
@@ -5027,6 +7959,18 @@ export type Database = {
       }
       is_super_admin: { Args: never; Returns: boolean }
       is_tenant_admin: { Args: never; Returns: boolean }
+      lancar_modelo: {
+        Args: { _data_lancamento: string; _modelo_id: string; _send?: boolean }
+        Returns: undefined
+      }
+      limpar_produto_acabado: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
+      limpar_produto_importado: {
+        Args: { _produto_id: string }
+        Returns: undefined
+      }
       marcar_etapa_verificada: {
         Args: { _etapa: string; _modelo_id: string }
         Returns: undefined
@@ -5045,7 +7989,17 @@ export type Database = {
         Returns: Json
       }
       meu_tenant_ativo: { Args: never; Returns: boolean }
+      minhas_permissoes_efetivas: {
+        Args: never
+        Returns: {
+          pagina: string
+          pode_editar: boolean
+          pode_ver: boolean
+        }[]
+      }
       modelo_etapas_afetadas: { Args: { _modelo_id: string }; Returns: Json }
+      modelo_mo_resumo: { Args: { _ids: string[] }; Returns: Json }
+      modelos_mo_a_aprovar_count: { Args: never; Returns: number }
       ocs_disponiveis_variante: {
         Args: { _modelo_id?: string; _variante_id: string }
         Returns: Json
@@ -5057,10 +8011,117 @@ export type Database = {
       }
       otb_confirmar: { Args: { _colecao_id: string }; Returns: Json }
       otb_confirmar_pv: { Args: { _colecao_id: string }; Returns: Json }
+      otb_desconfirmar: { Args: { _colecao_id: string }; Returns: Json }
       otb_excluir_colecao: { Args: { _colecao_id: string }; Returns: undefined }
       otb_importar_colecoes: { Args: never; Returns: Json }
       otb_orcamento: { Args: { _colecao_id?: string }; Returns: Json }
       otb_salvar_colecao: { Args: { _payload: Json }; Returns: string }
+      plan_tecido_aplicar_ao_modelo: {
+        Args: {
+          _confirmar_sobrescrita?: boolean
+          _materiais: Json
+          _slot_id: string
+        }
+        Returns: string
+      }
+      plan_tecido_arvore: { Args: { _colecao_id: string }; Returns: Json }
+      plan_tecido_cobertura: {
+        Args: { _colecao_id: string }
+        Returns: {
+          coberto_m: number
+          variante_tecido_id: string
+        }[]
+      }
+      plan_tecido_cobertura_ocs: {
+        Args: { _colecao_id: string }
+        Returns: {
+          coberto_m: number
+          numero_pedido: string
+          oc_tecido_id: string
+          status: string
+          variante_tecido_id: string
+        }[]
+      }
+      plan_tecido_criar_card: {
+        Args: { _colecao_id: string; _slot: Json }
+        Returns: string
+      }
+      plan_tecido_criar_cards: {
+        Args: { _colecao_id: string; _slots: Json }
+        Returns: Json
+      }
+      plan_tecido_desfazer_pedido: {
+        Args: { _colecao_id: string }
+        Returns: number
+      }
+      plan_tecido_estoque: {
+        Args: { _variante_ids: string[] }
+        Returns: {
+          a_receber: number
+          fisico: number
+          previsto: number
+          reservado: number
+          variante_tecido_id: string
+        }[]
+      }
+      plan_tecido_fases: { Args: { _colecao_id: string }; Returns: Json }
+      plan_tecido_fazer_pedido: {
+        Args: { _colecao_id: string; _pedidos: Json; _slot_ids?: string[] }
+        Returns: Json
+      }
+      plan_tecido_previa_pedido: {
+        Args: { _colecao_id: string; _slot_ids?: string[] }
+        Returns: Json
+      }
+      plan_tecido_set_oc_aplicada: {
+        Args: { _colecao_id: string; _oc_ids: string[] }
+        Returns: number
+      }
+      plan_tecido_set_paleta: {
+        Args: { _colecao_id: string; _itens: Json }
+        Returns: number
+      }
+      plan_tecido_set_referencia: {
+        Args: { _modelo_id: string; _paths: string[] }
+        Returns: undefined
+      }
+      plan_tecido_set_slot_oc: {
+        Args: { _colecao_id: string; _oc_ids: string[]; _slot_id: string }
+        Returns: number
+      }
+      plan_tecido_situacao_ocs: {
+        Args: { _colecao_id: string }
+        Returns: {
+          artigo_id: string
+          artigo_nome: string
+          comprometida_m: number
+          data_pedido: string
+          entregue_m: number
+          numero: string
+          oc_tecido_id: string
+          pedida_m: number
+          status: string
+          usada_m: number
+          variante_label: string
+          variante_tecido_id: string
+        }[]
+      }
+      plan_tecido_status_pedidos: {
+        Args: never
+        Returns: {
+          colecao_id: string
+          status: string
+        }[]
+      }
+      plan_tecido_vinculos_modelo: {
+        Args: { _colecao_id: string }
+        Returns: {
+          modelo_id: string
+          numero_pedido: string
+          oc_tecido_id: string
+          tecidos: string
+        }[]
+      }
       precos_tecido_congelado: { Args: { _modelo_id: string }; Returns: Json }
       prova_comentar: {
         Args: { _modelo_id: string; _parent_id?: string; _texto: string }
@@ -5072,6 +8133,10 @@ export type Database = {
         Returns: undefined
       }
       proximo_codigo_rolo: { Args: { _artigo_id?: string }; Returns: string }
+      proximo_numero_oc: {
+        Args: { _fornecedor_id: string; _material_id: string; _tipo: string }
+        Returns: string
+      }
       ranking_oficinas: {
         Args: { p_categoria_produto?: string }
         Returns: Json
@@ -5085,6 +8150,14 @@ export type Database = {
       recalcular_parcelas_etiqueta: {
         Args: { _oc_id: string }
         Returns: undefined
+      }
+      receber_oc_importado: {
+        Args: { _dados: Json; _grade: Json; _oc_id: string }
+        Returns: Json
+      }
+      receber_oc_p_acabado: {
+        Args: { _dados: Json; _grade: Json; _oc_id: string }
+        Returns: Json
       }
       receber_reposicao_troca: {
         Args: { _data: string; _metragem: number; _original_item_id: string }
@@ -5101,6 +8174,31 @@ export type Database = {
       renomear_tipo_colaborador: {
         Args: { _categoria_id?: string; _id: string; _novo_nome: string }
         Returns: undefined
+      }
+      replicar_cards_plan_tecido: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _modelo_ids: string[]
+          _rev_base?: number
+        }
+        Returns: Json
+      }
+      replicar_produtos_acabados: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _produto_ids: string[]
+        }
+        Returns: Json
+      }
+      replicar_produtos_importados: {
+        Args: {
+          _destino_colecao_id: string
+          _destino_subcolecao_id: string
+          _produto_ids: string[]
+        }
+        Returns: Json
       }
       reset_loja: { Args: { _tenant_id: string }; Returns: undefined }
       reverter_ajuste_estoque: {
@@ -5128,6 +8226,15 @@ export type Database = {
         }
         Returns: string
       }
+      salvar_colecao_mix: {
+        Args: {
+          _colecao_id: string
+          _id: string
+          _nome: string
+          _subcolecao: string
+        }
+        Returns: string
+      }
       salvar_colecao_pv: {
         Args: { _header: Json; _id: string; _subcolecoes: Json }
         Returns: string
@@ -5138,6 +8245,7 @@ export type Database = {
           _confirmar?: boolean
           _cq: Json
           _reais: Json
+          _rev_base?: Json
           _variantes: Json
         }
         Returns: Json
@@ -5155,6 +8263,18 @@ export type Database = {
         Args: { _cad_id: string; _rows: Json }
         Returns: undefined
       }
+      salvar_explosao_aviamento_separar: {
+        Args: { _cad_id: string; _linhas: Json }
+        Returns: string
+      }
+      salvar_explosao_metragem: {
+        Args: { _cad_id: string; _variantes: Json }
+        Returns: string
+      }
+      salvar_grade_revenda: {
+        Args: { _grades: Json; _modelo_id: string; _rev_base?: number }
+        Returns: undefined
+      }
       salvar_loja: {
         Args: {
           _cnpj: string
@@ -5163,6 +8283,14 @@ export type Database = {
           _logo_url: string
           _modules: Json
           _nome: string
+        }
+        Returns: undefined
+      }
+      salvar_markups_produto_acabado: {
+        Args: {
+          _markup_atacado: number
+          _markup_varejo: number
+          _produto_id: string
         }
         Returns: undefined
       }
@@ -5175,8 +8303,13 @@ export type Database = {
           _aviamentos: Json
           _grades: Json
           _modelo_id: string
+          _rev_base?: number
           _tecidos: Json
         }
+        Returns: undefined
+      }
+      salvar_modelo_servico_mo: {
+        Args: { _linhas: Json; _modelo_id: string }
         Returns: undefined
       }
       salvar_oc_aviamento: {
@@ -5187,17 +8320,60 @@ export type Database = {
         Args: { _itens: Json; _oc: Json; _oc_id: string }
         Returns: string
       }
+      salvar_oc_importado: {
+        Args: { _dados: Json; _etapas: Json; _grade: Json; _id: string }
+        Returns: string
+      }
+      salvar_oc_p_acabado: {
+        Args: { _dados: Json; _grade: Json; _id: string }
+        Returns: string
+      }
       salvar_oc_tecido: {
-        Args: { _itens: Json; _oc: Json; _oc_id: string }
+        Args: { _itens: Json; _oc: Json; _oc_id: string; _rev_base?: number }
         Returns: string
       }
       salvar_os: {
         Args: { _header: Json; _itens: Json; _os_id: string; _tipo: string }
         Returns: string
       }
+      salvar_papel: {
+        Args: {
+          _descricao: string
+          _id: string
+          _nome: string
+          _perms: Json
+          _tenant_id: string
+        }
+        Returns: string
+      }
+      salvar_plan_tecido: {
+        Args: { _arvore: Json; _colecao_id: string; _rev_base?: number }
+        Returns: string
+      }
+      salvar_produto_acabado: {
+        Args: { _dados: Json; _id: string; _variantes: Json }
+        Returns: string
+      }
+      salvar_produto_importado: {
+        Args: { _dados: Json; _etapas: Json; _id: string; _variantes: Json }
+        Returns: string
+      }
+      salvar_simulacao: {
+        Args: { _arvore: Json; _header: Json; _id: string }
+        Returns: string
+      }
       salvar_terceirizados: {
-        Args: { _blocos: Json; _cad_id: string; _observacoes_molde?: string }
+        Args: {
+          _blocos: Json
+          _cad_id: string
+          _observacoes_molde?: string
+          _rev_base?: Json
+        }
         Returns: undefined
+      }
+      salvar_variantes_aviamento: {
+        Args: { _aviamento_id: string; _variantes: Json }
+        Returns: Json
       }
       servico_aprovacao_por_modelo: { Args: { _ids: string[] }; Returns: Json }
       servicos_financeiro: { Args: never; Returns: Json }
@@ -5219,7 +8395,18 @@ export type Database = {
         Args: { _nova_metragem?: number; _rolo_id: string }
         Returns: string
       }
+      unaccent_simple: { Args: { _s: string }; Returns: string }
+      user_can_edit: { Args: { _pagina: string }; Returns: boolean }
       user_can_view: { Args: { _pagina: string }; Returns: boolean }
+      vincular_oc_p_acabado: {
+        Args: { _oc_id: string; _produto_id: string }
+        Returns: undefined
+      }
+      voltar_cq_para_servico: { Args: { _cad_id: string }; Returns: undefined }
+      voltar_modelo_desenvolvimento: {
+        Args: { _modelo_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "user" | "super_admin" | "tenant_admin"
@@ -5246,12 +8433,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5275,11 +8462,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5300,11 +8487,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5325,11 +8512,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5342,11 +8529,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5371,4 +8558,3 @@ export const Constants = {
     },
   },
 } as const
-

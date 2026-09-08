@@ -661,7 +661,7 @@ export function PlanejamentoDetail({
     enabled: !!tenantIdAtivo,
     queryFn: async () => {
       const { data } = await supabase.from("tenant_config").select("markup_analise_faixa").eq("tenant_id", tenantIdAtivo).maybeSingle();
-      return !!(data as any)?.markup_analise_faixa;
+      return !!data?.markup_analise_faixa;
     },
   });
   const { data: tenantTamanhosRevenda = DEFAULT_TAMANHOS } = useQuery({
