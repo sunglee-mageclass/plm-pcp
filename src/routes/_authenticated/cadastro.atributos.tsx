@@ -510,7 +510,7 @@ function ConfeccaoPrioridadeCard() {
 
 function AtributosPage() {
   const { isStockOnly } = useTenantModules();
-  const { isTenantAdmin, isSuperAdmin } = useAuth();
+  const { isTenantAdmin, isSuperAdmin, canEdit } = useAuth();
   // Categoria do Serviço é admin-only no banco (config de produção: SLA/Leadtime).
   // Esconde a aba p/ não-admin em vez de deixar o edit dar UPDATE-0 silencioso.
   const visibleAttributes = useMemo(
@@ -530,6 +530,15 @@ function AtributosPage() {
     : selected.config.table === "subcategorias1_produto" && !isStockOnly
       ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA de Serviços (dias)", placeholder: "dias" } }
       : selected.config;
+
+  // Permissão de EDIÇÃO por atributo (destrinchada): pode editar se a section do atributo estiver
+  // liberada OU (retrocompat) a permissão-mãe da página estiver como Editor. Admin fura via canEdit.
+  // O RequirePermission da rota já garante o ACESSO (canView da página) — isto gate só o EDITAR.
+  // EXCEÇÃO Grade: mora em tenant_config (UPDATE só is_tenant_admin no banco) — não tem section;
+  // editável só por admin (espelha o gate do banco, senão o UI prometeria o que o banco recusa).
+  const readOnlyAttr = selected.value === "grade_tamanhos"
+    ? !(isTenantAdmin || isSuperAdmin)
+    : !(canEdit(`cadastro_atributos:${selected.value}`) || canEdit("cadastro_atributos"));
 
   const grouped = useMemo(() => {
     const map = new Map<GroupKey, AttributeItem[]>();
@@ -635,10 +644,11 @@ function AtributosPage() {
           </div>
 
           {selected.custom === "grade" ? (
-            <GradeTamanhosCard />
+            <GradeTamanhosCard readOnly={readOnlyAttr} />
           ) : selected.custom === "linha" ? (
             <LinhasCard
               key={selected.value}
+              readOnly={readOnlyAttr}
               onChanged={() => qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })}
             />
           ) : (
@@ -646,6 +656,7 @@ function AtributosPage() {
               <AttributeTab
                 key={selected.value}
                 config={activeConfig}
+                readOnly={readOnlyAttr}
                 onFilteredCount={setFilteredN}
                 onChanged={() =>
                   qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })

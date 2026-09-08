@@ -102,15 +102,24 @@ export function AttributeTab({
   config,
   onChanged,
   onFilteredCount,
+  readOnly: readOnlyProp,
 }: {
   config: AttributeTabConfig;
   /** Chamado após criar/editar/excluir, p/ o pai atualizar contadores próprios. */
   onChanged?: () => void;
   /** Reporta a contagem FILTRADA (após busca) — o cabeçalho mostra "X de Y itens". */
   onFilteredCount?: (n: number) => void;
+  /** Somente-leitura por PERMISSÃO do atributo (section). OR com o readOnly da PÁGINA (contexto). */
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
-  const readOnly = useReadOnly();
+  const pageReadOnly = useReadOnly();
+  // A permissão por ATRIBUTO (section) é a fonte de verdade quando o pai a informa (`readOnlyProp`
+  // != undefined) — NÃO fazer OR com o `useReadOnly()` da página, senão o contexto readOnly da
+  // PÁGINA (editor-da-página ausente) travaria um atributo que a SECTION liberou (o intent da
+  // feature é "liberar só editar Linha" independente do editor-da-página). Sem a prop (usos legados
+  // do AttributeTab fora de Atributos), cai no contexto da página como antes.
+  const readOnly = readOnlyProp !== undefined ? readOnlyProp : pageReadOnly;
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");

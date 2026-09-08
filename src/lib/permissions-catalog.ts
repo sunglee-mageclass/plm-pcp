@@ -31,7 +31,32 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Cadastro",
     basePath: "/cadastro",
     pages: [
-      { key: "cadastro_atributos", label: "Atributos", description: "Cores, anos, meses, categorias e demais listas." },
+      { key: "cadastro_atributos", label: "Atributos", description: "Cores, anos, meses, categorias e demais listas.",
+        // Sub-permissão de EDIÇÃO por atributo (a página `cadastro_atributos` dá o ACESSO à tela;
+        // cada section refina QUEM pode editar aquele atributo). Key = `cadastro_atributos:<value>`,
+        // casando com o `value` do atributo em cadastro.atributos.tsx e com a RLS do banco.
+        sections: [
+          { key: "cadastro_atributos:cores", label: "Cor base" },
+          { key: "cadastro_atributos:cores_apelido", label: "Cor apelido" },
+          { key: "cadastro_atributos:anos", label: "Ano" },
+          { key: "cadastro_atributos:meses", label: "Mês" },
+          { key: "cadastro_atributos:cat_fornecedor", label: "Categoria do Fornecedor" },
+          { key: "cadastro_atributos:cat_tecido", label: "Categoria do Tecido" },
+          { key: "cadastro_atributos:cat_aviamento", label: "Categoria de Aviamento" },
+          { key: "cadastro_atributos:subcat_aviamento", label: "Subcategoria de Aviamento" },
+          { key: "cadastro_atributos:mat_aviamento", label: "Material de Aviamento" },
+          { key: "cadastro_atributos:intervalo_largura", label: "Intervalo de Largura" },
+          { key: "cadastro_atributos:tipo_insumo", label: "Tipo de Produto (Insumo)" },
+          { key: "cadastro_atributos:grupo_produto", label: "Grupo (Produto)" },
+          { key: "cadastro_atributos:cat_produto", label: "Categoria (Produto)" },
+          { key: "cadastro_atributos:subcat1_produto", label: "Subcategoria 1 (Produto)" },
+          { key: "cadastro_atributos:subcat2_produto", label: "Subcategoria 2 (Produto)" },
+          { key: "cadastro_atributos:linhas", label: "Linha" },
+          { key: "cadastro_atributos:cat_terceirizado", label: "Categoria do Serviço" },
+          // Grade de Tamanhos NÃO é section: mora em tenant_config, cujo UPDATE é `is_tenant_admin()`
+          // no banco — a permissão por-usuário nunca a destravaria (seria promessa vazia). Fica
+          // ADMIN-only (banco garante), gate de UI por admin. Ver GradeTamanhosCard/cadastro.atributos.
+        ] },
       { key: "cadastro_colaboradores", label: "Colaboradores", description: "Pessoas envolvidas no processo." },
       { key: "cadastro_servico", label: "Fornecedores", description: "Empresas fornecedoras e representantes." },
       { key: "cadastro_tecidos", label: "Tecidos", description: "Catálogo de tecidos e variantes." },

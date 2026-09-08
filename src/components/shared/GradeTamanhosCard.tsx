@@ -16,7 +16,7 @@ const DEFAULT_GRADE = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
  * agora é cadastrada aqui (Cadastro > Atributos). Formato "Número|Sigla" (ex.: 38|P); a ordem
  * define as colunas das grades no desenvolvimento/CAD/CQ.
  */
-export function GradeTamanhosCard() {
+export function GradeTamanhosCard({ readOnly }: { readOnly?: boolean } = {}) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const [draft, setDraft] = useState("");
@@ -74,30 +74,35 @@ export function GradeTamanhosCard() {
       <p className="text-sm text-muted-foreground">
         Formato <b>Número|Sigla</b> (ex.: <code>38|P</code>). A <b>ordem</b> define as colunas das grades.
       </p>
-      <div className="flex gap-2">
-        <Input
-          placeholder="Ex: 38|P"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-        />
-        <Button type="button" variant="secondary" onClick={add}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar
-        </Button>
-      </div>
+      {/* readOnly (sem permissão de editar Grade): esconde adicionar/reordenar/remover. */}
+      {!readOnly && (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Ex: 38|P"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          />
+          <Button type="button" variant="secondary" onClick={add}>
+            <Plus className="h-4 w-4 mr-1" /> Adicionar
+          </Button>
+        </div>
+      )}
       <ul className="space-y-2">
         {items.map((it, i) => (
           <li key={`${i}::${it}`} className="flex items-center gap-2 rounded-md border bg-card px-3 py-2">
             <span className="flex-1 text-sm">{it}</span>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === items.length - 1} onClick={() => move(i, 1)} aria-label="Descer">
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => remove(i)} aria-label="Remover">
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {!readOnly && (<>
+              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7" disabled={i === items.length - 1} onClick={() => move(i, 1)} aria-label="Descer">
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => remove(i)} aria-label="Remover">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>)}
           </li>
         ))}
         {items.length === 0 && <li className="py-2 text-sm text-muted-foreground">Nenhum tamanho.</li>}

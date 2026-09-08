@@ -73,7 +73,7 @@ function parseMk(s: string): number | null {
   return n;
 }
 
-export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
+export function LinhasCard({ onChanged, readOnly }: { onChanged?: () => void; readOnly?: boolean }) {
   const qc = useQueryClient();
   const listKey = ["linhas-cadastro"];
 
@@ -190,9 +190,12 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
           Markup por faixa (multiplicador ×). O <strong>Ideal</strong> é o markup usado no cálculo de preço; Mín/Máx delimitam a faixa aceitável.
         </p>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          {/* readOnly (sem permissão de editar Linha): esconde o botão de criar (o gate real é a RLS). */}
+          {!readOnly && (
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Nova Linha</span></Button>
           </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader><DialogTitle>Nova Linha</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -249,7 +252,9 @@ export function LinhasCard({ onChanged }: { onChanged?: () => void }) {
                     {editing ? <NumberInput blankZero placeholder="—" value={edMax} onChange={(e) => setEdMax(e.target.value)} aria-invalid={edInval.max} className={"h-8 text-right max-md:w-24" + (edInval.max ? " border-destructive text-destructive focus-visible:ring-destructive" : "")} /> : fmtMk(l.markup_max)}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">
-                    {editing ? (
+                    {readOnly ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : editing ? (
                       <div className="flex justify-end gap-1">
                         <Button size="iconSm" variant="ghost" onClick={() => salvarMut.mutate(l.id)} disabled={salvarMut.isPending || edTemErro} title={edTemErro ? "Corrija a ordem Mín ≤ Ideal ≤ Máx" : "Salvar"}><Check className="h-4 w-4" /></Button>
                         <Button size="iconSm" variant="ghost" onClick={cancelEdit} title="Cancelar"><X className="h-4 w-4" /></Button>
