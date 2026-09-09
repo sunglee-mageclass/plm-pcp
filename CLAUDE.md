@@ -634,6 +634,10 @@ aprovada; relabel "— aprovada"), 2 keys NOVAS lendo direto `modelo_servico_mo`
 `servico_aprovado`) e **`servico_mo_preenchido`** (≥1 linha com `valor>0`; false sem linha). Todas
 módulo Planejamento/seção s5. Catálogo (37 chaves)+RPC+anti-drift atualizados. O tipo `Condicao`
 ganhou campo `aviso?` (armadilha em âmbar no RequisitosStatusDialog) + descrições PT em todas.
+**2 chaves novas (set/2026, `20260909120000`) — Catálogo agora 39:** **`enviado_para_pcp`**
+(módulo `cad`, = `cad.enviado_corte`, "saiu da Explosão"; revenda satisfaz ao Enviar para PCP) e
+**`separar_enviar_preenchido`** (módulo `cad`; metragem tecido OU qtd a separar aviamento OU qtd a
+enviar etiqueta `cad_etiquetas.quantidade_enviar` > 0). Ver [[project_revenda_explosao_servicos]].
 Candidatas descartadas: preço de venda já existe como
 `preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
 `origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não

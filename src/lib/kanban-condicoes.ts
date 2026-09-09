@@ -97,6 +97,13 @@ export const CONDICOES: Condicao[] = [
   // `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` — exatamente os campos que
   // `CadTecidosSection.tsx` deixa editar. `cad_preenchido` = ≥1 desses > 0.
   { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "A seção CAD do card tem folhas ou metragem planejada preenchidas." },
+  // "Saiu da Explosão" (set/2026): o botão "Enviar para PCP" da Explosão setou `cad.enviado_corte`.
+  // É o marco DEPOIS de "Enviado à Explosão" (enviado_cad) — o modelo saiu da Explosão rumo aos
+  // Serviços. Revenda SATISFAZ ao clicar Enviar para PCP (por isso NÃO entra em REVENDA_COND_NA).
+  { key: "enviado_para_pcp", label: "Enviado para PCP", modulo: "cad", descricao: "O CAD foi enviado ao corte/PCP (saiu da Explosão).", aviso: "Revenda satisfaz ao clicar Enviar para PCP na Explosão." },
+  // Metragem/qtd a separar preenchida na Explosão: tecido (metragem_enviada), aviamento
+  // (quantidade_separar) OU etiqueta/insumo (cad_etiquetas.quantidade_enviar). ≥1 > 0.
+  { key: "separar_enviar_preenchido", label: "Separar/Enviar preenchido", modulo: "cad", descricao: "Há metragem (tecido), qtd a separar (aviamento) ou qtd a enviar (etiqueta) preenchida na Explosão." },
 
   // ── Serviços ──────────────────────────────────────────────────
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos", descricao: "Todos os serviços foram finalizados (entregues, com quantidade recebida ou defeito).", aviso: "Modelo sem serviço nunca satisfaz — use só depois do envio ao corte/Serviços." },
