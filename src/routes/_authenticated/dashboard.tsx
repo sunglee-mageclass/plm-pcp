@@ -1,5 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PAGE_URLS } from "@/lib/nav";
+import { cqLiberado } from "@/lib/cq-status";
+import { ehOrigemComprada } from "@/lib/origem";
 import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
@@ -14,7 +16,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight, Split } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
@@ -43,7 +45,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
-      <RequirePermission anyOf={["dashboard_desenvolvimento","dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
+      <RequirePermission anyOf={["dashboard_desenvolvimento","dashboard_producao_qualidade","dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
         <Dashboard />
       </RequirePermission>
     </ModuleGuard>
@@ -57,6 +59,7 @@ const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
 const DASH_TABS = [
   { value: "desenvolvimento", label: "Desenvolvimento", Comp: DesenvolvimentoTab },
+  { value: "producao_qualidade", label: "Produção & Qualidade", Comp: ProducaoQualidadeTab },
   { value: "colecao", label: "Coleção", Comp: ColecaoTab },
   { value: "estoque", label: "Estoque", Comp: EstoqueTab },
   { value: "producao", label: "Produção", Comp: ProducaoTab },
@@ -2111,6 +2114,275 @@ function DesenvolvimentoTab() {
           Sem dados de desenvolvimento ainda. Os números populam conforme os modelos avançam no fluxo.
         </p>
       )}
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
+    </div>
+  );
+}
+
+/* ====================== PRODUÇÃO & QUALIDADE (visão por gestor) ====================== */
+
+// Aba "Produção & Qualidade" (visão por gestor de PCP): abre com "Ação de hoje" (CQ pendente,
+// Direcionamento a fazer, Entregas no prazo, Defeito médio) + WIP na rua por idade + ranking de
+// oficinas + Meta da coleção (peças produzidas, finalizados/mês, defeito no tempo). Só RPCs
+// existentes + 2 contagens client-side (CQ/Direcionamento) que ESPELHAM o predicado das telas
+// (expedicao.cq.index / expedicao.direcionamento.index) — nenhuma RPC nova.
+function ProducaoQualidadeTab() {
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const go = (url: string) => navigate({ to: url });
+
+  const [periodo, setPeriodo] = useState<Periodo>(undefined);
+  const [colecao, setColecao] = useState("all");
+  const [linha, setLinha] = useState("all");
+  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
+
+  // dashboard_producao: entregas no prazo, defeito por mês, finalizados por mês, filtros.
+  const prod = useQuery({
+    queryKey: ["dash-producao", ini, fim, colecao, linha],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_producao" as never, {
+        p_inicio: ini, p_fim: fim, p_colecao: colecao === "all" ? undefined : colecao,
+        p_linha: linha === "all" ? undefined : linha,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  // dashboard_producao_servicos com categoria=Todas → WIP na rua por idade (todas as categorias).
+  const servs = useQuery({
+    queryKey: ["dash-prod-servicos", ini, fim, colecao, linha, "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_producao_servicos" as never, {
+        p_inicio: ini, p_fim: fim, p_colecao: colecao === "all" ? undefined : colecao,
+        p_linha: linha === "all" ? undefined : linha, p_categoria: undefined,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  // ranking_servicos: usado p/ o ranking de OFICINAS (filtra pela categoria cujo nome ~ "oficina").
+  const rank = useQuery({
+    queryKey: ["dash-ranking-oficinas"],
+    queryFn: async () => {
+      const cats = await supabase.rpc("ranking_servicos" as never, { p_categoria: undefined } as never);
+      if (cats.error) throw cats.error;
+      const lista: any[] = (cats.data as any)?.categorias ?? [];
+      // Assume UMA categoria de serviço cujo nome ~ "oficina" (o caso comum). Se houver mais de
+      // uma ("Oficina Interna"/"Externa"), pega a 1ª — o ranking cobriria só essa; refinar por
+      // seletor se surgir a necessidade.
+      const oficina = lista.find((c) => /oficina/i.test(String(c.nome)));
+      if (!oficina) return { ranking: [], temOficina: false } as any;
+      const { data, error } = await supabase.rpc("ranking_servicos" as never, { p_categoria: oficina.id } as never);
+      if (error) throw error;
+      return { ranking: (data as any)?.ranking ?? [], temOficina: true } as any;
+    },
+  });
+
+  // CQ pendente — contagem client-side ESPELHANDO expedicao.cq.index.tsx (mesmo select, mesmo gate
+  // por origem, mesmo statusGeral). Só conta os pendentes; não monta a lista.
+  const cqPend = useQuery({
+    queryKey: ["dash-pq-cq-pendente"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelos")
+        .select("origem, cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado");
+      if (error) throw error;
+      const finalizado = (t: any) =>
+        !!t.data_entregue && Number(t.quantidade_enviada) > 0 &&
+        (Number(t.quantidade_recebida) > 0 || Number(t.quantidade_defeito) > 0);
+      const etapaDe = (t: any) => t.categorias_terceirizado?.etapa ?? "ate_costura";
+      let n = 0;
+      for (const m of (data ?? []) as any[]) {
+        const cad = m.cad?.[0];
+        const tercs = (cad?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
+        const pre = tercs.filter((t: any) => etapaDe(t) === "ate_costura");
+        const enviadoCorte = cad?.enviado_corte === true;
+        const temCad = !!cad;
+        const preFinalizado = pre.length > 0 && pre.every(finalizado);
+        // Gate de entrada IGUAL à tela de CQ.
+        const entra = m.origem === "revenda" ? enviadoCorte
+          : ehOrigemComprada(m.origem) ? temCad
+          : enviadoCorte && preFinalizado;
+        if (!entra) continue;
+        const statusPre = (cad?.controle_qualidade?.[0]?.status ?? "pendente") as string;
+        if (statusPre !== "confirmado") n++; // statusGeral === 'pendente'
+      }
+      return n;
+    },
+  });
+
+  // Direcionamento a fazer — contagem client-side ESPELHANDO expedicao.direcionamento.index.tsx
+  // (cqLiberado + direcionamento_status === 'pendente').
+  const dirPend = useQuery({
+    queryKey: ["dash-pq-dir-pendente"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelos")
+        .select("cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
+        .or("enviado_cad.eq.true,origem.eq.revenda,origem.eq.importado");
+      if (error) throw error;
+      let n = 0;
+      for (const m of (data ?? []) as any[]) {
+        const cad = m.cad?.[0];
+        if (cqLiberado(cad) && (cad?.direcionamento_status ?? "pendente") === "pendente") n++;
+      }
+      return n;
+    },
+  });
+
+  const kpiPrazo = prod.data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
+  const defeitoMes: any[] = prod.data?.defeitoPorMes ?? [];
+  const defeitoMedio = useMemo(
+    () => (defeitoMes.length ? defeitoMes.reduce((s, d) => s + Number(d.taxa || 0), 0) / defeitoMes.length : 0),
+    [defeitoMes],
+  );
+  const finalizadas: any[] = prod.data?.finalizadasPorMes ?? [];
+  const pecasProduzidas = useMemo(() => finalizadas.reduce((s, f) => s + Number(f.grade || 0), 0), [finalizadas]);
+  const porIdade: any[] = servs.data?.emProducaoPorIdade ?? [];
+  const wipTotal = useMemo(() => porIdade.reduce((s, b) => s + Number(b.pecas || 0), 0), [porIdade]);
+  const rankTop4: any[] = (rank.data?.ranking ?? []).slice().sort((a: any, b: any) => Number(a.desvio) - Number(b.desvio)).slice(0, 4);
+
+  const isLoading = prod.isLoading || servs.isLoading;
+  const isError = prod.isError || servs.isError;
+
+  const filtros = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...(prod.data?.filtros?.colecoes ?? []).filter(Boolean).map((c: any) => ({ id: String(c), nome: String(c) }))], single: true as const },
+    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...(prod.data?.filtros?.linhas ?? []).map((l: any) => ({ id: String(l.id), nome: String(l.nome) }))], single: true as const },
+  ];
+
+  // ——— KPIs "Ação de hoje" ———
+  const kpisAcao = (
+    <>
+      <Card className="p-4 cursor-pointer transition-colors hover:border-primary/40" role="button" tabIndex={0}
+        onClick={() => go(PAGE_URLS.producao_cq)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(PAGE_URLS.producao_cq); } }}>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">CQ pendente</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: TONE_BG[(cqPend.data ?? 0) > 0 ? "warning" : "success"], color: TONE_FG[(cqPend.data ?? 0) > 0 ? "warning" : "success"] }}><ClipboardCheck className="h-4 w-4" /></span>
+        </div>
+        <div className="mt-2 text-3xl font-bold leading-none" style={{ color: TONE_FG[(cqPend.data ?? 0) > 0 ? "warning" : "success"] }}>{cqPend.isLoading ? "…" : fmtInt(cqPend.data ?? 0)}</div>
+        <div className="mt-1.5 text-[11px] text-muted-foreground">itens aguardando CQ · todas as coleções</div>
+      </Card>
+      <Card className="p-4 cursor-pointer transition-colors hover:border-primary/40" role="button" tabIndex={0}
+        onClick={() => go(PAGE_URLS.producao_direcionamento)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(PAGE_URLS.producao_direcionamento); } }}>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Direcionamento a fazer</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: TONE_BG[(dirPend.data ?? 0) > 0 ? "danger" : "success"], color: TONE_FG[(dirPend.data ?? 0) > 0 ? "danger" : "success"] }}><Split className="h-4 w-4" /></span>
+        </div>
+        <div className="mt-2 text-3xl font-bold leading-none" style={{ color: TONE_FG[(dirPend.data ?? 0) > 0 ? "danger" : "success"] }}>{dirPend.isLoading ? "…" : fmtInt(dirPend.data ?? 0)}</div>
+        <div className="mt-1.5 text-[11px] text-muted-foreground">CQ liberado, sem separar · todas as coleções</div>
+      </Card>
+      <Card className="p-4">
+        <h3 className="text-xs font-medium text-muted-foreground mb-2">Entregas no prazo</h3>
+        <div className="flex items-center gap-3">
+          <div className="text-3xl font-bold leading-none tabular-nums" style={{ color: TONE_FG[kpiPrazo.pct >= 80 ? "success" : kpiPrazo.pct >= 50 ? "warning" : "danger"] }}>{kpiPrazo.pct}%</div>
+          <div className="text-[11px] text-muted-foreground">{fmtInt(kpiPrazo.noPrazo)} no prazo · {fmtInt(kpiPrazo.atrasadas)} atrasadas</div>
+        </div>
+      </Card>
+      <Kpi label="Defeito médio" value={fmtPct(defeitoMedio)} icon={AlertTriangle} tone={defeitoMedio > 5 ? "danger" : defeitoMedio > 2 ? "warning" : "success"} sub="defeito ÷ recebido (média dos meses)" />
+    </>
+  );
+
+  // ——— WIP na rua por idade ———
+  const cardWip = (
+    <Card className="p-4">
+      <h3 className="font-semibold mb-3">WIP na rua por idade <span className="text-sm font-normal text-muted-foreground">· {fmtInt(wipTotal)} peças em produção</span></h3>
+      {porIdade.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nada em produção no momento.</p>
+      ) : (
+        <div className="space-y-2">
+          {porIdade.map((b) => {
+            const pct = wipTotal > 0 ? Math.round((Number(b.pecas || 0) / wipTotal) * 100) : 0;
+            return (
+              <div key={b.bucket}>
+                <div className="flex justify-between text-sm"><span>{b.bucket}</span><span className="font-semibold tabular-nums">{fmtInt(b.pecas)} · {fmtInt(b.modelos)} mod.</span></div>
+                <div className="mt-1 h-2.5 overflow-hidden rounded bg-muted"><div className="h-full rounded" style={{ width: `${pct}%`, background: CHART_AGE[Number(b.ordem)] ?? CHART_SERIE }} /></div>
+              </div>
+            );
+          })}
+          <p className="pt-1 text-xs text-muted-foreground">peças paradas há +30 dias = risco de atraso</p>
+        </div>
+      )}
+    </Card>
+  );
+
+  // ——— Ranking de oficinas (top-4) ———
+  const cardRanking = (
+    <Card className="p-4 cursor-pointer transition-colors hover:border-primary/40" role="button" tabIndex={0}
+      onClick={() => go(PAGE_URLS.producao_terceirizados)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(PAGE_URLS.producao_terceirizados); } }}>
+      <h3 className="font-semibold mb-3">Oficinas — quem entrega melhor <span className="text-sm font-normal text-muted-foreground">· top 4 · menor desvio do prazo</span></h3>
+      {rank.data && !rank.data.temOficina ? (
+        <p className="text-sm text-muted-foreground">Nenhuma categoria de serviço "Oficina" cadastrada.</p>
+      ) : rankTop4.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem entregas de oficina no período.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {rankTop4.map((r, i) => {
+            const dias = Number(r.desvio || 0);
+            const tone = dias <= 0 ? "success" : dias <= 3 ? "warning" : "danger";
+            return (
+              <div key={r.fornecedor + i} className="flex items-center gap-2.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-sm">
+                <span className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ background: TONE_BG[tone], color: TONE_FG[tone] }}>{fmtNum(r.pctDentro)}%</span>
+                <span className="min-w-0 flex-1 truncate">{r.fornecedor}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{dias <= 0 ? "no prazo" : `+${fmtNum(dias)}d`}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="mt-2.5 text-xs font-medium text-primary">Ver Serviços →</div>
+    </Card>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
+        </div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <KpiCardMobile compact label="CQ pendente" value={cqPend.isLoading ? "…" : fmtInt(cqPend.data ?? 0)} sub="aguardando · todas coleções" />
+          <KpiCardMobile compact label="Direcionamento" value={dirPend.isLoading ? "…" : fmtInt(dirPend.data ?? 0)} sub="a fazer · todas coleções" />
+          <KpiCardMobile compact label="Entregas no prazo" value={`${kpiPrazo.pct}%`} sub={`${fmtInt(kpiPrazo.atrasadas)} atrasadas`} />
+          <KpiCardMobile compact label="Defeito médio" value={fmtPct(defeitoMedio)} sub="defeito ÷ recebido" />
+        </div>
+        {cardWip}
+        {cardRanking}
+        <MonthBarCard title="Peças finalizadas por mês" subtitle={`total ${fmtInt(pecasProduzidas)} peças`} data={finalizadas} dataKey="grade" name="Peças" color={CHART_SERIE} empty="Sem produção finalizada." loading={prod.isLoading} />
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
+        <div className="hidden md:contents"><PeriodoPicker value={periodo} onChange={setPeriodo} /><FilterButton screen="dashboard-producao-qualidade" filters={filtros} /></div>
+        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
+      </div>
+
+      <SecHeader icon={Sparkles}>Ação de hoje</SecHeader>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpisAcao}</div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {cardWip}
+        {cardRanking}
+      </div>
+
+      <SecHeader icon={Layers}>Meta da coleção</SecHeader>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-semibold mb-1">Peças produzidas <span className="text-sm font-normal text-muted-foreground">· grade total finalizada</span></h3>
+          <div className="text-3xl font-bold leading-none tabular-nums">{fmtInt(pecasProduzidas)}</div>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">soma das grades dos modelos finalizados no período</p>
+        </Card>
+        <MonthBarCard title="Peças finalizadas por mês" data={finalizadas} dataKey="grade" name="Peças" color={CHART_SERIE} empty="Sem produção finalizada." loading={prod.isLoading} />
+      </div>
+      <MonthBarCard title="Taxa de defeito no tempo" subtitle="defeito ÷ recebido, por mês (%)" data={defeitoMes} dataKey="taxa" name="Defeito %" color={CHART_SERIE} empty="Sem dados de defeito." loading={prod.isLoading} />
+
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
