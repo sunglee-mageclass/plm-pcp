@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { ExplosaoMetragemSection } from "@/components/producao/explosao/ExplosaoMetragemSection";
 import { ExplosaoAviamentosSection } from "@/components/producao/explosao/ExplosaoAviamentosSection";
+import { ExplosaoInsumosSection, type InsumoLinha } from "@/components/producao/explosao/ExplosaoInsumosSection";
 import { agruparAviamentosExplosao, chaveVarianteAviamento } from "@/lib/explosao-aviamentos";
 import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
@@ -187,6 +188,24 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     },
   });
 
+  // Etiquetas/insumos do CAD (cad_etiquetas). A "a enviar" (quantidade_enviar) é editável na
+  // Explosão — espelha o "a separar" do aviamento, mas identifica a linha pela `id`. Para a
+  // REVENDA é onde a troca de etiqueta é separada (materializada no recebimento da OC).
+  const { data: cadEtiquetas = [], isFetched: cadEtiquetasFetched } = useQuery({
+    queryKey: ["explosao-cad-etiquetas", cadRow?.id],
+    enabled: !!cadRow?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cad_etiquetas")
+        .select(
+          "id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, etiquetas:etiqueta_id(nome), cores:cor_id(nome)",
+        )
+        .eq("cad_id", cadRow!.id);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   // --- local editable state (metragem_enviada do tecido + a-separar do aviamento) ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
@@ -194,7 +213,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // "A separar" editável do aviamento, por chave aviamento×variante (chaveVarianteAviamento).
   const [aviSeparar, setAviSeparar] = useState<Record<string, number>>({});
   const [aviSeeded, setAviSeeded] = useState(false);
-  const seededAll = seeded && aviSeeded;
+  // "A enviar" editável da etiqueta/insumo, por id de cad_etiquetas.
+  const [etiEnviar, setEtiEnviar] = useState<Record<string, number>>({});
+  const [etiSeeded, setEtiSeeded] = useState(false);
+  const seededAll = seeded && aviSeeded && etiSeeded;
 
   // Guarda de "alterações não salvas": editáveis = metragem_enviada/quantidade_folhas do
   // tecido + a-separar do aviamento. Snapshot enxuto dos dois lados.
@@ -202,8 +224,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     () => ({
       tec: tecidos.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)),
       avi: aviSeparar,
+      eti: etiEnviar,
     }),
-    [tecidos, aviSeparar],
+    [tecidos, aviSeparar, etiEnviar],
   );
   const { dirty, markClean } = useDirtySnapshot(editSnapshot);
   // Re-baseline UMA vez, quando os dois lados já foram semeados (o memo reflete o estado
@@ -385,6 +408,52 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const updateAviSeparar = (aviamentoId: string, varianteId: string | null, valor: number) =>
     setAviSeparar((prev) => ({ ...prev, [chaveVarianteAviamento(aviamentoId, varianteId)]: Math.max(0, valor) }));
 
+  // Insumos/etiquetas: base direto de cad_etiquetas. Necessária = consumo × grade total (mesma
+  // fórmula do aviamento); "a enviar" = quantidade_enviar salvo (default = necessária quando
+  // vazio/nunca gravado). O envio ao receber a OC já materializa quantidade_enviar (revenda),
+  // então normalmente há valor; o default cobre etiqueta do manufaturado ainda não separada.
+  const insumosBase = useMemo<InsumoLinha[]>(
+    () =>
+      (cadEtiquetas as any[]).map((e) => {
+        const consumo = Number(e.consumo ?? 0);
+        const necessaria = consumo * gradeTotalGeral;
+        const salvo = e.quantidade_enviar;
+        return {
+          id: e.id as string,
+          etiqueta_nome: e.etiquetas?.nome ?? "Etiqueta",
+          cor: e.cores?.nome ?? null,
+          cor_label: e.cores?.nome ?? null,
+          consumo,
+          quantidade: necessaria,
+          aEnviar: salvo == null ? necessaria : Number(salvo ?? 0),
+        };
+      }),
+    [cadEtiquetas, gradeTotalGeral],
+  );
+
+  // Semeia a "a enviar" editável a partir da base, quando as etiquetas do CAD carregam e o
+  // tecido já semeou (⇒ gradeTotalGeral válido p/ a necessária default).
+  useEffect(() => {
+    if (etiSeeded) return;
+    if (!seeded || !cadEtiquetasFetched) return;
+    const init: Record<string, number> = {};
+    for (const l of insumosBase) init[l.id] = l.aEnviar;
+    setEtiEnviar(init);
+    setEtiSeeded(true);
+  }, [etiSeeded, seeded, cadEtiquetasFetched, insumosBase]);
+
+  // Sobrepõe as edições locais ao base (o que a UI mostra e o payload leva).
+  const insumosView = useMemo<InsumoLinha[]>(
+    () => insumosBase.map((l) => ({ ...l, aEnviar: l.id in etiEnviar ? etiEnviar[l.id] : l.aEnviar })),
+    [insumosBase, etiEnviar],
+  );
+
+  const updateEtiEnviar = (id: string, valor: number) =>
+    setEtiEnviar((prev) => ({ ...prev, [id]: Math.max(0, valor) }));
+
+  const buildEtiquetaEnviarPayload = () =>
+    insumosView.map((l) => ({ id: l.id, quantidade_enviar: l.aEnviar }));
+
   // Explosão de Aviamentos p/ a Ficha de Corte impressa — uma linha por aviamento×variante
   // (com o rótulo da variante). Espelha o bloco da tela (aviGruposView), incluindo edições.
   const aviamentosPrint = useMemo<AviamentoRow[]>(
@@ -430,6 +499,20 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     [tecidos],
   );
   const totalGeral = useMemo(() => porTecido.reduce((a, t) => a + t.total, 0), [porTecido]);
+
+  // Totais dos outros insumos, p/ o guard de envio: um modelo pode ter só etiqueta/aviamento
+  // a separar e nenhum tecido (revenda). "Nada a separar" só bloqueia se os TRÊS forem zero.
+  const totalAviamentos = useMemo(
+    () => aviGruposView.reduce((a, g) => a + g.totalSeparar, 0),
+    [aviGruposView],
+  );
+  const totalInsumos = useMemo(() => insumosView.reduce((a, l) => a + l.aEnviar, 0), [insumosView]);
+  // "Nada a separar" bloqueia o envio — MAS não para a REVENDA: ela é OBRIGADA a passar pela
+  // Explosão (Enviar para PCP) para chegar ao CQ, e pode não ter etiqueta a trocar (BOM vazio).
+  // Bloquear aqui a prenderia fora do CQ para sempre (deadlock). Para revenda, o envio é o
+  // próprio gesto de fluxo — permitido mesmo sem tecido/aviamento/etiqueta.
+  const ehRevenda = modelo?.origem === "revenda";
+  const nadaASeparar = !ehRevenda && totalGeral === 0 && totalAviamentos === 0 && totalInsumos === 0;
 
   const situacao = situacaoExplosao((cadRow as any)?.enviado_corte === true, (cadRow as any)?.deficit_corte);
 
@@ -485,6 +568,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         _linhas: buildAviamentoSepararPayload(),
       });
       if (errAvi) throw errAvi;
+      // E a "a enviar" da etiqueta/insumo (RPC estreita — só cad_etiquetas.quantidade_enviar).
+      const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
+        _cad_id: cadRow.id,
+        _linhas: buildEtiquetaEnviarPayload(),
+      });
+      if (errEti) throw errEti;
     },
     onSuccess: () => {
       toast.success("Salvo");
@@ -493,6 +582,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
@@ -515,6 +605,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         _linhas: buildAviamentoSepararPayload(),
       });
       if (errAvi) throw errAvi;
+      // E a "a enviar" da etiqueta/insumo (idem — não entra na baixa de tecido).
+      const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
+        _cad_id: cadRow.id,
+        _linhas: buildEtiquetaEnviarPayload(),
+      });
+      if (errEti) throw errEti;
 
       // Depois executa a baixa de estoque (o corte que envia para PCP).
       const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
@@ -544,6 +640,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-grades", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
@@ -681,6 +778,15 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           gradeTotalGeral={gradeTotalGeral}
           editing={editing}
           onSepararChange={updateAviSeparar}
+        />
+
+        {/* Insumos / Etiquetas — cad_etiquetas; "a enviar" editável. Some se não há etiqueta.
+            É onde a troca de etiqueta da revenda é separada. */}
+        <ExplosaoInsumosSection
+          linhas={insumosView}
+          gradeTotalGeral={gradeTotalGeral}
+          editing={editing}
+          onEnviarChange={updateEtiEnviar}
         />
       </div>
 
@@ -855,11 +961,22 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
               </tbody>
             </table>
           </div>
-          {totalGeral === 0 ? (
+          {nadaASeparar ? (
             <p className="text-xs text-warning flex items-start gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              Metragem total <b>zero</b> — não há o que separar. Preencha "Metr. a Separar/Enviar" (ou use
-              "Usar planejada") antes de enviar.
+              Nada a separar — sem metragem, aviamento ou etiqueta a enviar. Preencha
+              "Separar/Enviar" (ou use "Usar planejada") antes de enviar.
+            </p>
+          ) : ehRevenda && totalGeral === 0 ? (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-warning" />
+              Revenda — sem baixa de tecido. Este envio só encaminha a peça para o CQ
+              {totalInsumos > 0 || totalAviamentos > 0 ? " e separa a etiqueta/aviamento a trocar" : ""}.
+            </p>
+          ) : totalGeral === 0 && (totalAviamentos > 0 || totalInsumos > 0) ? (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-warning" />
+              Sem baixa de tecido — este envio separa apenas aviamento/etiqueta.
             </p>
           ) : variantesZeradas > 0 ? (
             <p className="text-xs text-muted-foreground flex items-start gap-1.5">
@@ -869,7 +986,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            {totalGeral > 0 && (
+            {!nadaASeparar && (
               <AlertDialogAction
                 onClick={() => {
                   setConfirmEnviarOpen(false);

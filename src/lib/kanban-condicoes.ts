@@ -16,7 +16,7 @@
  * Mantenha CLAUDE.md e a memória do projeto em dia ao mexer aqui.
  */
 
-export type CondicaoModulo = "planejamento" | "desenvolvimento" | "cad" | "servicos" | "cq" | "direcionamento";
+export type CondicaoModulo = "planejamento" | "desenvolvimento" | "cad" | "explosao" | "servicos" | "cq" | "direcionamento";
 
 // Seção do Sheet de detalhe (Desenvolvimento) a que a condição pertence — usada para os SELOS
 // de completude por seção (que refletem os requisitos configurados pela loja). Bate com o
@@ -41,6 +41,7 @@ export const MODULOS: { key: CondicaoModulo; label: string }[] = [
   { key: "planejamento", label: "Planejamento" },
   { key: "desenvolvimento", label: "Desenvolvimento" },
   { key: "cad", label: "CAD" },
+  { key: "explosao", label: "Explosão" },
   { key: "servicos", label: "Serviços" },
   { key: "cq", label: "Controle de Qualidade" },
   { key: "direcionamento", label: "Direcionamento" },
@@ -97,13 +98,17 @@ export const CONDICOES: Condicao[] = [
   // `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` — exatamente os campos que
   // `CadTecidosSection.tsx` deixa editar. `cad_preenchido` = ≥1 desses > 0.
   { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "A seção CAD do card tem folhas ou metragem planejada preenchidas." },
+
+  // ── Explosão ──────────────────────────────────────────────────
+  // As duas condições abaixo são a SAÍDA da Explosão (não do CAD) — por isso vivem no módulo
+  // próprio "Explosão" no dialog de requisitos: pô-las sob "CAD" engana quem configura.
   // "Saiu da Explosão" (set/2026): o botão "Enviar para PCP" da Explosão setou `cad.enviado_corte`.
   // É o marco DEPOIS de "Enviado à Explosão" (enviado_cad) — o modelo saiu da Explosão rumo aos
   // Serviços. Revenda SATISFAZ ao clicar Enviar para PCP (por isso NÃO entra em REVENDA_COND_NA).
-  { key: "enviado_para_pcp", label: "Enviado para PCP", modulo: "cad", descricao: "O CAD foi enviado ao corte/PCP (saiu da Explosão).", aviso: "Revenda satisfaz ao clicar Enviar para PCP na Explosão." },
+  { key: "enviado_para_pcp", label: "Enviado para PCP", modulo: "explosao", descricao: "O CAD foi enviado ao corte/PCP (saiu da Explosão).", aviso: "Revenda satisfaz ao clicar Enviar para PCP na Explosão." },
   // Metragem/qtd a separar preenchida na Explosão: tecido (metragem_enviada), aviamento
   // (quantidade_separar) OU etiqueta/insumo (cad_etiquetas.quantidade_enviar). ≥1 > 0.
-  { key: "separar_enviar_preenchido", label: "Separar/Enviar preenchido", modulo: "cad", descricao: "Há metragem (tecido), qtd a separar (aviamento) ou qtd a enviar (etiqueta) preenchida na Explosão." },
+  { key: "separar_enviar_preenchido", label: "Separar/Enviar preenchido", modulo: "explosao", descricao: "Há metragem (tecido), qtd a separar (aviamento) ou qtd a enviar (etiqueta) preenchida na Explosão." },
 
   // ── Serviços ──────────────────────────────────────────────────
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos", descricao: "Todos os serviços foram finalizados (entregues, com quantidade recebida ou defeito).", aviso: "Modelo sem serviço nunca satisfaz — use só depois do envio ao corte/Serviços." },
@@ -251,6 +256,7 @@ export const REVENDA_COND_NA: string[] = [
   "grade_todas_variantes",
   "cad_preenchido",
   "enviado_cad",
-  "servico_finalizado",
+  // `servico_finalizado` NÃO entra mais: com o fluxo set/2026 a revenda passa por Serviços
+  // (a troca de etiqueta é um bloco `producao_terceirizados`), então PODE satisfazê-la.
   "grade_cortada_lancada",
 ];

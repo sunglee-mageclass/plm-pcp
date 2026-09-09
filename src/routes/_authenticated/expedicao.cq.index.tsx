@@ -46,8 +46,8 @@ function CqListPage() {
       // `enviado_cad` fica sempre false — o `cad` (com `cad_grades`/`controle_qualidade`)
       // nasce direto em `receber_oc_p_acabado`/`receber_oc_importado` na chegada da OC. O
       // `.or(...)` abaixo garante que esses modelos entram na busca; o gate de entrada
-      // abaixo (`ehOrigemComprada ? temCad : enviado_corte && preFinalizado`) os libera sem
-      // depender de corte/Serviços, que comprado nunca tem.
+      // abaixo os libera (importado por `temCad`; REVENDA por `enviado_corte`, pois passa
+      // pela Explosão p/ trocar etiqueta — ver o filtro).
       const { data, error } = await supabase
         .from("modelos")
         .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, origem, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
@@ -93,10 +93,19 @@ function CqListPage() {
         // Premissa: todo modelo produzível tem serviço de costura (pré). Um modelo com
         // SÓ serviço pós-costura (sem pré) não entra no CQ por aqui — caso inexistente
         // hoje (etapa default 'ate_costura'); se surgir, relaxar este gate.
-        // Comprado (Revenda/Importado): sem corte/Serviços — o gatilho de entrada é a OC
-        // recebida, sinalizada pela EXISTÊNCIA do cad-espelho (`receber_oc_p_acabado`/
-        // `receber_oc_importado`).
-        .filter((r: any) => (ehOrigemComprada(r.origem) ? r.temCad : r.enviado_corte && r.preFinalizado));
+        // Comprado:
+        //  - IMPORTADO: sem corte/Explosão — gatilho de entrada é a OC recebida (cad-espelho).
+        //  - REVENDA (decisão set/2026): PASSA pela Explosão para trocar a etiqueta, então só
+        //    entra no CQ DEPOIS de "Enviar para PCP" (enviado_corte=true). Sem exigir serviço
+        //    pré (a revenda pode ter só a troca de etiqueta como serviço, não a costura).
+        //  - INTERNO: corte + serviço pré finalizado.
+        .filter((r: any) =>
+          r.origem === "revenda"
+            ? r.enviado_corte
+            : ehOrigemComprada(r.origem)
+              ? r.temCad
+              : r.enviado_corte && r.preFinalizado,
+        );
     },
   });
 

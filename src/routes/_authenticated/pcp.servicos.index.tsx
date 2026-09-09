@@ -60,7 +60,10 @@ function TercListPage() {
         .select(
           "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, origem, revisao_pendente, fotos_modelo, desenho_tecnico_url, croqui_url, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, peca_foto_data, categorias_terceirizado(etapa)))",
         )
-        .eq("enviado_cad", true)
+        // Manufaturado entra por enviado_cad; REVENDA por origem (não seta enviado_cad). O gate
+        // enviado_corte abaixo garante que ambos só aparecem DEPOIS da Explosão (Enviar para PCP)
+        // — a revenda passa por Explosão e só então cai em Serviços (troca de etiqueta).
+        .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
       // Só aparece após o CAD ser confirmado (Confirmar CAD => cad.enviado_corte).

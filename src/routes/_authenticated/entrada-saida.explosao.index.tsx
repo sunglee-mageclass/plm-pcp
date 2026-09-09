@@ -69,7 +69,10 @@ function ExplosaoListPage() {
         .select(
           "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, origem, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte), fotos_modelo, desenho_tecnico_url, croqui_url",
         )
-        .eq("enviado_cad", true)
+        // Manufaturado entra por enviado_cad; REVENDA entra por origem (não seta enviado_cad —
+        // materializa o cad ao receber a OC). O .filter(!!cad) abaixo garante que a revenda só
+        // aparece depois da OC recebida (que cria o cad + as etiquetas a separar).
+        .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? [])
