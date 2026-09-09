@@ -2284,10 +2284,11 @@ function ProducaoQualidadeTab() {
     </>
   );
 
-  // ——— WIP na rua por idade ———
+  // ——— Peças na produção, por tempo fora (o antigo "WIP por idade" — jargão trocado por título
+  // que se explica: peças enviadas às oficinas/serviços e ainda não retornadas, por tempo fora) ———
   const cardWip = (
     <Card className="p-4">
-      <h3 className="font-semibold mb-3">WIP na rua por idade <span className="text-sm font-normal text-muted-foreground">· {fmtInt(wipTotal)} peças em produção</span></h3>
+      <h3 className="font-semibold mb-3">Peças na produção — há quanto tempo estão fora <span className="text-sm font-normal text-muted-foreground">· {fmtInt(wipTotal)} peças fora, na oficina/serviço</span></h3>
       {porIdade.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nada em produção no momento.</p>
       ) : (
