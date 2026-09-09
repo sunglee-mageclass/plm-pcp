@@ -6,9 +6,43 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ImagePreview, AnexoThumbZoom } from "@/components/shared/ImagePreview";
+import { ImagePreview, AnexoThumbZoom, LIGHTBOX_CONTENT_CLASS } from "@/components/shared/ImagePreview";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const BUCKET = "oc-tecido";
+
+/**
+ * Miniatura de PDF (etiqueta de lavagem) que abre em PREVIEW/MODAL — NÃO em nova aba. Espelha o
+ * AnexoThumbZoom (iframe no zoom), mas respeita o `dim` (sm/md) da fileira de etiquetas, ao contrário
+ * do AnexoThumbZoom que é h-20/w-20 fixo. Antes o PDF usava <a target=_blank> (abria nova página) —
+ * inconsistente com o resto do sistema, que abre imagens no lightbox. Fix do dono (set/2026).
+ */
+function PdfThumbPreview({ url, dim, iconSm }: { url?: string; dim: string; iconSm: boolean }) {
+  const [zoom, setZoom] = useState(false);
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); if (url) setZoom(true); }}
+        onKeyDown={(e) => { if (url && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setZoom(true); } }}
+        title="Abrir etiqueta (PDF)"
+        className={`${dim} rounded border bg-muted flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-accent transition cursor-zoom-in`}
+      >
+        <FileText className={iconSm ? "h-4 w-4" : "h-6 w-6"} />
+        <span className="text-[9px] leading-none">PDF</span>
+      </div>
+      <div className="contents" onClick={(e) => e.stopPropagation()}>
+        <Dialog open={zoom} onOpenChange={setZoom}>
+          <DialogContent className={LIGHTBOX_CONTENT_CLASS}>
+            <DialogTitle className="sr-only">Etiqueta de lavagem (PDF)</DialogTitle>
+            <iframe src={url ?? ""} title="Etiqueta de lavagem" className="w-full h-[85vh] rounded-md bg-white" />
+          </DialogContent>
+        </Dialog>
+      </div>
+    </>
+  );
+}
 
 // O campo aceita PDF além de imagem (accept="image/*,application/pdf") — detecta pelo
 // path pra desviar do <img> (nunca carrega PDF) pro tratamento correto em cada renderizador.
@@ -135,21 +169,8 @@ export function EtiquetaLavagemArtigoView({
       <div className="flex gap-2 flex-wrap">
         {urls.map((p) =>
           isPdfPath(p) ? (
-            // AnexoThumbZoom é h-20/w-20 fixo — não respeita size="sm" (h-12) usado pelas
-            // 3 telas que consomem esta View (Explosão/CAD/Dev). Pra não quebrar o tamanho
-            // consistente da fileira nem duplicar um segundo componente de miniatura,
-            // usa um link simples com ícone de PDF no MESMO `dim`, nos dois tamanhos.
-            <a
-              key={p}
-              href={signed[p] ?? "#"}
-              target="_blank"
-              rel="noreferrer"
-              title="Abrir etiqueta (PDF)"
-              className={`${dim} rounded border bg-muted flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-accent transition`}
-            >
-              <FileText className={size === "sm" ? "h-4 w-4" : "h-6 w-6"} />
-              <span className="text-[9px] leading-none">PDF</span>
-            </a>
+            // PDF abre em PREVIEW/MODAL (não nova aba) — respeita o `dim` da fileira (sm/md).
+            <PdfThumbPreview key={p} url={signed[p]} dim={dim} iconSm={size === "sm"} />
           ) : (
             <ImagePreview key={p} src={signed[p]} alt="Etiqueta de lavagem">
               <img
