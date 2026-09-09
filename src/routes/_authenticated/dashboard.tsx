@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { PAGE_URLS } from "@/lib/nav";
 import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
@@ -42,7 +43,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
-      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
+      <RequirePermission anyOf={["dashboard_desenvolvimento","dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
         <Dashboard />
       </RequirePermission>
     </ModuleGuard>
@@ -55,6 +56,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
 const DASH_TABS = [
+  { value: "desenvolvimento", label: "Desenvolvimento", Comp: DesenvolvimentoTab },
   { value: "colecao", label: "Coleção", Comp: ColecaoTab },
   { value: "estoque", label: "Estoque", Comp: EstoqueTab },
   { value: "producao", label: "Produção", Comp: ProducaoTab },
@@ -1828,6 +1830,289 @@ function LeadtimeHero({ hero, gargalo, filtroTxt }: { hero: HeroStats; gargalo: 
         <div className="mt-2 text-3xl font-bold leading-none tabular-nums">{hero.n ? hero.pctDentro : "—"}<span className="text-base font-semibold text-muted-foreground">%</span></div>
         <p className="mt-1.5 text-[11px] text-muted-foreground">{hero.dentroMeta} de {hero.n} modelo(s) ≤ meta</p>
       </Card>
+    </div>
+  );
+}
+
+/* ====================== DESENVOLVIMENTO (visão por gestor) ====================== */
+
+// Aba "Desenvolvimento" (visão por gestor de Criação): abre com a RESPOSTA (Ação de hoje:
+// travados vs SLA, em atenção, prontos p/ lançar, maior gargalo) + top-4 "o que destravar"
+// + modelos por etapa do kanban + funil da coleção. Listas longas viram top-N; o detalhe
+// completo abre clicando (→ tela de Desenvolvimento). Consome só RPCs existentes:
+//   - dashboard_leadtime_itens (por-item, duracoes etapa→dias; filtro client-side) — base do
+//     gargalo, travados/atenção e "o que destravar";
+//   - dashboard_producao (kanbanDev por etapa; filtro coleção/período server-side);
+//   - dashboard_colecao (funnel).
+function DesenvolvimentoTab() {
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const irParaDesenvolvimento = () => navigate({ to: PAGE_URLS.criacao_desenvolvimento });
+
+  // Filtro: Coleção + Subcoleção. Coleção afina TUDO (server-side no kanban/funil + client-side
+  // nos itens). Subcoleção afina só o que é client-side (KPIs de topo + "o que destravar") — o
+  // kanban e o funil vêm por COLEÇÃO da RPC (não têm recorte por subcoleção); os cards marcam
+  // isso no subtítulo ("· por coleção") p/ não parecer contradição. SEM PeriodoPicker aqui: o
+  // leadtime_itens não é filtrado por período, então um período moveria kanban/funil mas não os
+  // KPIs — incoerência evitada removendo o controle (o gestor de Dev filtra por coleção).
+  const [colecao, setColecao] = useState("all");
+  const [subcol, setSubcol] = useState("all");
+
+  const det = useQuery({
+    queryKey: ["dash-leadtime-itens"],
+    queryFn: async () => { const { data, error } = await supabase.rpc("dashboard_leadtime_itens" as never); if (error) throw error; return data as any; },
+  });
+  const skel = useQuery({
+    queryKey: ["dash-leadtime"],
+    queryFn: async () => { const { data, error } = await supabase.rpc("dashboard_leadtime" as never); if (error) throw error; return data as any; },
+  });
+  const prod = useQuery({
+    queryKey: ["dash-producao", undefined, undefined, colecao, "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_producao" as never, {
+        p_inicio: undefined, p_fim: undefined, p_colecao: colecao === "all" ? undefined : colecao, p_linha: undefined,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const col = useQuery({
+    queryKey: ["dash-colecao", undefined, undefined, colecao, "all", "all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_colecao" as never, {
+        p_inicio: undefined, p_fim: undefined, p_colecao: colecao === "all" ? undefined : colecao, p_estilista: undefined, p_linha: undefined,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  // Escopo dos cards por-coleção: quando há Subcoleção ativa, os KPIs de topo são por Subcoleção
+  // mas kanban/funil seguem por Coleção — o subtítulo avisa (evita comparação enganosa).
+  const escopoColecao = subcol !== "all" ? " · por coleção" : "";
+
+  const etapas: any[] = skel.data?.etapas ?? [];
+  const itens: any[] = det.data?.itens ?? [];
+  const slaServico: string | null = det.data?.slaServico ?? null;
+  const lookup = idealLookup(etapas);
+
+  const uniq = (vals: any[]) => Array.from(new Set(vals.filter((v) => v != null && v !== ""))).sort();
+  const colecoes = uniq(itens.map((i) => i.colecao));
+  const subcols = uniq(itens.map((i) => i.subcolecao));
+  const filtItens = itens.filter(
+    (i) =>
+      (colecao === "all" || (i.colecao ?? "") === colecao) &&
+      (subcol === "all" || (i.subcolecao ?? "") === subcol),
+  );
+
+  // Ideal por etapa de um item (na etapa do SLA, usa o SLA da Subcategoria do item).
+  const idealDe = (it: any, etapaKey: string) =>
+    etapaKey === slaServico && it.sub1_sla != null ? Number(it.sub1_sla) : (lookup.get(etapaKey) ?? 0);
+
+  // Por item: soma de dias e "excesso" (dias acima da meta somados pelas etapas concluídas).
+  const comExcesso = filtItens.map((it) => {
+    let total = 0, excesso = 0, piorEtapa = "", piorRatio = 0;
+    for (const [etapaKey, diasRaw] of Object.entries(it.duracoes ?? {})) {
+      const dias = Number(diasRaw); if (!(dias > 0)) continue;
+      total += dias;
+      const ideal = idealDe(it, etapaKey);
+      if (ideal > 0 && dias > ideal) {
+        excesso += dias - ideal;
+        const ratio = dias / ideal;
+        if (ratio > piorRatio) { piorRatio = ratio; piorEtapa = etapaKey; }
+      }
+    }
+    return { it, total, excesso, piorEtapa, piorRatio };
+  });
+
+  // KPIs "Ação de hoje" derivados dos itens filtrados:
+  //  - Travados vs SLA = itens com ≥1 etapa acima de 1,5× a meta (vermelho).
+  //  - Em atenção = itens acima da meta mas ≤1,5× (amarelo), sem nenhum vermelho.
+  const travados = comExcesso.filter((x) => x.piorRatio > 1.5).length;
+  const atencao = comExcesso.filter((x) => x.piorRatio > 1 && x.piorRatio <= 1.5).length;
+
+  // Maior gargalo (mesma lógica do LeadtimeTab): pior razão real/meta entre as etapas
+  // configuradas, preferindo as com ≥3 modelos p/ um outlier não dominar.
+  const hero = heroStats(filtItens, lookup, slaServico);
+  const statByEtapa = (etapaKey: string, idealFixo: number) => {
+    let s = 0, n = 0;
+    for (const it of filtItens) {
+      const d = it.duracoes?.[etapaKey]; if (d == null) continue;
+      n++; s += Number(d);
+    }
+    const media = n ? Math.round((s / n) * 10) / 10 : 0;
+    return { media, n, ratio: idealFixo > 0 ? media / idealFixo : 0 };
+  };
+  const kanbanLabelByKey = new Map<string, string>();
+  for (const s of normalizeKanbanStatuses(skel.data?.kanbanOrder)) kanbanLabelByKey.set("kanban:" + s.key, s.label);
+  for (const s of DEFAULT_STATUSES) if (!kanbanLabelByKey.has("kanban:" + s.key)) kanbanLabelByKey.set("kanban:" + s.key, s.label);
+  const etapaLabel = (e: any) => (String(e.etapa).startsWith("kanban:") ? (kanbanLabelByKey.get(e.etapa) ?? e.label) : e.label);
+  const gargalo = etapas
+    .filter((e) => (Number(e.idealDias) || 0) > 0 && e.etapa !== slaServico)
+    .map((e) => ({ label: etapaLabel(e), ideal: Number(e.idealDias) || 0, ...statByEtapa(e.etapa, Number(e.idealDias) || 0) }))
+    .filter((e) => e.n > 0)
+    .sort((a, b) => (b.n >= 3 ? b.ratio : 0) - (a.n >= 3 ? a.ratio : 0) || b.ratio - a.ratio)[0];
+
+  // "No status Aprovado": modelos na coluna "aprovado" do kanban. A RPC dashboard_producao já
+  // exclui os lançados desse balde (CASE WHEN m.lancado THEN 'Lançado' vem primeiro), então são
+  // aprovados AINDA não lançados — mas NÃO garante CQ/Direcionamento feitos; por isso o rótulo
+  // diz "no status Aprovado", não "prontos p/ lançar" (seria promessa que o dado não sustenta).
+  const kanbanDev: any[] = prod.data?.kanbanDev ?? [];
+  const aprovados = (() => {
+    // Prefere a coluna com key exata "aprovado"; só então cai no match por label (evita pegar
+    // "Pré-aprovado" ou outra coluna cujo label contenha "aprovad").
+    const aprovado = kanbanDev.find((k) => k.key === "aprovado") ?? kanbanDev.find((k) => /aprovad/i.test(String(k.label)));
+    return aprovado ? Number(aprovado.modelos ?? 0) : 0;
+  })();
+
+  // Top-4 "o que destravar" = itens com maior EXCESSO acumulado vs meta (os que mais atrasam).
+  const topDestravar = [...comExcesso]
+    .filter((x) => x.excesso > 0)
+    .sort((a, b) => b.excesso - a.excesso)
+    .slice(0, 4);
+
+  const funnel: any[] = col.data?.funnel ?? [];
+  const funnelTopo = Number(funnel[0]?.value ?? 0) || 1;
+
+  const isLoading = det.isLoading || skel.isLoading || prod.isLoading;
+  const isError = det.isError || skel.isError || prod.isError;
+
+  const filtros = [
+    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))], single: true as const },
+    { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))], single: true as const },
+  ];
+
+  // Rótulo curto da etapa "pior" de um item, p/ o top-4.
+  const piorEtapaLabel = (etapaKey: string) => {
+    if (!etapaKey) return "—";
+    if (etapaKey.startsWith("kanban:")) return kanbanLabelByKey.get(etapaKey) ?? etapaKey.slice(7);
+    const e = etapas.find((x) => x.etapa === etapaKey);
+    return e?.label ?? etapaKey;
+  };
+
+  // ——— Faixa "Ação de hoje" (4 KPIs) ———
+  const kpisAcao = (
+    <>
+      <Kpi label="Travados vs SLA" value={travados} icon={AlertTriangle} tone={travados > 0 ? "danger" : "success"} sub="etapa acima de 1,5× a meta" />
+      <Kpi label="Em atenção" value={atencao} icon={Timer} tone={atencao > 0 ? "warning" : "success"} sub="perto de estourar o SLA" />
+      <Kpi label="No status Aprovado" value={aprovados} icon={CheckCircle2} sub={`aprovados, não lançados${escopoColecao}`} />
+      <Kpi
+        label="Maior gargalo"
+        value={gargalo ? gargalo.label : "—"}
+        icon={Gauge}
+        tone={gargalo && gargalo.ratio > 1.5 ? "danger" : gargalo && gargalo.ratio > 1 ? "warning" : "success"}
+        sub={gargalo ? `${fmtNum(gargalo.media)}d · meta ${fmtNum(gargalo.ideal)} · ${gargalo.ideal > 0 ? Math.round((gargalo.ratio - 1) * 100) : 0}%` : "sem dados"}
+      />
+    </>
+  );
+
+  // ——— Top-4 "o que destravar" (card clicável → tela de Desenvolvimento) ———
+  const cardDestravar = (
+    <Card className="p-4 cursor-pointer transition-colors hover:border-primary/40" onClick={irParaDesenvolvimento}
+      role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); irParaDesenvolvimento(); } }}>
+      <h3 className="font-semibold mb-3">O que destravar agora <span className="text-sm font-normal text-muted-foreground">· top 4 por atraso acumulado</span></h3>
+      {topDestravar.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum modelo acima da meta no filtro atual. 🎉</p>
+      ) : (
+        <div className="space-y-1.5">
+          {topDestravar.map(({ it, excesso, piorEtapa }) => (
+            <div key={it.modelo_id} className="flex items-center gap-2.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-sm">
+              <span className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums"
+                style={{ background: "var(--tone-danger-bg)", color: "var(--tone-danger-fg)" }}>+{fmtNum(excesso)}d</span>
+              <span className="min-w-0 flex-1 truncate">{it.ref ? `${it.ref} · ` : ""}{it.nome}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{piorEtapaLabel(piorEtapa)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2.5 text-xs font-medium text-primary">Ver no Desenvolvimento →</div>
+    </Card>
+  );
+
+  // ——— Funil da coleção ———
+  const cardFunil = (
+    <Card className="p-4">
+      <h3 className="font-semibold mb-3">Funil da coleção <span className="text-sm font-normal text-muted-foreground">· quanto já avançou{escopoColecao}</span></h3>
+      {funnel.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem dados de funil.</p>
+      ) : (
+        <div className="space-y-2">
+          {funnel.map((f, i) => {
+            const pct = Math.round((Number(f.value ?? 0) / funnelTopo) * 100);
+            const tone = i === 0 ? "" : pct >= 70 ? "" : pct >= 45 ? "warn" : "bad";
+            return (
+              <div key={f.name}>
+                <div className="flex justify-between text-sm"><span>{f.name}</span><span className="font-semibold tabular-nums">{fmtNum(f.value)} · {pct}%</span></div>
+                <div className="mt-1 h-2 overflow-hidden rounded bg-muted">
+                  <div className="h-full rounded" style={{ width: `${pct}%`, background: tone === "bad" ? "var(--tone-danger-fg)" : tone === "warn" ? "var(--tone-warning-fg)" : CHART_SERIE }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <MobileFilterBar filters={filtros} />
+        </div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <KpiCardMobile compact label="Travados vs SLA" value={fmtInt(travados)} sub="acima de 1,5× a meta" />
+          <KpiCardMobile compact label="Em atenção" value={fmtInt(atencao)} sub="perto do SLA" />
+          <KpiCardMobile compact label="No status Aprovado" value={fmtInt(aprovados)} sub={`aprovados, não lançados${escopoColecao}`} />
+          <KpiCardMobile compact label="Maior gargalo" value={gargalo ? gargalo.label : "—"} valueTitle={gargalo?.label} sub={gargalo ? `${fmtNum(gargalo.media)}d · meta ${fmtNum(gargalo.ideal)}` : "—"} />
+        </div>
+        {cardDestravar}
+        {cardFunil}
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        <DashError show={isError} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
+        <FilterButton screen="dashboard-desenvolvimento" filters={filtros} />
+      </div>
+
+      <SecHeader icon={Sparkles}>Ação de hoje</SecHeader>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpisAcao}</div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {cardDestravar}
+        <EtapaBarCard title={`Modelos por etapa do kanban${escopoColecao}`} data={kanbanDev} dataKey="modelos" name="Modelos" color={CHART_SERIE} />
+      </div>
+
+      <SecHeader icon={Layers}>Meta da coleção</SecHeader>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {cardFunil}
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Ritmo ponta a ponta <span className="text-sm font-normal text-muted-foreground">· média vs meta</span></h3>
+          <div className="text-3xl font-bold leading-none tabular-nums">
+            {hero.n ? fmtNum(hero.mediaTotal) : "—"} <span className="text-base font-semibold text-muted-foreground">dias</span>
+          </div>
+          {hero.n > 0 && (
+            <p className="mt-1.5 text-sm" style={{ color: hero.delta > 0.05 ? "var(--tone-danger-fg)" : hero.delta < -0.05 ? "var(--tone-success-fg)" : "var(--muted-foreground)" }}>
+              {hero.delta > 0.05 ? `+${fmtNum(hero.delta)}d` : hero.delta < -0.05 ? `−${fmtNum(-hero.delta)}d` : "no alvo"} vs meta {fmtNum(hero.mediaMeta)}d
+            </p>
+          )}
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{hero.n} modelo(s) · {hero.pctDentro}% dentro da meta</p>
+        </Card>
+      </div>
+
+      {!isLoading && itens.length === 0 && (
+        <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
+          Sem dados de desenvolvimento ainda. Os números populam conforme os modelos avançam no fluxo.
+        </p>
+      )}
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
     </div>
   );
 }

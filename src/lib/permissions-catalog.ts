@@ -157,6 +157,9 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Dashboard",
     basePath: "/dashboard",
     pages: [
+      // "Desenvolvimento" (visão por gestor) reúne kanban + o-que-destravar + funil das RPCs
+      // dashboard_producao/leadtime_itens/colecao (cada uma segue seu próprio gate no banco).
+      { key: "dashboard_desenvolvimento", label: "Desenvolvimento" },
       { key: "dashboard_colecao", label: "Coleção" },
       { key: "dashboard_estoque", label: "Estoque" },
       { key: "dashboard_producao", label: "Produção" },
