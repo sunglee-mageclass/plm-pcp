@@ -164,6 +164,12 @@ export const PAGES_CATALOG: ModuleDef[] = [
       // ranking das RPCs dashboard_producao/producao_servicos/ranking_servicos + contagens de
       // CQ/Direcionamento (cada uma segue seu próprio gate/RLS no banco).
       { key: "dashboard_producao_qualidade", label: "Produção & Qualidade" },
+      // "Comercial & Coleção" (visão por gestor): poder de venda / margem / lucro / ticket por linha,
+      // calculado no front via preco.ts (custo_unitario_modelos + grade). Sem RPC própria.
+      { key: "dashboard_comercial_colecao", label: "Comercial & Coleção" },
+      // "Custo & Financeiro" (visão por gestor): a pagar/investido/estoque parado/custo prev×real
+      // das RPCs dashboard_financeiro/estoque_parado/custos (cada uma segue seu gate no banco).
+      { key: "dashboard_custo_financeiro", label: "Custo & Financeiro" },
       { key: "dashboard_colecao", label: "Coleção" },
       { key: "dashboard_estoque", label: "Estoque" },
       { key: "dashboard_producao", label: "Produção" },
