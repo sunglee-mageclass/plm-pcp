@@ -2111,14 +2111,16 @@ function BulletRow({ label, e, scaleMax }: { label: string; e: any; scaleMax: nu
 
 // Uma seção de bullets (Planejamento / Desenvolvimento / Produção), ordenada do PIOR pro melhor
 // (maior razão real/meta em cima). Escala do eixo compartilhada pelo grupo (barras comparáveis).
-function BulletSection({ icon, titulo, etapas, labelDe }: { icon: any; titulo: string; etapas: any[]; labelDe: (e: any) => string }) {
+function BulletSection({ icon, titulo, etapas, labelDe, preservarOrdem }: { icon: any; titulo: string; etapas: any[]; labelDe: (e: any) => string; preservarOrdem?: boolean }) {
   if (etapas.length === 0) return null;
   const badness = (e: any) => {
     const ideal = Number(e.idealDias) || 0;
     if (e.slaCol) return (100 - (Number(e.pctNoPrazo) || 0)) / 100;
     return ideal > 0 ? (Number(e.duracaoMedia) || 0) / ideal : 0;
   };
-  const ord = [...etapas].sort((a, b) => badness(b) - badness(a));
+  // `preservarOrdem` = mantém a ordem RECEBIDA (ex.: a sequência do kanban configurado, que é uma
+  // progressão, não um ranking). Sem ela, ordena do PIOR pro melhor (prioriza o gargalo).
+  const ord = preservarOrdem ? [...etapas] : [...etapas].sort((a, b) => badness(b) - badness(a));
   const scaleMax = bulletScaleMax(
     ord.map((e) => Number(e.duracaoMedia) || 0),
     ord.map((e) => Number(e.idealDias) || 0),
@@ -2914,7 +2916,7 @@ function LeadtimeTab() {
           <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-0.5" style={{ background: "var(--foreground)" }} aria-hidden />meta</span>
         </div>
         {origem === "interno" && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
-        {origem === "interno" && <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} />}
+        {origem === "interno" && <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} preservarOrdem />}
         <BulletSection icon={Factory} titulo={origem === "interno" ? "Produção" : "Fluxo do produto comprado"} etapas={macro} labelDe={(e) => e.label} />
       </div>
     );
@@ -3010,7 +3012,7 @@ function LeadtimeTab() {
           Interno: Planejamento → Desenvolvimento (kanban) → Produção. Comprado: só Produção
           (Compra → CQ → Direcionamento → Lançamento) — sem planejamento/kanban. */}
       {!ehComprado && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
-      {!ehComprado && <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} />}
+      {!ehComprado && <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} preservarOrdem />}
       <BulletSection icon={Factory} titulo={ehComprado ? "Fluxo do produto comprado" : "Produção"} etapas={macro} labelDe={(e) => e.label} />
 
       {/* Heatmap detalhado por modelo × etapas: só p/ INTERNO (as 6 fases + kanban/serviços são do
