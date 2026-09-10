@@ -2195,6 +2195,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
       qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
+      // Consumo do BOM exibido na seção Preço do Plan. Produto (query PRÓPRIA, chave diferente de
+      // "modelo-tecidos") — sem isto o "Consumo de tecido" da tela Preço fica defasado após editar
+      // o consumo aqui no Desenvolvimento, até um refetch por foco de janela (gap do P1, set/2026).
+      qc.invalidateQueries({ queryKey: ["modelo-tecidos-consumo", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });

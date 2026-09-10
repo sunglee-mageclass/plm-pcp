@@ -741,13 +741,46 @@ export function PlanejamentoDetail({
   //  • maoObraSetor = a M.O. EMBUTIDA no `.real` (confirmado → mao_obra_real; senão a prevista). Só
   //    esta fecha a soma Materiais + M.O. = Custo total exibido na tabela de Preço (por isso segue aqui).
   const maoObraSetor = Number(custoReal ? (custoData as any)?.mao_obra_real : (custoData as any)?.mao_obra_previsto) || 0;
-  const maoObraPlanejada = Number((custoData as any)?.mao_obra_previsto) || 0;
+  // M.O. planejada AO VIVO = Σ do rascunho `moLinhas` (o que se digitou agora, antes de salvar);
+  // fallback pro valor salvo do banco (`mao_obra_previsto`) quando o rascunho não tem valores
+  // visíveis (só-aprovador mascarado) ou ainda não semeou. Faz a Parte 3 (faixas) e as Obs da M.O.
+  // reagirem à edição sem exigir 2 saves (pedido do dono set/2026). 0 é valor válido → `!= null`.
+  const maoObraDevLive = moLinhas.some((l) => l.valor != null)
+    ? moLinhas.reduce((s, l) => s + (Number(l.valor) || 0), 0)
+    : Number((custoData as any)?.mao_obra_previsto) || 0;
+  const maoObraPlanejada = maoObraDevLive;
   const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
   const linhaFaixas = linhaSetor
     ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
     : null;
+
+  // Custo ESTIMADO (alimenta a seção Preço enquanto o BOM não confirma — a antiga "Simulação de
+  // custo" foi absorvida ali, set/2026). Definido AQUI (antes das faixas) porque o materiais das
+  // faixas, no modo estimado, sai daqui. Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO (auto do
+  // cadastro); consumo = override do usuário (`custo_simulado.consumo_tecido`), senão o consumo
+  // REAL do BOM (editável na tabela Preço). Aviamento = manual (`custo_simulado.aviamento`, vira o
+  // "Materiais" estimado). M.O. = `maoObraDevLive` (Σ do rascunho, ao vivo). `simCalc.total` =
+  // tecido + aviamento + M.O. = o "Custo total" estimado exibido na tabela.
+  const tecidoMaisCaro = draft.tecidos_planejados
+    .map((id) => artigos.find((a) => a.id === id))
+    .filter((a): a is ArtigoOpt => !!a)
+    .reduce<ArtigoOpt | null>((best, a) => ((Number(a.preco_por_metro) || 0) > (Number(best?.preco_por_metro) || 0) ? a : best), null);
+  const precoTecidoM = Number(tecidoMaisCaro?.preco_por_metro) || 0;
+  const consumoRealBOM = tecidoMaisCaro
+    ? Number(bomTecidos.find((t) => t.artigo_id === tecidoMaisCaro.id)?.consumo) || 0
+    : 0;
+  const consumoOverride = draft.custo_simulado.consumo_tecido ?? null;
+  const consumoUsado = consumoOverride ?? consumoRealBOM;
+  const maoObraUsado = maoObraDevLive > 0 ? maoObraDevLive : null;
+  const simCalc = custoSimulado({
+    consumo_tecido: consumoUsado,
+    preco_tecido_m: precoTecidoM,
+    aviamento: draft.custo_simulado.aviamento,
+    mao_obra: maoObraUsado,
+  });
+
   // Fase B — M.O. que ainda CABE por faixa = precoBase/markup − materiais. Responde "quanto posso
   // pagar de mão de obra?". BASE = preço EFETIVO (`precoInfo.efetivo`): o preço de venda digitado
   // se houver, SENÃO o sugerido (custo×markup). Decisão do dono (set/2026): a coluna Preço de
@@ -755,11 +788,15 @@ export function PlanejamentoDetail({
   // mesma base, senão fica "—" à toa. (Substitui a decisão antiga de usar só o digitado.) `preco
   // Digitado` fica só p/ a Obs distinguir "usando o sugerido" de "usando o seu preço". Se a base
   // é 0 (sem custo/markup) OU a faixa não tem markup cadastrado, `moPorFaixa` devolve inatingível.
+  // MATERIAIS da faixa = tudo que não é M.O.: no REAL, `materiaisSetor` (custo−M.O. embutida); no
+  // ESTIMADO, `simCalc.total − M.O.` (= tecido+aviamento AO VIVO) — assim a Parte 3 reage a editar
+  // aviamento/consumo/M.O. sem salvar (P4, set/2026), em vez de ficar presa no 0 do custo real.
   const precoVendaDigitado = Number(draft.preco_venda) > 0 ? Number(draft.preco_venda) : 0;
   const precoBaseMO = precoEfetivo;
-  const moMin = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.min);
-  const moIdeal = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.ideal);
-  const moMax = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.max);
+  const materiaisParaFaixa = custoReal ? materiaisSetor : Math.max(0, simCalc.total - maoObraDevLive);
+  const moMin = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.min);
+  const moIdeal = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.ideal);
+  const moMax = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.max);
   // Semáforo da M.O. planejada contra os tetos das faixas — 4 estados (até que faixa de markup a
   // M.O. cabe). Compara a M.O. PLANEJADA (o que o produto tem), NÃO a embutida no real (que zera
   // com M.O. interna e daria "0" enganoso).
@@ -975,34 +1012,6 @@ export function PlanejamentoDetail({
       }
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível criar o produto acabado.")),
-  });
-
-  // Custo ESTIMADO (alimenta a seção Preço enquanto o BOM não confirma — a antiga "Simulação de
-  // custo" foi absorvida ali, set/2026). Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO (auto do
-  // cadastro); consumo = override do usuário (`custo_simulado.consumo_tecido`), senão o consumo
-  // REAL do BOM (editável na tabela Preço). Aviamento = manual (`custo_simulado.aviamento`, vira o
-  // "Materiais" estimado). M.O. = Σ das linhas de MO por serviço (read-only). `simCalc.total` =
-  // tecido + aviamento + M.O. = o "Custo total" estimado exibido na tabela.
-  const tecidoMaisCaro = draft.tecidos_planejados
-    .map((id) => artigos.find((a) => a.id === id))
-    .filter((a): a is ArtigoOpt => !!a)
-    .reduce<ArtigoOpt | null>((best, a) => ((Number(a.preco_por_metro) || 0) > (Number(best?.preco_por_metro) || 0) ? a : best), null);
-  const precoTecidoM = Number(tecidoMaisCaro?.preco_por_metro) || 0;
-  const consumoRealBOM = tecidoMaisCaro
-    ? Number(bomTecidos.find((t) => t.artigo_id === tecidoMaisCaro.id)?.consumo) || 0
-    : 0;
-  const consumoOverride = draft.custo_simulado.consumo_tecido ?? null;
-  const consumoUsado = consumoOverride ?? consumoRealBOM;
-  // Mão de obra: agora é Σ das linhas de MO por serviço (via `custo_unitario_modelos.
-  // mao_obra_previsto`, repontado na Task 3). Só LEITURA na Simulação — o override manual
-  // (`custo_simulado.mao_obra`) ficou inerte (spec §5); o campo virou read-only.
-  const maoObraDev = Number((custoData as any)?.mao_obra_previsto) || 0;
-  const maoObraUsado = maoObraDev > 0 ? maoObraDev : null;
-  const simCalc = custoSimulado({
-    consumo_tecido: consumoUsado,
-    preco_tecido_m: precoTecidoM,
-    aviamento: draft.custo_simulado.aviamento,
-    mao_obra: maoObraUsado,
   });
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
@@ -1784,7 +1793,7 @@ export function PlanejamentoDetail({
                 onPrecoVenda={(v) => setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null }))}
                 custoReal={custoReal}
                 consumo={consumoOverride} consumoRealBOM={consumoRealBOM} precoTecidoM={precoTecidoM} tecidoEstimado={simCalc.tecido}
-                aviamento={draft.custo_simulado.aviamento ?? null} maoObraDev={maoObraDev} custoEstimado={simCalc.total}
+                aviamento={draft.custo_simulado.aviamento ?? null} maoObraDev={maoObraDevLive} custoEstimado={simCalc.total}
                 onConsumo={(v) => setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null })}
                 onAviamento={(v) => setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null })}
                 materiaisReal={materiaisSetor} custoRealTotal={custo} custoPrevisto={custoPrevisto}
