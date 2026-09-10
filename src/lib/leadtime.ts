@@ -47,9 +47,13 @@ export function idealLookup(etapas: any[]): Map<string, number> {
 
 // Ideal de uma etapa: config da loja quando existe; senão default por tipo (kanban 5d, macro/
 // serviço 7d) — mesma régua da RPC, para as chaves históricas fora do board configurado.
+// EXCEÇÃO: `compra` (OC→recebimento dos comprados) NÃO tem meta de leadtime cadastrável (é o
+// prazo de terceiros, fora do fluxo de desenvolvimento) → ideal 0 = "sem meta". Assim o hero
+// não inventa uma meta-fantasma de 7d para os comprados (mantém apples-to-apples).
 export function idealDeEtapa(etapa: string, lookup: Map<string, number>): number {
   const v = lookup.get(etapa);
   if (v != null && v > 0) return v;
+  if (etapa === "compra") return 0;
   return etapa.startsWith("kanban:") ? 5 : 7;
 }
 
@@ -78,6 +82,9 @@ export function itemTotais(
     if (!Number.isFinite(v)) continue;
     const ideal =
       k === slaServico && item?.sub1_sla != null ? Number(item.sub1_sla) : idealDeEtapa(k, lookup);
+    // Etapa sem meta real (ideal 0, ex.: `compra` dos comprados) NÃO entra no total/meta do hero —
+    // seria comparar contra uma meta inexistente. Fica só nos bullets como informativo.
+    if (ideal <= 0) continue;
     const fk = faseDeEtapa(k);
     total += v;
     meta += ideal;

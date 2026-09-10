@@ -59,6 +59,9 @@ describe("leadtime · ideal por etapa", () => {
     expect(idealDeEtapa("cad_corte", lookup)).toBe(7);
     expect(idealDeEtapa("servico_cat:x", lookup)).toBe(7);
   });
+  it("'compra' (OC→recebimento dos comprados) NÃO tem meta (ideal 0, não é etapa cadastrável)", () => {
+    expect(idealDeEtapa("compra", lookup)).toBe(0);
+  });
 });
 
 describe("leadtime · itemTotais (soma completa + meta apples-to-apples)", () => {
@@ -83,6 +86,14 @@ describe("leadtime · itemTotais (soma completa + meta apples-to-apples)", () =>
     expect(r.porFase.planejamento).toEqual({ valor: 4, meta: 7 });
     expect(r.porFase.desenvolvimento).toEqual({ valor: 34.7, meta: 10 });
     expect(r.porFase.servicos).toBeUndefined();
+  });
+
+  it("etapa 'compra' (ideal 0) NÃO entra no total nem na meta do hero (apples-to-apples)", () => {
+    // comprado: compra 10d (sem meta) + cq 2d (meta default 7). total/meta só contam cq.
+    const item = { duracoes: { compra: 10, cq: 2 }, sub1_sla: null };
+    const r = itemTotais(item, lookup, null);
+    expect(r.total).toBe(2); // só cq — compra fica fora
+    expect(r.meta).toBe(7); // só a meta do cq; sem os 7d fantasma da compra
   });
 
   it("usa o SLA da Sub1 do item na etapa de SLA quando configurado", () => {

@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PAGE_URLS } from "@/lib/nav";
 import { cqLiberado } from "@/lib/cq-status";
 import { ehOrigemComprada } from "@/lib/origem";
+import { cn } from "@/lib/utils";
 import { brl, brlAbrev, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SegmentedTabs, MobileFilterBar, KpiCardMobile, ChartSheet } from "@/components/dashboard/mobile";
@@ -2745,6 +2746,10 @@ function LeadtimeTab() {
   const [colecao, setColecao] = useState("all");
   const [subcol, setSubcol] = useState("all");
   const [semana, setSemana] = useState("all");
+  // Sub-aba por ORIGEM: interno (fluxo completo) · acabado · importado (comprados, fluxo curto).
+  // Fluxos diferentes NUNCA se misturam nas médias/heatmap — o filtro de origem entra no filtItens,
+  // então todo o resto (bullets, hero, gargalo, heatmap) reflete só a origem escolhida.
+  const [origem, setOrigem] = useState<"interno" | "revenda" | "importado">("interno");
   const isMobile = useIsMobile();
   // Mobile (Padrão A): tocar num KPI-card ou no card "Onde o tempo é gasto" abre o sheet de bullets.
   const [bulletsOpen, setBulletsOpen] = useState(false);
@@ -2777,12 +2782,15 @@ function LeadtimeTab() {
   const colecoes = uniq(itens.map((i) => i.colecao));
   const subcols = uniq(itens.map((i) => i.subcolecao));
   const semanas = uniq(itens.map((i) => i.semana));
-  const filtItens = itens.filter(
+  // Contagem por origem p/ os rótulos das sub-abas (antes do filtro de origem).
+  const preFilt = itens.filter(
     (i) =>
       (colecao === "all" || (i.colecao ?? "") === colecao) &&
       (subcol === "all" || (i.subcolecao ?? "") === subcol) &&
       (semana === "all" || (i.semana ?? "") === semana),
   );
+  const contaOrigem = (o: string) => preFilt.filter((i) => (i.origem ?? "interno") === o).length;
+  const filtItens = preFilt.filter((i) => (i.origem ?? "interno") === origem);
 
   // Stats por etapa RECOMPUTADOS dos itens filtrados (cards movem com o filtro). Na etapa
   // do SLA, o prazo por item vem do SLA da Subcategoria (sub1_sla).
@@ -2820,11 +2828,19 @@ function LeadtimeTab() {
     String(e.etapa).startsWith("servico_cat:")
       ? 1 + (Number(e.sub) || 0) / 1000
       : (PROD_ORDER.indexOf(e.etapa) < 0 ? 999 : PROD_ORDER.indexOf(e.etapa));
-  const planejamento = etapas.filter((e) => e.etapa === "planejamento").map(withStats);
-  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa)).map(withStats);
-  const macro = etapas
-    .filter((e) => (e.tipo === "macro" && e.etapa !== "planejamento") || e.tipo === "servico")
-    .sort((a, b) => ordProd(a) - ordProd(b)).map(withStats);
+  // Só exibe etapas COM dados na origem atual (nModelos>0) — evita mostrar "Planejamento/Modelagem"
+  // vazios num comprado, que não passa por Desenvolvimento. + a etapa sintética "compra" (comprados).
+  const comDados = (e: any) => Number(e.nModelos) > 0;
+  const compraStat = statOf("compra", 0);
+  const compra = compraStat.nModelos > 0 ? [{ etapa: "compra", label: "Compra (OC → recebimento)", tipo: "macro", idealDias: 0, ...compraStat, slaCol: false }] : [];
+  const planejamento = etapas.filter((e) => e.etapa === "planejamento").map(withStats).filter(comDados);
+  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa)).map(withStats).filter(comDados);
+  const macro = [
+    ...compra,
+    ...etapas
+      .filter((e) => (e.tipo === "macro" && e.etapa !== "planejamento") || e.tipo === "servico")
+      .sort((a, b) => ordProd(a) - ordProd(b)).map(withStats).filter(comDados),
+  ];
 
   const isLoading = skel.isLoading || det.isLoading;
   const isError = skel.isError || det.isError;
@@ -2855,6 +2871,14 @@ function LeadtimeTab() {
     { label: "Lançamento nº", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Lan " + c }))], single: true as const },
   ];
 
+  const subOrigens: { key: "interno" | "revenda" | "importado"; label: string }[] = [
+    { key: "interno", label: "Interno" },
+    { key: "revenda", label: "Acabado" },
+    { key: "importado", label: "Importado" },
+  ];
+  const ehComprado = origem !== "interno";
+  const vazioOrigem = !isLoading && filtItens.length === 0;
+
   // ——— Mobile (Padrão A): pilha de KPI-cards; tocar abre o bullet chart no ChartSheet ———
   if (isMobile) {
     const gOver = gargalo && gargalo.ratio > 1;
@@ -2867,9 +2891,9 @@ function LeadtimeTab() {
           <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "var(--tone-danger-bg)" }} aria-hidden />atrasado</span>
           <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-0.5" style={{ background: "var(--foreground)" }} aria-hidden />meta</span>
         </div>
-        <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />
-        <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />
-        <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
+        {origem === "interno" && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
+        {origem === "interno" && <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />}
+        <BulletSection icon={Factory} titulo={origem === "interno" ? "Produção" : "Fluxo do produto comprado"} etapas={macro} labelDe={(e) => e.label} />
       </div>
     );
     return (
@@ -2877,7 +2901,15 @@ function LeadtimeTab() {
         <div className="flex flex-wrap items-center gap-2">
           <MobileFilterBar filters={filtrosLead} />
         </div>
-        {etapas.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {subOrigens.map((o) => (
+            <button key={o.key} type="button" onClick={() => setOrigem(o.key)}
+              className={cn("rounded-full border px-3 py-1 text-xs font-medium", origem === o.key ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground")}>
+              {o.label} · {contaOrigem(o.key)}
+            </button>
+          ))}
+        </div>
+        {filtItens.length > 0 && (
           <div className="space-y-2.5">
             <KpiCardMobile
               label="Lead time médio ponta a ponta"
@@ -2904,11 +2936,12 @@ function LeadtimeTab() {
             />
           </div>
         )}
-        {/* Onda B: heatmap larga → cartões por modelo (6 chips, pior no topo). */}
-        {etapas.length > 0 && <LeadtimeMobileCards itens={filtItens} lookup={lookup} slaServico={slaServico} />}
-        {!isLoading && etapas.length === 0 && (
+        {/* Onda B: heatmap larga → cartões por modelo (6 chips, pior no topo). Só interno (fluxo de
+            6 fases); comprado tem fluxo curto já coberto pelos bullets. */}
+        {!ehComprado && filtItens.length > 0 && <LeadtimeMobileCards itens={filtItens} lookup={lookup} slaServico={slaServico} />}
+        {vazioOrigem && (
           <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
-            Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
+            Sem dados de leadtime para {subOrigens.find((o) => o.key === origem)?.label} no filtro atual. As etapas populam conforme os modelos avançam.
           </p>
         )}
         {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
@@ -2925,6 +2958,20 @@ function LeadtimeTab() {
     );
   }
 
+  const OrigemTabs = () => (
+    <div className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+      {subOrigens.map((o) => {
+        const n = contaOrigem(o.key);
+        const on = origem === o.key;
+        return (
+          <button key={o.key} type="button" onClick={() => setOrigem(o.key)}
+            className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition-colors", on ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+            {o.label} <span className="text-xs text-muted-foreground">· {n}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -2932,20 +2979,26 @@ function LeadtimeTab() {
         <FilterButton screen="leadtime" filters={filtrosLead} />
       </div>
 
+      <OrigemTabs />
+
       {/* Hero: a mensagem primeiro (§R R8) — total ponta-a-ponta, gargalo, % dentro da meta. */}
-      {etapas.length > 0 && <LeadtimeHero hero={hero} gargalo={gargalo} filtroTxt={filtroTxt} />}
+      {filtItens.length > 0 && <LeadtimeHero hero={hero} gargalo={gargalo} filtroTxt={filtroTxt} />}
 
       {/* Onde o tempo é gasto — bullets por etapa (§R R7), do pior pro melhor. Ordem de fluxo:
-          Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
-      <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />
-      <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />
-      <BulletSection icon={Factory} titulo="Produção" etapas={macro} labelDe={(e) => e.label} />
+          Interno: Planejamento → Desenvolvimento (kanban) → Produção. Comprado: só Produção
+          (Compra → CQ → Direcionamento → Lançamento) — sem planejamento/kanban. */}
+      {!ehComprado && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
+      {!ehComprado && <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />}
+      <BulletSection icon={Factory} titulo={ehComprado ? "Fluxo do produto comprado" : "Produção"} etapas={macro} labelDe={(e) => e.label} />
 
-      {etapas.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
+      {/* Heatmap detalhado por modelo × etapas: só p/ INTERNO (as 6 fases + kanban/serviços são do
+          fluxo de desenvolvimento). Comprado tem fluxo curto — os bullets acima já o mostram por
+          inteiro (Compra → CQ → Direc → Lançar); um heatmap de 6 fases mostraria só colunas vazias. */}
+      {!ehComprado && filtItens.length > 0 && <LeadtimeHeatmap itens={filtItens} lookup={lookup} slaServico={slaServico} kanbanOrder={skel.data?.kanbanOrder} categorias={cats.data ?? []} />}
 
-      {!isLoading && etapas.length === 0 && (
+      {vazioOrigem && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
-          Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
+          Sem dados de leadtime para {subOrigens.find((o) => o.key === origem)?.label} no filtro atual. As etapas populam conforme os modelos avançam.
         </p>
       )}
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
