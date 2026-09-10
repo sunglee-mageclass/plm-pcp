@@ -223,10 +223,13 @@ function PrecoTabela(props: {
     : <StatusBadge tone="warning">estimado</StatusBadge>;
   // Histórico 1 nível: quando o real assume e diverge do previsto/estimado.
   const divergePrevisto = custoReal && custoPrevisto > 0 && Math.abs(custoPrevisto - custoRealTotal) >= 0.01;
+  // Rótulos descrevem a FAIXA alcançada (não julgam) — "só no mínimo" soava alarmante mesmo a 10
+  // centavos do ideal (feedback do dono set/2026). `no_minimo` = M.O. entre o teto do ideal e o do
+  // mínimo → "entre ideal e mínimo" (âmbar, ainda vende com margem, só não bate o ideal).
   const moBadge = precoBase <= 0 ? null
     : moStatusFaixa === "no_maximo" ? <StatusBadge tone="success">cabe no máximo</StatusBadge>
     : moStatusFaixa === "no_ideal" ? <StatusBadge tone="success">cabe no ideal</StatusBadge>
-    : moStatusFaixa === "no_minimo" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
+    : moStatusFaixa === "no_minimo" ? <StatusBadge tone="warning">entre ideal e mínimo</StatusBadge>
     : moStatusFaixa === "acima" ? <StatusBadge tone="danger">acima do limite</StatusBadge>
     : null;
   const temFaixas = !!linhaFaixas && (linhaFaixas.min != null || linhaFaixas.ideal != null || linhaFaixas.max != null);
