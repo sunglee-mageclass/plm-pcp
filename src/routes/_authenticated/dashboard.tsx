@@ -1127,17 +1127,18 @@ function DesenvolvimentoTab() {
 
       <DetalheExpansivel titulo="Modelos por categoria" sub="distribuição da coleção">
         {(() => {
+          // dashboard_colecao.pie = [{ name, value }] (NÃO {nome,total}) — categoria × nº de modelos.
           const pie: any[] = col.data?.pie ?? [];
-          const totPie = pie.reduce((s, p) => s + Number(p.total || 0), 0) || 1;
+          const totPie = pie.reduce((s, p) => s + Number(p.value || 0), 0) || 1;
           return pie.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sem dados de categoria no filtro.</p>
           ) : (
             <div className="space-y-2">
-              {[...pie].sort((a, b) => Number(b.total) - Number(a.total)).map((p) => {
-                const pct = Math.round((Number(p.total || 0) / totPie) * 100);
+              {[...pie].sort((a, b) => Number(b.value) - Number(a.value)).map((p) => {
+                const pct = Math.round((Number(p.value || 0) / totPie) * 100);
                 return (
-                  <div key={p.nome}>
-                    <div className="flex justify-between text-sm"><span className="truncate">{p.nome}</span><span className="font-semibold tabular-nums">{fmtInt(p.total)} · {pct}%</span></div>
+                  <div key={p.name}>
+                    <div className="flex justify-between text-sm"><span className="truncate">{p.name}</span><span className="font-semibold tabular-nums">{fmtInt(p.value)} · {pct}%</span></div>
                     <div className="mt-1 h-2 overflow-hidden rounded bg-muted"><div className="h-full rounded" style={{ width: `${pct}%`, background: CHART_SERIE }} /></div>
                   </div>
                 );
