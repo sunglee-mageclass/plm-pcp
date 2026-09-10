@@ -2834,7 +2834,29 @@ function LeadtimeTab() {
   const compraStat = statOf("compra", 0);
   const compra = compraStat.nModelos > 0 ? [{ etapa: "compra", label: "Compra (OC → recebimento)", tipo: "macro", idealDias: 0, ...compraStat, slaCol: false }] : [];
   const planejamento = etapas.filter((e) => e.etapa === "planejamento").map(withStats).filter(comDados);
-  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa)).map(withStats).filter(comDados);
+  // Kanban do Desenvolvimento: só as colunas do BOARD ATUAL da loja, na ordem configurada
+  // (ordKb). Status que NÃO estão mais no board (históricos de modelos antigos — variam POR LOJA;
+  // loja que nunca mexeu no board não tem nenhum) são agrupados numa linha "Etapas antigas" no
+  // fim, para não FURAR a ordem configurada com posições 999 embaralhadas.
+  const kanbanTodos = etapas.filter((e) => e.tipo === "kanban").map(withStats).filter(comDados);
+  const kanbanBoard = kanbanTodos.filter((e) => ordKb(e.etapa) < 999).sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa));
+  const kanbanAntigos = kanbanTodos.filter((e) => ordKb(e.etapa) >= 999);
+  const kanban = [...kanbanBoard];
+  if (kanbanAntigos.length > 0) {
+    const nMax = Math.max(...kanbanAntigos.map((e) => Number(e.nModelos) || 0));
+    kanban.push({
+      etapa: "kanban:__antigas__",
+      label: `Etapas antigas (${kanbanAntigos.length})`,
+      tipo: "kanban",
+      idealDias: 0, // sem meta — são status fora do board atual
+      duracaoMedia: kanbanAntigos.reduce((s, e) => s + (Number(e.duracaoMedia) || 0), 0),
+      nModelos: nMax,
+      foraSla: 0,
+      pctNoPrazo: 0,
+      slaCol: false,
+      _antigas: kanbanAntigos.map((e) => kanbanLabel(e.etapa)).join(", "),
+    } as any);
+  }
   const macro = [
     ...compra,
     ...etapas
@@ -2892,7 +2914,7 @@ function LeadtimeTab() {
           <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-0.5" style={{ background: "var(--foreground)" }} aria-hidden />meta</span>
         </div>
         {origem === "interno" && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
-        {origem === "interno" && <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />}
+        {origem === "interno" && <BulletSection icon={Palette} titulo="Desenvolvimento" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} />}
         <BulletSection icon={Factory} titulo={origem === "interno" ? "Produção" : "Fluxo do produto comprado"} etapas={macro} labelDe={(e) => e.label} />
       </div>
     );
@@ -2988,7 +3010,7 @@ function LeadtimeTab() {
           Interno: Planejamento → Desenvolvimento (kanban) → Produção. Comprado: só Produção
           (Compra → CQ → Direcionamento → Lançamento) — sem planejamento/kanban. */}
       {!ehComprado && <BulletSection icon={ClipboardCheck} titulo="Planejamento" etapas={planejamento} labelDe={(e) => e.label} />}
-      {!ehComprado && <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => kanbanLabel(e.etapa)} />}
+      {!ehComprado && <BulletSection icon={Palette} titulo="Desenvolvimento · por coluna do kanban" etapas={kanban} labelDe={(e) => e.etapa === "kanban:__antigas__" ? e.label : kanbanLabel(e.etapa)} />}
       <BulletSection icon={Factory} titulo={ehComprado ? "Fluxo do produto comprado" : "Produção"} etapas={macro} labelDe={(e) => e.label} />
 
       {/* Heatmap detalhado por modelo × etapas: só p/ INTERNO (as 6 fases + kanban/serviços são do
@@ -3198,7 +3220,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
       return cat ? cat.nome + (cat.ativo ? "" : " (inativa)") : "Categoria removida";
     }
     if (key === "servicos") return "Tempo em produção";
-    if (key === "cad_corte") return "CAD → Enviar p/ PCP";
+    if (key === "cad_corte") return "Explosão";
     return key;
   };
 
@@ -3221,7 +3243,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
   // PRÓPRIA quando presente no filtro, seguida das categorias ATIVAS com dado (ordem do cadastro).
   // O balde "Outros" fica só com o macro "servicos" (antigo) + categorias inativas/removidas.
   const cadCortePresente = rows.some((r) => Number((r.it?.duracoes ?? {})["cad_corte"]) > 0);
-  const cadCorteCol = { key: "cad_corte", label: "CAD → Enviar p/ PCP", meta: metaConfig("cad_corte", lookup) };
+  const cadCorteCol = { key: "cad_corte", label: "Explosão", meta: metaConfig("cad_corte", lookup) };
   const servPresent = new Set<string>();
   for (const r of rows) for (const k of Object.keys(r.it?.duracoes ?? {})) if (k.startsWith("servico_cat:")) servPresent.add(k);
   const servCatCols = [...servPresent]
@@ -3299,7 +3321,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
         Ordenado pelo maior lead time. Toque no <span aria-hidden>▸</span> em <strong>Desenvolvimento</strong> ou
         {" "}<strong>Serviços</strong> para destrinchar em sub-colunas (a soma fecha na coluna <strong>Total</strong> do grupo).
         {" "}Em Desenvolvimento, um status extinto que ainda pesa vira coluna <strong>"(antigo)"</strong> própria e o resto
-        soma em <strong>Histórico</strong>; em Serviços, <strong>CAD → Enviar p/ PCP</strong> tem coluna própria e{" "}
+        soma em <strong>Histórico</strong>; em Serviços, <strong>Explosão</strong> tem coluna própria e{" "}
         <strong>Outros</strong> guarda o macro de Produção + categorias inativas (passe o mouse no cabeçalho ou na célula p/ o detalhamento).
       </p>
       {/* Legenda da rampa (sequencial = magnitude) + o marcador de atraso (R5). */}
