@@ -121,6 +121,34 @@ export function statusMO(moReal: unknown, moMinAtingivel: boolean, moMinMax: unk
 }
 
 /**
+ * Semáforo da M.O. real por FAIXA (4 estados) — diz ATÉ QUE FAIXA DE MARKUP a M.O. do modelo
+ * permite chegar. Os tetos de M.O. andam ao contrário do markup: markup MÁXIMO ⇒ MENOR teto de
+ * M.O. (mais exigente); markup MÍNIMO ⇒ MAIOR teto (mais folga). Então, do MELHOR ao pior:
+ *   - 'no_maximo'  (verde): M.O. ≤ teto do MÁXIMO (o menor) — bate o markup mais alto.
+ *   - 'no_ideal'   (verde): M.O. ≤ teto do IDEAL.
+ *   - 'no_minimo'  (âmbar): M.O. ≤ teto do MÍNIMO (o maior) — só bate o markup mínimo.
+ *   - 'acima'      (vermelho): estoura até o teto do mínimo — M.O. alta demais, não bate nem o mín.
+ *   - 'indef'      (—): sem teto atingível p/ decidir.
+ * M.O. baixa nunca alarma (é lucro) — por isso não há "abaixo do mínimo". ≤ inclusivo.
+ * Os *Atingivel indicam se a faixa tem base (preço+markup) — sem base, aquela faixa não decide.
+ */
+export type StatusMoFaixa = "no_maximo" | "no_ideal" | "no_minimo" | "acima" | "indef";
+
+export function statusMoFaixa(
+  moReal: unknown,
+  minAtingivel: boolean, minTeto: unknown,
+  idealAtingivel: boolean, idealTeto: unknown,
+  maxAtingivel: boolean, maxTeto: unknown,
+): StatusMoFaixa {
+  const real = Number(moReal) || 0;
+  if (maxAtingivel && real <= (Number(maxTeto) || 0)) return "no_maximo";
+  if (idealAtingivel && real <= (Number(idealTeto) || 0)) return "no_ideal";
+  if (minAtingivel && real <= (Number(minTeto) || 0)) return "no_minimo";
+  if (minAtingivel || idealAtingivel || maxAtingivel) return "acima";
+  return "indef";
+}
+
+/**
  * Simulação de custo do Planejamento (manual, isolada do custo real do BOM/CAD).
  * Valores previstos que o usuário digita no card. Ver design 2026-07-21.
  */

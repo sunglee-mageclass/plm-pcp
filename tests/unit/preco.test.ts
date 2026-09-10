@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO } from "@/lib/preco";
+import { precoSugerido, precoInfo, custoSimulado, precoPorFaixa, statusPreco, moPorFaixa, statusMO, statusMoFaixa } from "@/lib/preco";
 
 describe("preco — custoSimulado (simulação de custo do Planejamento)", () => {
   it("tecido = consumo × preço/m; total soma aviamento + mão de obra", () => {
@@ -157,6 +157,34 @@ describe("preco — Fase B (2ª visão): statusMO (semáforo da M.O. real)", () 
   });
   it("sem nenhum teto atingível → 'indef' (—)", () => {
     expect(statusMO(30, false, 0, false, 0)).toBe("indef");
+  });
+});
+
+describe("preco — statusMoFaixa (4 estados: até que faixa de markup a M.O. cabe)", () => {
+  // tetos DECRESCENTES com o markup: mín 63 > ideal 42 > máx 35 (preço 998, materiais 97,99, exemplo do dono)
+  const min = 63, ideal = 42, max = 35;
+  it("M.O. ≤ teto do máximo → 'no_maximo' (melhor), inclusive no teto", () => {
+    expect(statusMoFaixa(30, true, min, true, ideal, true, max)).toBe("no_maximo");
+    expect(statusMoFaixa(35, true, min, true, ideal, true, max)).toBe("no_maximo");
+  });
+  it("entre máx e ideal → 'no_ideal'", () => {
+    expect(statusMoFaixa(40, true, min, true, ideal, true, max)).toBe("no_ideal");
+    expect(statusMoFaixa(42, true, min, true, ideal, true, max)).toBe("no_ideal");
+  });
+  it("entre ideal e mín → 'no_minimo' (âmbar)", () => {
+    expect(statusMoFaixa(55, true, min, true, ideal, true, max)).toBe("no_minimo");
+    expect(statusMoFaixa(63, true, min, true, ideal, true, max)).toBe("no_minimo");
+  });
+  it("acima do teto do mínimo → 'acima' (vermelho) — exemplo do dono: 65 estoura", () => {
+    expect(statusMoFaixa(65, true, min, true, ideal, true, max)).toBe("acima");
+    expect(statusMoFaixa(100, true, min, true, ideal, true, max)).toBe("acima");
+  });
+  it("nenhuma faixa atingível (sem preço/markup) → 'indef' (—)", () => {
+    expect(statusMoFaixa(30, false, 0, false, 0, false, 0)).toBe("indef");
+  });
+  it("só o mínimo atingível (ideal/máx sem base) ainda decide", () => {
+    expect(statusMoFaixa(50, true, 63, false, 0, false, 0)).toBe("no_minimo");
+    expect(statusMoFaixa(70, true, 63, false, 0, false, 0)).toBe("acima");
   });
 });
 
