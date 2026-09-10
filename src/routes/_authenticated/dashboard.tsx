@@ -3197,8 +3197,8 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
       const cat = catById.get(key.slice("servico_cat:".length));
       return cat ? cat.nome + (cat.ativo ? "" : " (inativa)") : "Categoria removida";
     }
-    if (key === "servicos") return "Produção (macro)";
-    if (key === "cad_corte") return "CAD→Corte";
+    if (key === "servicos") return "Tempo em produção";
+    if (key === "cad_corte") return "CAD → Enviar p/ PCP";
     return key;
   };
 
@@ -3221,7 +3221,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
   // PRÓPRIA quando presente no filtro, seguida das categorias ATIVAS com dado (ordem do cadastro).
   // O balde "Outros" fica só com o macro "servicos" (antigo) + categorias inativas/removidas.
   const cadCortePresente = rows.some((r) => Number((r.it?.duracoes ?? {})["cad_corte"]) > 0);
-  const cadCorteCol = { key: "cad_corte", label: "CAD→Corte", meta: metaConfig("cad_corte", lookup) };
+  const cadCorteCol = { key: "cad_corte", label: "CAD → Enviar p/ PCP", meta: metaConfig("cad_corte", lookup) };
   const servPresent = new Set<string>();
   for (const r of rows) for (const k of Object.keys(r.it?.duracoes ?? {})) if (k.startsWith("servico_cat:")) servPresent.add(k);
   const servCatCols = [...servPresent]
@@ -3299,7 +3299,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
         Ordenado pelo maior lead time. Toque no <span aria-hidden>▸</span> em <strong>Desenvolvimento</strong> ou
         {" "}<strong>Serviços</strong> para destrinchar em sub-colunas (a soma fecha na coluna <strong>Total</strong> do grupo).
         {" "}Em Desenvolvimento, um status extinto que ainda pesa vira coluna <strong>"(antigo)"</strong> própria e o resto
-        soma em <strong>Histórico</strong>; em Serviços, <strong>CAD→Corte</strong> tem coluna própria e{" "}
+        soma em <strong>Histórico</strong>; em Serviços, <strong>CAD → Enviar p/ PCP</strong> tem coluna própria e{" "}
         <strong>Outros</strong> guarda o macro de Produção + categorias inativas (passe o mouse no cabeçalho ou na célula p/ o detalhamento).
       </p>
       {/* Legenda da rampa (sequencial = magnitude) + o marcador de atraso (R5). */}
