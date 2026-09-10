@@ -112,8 +112,15 @@ export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseU
       setOpen(false);
       return;
     }
+    // Modal (Sheet/Dialog) com AlertDialog aninhado: fechar o AlertDialog e desmontar o Sheet
+    // (via `onClose`, que costuma zerar o state que monta o Sheet) NÃO podem acontecer no MESMO
+    // tick. Se acontecem juntos, o cleanup das duas camadas modais do Radix colide na variável
+    // de módulo `originalBodyPointerEvents` (body fica com pointer-events:none preso) e a
+    // restauração de foco do AlertDialog reentra na camada do Sheet, REABRINDO a confirmação —
+    // o "Descartar não funciona na 1ª vez, só na 2ª". `queueMicrotask` adia o desmonte do Sheet
+    // p/ depois do AlertDialog fechar/estabilizar. (Ver também `onCloseAutoFocus` no dialog.)
     setOpen(false);
-    onClose?.();
+    queueMicrotask(() => onClose?.());
   }, [pendingAction, navBlocked, blocker, onClose]);
 
   const confirm: UnsavedConfirm = { open: open || navBlocked, onKeepEditing, onDiscard };
@@ -135,7 +142,12 @@ interface UnsavedChangesGuardProps {
 export function UnsavedChangesGuard({ confirm, message }: UnsavedChangesGuardProps) {
   return (
     <AlertDialog open={confirm.open} onOpenChange={(o) => { if (!o) confirm.onKeepEditing(); }}>
-      <AlertDialogContent>
+      {/* Este AlertDialog costuma ser renderizado DENTRO de um Sheet/Dialog. Sem prevenir o
+          auto-focus de fechamento, o Radix restaura o foco p/ o elemento anterior (dentro do
+          SheetContent) ao fechar — esse `focusin` reentra na camada do Sheet e REABRE a
+          confirmação (o "Descartar só na 2ª vez"). O Sheet/Dialog re-trapa o próprio foco, então
+          prevenir aqui é benigno. Par com o `queueMicrotask(onClose)` no `onDiscard`. */}
+      <AlertDialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <AlertDialogHeader>
           <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
           <AlertDialogDescription>{message ?? MSG_PADRAO}</AlertDialogDescription>
