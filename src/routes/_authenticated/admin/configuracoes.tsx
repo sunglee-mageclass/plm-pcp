@@ -671,8 +671,10 @@ function ConfiguracoesLojaPage() {
 // própria, exibida antes do Desenvolvimento.
 const LEADTIME_PLANEJAMENTO = { key: "planejamento", label: "Planejamento" };
 const LEADTIME_MACRO: { key: string; label: string }[] = [
-  { key: "cad_corte", label: "CAD → Corte" },
-  { key: "servicos", label: "Produção (Serviços)" },
+  // "Explosão" = tempo na etapa de Explosão (entrar no CAD → Enviar para PCP); a tela CAD/corte
+  // não existe mais, o `cad_corte` é só a key interna. "Tempo em produção" = fase de serviços.
+  { key: "cad_corte", label: "Explosão" },
+  { key: "servicos", label: "Tempo em produção" },
   { key: "cq", label: "CQ" },
   { key: "direcionamento", label: "Direcionamento" },
   { key: "lancamento", label: "Lançamento" },
@@ -783,7 +785,7 @@ function LeadtimeConfigCard({
     },
   });
 
-  // Produção em ordem de fluxo; sob "Produção (Serviços)", as categorias como micro.
+  // Produção em ordem de fluxo; sob "Tempo em produção", as categorias como micro.
   const servItens: LtItem[] = (servCats as any[]).map((c) => ({
     key: "servico_cat:" + c.id, tipo: "servico" as const, label: c.nome, indent: true,
   }));

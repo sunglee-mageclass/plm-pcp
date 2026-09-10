@@ -3239,7 +3239,7 @@ function LeadtimeHeatmap({ itens, lookup, slaServico, kanbanOrder, categorias }:
   const devOutros = rows.some((r) => splitFaseSub(r.it, "desenvolvimento", devKeys).outros > 1e-9);
 
   // ——— Sub-colunas de Serviços ———
-  // CAD→Corte (marco configurável — colore pela razão QUANDO há ideal na config) vira coluna
+  // Explosão (marco configurável — colore pela razão QUANDO há ideal na config) vira coluna
   // PRÓPRIA quando presente no filtro, seguida das categorias ATIVAS com dado (ordem do cadastro).
   // O balde "Outros" fica só com o macro "servicos" (antigo) + categorias inativas/removidas.
   const cadCortePresente = rows.some((r) => Number((r.it?.duracoes ?? {})["cad_corte"]) > 0);

@@ -15,7 +15,7 @@ export type FaseKey =
 export type Fase = { key: FaseKey; label: string; short: string };
 
 // As 6 fases em ordem de FLUXO. O kanban INTEIRO (todas as colunas + status históricos, ex.
-// "aprovado") colapsa em "Desenvolvimento"; os marcos de produção `cad_corte` (CAD→Corte) e
+// "aprovado") colapsa em "Desenvolvimento"; os marcos de produção `cad_corte` (Explosão) e
 // `servicos`/`servico_cat:*` entram em "Serviços" (execução). Reconcilia o desenho da proposta
 // (Planej · Desenv · Serviços · CQ · Direc · Lançam) com as chaves REAIS das RPCs.
 export const FASES: readonly Fase[] = [
@@ -179,7 +179,7 @@ export function metaConfig(key: string, lookup: Map<string, number>): number | n
 //  • Desenvolvimento — o board (status atuais) + os status EXTINTOS relevantes PROMOVIDOS
 //    (ver `promoverExtintos`); o resíduo é o balde "Histórico" (status extintos leves, fora do
 //    board — ex. "aprovado" quando não domina).
-//  • Serviços — `cad_corte` (marco CAD→Corte, sempre coluna própria quando presente) + as
+//  • Serviços — `cad_corte` (marco Explosão, sempre coluna própria quando presente) + as
 //    categorias ATIVAS; o resíduo "Outros" fica só com o macro "servicos" (antigo) + categorias
 //    inativas/removidas.
 // INVARIANTE: Σ(valores) + outros ≡ o `porFase[fase].valor` de itemTotais — a soma das sub-colunas
