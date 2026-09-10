@@ -22,7 +22,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean; v
  */
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
-  onChangeLinhas, onAprovar, onReprovar, pendingCategoriaId,
+  onChangeLinhas, onAprovar, onReprovar, pendingCategoriaId, linhasPersistidas,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -35,6 +35,12 @@ export function MaoObraEditor({
   // desabilita os 2 botões DAQUELA linha (guard de duplo-clique; `undefined` = nada pendente,
   // `null` é um `categoria_terceirizado_id` válido pra "Geral (legado)").
   pendingCategoriaId?: string | null;
+  // Categorias JÁ PERSISTIDAS no banco (`modelo_servico_mo`) — o baseline do servidor. Aprovar/
+  // reprovar é RPC imediata (`aprovar_servico_mo`) que exige a linha existir; numa linha recém-
+  // adicionada (ainda só no rascunho) daria "linha não encontrada". Só habilita os botões nas
+  // linhas cujo serviço já está persistido; as novas pedem Salvar antes. `undefined` = chamador
+  // não informou (retrocompat) → considera todas persistidas (comportamento de antes).
+  linhasPersistidas?: Set<string | null>;
 }) {
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ categoriaId: string | null } | null>(null);
@@ -89,10 +95,17 @@ export function MaoObraEditor({
             )}
             {podeAprovar && (() => {
               const rowPending = pendingCategoriaId !== undefined && pendingCategoriaId === id;
+              // Linha só-rascunho (serviço ainda não persistido): aprovar/reprovar chamaria a RPC
+              // numa linha inexistente → "linha não encontrada". Desabilita e pede Salvar antes.
+              const naoPersistida = linhasPersistidas !== undefined && !linhasPersistidas.has(id);
+              const bloqTitulo = naoPersistida ? "Salve o modelo antes de aprovar este serviço" : undefined;
               return (
-                <span className="ml-auto flex shrink-0 gap-1">
-                  <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" disabled={rowPending} onClick={() => onAprovar(id)}><Check className="h-4 w-4" /></Button>
-                  <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" disabled={rowPending} onClick={() => setRepro({ categoriaId: id })}><X className="h-4 w-4" /></Button>
+                <span className="ml-auto flex shrink-0 flex-col items-end gap-1">
+                  <span className="flex gap-1">
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title={bloqTitulo ?? "Aprovar"} className="text-emerald-700" disabled={rowPending || naoPersistida} onClick={() => onAprovar(id)}><Check className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title={bloqTitulo ?? "Reprovar"} className="text-red-700" disabled={rowPending || naoPersistida} onClick={() => setRepro({ categoriaId: id })}><X className="h-4 w-4" /></Button>
+                  </span>
+                  {naoPersistida && <span className="text-[11px] text-muted-foreground">Salve para aprovar</span>}
                 </span>
               );
             })()}

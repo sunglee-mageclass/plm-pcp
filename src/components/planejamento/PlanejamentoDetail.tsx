@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, Upload, ArrowLeft, Save, ChevronDown, ChevronRight, AlertTriangle, ExternalLink, PackagePlus } from "lucide-react";
+import { Trash2, Copy, Upload, ArrowLeft, Save, ChevronDown, ChevronRight, ExternalLink, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -187,30 +187,43 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 // mora na Obs — pedido do dono: "bater o olho e já saber o que ler". Mesmos dados de sempre.
 const mkFmt = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—");
 function PrecoTabela(props: {
-  custo: number; custoReal: boolean; custoPrevisto: number;
-  materiais: number; maoObra: number;
-  markupSugerido: number; markupReal: number; preco: number; precoSug: number;
-  linhaNome: string | null; linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
-  precoVendaDigitado: number;
+  // preço + markup (real vem do custo total; markup real = preço ÷ custo)
+  markupReal: number; precoSug: number;
+  // precoBase = efetivo (venda digitada OU sugerido) — base da M.O. por faixa; precoDigitado só
+  // distingue, na Obs, se está usando o preço do usuário ou o sugerido.
+  precoBase: number; precoDigitado: number;
+  draftPrecoVenda: number | null | undefined; onPrecoVenda: (v: string) => void;
+  // custo: real (BOM confirmado) OU estimado (tecido + aviamento + M.O.). Selo previsto/real por modelo.
+  custoReal: boolean;
+  // estimado (editável): consumo de tecido × preço/m + aviamento manual + M.O. (dev)
+  consumo: number | null; consumoRealBOM: number; precoTecidoM: number; tecidoEstimado: number;
+  aviamento: number | null; maoObraDev: number; custoEstimado: number;
+  onConsumo: (v: string) => void; onAviamento: (v: string) => void;
+  // real (BOM): materiais reais + total real; e o previsto p/ o histórico. (A M.O. exibida é
+  // SEMPRE a planejada `maoObraDev` — ver comentário na linha M.O. —, então não recebe a real.)
+  materiaisReal: number; custoRealTotal: number; custoPrevisto: number;
+  // faixas de M.O.
+  linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
   moMin: { moMax: number; atingivel: boolean }; moIdeal: { moMax: number; atingivel: boolean }; moMax: { moMax: number; atingivel: boolean };
   moStatusFaixa: "no_maximo" | "no_ideal" | "no_minimo" | "acima" | "indef";
   podeVerCustos: boolean; podeEditarCustos: boolean; markupFaixaOn: boolean;
-  draftPrecoVenda: number | null | undefined; draftMarkupEditado: number | null | undefined;
-  onPrecoVenda: (v: string) => void; onMarkupEditado: (v: number) => void; onVerDev?: () => void;
+  onVerDev?: () => void;
 }) {
-  const { custo, custoReal, custoPrevisto, materiais, maoObra, markupSugerido, markupReal, preco, precoSug,
-    linhaNome, linhaFaixas, precoVendaDigitado, moMin, moIdeal, moMax, moStatusFaixa,
-    podeVerCustos, podeEditarCustos, markupFaixaOn, draftPrecoVenda, draftMarkupEditado,
-    onPrecoVenda, onMarkupEditado, onVerDev } = props;
-  const temCusto = custo > 0;
-  // Selo previsto/real do custo (é único por modelo). Histórico: quando confirmado e o real diverge
-  // do previsto, mostra "antes (previsto)" na Obs.
+  const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda,
+    custoReal, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev, custoEstimado,
+    onConsumo, onAviamento, materiaisReal, custoRealTotal, custoPrevisto,
+    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn, onVerDev } = props;
+
+  // Quando confirmado (real), as linhas de custo mostram o REAL do BOM (leitura). Enquanto não,
+  // mostram a ESTIMATIVA editável (tecido calculado + aviamento manual + M.O.). Selo por modelo.
+  const custoTotal = custoReal ? custoRealTotal : custoEstimado;
+  const temCusto = custoTotal > 0;
   const seloCusto = custoReal
     ? <StatusBadge tone="success">real</StatusBadge>
-    : <StatusBadge tone="warning">previsto</StatusBadge>;
-  const divergePrevisto = custoReal && custoPrevisto > 0 && Math.abs(custoPrevisto - custo) >= 0.01;
-  // Badge de 4 estados da M.O. — só quando há preço de venda digitado (base da análise).
-  const moBadge = precoVendaDigitado <= 0 ? null
+    : <StatusBadge tone="warning">estimado</StatusBadge>;
+  // Histórico 1 nível: quando o real assume e diverge do previsto/estimado.
+  const divergePrevisto = custoReal && custoPrevisto > 0 && Math.abs(custoPrevisto - custoRealTotal) >= 0.01;
+  const moBadge = precoBase <= 0 ? null
     : moStatusFaixa === "no_maximo" ? <StatusBadge tone="success">cabe no máximo</StatusBadge>
     : moStatusFaixa === "no_ideal" ? <StatusBadge tone="success">cabe no ideal</StatusBadge>
     : moStatusFaixa === "no_minimo" ? <StatusBadge tone="warning">só no mínimo</StatusBadge>
@@ -230,14 +243,14 @@ function PrecoTabela(props: {
           </tr>
         </thead>
         <tbody className="align-middle">
-          {/* ── PARTE 1: Preços ── */}
+          {/* ── PARTE 1: Preços (digitáveis) ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Preços</td></tr>
           <tr className="border-t">
-            <td className="py-2 pr-3"><b>Preço de venda</b><span className="block text-xs text-muted-foreground">você define</span></td>
+            <td className="py-2 pr-3"><b>Preço de venda</b></td>
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
             <td className="py-2 px-2 text-right">
               <NumberInput
-                className="ml-auto w-32 text-right tabular-nums"
+                className="ml-auto h-8 w-32 text-right tabular-nums"
                 value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
                 placeholder={precoSug > 0 ? brl(precoSug) : undefined}
                 onChange={(e) => onPrecoVenda(e.target.value)}
@@ -245,80 +258,105 @@ function PrecoTabela(props: {
             </td>
             <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}</td>
           </tr>
+          <tr className="border-t">
+            <td className="py-2 pr-3">Consumo de tecido</td>
+            <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+            <td className="py-2 px-2 text-right">
+              {custoReal ? (
+                <span className="tabular-nums">{consumoRealBOM > 0 ? `${fmtNum(consumoRealBOM)} m` : "—"}</span>
+              ) : (
+                <NumberInput
+                  className="ml-auto h-8 w-28 text-right tabular-nums"
+                  value={consumo ?? (consumoRealBOM > 0 ? consumoRealBOM : "")}
+                  placeholder={consumoRealBOM > 0 ? fmtNum(consumoRealBOM) : "0"}
+                  onChange={(e) => onConsumo(e.target.value)}
+                />
+              )}
+            </td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">
+              {precoTecidoM > 0 ? `× ${brl(precoTecidoM)}/m` : "sem tecido planejado"}{consumoRealBOM > 0 && consumo == null ? " · vem do Desenvolvimento" : ""}
+            </td>
+          </tr>
 
           {/* ── PARTE 2: Custos ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos</td></tr>
-          <tr className="border-t">
-            <td className="py-2 pr-3">Materiais<span className="block text-xs text-muted-foreground">tecido + aviamentos</span></td>
-            <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-            <td className="py-2 px-2 text-right tabular-nums">{temCusto ? brl(materiais) : "—"}</td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">
-              {onVerDev ? <button type="button" onClick={onVerDev} className="text-primary hover:underline">ver no Desenvolvimento ⧉</button> : "do BOM (Desenvolvimento)"}
-            </td>
-          </tr>
+          {custoReal ? (
+            <tr className="border-t">
+              <td className="py-2 pr-3 whitespace-nowrap">Materiais <span className="text-[11px] italic text-muted-foreground">tecido + aviamentos</span></td>
+              <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+              <td className="py-2 px-2 text-right tabular-nums">{brl(materiaisReal)}</td>
+              <td className="py-2 pl-2 text-xs text-muted-foreground">
+                {seloCusto} {onVerDev ? <button type="button" onClick={onVerDev} className="text-primary hover:underline">ver no Desenvolvimento ⧉</button> : "do BOM"}
+              </td>
+            </tr>
+          ) : (
+            <>
+              <tr className="border-t">
+                <td className="py-2 pr-3">Tecido</td>
+                <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+                <td className="py-2 px-2 text-right tabular-nums">{tecidoEstimado > 0 ? brl(tecidoEstimado) : "—"}</td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloCusto} consumo × preço/m</td>
+              </tr>
+              <tr className="border-t">
+                <td className="py-2 pr-3 whitespace-nowrap">Materiais <span className="text-[11px] italic text-muted-foreground">aviamentos &amp; insumos</span></td>
+                <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+                <td className="py-2 px-2 text-right">
+                  <NumberInput
+                    className="ml-auto h-8 w-28 text-right tabular-nums"
+                    value={aviamento ?? ""}
+                    placeholder="0,00"
+                    onChange={(e) => onAviamento(e.target.value)}
+                  />
+                </td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloCusto} estimativa (real vem do BOM ao cadastrar)</td>
+              </tr>
+            </>
+          )}
           <tr className="border-t">
             <td className="py-2 pr-3">Mão de obra</td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-            <td className="py-2 px-2 text-right tabular-nums">{temCusto ? brl(maoObra) : "—"}</td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>compara com as faixas abaixo</span>}</td>
+            {/* SEMPRE a M.O. PLANEJADA (Σ modelo_servico_mo = maoObraDev), nunca a `mao_obra_real`
+                — essa zera quando a M.O. é toda INTERNA (modelo confirmado) e daria "R$ 0,00"
+                enganoso (bug que o dono já pegou; ver invariante #8 + project_custo_calculo_bugs).
+                Por isso Materiais + M.O. NÃO fecham necessariamente com o Custo total (bases
+                diferentes) — sem operador +/= aqui de propósito. */}
+            <td className="py-2 px-2 text-right tabular-nums">{maoObraDev > 0 ? brl(maoObraDev) : "—"}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>na seção Mão de obra abaixo</span>}</td>
           </tr>
           <tr className="border-t font-semibold">
             <td className="py-2 pr-3">Custo total</td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-            <td className="py-2 px-2 text-right tabular-nums">{temCusto ? brl(custo) : "—"}</td>
+            <td className="py-2 px-2 text-right tabular-nums">{temCusto ? brl(custoTotal) : "—"}</td>
             <td className="py-2 pl-2 text-xs text-muted-foreground font-normal">
               {seloCusto}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
             </td>
           </tr>
 
-          {/* ── PARTE 3: M.O. por faixa (opt-in via Config markup_analise_faixa) ── */}
-          {podeVerCustos && markupFaixaOn && temFaixas && (
+          {/* ── PARTE 3: M.O. por faixa (opt-in via Config markup_analise_faixa) ──
+              Base = preço EFETIVO (`precoBase`): digitado se houver, senão o sugerido — honra o
+              "vazio usa o sugerido" da Parte 1. Valor "—" numa linha = aquela FAIXA não tem markup
+              cadastrado na Linha (Obs explica), não é falta de preço. */}
+          {podeVerCustos && markupFaixaOn && temFaixas && (() => {
+            const usandoSugerido = precoBase > 0 && precoDigitado <= 0;
+            const linhaFaixa = (teto: number | null | undefined, mo: { moMax: number; atingivel: boolean }, semMarkupObs: string, comMarkupObs: string) => (
+              <>
+                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(teto) || 0)}</td>
+                <td className="py-2 px-2 text-right tabular-nums">{precoBase > 0 && mo.atingivel ? brl(mo.moMax) : "—"}</td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{!(Number(teto) > 0) ? semMarkupObs : comMarkupObs}</td>
+              </>
+            );
+            return (
             <>
-              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Mão de obra <span className="normal-case font-normal tracking-normal">— quanto cabe p/ atingir o preço em cada faixa</span></td></tr>
-              <tr className="border-t">
-                <td className="py-2 pr-3">Mínimo</td>
-                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(linhaFaixas?.min) || 0)}</td>
-                <td className="py-2 px-2 text-right tabular-nums">{precoVendaDigitado > 0 && moMin.atingivel ? brl(moMin.moMax) : "—"}</td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">M.O. que ainda cabe no markup mínimo</td>
-              </tr>
-              <tr className="border-t">
-                <td className="py-2 pr-3">Ideal</td>
-                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(linhaFaixas?.ideal) || 0)}</td>
-                <td className="py-2 px-2 text-right tabular-nums">{precoVendaDigitado > 0 && moIdeal.atingivel ? brl(moIdeal.moMax) : "—"}</td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">no markup ideal (alvo)</td>
-              </tr>
-              <tr className="border-t">
-                <td className="py-2 pr-3">Máximo</td>
-                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(linhaFaixas?.max) || 0)}</td>
-                <td className="py-2 px-2 text-right tabular-nums">{precoVendaDigitado > 0 && moMax.atingivel ? brl(moMax.moMax) : "—"}</td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">no markup máximo (mais exigente)</td>
-              </tr>
-              {precoVendaDigitado <= 0 && (
-                <tr className="border-t"><td colSpan={4} className="py-1.5 px-2 text-xs text-muted-foreground">Preencha o preço para venda para ver a M.O. que cabe em cada faixa.</td></tr>
+              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Mão de obra <span className="normal-case font-normal tracking-normal">— quanto cabe p/ atingir o preço em cada faixa{usandoSugerido ? " (usando o sugerido)" : ""}</span></td></tr>
+              <tr className="border-t"><td className="py-2 pr-3">Mínimo</td>{linhaFaixa(linhaFaixas?.min, moMin, "Linha sem markup mínimo cadastrado", "M.O. que ainda cabe no markup mínimo")}</tr>
+              <tr className="border-t"><td className="py-2 pr-3">Ideal</td>{linhaFaixa(linhaFaixas?.ideal, moIdeal, "Linha sem markup ideal cadastrado", "no markup ideal (alvo)")}</tr>
+              <tr className="border-t"><td className="py-2 pr-3">Máximo</td>{linhaFaixa(linhaFaixas?.max, moMax, "Linha sem markup máximo cadastrado", "no markup máximo (mais exigente)")}</tr>
+              {precoBase <= 0 && (
+                <tr className="border-t"><td colSpan={4} className="py-1.5 px-2 text-xs text-muted-foreground">Defina o custo e o markup da Linha (ou preencha o preço para venda) para ver a M.O. que cabe em cada faixa.</td></tr>
               )}
             </>
-          )}
-
-          {/* Markup aplicado (editável, opcional) — fica no rodapé da tabela, sem poluir a leitura. */}
-          {podeVerCustos && (
-            <tr className="border-t">
-              <td className="py-2 pr-3">Markup aplicado<span className="block text-xs text-muted-foreground">forma o preço sugerido</span></td>
-              <td className="py-2 px-2 text-right">
-                <NumberInput
-                  blankZero
-                  disabled={!podeEditarCustos}
-                  className="ml-auto w-24 text-right tabular-nums"
-                  placeholder={markupSugerido > 0 ? fmtNum(markupSugerido) : "2,50"}
-                  value={draftMarkupEditado ?? 0}
-                  onChange={(e) => onMarkupEditado(Number(e.target.value))}
-                />
-              </td>
-              <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{preco > 0 ? brl(preco) : "—"}</td>
-              <td className="py-2 pl-2 text-xs text-muted-foreground">
-                vazio usa o sugerido da linha{linhaNome ? ` (${linhaNome})` : ""}{markupSugerido > 0 ? `: ${mkFmt(markupSugerido)}` : ""} → sugerido {precoSug > 0 ? brl(precoSug) : "—"}
-              </td>
-            </tr>
-          )}
+            );
+          })()}
         </tbody>
       </table>
     </div>
@@ -507,6 +545,13 @@ export function PlanejamentoDetail({
   const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
   const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
   const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
+  // Serviços de M.O. JÁ PERSISTIDOS (baseline do servidor) — aprovar/reprovar (RPC imediata) só
+  // vale nesses; linha recém-adicionada (só no rascunho) pede Salvar antes (senão "linha não
+  // encontrada"). Deriva do baseline, não de `moLinhas`, pra uma linha nova não se auto-habilitar.
+  const moLinhasPersistidas = useMemo(
+    () => new Set(moLinhasBase.map((l) => l.categoria_terceirizado_id)),
+    [moLinhasBase],
+  );
   // Grade cor×tamanho (revenda, Task 7) — declarado aqui (cedo) só o estado/refs, pra entrar
   // no `dirty` combinado abaixo; a query/efeito de seed e os handlers ficam mais abaixo, perto
   // do resto do cálculo de preço/produto vinculado (closures sobre o mesmo state, ordem de
@@ -684,7 +729,7 @@ export function PlanejamentoDetail({
 
   // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
   const custoReal = !!custoData?.confirmado;
-  const { custo, markupLinha: markup, markupAplicado, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
+  const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
 
   // Composição do custo — MESMA régua do card da lista (criacao.planejamento.tsx:548-567).
@@ -699,19 +744,22 @@ export function PlanejamentoDetail({
   const maoObraPlanejada = Number((custoData as any)?.mao_obra_previsto) || 0;
   const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
-  const linhaNomeSetor = linhaSetor?.nome ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
   const linhaFaixas = linhaSetor
     ? { min: linhaSetor.markup_min, ideal: linhaSetor.markup, max: linhaSetor.markup_max }
     : null;
-  // Fase B — M.O. que ainda CABE por faixa = precoVenda/markup − materiais. Responde
-  // "quanto posso pagar de mão de obra?". ⚠️ Usa o preço de venda DIGITADO (`draft.preco_venda`),
-  // NÃO o efetivo — sem preço de venda real a base cairia no sugerido (custo×ideal) e os tetos
-  // colapsariam perto da M.O. real (visão inútil; foi o que confundiu). Sem preço → tudo "—".
+  // Fase B — M.O. que ainda CABE por faixa = precoBase/markup − materiais. Responde "quanto posso
+  // pagar de mão de obra?". BASE = preço EFETIVO (`precoInfo.efetivo`): o preço de venda digitado
+  // se houver, SENÃO o sugerido (custo×markup). Decisão do dono (set/2026): a coluna Preço de
+  // venda já promete "vazio usa o sugerido" — a M.O. por faixa tem que HONRAR isso e calcular na
+  // mesma base, senão fica "—" à toa. (Substitui a decisão antiga de usar só o digitado.) `preco
+  // Digitado` fica só p/ a Obs distinguir "usando o sugerido" de "usando o seu preço". Se a base
+  // é 0 (sem custo/markup) OU a faixa não tem markup cadastrado, `moPorFaixa` devolve inatingível.
   const precoVendaDigitado = Number(draft.preco_venda) > 0 ? Number(draft.preco_venda) : 0;
-  const moMin = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.min);
-  const moIdeal = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.ideal);
-  const moMax = moPorFaixa(precoVendaDigitado, materiaisSetor, linhaFaixas?.max);
+  const precoBaseMO = precoEfetivo;
+  const moMin = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.min);
+  const moIdeal = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.ideal);
+  const moMax = moPorFaixa(precoBaseMO, materiaisSetor, linhaFaixas?.max);
   // Semáforo da M.O. planejada contra os tetos das faixas — 4 estados (até que faixa de markup a
   // M.O. cabe). Compara a M.O. PLANEJADA (o que o produto tem), NÃO a embutida no real (que zera
   // com M.O. interna e daria "0" enganoso).
@@ -929,9 +977,12 @@ export function PlanejamentoDetail({
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível criar o produto acabado.")),
   });
 
-  // Simulação de custo (isolada do real). Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO
-  // (auto do cadastro); consumo = override do usuário, senão o consumo REAL do BOM (editável).
-  // Aviamento e mão de obra são manuais. Custo estimado × markup da linha → preço estimado.
+  // Custo ESTIMADO (alimenta a seção Preço enquanto o BOM não confirma — a antiga "Simulação de
+  // custo" foi absorvida ali, set/2026). Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO (auto do
+  // cadastro); consumo = override do usuário (`custo_simulado.consumo_tecido`), senão o consumo
+  // REAL do BOM (editável na tabela Preço). Aviamento = manual (`custo_simulado.aviamento`, vira o
+  // "Materiais" estimado). M.O. = Σ das linhas de MO por serviço (read-only). `simCalc.total` =
+  // tecido + aviamento + M.O. = o "Custo total" estimado exibido na tabela.
   const tecidoMaisCaro = draft.tecidos_planejados
     .map((id) => artigos.find((a) => a.id === id))
     .filter((a): a is ArtigoOpt => !!a)
@@ -953,7 +1004,6 @@ export function PlanejamentoDetail({
     aviamento: draft.custo_simulado.aviamento,
     mao_obra: maoObraUsado,
   });
-  const piSim = precoInfo(simCalc.total, markup, null, draft.markup_editado);
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
 
@@ -1347,8 +1397,11 @@ export function PlanejamentoDetail({
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
       qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
+      // Salvar MANTÉM o Sheet aberto (decisão do dono set/2026 — antes fechava): `onSaved()`
+      // atualiza os cards do container por baixo; o card fica aberto pra continuar conferindo
+      // (ex.: o preço/custo recalculado). `markClean()` + `setMoLinhasBase` acima já apagaram o
+      // selo "não salvo". Fechar é só pelo Voltar (`requestClose`). Não chamar `onClose()` aqui.
       onSaved();
-      onClose();
     },
     onError: async (e: any) => {
       // Grade cor×tamanho (revenda, fast-follow): conflito tratado por RECARGA, NÃO por merge
@@ -1716,24 +1769,28 @@ export function PlanejamentoDetail({
               // ⧉ pra etapa dona, NUNCA campo travado. Só "Preço para venda" é campo desta
               // tela (nasce vazio, placeholder = sugerido — §D). Nada de dado/RPC muda: são
               // os MESMOS valores (custo/markup/preco/precoSug/markupReal), só a apresentação.
-              // Seção Preço TABULADA (reformulada set/2026): tabela em 3 partes (Preços · Custos ·
-              // M.O. por faixa), colunas Descrição · Markup · Valores · Obs. A coluna Valores fica
-              // só com NÚMEROS (bate o olho e lê); todo contexto (selo previsto/real, badge de faixa
-              // da M.O., histórico, fórmula) vai na coluna Obs. Mesmos dados de antes (precoInfo/
-              // moPorFaixa/custoData) — só a apresentação muda. Inputs: Preço de venda + Markup
-              // aplicado, como células editáveis na tabela. A seção "Mão de obra" e "Simulação de
-              // custo" seguem intactas (fora deste bloco).
+              // Seção Preço TABULADA + FUNDIDA (set/2026): a antiga "Simulação de custo" foi
+              // ABSORVIDA aqui (não existe mais como seção à parte). Tabela em 3 partes (Preços ·
+              // Custos · M.O. por faixa), colunas Descrição · Markup · Valores · Obs. Coluna Valores
+              // = só NÚMEROS; todo contexto (selo estimado/real, badge de faixa da M.O., histórico,
+              // fórmula) vai na Obs. Preços digitáveis: Preço de venda + Consumo de tecido (vem do
+              // Dev; migra o `custo_simulado.consumo_tecido`). Custos: enquanto o BOM não confirma
+              // (estimado), Tecido = consumo×preço/m + Materiais editável (= aviamento, migra
+              // `custo_simulado.aviamento`) + M.O. do Dev; quando confirma (real), vira Materiais
+              // real + M.O. real do BOM. A seção "Mão de obra" (MaoObraEditor) fica logo ABAIXO.
               <PrecoTabela
-                custo={custo} custoReal={custoReal} custoPrevisto={custoPrevisto}
-                materiais={materiaisSetor} maoObra={maoObraPlanejada}
-                markupSugerido={markup} markupReal={markupReal} preco={preco} precoSug={precoSug}
-                linhaNome={linhaNomeSetor} linhaFaixas={linhaFaixas}
-                precoVendaDigitado={precoVendaDigitado}
+                markupReal={markupReal} precoSug={precoSug} precoBase={precoBaseMO} precoDigitado={precoVendaDigitado}
+                draftPrecoVenda={draft.preco_venda}
+                onPrecoVenda={(v) => setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null }))}
+                custoReal={custoReal}
+                consumo={consumoOverride} consumoRealBOM={consumoRealBOM} precoTecidoM={precoTecidoM} tecidoEstimado={simCalc.tecido}
+                aviamento={draft.custo_simulado.aviamento ?? null} maoObraDev={maoObraDev} custoEstimado={simCalc.total}
+                onConsumo={(v) => setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null })}
+                onAviamento={(v) => setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null })}
+                materiaisReal={materiaisSetor} custoRealTotal={custo} custoPrevisto={custoPrevisto}
+                linhaFaixas={linhaFaixas}
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
                 podeVerCustos={podeVerCustos} podeEditarCustos={podeEditarCustos} markupFaixaOn={markupFaixaOn}
-                draftPrecoVenda={draft.preco_venda} draftMarkupEditado={draft.markup_editado}
-                onPrecoVenda={(v) => setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null }))}
-                onMarkupEditado={(v) => setDraftTracked((d) => ({ ...d, markup_editado: v > 0 ? v : null }))}
                 onVerDev={modeloId ? () => setVerDevModeloId(modeloId) : undefined}
               />
             ) : (
@@ -1786,6 +1843,38 @@ export function PlanejamentoDetail({
               </div>
             )}
           </Secao>
+          )}
+
+          {/* Mão de obra POR SERVIÇO (spec 2026-08-06) — LOGO ABAIXO da seção Preço (set/2026,
+              decisão do dono): a de cima calcula quanto de M.O. cabe por faixa; esta é onde se
+              ADICIONA cada serviço com valor. Lista de serviços com valor (R$), estado por linha
+              (pendente/aprovado/reprovado) e aprovar/reprovar por serviço. Gated: ver custos
+              (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar da página (fica no
+              rascunho `moLinhas` até lá — NÃO exige salvar o modelo antes de digitar); aprovar/
+              reprovar é imediato. Oculto p/ comprado (revenda/importado) — o gate de MO já libera
+              sozinho sem linha nenhuma (invariante #8), só a UI some. */}
+          {!isComprado && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+            <Secao titulo="Mão de obra" defaultOpen={false}>
+              <MaoObraEditor
+                linhas={moLinhas}
+                categorias={catsServico}
+                podeVerCustos={podeVerCustos}
+                podeAprovar={isEdit && podeAprovarMaoObra}
+                onChangeLinhas={(ls) => setMoLinhas(ls)}
+                onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
+                onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
+                pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
+                linhasPersistidas={moLinhasPersistidas}
+              />
+              {podeVerCustos && (
+                <div className="mt-3">
+                  <ObsMaoObraField
+                    value={draft.observacoes_mao_obra}
+                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
+                  />
+                </div>
+              )}
+            </Secao>
           )}
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
@@ -1887,83 +1976,6 @@ export function PlanejamentoDetail({
               estoque={estoqueMap}
             />
           </Secao>
-          )}
-
-          {/* SETOR — Simulação de custo (oculto p/ comprado — custo vem do produto/OC, não do
-              BOM/CAD manufaturado). Após Tecido Planejado; isolada do custo/preço real. */}
-          {!isComprado && (
-          <Secao titulo="Simulação de custo" defaultOpen={false}>
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>Estimativa — <strong>não</strong> é o custo nem o preço real (esses vêm do BOM/CAD).</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="grid gap-1">
-                <Label>Consumo de tecido (m)</Label>
-                <NumberInput
-                  value={consumoOverride ?? (consumoRealBOM > 0 ? consumoRealBOM : "")}
-                  onChange={(e) => { const v = e.target.value; setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null }); }}
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label>Preço do tecido (R$/m)</Label>
-                <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">
-                  {precoTecidoM > 0 ? brl(precoTecidoM) : "—"}
-                </div>
-              </div>
-              <div className="grid gap-1">
-                <Label>Aviamento &amp; Insumo (R$)</Label>
-                <NumberInput
-                  value={draft.custo_simulado.aviamento ?? ""}
-                  onChange={(e) => { const v = e.target.value; setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null }); }}
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label>Mão de obra (R$)</Label>
-                {/* Σ das linhas de MO por serviço (só leitura) — editar é na seção "Mão de obra". */}
-                <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">
-                  {maoObraDev > 0 ? brl(maoObraDev) : "—"}
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <CampoRO label="Custo do tecido" value={simCalc.tecido > 0 ? brl(simCalc.tecido) : "—"} />
-              <CampoRO label="Markup da linha" value={markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
-              <CampoRO label="Custo estimado" value={simCalc.total > 0 ? brl(simCalc.total) : "—"} />
-              <CampoRO label="Preço estimado" value={piSim.sugerido > 0 ? brl(piSim.sugerido) : "—"} />
-            </div>
-            {simCalc.total > 0 && !(markup > 0) && (
-              <p className="text-xs text-muted-foreground">Defina a Linha (com markup) para ver o preço estimado.</p>
-            )}
-          </Secao>
-          )}
-
-          {/* Mão de obra POR SERVIÇO (spec 2026-08-06): lista de serviços com valor (R$),
-              estado por linha (pendente/aprovado/reprovado) e aprovar/reprovar por serviço.
-              Gated: ver custos (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar
-              da página; aprovar/reprovar é imediato. Oculto p/ comprado (revenda/importado) — o
-              gate de MO já libera sozinho sem linha nenhuma (invariante #8), só a UI some. */}
-          {!isComprado && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
-            <Secao titulo="Mão de obra" defaultOpen={false}>
-              <MaoObraEditor
-                linhas={moLinhas}
-                categorias={catsServico}
-                podeVerCustos={podeVerCustos}
-                podeAprovar={isEdit && podeAprovarMaoObra}
-                onChangeLinhas={(ls) => setMoLinhas(ls)}
-                onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
-                onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
-                pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
-              />
-              {podeVerCustos && (
-                <div className="mt-3">
-                  <ObsMaoObraField
-                    value={draft.observacoes_mao_obra}
-                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
-                  />
-                </div>
-              )}
-            </Secao>
           )}
 
           {/* SETOR 5 — Anexos */}
