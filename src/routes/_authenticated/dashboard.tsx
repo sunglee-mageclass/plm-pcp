@@ -16,18 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight, Split } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, ClipboardCheck, Factory, DollarSign, Tag, ArrowUp, ArrowDown, Minus, Check, X, Timer, Gauge, ChevronDown, ChevronRight, Split } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
-import { useSort, SortTh } from "@/components/shared/sort";
 import { Button } from "@/components/ui/button";
-import { printWithImages } from "@/lib/print";
-import { RelatorioPrint, type RelSecao, REL_COR_SUCESSO, REL_COR_ALERTA, REL_COR_PERIGO } from "@/components/shared/RelatorioPrint";
-import { PBar, PBar2 } from "@/components/shared/PrintBarChart";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
-  CHART_SERIE, CHART_SEQ, CHART_AGE, CHART_GRID, CHART_DIVERGE_NEG, CHART_DIVERGE_POS,
+  CHART_SERIE, CHART_SEQ, CHART_AGE,
   TONE_BG, TONE_FG, type Tone,
 } from "@/lib/chart-colors";
 import {
@@ -36,8 +31,8 @@ import {
   type HeroStats, type FaseTotais,
 } from "@/lib/leadtime";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-  Cell, LabelList,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+ LabelList,
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -46,7 +41,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
-      <RequirePermission anyOf={["dashboard_desenvolvimento","dashboard_producao_qualidade","dashboard_comercial_colecao","dashboard_custo_financeiro","dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
+      <RequirePermission anyOf={["dashboard_desenvolvimento","dashboard_producao_qualidade","dashboard_comercial_colecao","dashboard_custo_financeiro","dashboard_leadtime"]}>
         <Dashboard />
       </RequirePermission>
     </ModuleGuard>
@@ -63,12 +58,6 @@ const DASH_TABS = [
   { value: "producao_qualidade", label: "Produção & Qualidade", Comp: ProducaoQualidadeTab },
   { value: "comercial_colecao", label: "Comercial & Coleção", Comp: ComercialColecaoTab },
   { value: "custo_financeiro", label: "Custo & Financeiro", Comp: CustoFinanceiroTab },
-  { value: "colecao", label: "Coleção", Comp: ColecaoTab },
-  { value: "estoque", label: "Estoque", Comp: EstoqueTab },
-  { value: "producao", label: "Produção", Comp: ProducaoTab },
-  { value: "financeiro", label: "Financeiro", Comp: FinanceiroTab },
-  { value: "custos", label: "Custos", Comp: CustosTab },
-  { value: "comercial", label: "Comercial", Comp: ComercialTab },
   { value: "leadtime", label: "Leadtime", Comp: LeadtimeTab },
 ] as const;
 
@@ -133,258 +122,12 @@ function DashError({ show }: { show?: boolean }) {
 
 /* ============================ COLEÇÃO ============================ */
 
-const nfInt = (n: any) => Number(n ?? 0).toLocaleString("pt-BR");
 
 // Estágios do destrinche por LINHA — MESMOS rótulos dos KPI cards da aba (a soma dos 4 =
 // total da linha). São ORDINAIS (planejamento → lançados), então usam a rampa SEQUENCIAL
 // navy (§R: ordinal = 1 matiz claro→escuro), não matizes cicladas. Drive a barra empilhada;
 // as colunas da tabela só usam os rótulos. Casa com os campos de porLinha da RPC.
-const LINHA_STAGES = [
-  { key: "planejamento", label: "Em Planejamento", color: CHART_SEQ[0] },
-  { key: "desenvolvimento", label: "Em Desenvolvimento", color: CHART_SEQ[1] },
-  { key: "producao", label: "Em Produção", color: CHART_SEQ[2] },
-  { key: "lancados", label: "Lançados", color: CHART_SEQ[3] },
-] as const;
 
-function ColecaoTab() {
-  const [periodo, setPeriodo] = useState<Periodo>(undefined);
-  const [colecao, setColecao] = useState("all");
-  const [estilista, setEstilista] = useState("all");
-  const [linha, setLinha] = useState("all");
-  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["dash-colecao", ini, fim, colecao, estilista, linha],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_colecao", {
-        p_inicio: ini,
-        p_fim: fim,
-        p_colecao: colecao === "all" ? undefined : colecao,
-        p_estilista: estilista === "all" ? undefined : estilista,
-        p_linha: linha === "all" ? undefined : linha,
-      });
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const kpis = data?.kpis ?? { total: 0, planejamento: 0, desenvolvimento: 0, producao: 0, lancados: 0 };
-  const funnelBase = Number((data?.funnel ?? [])[0]?.value) || 0;
-  const funnel = (data?.funnel ?? []).map((f: any, i: number, arr: any[]) => {
-    const val = Number(f.value) || 0;
-    const prev = i > 0 ? Number(arr[i - 1].value) || 0 : val;
-    // pctBase = retenção acumulada vs o topo do funil; conv = conversão do estágio anterior (P1 #4b).
-    const pctBase = funnelBase > 0 ? Math.round((val / funnelBase) * 100) : 0;
-    const conv = i === 0 ? null : prev > 0 ? Math.round((val / prev) * 100) : 0;
-    // Estágios ordinais do funil → rampa sequencial navy (§R), por posição de etapa.
-    return { ...f, value: val, fill: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)], pctBase, conv };
-  });
-  const pieData = data?.pie ?? [];
-  const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
-  const linhas: Opt[] = data?.filtros?.linhas ?? [];
-  const colecoes: string[] = data?.filtros?.colecoes ?? [];
-  const porLinha: any[] = data?.porLinha ?? [];
-  const linhaSort = useSort<any>(porLinha, { key: "total", dir: "desc" });
-
-  const filtros = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
-    { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas], single: true as const },
-  ];
-  const isMobile = useIsMobile();
-
-  // ——— Mobile (Onda B): KPI-cards por estágio + barra de categorias horizontal ordenada ———
-  if (isMobile) {
-    const pctDo = (n: number) => (Number(kpis.total) > 0 ? `${Math.round((Number(n) / Number(kpis.total)) * 100)}% do total` : undefined);
-    const cats = [...pieData].sort((a: any, b: any) => Number(b.value) - Number(a.value));
-    const catMax = Math.max(1, ...cats.map((c: any) => Number(c.value)));
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
-        </div>
-        <div className="text-xs text-muted-foreground">{fmtInt(kpis.total)} modelos no filtro</div>
-        <div className="grid grid-cols-2 gap-3">
-          <KpiCardMobile compact label="Em Planejamento" value={fmtInt(kpis.planejamento)} sub={pctDo(kpis.planejamento)} />
-          <KpiCardMobile compact label="Em Desenvolvimento" value={fmtInt(kpis.desenvolvimento)} sub={pctDo(kpis.desenvolvimento)} />
-          <KpiCardMobile compact label="Em Produção" value={fmtInt(kpis.producao)} sub={pctDo(kpis.producao)} />
-          <KpiCardMobile compact label="Lançados" value={fmtInt(kpis.lancados)} sub={pctDo(kpis.lancados)} />
-        </div>
-        <div className="rounded-xl border bg-card p-3">
-          <div className="mb-2 text-sm font-semibold">Modelos por categoria <span className="text-xs font-normal text-muted-foreground">· maior → menor</span></div>
-          {cats.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
-          ) : (
-            cats.map((c: any) => (
-              <div key={c.name} className="grid grid-cols-[76px_1fr_auto] items-center gap-2 py-1">
-                <span className="truncate text-xs text-muted-foreground" title={c.name}>{c.name}</span>
-                <span className="h-4 overflow-hidden rounded bg-muted">
-                  <span className="block h-full rounded" style={{ width: `${Math.max((Number(c.value) / catMax) * 100, Number(c.value) > 0 ? 3 : 0)}%`, background: CHART_SERIE }} />
-                </span>
-                <span className="w-8 text-right text-xs font-bold tabular-nums">{fmtInt(c.value)}</span>
-              </div>
-            ))
-          )}
-        </div>
-        {funnelBase > 0 && (
-          <div className="rounded-xl border bg-card p-3">
-            <div className="mb-2 text-sm font-semibold">Funil de progresso <span className="text-xs font-normal text-muted-foreground">· % do topo</span></div>
-            <div className="space-y-1.5">
-              {funnel.map((f: any) => (
-                <div key={f.name} className="grid grid-cols-[104px_1fr_auto] items-center gap-2">
-                  <span className="truncate text-xs" title={f.name}>{f.name}</span>
-                  <span className="relative h-5 overflow-hidden rounded bg-muted">
-                    <span className="absolute inset-y-0 left-0 rounded" style={{ width: `${Math.max(f.pctBase, f.value > 0 ? 3 : 0)}%`, background: f.fill }} />
-                    <span className="absolute inset-y-0 left-1.5 flex items-center text-[11px] font-semibold tabular-nums text-foreground">{fmtInt(f.value)}</span>
-                  </span>
-                  <span className="w-8 text-right text-[11px] font-medium tabular-nums text-muted-foreground">{f.pctBase}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        <DashError show={isError} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-        {/* Desktop inalterado (display:contents = wrapper transparente ao layout). Mobile: chip + bottom sheet. */}
-        <div className="hidden md:contents">
-          <PeriodoPicker value={periodo} onChange={setPeriodo} />
-          <FilterButton filters={filtros} />
-        </div>
-        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtros} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Kpi label="Total Modelos" value={kpis.total} icon={Layers} />
-        <Kpi label="Em Planejamento" value={kpis.planejamento} icon={Palette} />
-        <Kpi label="Em Desenvolvimento" value={kpis.desenvolvimento} icon={Sparkles} />
-        <Kpi label="Em Produção" value={kpis.producao} icon={BarChart3} />
-        <Kpi label="Lançados" value={kpis.lancados} icon={Package} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          {/* §R P1 #4b: funil (segmentos difíceis de comparar) → barras de estágio com a % de
-              CONVERSÃO etapa-a-etapa (comprimento = retenção vs o topo; rampa navy sequencial). */}
-          <h3 className="font-semibold mb-3">Funil de progresso <span className="text-sm font-normal text-muted-foreground">· conversão etapa a etapa</span></h3>
-          {funnelBase === 0 ? (
-            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
-          ) : (
-          <div className="space-y-1">
-            {funnel.map((f: any) => (
-              <div key={f.name}>
-                {f.conv != null && (
-                  <div className="flex items-center gap-1.5 py-0.5 pl-1 text-[11px] font-semibold text-muted-foreground">
-                    <ArrowDown className="h-3 w-3" aria-hidden />
-                    <span className="tabular-nums">{f.conv}%</span>
-                    <span className="font-normal">de conversão</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <div className="w-32 shrink-0 truncate text-sm font-medium" title={f.name}>{f.name}</div>
-                  <div className="relative h-7 flex-1 overflow-hidden rounded bg-muted" title={`${f.name}: ${fmtInt(f.value)} (${f.pctBase}% do topo)`}>
-                    <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${Math.max(f.pctBase, f.value > 0 ? 2 : 0)}%`, background: f.fill }} />
-                    <span className="absolute inset-y-0 left-2 flex items-center text-xs font-semibold tabular-nums text-foreground">{fmtInt(f.value)}</span>
-                    <span className="absolute inset-y-0 right-2 flex items-center text-[11px] font-medium tabular-nums text-muted-foreground">{f.pctBase}%</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          )}
-        </Card>
-        <Card className="p-4">
-          {/* §R P1: pizza (ângulos difíceis de comparar, cores cicladas) → BARRA HORIZONTAL
-              ordenada maior→menor, 1 matiz navy (a fatia vira comprimento, comparável). */}
-          <h3 className="font-semibold mb-3">Distribuição por categoria <span className="text-sm font-normal text-muted-foreground">· maior → menor</span></h3>
-          {pieData.length === 0 ? (
-            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
-          ) : (
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
-              <BarChart data={[...pieData].sort((a: any, b: any) => Number(b.value) - Number(a.value))} layout="vertical" margin={{ left: 8, right: 28 }}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
-                <XAxis type="number" allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Bar dataKey="value" name="Modelos" fill={CHART_SERIE} radius={[0, 4, 4, 0]}>
-                  <LabelList dataKey="value" position="right" formatter={(v: any) => (Number(v) > 0 ? fmtNum(v) : "")} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Destrinche por LINHA (item 7) — mesmas métricas dos KPIs, quebradas por linha
-          (modelos sem linha = "Sem linha"). Respeita o filtro global da aba. */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Modelos por linha <span className="text-sm font-normal text-muted-foreground">· por estágio</span></h3>
-          {porLinha.length === 0 ? (
-            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
-          ) : (
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
-              <BarChart data={porLinha}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="nome" tick={{ fontSize: 11 }} interval={0} />
-                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Legend />
-                {LINHA_STAGES.map((s) => (
-                  <Bar key={s.key} dataKey={s.key} name={s.label} stackId="linha" fill={s.color} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          )}
-        </Card>
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Detalhe por linha</h3>
-          <div className="overflow-auto max-h-[360px]">
-            <table className="w-full text-sm card-table card-table-keep">
-              <thead className="text-left text-muted-foreground sticky top-0 bg-card">
-                <tr className="border-b">
-                  <SortTh label="Linha" sortKey="nome" sortState={linhaSort} className="py-2 pr-3" />
-                  <SortTh label="Total" sortKey="total" sortState={linhaSort} className="py-2 pr-3 text-right" />
-                  {LINHA_STAGES.map((s) => (
-                    <SortTh key={s.key} label={s.label} sortKey={s.key} sortState={linhaSort} className="py-2 pr-3 text-right" />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {linhaSort.sorted.map((r: any) => (
-                  <tr key={r.linha_id ?? "sem-linha"} className="border-b last:border-0">
-                    <td className="py-2 pr-3" data-label="Linha">{r.nome}</td>
-                    <td className="py-2 pr-3 text-right font-medium" data-label="Total">{nfInt(r.total)}</td>
-                    {LINHA_STAGES.map((s) => (
-                      <td key={s.key} className="py-2 pr-3 text-right" data-label={s.label}>{nfInt(r[s.key])}</td>
-                    ))}
-                  </tr>
-                ))}
-                {!isLoading && linhaSort.sorted.length === 0 && (
-                  <tr><td colSpan={2 + LINHA_STAGES.length} className="py-4 text-center text-muted-foreground">Sem modelos.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-
-      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-      <DashError show={isError} />
-    </div>
-  );
-}
 
 
 // KPI / stat tile. O acento vem de um TOM semântico §Q9 (chip com fundo suave + ícone e
@@ -434,100 +177,29 @@ function SecHeader({ icon: Icon, children }: { icon: any; children: ReactNode })
   );
 }
 
-/* ============================ ESTOQUE ============================ */
-
-function EstoqueTab() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["dash-estoque"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_estoque");
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const totalVariantes = data?.totalVariantes ?? 0;
-  const totalAviamentos = data?.totalAviamentos ?? 0;
-  const estoqueTecido = data?.estoqueTecido ?? [];
-  const estoqueAviamento = data?.estoqueAviamento ?? [];
-  const barTecido = data?.barTecido ?? [];
-  const barAviamento = data?.barAviamento ?? [];
-  const tecSort = useSort<any>(estoqueTecido, { key: "estoque", dir: "desc" });
-  const aviSort = useSort<any>(estoqueAviamento, { key: "estoque", dir: "desc" });
-
+// Bloco de DETALHE recolhido por padrão (o "detalhamento a 1 clique" das abas por gestor —
+// mesma filosofia do Leadtime: resumo primeiro, lista extensa só quando o gestor quer investigar).
+function DetalheExpansivel({ titulo, sub, children }: { titulo: string; sub?: string; children: ReactNode }) {
+  const [aberto, setAberto] = useState(false);
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
-        <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
-      </div>
-
-      {/* Estoque (maior → menor), separado Tecido e Aviamento. */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[
-          { titulo: "Estoque de Tecido", s: tecSort },
-          { titulo: "Estoque de Aviamento", s: aviSort },
-        ].map(({ titulo, s }) => (
-          <Card key={titulo} className="p-4">
-            <h3 className="font-semibold mb-3">{titulo} <span className="text-sm font-normal text-muted-foreground">· maior → menor</span></h3>
-            <div className="overflow-auto max-h-[360px]">
-              <table className="w-full text-sm card-table">
-                <thead className="text-left text-muted-foreground sticky top-0 bg-card">
-                  <tr className="border-b">
-                    <SortTh label="Item" sortKey="nome" sortState={s} className="py-2 pr-3" />
-                    <SortTh label="Categoria" sortKey="categoria" sortState={s} className="py-2 pr-3" />
-                    <SortTh label="Estoque" sortKey="estoque" sortState={s} className="py-2 pr-3 text-right" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.sorted.map((r: any) => (
-                    <tr key={r.id} className="border-b last:border-0">
-                      <td className="py-2 pr-3 truncate max-w-[240px]" data-label="Item">{r.nome}</td>
-                      <td className="py-2 pr-3" data-label="Categoria">{r.categoria}</td>
-                      <td className="py-2 pr-3 text-right num" data-label="Estoque">{fmtNum(r.estoque)}</td>
-                    </tr>
-                  ))}
-                  {!isLoading && s.sorted.length === 0 && (
-                    <tr><td colSpan={3} className="py-4 text-center text-muted-foreground">Sem itens.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Estoque por categoria — tecido e aviamento. */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[
-          { titulo: "Estoque por categoria de tecido", data: barTecido, cor: CHART_SERIE },
-          { titulo: "Estoque por categoria de aviamento", data: barAviamento, cor: CHART_SERIE },
-        ].map((g) => (
-          <Card key={g.titulo} className="p-4">
-            <h3 className="font-semibold mb-3">{g.titulo}</h3>
-            <div style={{ width: "100%", height: 320 }}>
-              <ResponsiveContainer>
-                <BarChart data={g.data}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="categoria" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="total" fill={g.cor} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-      <DashError show={isError} />
-    </div>
+    <Card className="p-0 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {aberto ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
+        <span className="font-semibold">{titulo}</span>
+        {sub && <span className="text-sm font-normal text-muted-foreground">· {sub}</span>}
+      </button>
+      {aberto && <div className="border-t p-4">{children}</div>}
+    </Card>
   );
 }
+
+/* ============================ ESTOQUE ============================ */
+
 
 /* Barra vertical por mês (um único indicador). */
 function MonthBarCard({ title, subtitle, data, dataKey, name, color, empty, loading }: {
@@ -581,80 +253,6 @@ function EtapaBarCard({ title, data, dataKey, name, color }: {
 
 /* ============================ PRODUÇÃO ============================ */
 
-function RankingServicos() {
-  // Seletor = CATEGORIA DE SERVIÇO (Corte/Oficina/PL/...), não subcategoria de produto.
-  // "Geral" agrega todos os serviços. Prazo = data_prevista do bloco; desvio = entrega − prazo.
-  const [cat, setCat] = useState("all");
-  const { data } = useQuery({
-    queryKey: ["dash-ranking-servicos", cat],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("ranking_servicos" as never, {
-        p_categoria: cat === "all" ? undefined : cat,
-      } as never);
-      if (error) throw error;
-      return data as any;
-    },
-  });
-  const ranking: any[] = data?.ranking ?? [];
-  const categorias: any[] = data?.categorias ?? [];
-  const rankMap = useMemo(() => new Map(ranking.map((r, i) => [r.fornecedor, i + 1])), [ranking]);
-  const sort = useSort<any>(ranking, { key: "desvio", dir: "asc" });
-
-  return (
-    <Card className="p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold">Ranking de serviços <span className="text-sm font-normal text-muted-foreground">· entrega real vs prazo estipulado (menor desvio = melhor)</span></h3>
-        <Select value={cat} onValueChange={setCat}>
-          <SelectTrigger className="h-8 w-full sm:w-56"><SelectValue placeholder="Serviço" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Geral (todos os serviços)</SelectItem>
-            {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
-          <thead className="text-left text-muted-foreground">
-            <tr className="border-b">
-              <th className="py-2 pr-3 w-10 text-center">#</th>
-              <SortTh label="Fornecedor" sortKey="fornecedor" sortState={sort} className="py-2 pr-3" />
-              <SortTh label="Entregas" sortKey="entregas" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="Dias real" sortKey="diasReal" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="Prazo" sortKey="diasPrazo" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="Desvio" sortKey="desvio" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="% no prazo" sortKey="pctDentro" sortState={sort} className="py-2 pr-3 text-right" />
-            </tr>
-          </thead>
-          <tbody>
-            {sort.sorted.map((r: any) => {
-              const pos = rankMap.get(r.fornecedor) ?? 0;
-              const medal = pos === 1 ? "🥇" : pos === 2 ? "🥈" : pos === 3 ? "🥉" : String(pos);
-              const dentro = Number(r.desvio) <= 0;
-              return (
-                <tr key={r.fornecedor} className="border-b last:border-0">
-                  <td className="py-2 pr-3 text-center">{medal}</td>
-                  <td className="py-2 pr-3 font-medium" data-label="Fornecedor">{r.fornecedor}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="Entregas">{r.entregas}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="Dias real">{fmtNum(r.diasReal)}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="Prazo">{fmtNum(r.diasPrazo)}</td>
-                  <td className={"py-2 pr-3 text-right num font-medium " + (dentro ? "text-green-600 dark:text-green-400" : "text-destructive")} data-label="Desvio">
-                    {Number(r.desvio) > 0 ? "+" : ""}{fmtNum(r.desvio)}
-                  </td>
-                  <td className="py-2 pr-3 text-right num" data-label="% no prazo">{r.pctDentro}%</td>
-                </tr>
-              );
-            })}
-            {ranking.length === 0 && (
-              <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">
-                Sem entregas registradas para este serviço (precisa de envio + entrega no bloco).
-              </td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
 
 // Produção por CATEGORIA DE SERVIÇO (Corte/Oficina/PL/…). Uma chamada por seleção à RPC
 // dashboard_producao_servicos; herda o filtro global da aba (período/coleção/linha) por props.
@@ -662,387 +260,7 @@ function RankingServicos() {
 //     categoria específica => barras POR IDADE (dias desde o envio, escala sequencial).
 //   • Entregue (série temporal): barras por MÊS da data_entregue.
 // Toggle Modelos | Peças = as 2 visões de cada gráfico.
-function ProducaoServicos({ ini, fim, colecao, linha }: { ini?: string; fim?: string; colecao: string; linha: string }) {
-  const [categoria, setCategoria] = useState("all");
-  const [metrica, setMetrica] = useState<"modelos" | "pecas">("modelos");
-  const { data, isLoading } = useQuery({
-    queryKey: ["dash-prod-servicos", ini, fim, colecao, linha, categoria],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_producao_servicos" as never, {
-        p_inicio: ini,
-        p_fim: fim,
-        p_colecao: colecao === "all" ? undefined : colecao,
-        p_linha: linha === "all" ? undefined : linha,
-        p_categoria: categoria === "all" ? undefined : categoria,
-      } as never);
-      if (error) throw error;
-      return data as any;
-    },
-  });
 
-  const categorias: { nome: string }[] = data?.categorias ?? [];
-  const porCategoria: any[] = data?.emProducaoPorCategoria ?? [];
-  const porIdade: any[] = data?.emProducaoPorIdade ?? [];
-  const entregue: any[] = data?.entreguePorMes ?? [];
-  const isTodas = categoria === "all";
-  const dk = metrica; // "modelos" | "pecas"
-  const mLabel = metrica === "modelos" ? "Modelos" : "Peças";
-
-  // Em produção: por serviço (visão geral) OU por idade (categoria específica).
-  const emProdData = isTodas ? porCategoria : porIdade;
-  const emProdXKey = isTodas ? "categoria" : "bucket";
-  const emProdVazio = (emProdData as any[]).length === 0 || (emProdData as any[]).every((d) => Number(d?.[dk] ?? 0) === 0);
-  const entregueVazio = (entregue as any[]).length === 0;
-
-  return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-muted-foreground">
-          Produção por serviço <span className="font-normal">· {isTodas ? "todas as categorias" : categoria}</span>
-        </h2>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Toggle das 2 visões (Modelos | Peças), aplicado aos dois gráficos. */}
-          <div className="inline-flex rounded-md border p-0.5">
-            <Button size="sm" variant={metrica === "modelos" ? "default" : "ghost"} className="h-7 border-0" onClick={() => setMetrica("modelos")}>Modelos</Button>
-            <Button size="sm" variant={metrica === "pecas" ? "default" : "ghost"} className="h-7 border-0" onClick={() => setMetrica("pecas")}>Peças</Button>
-          </div>
-          <Select value={categoria} onValueChange={setCategoria}>
-            <SelectTrigger className="h-8 w-full sm:w-52"><SelectValue placeholder="Serviço" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas as categorias</SelectItem>
-              {categorias.map((c) => <SelectItem key={c.nome} value={c.nome}>{c.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* (a) Em produção — foto atual (sem finalização). */}
-        <Card className="p-4">
-          <h3 className="font-semibold mb-1">Em produção <span className="text-sm font-normal text-muted-foreground">· {mLabel}</span></h3>
-          <p className="text-xs text-muted-foreground mb-2">
-            {isTodas ? "por serviço · blocos sem finalização (foto atual)" : "por idade (dias desde o envio) · blocos sem finalização"}
-          </p>
-          <div style={{ width: "100%", height: 280 }}>
-            <ResponsiveContainer>
-              <BarChart data={emProdData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey={emProdXKey} tick={{ fontSize: 11 }} interval={0} />
-                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Bar dataKey={dk} name={mLabel} fill={CHART_SERIE} radius={[4, 4, 0, 0]}>
-                  {/* Categoria específica: rampa SEQUENCIAL por idade (§R, por barra). Visão geral: matiz único. */}
-                  {!isTodas && (emProdData as any[]).map((d, i) => (
-                    <Cell key={i} fill={CHART_AGE[Number(d.ordem)] ?? CHART_SERIE} />
-                  ))}
-                  <LabelList dataKey={dk} position="top" formatter={(v: any) => (Number(v) > 0 ? fmtNum(v) : "")} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {!isLoading && emProdVazio && (
-            <p className="text-sm text-muted-foreground text-center mt-2">Nada em produção{isTodas ? "" : " nesta categoria"}.</p>
-          )}
-        </Card>
-
-        {/* (b) Entregue ao longo do tempo — blocos finalizados. */}
-        <Card className="p-4">
-          <h3 className="font-semibold mb-1">Entregue ao longo do tempo <span className="text-sm font-normal text-muted-foreground">· {mLabel}</span></h3>
-          <p className="text-xs text-muted-foreground mb-2">blocos finalizados · por mês da data de entrega</p>
-          <div style={{ width: "100%", height: 280 }}>
-            <ResponsiveContainer>
-              <BarChart data={entregue}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Bar dataKey={dk} name={mLabel} fill={CHART_SERIE} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {!isLoading && entregueVazio && (
-            <p className="text-sm text-muted-foreground text-center mt-2">Nada entregue no período.</p>
-          )}
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function ProducaoTab() {
-  const fl = useFieldLabels();
-  const [periodo, setPeriodo] = useState<Periodo>(undefined);
-  const [colecao, setColecao] = useState("all");
-  const [linha, setLinha] = useState("all");
-  const [servico, setServico] = useState("all");
-  // SLA mostra só 5 por padrão (cabe em mobile e desktop); "ver mais" expande.
-  const [slaAll, setSlaAll] = useState(false);
-  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["dash-producao", ini, fim, colecao, linha],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_producao" as never, {
-        p_inicio: ini,
-        p_fim: fim,
-        p_colecao: colecao === "all" ? undefined : colecao,
-        p_linha: linha === "all" ? undefined : linha,
-      } as never);
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const slaPorTerc = data?.slaPorTerc ?? [];
-  // SLA por serviço: tipos disponíveis (p/ filtro), filtra e ordena.
-  const slaTipos = useMemo<string[]>(
-    () => Array.from(new Set((slaPorTerc as any[]).map((r) => r.tipo).filter(Boolean))).sort(),
-    [slaPorTerc],
-  );
-  const slaFiltrado = useMemo(
-    () => (servico === "all" ? slaPorTerc : (slaPorTerc as any[]).filter((r) => r.tipo === servico)),
-    [slaPorTerc, servico],
-  );
-  const slaSort = useSort<any>(slaFiltrado, { key: "nome" });
-  const kpiPrazo = data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
-  const cortes = data?.cortesPorMes ?? [];
-  // Cortes só fazem sentido se a loja usa o serviço "Corte" (senão é PL, corte incluso).
-  const usaCorte = (data as any)?.usaCorte ?? false;
-  const finalizadas = data?.finalizadasPorMes ?? [];
-  const kanbanDev = data?.kanbanDev ?? [];
-  const cortesFinalizados = useMemo(() => {
-    const m = new Map<string, { mes: string; cortados: number; finalizados: number }>();
-    for (const c of (cortes as any[])) m.set(c.mes, { mes: c.mes, cortados: Number(c.modelos ?? 0), finalizados: 0 });
-    for (const f of (finalizadas as any[])) { const e = m.get(f.mes) ?? { mes: f.mes, cortados: 0, finalizados: 0 }; e.finalizados = Number(f.modelos ?? 0); m.set(f.mes, e); }
-    return Array.from(m.values());
-  }, [cortes, finalizadas]);
-  const porColecao = data?.porColecao ?? [];
-  const porLinha = data?.porLinha ?? [];
-  const defeitoMes = data?.defeitoPorMes ?? [];
-  const defeitoMedio = useMemo(() => {
-    const a = defeitoMes as any[];
-    return a.length ? a.reduce((s, d) => s + Number(d.taxa || 0), 0) / a.length : 0;
-  }, [defeitoMes]);
-
-  const colecoes: string[] = data?.filtros?.colecoes ?? [];
-  const linhas: Opt[] = data?.filtros?.linhas ?? [];
-  const filtrosProd = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <div className="hidden md:contents">
-          <PeriodoPicker value={periodo} onChange={setPeriodo} />
-          <FilterButton filters={filtrosProd} />
-        </div>
-        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtrosProd} />
-      </div>
-
-      <DashError show={isError} />
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
-        <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={CheckCircle2} tone="success" sub="entregas de Serviços" />
-        <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} tone={Number(kpiPrazo.atrasadas) > 0 ? "danger" : undefined} sub={`${Math.round((Number(kpiPrazo.atrasadas) / Math.max(Number(kpiPrazo.noPrazo) + Number(kpiPrazo.atrasadas), 1)) * 100)}% do total`} />
-        <Kpi label="Defeito médio" value={fmtPct(defeitoMedio)} icon={Sparkles} tone="warning" sub="defeito ÷ recebido" />
-        <Card className="p-4 flex flex-col">
-          <span className="text-xs font-medium text-muted-foreground mb-1">% no prazo</span>
-          <div className="flex-1 flex items-center justify-center">
-            <DashDonut pct={Math.round(Number(kpiPrazo.pct) || 0)} legenda={`${kpiPrazo.noPrazo} no prazo · ${kpiPrazo.atrasadas} atrasadas`} />
-          </div>
-        </Card>
-      </div>
-
-      {usaCorte && (
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Cortes por mês <span className="font-normal">· por data de entrega do corte</span></h2>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <MonthBarCard title="Modelos cortados" data={cortes} dataKey="modelos" name="Modelos" color={CHART_SERIE} empty="Sem cortes no período." loading={isLoading} />
-          <MonthBarCard title="Grade total cortada" subtitle="peças" data={cortes} dataKey="grade" name="Grade total" color={CHART_SERIE} empty="Sem cortes no período." loading={isLoading} />
-        </div>
-      </div>
-      )}
-
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Produção finalizada por mês <span className="font-normal">· Serviços com status finalizado</span></h2>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <MonthBarCard title="Modelos finalizados" data={finalizadas} dataKey="modelos" name="Modelos" color={CHART_SERIE} empty="Nada finalizado no período." loading={isLoading} />
-          <MonthBarCard title="Grade total finalizada" subtitle="peças" data={finalizadas} dataKey="grade" name="Grade total" color={CHART_SERIE} empty="Nada finalizado no período." loading={isLoading} />
-        </div>
-      </div>
-
-      <ProducaoServicos ini={ini} fim={fim} colecao={colecao} linha={linha} />
-
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Etapa do kanban de Desenvolvimento</h2>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <EtapaBarCard title="Modelos por etapa" data={kanbanDev} dataKey="modelos" name="Modelos" color={CHART_SERIE} />
-          <EtapaBarCard title="Grade total por etapa" data={kanbanDev} dataKey="grade" name="Grade total" color={CHART_SERIE} />
-        </div>
-      </div>
-
-      {/* "Timeline por REF" aposentada (jul/2026): a aba Leadtime a substitui — tempo por
-          etapa vs ideal, em vez de só a posição atual de cada REF. */}
-
-      <Card className="p-4">
-        <h3 className="font-semibold mb-3">Taxa de defeito por mês <span className="text-sm font-normal text-muted-foreground">· defeito ÷ recebido (entregas de Serviços)</span></h3>
-        <div style={{ width: "100%", height: 280 }}>
-          <ResponsiveContainer>
-            <BarChart data={defeitoMes}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="mes" />
-              <YAxis tickFormatter={(v) => `${v}%`} />
-              <Tooltip formatter={(v: any) => `${Number(v)}%`} />
-              <Bar dataKey="taxa" name="Taxa de defeito" fill={CHART_SERIE} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <Card className="p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="font-semibold">SLA por serviço</h3>
-          <Select value={servico} onValueChange={setServico}>
-            <SelectTrigger className="h-8 w-48"><SelectValue placeholder="Serviço" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os serviços</SelectItem>
-              {slaTipos.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
-          <thead className="text-left text-muted-foreground">
-            <tr className="border-b">
-              <SortTh label="Nome" sortKey="nome" sortState={slaSort} className="py-2 pr-3" />
-              <SortTh label="Tipo de serviço" sortKey="tipo" sortState={slaSort} className="py-2 pr-3" />
-              <SortTh label="SLA médio (dias)" sortKey="slaMedio" sortState={slaSort} className="py-2 pr-3 text-right" />
-              <SortTh label="Atrasos" sortKey="atrasos" sortState={slaSort} className="py-2 pr-3 text-right" />
-              <SortTh label="Total entregue" sortKey="total" sortState={slaSort} className="py-2 pr-3 text-right" />
-              <SortTh label="Taxa de Defeito" sortKey="taxaDefeito" sortState={slaSort} className="py-2 pr-3 text-right" />
-            </tr>
-          </thead>
-          <tbody>
-            {(slaAll ? slaSort.sorted : slaSort.sorted.slice(0, 5)).map((r: any, i: number) => {
-              const taxa = Number(r.taxaDefeito ?? 0);
-              const produzidas = Number(r.pecasProduzidas ?? 0);
-              const defeito = Number(r.pecasDefeito ?? 0);
-              const badgeTone = taxa > 5 ? "danger" : taxa > 2 ? "warning" : "neutral";
-              return (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="py-2 pr-3">{r.nome}</td>
-                  <td className="py-2 pr-3" data-label="Tipo de serviço">{r.tipo ?? "—"}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="SLA médio (dias)">{fmtNum(r.slaMedio)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")} data-label="Atrasos">{r.atrasos}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Total entregue">{r.total}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="Taxa de Defeito">
-                    {produzidas > 0 ? (
-                      <StatusBadge
-                        tone={badgeTone}
-                        title={`${defeito} defeito${defeito === 1 ? "" : "s"} / ${produzidas} peça${produzidas === 1 ? "" : "s"}`}
-                        className="normal-case tracking-normal"
-                      >
-                        {fmtNum(taxa)}%
-                      </StatusBadge>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {!isLoading && slaSort.sorted.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
-          </tbody>
-        </table>
-        </div>
-        {slaSort.sorted.length > 5 && (
-          <button type="button" onClick={() => setSlaAll((v) => !v)} className="mt-3 text-sm text-primary hover:underline">
-            {slaAll ? "Ver menos" : `Ver mais (${slaSort.sorted.length - 5})`}
-          </button>
-        )}
-      </Card>
-
-      <RankingServicos />
-
-      <RelatorioPrint
-        titulo="Relatório de Produção — prazos e qualidade"
-        subtitulo="Cortes, finalizações, SLA e defeitos da produção"
-        dataStr={new Date().toLocaleDateString("pt-BR")}
-        kpis={[
-          { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: REL_COR_SUCESSO },
-          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? REL_COR_PERIGO : undefined },
-          { label: "Defeito médio", valor: fmtPct(defeitoMedio), cor: REL_COR_ALERTA },
-        ]}
-        donut={{ pct: Math.round(Number(kpiPrazo.pct) || 0), cor: REL_COR_SUCESSO, titulo: "Entregas no prazo", legenda: `${kpiPrazo.noPrazo ?? 0} no prazo · ${kpiPrazo.atrasadas ?? 0} atrasadas` }}
-        secoes={[
-          {
-            titulo: "Qualidade — taxa de defeito por mês", icone: "◷",
-            descricao: "Defeito ÷ recebido (entregas de Serviços)",
-            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" fmtL={(v) => `${v}%`} /> : undefined,
-            colunas: [{ key: "mes", label: "Mês" }, { key: "taxa", label: "Taxa de defeito", align: "right" }],
-            linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })), zebra: true,
-          },
-          {
-            titulo: "SLA / qualidade por serviço", icone: "▤",
-            colunas: [
-              { key: "nome", label: "Prestador" },
-              { key: "tipo", label: "Tipo de serviço" },
-              { key: "sla", label: "SLA médio (dias)", align: "right" },
-              { key: "atrasos", label: "Atrasos", align: "right" },
-              { key: "total", label: "Total entregue", align: "right" },
-              { key: "defeito", label: "Taxa de defeito", align: "right" },
-            ],
-            linhas: (slaPorTerc as any[]).map((r) => ({
-              nome: r.nome ?? "—",
-              tipo: r.tipo ?? "—",
-              sla: fmtNum(r.slaMedio),
-              atrasos: String(r.atrasos ?? 0),
-              total: String(r.total ?? 0),
-              defeito: `${Number(r.taxaDefeito ?? 0)}%`,
-            })), zebra: true,
-          },
-          {
-            titulo: "Desempenho por coleção", icone: "▣",
-            colunas: [{ key: "nome", label: "Coleção" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }, { key: "defeito", label: "Defeito", align: "right" }],
-            linhas: (porColecao as any[]).map((c) => ({ nome: c.nome ?? "—", modelos: nfInt(c.modelos), grade: nfInt(c.grade), defeito: `${Number(c.defeito ?? 0)}%` })), zebra: true,
-          },
-          {
-            titulo: "Desempenho por linha", icone: "▦",
-            colunas: [{ key: "nome", label: "Linha" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }, { key: "defeito", label: "Defeito", align: "right" }],
-            linhas: (porLinha as any[]).map((c) => ({ nome: c.nome ?? "—", modelos: nfInt(c.modelos), grade: nfInt(c.grade), defeito: `${Number(c.defeito ?? 0)}%` })), zebra: true,
-          },
-          ...(usaCorte ? ([{
-            titulo: "Cortes por mês", icone: "▦",
-            descricao: "Por data de entrega do corte",
-            grafico: (cortes as any[]).length > 0 ? <PBar2
-              a={{ titulo: "Modelos cortados", node: <PBar data={cortes} xKey="mes" barKey="modelos" width={320} height={160} fmtL={nfInt} /> }}
-              b={{ titulo: "Grade total cortada", node: <PBar data={cortes} xKey="mes" barKey="grade" width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
-            colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
-            linhas: (cortes as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
-          }] as RelSecao[]) : []),
-          {
-            titulo: "Produção finalizada por mês", icone: "▦",
-            descricao: "Serviços com status finalizado",
-            grafico: (finalizadas as any[]).length > 0 ? <PBar2
-              a={{ titulo: "Modelos finalizados", node: <PBar data={finalizadas} xKey="mes" barKey="modelos" width={320} height={160} fmtL={nfInt} /> }}
-              b={{ titulo: "Grade total finalizada", node: <PBar data={finalizadas} xKey="mes" barKey="grade" width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
-            colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
-            linhas: (finalizadas as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
-          },
-          {
-            titulo: "Kanban de desenvolvimento", icone: "◷",
-            colunas: [{ key: "etapa", label: "Etapa" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
-            linhas: (kanbanDev as any[]).map((k) => ({ etapa: k.label ?? "—", modelos: nfInt(k.modelos), grade: nfInt(k.grade) })), zebra: true,
-          },
-        ]}
-      />
-    </div>
-  );
-}
 
 /* ============================ FINANCEIRO ============================ */
 
@@ -1192,257 +410,43 @@ function CustoFinanceiroTab() {
       <SecHeader icon={Sparkles}>Ação de hoje</SecHeader>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpis}</div>
       <div className="grid gap-4 lg:grid-cols-2">{cardDiverg}{cardAPagar}</div>
+      <DetalheExpansivel titulo="Custo previsto × real — todos os modelos" sub={`${rowsCusto.length} modelo(s)`}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm card-table">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-3">REF</th>
+                <th className="py-2 pr-3">Modelo</th>
+                <th className="py-2 pr-3 text-right">Previsto</th>
+                <th className="py-2 pr-3 text-right">Real</th>
+                <th className="py-2 pr-3 text-right">Δ variação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...rowsCusto].sort((a, b) => Math.abs(Number(b.pct) || 0) - Math.abs(Number(a.pct) || 0)).map((r) => {
+                const pct = Number(r.pct) || 0;
+                const cor = pct > 15 ? "var(--tone-danger-fg)" : pct > 0 ? "var(--tone-warning-fg)" : pct < 0 ? "var(--tone-success-fg)" : "var(--muted-foreground)";
+                return (
+                  <tr key={r.id} className="border-t">
+                    <td className="py-2 pr-3 num" data-label="REF">{r.ref ?? "—"}{r.versao ? <span className="text-muted-foreground"> v{r.versao}</span> : null}</td>
+                    <td className="py-2 pr-3" data-label="Modelo">{r.nome}{!r.confirmado && <span className="text-[11px] text-muted-foreground"> · previsto</span>}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="Previsto">{brl(r.previsto)}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="Real">{r.confirmado ? brl(r.real) : "—"}</td>
+                    <td className="py-2 pr-3 text-right num font-semibold" data-label="Δ variação" style={{ color: cor }}>{r.confirmado ? `${pct > 0 ? "+" : ""}${fmtInt(pct)}%` : "—"}</td>
+                  </tr>
+                );
+              })}
+              {rowsCusto.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem dados de custo no filtro.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </DetalheExpansivel>
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
   );
 }
 
-function FinanceiroTab() {
-  const [periodo, setPeriodo] = useState<Periodo>(undefined);
-  const inicio = isoDate(periodo?.from), fim = isoDate(periodo?.to);
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["dash-financeiro", inicio, fim],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_financeiro" as never, {
-        p_inicio: inicio,
-        p_fim: fim,
-      } as never);
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const { data: estoqueParado, isError: estoqueParadoErr, isLoading: estoqueParadoLoading } = useQuery({
-    queryKey: ["dash-estoque-parado"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_estoque_parado" as any);
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const investido = Number(data?.investido ?? 0);
-  const pago = Number(data?.pago ?? 0);
-  const pendente = Number(data?.pendente ?? 0);
-  const chartData = data?.chartData ?? [];
-
-  const isMobile = useIsMobile();
-  const hoje = format(new Date(), "yyyy-MM-dd");
-  // Próximas parcelas a pagar (só no mobile). O dashboard_financeiro não devolve a LISTA de
-  // parcelas — leitura direta da tabela `parcelas` (mesmo padrão do select direto do Leadtime),
-  // sem RPC nova; RLS por tenant + modgate financeiro já protegem. "Em aberto" = data_pagamento
-  // nula (espelha o predicado da RPC); status='pago' filtrado no cliente (cobre pago sem data).
-  const { data: proximasParcelas = [] } = useQuery({
-    queryKey: ["dash-fin-proximas-parcelas"],
-    enabled: isMobile,
-    queryFn: async () => {
-      const { data, error } = await (supabase.from("parcelas") as any)
-        .select("id, data_vencimento, valor, status, tipo_oc, numero_parcela")
-        .is("data_pagamento", null)
-        .order("data_vencimento", { ascending: true })
-        .limit(20);
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
-
-  // ——— Mobile (Onda B): KPI-cards (dinheiro abreviado) + aging + próximas parcelas em cards ———
-  if (isMobile) {
-    const parcelas = (proximasParcelas as any[]).filter((p) => p.status !== "pago").slice(0, 12);
-    const agingArr = (data?.aging ?? []) as any[];
-    const agingMax = Math.max(1, ...agingArr.map((a) => Number(a.total)));
-    const pctPago = (pago + pendente) > 0 ? Math.round((pago / (pago + pendente)) * 100) : 0;
-    const chartSerie = (chartData as any[]).map((d) => Number(d.total));
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <MobileFilterBar periodo={periodo} onPeriodo={setPeriodo} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <KpiCardMobile compact label="Investido em MP" value={brlAbrev(investido)} valueTitle={brl(investido)} />
-          <KpiCardMobile compact label="Total pago" value={brlAbrev(pago)} valueTitle={brl(pago)} sub={`${pctPago}% do total`} />
-          <KpiCardMobile compact label="Total pendente" value={brlAbrev(pendente)} valueTitle={brl(pendente)} spark={chartSerie.length > 1 ? chartSerie : undefined} sparkTone="primary" />
-          <KpiCardMobile compact label="% pago" value={<>{pctPago}<span className="text-sm font-semibold text-muted-foreground">%</span></>} />
-        </div>
-        <div className="rounded-xl border bg-card p-3">
-          <div className="mb-2 text-sm font-semibold">Aging <span className="text-xs font-normal text-muted-foreground">· por idade do vencimento</span></div>
-          {agingArr.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem contas em aberto."}</p>
-          ) : (
-            agingArr.map((a, i) => (
-              <div key={a.faixa} className="grid grid-cols-[72px_1fr_auto] items-center gap-2 py-1">
-                <span className="text-[11px] text-muted-foreground">{a.faixa}</span>
-                <span className="h-4 overflow-hidden rounded bg-muted">
-                  <span className="block h-full rounded" style={{ width: `${Math.max((Number(a.total) / agingMax) * 100, Number(a.total) > 0 ? 3 : 0)}%`, background: CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)] }} />
-                </span>
-                <span className="w-16 text-right text-[11px] font-bold tabular-nums" title={brl(a.total)}>{fmtInt(a.total)}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="rounded-xl border bg-card p-3">
-          <div className="mb-1 text-sm font-semibold">Próximas parcelas <span className="text-xs font-normal text-muted-foreground">· a pagar, em aberto</span></div>
-          {parcelas.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">Nenhuma parcela em aberto.</p>
-          ) : (
-            parcelas.map((p) => {
-              const venc = String(p.data_vencimento) < hoje;
-              const dd = String(p.data_vencimento).slice(8, 10);
-              const mm = String(p.data_vencimento).slice(5, 7);
-              return (
-                <div key={p.id} className="flex items-center gap-3 border-t py-2 first:border-t-0">
-                  <span className="min-w-[42px] text-sm font-bold tabular-nums" style={venc ? { color: "var(--destructive)" } : undefined}>{dd}/{mm}</span>
-                  <span className="min-w-0 flex-1 text-xs font-medium">
-                    {TIPO_OC_LABEL[p.tipo_oc] ?? "OC"}
-                    <span className="block text-[10px] font-normal text-muted-foreground">{venc ? "vencida · " : ""}parcela {p.numero_parcela}</span>
-                  </span>
-                  <span className="shrink-0 whitespace-nowrap text-sm font-bold tabular-nums">{brl(p.valor)}</span>
-                </div>
-              );
-            })
-          )}
-        </div>
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        <DashError show={isError} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <div className="hidden md:contents"><PeriodoPicker value={periodo} onChange={setPeriodo} /></div>
-        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} />
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
-        <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} tone="info" />
-        <Kpi label="Total pago" value={brl(pago)} icon={CheckCircle2} tone="success" />
-        <Kpi label="Total pendente" value={brl(pendente)} icon={AlertTriangle} tone="warning" />
-        <Card className="p-4 flex flex-col">
-          <span className="text-xs font-medium text-muted-foreground mb-1">% pago</span>
-          <div className="flex-1 flex items-center justify-center">
-            <DashDonut pct={(pago + pendente) > 0 ? Math.round((pago / (pago + pendente)) * 100) : 0} legenda="do total a pagar" />
-          </div>
-        </Card>
-      </div>
-      <Card className="p-4">
-        <h3 className="font-semibold mb-3">{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</h3>
-        <div style={{ width: "100%", height: 320 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="mes" />
-              <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
-              <Tooltip formatter={(v: any) => brl(Number(v))} />
-              <Bar dataKey="total" name="A pagar" fill={CHART_SERIE} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
-          <h3 className="font-semibold">Estoque em R$ parado <span className="text-sm font-normal text-muted-foreground">· tecido físico não reservado e não usado</span></h3>
-          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-            {estoqueParadoErr ? <span className="text-base font-medium text-destructive">erro ao carregar</span>
-              : estoqueParadoLoading ? <span className="text-base font-normal text-muted-foreground">carregando…</span>
-              : brl(Number(estoqueParado?.total ?? 0))}
-          </div>
-        </div>
-        {estoqueParadoErr ? (
-          <div className="flex h-[260px] items-center justify-center text-sm text-destructive">Não foi possível carregar o estoque parado.</div>
-        ) : (
-        <div style={{ width: "100%", height: 260 }}>
-          <ResponsiveContainer>
-            <BarChart data={estoqueParado?.porArtigo ?? []} layout="vertical" margin={{ left: 8, right: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
-              <XAxis type="number" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-              <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(v: any) => brl(Number(v))} />
-              <Bar dataKey="valor" name="R$ parado" fill={CHART_SERIE} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        )}
-      </Card>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Aging de contas a pagar <span className="text-sm font-normal text-muted-foreground">· em aberto, por idade do vencimento</span></h3>
-          {/* §R P2: barra HORIZONTAL (faixas no eixo Y, sem inclinar rótulo — resolve a
-              legibilidade sofrível no mobile) + rampa sequencial navy (mais novo → mais velho). */}
-          <div style={{ width: "100%", height: 280 }}>
-            <ResponsiveContainer>
-              <BarChart data={data?.aging ?? []} layout="vertical" margin={{ left: 8, right: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
-                <YAxis type="category" dataKey="faixa" width={96} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: any) => brl(Number(v))} />
-                <Bar dataKey="total" name="A pagar" radius={[0, 4, 4, 0]}>
-                  {((data?.aging ?? []) as any[]).map((_: any, i: number) => (
-                    <Cell key={i} fill={CHART_SEQ[Math.min(i, CHART_SEQ.length - 1)]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Top fornecedores <span className="text-sm font-normal text-muted-foreground">· por valor no período</span></h3>
-          <div style={{ width: "100%", height: 280 }}>
-            <ResponsiveContainer>
-              <BarChart data={data?.topFornecedores ?? []} layout="vertical" margin={{ right: 12 }}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                {/* números compactos (ex.: "320k") p/ não cortar no eixo em telas estreitas. */}
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
-                <YAxis type="category" dataKey="nome" width={92} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: any) => brl(Number(v))} />
-                <Bar dataKey="total" name="Total" fill={CHART_SERIE} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      </div>
-
-      <RelatorioPrint
-        titulo="Relatório Financeiro — contas a pagar"
-        subtitulo={periodo?.from && periodo?.to ? "Período selecionado" : "Projeção próximos 6 meses"}
-        dataStr={new Date().toLocaleDateString("pt-BR")}
-        kpis={[
-          { label: "Investido em MP", valor: brl(investido) },
-          { label: "Total pago", valor: brl(pago), cor: REL_COR_SUCESSO },
-          { label: "Total pendente", valor: brl(pendente), cor: REL_COR_ALERTA },
-        ]}
-        donut={(pago + pendente) > 0 ? { pct: Math.round((pago / (pago + pendente)) * 100), cor: REL_COR_SUCESSO, titulo: "Pago do total", legenda: `${brl(pago)} pago · ${brl(pendente)} pendente` } : undefined}
-        secoes={[
-          {
-            titulo: "Contas a pagar — projeção mensal", icone: "▦",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" fmtL={(v) => nfInt(v)} /> : undefined,
-            colunas: [{ key: "mes", label: "Mês" }, { key: "total", label: "A pagar", align: "right" }],
-            linhas: (chartData as any[]).map((d) => ({ mes: d.mes, total: brl(Number(d.total)) })), zebra: true,
-            rodape: `Total projetado: ${brl((chartData as any[]).reduce((s, d) => s + Number(d.total || 0), 0))}`,
-          },
-          {
-            titulo: "Aging — contas em aberto por idade do vencimento", icone: "◷",
-            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" fmtL={(v) => nfInt(v)} height={170} /> : undefined,
-            colunas: [{ key: "faixa", label: "Faixa" }, { key: "total", label: "Valor em aberto", align: "right" }],
-            linhas: ((data?.aging ?? []) as any[]).map((a) => ({ faixa: a.faixa, total: brl(Number(a.total)) })), zebra: true,
-          },
-          {
-            titulo: "Top fornecedores no período", icone: "▤",
-            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" horizontal height={Math.max(150, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtL={(v) => nfInt(v)} /> : undefined,
-            colunas: [{ key: "nome", label: "Fornecedor" }, { key: "total", label: "Total no período", align: "right" }],
-            linhas: ((data?.topFornecedores ?? []) as any[]).map((r) => ({ nome: r.nome ?? "—", total: brl(Number(r.total)) })), zebra: true,
-          },
-        ]}
-      />
-      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-      <DashError show={isError} />
-    </div>
-  );
-}
 
 /* ============================ CUSTOS ============================ */
 
@@ -1450,178 +454,7 @@ function FinanceiroTab() {
 // à ESQUERDA do zero; acima (estouro) = vermelho à DIREITA; ~0 = neutro. Sempre com sinal +
 // ícone (nunca só cor). `max` = maior |Δ%| da tabela (piso 10%) p/ escalar as barras juntas.
 // Não confirmado em CAD ainda = "—" neutro (não há variação real a comparar).
-function DeltaBar({ pct, max, confirmado }: { pct: number | null | undefined; max: number; confirmado?: boolean }) {
-  if (!confirmado) {
-    return <span className="text-muted-foreground" title="Ainda não confirmado em CAD">—</span>;
-  }
-  const v = Number(pct ?? 0);
-  const acima = v > 0.5, abaixo = v < -0.5; // tolerância p/ "no previsto"
-  const mag = Math.min(Math.abs(v), max) / (max || 1); // 0..1
-  const w = `${Math.round(mag * 50)}%`; // metade da barra por lado
-  const cor = acima ? CHART_DIVERGE_POS : abaixo ? CHART_DIVERGE_NEG : "var(--muted-foreground)";
-  const Icon = acima ? ArrowUp : abaixo ? ArrowDown : Minus;
-  const label = acima || abaixo ? `${v > 0 ? "+" : ""}${fmtInt(v)}%` : "no previsto";
-  return (
-    <div className="flex items-center justify-end gap-2">
-      <span className="inline-flex items-center justify-end gap-1 text-xs font-medium num" style={{ color: cor, minWidth: 62 }}>
-        <Icon className="h-3.5 w-3.5 shrink-0" /> {label}
-      </span>
-      <div className="relative h-3 w-24 shrink-0 rounded bg-muted/60" aria-hidden>
-        <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
-        <span className="absolute inset-y-0 rounded" style={{ background: cor, width: w, ...(acima ? { left: "50%" } : { right: "50%" }) }} />
-      </div>
-    </div>
-  );
-}
 
-function CustosTab() {
-  const fl = useFieldLabels();
-  const [periodo, setPeriodo] = useState<Periodo>(undefined);
-  const [colecao, setColecao] = useState("all");
-  const [categoria, setCategoria] = useState("all");
-  const [linha, setLinha] = useState("all");
-  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["dash-custos", ini, fim, colecao, categoria, linha],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_custos", {
-        p_inicio: ini,
-        p_fim: fim,
-        p_colecao: colecao === "all" ? undefined : colecao,
-        p_categoria: categoria === "all" ? undefined : categoria,
-        p_linha: linha === "all" ? undefined : linha,
-      });
-      if (error) throw error;
-      return data as any;
-    },
-  });
-
-  const rows = data?.rows ?? [];
-  // Escala comum das barras de variação (§R): maior |Δ%| confirmado, piso 10% (Δ pequeno
-  // não enche a barra) e teto 100% (outlier não achata todas as demais).
-  const deltaMax = useMemo(() => {
-    const m = Math.max(0, ...(rows as any[]).filter((r) => r.confirmado).map((r) => Math.abs(Number(r.pct ?? 0))));
-    return Math.min(100, Math.max(10, m));
-  }, [rows]);
-  const chartData = data?.chartData ?? [];
-  const categorias: Opt[] = data?.filtros?.categorias ?? [];
-  const linhas: Opt[] = data?.filtros?.linhas ?? [];
-  const colecoes: string[] = data?.filtros?.colecoes ?? [];
-  const filtrosCustos = [
-    { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))], single: true as const },
-    { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas], single: true as const },
-    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias], single: true as const },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
-        <div className="hidden md:contents">
-          <PeriodoPicker value={periodo} onChange={setPeriodo} />
-          <FilterButton filters={filtrosCustos} />
-        </div>
-        <MobileFilterBar className="md:hidden" periodo={periodo} onPeriodo={setPeriodo} filters={filtrosCustos} />
-      </div>
-
-      <DashError show={isError} />
-
-      <Card className="p-4">
-        <h3 className="font-semibold mb-3">Custo previsto vs real</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm card-table">
-            <thead className="text-left text-muted-foreground">
-              <tr className="border-b">
-                <th className="py-2 pr-3">{fl("ref")}</th>
-                <th className="py-2 pr-3">Modelo</th>
-                <th className="py-2 pr-3 text-right">Previsto (un.)</th>
-                <th className="py-2 pr-3 text-right">Real (un.)</th>
-                <th className="py-2 pr-3 text-right">Δ variação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r: any) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-2 pr-3 font-medium">
-                    <span className="inline-flex items-center gap-1.5">
-                      {r.ref ?? "—"}
-                      {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-3" data-label="Modelo">{r.nome}</td>
-                  <td className="py-2 pr-3 text-right num" data-label="Previsto (un.)">{brl(r.previsto)}</td>
-                  <td className={"py-2 pr-3 text-right num " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
-                  <td className="py-2 pr-3 text-right" data-label="Δ variação"><DeltaBar pct={r.pct} max={deltaMax} confirmado={r.confirmado} /></td>
-                </tr>
-              ))}
-              {!isLoading && rows.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card className="p-4">
-        <h3 className="font-semibold mb-1">Custo médio por peça por coleção</h3>
-        <p className="mb-3 text-xs text-muted-foreground">Só modelos com corte confirmado. Passe o mouse para ver a cobertura (quantos de quantos).</p>
-        <div style={{ width: "100%", height: 300 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="colecao" />
-              <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
-              <Tooltip
-                formatter={(v: any) => brl(Number(v))}
-                labelFormatter={(label: any, payload: any) => {
-                  const p = payload?.[0]?.payload;
-                  return p && p.nTotal != null ? `${label} — média de ${p.nConf}/${p.nTotal} modelo(s)` : label;
-                }}
-              />
-              <Bar dataKey="medio" name="Custo médio" fill={CHART_SERIE} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <RelatorioPrint
-        titulo="Relatório de Custos — previsto × real"
-        subtitulo="Custo unitário por modelo e custo médio por coleção"
-        dataStr={new Date().toLocaleDateString("pt-BR")}
-        kpis={[
-          { label: "Modelos analisados", valor: String((rows as any[]).length) },
-          { label: "Variação média", valor: `${Math.round((rows as any[]).reduce((s, r) => s + (Number(r.pct) || 0), 0) / Math.max((rows as any[]).length, 1))}%` },
-          { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: REL_COR_PERIGO },
-        ]}
-        donut={(rows as any[]).length > 0 ? { pct: Math.round(((rows as any[]).filter((r) => Number(r.pct) <= 0).length / (rows as any[]).length) * 100), cor: REL_COR_SUCESSO, titulo: "Dentro do previsto", legenda: `${(rows as any[]).filter((r) => Number(r.pct) <= 0).length} de ${(rows as any[]).length} modelos no custo previsto ou abaixo` } : undefined}
-        secoes={[
-          {
-            titulo: "Custo médio por peça por coleção", icone: "▣",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" fmtL={(v) => nfInt(v)} /> : undefined,
-            colunas: [{ key: "colecao", label: "Coleção" }, { key: "medio", label: "Custo médio / peça", align: "right" }],
-            linhas: (chartData as any[]).map((d) => ({ colecao: d.colecao, medio: brl(Number(d.medio)) })), zebra: true,
-          },
-          {
-            titulo: "Custo previsto × real por modelo", icone: "▤",
-            descricao: "Custo unitário; diferença positiva = acima do previsto",
-            colunas: [
-              { key: "ref", label: "Ref" },
-              { key: "modelo", label: "Modelo" },
-              { key: "previsto", label: "Previsto (un.)", align: "right" },
-              { key: "real", label: "Real (un.)", align: "right" },
-            ],
-            linhas: (rows as any[]).map((r) => ({
-              ref: r.ref ?? "—",
-              modelo: r.nome ?? "—",
-              previsto: brl(Number(r.previsto)),
-              real: brl(Number(r.real)),
-            })), zebra: true,
-          },
-        ]}
-      />
-    </div>
-  );
-}
 
 /* ============================ COMERCIAL ============================ */
 
@@ -1629,7 +462,6 @@ function CustosTab() {
 // REALIZADO (grade real do CQ). Cálculo no FRONT reusando @/lib/preco (fonte ÚNICA
 // de preço; não replicar em SQL); sem RPC nova — custo_unitario_modelos (tenant-safe)
 // + queries RLS por tenant. Espelha o "poder de venda" do Planejamento/Lançamentos.
-type ComRow = { key: string; nome: string; pvPlan: number; lucroPlan: number; pvReal: number; lucroReal: number; margemPlan: number; markupPlan: number; margemReal: number; markupReal: number };
 
 // Nome PRÓPRIO (distinto do `fmtPct` de src/lib/format.ts, 1 casa decimal) — este é
 // 0 casas + fallback "—" p/ v<=0, usado só nesta aba Comercial.
@@ -1638,57 +470,6 @@ const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFra
 
 // Tabela com DOIS grupos de colunas claramente separados: Planejado (orçamento, grade
 // planejada) vs Realizado (feito, grade real). Cor + borda separam as duas contas.
-function ComTable({ title, firstLabel, rows }: { title: string; firstLabel: string; rows: ComRow[] }) {
-  const s = useSort(rows, { accessors: {
-    nome: (r: ComRow) => r.nome,
-    pvPlan: (r: ComRow) => r.pvPlan, lucroPlan: (r: ComRow) => r.lucroPlan, margemPlan: (r: ComRow) => r.margemPlan, markupPlan: (r: ComRow) => r.markupPlan,
-    pvReal: (r: ComRow) => r.pvReal, lucroReal: (r: ComRow) => r.lucroReal, margemReal: (r: ComRow) => r.margemReal, markupReal: (r: ComRow) => r.markupReal,
-  } });
-  const plan = "bg-blue-500/5", real = "bg-emerald-500/5";
-  return (
-    <Card className="p-4">
-      <h3 className="font-semibold mb-3">{title}</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm card-table">
-          <thead className="text-left text-muted-foreground">
-            <tr>
-              <th className="py-1 pr-3"></th>
-              <th colSpan={4} className={`py-1 px-2 text-center font-semibold text-blue-600 border-l ${plan}`}>Planejado (orçamento)</th>
-              <th colSpan={4} className={`py-1 px-2 text-center font-semibold text-emerald-600 border-l ${real}`}>Realizado (feito)</th>
-            </tr>
-            <tr className="border-b">
-              <SortTh label={firstLabel} sortKey="nome" sortState={s} className="py-2 pr-3" />
-              <SortTh label="PV" sortKey="pvPlan" sortState={s} className={`py-2 px-2 text-right num border-l ${plan}`} align="right" />
-              <SortTh label="Lucro" sortKey="lucroPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
-              <SortTh label="Margem" sortKey="margemPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
-              <SortTh label="Markup" sortKey="markupPlan" sortState={s} className={`py-2 px-2 text-right num ${plan}`} align="right" />
-              <SortTh label="PV" sortKey="pvReal" sortState={s} className={`py-2 px-2 text-right num border-l ${real}`} align="right" />
-              <SortTh label="Lucro" sortKey="lucroReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
-              <SortTh label="Margem" sortKey="margemReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
-              <SortTh label="Markup" sortKey="markupReal" sortState={s} className={`py-2 px-2 text-right num ${real}`} align="right" />
-            </tr>
-          </thead>
-          <tbody>
-            {s.sorted.map((r) => (
-              <tr key={r.key} className="border-b last:border-0">
-                <td className="py-2 pr-3 font-medium">{r.nome}</td>
-                <td className={`py-2 px-2 text-right num border-l ${plan}`} data-label="Plan · PV">{brl(r.pvPlan)}</td>
-                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Lucro">{brl(r.lucroPlan)}</td>
-                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Margem">{fmtPctComercial(r.margemPlan)}</td>
-                <td className={`py-2 px-2 text-right num ${plan}`} data-label="Plan · Markup">{fmtMkp(r.markupPlan)}</td>
-                <td className={`py-2 px-2 text-right num border-l ${real}`} data-label="Real · PV">{brl(r.pvReal)}</td>
-                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Lucro">{brl(r.lucroReal)}</td>
-                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Margem">{fmtPctComercial(r.margemReal)}</td>
-                <td className={`py-2 px-2 text-right num ${real}`} data-label="Real · Markup">{fmtMkp(r.markupReal)}</td>
-              </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
 
 /* ================== COMERCIAL & COLEÇÃO (visão por gestor) ================== */
 
@@ -1756,27 +537,29 @@ function ComercialColecaoTab() {
   // Agrega por LINHA (mesma matemática da ComercialTab) + guarda a faixa (min/ideal) e a grade
   // para o ticket. tot = total geral.
   type LinRow = { key: string; nome: string; pvPlan: number; pvReal: number; lucroPlan: number; lucroReal: number; gradePlan: number; gradeReal: number; markupMin: number | null; markupIdeal: number | null; };
-  const { porLinha, tot } = useMemo(() => {
+  const { porLinha, porColecao, tot } = useMemo(() => {
     const ml = new Map<string, LinRow>();
+    const mc = new Map<string, LinRow>();
     let tPvPlan = 0, tPvReal = 0, tLuPlan = 0, tLuReal = 0, tGp = 0, tGr = 0;
+    const acc = (map: Map<string, LinRow>, key: string, nome: string, m: any, pvP: number, pvR: number, luP: number, luR: number, gp: number, gr: number) => {
+      let r = map.get(key);
+      if (!r) r = { key, nome, pvPlan: 0, pvReal: 0, lucroPlan: 0, lucroReal: 0, gradePlan: 0, gradeReal: 0, markupMin: m.linha?.markup_min ?? null, markupIdeal: m.linha?.markup ?? null };
+      r.pvPlan += pvP; r.pvReal += pvR; r.lucroPlan += luP; r.lucroReal += luR; r.gradePlan += gp; r.gradeReal += gr;
+      map.set(key, r);
+    };
     for (const m of modelos) {
       const cu = (custoMap as any)[m.id];
       const custo = Number(cu?.real) || Number(cu?.previsto) || 0;
       const pi = precoInfo(custo, m.linha?.markup, m.preco_venda, m.markup_editado);
       const gp = Number((gradePlan as any)[m.id]) || 0;
       const gr = Number((gradeReal as any)[m.id]) || 0;
-      const key = m.linha_id ?? "__none__";
-      let r = ml.get(key);
-      if (!r) r = { key, nome: (m.linha?.nome as string) || "Sem linha", pvPlan: 0, pvReal: 0, lucroPlan: 0, lucroReal: 0, gradePlan: 0, gradeReal: 0, markupMin: m.linha?.markup_min ?? null, markupIdeal: m.linha?.markup ?? null };
-      r.pvPlan += pi.efetivo * gp; r.pvReal += pi.efetivo * gr;
-      r.lucroPlan += (pi.efetivo - custo) * gp; r.lucroReal += (pi.efetivo - custo) * gr;
-      r.gradePlan += gp; r.gradeReal += gr;
-      ml.set(key, r);
-      tPvPlan += pi.efetivo * gp; tPvReal += pi.efetivo * gr;
-      tLuPlan += (pi.efetivo - custo) * gp; tLuReal += (pi.efetivo - custo) * gr;
-      tGp += gp; tGr += gr;
+      const pvP = pi.efetivo * gp, pvR = pi.efetivo * gr, luP = (pi.efetivo - custo) * gp, luR = (pi.efetivo - custo) * gr;
+      acc(ml, m.linha_id ?? "__none__", (m.linha?.nome as string) || "Sem linha", m, pvP, pvR, luP, luR, gp, gr);
+      acc(mc, m.colecao ?? "__none__", m.colecao || "Sem coleção", m, pvP, pvR, luP, luR, gp, gr);
+      tPvPlan += pvP; tPvReal += pvR; tLuPlan += luP; tLuReal += luR; tGp += gp; tGr += gr;
     }
     const rows = Array.from(ml.values()).sort((a, b) => b.pvPlan - a.pvPlan);
+    const rowsCol = Array.from(mc.values()).sort((a, b) => b.pvPlan - a.pvPlan);
     const custoRealT = tPvReal - tLuReal, custoPlanT = tPvPlan - tLuPlan;
     const tot = {
       pvPlan: tPvPlan, pvReal: tPvReal, lucroPlan: tLuPlan, lucroReal: tLuReal, gradePlan: tGp, gradeReal: tGr,
@@ -1786,7 +569,7 @@ function ComercialColecaoTab() {
       // ticket = poder de venda ÷ peças (real quando há grade real; senão planejado).
       ticket: tGr > 0 ? tPvReal / tGr : (tGp > 0 ? tPvPlan / tGp : 0),
     };
-    return { porLinha: rows, tot };
+    return { porLinha: rows, porColecao: rowsCol, tot };
   }, [modelos, custoMap, gradePlan, gradeReal]);
 
   // % da meta (poder de venda realizado ÷ planejado) — barras por linha.
@@ -1889,166 +672,46 @@ function ComercialColecaoTab() {
       <SecHeader icon={Tag}>Resultado da coleção</SecHeader>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{kpis}</div>
       <div className="grid gap-4 lg:grid-cols-2">{cardPvLinha}{cardMargem}</div>
+      <DetalheExpansivel titulo="Por coleção — planejado × realizado" sub="poder de venda, lucro, margem e markup">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm card-table">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-3">Coleção</th>
+                <th className="py-2 pr-3 text-right">PV plan.</th>
+                <th className="py-2 pr-3 text-right">PV real.</th>
+                <th className="py-2 pr-3 text-right">Lucro real.</th>
+                <th className="py-2 pr-3 text-right">Margem real.</th>
+                <th className="py-2 pr-3 text-right">Markup real.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porColecao.map((r) => {
+                const cReal = r.pvReal - r.lucroReal;
+                const margemReal = r.pvReal > 0 ? (r.lucroReal / r.pvReal) * 100 : 0;
+                const markupReal = cReal > 0 ? r.pvReal / cReal : 0;
+                return (
+                  <tr key={r.key} className="border-t">
+                    <td className="py-2 pr-3" data-label="Coleção">{r.nome}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="PV plan.">{brlAbrev(r.pvPlan)}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="PV real.">{brlAbrev(r.pvReal)}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="Lucro real.">{brlAbrev(r.lucroReal)}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="Margem real.">{fmtPctComercial(margemReal)}</td>
+                    <td className="py-2 pr-3 text-right num" data-label="Markup real.">{fmtMkp(markupReal)}</td>
+                  </tr>
+                );
+              })}
+              {porColecao.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados no filtro.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </DetalheExpansivel>
       {isLoad && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
   );
 }
 
-function ComercialTab() {
-  const [fMes, setFMes] = useState("all");
-  const [fAno, setFAno] = useState("all");
-  const [fSemana, setFSemana] = useState("all");
-  const [fSubcolecao, setFSubcolecao] = useState("all");
-  const [fColecao, setFColecao] = useState("all");
-
-  const { data: meses = [] } = useQuery({ queryKey: ["opt", "meses"], queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("ordem")).data ?? [] });
-  const { data: anos = [] } = useQuery({ queryKey: ["opt", "anos"], queryFn: async () => (await supabase.from("anos").select("id, nome:ano").order("ano")).data ?? [] });
-  const { data: opts = { colecoes: [] as string[], subcolecoes: [] as string[] } } = useQuery({
-    queryKey: ["comercial-opts"],
-    queryFn: async () => {
-      const { data } = await supabase.from("modelos").select("colecao, subcolecao");
-      return {
-        colecoes: Array.from(new Set((data ?? []).map((m: any) => m.colecao).filter(Boolean))).sort() as string[],
-        subcolecoes: Array.from(new Set((data ?? []).map((m: any) => m.subcolecao).filter(Boolean))).sort() as string[],
-      };
-    },
-  });
-
-  const { data: modelos = [], isLoading, isError } = useQuery({
-    queryKey: ["comercial-modelos", fMes, fAno, fSemana, fSubcolecao, fColecao],
-    queryFn: async () => {
-      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, markup_editado, linha:linha_id(nome, markup)");
-      if (fMes !== "all") q = q.eq("mes_id", fMes);
-      if (fAno !== "all") q = q.eq("ano_id", fAno);
-      if (fSemana !== "all") q = q.eq("semana", fSemana);
-      if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
-      if (fColecao !== "all") q = q.eq("colecao", fColecao);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
-  const ids = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
-
-  const { data: custoMap = {} } = useQuery({
-    queryKey: ["comercial-custo", ids], enabled: ids.length > 0,
-    queryFn: async () => (await supabase.rpc("custo_unitario_modelos" as any, { _ids: ids })).data ?? {},
-  });
-  const { data: gradePlan = {} } = useQuery({
-    queryKey: ["comercial-grade-plan", ids], enabled: ids.length > 0,
-    queryFn: async () => {
-      const { data } = await supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", ids);
-      const m: Record<string, number> = {};
-      (data ?? []).forEach((r: any) => { m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0); });
-      return m;
-    },
-  });
-  const { data: gradeReal = {} } = useQuery({
-    queryKey: ["comercial-grade-real", ids], enabled: ids.length > 0,
-    queryFn: async () => {
-      const { data } = await supabase.from("cad").select("modelo_id, cad_grades(grade_total_real)").in("modelo_id", ids);
-      const m: Record<string, number> = {};
-      (data ?? []).forEach((c: any) => {
-        const soma = (c.cad_grades ?? []).reduce((sum: number, g: any) => sum + Number(g.grade_total_real ?? 0), 0);
-        m[c.modelo_id] = (m[c.modelo_id] ?? 0) + soma;
-      });
-      return m;
-    },
-  });
-
-  const { byColecao, byLinha, tot } = useMemo(() => {
-    const acc = (map: Map<string, ComRow>, key: string, nome: string, m: any) => {
-      const cu = (custoMap as any)[m.id];
-      const custo = Number(cu?.real) || Number(cu?.previsto) || 0;
-      const pi = precoInfo(custo, m.linha?.markup, m.preco_venda, m.markup_editado);
-      const gp = Number((gradePlan as any)[m.id]) || 0;
-      const gr = Number((gradeReal as any)[m.id]) || 0;
-      let r = map.get(key);
-      if (!r) { r = { key, nome, pvPlan: 0, lucroPlan: 0, pvReal: 0, lucroReal: 0, margemPlan: 0, markupPlan: 0, margemReal: 0, markupReal: 0 }; map.set(key, r); }
-      r.pvPlan += pi.efetivo * gp; r.lucroPlan += (pi.efetivo - custo) * gp;
-      r.pvReal += pi.efetivo * gr; r.lucroReal += (pi.efetivo - custo) * gr;
-    };
-    // margem% = lucro/PV; markup = PV/custo, e custo = PV − lucro.
-    const derive = (r: ComRow): ComRow => {
-      const custoPlan = r.pvPlan - r.lucroPlan, custoReal = r.pvReal - r.lucroReal;
-      return { ...r,
-        margemPlan: r.pvPlan > 0 ? (r.lucroPlan / r.pvPlan) * 100 : 0,
-        markupPlan: custoPlan > 0 ? r.pvPlan / custoPlan : 0,
-        margemReal: r.pvReal > 0 ? (r.lucroReal / r.pvReal) * 100 : 0,
-        markupReal: custoReal > 0 ? r.pvReal / custoReal : 0,
-      };
-    };
-    const mc = new Map<string, ComRow>(), ml = new Map<string, ComRow>();
-    for (const m of modelos) {
-      acc(mc, m.colecao ?? "__none__", m.colecao || "Sem coleção", m);
-      acc(ml, m.linha_id ?? "__none__", (m.linha?.nome as string) || "Sem linha", m);
-    }
-    const finish = (map: Map<string, ComRow>) => Array.from(map.values()).map(derive).sort((a, b) => b.pvPlan - a.pvPlan);
-    const bc = finish(mc), bl = finish(ml);
-    const t0 = bc.reduce((a, r) => ({ pvPlan: a.pvPlan + r.pvPlan, lucroPlan: a.lucroPlan + r.lucroPlan, pvReal: a.pvReal + r.pvReal, lucroReal: a.lucroReal + r.lucroReal }), { pvPlan: 0, lucroPlan: 0, pvReal: 0, lucroReal: 0 });
-    const tot = derive({ key: "", nome: "", ...t0, margemPlan: 0, markupPlan: 0, margemReal: 0, markupReal: 0 });
-    return { byColecao: bc, byLinha: bl, tot };
-  }, [modelos, custoMap, gradePlan, gradeReal]);
-
-  const isMobile = useIsMobile();
-  const filtrosCom = [
-    { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))], single: true as const },
-    { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))], single: true as const },
-    { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))], single: true as const },
-    { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))], single: true as const },
-    { label: "Lançamento nº", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))], single: true as const },
-  ];
-  // Tabelas detalhadas (a "visão tabela" da régua) — card-table já adapta ao mobile. Reusadas
-  // nos dois ramos (mesma JSX = desktop byte-idêntico).
-  const tabelas = (
-    <>
-      <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
-      <ComTable title="Por linha" firstLabel="Linha" rows={byLinha} />
-    </>
-  );
-
-  // Mobile (Padrão A): resumo em KPI-cards (dinheiro ABREVIADO, cheio no title) + tabelas.
-  if (isMobile) {
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <MobileFilterBar filters={filtrosCom} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <KpiCardMobile compact label="Poder de venda" value={brlAbrev(tot.pvPlan)} valueTitle={brl(tot.pvPlan)} sub={`real. ${brlAbrev(tot.pvReal)}`} />
-          <KpiCardMobile compact label="Lucro bruto" value={brlAbrev(tot.lucroPlan)} valueTitle={brl(tot.lucroPlan)} sub={`real. ${brlAbrev(tot.lucroReal)}`} />
-          <KpiCardMobile compact label="Margem média" value={fmtPctComercial(tot.margemPlan)} sub={`real. ${fmtPctComercial(tot.margemReal)}`} />
-          <KpiCardMobile compact label="Markup médio" value={fmtMkp(tot.markupPlan)} sub={`real. ${fmtMkp(tot.markupReal)}`} />
-        </div>
-        {tabelas}
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        <DashError show={isError} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <DashTabsList />
-        <FilterButton filters={filtrosCom} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)}`} />
-        <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={`realizado ${brl(tot.lucroReal)}`} />
-        <Kpi label="Margem média" value={fmtPctComercial(tot.margemPlan)} icon={Sparkles} sub={`realizado ${fmtPctComercial(tot.margemReal)}`} />
-        <Kpi label="Markup médio" value={fmtMkp(tot.markupPlan)} icon={Layers} sub={`realizado ${fmtMkp(tot.markupReal)}`} />
-      </div>
-
-      {tabelas}
-
-      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-      <DashError show={isError} />
-    </div>
-  );
-}
 
 /* ============================ LEADTIME ============================ */
 
@@ -2462,6 +1125,28 @@ function DesenvolvimentoTab() {
         </Card>
       </div>
 
+      <DetalheExpansivel titulo="Modelos por categoria" sub="distribuição da coleção">
+        {(() => {
+          const pie: any[] = col.data?.pie ?? [];
+          const totPie = pie.reduce((s, p) => s + Number(p.total || 0), 0) || 1;
+          return pie.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sem dados de categoria no filtro.</p>
+          ) : (
+            <div className="space-y-2">
+              {[...pie].sort((a, b) => Number(b.total) - Number(a.total)).map((p) => {
+                const pct = Math.round((Number(p.total || 0) / totPie) * 100);
+                return (
+                  <div key={p.nome}>
+                    <div className="flex justify-between text-sm"><span className="truncate">{p.nome}</span><span className="font-semibold tabular-nums">{fmtInt(p.total)} · {pct}%</span></div>
+                    <div className="mt-1 h-2 overflow-hidden rounded bg-muted"><div className="h-full rounded" style={{ width: `${pct}%`, background: CHART_SERIE }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </DetalheExpansivel>
+
       {!isLoading && itens.length === 0 && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
           Sem dados de desenvolvimento ainda. Os números populam conforme os modelos avançam no fluxo.
@@ -2586,6 +1271,7 @@ function ProducaoQualidadeTab() {
   });
 
   const kpiPrazo = prod.data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
+  const slaPorTerc: any[] = prod.data?.slaPorTerc ?? [];
   const defeitoMes: any[] = prod.data?.defeitoPorMes ?? [];
   const defeitoMedio = useMemo(
     () => (defeitoMes.length ? defeitoMes.reduce((s, d) => s + Number(d.taxa || 0), 0) / defeitoMes.length : 0),
@@ -2736,6 +1422,36 @@ function ProducaoQualidadeTab() {
         <MonthBarCard title="Peças finalizadas por mês" data={finalizadas} dataKey="grade" name="Peças" color={CHART_SERIE} empty="Sem produção finalizada." loading={prod.isLoading} />
       </div>
       <MonthBarCard title="Taxa de defeito no tempo" subtitle="defeito ÷ recebido, por mês (%)" data={defeitoMes} dataKey="taxa" name="Defeito %" color={CHART_SERIE} empty="Sem dados de defeito." loading={prod.isLoading} />
+
+      <DetalheExpansivel titulo="SLA por serviço" sub="prazo médio, atrasos e defeito por prestador">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm card-table">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-3">Prestador</th>
+                <th className="py-2 pr-3">Serviço</th>
+                <th className="py-2 pr-3 text-right">SLA médio</th>
+                <th className="py-2 pr-3 text-right">Atrasos</th>
+                <th className="py-2 pr-3 text-right">Entregas</th>
+                <th className="py-2 pr-3 text-right">Defeito</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...slaPorTerc].sort((a, b) => Number(b.atrasos || 0) - Number(a.atrasos || 0)).map((r, i) => (
+                <tr key={(r.nome ?? "") + (r.tipo ?? "") + i} className="border-t">
+                  <td className="py-2 pr-3" data-label="Prestador">{r.nome}</td>
+                  <td className="py-2 pr-3" data-label="Serviço">{r.tipo}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="SLA médio">{r.slaMedio != null ? `${fmtNum(r.slaMedio)}d` : "—"}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Atrasos" style={{ color: Number(r.atrasos) > 0 ? "var(--tone-danger-fg)" : undefined }}>{fmtInt(r.atrasos)}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Entregas">{fmtInt(r.total)}</td>
+                  <td className="py-2 pr-3 text-right num" data-label="Defeito">{fmtNum(r.taxaDefeito)}%</td>
+                </tr>
+              ))}
+              {slaPorTerc.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem entregas de serviço no filtro.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </DetalheExpansivel>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
