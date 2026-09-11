@@ -13,6 +13,12 @@ type MoneyInputProps = Omit<React.ComponentPropsWithoutRef<typeof Input>, "value
   onChange?: (e: { target: { value: string } }) => void;
   /** Casas decimais aceitas (padrão 2). 0 = só inteiro. */
   decimals?: number;
+  /**
+   * SEMPRE exibe exatamente `decimals` casas em repouso/blur (ex.: "698" -> "698,00",
+   * "698,5" -> "698,50"). Use onde 2 casas são obrigatórias (preço). Enquanto digita segue
+   * fluido; só normaliza ao sair do campo. Sem isso, "698" fica "698" e "698,5" fica "698,5".
+   */
+  fixedDecimals?: boolean;
 };
 
 /**
@@ -23,17 +29,17 @@ type MoneyInputProps = Omit<React.ComponentPropsWithoutRef<typeof Input>, "value
  * Lógica de máscara pura em `@/lib/money-mask` (testada em tests/unit/money-mask.test.ts).
  */
 export const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(function MoneyInput(
-  { value, onChange, onFocus, onBlur, decimals = 2, ...rest },
+  { value, onChange, onFocus, onBlur, decimals = 2, fixedDecimals = false, ...rest },
   ref,
 ) {
   const innerRef = useRef<HTMLInputElement | null>(null);
   const focused = useRef(false);
   const caret = useRef<number | null>(null);
-  const [text, setText] = useState(() => valueToMasked(value, decimals));
+  const [text, setText] = useState(() => valueToMasked(value, decimals, fixedDecimals));
 
   // Sincroniza o texto quando o value externo muda e o campo não está focado.
   useEffect(() => {
-    if (!focused.current) setText(valueToMasked(value, decimals));
+    if (!focused.current) setText(valueToMasked(value, decimals, fixedDecimals));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
@@ -60,7 +66,7 @@ export const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(function
       type="text"
       value={text}
       onFocus={(e) => { focused.current = true; onFocus?.(e); }}
-      onBlur={(e) => { focused.current = false; setText(valueToMasked(value, decimals)); onBlur?.(e); }}
+      onBlur={(e) => { focused.current = false; setText(valueToMasked(value, decimals, fixedDecimals)); onBlur?.(e); }}
       onChange={(e) => {
         const el = e.target;
         const raw = el.value;

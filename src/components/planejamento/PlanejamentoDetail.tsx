@@ -33,6 +33,7 @@ import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
@@ -253,7 +254,8 @@ function PrecoTabela(props: {
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
             <td className="py-2 px-2 text-right">
               {podeEditarPreco ? (
-                <NumberInput
+                <MoneyInput
+                  fixedDecimals
                   className="ml-auto h-8 w-32 text-right tabular-nums"
                   value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
                   placeholder={precoSug > 0 ? brl(precoSug) : undefined}

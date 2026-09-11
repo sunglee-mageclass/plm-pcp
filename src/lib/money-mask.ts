@@ -66,13 +66,23 @@ export function sigBeforeCaret(raw: string, caret: number, decimals: number): nu
   return countSig(normalizedFull.slice(0, normalizedCaret));
 }
 
-/** Valor canônico -> texto mascarado pt-BR (só mostra decimais se existirem no valor). */
-export function valueToMasked(v: number | string | null | undefined, decimals: number): string {
+/**
+ * Valor canônico -> texto mascarado pt-BR. Por padrão só mostra decimais se existirem no valor.
+ * Com `fixed=true`, SEMPRE preenche EXATAMENTE `decimals` casas (ex.: "698" -> "698,00",
+ * "698.5" -> "698,50") — usado onde 2 casas são obrigatórias (preço). Só afeta a EXIBIÇÃO em
+ * repouso/blur; o valor canônico emitido segue enxuto.
+ */
+export function valueToMasked(v: number | string | null | undefined, decimals: number, fixed = false): string {
   if (v === null || v === undefined || v === "" || (typeof v === "number" && Number.isNaN(v))) return "";
   const s = String(v).replace("-", "");
   const [rawInt = "", rawDec] = s.split(".");
   const gi = groupInt(rawInt.replace(/\D/g, ""));
-  if (rawDec == null || decimals <= 0) return gi;
+  if (decimals <= 0) return gi;
+  if (fixed) {
+    const dec = (rawDec ?? "").replace(/\D/g, "").slice(0, decimals).padEnd(decimals, "0");
+    return (gi === "" ? "0" : gi) + "," + dec;
+  }
+  if (rawDec == null) return gi;
   const dec = rawDec.replace(/\D/g, "").slice(0, decimals);
   return dec === "" ? gi : (gi === "" ? "0" : gi) + "," + dec;
 }

@@ -66,6 +66,24 @@ describe("valueToMasked (repouso — só mostra decimais se existirem)", () => {
   });
 });
 
+describe("valueToMasked (fixed — SEMPRE 2 casas: preço)", () => {
+  it("inteiro ganha ,00; decimal com 1 casa vira ,x0; 2 casas intactas", () => {
+    expect(valueToMasked(698, 2, true)).toBe("698,00");
+    expect(valueToMasked(698.5, 2, true)).toBe("698,50");
+    expect(valueToMasked("698.5", 2, true)).toBe("698,50");
+    expect(valueToMasked("1234.5", 2, true)).toBe("1.234,50");
+    expect(valueToMasked("1234.56", 2, true)).toBe("1.234,56");
+    expect(valueToMasked(0, 2, true)).toBe("0,00");
+    expect(valueToMasked(1234, 2, true)).toBe("1.234,00");
+    expect(valueToMasked(1234.567, 2, true)).toBe("1.234,56"); // trava/trunca em 2
+  });
+  it("vazios continuam vazios (não vira 0,00 à toa)", () => {
+    expect(valueToMasked("", 2, true)).toBe("");
+    expect(valueToMasked(null, 2, true)).toBe("");
+    expect(valueToMasked(undefined, 2, true)).toBe("");
+  });
+});
+
 describe("normalizarPontos (ponto digitado vira vírgula decimal, sem quebrar milhar colado)", () => {
   it("sem vírgula: último ponto com ≤ decimals dígitos depois vira decimal", () => {
     expect(normalizarPontos("12.5", 2)).toBe("12,5");

@@ -1278,7 +1278,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                 <td className="w-[56%] text-right" onClick={(e) => e.stopPropagation()}>
                   {!podeVerCustos ? <span className="text-muted-foreground">—</span>
                     : podeEditarPreco ? (
-                      <MoneyInput value={precoDraft} placeholder={preco != null ? brl(preco) : "0,00"}
+                      <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
                         onChange={(e) => setPrecoDraft(e.target.value)}
                         onBlur={commitPreco}
                         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1301,7 +1301,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                 <td className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1.5 min-w-0">
                     <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
-                      className="h-7 w-[7.75rem] shrink-0 [&_input]:h-7 [&_input]:px-2 [&_input]:text-xs" />
+                      className="h-7 w-[7.75rem] shrink-0 [&_input]:h-7 [&_input]:pl-2 [&_input]:pr-7 [&_input]:text-xs [&_button]:w-7 [&_svg]:h-3.5 [&_svg]:w-3.5" />
                     <button type="button" disabled={lancStatus == null}
                       aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
                       title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
