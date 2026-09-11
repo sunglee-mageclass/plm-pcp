@@ -1,31 +1,26 @@
 import { useId, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Check, X, AlertTriangle } from "lucide-react";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
 import type { MoLinha } from "@/lib/mao-obra";
 import { MoReprovarDialog } from "./MoReprovarDialog";
 
 /**
- * Seção EXPANDIDA de mão de obra por serviço, SEMPRE VISÍVEL no card completo da lista do
- * Planejamento (spec 2026-08-11, Task 2 — decisão do dono: seção, não popover). Abaixo do
- * badge agregado já existente. Só LÊ + aprova/reprova por linha (sem editar valor/adicionar/
- * remover serviço — isso é só no editor completo `MaoObraEditor`, dentro do card aberto).
+ * Linha(s) de mão de obra por serviço no card TABULADO da lista do Planejamento (redesenho
+ * set/2026; era a seção "caixa com borda" da spec 2026-08-11). Só LÊ + aprova/reprova por linha
+ * (sem editar valor/adicionar/remover serviço — isso é só no editor completo `MaoObraEditor`,
+ * dentro do card aberto).
  *
- * Paridade de comportamento com o `MaoObraEditor`: os botões Aprovar/Reprovar aparecem p/
- * TODA linha quando `podeAprovarMaoObra` — inclusive uma linha já aprovada (o editor não
- * esconde os botões nesse caso; não inventar um "Desfazer" que o editor não tem). Reprovar
- * abre o MESMO `MoReprovarDialog` (motivo obrigatório) usado pelo editor.
+ * Formato tabulado (decisão do dono): valor + botões ✓/✗; **o ESTADO é o botão aceso** — nenhum
+ * aceso = pendente · ✓ verde aceso = aprovada · ✗ vermelho aceso = reprovada (sem badge de texto
+ * nem bolinha; `title`/tooltip reforça, não depende só de cor). 1 serviço → uma linha "Mão de
+ * obra | valor ✓/✗". 2+ serviços → cabeçalho "Mão de obra · N serviços" + uma linha por serviço
+ * (nome à esquerda). >3 trunca com "+N" expansível.
  *
- * Densidade: linhas `py-1 text-xs`, botões `size="iconSm"` (32px, padrão de tabela compacta).
- * >3 serviços trunca com "+N" expansível — evita dobrar a altura do card.
- *
- * `pendingCategoriaId` (opcional): categoria da linha com um aprovar/reprovar EM VOO (mutation
- * `isPending`, resolvida pelo chamador a partir das `variables` da mutation compartilhada da
- * lista) — desabilita os 2 botões DAQUELA linha, evitando 2 requests por duplo-clique.
- * `undefined` = nada pendente (não dá p/ usar `null` de sentinela — é um `categoria_
- * terceirizado_id` válido pra "Geral (legado)").
+ * Paridade com o `MaoObraEditor`: botões aparecem p/ TODA linha quando `podeAprovarMaoObra`
+ * (inclusive já aprovada — o editor não esconde). Reprovar abre o MESMO `MoReprovarDialog`.
+ * `pendingCategoriaId` desabilita os 2 botões DAQUELA linha (guard de duplo-clique); `undefined`
+ * = nada pendente (`null` é `categoria_terceirizado_id` válido de "Geral (legado)").
  */
 export function MoListaSection({
   linhas, podeVerCustos, podeAprovarMaoObra, onAprovar, onReprovar, pendingCategoriaId,
@@ -38,69 +33,62 @@ export function MoListaSection({
   pendingCategoriaId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  // `undefined` = dialog fechado; `categoria_terceirizado_id` (pode ser `null`, linha
-  // "Geral (legado)") = dialog aberto p/ aquela linha — por isso não dá p/ usar `null` como
-  // sentinela de "fechado".
   const [reproAlvo, setReproAlvo] = useState<string | null | undefined>(undefined);
   const listaId = useId();
 
   if (linhas.length === 0) return null;
 
+  const multi = linhas.length > 1;
   const visiveis = expanded ? linhas : linhas.slice(0, 3);
   const ocultos = linhas.length - visiveis.length;
 
+  // Uma linha de serviço: [rótulo] · [valor + ✓/✗]. rótulo = "Mão de obra" (1 serviço) ou o nome
+  // do serviço (multi). Estado do serviço = qual botão está aceso.
+  const linhaServico = (l: MoLinha) => {
+    const id = l.categoria_terceirizado_id;
+    const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
+    const rowPending = pendingCategoriaId !== undefined && pendingCategoriaId === id;
+    const tip = estado === "aprovada" ? "Aprovada" : estado === "reprovada" ? `Reprovada${l.motivo_reprovacao ? ` — ${l.motivo_reprovacao}` : ""}` : "Pendente";
+    return (
+      <div key={id ?? "legado"} className="flex min-w-0 items-center gap-1.5 px-2.5 py-[5px]">
+        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={multi ? (l.nome ?? undefined) : tip}>{multi ? (l.nome || "Serviço") : "Mão de obra"}</span>
+        {podeVerCustos && <span className="shrink-0 tabular-nums">{l.valor != null ? brl(l.valor) : "—"}</span>}
+        {podeAprovarMaoObra ? (
+          <span className="flex shrink-0 gap-1">
+            <button type="button" aria-label="Aprovar" title={rowPending ? "Processando…" : "Aprovar"} disabled={rowPending}
+              onClick={() => onAprovar(id)}
+              className={`inline-flex h-[21px] w-[21px] items-center justify-center rounded-[5px] border text-xs ${estado === "aprovada" ? "border-emerald-500/50 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40" : "border-input text-emerald-700 hover:bg-muted"} disabled:opacity-50`}>
+              <Check className="h-3 w-3" />
+            </button>
+            <button type="button" aria-label="Reprovar" title={rowPending ? "Processando…" : "Reprovar"} disabled={rowPending}
+              onClick={() => setReproAlvo(id)}
+              className={`inline-flex h-[21px] w-[21px] items-center justify-center rounded-[5px] border text-xs ${estado === "reprovada" ? "border-red-500/50 bg-red-50 text-red-700 dark:bg-red-950/40" : "border-input text-red-700 hover:bg-muted"} disabled:opacity-50`}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ) : (
+          // Sem permissão de aprovar: mostra o estado por um ícone (não só cor).
+          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+            <span className={`inline-flex h-[21px] w-[21px] items-center justify-center rounded-[5px] ${estado === "aprovada" ? "text-emerald-700" : estado === "reprovada" ? "text-red-700" : "text-amber-600"}`}>
+              {estado === "aprovada" ? <Check className="h-3.5 w-3.5" /> : estado === "reprovada" ? <X className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            </span>
+          </TooltipTrigger><TooltipContent className="max-w-[220px]"><p className="text-xs">{tip}</p></TooltipContent></Tooltip></TooltipProvider>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div id={listaId} className="grid min-w-0 gap-1" onClick={(e) => e.stopPropagation()}>
-      {visiveis.map((l) => {
-        const id = l.categoria_terceirizado_id;
-        const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
-        return (
-          // `min-w-0` + `flex-wrap` são CRÍTICOS aqui: o card completo (5 colunas) só dá ~180px
-          // de largura útil pra linha — nome + valor + badge + 2 botões não cabem numa linha só
-          // pra serviço com nome longo ("Geral (legado)") + badge "reprovada". Sem `min-w-0` no
-          // item de grid, a linha estoura a largura do card (que tem `overflow-hidden`) e o
-          // botão Reprovar some visualmente sem aviso nenhum. Sem `flex-wrap` (+ o nome preso
-          // em `flex-1` puro), o nome é espremido até 0px de largura pra caber o resto — mesmo
-          // bug, disfarçado (o serviço vira invisível em vez do botão). `min-w-[3.5rem]` no nome
-          // garante um mínimo legível; o que não couber quebra pra 2ª linha (badge/botões).
-          <div key={id ?? "legado"} className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 rounded border px-1.5 py-1 text-xs">
-            <span className="min-w-[3.5rem] flex-1 truncate" title={l.nome ?? undefined}>{l.nome || "Serviço"}</span>
-            {podeVerCustos && <span className="shrink-0 text-[11px] text-muted-foreground">{l.valor != null ? brl(l.valor) : "—"}</span>}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <StatusBadge
-                    tone={estado === "aprovada" ? "success" : estado === "reprovada" ? "danger" : "warning"}
-                    className="gap-0.5 rounded-full px-1.5 py-0.5"
-                  >
-                    {estado === "aprovada" ? <Check className="h-2.5 w-2.5" /> : estado === "reprovada" ? <X className="h-2.5 w-2.5" /> : <AlertTriangle className="h-2.5 w-2.5" />}
-                    {estado}
-                  </StatusBadge>
-                </TooltipTrigger>
-                {estado === "reprovada" && l.motivo_reprovacao && (
-                  <TooltipContent className="max-w-[220px]"><p className="text-xs">Motivo: {l.motivo_reprovacao}</p></TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-            {podeAprovarMaoObra && (() => {
-              // Guard de duplo-clique: enquanto ESTA linha tem um aprovar/reprovar em voo
-              // (`pendingCategoriaId` resolvido pelo chamador a partir da mutation
-              // compartilhada), os 2 botões da linha ficam desabilitados — sem isso, 2 cliques
-              // rápidos disparavam 2 requests (`aprovar_servico_mo` não é idempotente por si só
-              // contra corrida cliente-side).
-              const rowPending = pendingCategoriaId !== undefined && pendingCategoriaId === id;
-              return (
-                <span className="ml-auto flex shrink-0 gap-1">
-                  <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" disabled={rowPending} onClick={() => onAprovar(id)}><Check className="h-3.5 w-3.5" /></Button>
-                  <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" disabled={rowPending} onClick={() => setReproAlvo(id)}><X className="h-3.5 w-3.5" /></Button>
-                </span>
-              );
-            })()}
-          </div>
-        );
-      })}
+    <div id={listaId} className="min-w-0 text-xs" onClick={(e) => e.stopPropagation()}>
+      {multi && (
+        <div className="flex items-center px-2.5 pt-[5px] pb-0.5">
+          <span className="text-muted-foreground">Mão de obra</span>
+          <span className="ml-auto text-[11px] text-muted-foreground">{linhas.length} serviços</span>
+        </div>
+      )}
+      {visiveis.map(linhaServico)}
       {linhas.length > 3 && (
-        <button type="button" className="text-left text-[11px] text-muted-foreground hover:underline"
+        <button type="button" className="px-2.5 py-0.5 text-left text-[11px] text-muted-foreground hover:underline"
           aria-expanded={expanded} aria-controls={listaId}
           onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Mostrar menos" : `+${ocultos} serviço${ocultos > 1 ? "s" : ""}`}

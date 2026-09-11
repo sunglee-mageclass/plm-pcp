@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
@@ -232,6 +233,25 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao lançar")),
   });
+  // Preço de venda editável DIRETO no card (novo desenho tabulado, set/2026). Update pontual em
+  // `modelos.preco_venda` (molde do `bulkMoverMix`/`lancarCard`: RLS tenant-scope; o gate de
+  // permissão é o trigger `fn_modelo_preco_venda_gate`, que exige criacao_planejamento:preco_venda).
+  // Same-field, mesmo destino do preço do Sheet. Sem `.eq("rev")` (last-write-wins como as outras
+  // mutations pontuais da página); o Sheet aberto detecta o bump de rev no próximo refetch. Invalida
+  // a lista + o custo unitário (o preço efetivo/markup do card sai de piFor→custoMap+preco_venda).
+  const salvarPrecoVenda = useMutation({
+    mutationFn: async ({ id, preco }: { id: string; preco: number | null }) => {
+      const { error } = await supabase.from("modelos").update({ preco_venda: preco }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+      qc.invalidateQueries({ queryKey: ["modelo", v.id] });          // re-sync rev do Sheet/colab
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }); // identidade compartilhada Plan.↔Dev
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
+  });
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const agrup = useAgrupamentoState("criacao-planejamento", ["tecido"]);
   const groupByCat = agrup.isOn("categoria");
@@ -257,7 +277,10 @@ function PlanejamentoPage() {
       return n;
     });
   // Planejamento sempre abre com 5 colunas (não persiste a escolha entre acessos).
-  const [cols, setCols] = useGridCols("planejamento", 5, true);
+  // Abre com 4 colunas (era 5): o card TABULADO (set/2026) é mais informativo e precisa de mais
+  // largura — a data de lançamento (dd/mm/aaaa) + foguete não cabem confortáveis em 5 col. O
+  // usuário ainda pode escolher 5+ no seletor de colunas (não persiste — alwaysReset).
+  const [cols, setCols] = useGridCols("planejamento", 4, true);
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
   const fl = useFieldLabels();
@@ -366,6 +389,31 @@ function PlanejamentoPage() {
       if (error) throw error;
       const m: Record<string, number> = {};
       for (const r of (data ?? []) as any[]) m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0);
+      return m;
+    },
+  });
+  // Total de peças REAL (após a Grade Real do CQ) por modelo — cad_grades.grade_total_real somado,
+  // SÓ quando o CQ está LIBERADO (`cqLiberado` = Pré confirmado E, se há serviço pós-costura ativo,
+  // Pós confirmado; SSOT `@/lib/cq-status`, mesmo gate do `cqProntoMap` abaixo). Antes disso o card
+  // mostra a estimativa (grade planejada, `gradeByModelo`) em laranja; com o CQ liberado, a real em
+  // preto — coerente com "a grade real só é autoritativa quando o modelo está liberado" (invariante
+  // #6), sem pintar de "real" um modelo cujo acabamento ainda não passou. Liga por cad.modelo_id.
+  const { data: pecasRealByModelo = {} } = useQuery({
+    queryKey: ["plan-grade-real", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cad")
+        .select("modelo_id, controle_qualidade(status, status_pos), producao_terceirizados(ativo, categorias_terceirizado(etapa)), cad_grades(grade_total_real)")
+        .in("modelo_id", modeloIdsAll);
+      if (error) throw error;
+      const m: Record<string, number> = {};
+      for (const row of (data ?? []) as any[]) {
+        if (!row.modelo_id) continue;
+        if (!cqLiberado(row)) continue; // real só vale com o CQ liberado (Pré + Pós se houver)
+        const soma = (row.cad_grades ?? []).reduce((s: number, g: any) => s + Number(g.grade_total_real ?? 0), 0);
+        if (soma > 0) m[row.modelo_id] = (m[row.modelo_id] ?? 0) + soma;
+      }
       return m;
     },
   });
@@ -578,6 +626,11 @@ function PlanejamentoPage() {
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
+        refModelo={(m as any).ref || (m as any).ref_auto || null}
+        precoVenda={(m as any).preco_venda ?? null}
+        onPrecoVenda={(preco) => salvarPrecoVenda.mutate({ id: m.id, preco })}
+        pecasEst={numOr0((gradeByModelo as any)[m.id]) || null}
+        pecasReal={numOr0((pecasRealByModelo as any)[m.id]) || null}
         onOpen={() => setOpenId(m.id)}
         onExcluir={() => { setSelected(new Set([m.id])); setConfirmBulkDel(true); }}
         compact={compact}
@@ -1070,8 +1123,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, onExcluir, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onExcluir, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1082,6 +1135,20 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
+  // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger). VER o preço
+  // segue sob `podeVerCustos`. Revenda tem preço DERIVADO (não editável aqui — edita markups no Sheet).
+  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda") && !ehOrigemComprada(modelo.origem);
+  // Rascunho local do preço editável (mesmo padrão do dtLanc). Salva no blur/Enter via onPrecoVenda.
+  const [precoDraft, setPrecoDraft] = useState<string>(precoVenda != null && precoVenda > 0 ? String(precoVenda) : "");
+  const precoBaseRef = useRef(precoVenda);
+  if (precoBaseRef.current !== precoVenda) { // re-semeia se o valor do servidor mudou (refetch)
+    precoBaseRef.current = precoVenda;
+    setPrecoDraft(precoVenda != null && precoVenda > 0 ? String(precoVenda) : "");
+  }
+  const commitPreco = () => {
+    const novo = numOr0(precoDraft) > 0 ? Number(precoDraft) : null;
+    if (novo !== (precoVenda ?? null)) onPrecoVenda(novo);
+  };
   // Mão de obra por serviço (estado agregado do modelo): sem_servico | pendente | reprovada |
   // aprovada. Aprovar/reprovar é POR LINHA no editor do detalhe — o card só exibe o estado.
   const moTxt = moEstado === "aprovada" ? "Mão de obra aprovada"
@@ -1122,174 +1189,173 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         )}
       </div>
       {compact ? (
-        // Compacto (mobile e desktop c/ muitas colunas): nome + STATUS textual + categoria + preço +
-        // situação da MO (laudo: o compacto só mostrava nome/preço → status ficava só na cor da borda,
-        // barreira p/ daltônicos, e sem contexto do modelo). Status por texto, não só cor.
+        // Compacto (mobile / desktop c/ muitas colunas): só o essencial — nome · REF · preço de
+        // venda · markup (decisão do dono set/2026). Toque abre o Sheet com o resto. Status por
+        // badge (não só a cor da borda — acessibilidade/daltônicos).
         <div className="p-2 space-y-1">
           <div className="flex items-center gap-1">
             <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
             {ehOrigemComprada(modelo.origem) && (
               <StatusBadge tone="info" className="text-[10px] normal-case tracking-normal shrink-0">{rotuloOrigemLane(modelo.origem)}</StatusBadge>
             )}
-            <button
-              type="button"
-              title="Abrir card"
-              aria-label="Abrir card"
+            <button type="button" title="Abrir card" aria-label="Abrir card"
               className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onOpen(); }}
-            >
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}>
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
             <Popover>
               <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Mais ações"
+                <button type="button" aria-label="Mais ações"
                   className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                  onClick={(e) => e.stopPropagation()}>
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
                 <PopoverClose asChild>
-                  <button
-                    type="button"
-                    onClick={onExcluir}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Excluir
+                  <button type="button" onClick={onExcluir}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" /> Excluir
                   </button>
                 </PopoverClose>
               </PopoverContent>
             </Popover>
           </div>
-          <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
           <div className="flex items-center gap-1">
-            {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
-            {(podeVerCustos || podeAprovarMaoObra) && (
-              <StatusBadge
-                tone={moEstado === "aprovada" || moEstado === "sem_servico" ? "success" : moEstado === "reprovada" ? "danger" : "warning"}
-                title={moTxt}
-                className="ml-auto shrink-0 rounded-full px-1 py-0.5"
-              >
-                MO
-              </StatusBadge>
-            )}
+            <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
+            {refModelo && <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">{refModelo}</span>}
           </div>
-          {podeVerCustos && <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>}
+          {podeVerCustos && (
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="font-medium tabular-nums">{preco != null ? brl(preco) : "—"}</span>
+              <span className="tabular-nums text-muted-foreground">{markup != null ? `${Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2})}×` : "—"}</span>
+            </div>
+          )}
         </div>
       ) : (
-        // Corpo cheio: status = borda do card (sem badge, poupa a linha). Uma info por
-        // linha; custo (real/previsto) incluído.
-        <div className="p-3 space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
+        // Corpo cheio TABULADO (redesenho set/2026): tabela título · valor, uma linha por info.
+        // Mesmos dados de antes + REF, preço editável, total de peças (est/real) e custo total.
+        // Status segue na borda esquerda do card (sem badge, poupa linha). Ações do item no header.
+        <div className="text-xs">
+          {/* header: nome + origem + versão + abrir/⋯ (ações do ITEM, §L) */}
+          <div className="flex items-start justify-between gap-2 px-2.5 pt-2.5 pb-1">
             <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
             {ehOrigemComprada(modelo.origem) && (
               <StatusBadge tone="info" className="normal-case tracking-normal shrink-0">{rotuloOrigemLane(modelo.origem)}</StatusBadge>
             )}
             <VersaoBadge versao={modelo.versao} />
-            <button
-              type="button"
-              title="Abrir card"
-              aria-label="Abrir card"
-              className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onOpen(); }}
-            >
+            <button type="button" title="Abrir card" aria-label="Abrir card"
+              className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}>
               <ExternalLink className="h-4 w-4" />
             </button>
             <Popover>
               <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Mais ações"
-                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <button type="button" aria-label="Mais ações"
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={(e) => e.stopPropagation()}>
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
                 <PopoverClose asChild>
-                  <button
-                    type="button"
-                    onClick={onExcluir}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Excluir
+                  <button type="button" onClick={onExcluir}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" /> Excluir
                   </button>
                 </PopoverClose>
               </PopoverContent>
             </Popover>
           </div>
-          <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
-          {/* Coleção | Subcoleção */}
-          <div className="grid grid-cols-2 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
-            <span>{modelo.colecao ?? "—"}</span><span>{modelo.subcolecao || "—"}</span>
-          </div>
-          <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" · ") || "—"}</p>
-          {/* Linha | Categoria em 2 colunas (cabe sem cortar); Markup vai p/ a própria linha
-              (antes eram 3 colunas num card estreito e o texto cortava). Markup = custo → gated. */}
-          <div className="grid grid-cols-2 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
-            <span title={linhaNome ?? undefined}>{linhaNome ?? "—"}</span>
-            <span title={categoriaNome ?? undefined}>{categoriaNome ?? "—"}</span>
-          </div>
-          {podeVerCustos && <p className="text-xs text-muted-foreground truncate">Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</p>}
-          {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
-          {(podeVerCustos || podeAprovarMaoObra) && (
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs">
-              {/* Mão de obra em CANAL PRÓPRIO (badge ícone, não a bolinha do status). Estado
-                  agregado por serviço; aprovar/reprovar é por linha no editor do detalhe. */}
-              <StatusBadge
-                tone={moEstado === "aprovada" || moEstado === "sem_servico" ? "success" : moEstado === "reprovada" ? "danger" : "warning"}
-                className="shrink-0 gap-1 rounded-full px-2 py-0.5 normal-case tracking-normal"
-              >
-                {moEstado === "aprovada" || moEstado === "sem_servico" ? <Check className="h-3 w-3" /> : moEstado === "reprovada" ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                MO {moEstado === "sem_servico" ? "—" : moEstado === "aprovada" ? "aprovada" : moEstado === "reprovada" ? "reprovada" : "pendente"}
-              </StatusBadge>
-              {podeVerCustos && <span className="truncate text-muted-foreground">{maoObra != null ? brl(maoObra) : "—"}</span>}
-            </div>
-          )}
-          {/* Seção EXPANDIDA de MO por serviço (spec 2026-08-11, Task 2 — decisão do dono: sempre
-              visível, não popover). Aprovar/reprovar POR SERVIÇO direto da lista, sem abrir o
-              card. Oculta p/ comprado (revenda/importado — não tem MO, invariante #8/§Revenda) e p/
-              "sem_servico" (o badge acima já cobre esse caso; a seção sozinha ficaria vazia). */}
-          {(podeVerCustos || podeAprovarMaoObra) && moEstado !== "sem_servico" && !ehOrigemComprada(modelo.origem) && (
-            <MoListaSection
-              linhas={linhasMO}
-              podeVerCustos={podeVerCustos}
-              podeAprovarMaoObra={podeAprovarMaoObra}
-              onAprovar={onAprovarMO}
-              onReprovar={onReprovarMO}
-              pendingCategoriaId={pendingCategoriaMO}
-            />
-          )}
-          {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
-          {/* "Lançar" = AÇÃO clara (verbo), alvo grande — antes era um foguete de 16px que lançava
-              sem confirmação, colado na data (laudo Fitts). "Lançamento N" (a onda) é OUTRA coisa,
-              acima nos chips. Botão: âmbar=pronto p/ lançar · verde=lançado (clica p/ cancelar) ·
-              cinza=indisponível (falta CQ/MO). */}
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
-            <span className="shrink-0 text-muted-foreground">Lançar em</span>
-            <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
-              className="h-7 w-[6.6rem] shrink-0 [&_input]:h-7 [&_input]:px-1.5 [&_input]:text-xs" />
-            {/* Só o ícone (a linha já diz "Lançar em") — botão de tamanho adequado (não o foguete
-                de 16px do laudo); estado por cor + tooltip: âmbar pronto · verde lançado (clica p/
-                cancelar) · cinza indisponível. */}
-            <button type="button" disabled={lancStatus == null}
-              aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
-              title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
-              onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
-              className={`ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${
-                lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
-                : lancStatus === "pronto" ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-                : "cursor-not-allowed border-input text-muted-foreground/60"}`}>
-              <Rocket className="h-4 w-4" />
-            </button>
-          </div>
+          {/* REF (mono, só quando há) */}
+          {refModelo && <div className="px-2.5 pb-1 font-mono text-[11px] text-muted-foreground truncate">{refModelo}</div>}
+          {/* tabela título · valor (layout fixo p/ não extrapolar o card) */}
+          <table className="w-full table-fixed border-collapse [&_td]:border-t [&_td]:border-dashed [&_td]:border-border/70 [&_td]:px-2.5 [&_td]:py-[5px] [&_td]:overflow-hidden">
+            <tbody className="align-middle">
+              {/* Preço de venda — editável inline quando podeEditarPreco; senão read-only (gated ver custos) */}
+              <tr>
+                <td className="w-[44%] text-muted-foreground whitespace-nowrap">Preço de venda</td>
+                <td className="w-[56%] text-right" onClick={(e) => e.stopPropagation()}>
+                  {!podeVerCustos ? <span className="text-muted-foreground">—</span>
+                    : podeEditarPreco ? (
+                      <MoneyInput value={precoDraft} placeholder={preco != null ? brl(preco) : "0,00"}
+                        onChange={(e) => setPrecoDraft(e.target.value)}
+                        onBlur={commitPreco}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        className="ml-auto h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
+                    ) : (
+                      <span className="font-medium tabular-nums">{precoVenda != null && precoVenda > 0 ? brl(precoVenda) : preco != null ? brl(preco) : "—"}</span>
+                    )}
+                </td>
+              </tr>
+              {/* Coleção | Subcoleção */}
+              <tr><td colSpan={2} className="text-muted-foreground">
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="truncate">{modelo.colecao ?? "—"}</span>
+                  <span className="truncate text-right shrink-0 max-w-[50%]">{modelo.subcolecao || "—"}</span>
+                </div>
+              </td></tr>
+              {/* Lançamento — data editável + foguete (mesma lógica de antes) */}
+              <tr>
+                <td className="text-muted-foreground whitespace-nowrap">Lançamento</td>
+                <td className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1.5 min-w-0">
+                    <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
+                      className="h-7 w-[7.75rem] shrink-0 [&_input]:h-7 [&_input]:px-2 [&_input]:text-xs" />
+                    <button type="button" disabled={lancStatus == null}
+                      aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
+                      title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
+                      onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border max-md:h-10 max-md:w-10 ${
+                        lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+                        : lancStatus === "pronto" ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "cursor-not-allowed border-input text-muted-foreground/60"}`}>
+                      <Rocket className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {/* Linha */}
+              <tr><td className="text-muted-foreground whitespace-nowrap">Linha</td>
+                <td className="text-right truncate" title={linhaNome ?? undefined}>{linhaNome ?? "—"}</td></tr>
+              {/* Total de peças — laranja = estimativa (grade planejada) · preto = real (Grade Real do CQ confirmada) */}
+              <tr><td className="text-muted-foreground whitespace-nowrap">Total peças</td>
+                <td className="text-right tabular-nums">
+                  {pecasReal != null
+                    ? <span className="font-semibold text-foreground" title="Real — Grade Real do CQ confirmada">{pecasReal.toLocaleString("pt-BR")}</span>
+                    : pecasEst != null
+                    ? <span className="font-semibold text-[var(--warning)]" title="Estimativa — grade planejada">{pecasEst.toLocaleString("pt-BR")}</span>
+                    : <span className="text-muted-foreground">—</span>}
+                </td></tr>
+              {/* Markup real (gated) */}
+              <tr><td className="text-muted-foreground whitespace-nowrap">Markup</td>
+                <td className="text-right tabular-nums">{podeVerCustos ? (markup != null ? `${Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2})}×` : "—") : <span className="text-muted-foreground">—</span>}</td></tr>
+              {/* Materiais (= custo − M.O. embutida; rótulo previsto/real via selo no title) (gated) */}
+              <tr><td className="text-muted-foreground whitespace-nowrap">Materiais</td>
+                <td className="text-right tabular-nums" title={custoReal ? "real (do BOM)" : "previsto"}>{podeVerCustos ? (custoMat != null ? brl(custoMat) : "—") : <span className="text-muted-foreground">—</span>}</td></tr>
+              {/* Mão de obra — valor + ✓/✗; estado = botão aceso (multi-serviço vira sub-lista). Gated. */}
+              {(podeVerCustos || podeAprovarMaoObra) && !ehOrigemComprada(modelo.origem) && moEstado !== "sem_servico" ? (
+                <tr><td colSpan={2} className="!p-0">
+                  <MoListaSection
+                    linhas={linhasMO}
+                    podeVerCustos={podeVerCustos}
+                    podeAprovarMaoObra={podeAprovarMaoObra}
+                    onAprovar={onAprovarMO}
+                    onReprovar={onReprovarMO}
+                    pendingCategoriaId={pendingCategoriaMO}
+                  />
+                </td></tr>
+              ) : (
+                <tr><td className="text-muted-foreground whitespace-nowrap">Mão de obra</td>
+                  <td className="text-right tabular-nums">{podeVerCustos ? (moEstado === "sem_servico" ? "—" : maoObra != null ? brl(maoObra) : "—") : <span className="text-muted-foreground">—</span>}</td></tr>
+              )}
+              {/* Custo total (linha destacada) (gated) */}
+              <tr className="font-semibold [&>td]:bg-muted/40">
+                <td className="text-foreground whitespace-nowrap">Custo total</td>
+                <td className="text-right tabular-nums">{podeVerCustos ? (custo != null ? brl(custo) : "—") : <span className="text-muted-foreground font-normal">—</span>}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </Card>

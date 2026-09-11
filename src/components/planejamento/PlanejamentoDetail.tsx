@@ -206,10 +206,10 @@ function PrecoTabela(props: {
   linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
   moMin: { moMax: number; atingivel: boolean }; moIdeal: { moMax: number; atingivel: boolean }; moMax: { moMax: number; atingivel: boolean };
   moStatusFaixa: "no_maximo" | "no_ideal" | "no_minimo" | "acima" | "indef";
-  podeVerCustos: boolean; podeEditarCustos: boolean; markupFaixaOn: boolean;
+  podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
   onVerDev?: () => void;
 }) {
-  const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda,
+  const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
     custoReal, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev, custoEstimado,
     onConsumo, onAviamento, materiaisReal, custoRealTotal, custoPrevisto,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn, onVerDev } = props;
@@ -252,14 +252,18 @@ function PrecoTabela(props: {
             <td className="py-2 pr-3"><b>Preço de venda</b></td>
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
             <td className="py-2 px-2 text-right">
-              <NumberInput
-                className="ml-auto h-8 w-32 text-right tabular-nums"
-                value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
-                placeholder={precoSug > 0 ? brl(precoSug) : undefined}
-                onChange={(e) => onPrecoVenda(e.target.value)}
-              />
+              {podeEditarPreco ? (
+                <NumberInput
+                  className="ml-auto h-8 w-32 text-right tabular-nums"
+                  value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
+                  placeholder={precoSug > 0 ? brl(precoSug) : undefined}
+                  onChange={(e) => onPrecoVenda(e.target.value)}
+                />
+              ) : (
+                <span className="tabular-nums">{draftPrecoVenda && draftPrecoVenda > 0 ? brl(draftPrecoVenda) : precoSug > 0 ? brl(precoSug) : "—"}</span>
+              )}
             </td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}{!podeEditarPreco ? " · sem permissão para editar" : ""}</td>
           </tr>
           <tr className="border-t">
             <td className="py-2 pr-3">Consumo de tecido</td>
@@ -538,6 +542,9 @@ export function PlanejamentoDetail({
   const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeEditarCustos = canEdit("criacao_planejamento:custos");
+  // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger fn_modelo_preco_venda_gate).
+  // VER o preço segue sob podeVerCustos; editar o preço passa a exigir esta section.
+  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
@@ -1217,7 +1224,15 @@ export function PlanejamentoDetail({
         delete payload.preco_venda;
         delete payload.preco_atacado;
       } else {
-        payload.preco_venda = numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null;
+        // Preço de venda só entra no payload de quem PODE editá-lo (permissão à parte
+        // `criacao_planejamento:preco_venda`). Sem ela, o input é read-only e um Salvar disparado
+        // por OUTRO campo não deve reenviar o valor herdado do `...draft` (o trigger
+        // fn_modelo_preco_venda_gate barraria com 42501, quebrando o save inteiro).
+        if (podeEditarPreco) {
+          payload.preco_venda = numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null;
+        } else {
+          delete payload.preco_venda;
+        }
         payload.preco_atacado = numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null;
       }
       let savedId: string | null = isEdit ? modeloId : null;
@@ -1802,7 +1817,7 @@ export function PlanejamentoDetail({
                 materiaisReal={materiaisSetor} custoRealTotal={custo} custoPrevisto={custoPrevisto}
                 linhaFaixas={linhaFaixas}
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
-                podeVerCustos={podeVerCustos} podeEditarCustos={podeEditarCustos} markupFaixaOn={markupFaixaOn}
+                podeVerCustos={podeVerCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 onVerDev={modeloId ? () => setVerDevModeloId(modeloId) : undefined}
               />
             ) : (

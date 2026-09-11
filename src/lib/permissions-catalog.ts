@@ -101,7 +101,10 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "criacao_produto_acabado", label: "Produto Acabado", description: "Planeje produtos de revenda (comprar pronto) por coleção.", gate: "produto_acabado" },
       { key: "criacao_produto_importado", label: "Produto Importado", description: "Planeje produtos importados (comprar do exterior, com cotação de moeda) por coleção.", gate: "produto_importado" },
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
-        sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
+        sections: [
+          { key: "criacao_planejamento:custos", label: "Custos / Preço" },
+          { key: "criacao_planejamento:preco_venda", label: "Editar preço de venda" },
+        ] },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
     ],
