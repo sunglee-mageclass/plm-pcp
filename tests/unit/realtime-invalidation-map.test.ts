@@ -59,6 +59,13 @@ describe("realtime-invalidation-map: tabelas", () => {
         "colecoes",
         "producao_terceirizados",
         "controle_qualidade",
+        // Fase 2 — OCs de compra + produtos
+        "ocs_aviamento",
+        "ocs_etiqueta",
+        "ocs_p_acabado",
+        "ocs_importado",
+        "produtos_acabados",
+        "produtos_importados",
       ].sort(),
     );
   });
@@ -163,6 +170,17 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     expect(matchesTable("colecoes", ["plan-tecido-colecoes"])).toBe(true);
     expect(matchesTable("producao_terceirizados", ["producao-terc-list"])).toBe(true);
     expect(matchesTable("controle_qualidade", ["producao-cq-list"])).toBe(true);
+    // Fase 2 — OCs de compra (listas)
+    expect(matchesTable("ocs_aviamento", ["ocs_aviamento", "encomendado"])).toBe(true);
+    expect(matchesTable("ocs_aviamento", ["ocs-avi-totals", ["a", "b"]])).toBe(true);
+    expect(matchesTable("ocs_etiqueta", ["ocs_etiqueta", "recebido"])).toBe(true);
+    expect(matchesTable("ocs_p_acabado", ["ocs_p_acabado", "tab-counts"])).toBe(true);
+    expect(matchesTable("ocs_importado", ["ocs_importado"])).toBe(true);
+    expect(matchesTable("produtos_acabados", ["produtos-acabados"])).toBe(true);
+    expect(matchesTable("produtos_importados", ["produtos-importados-estoque", ["x"]])).toBe(true);
+    // não cruza: uma OC não casa a key de outra
+    expect(matchesTable("ocs_aviamento", ["ocs_importado"])).toBe(false);
+    expect(matchesTable("produtos_acabados", ["produtos-importados"])).toBe(false);
   });
 
   it("negócio NÃO casa as queryKeys de DETALHE (cobertas pelo colab por-registro)", () => {
@@ -187,5 +205,11 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     // tokens NÃO-ambíguos com string no k[1] (sub-escopo de lista, não id) → casa
     expect(matchesTable("ocs_tecido", ["ocs_tecido", "tab-counts"])).toBe(true);
     expect(matchesTable("ocs_tecido", ["ocs_tecido", "encomendado", "", "", "", ""])).toBe(true);
+    // oc-avi é AMBÍGUO: lista (prefixo) casa, detalhe (string id) não
+    expect(matchesTable("ocs_aviamento", ["oc-avi"])).toBe(true);
+    expect(matchesTable("ocs_aviamento", ["oc-avi", "oc-id-123"])).toBe(false);
+    // ocs_importado/ocs_p_acabado com tab-string = LISTA (não ambíguos) → casa
+    expect(matchesTable("ocs_importado", ["ocs_importado", "encomendado"])).toBe(true);
+    expect(matchesTable("ocs_p_acabado", ["ocs_p_acabado", "recebido"])).toBe(true);
   });
 });

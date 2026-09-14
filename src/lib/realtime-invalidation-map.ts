@@ -41,6 +41,13 @@ export const REALTIME_INVALIDATION_TABLES = [
   "colecoes",
   "producao_terceirizados",
   "controle_qualidade",
+  // Fase 2 — OCs de compra (aviamento/insumo/p.acabado/p.importado) + produtos revenda/importado
+  "ocs_aviamento",
+  "ocs_etiqueta",
+  "ocs_p_acabado",
+  "ocs_importado",
+  "produtos_acabados",
+  "produtos_importados",
 ] as const;
 
 export type RealtimeTable = (typeof REALTIME_INVALIDATION_TABLES)[number];
@@ -51,6 +58,12 @@ export const BUSINESS_TABLES = [
   "colecoes",
   "producao_terceirizados",
   "controle_qualidade",
+  "ocs_aviamento",
+  "ocs_etiqueta",
+  "ocs_p_acabado",
+  "ocs_importado",
+  "produtos_acabados",
+  "produtos_importados",
 ] as const;
 export type BusinessTable = (typeof BUSINESS_TABLES)[number];
 type TaxonomyTable = Exclude<RealtimeTable, "tenant_config" | BusinessTable>;
@@ -131,6 +144,13 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],
   producao_terceirizados: ["producao-terc-list", "producao-terc-mo-resumo"],
   controle_qualidade: ["producao-cq-list"],
+  // Fase 2 — OCs de compra (só keys de LISTA; detalhe = ["oc-*", id] fica de fora)
+  ocs_aviamento: ["oc-avi", "ocs-avi-totals", "ocs_aviamento", "estoque-aviamentos", "dash-estoque"],
+  ocs_etiqueta: ["etiquetas-oc-insumo", "ocs-insumo-totals", "ocs_etiqueta"],
+  ocs_p_acabado: ["ocs_p_acabado", "estoque_p_acabado"],
+  ocs_importado: ["ocs_importado", "estoque_p_importado"],
+  produtos_acabados: ["produtos-acabados", "produtos-acabados-estoque", "produto-acabado-variantes-estoque"],
+  produtos_importados: ["produtos-importados", "produtos-importados-estoque", "produto-importado-variantes-estoque"],
 };
 
 // Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o
@@ -138,7 +158,11 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
 // global atrapalharia o merge do colab (flicker no badge de MO/custo enquanto se edita). Para esses,
 // só casa quando k[1] NÃO é uma string de id. Os demais tokens são inequívocos (a string no k[1] de
 // `["ocs_tecido","tab-counts"]` é um SUB-escopo de lista, não um id — esses casam sempre).
-const BUSINESS_AMBIGUOUS = new Set(["plan-custo-unit", "modelo-mo-resumo"]);
+const BUSINESS_AMBIGUOUS = new Set([
+  "plan-custo-unit", "modelo-mo-resumo",
+  // OC Aviamento: `["oc-avi"]` (prefixo, invalida a lista) vs `["oc-avi", ocId]` (detalhe do sheet).
+  "oc-avi",
+]);
 
 function matchBusiness(table: BusinessTable, k: QueryKey): boolean {
   if (!BUSINESS_KEY_TOKENS[table].includes(s0(k))) return false;
