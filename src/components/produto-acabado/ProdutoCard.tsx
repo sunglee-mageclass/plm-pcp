@@ -560,7 +560,7 @@ export function ProdutoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Nome</Label>
-                      <Input className="flex-1" disabled={identidadeTravada} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
+                      <Input data-colab-path={`card:${produto.id}:nome`} className="flex-1" disabled={identidadeTravada} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Grupo</Label>
@@ -570,7 +570,7 @@ export function ProdutoCard({
                           onValueChange={(v) => onChange({ ...produto, grupo_id: v || null, categoria_id: null, subcategoria1_id: null, subcategoria2_id: null })}
                           disabled={identidadeTravada}
                         >
-                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectTrigger data-colab-path={`card:${produto.id}:grupo`}><SelectValue placeholder="Selecione…" /></SelectTrigger>
                           <SelectContent>{grupos.map((g) => <SelectItem key={g.id} value={g.id}>{g.nome}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
@@ -583,7 +583,7 @@ export function ProdutoCard({
                           onValueChange={(v) => onChange({ ...produto, categoria_id: v || null, subcategoria1_id: null, subcategoria2_id: null })}
                           disabled={identidadeTravada || !produto.grupo_id}
                         >
-                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectTrigger data-colab-path={`card:${produto.id}:categoria`}><SelectValue placeholder="Selecione…" /></SelectTrigger>
                           <SelectContent>{categorias.filter((c) => c.grupo_id === produto.grupo_id).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
@@ -598,7 +598,7 @@ export function ProdutoCard({
                               onValueChange={(v) => onChange({ ...produto, subcategoria1_id: v || null })}
                               disabled={identidadeTravada || !produto.categoria_id}
                             >
-                              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                              <SelectTrigger data-colab-path={`card:${produto.id}:sub1`}><SelectValue placeholder="Selecione…" /></SelectTrigger>
                               <SelectContent>{subcats1.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
                             </Select>
                           </div>
@@ -611,7 +611,7 @@ export function ProdutoCard({
                               onValueChange={(v) => onChange({ ...produto, subcategoria2_id: v || null })}
                               disabled={identidadeTravada || !produto.categoria_id}
                             >
-                              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                              <SelectTrigger data-colab-path={`card:${produto.id}:sub2`}><SelectValue placeholder="Selecione…" /></SelectTrigger>
                               <SelectContent>{subcats2.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
                             </Select>
                           </div>
@@ -643,11 +643,12 @@ export function ProdutoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">REF Fornecedor</Label>
-                      <Input className="flex-1" value={produto.ref_fornecedor} onChange={(e) => onChange({ ...produto, ref_fornecedor: e.target.value })} />
+                      <Input data-colab-path={`card:${produto.id}:ref-forn`} className="flex-1" value={produto.ref_fornecedor} onChange={(e) => onChange({ ...produto, ref_fornecedor: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Qtd total</Label>
                       <NumberInput
+                        data-colab-path={`card:${produto.id}:qtd-total`}
                         integer
                         blankZero
                         placeholder="0"
@@ -677,6 +678,7 @@ export function ProdutoCard({
                       <Label className="w-[150px] shrink-0 text-sm">Valor unitário</Label>
                       <div className="relative flex-1">
                         <MoneyInput
+                          data-colab-path={`card:${produto.id}:valor-unit`}
                           className="pl-7"
                           placeholder="0,00"
                           disabled={temOc}
@@ -688,7 +690,7 @@ export function ProdutoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
-                      <NumberInput blankZero placeholder="0" className="flex-1" disabled={temOc} value={descontoEfetivo} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
+                      <NumberInput data-colab-path={`card:${produto.id}:desconto`} blankZero placeholder="0" className="flex-1" disabled={temOc} value={descontoEfetivo} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
                     </div>
                     {temOc && (
                       <p className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -716,6 +718,7 @@ export function ProdutoCard({
                           return (
                             <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
                               <NumberInput
+                                data-colab-path={`card:${produto.id}:grade-prop:${t}`}
                                 integer
                                 blankZero
                                 placeholder="0"
@@ -755,22 +758,22 @@ export function ProdutoCard({
                           <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                             <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground max-md:hidden">{v.ordem}</span>
                             <Select value={v.cor_id ?? ""} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
-                              <SelectTrigger className="w-40 max-md:w-full"><SelectValue placeholder="Cor base" /></SelectTrigger>
+                              <SelectTrigger data-colab-path={`card:${produto.id}:var-cor:${v.ordem}`} className="w-40 max-md:w-full"><SelectValue placeholder="Cor base" /></SelectTrigger>
                               <SelectContent>{cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                             </Select>
                             <Select value={v.cor_apelido_id ?? ""} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
-                              <SelectTrigger className="w-40 max-md:w-full"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
+                              <SelectTrigger data-colab-path={`card:${produto.id}:var-apelido:${v.ordem}`} className="w-40 max-md:w-full"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
                             <VarianteSwatch nome={corNome(v.cor_id) ?? undefined} label={varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })} className="max-md:w-full" />
                             <div className="ml-auto flex items-center gap-2 max-md:ml-0 max-md:w-full">
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-muted-foreground">peso</span>
-                                <NumberInput integer className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
+                                <NumberInput data-colab-path={`card:${produto.id}:var-peso:${v.ordem}`} integer className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-muted-foreground">qtd</span>
-                                <NumberInput integer className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
+                                <NumberInput data-colab-path={`card:${produto.id}:var-qtd:${v.ordem}`} integer className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
                               </div>
                               <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
                                 <Trash2 className="h-4 w-4" />
@@ -818,6 +821,7 @@ export function ProdutoCard({
                         <Label className="text-sm">Markup atacado</Label>
                         <div className="relative">
                           <NumberInput
+                            data-colab-path={`card:${produto.id}:markup-atac`}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
@@ -832,6 +836,7 @@ export function ProdutoCard({
                         <Label className="text-sm">Markup varejo</Label>
                         <div className="relative">
                           <NumberInput
+                            data-colab-path={`card:${produto.id}:markup-var`}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"

@@ -11,6 +11,9 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -177,6 +180,15 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [carregado, setCarregado] = useState(false);
   const resolvedInicialRef = useRef({ done: false });
   const qc = useQueryClient();
+  // Presença por campo NO CANVAS (ring nos campos inline dos N cards abertos — molde do canvas do
+  // Planejamento). Canal único por COLEÇÃO (colecaoId é prop deste Sheet); o `campoFocado` codifica
+  // `card:<idDoCard>:<campo>` — namespaced pelo id do card, já que N cards editáveis ao mesmo tempo.
+  const [campoFocadoCanvas, setCampoFocadoCanvas] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLElement>(null);
+  const { presentes: presentesCanvas } = useColabPresencaPagina({
+    canal: `colab-prod-importado:${colecaoId}`,
+    campoFocado: campoFocadoCanvas,
+  });
   const agrup = useAgrupamentoState("produto-importado", ["categoria"]);
   const agrupar: AgruparEstado = { grupo: agrup.isOn("grupo"), categoria: agrup.isOn("categoria") };
   const setAgrupar = (patch: Partial<AgruparEstado>) => {
@@ -681,7 +693,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                   </div>
                 </aside>
               )}
-              <main className="flex-1 overflow-y-auto p-3">
+              <main
+                ref={colabScopeRef}
+                className="flex-1 overflow-y-auto p-3"
+                onFocusCapture={(e) => {
+                  const scope = colabScopeRef.current;
+                  setCampoFocadoCanvas(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+                }}
+                onBlurCapture={() => setCampoFocadoCanvas(null)}
+              >
+                {/* Ring de presença colaborativa nos campos inline dos cards do canvas. */}
+                <ColabPresenceOverlay presentes={presentesCanvas} scopeRef={colabScopeRef} />
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   {/* Resumo no MOBILE: rail/aside somem (`hidden md:flex`) — este botão abre o
                       mesmo painel num Sheet lateral esquerdo (só existe < md). */}

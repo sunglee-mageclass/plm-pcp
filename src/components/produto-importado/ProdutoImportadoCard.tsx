@@ -44,7 +44,7 @@ const DIRETA = "__direta__";
  *  a opção "Direta (sem M2)" para a moeda intermediária. Uma moeda livre já escolhida entra como
  *  opção própria no dropdown (o Select consegue exibi-la); "Adicionar moeda…" abre um input de
  *  código ao lado para digitar/trocar. */
-function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean }) {
+function MoedaSelect({ value, onChange, permitirDireta, dataColabPath }: { value: string | null; onChange: (v: string | null) => void; permitirDireta?: boolean; dataColabPath?: string }) {
   const ehDireta = permitirDireta && value === null;
   const naLista = value != null && value !== "" && MOEDAS.some((m) => m.code === value);
   const ehLivre = value != null && value !== "" && !naLista; // moeda livre já com código
@@ -61,7 +61,7 @@ function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null
           else { setAdicionando(false); onChange(v); }
         }}
       >
-        <SelectTrigger className={adicionando ? "w-32" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
+        <SelectTrigger className={adicionando ? "w-32" : "w-full"} data-colab-path={dataColabPath}><SelectValue placeholder="Moeda" /></SelectTrigger>
         <SelectContent>
           {permitirDireta && <SelectItem value={DIRETA}>Direta (sem M2)</SelectItem>}
           {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
@@ -168,6 +168,12 @@ export function ProdutoImportadoCard({
   const corNome = (id: string | null) => cores.find((c) => c.id === id)?.nome ?? null;
   const apelidoNome = (id: string | null) => coresApelido.find((c) => c.id === id)?.nome ?? null;
   const taxonomia = [grupoNome, categoriaNome].filter(Boolean).join(" › ");
+
+  // Ring de presença colaborativa: cada campo editável do card carrega um `data-colab-path`
+  // EXPLÍCITO namespaced pelo id do card — N cards editáveis ao mesmo tempo no canvas, e os
+  // rótulos (Label) se repetem entre eles, então o namespace por id é obrigatório p/ o overlay
+  // reencontrar o campo certo. Prefixo `card:<id>:` + a chave do campo.
+  const cp = (campo: string) => `card:${draft.id ?? "?"}:${campo}`;
 
   // ── Cálculos AO VIVO — só chamam moeda.ts/shared.ts, nunca reimplementam aritmética aqui. ──
   const resultado = useMemo(() => custoDoDraft(draft), [draft]);
@@ -416,6 +422,7 @@ export function ProdutoImportadoCard({
                       <Label className="w-[130px] shrink-0 text-sm">REF</Label>
                       <Input
                         className="flex-1"
+                        data-colab-path={cp("ref")}
                         value={draft.ref ?? ""}
                         placeholder="Gerada ao salvar (ou digite manual)"
                         title="Deixe em branco para a REF automática ao salvar, ou digite uma REF manual."
@@ -424,7 +431,7 @@ export function ProdutoImportadoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Nome</Label>
-                      <Input className="flex-1" value={draft.nome} onChange={(e) => onChange({ nome: e.target.value })} />
+                      <Input className="flex-1" data-colab-path={cp("nome")} value={draft.nome} onChange={(e) => onChange({ nome: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Fornecedor</Label>
@@ -435,25 +442,25 @@ export function ProdutoImportadoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">REF Fornecedor</Label>
-                      <Input className="flex-1" value={draft.ref_fornecedor} onChange={(e) => onChange({ ref_fornecedor: e.target.value })} />
+                      <Input className="flex-1" data-colab-path={cp("ref-forn")} value={draft.ref_fornecedor} onChange={(e) => onChange({ ref_fornecedor: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Composição</Label>
-                      <Input className="flex-1" value={draft.composicao} onChange={(e) => onChange({ composicao: e.target.value })} />
+                      <Input className="flex-1" data-colab-path={cp("composicao")} value={draft.composicao} onChange={(e) => onChange({ composicao: e.target.value })} />
                     </div>
                   </div>
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Data do pedido</Label>
-                      <DateField className="flex-1" value={draft.data_pedido ?? ""} onChange={(e) => onChange({ data_pedido: e.target.value || null })} />
+                      <DateField className="flex-1" data-colab-path={cp("data-pedido")} value={draft.data_pedido ?? ""} onChange={(e) => onChange({ data_pedido: e.target.value || null })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Previsão</Label>
-                      <DateField className="flex-1" value={draft.data_prevista ?? ""} onChange={(e) => onChange({ data_prevista: e.target.value || null })} />
+                      <DateField className="flex-1" data-colab-path={cp("data-prev")} value={draft.data_prevista ?? ""} onChange={(e) => onChange({ data_prevista: e.target.value || null })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Entrega</Label>
-                      <DateField className="flex-1" value={draft.data_entrega ?? ""} onChange={(e) => onChange({ data_entrega: e.target.value || null })} />
+                      <DateField className="flex-1" data-colab-path={cp("data-entrega")} value={draft.data_entrega ?? ""} onChange={(e) => onChange({ data_entrega: e.target.value || null })} />
                     </div>
                   </div>
                 </div>
@@ -475,6 +482,7 @@ export function ProdutoImportadoCard({
                             integer
                             blankZero
                             placeholder="0"
+                            data-colab-path={cp(`grade-prop:${t}`)}
                             className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
                             value={peso}
                             onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
@@ -509,6 +517,7 @@ export function ProdutoImportadoCard({
                       integer
                       blankZero
                       placeholder="0"
+                      data-colab-path={cp("qtd-total")}
                       className="h-8 w-28"
                       value={draft.qtd_total}
                       onChange={(e) => setQtdTotal(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
@@ -530,23 +539,24 @@ export function ProdutoImportadoCard({
                           <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                             <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground max-md:hidden">{v.ordem}</span>
                             <Select value={v.cor_id ?? ""} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
-                              <SelectTrigger className="w-36 max-md:w-full"><SelectValue placeholder="Cor base" /></SelectTrigger>
+                              <SelectTrigger className="w-36 max-md:w-full" data-colab-path={cp(`var-cor:${v.ordem}`)}><SelectValue placeholder="Cor base" /></SelectTrigger>
                               <SelectContent>{cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                             </Select>
                             <Select value={v.cor_apelido_id ?? ""} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
-                              <SelectTrigger className="w-36 max-md:w-full"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
+                              <SelectTrigger className="w-36 max-md:w-full" data-colab-path={cp(`var-apelido:${v.ordem}`)}><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
                             <VarianteSwatch nome={corNome(v.cor_id) ?? undefined} label={varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })} className="max-md:w-full" />
                             <div className="ml-auto flex flex-wrap items-center gap-2 max-md:ml-0 max-md:w-full">
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-muted-foreground">peso</span>
-                                <NumberInput integer className="h-8 w-14 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
+                                <NumberInput integer data-colab-path={cp(`var-peso:${v.ordem}`)} className="h-8 w-14 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-muted-foreground">qtd</span>
                                 <NumberInput
                                   integer
+                                  data-colab-path={cp(`var-qtd:${v.ordem}`)}
                                   className="h-8 w-16 text-center"
                                   value={v.qtd}
                                   onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0), _touched: true })}
@@ -584,23 +594,23 @@ export function ProdutoImportadoCard({
                       só a previsão de valor/moeda/cotação. */}
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Valor unit. ({simboloMoeda(draft.moeda_compra)})</Label>
-                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.valor_unitario_m1} onChange={(e) => onChange({ valor_unitario_m1: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("valor-m1")} className="flex-1" placeholder="0,00" value={draft.valor_unitario_m1} onChange={(e) => onChange({ valor_unitario_m1: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Moeda de compra</Label>
                     <div className="flex-1">
-                      <MoedaSelect value={draft.moeda_compra} onChange={(v) => onChange({ moeda_compra: v ?? "" })} />
+                      <MoedaSelect value={draft.moeda_compra} onChange={(v) => onChange({ moeda_compra: v ?? "" })} dataColabPath={cp("moeda-compra")} />
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Moeda intermediária</Label>
                     <div className="flex-1">
-                      <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta />
+                      <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta dataColabPath={cp("moeda-interm")} />
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Cotação de ref.</Label>
-                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("cotacao-ref")} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => onChange({ cotacao_ref: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -623,11 +633,11 @@ export function ProdutoImportadoCard({
                 <div className="max-w-sm space-y-2 rounded-md border p-3">
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Peso (kg)</Label>
-                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.peso_kg} onChange={(e) => onChange({ peso_kg: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("peso-kg")} className="flex-1" placeholder="0,00" value={draft.peso_kg} onChange={(e) => onChange({ peso_kg: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="flex items-center gap-3">
                     <Label className="w-[150px] shrink-0 text-sm">Transporte ({simboloMoeda(moedaExibicaoM2)}/kg)</Label>
-                    <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.transporte_m2} onChange={(e) => onChange({ transporte_m2: Number(e.target.value) || 0 })} />
+                    <NumberInput blankZero data-colab-path={cp("transporte")} className="flex-1" placeholder="0,00" value={draft.transporte_m2} onChange={(e) => onChange({ transporte_m2: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <InfoStrip className="mt-3" itens={[
@@ -650,7 +660,7 @@ export function ProdutoImportadoCard({
                 <div className="space-y-3">
                   <div className="flex max-w-sm items-center gap-3 rounded-md border p-3">
                     <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
-                    <NumberInput blankZero placeholder="0" className="flex-1" value={draft.desconto_pct} onChange={(e) => onChange({ desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
+                    <NumberInput blankZero placeholder="0" data-colab-path={cp("desconto")} className="flex-1" value={draft.desconto_pct} onChange={(e) => onChange({ desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -662,22 +672,22 @@ export function ProdutoImportadoCard({
                   <div className="space-y-2">
                     {draft.etapas.map((e) => (
                       <div key={e.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
-                        <Input className="w-32 max-md:w-full" placeholder="Rótulo" value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
+                        <Input className="w-32 max-md:w-full" data-colab-path={cp(`etapa-rotulo:${e.ordem}`)} placeholder="Rótulo" value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
                         <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, { base: v as "mercadoria" | "frete" })}>
-                          <SelectTrigger className="w-32 max-md:w-full"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-32 max-md:w-full" data-colab-path={cp(`etapa-base:${e.ordem}`)}><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="mercadoria">Mercadoria</SelectItem>
                             <SelectItem value="frete">Frete</SelectItem>
                           </SelectContent>
                         </Select>
                         <div className="flex items-center gap-1">
-                          <NumberInput blankZero placeholder="0" className="h-8 w-16 text-center" value={e.percentual} onChange={(ev) => setEtapa(e.ordem, { percentual: Math.max(0, Number(ev.target.value) || 0) })} />
+                          <NumberInput blankZero placeholder="0" data-colab-path={cp(`etapa-pct:${e.ordem}`)} className="h-8 w-16 text-center" value={e.percentual} onChange={(ev) => setEtapa(e.ordem, { percentual: Math.max(0, Number(ev.target.value) || 0) })} />
                           <span className="text-xs text-muted-foreground">%</span>
                         </div>
-                        <DateField className="w-36 max-md:w-full" value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
+                        <DateField className="w-36 max-md:w-full" data-colab-path={cp(`etapa-venc:${e.ordem}`)} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-muted-foreground">cotação</span>
-                          <NumberInput blankZero placeholder="0,00" className="h-8 w-20 text-center" value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
+                          <NumberInput blankZero placeholder="0,00" data-colab-path={cp(`etapa-cot:${e.ordem}`)} className="h-8 w-20 text-center" value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
                         </div>
                         <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive max-md:ml-0" onClick={() => removeEtapa(e.ordem)}>
                           <Trash2 className="h-4 w-4" />
@@ -728,12 +738,12 @@ export function ProdutoImportadoCard({
                       <div className="flex-1">
                         {/* Moeda de ORIGEM da cotação final (converte → BRL). É a intermediária (M2);
                             editável aqui também para o dono não precisar voltar à seção 4. */}
-                        <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta />
+                        <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => onChange({ moeda_intermediaria: v })} permitirDireta dataColabPath={cp("moeda-cotacao")} />
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Cotação {simboloMoeda(moedaExibicaoM2)}→R$</Label>
-                      <NumberInput blankZero className="flex-1" placeholder="0,00" value={draft.cotacao_final} onChange={(e) => onChange({ cotacao_final: Number(e.target.value) || 0 })} />
+                      <NumberInput blankZero data-colab-path={cp("cotacao-final")} className="flex-1" placeholder="0,00" value={draft.cotacao_final} onChange={(e) => onChange({ cotacao_final: Number(e.target.value) || 0 })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Markup atacado</Label>
@@ -741,6 +751,7 @@ export function ProdutoImportadoCard({
                         <NumberInput
                           blankZero
                           placeholder="2,50"
+                          data-colab-path={cp("markup-atacado")}
                           className="pr-6"
                           value={draft.markup_atacado ?? 0}
                           onChange={(e) => onChange({ markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
@@ -754,6 +765,7 @@ export function ProdutoImportadoCard({
                         <NumberInput
                           blankZero
                           placeholder="2,50"
+                          data-colab-path={cp("markup-varejo")}
                           className="pr-6"
                           value={draft.markup_varejo ?? 0}
                           onChange={(e) => onChange({ markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null })}

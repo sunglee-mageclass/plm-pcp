@@ -13,6 +13,9 @@ import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { ProdutoCard } from "./ProdutoCard";
@@ -154,6 +157,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const navigate = useNavigate();
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtual, setSubAtual] = useState<{ id: string | null; nome: string | null } | null>(null);
+  // Ring de presença colaborativa nos campos inline dos cards do canvas (mesmo padrão do
+  // canvas do Planejamento — `criacao.planejamento.tsx`). Canal único por COLEÇÃO (o Sheet
+  // recebe `colecaoId` por prop); `campoFocadoCanvas` codifica o path do campo focado, que já
+  // vem namespaced pelo id do card (`card:<produto.id>:<campo>`, ver `ProdutoCard`), já que há
+  // N cards editáveis ao mesmo tempo no canvas.
+  const [campoFocadoCanvas, setCampoFocadoCanvas] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: `colab-prod-acabado:${colecaoId}`,
+    campoFocado: campoFocadoCanvas,
+  });
   const [drafts, setDrafts] = useState<ProdutoDraft[] | null>(null);
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [resumoAberto, setResumoAberto] = useState(true);
@@ -694,7 +708,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                   </div>
                 </aside>
               )}
-              <main className="flex-1 overflow-y-auto p-3">
+              <main
+                ref={colabScopeRef}
+                className="flex-1 overflow-y-auto p-3"
+                onFocusCapture={(e) => {
+                  const scope = colabScopeRef.current;
+                  setCampoFocadoCanvas(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+                }}
+                onBlurCapture={() => setCampoFocadoCanvas(null)}
+              >
+                {/* Ring de presença colaborativa nos campos inline dos cards do canvas. */}
+                <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
                 {/* Barra de ações em massa (#2.2) — aparece com seleção; Replicar + Limpar seleção. */}
                 {selecao.size > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
