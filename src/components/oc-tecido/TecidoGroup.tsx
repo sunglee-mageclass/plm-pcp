@@ -136,6 +136,7 @@ export function TecidoGroup({
                         <div className="relative">
                           <NumberInput type="number" step="0.01" placeholder="0" className={cn("max-sm:h-11", sufixo && "pr-10")}
                             value={i.quantidade_pedida || undefined}
+                            data-colab-path={`qtd:${i.variante_tecido_id}`}
                             onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
                           {sufixo && (
                             <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
@@ -150,6 +151,7 @@ export function TecidoGroup({
                         <div className="relative">
                           <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7 max-sm:h-11"
                             value={i.preco ?? undefined}
+                            data-colab-path={`preco:${i.variante_tecido_id}`}
                             onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
                           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
                         </div>
