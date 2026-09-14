@@ -48,6 +48,13 @@ export function ModeloAviamentosSection({
         rows.map((r, i) => {
           const avi = aviamentos.find((a) => a.id === r.aviamento_id);
           const variantes = avi?.variantes ?? [];
+          // Chave ESTÁVEL da linha p/ o ring de presença colaborativa (data-colab-path): os campos
+          // desta grade repetem o mesmo <Label> ("Consumo"/"% Loss") por card, então a derivação
+          // automática cairia num ordinal POSICIONAL (#k por ordem no DOM) — instável entre abas.
+          // Preferimos a identidade persistida (id do modelo_aviamentos), caindo p/ o aviamento
+          // escolhido (dado de domínio idêntico nos dois lados) e, só em último caso (linha nova
+          // ainda sem aviamento), o índice.
+          const rowKey = r.id ?? r.aviamento_id ?? String(i);
           return (
           <Card key={i} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "aviamentos")}`}>
             <div className="flex items-center justify-between">
@@ -82,10 +89,10 @@ export function ModeloAviamentosSection({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Field label="Consumo">
-                <NumberInput type="number" step="0.001" placeholder="0,000" value={r.consumo || ""} onChange={(e) => { onChangeRow(i, { consumo: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
+                <NumberInput type="number" step="0.001" placeholder="0,000" value={r.consumo || ""} onChange={(e) => { onChangeRow(i, { consumo: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} data-colab-path={`avi-consumo:${rowKey}`} />
               </Field>
               <Field label="% Loss">
-                <NumberInput type="number" step="0.01" placeholder="0,00" value={r.loss_percent || ""} onChange={(e) => { onChangeRow(i, { loss_percent: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
+                <NumberInput type="number" step="0.01" placeholder="0,00" value={r.loss_percent || ""} onChange={(e) => { onChangeRow(i, { loss_percent: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} data-colab-path={`avi-loss:${rowKey}`} />
               </Field>
               <Field label="Custo Previsto">
                 <Input readOnly className="bg-muted/50 text-right tabular-nums cursor-default" placeholder="R$ —" value={r.custo_previsto ? `R$ ${fmtNum(r.custo_previsto)}` : ""} />

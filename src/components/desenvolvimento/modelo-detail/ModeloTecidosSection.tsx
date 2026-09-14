@@ -455,6 +455,7 @@ function TecidoBlockEditor({
                           step="0.01"
                           min={0}
                           className="h-7 w-16"
+                          data-colab-path={`tec-mult:${block.tipo}:${block.numero}:${current}`}
                           value={multAt(i)}
                           onChange={(e) => setMult(i, Number(e.target.value) || 1)}
                         />

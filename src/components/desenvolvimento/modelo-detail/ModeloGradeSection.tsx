@@ -123,6 +123,7 @@ export function ModeloGradeSection({
                     <NumberInput
                       integer
                       placeholder="0"
+                      data-colab-path={`grade-total:${n}`}
                       className={`w-24 ${totalEditavel ? "" : "bg-muted"}`}
                       readOnly={!totalEditavel}
                       tabIndex={totalEditavel ? undefined : -1}
@@ -142,6 +143,7 @@ export function ModeloGradeSection({
                         integer
                         className="text-center tabular-nums"
                         placeholder="0"
+                        data-colab-path={`grade-cell:${n}:${t}`}
                         value={g.grades[t] || ""}
                         onChange={(e) => { onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0)); onCampoEditado?.("grade"); }}
                       />

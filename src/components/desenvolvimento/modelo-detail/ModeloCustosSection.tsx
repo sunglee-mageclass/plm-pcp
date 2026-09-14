@@ -67,12 +67,14 @@ export function ModeloCustosSection({
               placeholder="Descrição do custo"
               value={c.descricao}
               onChange={(e) => patch(i, { descricao: e.target.value })}
+              data-colab-path={`custo-descricao:${c.descricao}`}
             />
             <NumberInput
               className={VAL}
               placeholder="0,00"
               value={c.valor || ""}
               onChange={(e) => patch(i, { valor: Number(e.target.value) || 0 })}
+              data-colab-path={`custo-valor:${c.descricao}`}
             />
             <Button variant="ghost" size="icon" className="h-9 w-9 max-md:h-11 max-md:w-11 shrink-0 text-muted-foreground" onClick={() => remove(i)} aria-label="Remover custo" title="Remover">
               <Trash2 className="h-4 w-4" />
