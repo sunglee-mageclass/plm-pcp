@@ -165,6 +165,7 @@ export function ExplosaoMetragemSection({
                               step="0.01"
                               placeholder="0,00"
                               className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold"
+                              data-colab-path={`expl-metragem:${v.id}`}
                               value={v.metragem_enviada || ""}
                               onChange={(e) =>
                                 updateVar(i, j, {

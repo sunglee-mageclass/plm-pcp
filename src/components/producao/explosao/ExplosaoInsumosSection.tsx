@@ -89,6 +89,7 @@ export function ExplosaoInsumosSection({ linhas, gradeTotalGeral, editing, onEnv
                       blankZero
                       placeholder="0,00"
                       className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold num"
+                      data-colab-path={`expl-eti-env:${l.id}`}
                       value={l.aEnviar || ""}
                       onChange={(e) => onEnviarChange(l.id, Math.max(0, Number(e.target.value)))}
                     />

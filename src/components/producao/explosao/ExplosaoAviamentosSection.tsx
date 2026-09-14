@@ -17,7 +17,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { fmtNum, fmtNumEdit } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { AviGrupo } from "@/lib/explosao-aviamentos";
+import { chaveVarianteAviamento, type AviGrupo } from "@/lib/explosao-aviamentos";
 
 type Props = {
   grupos: AviGrupo[];
@@ -92,6 +92,7 @@ export function ExplosaoAviamentosSection({ grupos, gradeTotalGeral, editing, on
                           blankZero
                           placeholder="0,00"
                           className="ml-auto w-24 max-md:w-28 bg-card text-right font-semibold num"
+                          data-colab-path={`expl-avi-sep:${chaveVarianteAviamento(g.aviamento_id, l.variante_aviamento_id)}`}
                           value={l.aSeparar || ""}
                           onChange={(e) =>
                             onSepararChange(g.aviamento_id, l.variante_aviamento_id, Math.max(0, Number(e.target.value)))

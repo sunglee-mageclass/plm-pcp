@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, Printer } from "lucide-react";
@@ -24,6 +24,9 @@ import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -50,6 +53,14 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // Confirmado trava as edições; "Editar" reabre e Salvar volta a travar.
   const [status, setStatus] = useState("pendente");
   const [editing, setEditing] = useState(false);
+
+  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (o modelo aberto).
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: modeloId ? `colab-dir:${modeloId}` : null,
+    campoFocado: campoFocadoColab,
+  });
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
@@ -413,7 +424,16 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div
+        ref={colabScopeRef}
+        className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}
+        onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}
+        onBlurCapture={() => setCampoFocadoColab(null)}
+      >
+      <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {/* Cabeçalho: breadcrumb + Imprimir (topo-direita, p/ o indicador global de "não
           salvo" cair logo abaixo). Voltar vai só no rodapé; ações primárias idem. */}
@@ -508,6 +528,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                               className="h-8 max-md:h-11 border-0 bg-transparent text-center"
                               value={grades[t] ?? ""}
                               disabled={!editavelLinha}
+                              data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}
                               title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
                               onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
                             />
@@ -560,6 +581,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                             className="h-9 max-md:h-11 text-center"
                             value={v.linhas[l.id]?.[t] ?? ""}
                             disabled={!editavelLinha}
+                            data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}
                             title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
                             onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
                           />

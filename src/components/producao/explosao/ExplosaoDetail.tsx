@@ -33,6 +33,9 @@ import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { printWithImages } from "@/lib/print";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import {
@@ -69,6 +72,14 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // Edição da metragem travada por padrão quando já enviado ao PCP; o lápis destrava,
   // e Salvar re-trava. Definido no seed a partir de `enviado_corte`.
   const [editing, setEditing] = useState(false);
+
+  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (o modelo aberto).
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: modeloId ? `colab-explosao:${modeloId}` : null,
+    campoFocado: campoFocadoColab,
+  });
 
   // --- queries (mesmo padrão do CadEditor, mas apenas o necessário) ---
   const { data: modelo } = useQuery({
@@ -681,7 +692,16 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
 
   return (
     <div className="flex h-full flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto w-full p-3 sm:p-6 space-y-5 no-print">
+      <div
+        ref={colabScopeRef}
+        className="flex-1 overflow-y-auto w-full p-3 sm:p-6 space-y-5 no-print"
+        onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}
+        onBlurCapture={() => setCampoFocadoColab(null)}
+      >
+        <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
         {/* Cabeçalho (breadcrumb + título/status). Imprimir "Ficha de Corte" fica no
             topo-direita p/ o indicador global de "não salvo" cair logo abaixo dele. */}
         <div className="border-b pb-4">
