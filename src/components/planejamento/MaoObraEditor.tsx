@@ -80,7 +80,7 @@ export function MaoObraEditor({
                     `moLinhasEqual` (@/lib/mao-obra) espelha essa equivalência na comparação
                     de dirty — sem isso, digitar e apagar de volta acenderia "não salvo" à
                     toa mesmo sem mudança de valor de negócio. */}
-                <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValor(id, v === "" ? null : Number(v)); }} placeholder="0,00" />
+                <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValor(id, v === "" ? null : Number(v)); }} placeholder="0,00" data-colab-path={`mo:${id ?? "legado"}`} />
               </div>
             )}
             <StatusBadge

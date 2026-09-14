@@ -261,6 +261,7 @@ function PrecoTabela(props: {
                   className="ml-auto h-8 w-32 text-right tabular-nums"
                   value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
                   placeholder={precoSug > 0 ? brl(precoSug) : undefined}
+                  data-colab-path="preco_venda"
                   onChange={(e) => onPrecoVenda(e.target.value)}
                 />
               ) : (
@@ -280,6 +281,7 @@ function PrecoTabela(props: {
                   className="ml-auto h-8 w-28 text-right tabular-nums"
                   value={consumo ?? (consumoRealBOM > 0 ? consumoRealBOM : "")}
                   placeholder={consumoRealBOM > 0 ? fmtNum(consumoRealBOM) : "0"}
+                  data-colab-path="consumo_tecido"
                   onChange={(e) => onConsumo(e.target.value)}
                 />
               )}
@@ -316,6 +318,7 @@ function PrecoTabela(props: {
                     className="ml-auto h-8 w-28 text-right tabular-nums"
                     value={aviamento ?? ""}
                     placeholder="0,00"
+                    data-colab-path="custo_aviamento"
                     onChange={(e) => onAviamento(e.target.value)}
                   />
                 </td>
@@ -1972,6 +1975,7 @@ export function PlanejamentoDetail({
                                 placeholder="0"
                                 className="h-8 w-20 text-right ml-auto"
                                 value={gradeRevenda[v.ordem]?.[t] ?? 0}
+                                data-colab-path={`grade-revenda:${v.ordem}:${t}`}
                                 onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
                               />
                             </td>
