@@ -28,6 +28,8 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { FieldPresence } from "@/components/shared/FieldPresence";
+import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
@@ -440,11 +442,11 @@ function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
 }
 
 
-export function FieldText({ label, value, onChange, colabPath, colabRing }: {
+export function FieldText({ label, value, onChange, colabPath }: {
   label: string; value: string; onChange: (v: string) => void;
-  // Colab (Task 2): presença por campo — ring sky quando um colega está focado aqui agora
-  // (o ColabBanner genérico já cobre a resolução de qualquer conflito).
-  colabPath?: string; colabRing?: boolean;
+  // Colab: presença por campo — `data-colab-path` trackea o foco; o realce visual (anel+nome+cor
+  // do colega) vem do wrapper <FieldPresence> ao redor (set/2026), não mais de um ring fixo aqui.
+  colabPath?: string;
 }) {
   return (
     <div className="grid gap-1">
@@ -453,7 +455,6 @@ export function FieldText({ label, value, onChange, colabPath, colabRing }: {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-colab-path={colabPath}
-        className={colabRing ? "ring-1 ring-sky-400" : undefined}
       />
     </div>
   );
@@ -1538,16 +1539,10 @@ export function PlanejamentoDetail({
     onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["modelo", modeloId] }),
     campoFocado,
   });
-  const focadoPor = (path: string) => presentes.find((p) => p.campoFocado === path)?.nome;
-  const colabField = (path: string) => {
-    const nome = focadoPor(path);
-    return {
-      "data-colab-path": path,
-      title: nome ? `${nome} está neste campo` : undefined,
-      inputClassName: nome ? "ring-1 ring-sky-400" : undefined,
-      className: nome ? "ring-1 ring-sky-400" : undefined,
-    };
-  };
+  // Presença por campo com NOME + COR do usuário (estilo Sheets, set/2026): `pc(path)` devolve
+  // {nome,solid,text} de quem está no campo (ou null). O anel/rótulo visual sai do <FieldPresence>;
+  // o `data-colab-path` no input é o que trackea o foco (lido pelo onFocusCapture do container).
+  const pc = (path: string) => presencaDoCampo(presentes, path);
 
   // Enviar/Cancelar Ordem de Criação: gate explícito pro Desenvolvimento (independe do Salvar).
   // Colab (Task 2): classe b — ação pontual de 1 campo (2, atômicos no mesmo payload), singular
@@ -1690,13 +1685,14 @@ export function PlanejamentoDetail({
                   </SelectContent>
                 </Select>
               </div>
-              <FieldText
-                label="Nome do Modelo"
-                value={draft.nome}
-                onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
-                colabPath={colabField("nome")["data-colab-path"]}
-                colabRing={!!colabField("nome").className}
-              />
+              <FieldPresence campo={pc("nome")}>
+                <FieldText
+                  label="Nome do Modelo"
+                  value={draft.nome}
+                  onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
+                  colabPath="nome"
+                />
+              </FieldPresence>
               <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
               <div className="grid gap-1">
                 <Label>Origem</Label>
@@ -2041,13 +2037,13 @@ export function PlanejamentoDetail({
                   <Label>Data de Lançamento</Label>
                   {/* Editável aqui também: a data real pode não se cumprir, então o
                       usuário ajusta no próprio setor Lançamento (Salvar persiste). */}
-                  <DateField
-                    value={draft.data_lancamento ?? ""}
-                    onChange={(e) => setDraftTracked((d) => ({ ...d, data_lancamento: e.target.value || null }))}
-                    data-colab-path={colabField("data_lancamento")["data-colab-path"]}
-                    title={colabField("data_lancamento").title}
-                    inputClassName={colabField("data_lancamento").inputClassName}
-                  />
+                  <FieldPresence campo={pc("data_lancamento")}>
+                    <DateField
+                      value={draft.data_lancamento ?? ""}
+                      onChange={(e) => setDraftTracked((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                      data-colab-path="data_lancamento"
+                    />
+                  </FieldPresence>
                 </div>
                 {lancado ? (
                   <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>

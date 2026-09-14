@@ -25,6 +25,7 @@ import {
 
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
@@ -774,7 +775,9 @@ function OcDialog({
   });
   const emConflito = (path: string) => conflitos.some((c) => c.path === path);
   const conflitoDe = (path: string) => conflitos.find((c) => c.path === path);
-  const focadoPor = (path: string) => presentes.find((p) => p.campoFocado === path)?.nome;
+  // Presença por campo com nome+cor (set/2026) — passa `pc` p/ o OcTecidoForm (que envolve os
+  // campos do cabeçalho com <FieldPresence>). Substitui o `focadoPor` (só nome, ring azul fixo).
+  const pc = (path: string) => presencaDoCampo(presentes, path);
   const conflitoLinha = (id: string | undefined) => (id ? conflitos.find((c) => c.path === `linha:${id}`) : undefined);
 
   const { data: ocQueryData } = useQuery({
@@ -1687,7 +1690,7 @@ function OcDialog({
               setTecido2Aberto(false);
             }}
             handleSingleUpload={handleSingleUpload}
-            colab={{ emConflito, conflitoDe, focadoPor, onResolverConflito: resolverConflito, conflitoLinha }}
+            colab={{ emConflito, conflitoDe, pc, onResolverConflito: resolverConflito, conflitoLinha }}
             criacao={!isEdit}
             totalPrevisto={totalPrevisto}
             metragemPrevista={metragemPrevista}

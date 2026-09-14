@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { presencaDoCampo } from "@/lib/colab/presenca-cor";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
@@ -1758,7 +1759,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
     },
     campoFocado,
   });
-  const focadoPor = (path: string) => presentes.find((p) => p.campoFocado === path)?.nome;
+  // Presença por campo com nome+cor (set/2026) — passa a `pc` p/ o ModeloInfoSection (que envolve
+  // os campos com <FieldPresence>). Substitui o `focadoPor` (só nome, ring azul fixo) anterior.
+  const pc = (path: string) => presencaDoCampo(presentes, path);
 
   // Resolve um conflito de campo escalar: "usar o novo" aplica `dele` no rascunho e tira
   // o campo do `touched` (senão o próximo merge o trataria como editado por mim de novo);
@@ -2768,7 +2771,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                 origem={modelo?.origem ?? null}
                 isRevenda={isComprado}
                 campoVisivel={campoVisivel}
-                colab={{ focadoPor }}
+                colab={{ pc }}
                 linhas={linhas.data ?? []}
                 estilistas={estilistas.data ?? []}
                 modelistas={modelistas.data ?? []}

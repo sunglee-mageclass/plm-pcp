@@ -10,6 +10,8 @@ import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { rotuloOrigem } from "@/lib/origem";
+import { FieldPresence } from "@/components/shared/FieldPresence";
+import type { CorPresenca } from "@/lib/colab/presenca-cor";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 type StatusOpt = { value: string; label: string };
@@ -76,21 +78,12 @@ export function ModeloInfoSection({
   campoVisivel?: (key: string) => boolean;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
-  // Colab (spec 2026-08-03, Task 1): presença por campo — SÓ nome/datas nesta 1ª adoção
-  // (escopo pragmático do brief). Conflito é resolvido no ColabBanner (genérico), não aqui.
-  colab?: { focadoPor: (path: string) => string | undefined };
+  // Colab (spec 2026-08-03; presença nome+cor set/2026): `colab.pc(path)` devolve {nome,solid,text}
+  // de quem está no campo (ou null). Conflito é resolvido no ColabBanner (genérico), não aqui.
+  colab?: { pc: (path: string) => CorPresenca | null };
 }) {
   const fl = useFieldLabels();
-  // Ring sky = colega focado no campo agora (presença); sem UI de conflito inline aqui —
-  // o ColabBanner (resolução genérica) já cobre qualquer conflito nestes campos.
-  const colabField = (path: string) => {
-    const nome = colab?.focadoPor(path);
-    return {
-      "data-colab-path": path,
-      title: nome ? `${nome} está neste campo` : undefined,
-      className: nome ? "ring-1 ring-sky-400" : undefined,
-    };
-  };
+  const pcOf = (path: string): CorPresenca | null => colab?.pc(path) ?? null;
   // Grupo é um FILTRO da Categoria (não é salvo no modelo) — deriva da categoria atual.
   const [grupoId, setGrupoId] = useState<string | null>(null);
   useEffect(() => {
@@ -139,13 +132,13 @@ export function ModeloInfoSection({
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Nome">
-            <Input
-              value={draft.nome}
-              onChange={(e) => setDraft({ ...draft, nome: e.target.value })}
-              data-colab-path={colabField("nome")["data-colab-path"]}
-              title={colabField("nome").title}
-              className={colabField("nome").className}
-            />
+            <FieldPresence campo={pcOf("nome")}>
+              <Input
+                value={draft.nome}
+                onChange={(e) => setDraft({ ...draft, nome: e.target.value })}
+                data-colab-path="nome"
+              />
+            </FieldPresence>
           </Field>
           <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
         </div>
@@ -262,13 +255,13 @@ export function ModeloInfoSection({
           )}
           {campoVisivel("data_piloto1") && (
           <Field label="Data Piloto 1">
-            <DateField
-              value={draft.data_piloto1 ?? ""}
-              onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })}
-              data-colab-path={colabField("data_piloto1")["data-colab-path"]}
-              title={colabField("data_piloto1").title}
-              inputClassName={colabField("data_piloto1").className}
-            />
+            <FieldPresence campo={pcOf("data_piloto1")}>
+              <DateField
+                value={draft.data_piloto1 ?? ""}
+                onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })}
+                data-colab-path="data_piloto1"
+              />
+            </FieldPresence>
           </Field>
           )}
         </div>
@@ -286,13 +279,13 @@ export function ModeloInfoSection({
               )}
               {campoVisivel("data_piloto2") && (
               <Field label="Data Piloto 2">
-                <DateField
-                  value={draft.data_piloto2 ?? ""}
-                  onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })}
-                  data-colab-path={colabField("data_piloto2")["data-colab-path"]}
-                  title={colabField("data_piloto2").title}
-                  inputClassName={colabField("data_piloto2").className}
-                />
+                <FieldPresence campo={pcOf("data_piloto2")}>
+                  <DateField
+                    value={draft.data_piloto2 ?? ""}
+                    onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })}
+                    data-colab-path="data_piloto2"
+                  />
+                </FieldPresence>
               </Field>
               )}
             </div>
@@ -312,13 +305,13 @@ export function ModeloInfoSection({
               )}
               {campoVisivel("data_piloto3") && (
               <Field label="Data Piloto 3">
-                <DateField
-                  value={draft.data_piloto3 ?? ""}
-                  onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })}
-                  data-colab-path={colabField("data_piloto3")["data-colab-path"]}
-                  title={colabField("data_piloto3").title}
-                  inputClassName={colabField("data_piloto3").className}
-                />
+                <FieldPresence campo={pcOf("data_piloto3")}>
+                  <DateField
+                    value={draft.data_piloto3 ?? ""}
+                    onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })}
+                    data-colab-path="data_piloto3"
+                  />
+                </FieldPresence>
               </Field>
               )}
             </div>
@@ -340,24 +333,24 @@ export function ModeloInfoSection({
         )}
         {campoVisivel("data_desenho_tecnico") && (
         <Field label="Data Desenho Técnico">
-          <DateField
-            value={draft.data_desenho_tecnico ?? ""}
-            onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })}
-            data-colab-path={colabField("data_desenho_tecnico")["data-colab-path"]}
-            title={colabField("data_desenho_tecnico").title}
-            inputClassName={colabField("data_desenho_tecnico").className}
-          />
+          <FieldPresence campo={pcOf("data_desenho_tecnico")}>
+            <DateField
+              value={draft.data_desenho_tecnico ?? ""}
+              onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })}
+              data-colab-path="data_desenho_tecnico"
+            />
+          </FieldPresence>
         </Field>
         )}
         {campoVisivel("data_aprovacao") && (
         <Field label="Data Aprovação">
-          <DateField
-            value={draft.data_aprovacao ?? ""}
-            onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })}
-            data-colab-path={colabField("data_aprovacao")["data-colab-path"]}
-            title={colabField("data_aprovacao").title}
-            inputClassName={colabField("data_aprovacao").className}
-          />
+          <FieldPresence campo={pcOf("data_aprovacao")}>
+            <DateField
+              value={draft.data_aprovacao ?? ""}
+              onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })}
+              data-colab-path="data_aprovacao"
+            />
+          </FieldPresence>
         </Field>
         )}
         </div>

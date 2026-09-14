@@ -1,22 +1,29 @@
 // SSOT do hook global `useRealtimeInvalidation` (atualização AO VIVO entre usuários —
-// item 11 do dono, ago/2026). Mapeia cada TABELA de config/cadastro (low-churn) para o
-// PREDICATE de queryKeys a invalidar quando um OUTRO usuário do mesmo tenant salva algo
-// naquela tabela. Um usuário na tela de Desenvolvimento vê o kanban se atualizar na hora
-// quando outro renomeia um status na Config da Loja, sem refresh.
+// item 11 do dono, ago/2026; ESTENDIDO set/2026 p/ "realtime leve" nas LISTAS). Mapeia
+// cada TABELA para o PREDICATE de queryKeys a invalidar quando um OUTRO usuário do mesmo
+// tenant salva algo naquela tabela. Um usuário na tela de Desenvolvimento vê o kanban se
+// atualizar na hora quando outro renomeia um status na Config da Loja OU move um card, sem refresh.
 //
-// Escopo DELIBERADAMENTE restrito a config + taxonomias que alimentam dropdowns/regras
-// (NÃO modelos/OCs/parcelas — esses são high-churn e já têm colab por REGISTRO via
-// useColabRegistro/rev). Esta lista é a fonte única: alimenta as assinaturas do canal
-// Realtime (useRealtimeInvalidation) E o teste anti-drift (que confere que cada tabela
-// está na publication supabase_realtime e que nenhum token de queryKey aqui está morto).
+// DUAS classes de tabela:
+//  • CONFIG/TAXONOMIA (low-churn) — config da loja + dropdowns/regras. Escopo original (ago/2026).
+//  • NEGÓCIO/LISTA (high-churn — modelos, ocs_tecido, colecoes, producao_terceirizados,
+//    controle_qualidade) — Fase 1 do roadmap de realtime universal (set/2026). O objetivo é só as
+//    LISTAS/canvas/kanban se atualizarem ao vivo; os SHEETS de detalhe dessas telas já têm colab
+//    por-registro (useColabRegistro/rev), então aqui mapeamos SÓ as queryKeys de LISTA (não as de
+//    detalhe `["...", id]`, que o colab cobre e que um refetch global atrapalharia). O debounce de
+//    250ms do hook coalesce rajadas (salvar 1 modelo bumpa `modelos` + várias filhas via trigger).
 //
-// Como as keys foram derivadas: grep de `.from("<tabela>")` em src/ + a queryKey do
-// useQuery que envolve cada leitura (ver tests/unit/realtime-invalidation-map.test.ts p/
-// o anti-drift). NÃO inventar key — só mapear as existentes.
+// Esta lista é a fonte única: alimenta as assinaturas do canal Realtime (useRealtimeInvalidation)
+// E o teste anti-drift (confere que cada tabela está na publication supabase_realtime e que nenhum
+// token de queryKey aqui está morto).
+//
+// Como as keys foram derivadas: grep de `.from("<tabela>")` em src/ + a queryKey do useQuery que
+// envolve cada leitura (ver tests/unit/realtime-invalidation-map.test.ts). NÃO inventar key.
 
 import type { QueryKey } from "@tanstack/react-query";
 
 export const REALTIME_INVALIDATION_TABLES = [
+  // config/taxonomia (low-churn)
   "tenant_config",
   "categorias_produto",
   "subcategorias1_produto",
@@ -28,10 +35,25 @@ export const REALTIME_INVALIDATION_TABLES = [
   "cores_apelido",
   "categorias_terceirizado",
   "lojas_direcionamento",
+  // negócio/lista (high-churn) — realtime leve nas listas/canvas/kanban (Fase 1)
+  "modelos",
+  "ocs_tecido",
+  "colecoes",
+  "producao_terceirizados",
+  "controle_qualidade",
 ] as const;
 
 export type RealtimeTable = (typeof REALTIME_INVALIDATION_TABLES)[number];
-type TaxonomyTable = Exclude<RealtimeTable, "tenant_config">;
+// Tabelas de negócio: predicate por LISTA de tokens exatos (só queryKeys de lista).
+export const BUSINESS_TABLES = [
+  "modelos",
+  "ocs_tecido",
+  "colecoes",
+  "producao_terceirizados",
+  "controle_qualidade",
+] as const;
+export type BusinessTable = (typeof BUSINESS_TABLES)[number];
+type TaxonomyTable = Exclude<RealtimeTable, "tenant_config" | BusinessTable>;
 
 const s0 = (k: QueryKey): string => (typeof k[0] === "string" ? k[0] : "");
 const s1 = (k: QueryKey): string => (typeof k[1] === "string" ? k[1] : "");
@@ -88,7 +110,47 @@ function matchTaxonomy(table: TaxonomyTable, k: QueryKey): boolean {
   return TAXONOMY_KEY_TOKENS[table].includes(s0(k));
 }
 
+// ---------------------------------------------------------------------------
+// Tabelas de NEGÓCIO (high-churn) — SÓ as queryKeys de LISTA/canvas/kanban (não as de detalhe
+// `["x", id]`, cobertas pelo colab por-registro). Match por `k[0] ∈ tokens` (prefixo exato).
+// Cada token é conferido VIVO no anti-drift (grep em src/). Uma lista que lê 2+ tabelas (ex.:
+// a lista de Serviços lê `producao_terceirizados` + `modelos`) é mapeada nas 2 — invalida em
+// qualquer uma das duas mudar, o que é o correto.
+export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
+  modelos: [
+    // Planejamento (canvas) + Desenvolvimento (kanban) e derivados de custo/MO/grade
+    "modelos-planejamento", "modelos-desenvolvimento",
+    "plan-custo-unit", "mo-resumo-list", "desenv-mo-resumo", "modelo-mo-resumo",
+    "plan-grade-total", "plan-grade-real", "plan-cq-pronto",
+    // listas de PCP/Expedição que pivotam por modelo
+    "producao-terc-list", "producao-cq-list", "dir-list", "producao-terc-mo-resumo",
+    // OTB (poder de venda / links de modelo)
+    "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder",
+  ],
+  ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
+  colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],
+  producao_terceirizados: ["producao-terc-list", "producao-terc-mo-resumo"],
+  controle_qualidade: ["producao-cq-list"],
+};
+
+// Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o
+// DETALHE do sheet aberto (`["token", modeloId]`, k[1] = string). Refetchar o detalhe por um evento
+// global atrapalharia o merge do colab (flicker no badge de MO/custo enquanto se edita). Para esses,
+// só casa quando k[1] NÃO é uma string de id. Os demais tokens são inequívocos (a string no k[1] de
+// `["ocs_tecido","tab-counts"]` é um SUB-escopo de lista, não um id — esses casam sempre).
+const BUSINESS_AMBIGUOUS = new Set(["plan-custo-unit", "modelo-mo-resumo"]);
+
+function matchBusiness(table: BusinessTable, k: QueryKey): boolean {
+  if (!BUSINESS_KEY_TOKENS[table].includes(s0(k))) return false;
+  if (BUSINESS_AMBIGUOUS.has(s0(k)) && typeof k[1] === "string") return false; // é key de DETALHE
+  return true;
+}
+
+const BUSINESS_SET = new Set<string>(BUSINESS_TABLES);
+
 /** Predicate de invalidação de uma tabela: recebe uma queryKey e diz se ela lê essa tabela. */
 export function matchesTable(table: RealtimeTable, key: QueryKey): boolean {
-  return table === "tenant_config" ? matchTenantConfig(key) : matchTaxonomy(table, key);
+  if (table === "tenant_config") return matchTenantConfig(key);
+  if (BUSINESS_SET.has(table)) return matchBusiness(table as BusinessTable, key);
+  return matchTaxonomy(table as TaxonomyTable, key);
 }

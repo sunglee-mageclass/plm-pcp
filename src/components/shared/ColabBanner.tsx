@@ -12,6 +12,7 @@
 import { Users, AlertTriangle } from "lucide-react";
 import type { Conflito } from "@/lib/colab/merge";
 import type { PresencaColab } from "@/hooks/useColabRegistro";
+import { corDoUsuario } from "@/lib/colab/presenca-cor";
 
 // Formata um valor de campo curto p/ o banner: objetos/arrays viram resumo ("[3 itens]"),
 // escalares viram texto truncado; null/vazio vira "—".
@@ -41,9 +42,19 @@ export function ColabBanner({ presentes, ultimoMerge, conflitos, onResolver, rot
   return (
     <div className="space-y-1">
       {presentes.length > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300">
           <Users className="h-3.5 w-3.5 shrink-0" />
-          {presentes.map((p) => p.nome).join(", ")} também {presentes.length > 1 ? "estão" : "está"} nesta tela
+          {/* cada nome vira um chip na COR do usuário (mesma cor do anel do campo que ele foca) —
+              identidade visual consistente entre banner e presença por campo (set/2026). */}
+          {presentes.map((p) => {
+            const cor = corDoUsuario(p.userId);
+            return (
+              <span key={p.userId} className="rounded px-1.5 py-px font-semibold" style={{ background: cor.solid, color: cor.text }}>
+                {p.nome}
+              </span>
+            );
+          })}
+          <span>também {presentes.length > 1 ? "estão" : "está"} nesta tela</span>
         </div>
       )}
       {ultimoMerge && (ultimoMerge.atualizados > 0 || ultimoMerge.conflitos.length > 0) && (

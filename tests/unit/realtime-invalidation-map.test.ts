@@ -6,6 +6,8 @@ import {
   REALTIME_INVALIDATION_TABLES,
   TAXONOMY_KEY_TOKENS,
   TENANT_CONFIG_EXTRA_KEYS,
+  BUSINESS_KEY_TOKENS,
+  BUSINESS_TABLES,
   matchesTable,
   type RealtimeTable,
 } from "@/lib/realtime-invalidation-map";
@@ -36,9 +38,10 @@ const SRC_BLOB = walk(SRC)
   .join("\n");
 
 describe("realtime-invalidation-map: tabelas", () => {
-  it("cobre exatamente as tabelas de config/cadastro esperadas", () => {
+  it("cobre exatamente as tabelas de config/cadastro + negócio esperadas", () => {
     expect([...REALTIME_INVALIDATION_TABLES].sort()).toEqual(
       [
+        // config/taxonomia
         "categorias_produto",
         "categorias_terceirizado",
         "cores",
@@ -50,14 +53,25 @@ describe("realtime-invalidation-map: tabelas", () => {
         "subcategorias1_produto",
         "subcategorias2_produto",
         "tenant_config",
+        // negócio (realtime leve nas listas — Fase 1)
+        "modelos",
+        "ocs_tecido",
+        "colecoes",
+        "producao_terceirizados",
+        "controle_qualidade",
       ].sort(),
     );
   });
 
-  it("toda tabela do mapa tem entrada de tokens (menos tenant_config, que é predicate próprio)", () => {
+  it("toda tabela do mapa tem predicate (taxonomia OU negócio; tenant_config é próprio)", () => {
+    const business = new Set<string>(BUSINESS_TABLES);
     for (const t of REALTIME_INVALIDATION_TABLES) {
       if (t === "tenant_config") continue;
-      expect(TAXONOMY_KEY_TOKENS[t as Exclude<RealtimeTable, "tenant_config">]).toBeDefined();
+      if (business.has(t)) {
+        expect(BUSINESS_KEY_TOKENS[t as (typeof BUSINESS_TABLES)[number]]).toBeDefined();
+      } else {
+        expect(TAXONOMY_KEY_TOKENS[t as Exclude<RealtimeTable, "tenant_config" | (typeof BUSINESS_TABLES)[number]>]).toBeDefined();
+      }
     }
   });
 });
@@ -74,6 +88,14 @@ describe("realtime-invalidation-map: nenhuma key morta", () => {
   it("cada EXTRA key de tenant_config existe literalmente em src/", () => {
     for (const tok of TENANT_CONFIG_EXTRA_KEYS) {
       expect(SRC_BLOB.includes(`"${tok}"`), `EXTRA key "${tok}" sumiu de src/`).toBe(true);
+    }
+  });
+
+  it("cada token de tabela de negócio existe literalmente em src/", () => {
+    for (const [table, tokens] of Object.entries(BUSINESS_KEY_TOKENS)) {
+      for (const tok of tokens) {
+        expect(SRC_BLOB.includes(`"${tok}"`), `token "${tok}" (${table}) sumiu de src/`).toBe(true);
+      }
     }
   });
 
@@ -129,5 +151,41 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     expect(matchesTable("linhas", ["cores-list"])).toBe(false);
     expect(matchesTable("cores", ["opt", "linhas"])).toBe(false);
     expect(matchesTable("meses", ["tenant-status-kanban", "t1"])).toBe(false);
+  });
+
+  it("negócio casa as queryKeys de LISTA (canvas/kanban/listas)", () => {
+    expect(matchesTable("modelos", ["modelos-planejamento"])).toBe(true);
+    expect(matchesTable("modelos", ["modelos-desenvolvimento"])).toBe(true);
+    expect(matchesTable("modelos", ["plan-custo-unit", ["a", "b"]])).toBe(true);
+    expect(matchesTable("modelos", ["dir-list"])).toBe(true);
+    expect(matchesTable("ocs_tecido", ["ocs_tecido", "tab-counts"])).toBe(true);
+    expect(matchesTable("ocs_tecido", ["rolos"])).toBe(true);
+    expect(matchesTable("colecoes", ["plan-tecido-colecoes"])).toBe(true);
+    expect(matchesTable("producao_terceirizados", ["producao-terc-list"])).toBe(true);
+    expect(matchesTable("controle_qualidade", ["producao-cq-list"])).toBe(true);
+  });
+
+  it("negócio NÃO casa as queryKeys de DETALHE (cobertas pelo colab por-registro)", () => {
+    // detalhe = ["x", id] — refetch global aqui atrapalharia o merge do sheet aberto
+    expect(matchesTable("modelos", ["modelo", "id-123"])).toBe(false);
+    expect(matchesTable("modelos", ["mo-resumo", "id-123"])).toBe(false);
+    expect(matchesTable("ocs_tecido", ["oc-tecido", "oc-123"])).toBe(false);
+    expect(matchesTable("colecoes", ["plan-tecido-previa"])).toBe(true); // prévia é lista da coleção (ok)
+    // e não casa key de outra classe
+    expect(matchesTable("modelos", ["cores-list"])).toBe(false);
+    expect(matchesTable("controle_qualidade", ["modelos-planejamento"])).toBe(false);
+  });
+
+  it("tokens AMBÍGUOS (plan-custo-unit, modelo-mo-resumo): casa LISTA (array/prefixo), NÃO o DETALHE (string id)", () => {
+    // LISTA (k[1] = array de ids OU prefixo sem k[1]) → casa
+    expect(matchesTable("modelos", ["plan-custo-unit", ["m1", "m2"]])).toBe(true);
+    expect(matchesTable("modelos", ["plan-custo-unit"])).toBe(true);
+    expect(matchesTable("modelos", ["modelo-mo-resumo"])).toBe(true);
+    // DETALHE (k[1] = string id) → NÃO casa (é do sheet aberto, coberto pelo colab)
+    expect(matchesTable("modelos", ["plan-custo-unit", "modelo-id-123"])).toBe(false);
+    expect(matchesTable("modelos", ["modelo-mo-resumo", "modelo-id-123"])).toBe(false);
+    // tokens NÃO-ambíguos com string no k[1] (sub-escopo de lista, não id) → casa
+    expect(matchesTable("ocs_tecido", ["ocs_tecido", "tab-counts"])).toBe(true);
+    expect(matchesTable("ocs_tecido", ["ocs_tecido", "encomendado", "", "", "", ""])).toBe(true);
   });
 });

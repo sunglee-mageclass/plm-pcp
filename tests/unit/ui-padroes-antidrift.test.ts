@@ -66,9 +66,14 @@ const EXCECAO_IMPRESSAO = [
 //  - error-page.ts: página de fallback renderizada pelo Worker (src/start.ts,
 //    src/server.ts) ANTES/fora do bundle React — não tem acesso a styles.css
 //    (`:root`/`.dark`) nesse ponto, então precisa ser 100% autocontida.
+//  - colab/presenca-cor.ts: paleta de cor POR USUÁRIO na presença colaborativa (estilo
+//    Sheets). A cor identifica a PESSOA (dado), não é acento de UI — tem que ser FIXA e
+//    idêntica no claro e no escuro (se seguisse o tema, a "cor da Maria" mudaria entre modos
+//    e perderia a função de identificar), exatamente como as cores de gráfico por série.
 const EXCECAO_DADO_REAL = [
   "src/lib/cor-hex.ts",
   "src/lib/error-page.ts",
+  "src/lib/colab/presenca-cor.ts",
 ].map((p) => path.join(ROOT, p));
 
 const EXCECAO_COR = new Set([...EXCECAO_IMPRESSAO, ...EXCECAO_DADO_REAL]);
