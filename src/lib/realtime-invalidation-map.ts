@@ -48,6 +48,9 @@ export const REALTIME_INVALIDATION_TABLES = [
   "ocs_importado",
   "produtos_acabados",
   "produtos_importados",
+  // Fase 2 — Financeiro
+  "parcelas",
+  "parcelas_servico",
 ] as const;
 
 export type RealtimeTable = (typeof REALTIME_INVALIDATION_TABLES)[number];
@@ -64,6 +67,8 @@ export const BUSINESS_TABLES = [
   "ocs_importado",
   "produtos_acabados",
   "produtos_importados",
+  "parcelas",
+  "parcelas_servico",
 ] as const;
 export type BusinessTable = (typeof BUSINESS_TABLES)[number];
 type TaxonomyTable = Exclude<RealtimeTable, "tenant_config" | BusinessTable>;
@@ -137,13 +142,16 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     "plan-grade-total", "plan-grade-real", "plan-cq-pronto",
     // listas de PCP/Expedição que pivotam por modelo
     "producao-terc-list", "producao-cq-list", "dir-list", "producao-terc-mo-resumo",
+    // Lançamentos (cards de modelos prontos/lançados + custo)
+    "lancamentos-cards", "lanc-custo-unit", "lanc-custo-real-total",
     // OTB (poder de venda / links de modelo)
     "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder",
   ],
   ocs_tecido: ["ocs_tecido", "ocs_tecido_artigos", "ocs_tecido_qtd_recebida", "rolos", "estoque-tecidos"],
   colecoes: ["plan-tecido-colecoes", "plan-tecido-previa", "otb-colecoes"],
   producao_terceirizados: ["producao-terc-list", "producao-terc-mo-resumo"],
-  controle_qualidade: ["producao-cq-list"],
+  // Lançamentos também depende do CQ (prontos-para-lançar) → invalida seus cards quando o CQ muda.
+  controle_qualidade: ["producao-cq-list", "lancamentos-cards"],
   // Fase 2 — OCs de compra (só keys de LISTA; detalhe = ["oc-*", id] fica de fora)
   ocs_aviamento: ["oc-avi", "ocs-avi-totals", "ocs_aviamento", "estoque-aviamentos", "dash-estoque"],
   ocs_etiqueta: ["etiquetas-oc-insumo", "ocs-insumo-totals", "ocs_etiqueta"],
@@ -151,6 +159,10 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   ocs_importado: ["ocs_importado", "estoque_p_importado"],
   produtos_acabados: ["produtos-acabados", "produtos-acabados-estoque", "produto-acabado-variantes-estoque"],
   produtos_importados: ["produtos-importados", "produtos-importados-estoque", "produto-importado-variantes-estoque"],
+  // Fase 2 — Financeiro (a pagar/receber + serviços). `parcelas` alimenta a lista de contas e
+  // as pendências de recebimento; `servicos-financeiro` (com sub-escopo calendario/lista) vem das 2.
+  parcelas: ["parcelas", "financeiro-pendencias-receb"],
+  parcelas_servico: ["servicos-financeiro"],
 };
 
 // Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o

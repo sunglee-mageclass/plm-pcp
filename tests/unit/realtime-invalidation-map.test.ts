@@ -66,6 +66,9 @@ describe("realtime-invalidation-map: tabelas", () => {
         "ocs_importado",
         "produtos_acabados",
         "produtos_importados",
+        // Fase 2 — Financeiro
+        "parcelas",
+        "parcelas_servico",
       ].sort(),
     );
   });
@@ -181,6 +184,15 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
     // não cruza: uma OC não casa a key de outra
     expect(matchesTable("ocs_aviamento", ["ocs_importado"])).toBe(false);
     expect(matchesTable("produtos_acabados", ["produtos-importados"])).toBe(false);
+    // Fase 2 — Financeiro + Lançamentos
+    expect(matchesTable("parcelas", ["parcelas"])).toBe(true);
+    expect(matchesTable("parcelas", ["financeiro-pendencias-receb"])).toBe(true);
+    expect(matchesTable("parcelas_servico", ["servicos-financeiro", "calendario"])).toBe(true);
+    expect(matchesTable("modelos", ["lancamentos-cards", ["m1"], ["a1"]])).toBe(true);
+    expect(matchesTable("modelos", ["lanc-custo-unit", ["m1"]])).toBe(true);
+    expect(matchesTable("controle_qualidade", ["lancamentos-cards"])).toBe(true);
+    // não cruza
+    expect(matchesTable("parcelas", ["servicos-financeiro"])).toBe(false);
   });
 
   it("negócio NÃO casa as queryKeys de DETALHE (cobertas pelo colab por-registro)", () => {
