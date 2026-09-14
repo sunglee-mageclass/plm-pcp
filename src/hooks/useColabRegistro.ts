@@ -110,8 +110,16 @@ export function useColabRegistro(o: {
     }
     // Foco de campo dos pares chega por broadcast (ver cabeçalho: presença não propaga meta editada).
     ch.on("broadcast", { event: "campoFocado" }, (msg) => {
-      const p = msg.payload as { key?: string; campoFocado?: string | null } | undefined;
+      const p = msg.payload as { key?: string; campoFocado?: string | null; pedirEco?: boolean } | undefined;
       if (!p?.key || p.key === presenceKey) return;
+      // `pedirEco`: um par que acabou de "acordar" (ficou visível) pede que os outros re-anunciem
+      // seu foco — respondo com o meu (sem pedirEco, p/ não criar laço). Cobre a perda de broadcast
+      // enquanto ESTA aba estava em background.
+      if (p.pedirEco && meuFocoRef.current) {
+        void ch.send({ type: "broadcast", event: "campoFocado", payload: { key: presenceKey, campoFocado: meuFocoRef.current } });
+      }
+      // pedirEco sem payload de foco real não altera o mapa (é só um pedido).
+      if (p.pedirEco && p.campoFocado == null) return;
       focosRef.current.set(p.key, p.campoFocado ?? null);
       rebuildRef.current();
     });
@@ -144,13 +152,30 @@ export function useColabRegistro(o: {
 
   // Emite o campo focado por BROADCAST sem recriar o canal (presença não propaga meta editada — ver
   // cabeçalho). No 1º render em que chave/meuNome ficam truthy, o SUBSCRIBED já emitiu; este effect
-  // re-emite só quando `campoFocado` muda de fato.
+  // re-emite só quando `campoFocado` muda de fato. (Inline e direto — comprovado no QA.)
   useEffect(() => {
     meuFocoRef.current = o.campoFocado ?? null;
     if (!chave || !meuNome) return;
     const ch = supabase.getChannels().find((c) => c.topic === `realtime:${chave}`);
     if (ch) void ch.send({ type: "broadcast", event: "campoFocado", payload: { key: presenceKey, campoFocado: o.campoFocado ?? null } });
   }, [o.campoFocado, chave, meuNome, presenceKey]);
+
+  // Aba/janela que estava em BACKGROUND (você olhava o OUTRO dispositivo) tem WebSocket/timers
+  // estrangulados e pode ter PERDIDO broadcasts. Ao voltar a ficar visível: (1) re-anuncio meu foco
+  // (p/ quem não recebeu) e (2) PEÇO que os pares re-anunciem os deles (`pedirEco`) — perdi enquanto
+  // estive em bg. Cobre o cenário real de 2 telas/2 dispositivos alternando o olhar.
+  useEffect(() => {
+    if (!chave || !meuNome) return;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      const ch = supabase.getChannels().find((c) => c.topic === `realtime:${chave}`);
+      if (!ch) return;
+      void ch.send({ type: "broadcast", event: "campoFocado", payload: { key: presenceKey, campoFocado: meuFocoRef.current } });
+      void ch.send({ type: "broadcast", event: "campoFocado", payload: { key: presenceKey, campoFocado: null, pedirEco: true } });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [chave, meuNome, presenceKey]);
 
   return { presentes };
 }
