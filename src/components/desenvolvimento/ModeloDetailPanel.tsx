@@ -31,7 +31,9 @@ import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { presencaDoCampo } from "@/lib/colab/presenca-cor";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
@@ -592,6 +594,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   const conflitosRef = useRef<Conflito[]>([]);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Scope do ring de presença auto-instrumentado (cobre todos os campos do sheet — set/2026).
+  const colabScopeRef = useRef<HTMLDivElement>(null);
   // Conflito de SEÇÃO (coleções do BOM) — granularidade única (não por-linha): "alguém
   // salvou e eu toquei numa coleção" vira 1 conflito com 2 saídas (manter/descartar).
   const [conflitoBom, setConflitoBom] = useState(false);
@@ -2719,8 +2723,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div
+        ref={colabScopeRef}
         className="mt-4 flex-1 min-h-0 overflow-y-auto px-6"
-        onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
+        onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}
         onBlurCapture={() => setCampoFocado(null)}
       >
         {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban. */}
@@ -3083,6 +3091,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
           </p>
         )}
       </div>
+
+      {/* Ring de presença por campo AUTO-instrumentado (cobre todos os campos do sheet). */}
+      <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
 
       <div className="shrink-0 border-t bg-background p-3 flex flex-nowrap items-center gap-2">
         {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}

@@ -11,24 +11,16 @@
 import type { ReactNode } from "react";
 import type { CorPresenca } from "@/lib/colab/presenca-cor";
 
-export function FieldPresence({ campo, children, className }: {
-  campo: CorPresenca | null;
+// ⚠️ DESATIVADO (set/2026): o anel de presença por campo agora é desenhado pelo
+// <ColabPresenceOverlay> (auto-instrumentado, um por sheet, cobre TODOS os campos) — não mais por
+// wrapper individual. Este componente virou um passthrough transparente para não desenhar um anel
+// DUPLICADO onde ainda houver `<FieldPresence>` remanescente. As props (`campo`) continuam aceitas
+// p/ retrocompatibilidade das chamadas existentes, mas são ignoradas. Pode ser removido junto com
+// suas últimas chamadas numa limpeza futura.
+export function FieldPresence({ children, className }: {
+  campo?: CorPresenca | null;
   children: ReactNode;
   className?: string;
 }) {
-  if (!campo) return <div className={className}>{children}</div>;
-  return (
-    <div className={`relative rounded-md ${className ?? ""}`} style={{ boxShadow: `0 0 0 2px ${campo.solid}` }}>
-      {/* rótulo com o nome, na cor da pessoa, no canto sup. direito DENTRO da borda do anel — não
-          empurra o layout (absolute) e não colide com a <Label> do campo (que fica ACIMA do wrapper,
-          fora dele). z-20 p/ ficar sobre o input; pointer-events-none p/ não bloquear o clique. */}
-      <span
-        className="pointer-events-none absolute top-0.5 right-0.5 z-20 rounded px-1.5 py-px text-[10px] font-semibold leading-tight shadow-sm"
-        style={{ background: campo.solid, color: campo.text }}
-      >
-        {campo.nome}
-      </span>
-      {children}
-    </div>
-  );
+  return className ? <div className={className}>{children}</div> : <>{children}</>;
 }
