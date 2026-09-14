@@ -42,6 +42,8 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
@@ -369,6 +371,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   const conflitosRef = useRef<Conflito[]>([]);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Ring de presença por campo: foco derivado no container (pathDoElemento). Grade marcada
+  // `cq-grade:${etapa}:${variante_numero}:${tam}`; escalares/peças por rótulo ou data-colab-path.
+  const colabScopeRef = useRef<HTMLDivElement>(null);
   // Abas Pré/Pós DENTRO do item (como em Serviços). Pré = CQ da costura (atual); Pós = acabamento.
   const [view, setView] = useState<"pre" | "pos">("pre");
   // As ações do Pós vivem no CqPosView; espelhamos o estado + ref p/ renderizar os
@@ -1109,7 +1114,16 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div
+        ref={colabScopeRef}
+        className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}
+        onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}
+        onBlurCapture={() => setCampoFocado(null)}
+      >
+      <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
       {view === "pre" && cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
       {/* Cabeçalho: só breadcrumb/título. Voltar e Oficina foram p/ a barra de ações do rodapé. */}
@@ -1353,30 +1367,26 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
             <Label className="text-xs">Peças Incompletas</Label>
             <NumberInput integer blankZero placeholder="0" value={form.pecas_incompletas}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))}
-              onFocus={() => setCampoFocado(rotuloConflito("pecas_incompletas"))}
-              onBlur={() => setCampoFocado(null)} />
+              data-colab-path="pecas_incompletas" />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
             <NumberInput integer blankZero placeholder="0" value={form.pecas_faltantes}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))}
-              onFocus={() => setCampoFocado(rotuloConflito("pecas_faltantes"))}
-              onBlur={() => setCampoFocado(null)} />
+              data-colab-path="pecas_faltantes" />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
             <NumberInput integer blankZero placeholder="0" value={form.pecas_sem_etiqueta}
               onChange={(e) => setFormTracked((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))}
-              onFocus={() => setCampoFocado(rotuloConflito("pecas_sem_etiqueta"))}
-              onBlur={() => setCampoFocado(null)} />
+              data-colab-path="pecas_sem_etiqueta" />
           </div>
         </div>
         <div>
           <Label className="text-xs">Observações do Controle de Qualidade</Label>
           <Textarea rows={3} value={form.observacoes_cq}
             onChange={(e) => setFormTracked((f) => ({ ...f, observacoes_cq: e.target.value }))}
-            onFocus={() => setCampoFocado(rotuloConflito("observacoes_cq"))}
-            onBlur={() => setCampoFocado(null)} />
+            data-colab-path="observacoes_cq" />
         </div>
       </Card>
       </fieldset>
@@ -1524,9 +1534,8 @@ function GradeMatrix(props: {
             integer
             className={`h-8 max-md:h-11 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
             value={row?.grades?.[t] ?? ""}
+            data-colab-path={`cq-grade:${etapa}:${num}:${t}`}
             onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
-            onFocus={() => onCampoFoco?.(`${ETAPA_FOCO_PT[etapa]} · ${t}`)}
-            onBlur={() => onCampoFoco?.(null)}
           />
         );
       }}

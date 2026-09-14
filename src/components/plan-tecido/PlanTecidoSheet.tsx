@@ -21,6 +21,8 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
@@ -786,12 +788,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   }, [seed, salvo, modelosReais, modelosDb, dirty, arvore]);
 
   // Presença + reage ao UPDATE em `colecoes` (QUALQUER save da árvore bumpa plan_rev — Task 1).
-  // campoFocado OMITIDO de propósito: a árvore é grande demais (subcoleção→linha→slot→material)
-  // p/ presença por campo valer a pena nesta adoção; os chips do banner bastam ("Fulano está aqui").
+  // Ring por campo (set/2026): o foco é derivado no container (pathDoElemento); as células da árvore
+  // (proporção/consumo/grade) carregam data-colab-path keyed por slot/material/variante/tamanho.
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLElement>(null);
   const { presentes } = useColabRegistro({
     canal: colecaoId ? `colab:plan:${colecaoId}` : null,
     tabela: "colecoes",
     registroId: colecaoId,
+    campoFocado: campoFocadoColab,
     onMudancaServidor: () => {
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] });
@@ -1811,7 +1816,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}
-              <main className={`flex-1 overflow-y-auto p-3 ${mobileTab !== "canvas" ? "max-md:hidden" : ""}`}>
+              <main
+                ref={colabScopeRef}
+                className={`flex-1 overflow-y-auto p-3 ${mobileTab !== "canvas" ? "max-md:hidden" : ""}`}
+                onFocusCapture={(e) => {
+                  const scope = colabScopeRef.current;
+                  setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+                }}
+                onBlurCapture={() => setCampoFocadoColab(null)}
+              >
+                <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS

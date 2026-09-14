@@ -50,6 +50,8 @@ import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
 import { mergeGrade } from "@/lib/colab/merge-grade";
@@ -507,6 +509,9 @@ export function TerceirizadosDetail({
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   const conflitosRef = useRef<Conflito[]>([]);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Ring de presença por campo: o foco é derivado no container (pathDoElemento) — os campos de grade
+  // usam o MESMO path do merge (`grade:${vid}:${tam}:${campo}`) e os escalares `bloco:${id}:${campo}`.
+  const colabScopeRef = useRef<HTMLDivElement>(null);
 
   // Setter rastreado: difere prev→next por bloco (id) e por célula da grade; marca o touched.
   // Mantém a assinatura de setBlocos (zero mudança nos filhos que já chamam setBlocos).
@@ -1291,8 +1296,7 @@ export function TerceirizadosDetail({
                 placeholder="0,00"
                 value={b.preco_metro_unidade || ""}
                 onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
-                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("preco_metro_unidade")}`)}
-                onBlur={() => setCampoFocado(null)}
+                data-colab-path={`bloco:${b.id ?? b._key}:preco_metro_unidade`}
               />
             </div>
           )}
@@ -1304,8 +1308,7 @@ export function TerceirizadosDetail({
               disabled={b.detalhado}
               value={b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : (b.quantidade_enviada || "")}
               onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
-              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_enviada")}`)}
-              onBlur={() => setCampoFocado(null)}
+              data-colab-path={`bloco:${b.id ?? b._key}:quantidade_enviada`}
             />
           </div>
           {b.detalhado && (
@@ -1351,8 +1354,7 @@ export function TerceirizadosDetail({
               disabled={b.detalhado}
               value={b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : (b.quantidade_recebida || "")}
               onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
-              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_recebida")}`)}
-              onBlur={() => setCampoFocado(null)}
+              data-colab-path={`bloco:${b.id ?? b._key}:quantidade_recebida`}
             />
           </div>
           <div>
@@ -1363,8 +1365,7 @@ export function TerceirizadosDetail({
               disabled={b.detalhado}
               value={b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : (b.quantidade_defeito || "")}
               onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
-              onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_defeito")}`)}
-              onBlur={() => setCampoFocado(null)}
+              data-colab-path={`bloco:${b.id ?? b._key}:quantidade_defeito`}
             />
           </div>
           {b.detalhado && (
@@ -1382,7 +1383,7 @@ export function TerceirizadosDetail({
                   </div>
                 );
               })()}
-              <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} onCampoFoco={setCampoFocado} />
+              <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} />
             </div>
           )}
           {!b.interno && (
@@ -1394,8 +1395,7 @@ export function TerceirizadosDetail({
                 placeholder="0,00"
                 value={b.desconto_total || ""}
                 onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
-                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("desconto_total")}`)}
-                onBlur={() => setCampoFocado(null)}
+                data-colab-path={`bloco:${b.id ?? b._key}:desconto_total`}
               />
             </div>
           )}
@@ -1408,8 +1408,7 @@ export function TerceirizadosDetail({
                 placeholder="0,00"
                 value={b.multa_total || ""}
                 onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
-                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("multa_total")}`)}
-                onBlur={() => setCampoFocado(null)}
+                data-colab-path={`bloco:${b.id ?? b._key}:multa_total`}
               />
             </div>
           )}
@@ -1513,8 +1512,7 @@ export function TerceirizadosDetail({
           <Textarea
             value={b.observacao}
             onChange={(e) => updateBloco(idx, { observacao: e.target.value })}
-            onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("observacao")}`)}
-            onBlur={() => setCampoFocado(null)}
+            data-colab-path={`bloco:${b.id ?? b._key}:observacao`}
             rows={2}
           />
         </div>
@@ -1575,7 +1573,16 @@ export function TerceirizadosDetail({
   // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div
+        ref={colabScopeRef}
+        className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}
+        onFocusCapture={(e) => {
+          const scope = colabScopeRef.current;
+          setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+        }}
+        onBlurCapture={() => setCampoFocado(null)}
+      >
+      <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
       {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS de impressão. "Voltar uma etapa" e as
           ações primárias (Voltar / Salvar) ficam no rodapé sticky. */}
@@ -1870,15 +1877,12 @@ const CAMPOS_GRADE: { k: keyof CelulaGrade; label: string }[] = [
   { k: "defeito", label: "Defeito" },
 ];
 function GradeEditor({
-  tpl, grade, onChange, disabled, onCampoFoco,
+  tpl, grade, onChange, disabled,
 }: {
   tpl: { variantes: { id: string; label: string }[]; tamanhos: string[] };
   grade: GradeDetalhe;
   onChange: (g: GradeDetalhe) => void;
   disabled?: boolean;
-  // Colab (item 3, fast-follow): presença por campo — célula = campo (Enviada/Cortada/
-  // Recebida/Defeito) + tamanho (sem depender de vid, já que a variante fica no rótulo da linha).
-  onCampoFoco?: (label: string | null) => void;
 }) {
   const tamLabel = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
   const cel = (vid: string, t: string): CelulaGrade => grade[vid]?.[t] ?? CELULA_ZERO;
@@ -1914,9 +1918,8 @@ function GradeEditor({
                   title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
                   className={`h-8 max-md:h-11 w-full border-0 bg-background px-1 text-center disabled:opacity-60 ${alerta ? "text-destructive font-semibold" : ""}`}
                   value={cel(v.id, t)[k] || ""}
+                  data-colab-path={`grade:${v.id}:${t}:${k}`}
                   onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
-                  onFocus={() => onCampoFoco?.(`${label} · ${tamLabel(t)}`)}
-                  onBlur={() => onCampoFoco?.(null)}
                 />
               );
             }}

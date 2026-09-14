@@ -181,7 +181,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
               <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary" title="Consumo do CAD (fonte mais adiantada — vence o BOM do Desenvolvimento)">CAD</span>
             )}
             <span className="text-muted-foreground">consumo</span>
-            <NumberInput disabled={readOnly} blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
+            <NumberInput disabled={readOnly} blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} data-colab-path={`pt-consumo:${material.id ?? `${material.tipo}#${material.numero}`}`} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
             <span className="text-muted-foreground">m/pç</span>
           </div>
         </div>
@@ -220,7 +220,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 ) : planejada ? (
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
-                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
+                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} data-colab-path={`pt-grade:${material.id ?? `${material.tipo}#${material.numero}`}:${varKey(v)}`} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
                 <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (v.grade_total || 0))} m</span>
                 {!readOnly && <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>}

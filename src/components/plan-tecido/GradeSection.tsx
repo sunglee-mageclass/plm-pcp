@@ -39,6 +39,7 @@ export function GradeSection({ slot, onChange, tamanhos, readOnly = false }: { s
               placeholder="0"
               className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
               value={valorDe(t)}
+              data-colab-path={`pt-prop:${slot.id ?? slot.modelo_id ?? "x"}:${t}`}
               onChange={(e) => setProp(t, Number(e.target.value) || 0)}
             />
             <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
