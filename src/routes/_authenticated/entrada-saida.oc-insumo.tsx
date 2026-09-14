@@ -27,6 +27,9 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -344,6 +347,14 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const isEdit = !!ocId;
   const etqMap = useMemo(() => Object.fromEntries(etiquetas.map((e) => [e.id, e])), [etiquetas]);
 
+  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: ocId ? `colab-oc-insumo:${ocId}` : null,
+    campoFocado: campoFocadoColab,
+  });
+
   const [numero, setNumero] = useState("");
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [repId, setRepId] = useState<string | null>(null);
@@ -597,7 +608,17 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
 
         <div className="flex min-h-0 gap-4">
           <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
-          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+          <div
+            ref={colabScopeRef}
+            className="min-w-0 flex-1 space-y-6 overflow-y-auto"
+            onScroll={onBodyScroll}
+            onFocusCapture={(e) => {
+              const scope = colabScopeRef.current;
+              setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+            }}
+            onBlurCapture={() => setCampoFocadoColab(null)}
+          >
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <section id="oci-sec-pedido" className="scroll-mt-2 space-y-4">
           <OcSecTitle n={1}>Pedido</OcSecTitle>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -680,15 +701,15 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                             </td>
                             <td className="px-2 py-1">{r.label}</td>
                             <td className="px-2 py-1">
-                              <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdPedida ?? ""} onChange={(e) => updRow(bi, ri, { qtdPedida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || isReadOnlyRecebimento} />
+                              <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdPedida ?? ""} data-colab-path={`insumo-qtd-ped:${b.etiquetaId}:${r.varianteId ?? "unico"}`} onChange={(e) => updRow(bi, ri, { qtdPedida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || isReadOnlyRecebimento} />
                             </td>
                             {showQtdReceb && (
                               <td className="px-2 py-1">
-                                <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdRecebida ?? ""} onChange={(e) => updRow(bi, ri, { qtdRecebida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || readOnly} />
+                                <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdRecebida ?? ""} data-colab-path={`insumo-qtd-rec:${b.etiquetaId}:${r.varianteId ?? "unico"}`} onChange={(e) => updRow(bi, ri, { qtdRecebida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || readOnly} />
                               </td>
                             )}
                             <td className="px-2 py-1">
-                              <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.preco ?? ""} onChange={(e) => updRow(bi, ri, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || isReadOnlyRecebimento} />
+                              <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.preco ?? ""} data-colab-path={`insumo-preco:${b.etiquetaId}:${r.varianteId ?? "unico"}`} onChange={(e) => updRow(bi, ri, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || isReadOnlyRecebimento} />
                             </td>
                           </tr>
                         ))}
@@ -730,6 +751,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                       <div key={idx} className="flex items-center gap-3 rounded-md border p-2">
                         <span className="text-xs font-medium w-20">Parcela {idx + 1}</span>
                         <DateField className="flex-1 max-w-[200px]" value={p.data} disabled={isReadOnlyRecebimento}
+                          data-colab-path={`insumo-parcela-data:${idx}`}
                           onChange={(e) => setParcelas((arr) => arr.map((x, j) => (j === idx ? { ...x, data: e.target.value } : x)))} />
                         <label className="flex items-center gap-2 text-xs">
                           <Checkbox checked={p.recebido} disabled={isReadOnlyRecebimento}

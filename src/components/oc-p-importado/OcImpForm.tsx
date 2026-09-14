@@ -421,6 +421,7 @@ export function OcImpForm({
                       integer
                       disabled={disabled}
                       className="h-8 w-14 border-0 bg-transparent text-center"
+                      data-colab-path={`grade-prop:${t}`}
                       value={peso}
                       onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
                     />
@@ -458,11 +459,11 @@ export function OcImpForm({
                   <div className="ml-auto flex items-center gap-2 max-md:ml-0 max-md:w-full">
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-muted-foreground">peso</span>
-                      <NumberInput integer disabled={disabled} className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
+                      <NumberInput integer disabled={disabled} className="h-8 w-16 text-center" data-colab-path={`var-peso:${v.ordem}`} value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-muted-foreground">qtd</span>
-                      <NumberInput integer disabled={disabled} className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
+                      <NumberInput integer disabled={disabled} className="h-8 w-20 text-center" data-colab-path={`var-qtd:${v.ordem}`} value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
                     </div>
                     {!disabled && (
                       <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
@@ -520,7 +521,7 @@ export function OcImpForm({
           <div className="space-y-2">
             {draft.etapas.map((e) => (
               <div key={e.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
-                <Input className="w-32 max-md:w-full" placeholder="Rótulo" disabled={disabled} value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
+                <Input className="w-32 max-md:w-full" placeholder="Rótulo" disabled={disabled} data-colab-path={`etapa-rotulo:${e.ordem}`} value={e.rotulo} onChange={(ev) => setEtapa(e.ordem, { rotulo: ev.target.value })} />
                 <Select value={e.base} onValueChange={(v) => setEtapa(e.ordem, { base: v as "mercadoria" | "frete" })} disabled={disabled}>
                   <SelectTrigger className="w-32 max-md:w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -529,13 +530,13 @@ export function OcImpForm({
                   </SelectContent>
                 </Select>
                 <div className="flex items-center gap-1">
-                  <NumberInput blankZero placeholder="0" disabled={disabled} className="h-8 w-16 text-center" value={e.percentual} onChange={(ev) => setEtapa(e.ordem, { percentual: Math.max(0, Number(ev.target.value) || 0) })} />
+                  <NumberInput blankZero placeholder="0" disabled={disabled} className="h-8 w-16 text-center" data-colab-path={`etapa-pct:${e.ordem}`} value={e.percentual} onChange={(ev) => setEtapa(e.ordem, { percentual: Math.max(0, Number(ev.target.value) || 0) })} />
                   <span className="text-xs text-muted-foreground">%</span>
                 </div>
-                <DateField className="w-36 max-md:w-full" disabled={disabled} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
+                <DateField className="w-36 max-md:w-full" disabled={disabled} data-colab-path={`etapa-venc:${e.ordem}`} value={e.data_vencimento ?? ""} onChange={(ev) => setEtapa(e.ordem, { data_vencimento: ev.target.value || null })} />
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-muted-foreground">cotação</span>
-                  <NumberInput blankZero placeholder="0,00" disabled={disabled} className="h-8 w-20 text-center" value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
+                  <NumberInput blankZero placeholder="0,00" disabled={disabled} className="h-8 w-20 text-center" data-colab-path={`etapa-cot:${e.ordem}`} value={e.cotacao} onChange={(ev) => setEtapa(e.ordem, { cotacao: Number(ev.target.value) || 0 })} />
                 </div>
                 {!disabled && (
                   <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive max-md:ml-0" onClick={() => removeEtapa(e.ordem)}>

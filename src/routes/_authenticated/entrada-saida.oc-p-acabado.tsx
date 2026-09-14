@@ -22,6 +22,9 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -552,6 +555,13 @@ function OcPaDialog({
 }) {
   const isEdit = !!ocId;
   const qc = useQueryClient();
+  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: ocId ? `colab-oc-pa:${ocId}` : null,
+    campoFocado: campoFocadoColab,
+  });
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [grade, setGrade] = useState<GradeDetalhe>({});
   const [status, setStatus] = useState<OcPaStatus>("encomendado");
@@ -844,7 +854,17 @@ function OcPaDialog({
 
         <div className="flex min-h-0 gap-4">
           <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
-          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+          <div
+            ref={colabScopeRef}
+            className="min-w-0 flex-1 space-y-6 overflow-y-auto"
+            onScroll={onBodyScroll}
+            onFocusCapture={(e) => {
+              const scope = colabScopeRef.current;
+              setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+            }}
+            onBlurCapture={() => setCampoFocadoColab(null)}
+          >
+            <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
             <OcPaForm
               draft={draft}
               setDraft={setDraft}

@@ -49,6 +49,7 @@ export function GradeDestrinchada({
           integer
           disabled={disabled}
           className="h-8 max-md:h-11 w-full border-0 text-center"
+          data-colab-path={`grade:${campo}:${num}:${t}`}
           value={cel(num, t)[campo]}
           onChange={(e) => set(num, t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
         />
