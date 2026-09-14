@@ -51,6 +51,25 @@ export const REALTIME_INVALIDATION_TABLES = [
   // Fase 2 — Financeiro
   "parcelas",
   "parcelas_servico",
+  // Fase 2 (fechamento) — OSs + Cadastros (listas)
+  "ordens_saida_tecido",
+  "ordens_saida_aviamento",
+  "artigos",
+  "aviamentos",
+  "empresas",
+  "representantes",
+  "colaboradores",
+  "destinos_saida",
+  "etiquetas",
+  // Fase 2 (fechamento) — taxonomias de Atributos ainda não publicadas (regra genérica de taxonomia)
+  "anos",
+  "categorias_fornecedor",
+  "categorias_tecido",
+  "categorias_aviamento",
+  "subcategorias_aviamento",
+  "materiais_aviamento",
+  "intervalos_largura",
+  "tipos_insumo",
 ] as const;
 
 export type RealtimeTable = (typeof REALTIME_INVALIDATION_TABLES)[number];
@@ -69,6 +88,14 @@ export const BUSINESS_TABLES = [
   "produtos_importados",
   "parcelas",
   "parcelas_servico",
+  "ordens_saida_tecido",
+  "ordens_saida_aviamento",
+  "artigos",
+  "aviamentos",
+  "empresas",
+  "representantes",
+  "destinos_saida",
+  "etiquetas",
 ] as const;
 export type BusinessTable = (typeof BUSINESS_TABLES)[number];
 type TaxonomyTable = Exclude<RealtimeTable, "tenant_config" | BusinessTable>;
@@ -121,6 +148,19 @@ export const TAXONOMY_KEY_TOKENS: Record<TaxonomyTable, readonly string[]> = {
     "leadtime-servico-cats",
   ],
   lojas_direcionamento: ["lojas-direcionamento", "dir-lojas"],
+  // Fase 2 — taxonomias de Atributos: a lista é sempre `["attr", <tabela>, ""]`, casada pela regra
+  // GENÉRICA (s1(k)===tabela). Sem token bespoke (a página de Atributos usa o AttributeTab genérico).
+  anos: [],
+  categorias_fornecedor: [],
+  categorias_tecido: [],
+  categorias_aviamento: [],
+  subcategorias_aviamento: [],
+  materiais_aviamento: [],
+  intervalos_largura: [],
+  tipos_insumo: [],
+  // Colaboradores usa o AttributeTab genérico: lista `["attr","colaboradores",<papel>]` — casa por
+  // s1(k)===tabela (regra genérica). Sem token bespoke.
+  colaboradores: [],
 };
 
 function matchTaxonomy(table: TaxonomyTable, k: QueryKey): boolean {
@@ -144,6 +184,8 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
     "producao-terc-list", "producao-cq-list", "dir-list", "producao-terc-mo-resumo",
     // Lançamentos (cards de modelos prontos/lançados + custo)
     "lancamentos-cards", "lanc-custo-unit", "lanc-custo-real-total",
+    // Explosão (lista de modelos a enviar ao corte)
+    "producao-explosao-list",
     // OTB (poder de venda / links de modelo)
     "otb-modelos-link", "otb-custo-lista", "otb-grade-lista", "otb-pv-poder",
   ],
@@ -163,6 +205,15 @@ export const BUSINESS_KEY_TOKENS: Record<BusinessTable, readonly string[]> = {
   // as pendências de recebimento; `servicos-financeiro` (com sub-escopo calendario/lista) vem das 2.
   parcelas: ["parcelas", "financeiro-pendencias-receb"],
   parcelas_servico: ["servicos-financeiro"],
+  // Fase 2 (fechamento) — OSs + Cadastros. Só keys de LISTA (detalhe é estado local / token diferente).
+  ordens_saida_tecido: ["os-tecido"],
+  ordens_saida_aviamento: ["os-aviamento"],
+  artigos: ["artigos", "variantes-thumb"],
+  aviamentos: ["aviamentos", "aviamentos-variantes"],
+  empresas: ["empresas-multi"],
+  representantes: ["representantes"],
+  destinos_saida: ["destinos-saida"],
+  etiquetas: ["etiquetas-cadastro"],
 };
 
 // Tokens AMBÍGUOS: o mesmo `k[0]` nomeia a LISTA (`["token", [ids]]`, k[1] = array de ids) E o

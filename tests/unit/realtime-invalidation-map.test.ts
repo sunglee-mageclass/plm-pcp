@@ -69,6 +69,25 @@ describe("realtime-invalidation-map: tabelas", () => {
         // Fase 2 — Financeiro
         "parcelas",
         "parcelas_servico",
+        // Fase 2 (fechamento) — OSs + Cadastros
+        "ordens_saida_tecido",
+        "ordens_saida_aviamento",
+        "artigos",
+        "aviamentos",
+        "empresas",
+        "representantes",
+        "colaboradores",
+        "destinos_saida",
+        "etiquetas",
+        // Fase 2 (fechamento) — taxonomias de Atributos
+        "anos",
+        "categorias_fornecedor",
+        "categorias_tecido",
+        "categorias_aviamento",
+        "subcategorias_aviamento",
+        "materiais_aviamento",
+        "intervalos_largura",
+        "tipos_insumo",
       ].sort(),
     );
   });
@@ -101,16 +120,30 @@ describe("realtime-invalidation-map: nenhuma key morta", () => {
     }
   });
 
-  it("cada token de tabela de negócio existe literalmente em src/", () => {
+  // Tokens construídos por TEMPLATE (não existem como string literal p/ o grep): as OSs usam
+  // `listKey = [\`os-${tipo}\`]` (OrdemSaidaPage) → "os-tecido"/"os-aviamento" nascem de `tipo`.
+  const TOKENS_POR_TEMPLATE = new Set(["os-tecido", "os-aviamento"]);
+
+  it("cada token de tabela de negócio existe literalmente em src/ (menos os construídos por template)", () => {
     for (const [table, tokens] of Object.entries(BUSINESS_KEY_TOKENS)) {
       for (const tok of tokens) {
+        if (TOKENS_POR_TEMPLATE.has(tok)) continue;
         expect(SRC_BLOB.includes(`"${tok}"`), `token "${tok}" (${table}) sumiu de src/`).toBe(true);
       }
     }
   });
 
+  // Tabelas acessadas por VARIÁVEL (não `.from("nome")` literal): as OSs via `.from(cfg.headerTable)`
+  // (o nome literal "ordens_saida_tecido"/"_aviamento" está no `cfg`, conferido abaixo).
+  const TABELAS_FROM_VARIAVEL = new Set(["ordens_saida_tecido", "ordens_saida_aviamento"]);
+
   it("cada nome de tabela aparece como .from(\"<tabela>\") em src/ (leitura viva)", () => {
     for (const t of REALTIME_INVALIDATION_TABLES) {
+      if (TABELAS_FROM_VARIAVEL.has(t)) {
+        // acessada por variável, mas o nome literal existe em src/ (no config do OrdemSaidaPage)
+        expect(SRC_BLOB.includes(`"${t}"`), `tabela ${t} (from-variável) sem literal em src/`).toBe(true);
+        continue;
+      }
       // lojas_direcionamento é lida via `.from("lojas_direcionamento" as any)`.
       expect(SRC_BLOB.includes(`.from("${t}"`), `tabela ${t} sem .from() em src/`).toBe(true);
     }
