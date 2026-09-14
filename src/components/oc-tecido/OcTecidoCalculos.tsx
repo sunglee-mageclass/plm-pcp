@@ -170,6 +170,7 @@ export function OcTecidoCalculos({
                               <NumberInput type="number" step="0.01" className="h-9 w-24"
                                 value={entry.qtd}
                                 disabled={readOnly}
+                                data-colab-path={`rolo-qtd:${i.variante_tecido_id}:${ri}`}
                                 onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
                             )}
                             {sufixo && <span className="text-xs text-muted-foreground">{sufixo}</span>}
@@ -187,6 +188,7 @@ export function OcTecidoCalculos({
                               placeholder="Observação do rolo (defeito, tonalidade…)"
                               className="h-8 text-xs"
                               disabled={!!entry.usado}
+                              data-colab-path={`rolo-obs:${i.variante_tecido_id}:${ri}`}
                               onBlur={(e) => { if ((e.target.value || "") !== (entry.obs ?? "")) setEntryCq(i.tempId, ri, { obs: e.target.value }); }}
                             />
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -222,6 +224,7 @@ export function OcTecidoCalculos({
                       {/* Input DESTACADO: é o campo de trabalho do recebimento. */}
                       <NumberInput type="number" step="0.01" className={cn("border-primary/60 font-semibold", sufixo && "pr-10")}
                         value={i.quantidade_recebida ?? ""}
+                        data-colab-path={`receb-qtd:${i.variante_tecido_id}`}
                         onChange={(e) => {
                           const raw = e.target.value.replace(",", ".");
                           setQtd(i.tempId, "quantidade_recebida", raw === "" ? null : Number(raw));

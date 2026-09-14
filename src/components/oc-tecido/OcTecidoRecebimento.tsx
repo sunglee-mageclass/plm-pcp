@@ -123,6 +123,7 @@ export function OcTecidoRecebimento({
                   <DateField
                     className="w-40"
                     value={p.data}
+                    data-colab-path={`parcela-receb-data:${idx}`}
                     onChange={(e) => {
                       const v = e.target.value;
                       setDraft((d) => {
