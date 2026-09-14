@@ -22,6 +22,9 @@ import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
@@ -143,6 +146,14 @@ function PlanejamentoPage() {
   const [fColecao, setFColecao] = useFilterState("planejamento", "Coleção", []);
   const [fLancamento, setFLancamento] = useFilterState("planejamento", "Lançamento", []); // multi: [] = todos
   const [openId, setOpenId] = useState<string | null>(null);
+  // Presença por campo NO CANVAS (ring nos campos inline dos cards — preço/data de lançamento).
+  // Canal único por página (barato); o campoFocado codifica `<campo>:<modeloId>` do card focado.
+  const [campoFocadoCanvas, setCampoFocadoCanvas] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesCanvas } = useColabPresencaPagina({
+    canal: "colab-canvas:planejamento",
+    campoFocado: campoFocadoCanvas,
+  });
   // Deep-link `?modelo=<id>` (ver Route.validateSearch acima) — abre o card uma vez ao montar;
   // não reabre se o usuário fechar e a URL ainda tiver o param (evita reabrir sozinho).
   const modeloParam = Route.useSearch({ select: (s) => s.modelo });
@@ -818,7 +829,17 @@ function PlanejamentoPage() {
   };
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
+    <div
+      ref={colabScopeRef}
+      className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24"
+      onFocusCapture={(e) => {
+        const scope = colabScopeRef.current;
+        setCampoFocadoCanvas(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+      }}
+      onBlurCapture={() => setCampoFocadoCanvas(null)}
+    >
+      {/* Ring de presença nos campos inline dos cards do canvas (preço/data). */}
+      <ColabPresenceOverlay presentes={presentesCanvas} scopeRef={colabScopeRef} />
       {/* Seleção múltipla no HEADER STICKY (portal), ao lado do nome do módulo. Ativa
           mostra Todos / contagem / Definir em massa ali mesmo. NO MOBILE as ações de seleção
           NÃO ficam no header (dono ago/2026 — "ficou péssimo"): "Selecionar todos" mora na
@@ -1279,6 +1300,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                   {!podeVerCustos ? <span className="text-muted-foreground">—</span>
                     : podeEditarPreco ? (
                       <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
+                        data-colab-path={`card-preco:${modelo.id}`}
                         onChange={(e) => setPrecoDraft(e.target.value)}
                         onBlur={commitPreco}
                         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1301,6 +1323,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                 <td className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1.5 min-w-0">
                     <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
+                      data-colab-path={`card-data-lanc:${modelo.id}`}
                       className="h-7 w-[7.75rem] shrink-0 [&_input]:h-7 [&_input]:pl-2 [&_input]:pr-7 [&_input]:text-xs [&_button]:w-7 [&_svg]:h-3.5 [&_svg]:w-3.5" />
                     <button type="button" disabled={lancStatus == null}
                       aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
