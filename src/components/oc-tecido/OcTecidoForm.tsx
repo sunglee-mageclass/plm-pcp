@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { CorPresenca } from "@/lib/colab/presenca-cor";
-import { FieldPresence } from "@/components/shared/FieldPresence";
 import { fmtNum } from "@/lib/format";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
@@ -92,16 +91,14 @@ export function OcTecidoForm({
   metragemPrevista: number;
   numVariantes: number;
 }) {
-  // Um por campo instrumentado. Conflito (âmbar, tem prioridade) = classe fixa no input. Presença
-  // (nome+cor da pessoa focada ali agora) = wrapper <FieldPresence> ao redor (set/2026); quando há
-  // conflito, a presença cede (não mostra o anel colorido em cima do âmbar). `pc` só quando NÃO há
-  // conflito, p/ o wrapper.
+  // Um por campo instrumentado. Conflito (âmbar) = classe fixa no input. O ANEL de presença
+  // (nome+cor de quem foca) NÃO é mais wrapper por campo — vem do <ColabPresenceOverlay> montado
+  // uma vez no container do sheet (auto-instrumentado por `data-colab-path`/path derivado, set/2026).
   const campo = (path: string) => {
     const conflito = colab.emConflito(path) ? colab.conflitoDe(path) : undefined;
     return {
       "data-colab-path": path,
       className: cn(conflito ? "ring-1 ring-amber-500" : undefined),
-      presenca: conflito ? null : colab.pc(path),
       conflito,
     };
   };
@@ -129,15 +126,14 @@ export function OcTecidoForm({
         <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">
           <Label>Número do Pedido</Label>
-          <FieldPresence campo={cNumero.presenca}>
-            <Input
-              value={draft.numero_pedido}
-              onChange={(e) => onNumeroChange(e.target.value)}
-              placeholder={numeroPlaceholder}
-              data-colab-path={cNumero["data-colab-path"]}
-              className={cNumero.className}
-            />
-          </FieldPresence>
+          {/* Ring de presença: agora via <ColabPresenceOverlay> (auto), não mais wrapper por campo. */}
+          <Input
+            value={draft.numero_pedido}
+            onChange={(e) => onNumeroChange(e.target.value)}
+            placeholder={numeroPlaceholder}
+            data-colab-path={cNumero["data-colab-path"]}
+            className={cNumero.className}
+          />
           {cNumero.conflito && (
             <ConflitoAviso conflito={cNumero.conflito} onResolver={(useDele) => colab.onResolverConflito(cNumero.conflito!, useDele)} />
           )}
@@ -164,28 +160,24 @@ export function OcTecidoForm({
 
         <div className="grid gap-1">
           <Label>Data do Pedido</Label>
-          <FieldPresence campo={cDataPedido.presenca}>
-            <DateField
-              value={draft.data_pedido}
-              onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))}
-              data-colab-path={cDataPedido["data-colab-path"]}
-              inputClassName={cDataPedido.className}
-            />
-          </FieldPresence>
+          <DateField
+            value={draft.data_pedido}
+            onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))}
+            data-colab-path={cDataPedido["data-colab-path"]}
+            inputClassName={cDataPedido.className}
+          />
           {cDataPedido.conflito && (
             <ConflitoAviso conflito={cDataPedido.conflito} onResolver={(useDele) => colab.onResolverConflito(cDataPedido.conflito!, useDele)} />
           )}
         </div>
         <div className="grid gap-1">
           <Label>Data Prevista de Entrega *</Label>
-          <FieldPresence campo={cDataEntrega.presenca}>
-            <DateField
-              value={draft.data_prevista_entrega}
-              onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))}
-              data-colab-path={cDataEntrega["data-colab-path"]}
-              inputClassName={cDataEntrega.className}
-            />
-          </FieldPresence>
+          <DateField
+            value={draft.data_prevista_entrega}
+            onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))}
+            data-colab-path={cDataEntrega["data-colab-path"]}
+            inputClassName={cDataEntrega.className}
+          />
           {cDataEntrega.conflito && (
             <ConflitoAviso conflito={cDataEntrega.conflito} onResolver={(useDele) => colab.onResolverConflito(cDataEntrega.conflito!, useDele)} />
           )}
@@ -195,17 +187,15 @@ export function OcTecidoForm({
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-4 rounded-md border border-dashed p-3">
           <div className="grid gap-1">
             <Label>Prazo de Pagamento *</Label>
-            <FieldPresence campo={cPrazo.presenca}>
-              <Input value={draft.prazo_pagamento} onChange={(e) => {
-                const v = e.target.value;
-                const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
-                const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
-                setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
-              }} placeholder="Ex: 30/60/90"
-                data-colab-path={cPrazo["data-colab-path"]}
-                className={cPrazo.className}
-              />
-            </FieldPresence>
+            <Input value={draft.prazo_pagamento} onChange={(e) => {
+              const v = e.target.value;
+              const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
+              const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
+              setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
+            }} placeholder="Ex: 30/60/90"
+              data-colab-path={cPrazo["data-colab-path"]}
+              className={cPrazo.className}
+            />
             {cPrazo.conflito && (
               <ConflitoAviso conflito={cPrazo.conflito} onResolver={(useDele) => colab.onResolverConflito(cPrazo.conflito!, useDele)} />
             )}

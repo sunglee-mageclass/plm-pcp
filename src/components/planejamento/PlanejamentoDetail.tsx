@@ -28,8 +28,8 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
-import { FieldPresence } from "@/components/shared/FieldPresence";
-import { presencaDoCampo } from "@/lib/colab/presenca-cor";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
@@ -606,6 +606,8 @@ export function PlanejamentoDetail({
   const conflitosRef = useRef<Conflito[]>([]);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Scope do ring de presença auto-instrumentado (cobre todos os campos do sheet — set/2026).
+  const colabScopeRef = useRef<HTMLDivElement>(null);
   // Espelho SEMPRE atualizado de `draft` p/ o merge síncrono dentro do onError do save (roda
   // depois de um `await` — nenhuma tecla digitada nessa janela pode se perder; mesma técnica
   // do piloto/Desenvolvimento).
@@ -1539,10 +1541,9 @@ export function PlanejamentoDetail({
     onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["modelo", modeloId] }),
     campoFocado,
   });
-  // Presença por campo com NOME + COR do usuário (estilo Sheets, set/2026): `pc(path)` devolve
-  // {nome,solid,text} de quem está no campo (ou null). O anel/rótulo visual sai do <FieldPresence>;
-  // o `data-colab-path` no input é o que trackea o foco (lido pelo onFocusCapture do container).
-  const pc = (path: string) => presencaDoCampo(presentes, path);
+  // Presença por campo com NOME + COR (estilo Sheets, set/2026): o anel/rótulo sai do
+  // <ColabPresenceOverlay> montado no fim do sheet — auto-instrumentado, cobre TODOS os campos
+  // (o foco vira `campoFocado` via `pathDoElemento` no onFocusCapture do container).
 
   // Enviar/Cancelar Ordem de Criação: gate explícito pro Desenvolvimento (independe do Salvar).
   // Colab (Task 2): classe b — ação pontual de 1 campo (2, atômicos no mesmo payload), singular
@@ -1669,8 +1670,12 @@ export function PlanejamentoDetail({
         </DialogHeader>
 
         <div
+          ref={colabScopeRef}
           className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-6"
-          onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
+          onFocusCapture={(e) => {
+            const scope = colabScopeRef.current;
+            setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+          }}
           onBlurCapture={() => setCampoFocado(null)}
         >
           {/* SETOR 1 — Informações Gerais do Produto */}
@@ -1685,14 +1690,12 @@ export function PlanejamentoDetail({
                   </SelectContent>
                 </Select>
               </div>
-              <FieldPresence campo={pc("nome")}>
-                <FieldText
-                  label="Nome do Modelo"
-                  value={draft.nome}
-                  onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
-                  colabPath="nome"
-                />
-              </FieldPresence>
+              <FieldText
+                label="Nome do Modelo"
+                value={draft.nome}
+                onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
+                colabPath="nome"
+              />
               <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
               <div className="grid gap-1">
                 <Label>Origem</Label>
@@ -2037,13 +2040,11 @@ export function PlanejamentoDetail({
                   <Label>Data de Lançamento</Label>
                   {/* Editável aqui também: a data real pode não se cumprir, então o
                       usuário ajusta no próprio setor Lançamento (Salvar persiste). */}
-                  <FieldPresence campo={pc("data_lancamento")}>
-                    <DateField
-                      value={draft.data_lancamento ?? ""}
-                      onChange={(e) => setDraftTracked((d) => ({ ...d, data_lancamento: e.target.value || null }))}
-                      data-colab-path="data_lancamento"
-                    />
-                  </FieldPresence>
+                  <DateField
+                    value={draft.data_lancamento ?? ""}
+                    onChange={(e) => setDraftTracked((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                    data-colab-path="data_lancamento"
+                  />
                 </div>
                 {lancado ? (
                   <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
@@ -2158,6 +2159,8 @@ export function PlanejamentoDetail({
         </AlertDialog>
 
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste card." />
+        {/* Ring de presença por campo AUTO-instrumentado (cobre todos os campos do sheet). */}
+        <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
     </>
   );
 

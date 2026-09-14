@@ -25,7 +25,9 @@ import {
 
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { presencaDoCampo } from "@/lib/colab/presenca-cor";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
@@ -689,6 +691,9 @@ function OcDialog({
   // logo após `await invalidateQueries(...)` arriscaria uma closure velha; o ref é sempre atual.
   const conflitosRef = useRef<Conflito[]>([]);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Scope do overlay de presença auto-instrumentado: o anel de "fulano está neste campo" cobre
+  // QUALQUER campo dentro deste container (não só os envolvidos à mão), via path derivado do foco.
+  const colabScopeRef = useRef<HTMLDivElement>(null);
 
   // Espelhos SEMPRE atualizados (toda render) de `draft`/`items` — o merge dentro do
   // `onError` do save (P0409, abaixo) roda depois de um `await` (janela de ~100-500ms em
@@ -1659,13 +1664,19 @@ function OcDialog({
             rotulo={rotuloConflito}
           />
         </div>
+        {/* Ring de presença por campo AUTO-instrumentado: cobre todos os campos do form abaixo. */}
+        <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
 
         <div className="flex min-h-0 gap-4">
           <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
           <div
+            ref={colabScopeRef}
             className="min-w-0 flex-1 space-y-6 overflow-y-auto"
             onScroll={onBodyScroll}
-            onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
+            onFocusCapture={(e) => {
+              const scope = colabScopeRef.current;
+              setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+            }}
             onBlurCapture={() => setCampoFocado(null)}
           >
           <OcTecidoForm
