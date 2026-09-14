@@ -25,6 +25,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
@@ -568,6 +571,13 @@ function OcDialog({
 }) {
   const isEdit = !!ocId;
   const qc = useQueryClient();
+  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: ocId ? `colab-oc-avi:${ocId}` : null,
+    campoFocado: campoFocadoColab,
+  });
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
@@ -900,7 +910,17 @@ function OcDialog({
 
         <div className="flex min-h-0 gap-4">
           <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
-          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+          <div
+            ref={colabScopeRef}
+            className="min-w-0 flex-1 space-y-6 overflow-y-auto"
+            onScroll={onBodyScroll}
+            onFocusCapture={(e) => {
+              const scope = colabScopeRef.current;
+              setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+            }}
+            onBlurCapture={() => setCampoFocadoColab(null)}
+          >
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <section id="oca-sec-pedido" className="scroll-mt-2 space-y-4">
           <OcSecTitle n={1}>Pedido</OcSecTitle>
           <div className="grid sm:grid-cols-2 gap-4">
@@ -1059,12 +1079,14 @@ function OcDialog({
                     <TableCell data-label="Qtd Pedida">
                       <NumberInput type="number" step="0.01" placeholder="0" value={i.quantidade_pedida || undefined}
                         disabled={i.cancelado || isReadOnlyRecebimento}
+                        data-colab-path={`avi-qtd-ped:${i.aviamento_id ?? "x"}:${i.variante_aviamento_id ?? "x"}`}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
                       <TableCell data-label="Qtd Recebida">
                         <NumberInput type="number" step="0.01" value={i.quantidade_recebida ?? ""}
                           disabled={i.cancelado}
+                          data-colab-path={`avi-qtd-rec:${i.aviamento_id ?? "x"}:${i.variante_aviamento_id ?? "x"}`}
                           onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })} />
                       </TableCell>
                     )}
