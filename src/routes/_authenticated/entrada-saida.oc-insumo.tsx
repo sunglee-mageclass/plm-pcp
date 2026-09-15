@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, ArrowLeft, Package, X, Printer } from "lucide-react";
@@ -28,8 +28,10 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -70,6 +72,49 @@ type EtqOpt = { id: string; nome: string; preco: number | null; formato_tamanho:
 // linha de variante (checkbox + qtds + preço) dentro do bloco de um insumo
 type VarRow = { itemId?: string; varianteId: string | null; corId: string | null; corNome: string | null; tamanho: string | null; label: string; incluido: boolean; qtdPedida: number | null; qtdRecebida: number | null; preco: number | null };
 type Block = { etiquetaId: string; selectedCores: string[]; rows: VarRow[] };
+
+// ── Colaboração (merge 3-vias) — tipos/adaptadores ────────────────────────────
+// Cabeçalho: a OC Insumo guarda o cabeçalho em states SOLTOS (não um único `draft`), então
+// montamos um objeto `DraftHead` (mesmas chaves do payload da OC) p/ o mergeDraft e distribuímos
+// o resultado de volta nos setters. Itens: os `blocks` (2 níveis) são ACHATADOS em `ItemFlat[]`
+// (uma linha por VarRow persistida, chaveada pelo itemId) p/ o mergeLinhas — mesmo `id` que o
+// diff da RPC usa. O merge é POR LINHA (id), não por célula. Ver molde OC Aviamento.
+type DraftHead = {
+  numero_pedido: string;
+  responsavel_nome: string;
+  empresa_id: string | null;
+  representante_id: string | null;
+  data_pedido: string;
+  data_prevista_entrega: string;
+  prazo_pagamento: string;
+  quantidade_prazos: number;
+  nfs: { url: string; data?: string }[];
+  parcelas_recebimento: ParcelaRec[];
+};
+type ItemFlat = {
+  id: string | null;
+  etiqueta_id: string;
+  variante_etiqueta_id: string | null;
+  quantidade_pedida: number | null;
+  quantidade_recebida: number | null;
+  preco: number | null;
+};
+// Achata os blocos em itens PERSISTIDOS (com itemId) p/ o mergeLinhas — mesma projeção de campos
+// que o payload da RPC, mas SEM o filtro de selectedCores/markReceived (o merge compara o estado
+// bruto por id). Linhas sem itemId (novas, ainda não salvas) não entram (o merge só olha `id`).
+const blocksToItens = (bs: Block[]): ItemFlat[] =>
+  bs.flatMap((b) =>
+    b.rows
+      .filter((r) => r.itemId)
+      .map((r) => ({
+        id: r.itemId as string,
+        etiqueta_id: b.etiquetaId,
+        variante_etiqueta_id: r.varianteId,
+        quantidade_pedida: r.qtdPedida,
+        quantidade_recebida: r.qtdRecebida,
+        preco: r.preco,
+      })),
+  );
 
 const fmtMoney = (v: number | null | undefined) => `R$ ${fmtNum(Number(v ?? 0))}`;
 const fmtDate = (v: string | null | undefined) => (v ? format(parseISO(v), "dd/MM/yyyy") : "—");
@@ -344,16 +389,24 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   onClose: () => void; onSaved: () => void; onDelete: () => void;
 }) {
   const readOnly = useReadOnly();
+  const qc = useQueryClient();
   const isEdit = !!ocId;
   const etqMap = useMemo(() => Object.fromEntries(etiquetas.map((e) => [e.id, e])), [etiquetas]);
 
-  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
+  // ── Colaboração em tempo real (merge 3-vias, clone da OC Aviamento) ──────────
+  // Presença por campo (ring) + merge de conflito (rev otimista + P0409). base = último visto do
+  // servidor · touched(Ref/ItemIds) = o que EU editei · revRef = rev da OC · conflitos barram Salvar.
+  // Cabeçalho em states SOLTOS → montado num DraftHead p/ o mergeDraft e redistribuído nos setters;
+  // itens em `blocks` (2 níveis) → achatados via blocksToItens p/ o mergeLinhas (merge POR LINHA/id).
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
-  const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: ocId ? `colab-oc-insumo:${ocId}` : null,
-    campoFocado: campoFocadoColab,
-  });
+  const touchedRef = useRef<Set<string>>(new Set());
+  const touchedItemIdsRef = useRef<Set<string>>(new Set());
+  const baseRef = useRef<{ draft: DraftHead; items: ItemFlat[] } | null>(null);
+  const revRef = useRef<number | null>(null);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
 
   const [numero, setNumero] = useState("");
   const [empresaId, setEmpresaId] = useState<string | null>(null);
@@ -371,6 +424,52 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [confirmUnmark, setConfirmUnmark] = useState(false);
   const [secAtiva, setSecAtiva] = useState("oci-sec-pedido");
   const savingRef = useRef(false);
+
+  // Cabeçalho corrente montado no shape do mergeDraft (mesmas chaves do payload da OC).
+  const draftHead: DraftHead = {
+    numero_pedido: numero,
+    responsavel_nome: respNome,
+    empresa_id: empresaId,
+    representante_id: repId,
+    data_pedido: dataPedido,
+    data_prevista_entrega: dataPrevista,
+    prazo_pagamento: prazo,
+    quantidade_prazos: qtdPrazos,
+    nfs,
+    parcelas_recebimento: parcelas,
+  };
+  // Distribui um DraftHead (resultado do merge) de volta nos setters soltos. Só chama o setter
+  // quando o valor mudou de fato (evita re-render/loop desnecessário).
+  const aplicarDraftHead = (d: DraftHead) => {
+    if (d.numero_pedido !== numero) setNumero(d.numero_pedido);
+    if (d.responsavel_nome !== respNome) setRespNome(d.responsavel_nome);
+    if (d.empresa_id !== empresaId) setEmpresaId(d.empresa_id);
+    if (d.representante_id !== repId) setRepId(d.representante_id);
+    if (d.data_pedido !== dataPedido) setDataPedido(d.data_pedido);
+    if (d.data_prevista_entrega !== dataPrevista) setDataPrevista(d.data_prevista_entrega);
+    if (d.prazo_pagamento !== prazo) setPrazo(d.prazo_pagamento);
+    if (d.quantidade_prazos !== qtdPrazos) setQtdPrazos(d.quantidade_prazos);
+    if (d.nfs !== nfs) setNfs(d.nfs);
+    if (d.parcelas_recebimento !== parcelas) setParcelas(d.parcelas_recebimento);
+  };
+  // Espelhos SEMPRE atualizados p/ o merge no onError do save (roda após um await; ler da closure
+  // descartaria teclas digitadas na janela). Ver molde OC Aviamento (draftLiveRef/itemsLiveRef).
+  const draftLiveRef = useRef(draftHead); draftLiveRef.current = draftHead;
+  const blocksLiveRef = useRef(blocks); blocksLiveRef.current = blocks;
+
+  // Canal colaborativo por-registro: presença + reagir a UPDATE alheio (re-busca → merge 3-vias).
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: ocId ? `colab:oc-insumo:${ocId}` : null,
+    tabela: "ocs_etiqueta",
+    registroId: ocId ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["oc-insumo", ocId] }),
+    campoFocado: campoFocadoColab,
+  });
+
+  // Marca um campo escalar do cabeçalho como tocado por MIM (p/ o merge de conflito).
+  const marcarHeadTouched = (k: keyof DraftHead) => touchedRef.current.add(String(k));
+  // Marca o itemId de uma VarRow persistida como tocado (edição/inclusão/exclusão passam por aqui).
+  const marcarRowTouched = (r?: VarRow) => { if (r?.itemId) touchedItemIdsRef.current.add(r.itemId); };
 
   // Documento imprimível da OC (pedido pro fornecedor). Itens = rows incluídas dos blocos.
   const docModelo: OcDocModelo = useMemo(() => {
@@ -443,48 +542,196 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       : [{ varianteId: null, corId: null, corNome: null, tamanho: null, label: "Único", incluido: true, qtdPedida: null, qtdRecebida: null, preco: etq.preco ?? null }],
   });
 
-  useQuery({
+  // Monta os blocos (2 níveis) a partir dos itens do servidor — mesma projeção do seed original.
+  // Extraída p/ ser reusada pelo merge/onError (rebuild de um bloco vindo do servidor). `etqMap` é
+  // capturado da closure (mesmas etiquetas do cadastro).
+  const buildBlocks = (its: any[]): Block[] => {
+    const byEtq = new Map<string, any[]>();
+    for (const it of its) { const a = byEtq.get(it.etiqueta_id) ?? []; a.push(it); byEtq.set(it.etiqueta_id, a); }
+    const bs: Block[] = [];
+    for (const [etqId, itsE] of byEtq) {
+      const etq = etqMap[etqId];
+      const rows: VarRow[] = [];
+      const semVar = itsE.find((it) => !it.variante_etiqueta_id);
+      if (semVar) rows.push({ itemId: semVar.id, varianteId: null, corId: null, corNome: null, tamanho: null, label: "Único", incluido: true, qtdPedida: semVar.quantidade_pedida, qtdRecebida: semVar.quantidade_recebida, preco: semVar.preco });
+      for (const v of etq?.variantes ?? []) {
+        const item = itsE.find((it) => it.variante_etiqueta_id === v.id);
+        rows.push({ itemId: item?.id, varianteId: v.id, corId: v.cor_id, corNome: v.cor_nome, tamanho: v.tamanho, label: rowLabel(v, etq!.formato_tamanho), incluido: !!item, qtdPedida: item?.quantidade_pedida ?? null, qtdRecebida: item?.quantidade_recebida ?? null, preco: item?.preco ?? v.preco ?? etq?.preco ?? null });
+      }
+      const selectedCores = [...new Set(rows.filter((r) => r.incluido && r.corId).map((r) => r.corId as string))];
+      bs.push({ etiquetaId: etqId, selectedCores, rows });
+    }
+    return bs;
+  };
+
+  // Objeto DraftHead a partir da linha crua da OC (mesma projeção do seed). Usado por seed e merge.
+  const headFromOc = (oc: any): DraftHead => ({
+    numero_pedido: oc.numero_pedido ?? "",
+    responsavel_nome: oc.responsavel_nome ?? "",
+    empresa_id: oc.empresa_id ?? null,
+    representante_id: oc.representante_id ?? null,
+    data_pedido: oc.data_pedido ?? "",
+    data_prevista_entrega: oc.data_prevista_entrega ?? "",
+    prazo_pagamento: oc.prazo_pagamento ?? "",
+    quantidade_prazos: oc.quantidade_prazos ?? 1,
+    nfs: (oc.nfs ?? []) as { url: string; data?: string }[],
+    parcelas_recebimento: (Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0
+      ? oc.parcelas_recebimento
+      : [{ data: "", recebido: false }]) as ParcelaRec[],
+  });
+
+  // Aplica o resultado do mergeLinhas (itens achatados) de volta nos `blocks` (2 níveis), POR LINHA:
+  // - cada item mergeado (com id) casa com a VarRow por (etiquetaId × varianteId) — o buildBlocks já
+  //   cria UMA row por variante da etiqueta, então toda variante existente tem row (incluída ou não).
+  // - row cujo item DESAPARECEU do merge (removido no servidor, não-tocado) volta a incluido:false.
+  // - itens de uma etiqueta SEM bloco (o outro adicionou um insumo novo) viram um bloco novo.
+  // - rows minhas SEM itemId (novas, não salvas) são preservadas intactas.
+  const aplicarItensMerge = (bs: Block[], itens: ItemFlat[]): Block[] => {
+    const porEtqVar = new Map<string, ItemFlat>();
+    for (const it of itens) porEtqVar.set(`${it.etiqueta_id}::${it.variante_etiqueta_id ?? "unico"}`, it);
+    const usados = new Set<string>();
+    const out = bs.map((b) => {
+      const rows = b.rows.map((r) => {
+        const key = `${b.etiquetaId}::${r.varianteId ?? "unico"}`;
+        const it = porEtqVar.get(key);
+        if (it) {
+          usados.add(key);
+          return { ...r, itemId: it.id ?? undefined, incluido: true, qtdPedida: it.quantidade_pedida, qtdRecebida: it.quantidade_recebida, preco: it.preco };
+        }
+        // Sem item correspondente no merge: se a row estava persistida (tinha itemId), foi removida
+        // no servidor → desmarca; rows minhas novas (sem itemId) ficam como estão.
+        if (r.itemId) return { ...r, itemId: undefined, incluido: false, qtdPedida: null, qtdRecebida: null };
+        return r;
+      });
+      const selectedCores = [...new Set(rows.filter((r) => r.incluido && r.corId).map((r) => r.corId as string))];
+      return { ...b, rows, selectedCores };
+    });
+    // Itens de etiquetas SEM bloco atual (insumo novo adicionado por outra pessoa): monta bloco(s).
+    const novos = itens.filter((it) => !usados.has(`${it.etiqueta_id}::${it.variante_etiqueta_id ?? "unico"}`));
+    if (novos.length > 0) {
+      const asRows = novos.map((it) => ({ etiqueta_id: it.etiqueta_id, id: it.id, variante_etiqueta_id: it.variante_etiqueta_id, quantidade_pedida: it.quantidade_pedida, quantidade_recebida: it.quantidade_recebida, preco: it.preco }));
+      for (const nb of buildBlocks(asRows)) if (!out.some((b) => b.etiquetaId === nb.etiquetaId)) out.push(nb);
+    }
+    return out;
+  };
+
+  // A query só BUSCA (retorna oc+items+blocks); o seed/merge acontece no useEffect abaixo (padrão OC
+  // Aviamento) p/ que um refetch alheio (Realtime) faça MERGE 3-vias em vez de sobrescrever às cegas.
+  const { data: ocQueryData } = useQuery({
     queryKey: ["oc-insumo", ocId],
     enabled: !!ocId,
     queryFn: async () => {
+      if (!ocId) return null;
       const oc = (await supabase.from("ocs_etiqueta" as any).select("*").eq("id", ocId).maybeSingle()).data as any;
+      if (!oc) return null;
       const its = ((await supabase.from("ocs_etiqueta_itens" as any).select("*").eq("oc_etiqueta_id", ocId)).data ?? []) as any[];
-      if (oc) {
-        setNumero(oc.numero_pedido ?? ""); setEmpresaId(oc.empresa_id); setRepId(oc.representante_id);
-        setDataPedido(oc.data_pedido ?? ""); setDataPrevista(oc.data_prevista_entrega ?? "");
-        setPrazo(oc.prazo_pagamento ?? ""); setQtdPrazos(oc.quantidade_prazos ?? 1); setNfs((oc.nfs ?? []) as any);
-        setParcelas(Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0 ? oc.parcelas_recebimento : [{ data: "", recebido: false }]);
-        setStatus((oc.status as OCStatus) ?? "encomendado");
-        setRespNome(oc.responsavel_nome ?? "");
-        // agrupa itens por insumo → blocos (todas as variantes; marca as compradas); cores selecionadas = as usadas
-        const byEtq = new Map<string, any[]>();
-        for (const it of its) { const a = byEtq.get(it.etiqueta_id) ?? []; a.push(it); byEtq.set(it.etiqueta_id, a); }
-        const bs: Block[] = [];
-        for (const [etqId, itsE] of byEtq) {
-          const etq = etqMap[etqId];
-          const rows: VarRow[] = [];
-          const semVar = itsE.find((it) => !it.variante_etiqueta_id);
-          if (semVar) rows.push({ itemId: semVar.id, varianteId: null, corId: null, corNome: null, tamanho: null, label: "Único", incluido: true, qtdPedida: semVar.quantidade_pedida, qtdRecebida: semVar.quantidade_recebida, preco: semVar.preco });
-          for (const v of etq?.variantes ?? []) {
-            const item = itsE.find((it) => it.variante_etiqueta_id === v.id);
-            rows.push({ itemId: item?.id, varianteId: v.id, corId: v.cor_id, corNome: v.cor_nome, tamanho: v.tamanho, label: rowLabel(v, etq!.formato_tamanho), incluido: !!item, qtdPedida: item?.quantidade_pedida ?? null, qtdRecebida: item?.quantidade_recebida ?? null, preco: item?.preco ?? v.preco ?? etq?.preco ?? null });
-          }
-          const selectedCores = [...new Set(rows.filter((r) => r.incluido && r.corId).map((r) => r.corId as string))];
-          bs.push({ etiquetaId: etqId, selectedCores, rows });
-        }
-        setBlocks(bs);
-        // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
-        resetBaseline({
-          numero: oc.numero_pedido ?? "", empresaId: oc.empresa_id, repId: oc.representante_id,
-          respNome: oc.responsavel_nome ?? "", dataPedido: oc.data_pedido ?? "", dataPrevista: oc.data_prevista_entrega ?? "",
-          prazo: oc.prazo_pagamento ?? "", qtdPrazos: oc.quantidade_prazos ?? 1, nfs: (oc.nfs ?? []) as any,
-          parcelas: Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0 ? oc.parcelas_recebimento : [{ data: "", recebido: false }],
-          blocks: bs,
-        });
-      }
-      return oc ?? null;
+      return { oc, its };
     },
   });
+
+  // Seed (1ª carga) OU merge 3-vias (refetch alheio) — clone do padrão da OC Aviamento.
+  useEffect(() => {
+    if (!ocQueryData?.oc) return;
+    const oc = ocQueryData.oc;
+    const its = ocQueryData.its;
+    const freshHead = headFromOc(oc);
+    const freshItens = its.map((i: any) => ({
+      id: i.id as string,
+      etiqueta_id: i.etiqueta_id as string,
+      variante_etiqueta_id: i.variante_etiqueta_id ?? null,
+      quantidade_pedida: i.quantidade_pedida ?? null,
+      quantidade_recebida: i.quantidade_recebida ?? null,
+      preco: i.preco ?? null,
+    })) as ItemFlat[];
+    revRef.current = (oc as any).rev ?? null;
+
+    if (!baseRef.current) {
+      // 1ª carga: seed normal (distribui nos setters soltos + monta blocos).
+      const bs = buildBlocks(its);
+      baseRef.current = { draft: freshHead, items: freshItens };
+      setNumero(freshHead.numero_pedido); setRespNome(freshHead.responsavel_nome);
+      setEmpresaId(freshHead.empresa_id); setRepId(freshHead.representante_id);
+      setDataPedido(freshHead.data_pedido); setDataPrevista(freshHead.data_prevista_entrega);
+      setPrazo(freshHead.prazo_pagamento); setQtdPrazos(freshHead.quantidade_prazos);
+      setNfs(freshHead.nfs); setParcelas(freshHead.parcelas_recebimento);
+      setStatus((oc.status as OCStatus) ?? "encomendado");
+      setBlocks(bs);
+      touchedRef.current = new Set();
+      touchedItemIdsRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
+      resetBaseline({
+        numero: freshHead.numero_pedido, empresaId: freshHead.empresa_id, repId: freshHead.representante_id,
+        respNome: freshHead.responsavel_nome, dataPedido: freshHead.data_pedido, dataPrevista: freshHead.data_prevista_entrega,
+        prazo: freshHead.prazo_pagamento, qtdPrazos: freshHead.quantidade_prazos, nfs: freshHead.nfs,
+        parcelas: freshHead.parcelas_recebimento, blocks: bs,
+      });
+      return;
+    }
+
+    // Refetch: MERGE em vez de sobrescrever.
+    const md = mergeDraft({ base: baseRef.current.draft, draft: draftLiveRef.current, fresh: freshHead, touched: touchedRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current });
+    const semResultado =
+      md.atualizados.length === 0 && md.conflitos.length === 0 &&
+      ml.atualizadas.length === 0 && ml.conflitos.length === 0;
+    if (semResultado) {
+      // No-op (inclui o refetch que o onError do save P0409 já processou): não tocar em nenhum state.
+      baseRef.current = { draft: freshHead, items: freshItens };
+      return;
+    }
+    if (md.atualizados.length > 0 || md.conflitos.length > 0) aplicarDraftHead(md.valor);
+    if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setBlocks((bs) => aplicarItensMerge(bs, ml.linhas));
+    const todosConflitos = [...md.conflitos, ...ml.conflitos];
+    conflitosRef.current = todosConflitos;
+    setConflitos(todosConflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
+    baseRef.current = { draft: freshHead, items: freshItens };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocQueryData]);
+
+  // Resolução de conflito (ColabBanner): "usar o novo" grava o valor do servidor; "manter meu" só
+  // remove o conflito. path escalar = nome do campo; path de item = `linha:${id}`. Espelha OC Aviamento.
+  const ROTULO_CONFLITO_INS: Record<string, string> = {
+    numero_pedido: "Número do Pedido", empresa_id: "Fornecedor", representante_id: "Representante",
+    responsavel_nome: "Responsável", data_pedido: "Data do Pedido", data_prevista_entrega: "Data Prevista de Entrega",
+    prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
+    parcelas_recebimento: "Parcelas de recebimento", nfs: "Notas Fiscais",
+  };
+  const rotuloConflito = (path: string) =>
+    path.startsWith("linha:") ? "Item (insumo)" : (ROTULO_CONFLITO_INS[path] ?? path);
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path.startsWith("linha:")) {
+        const id = path.slice("linha:".length);
+        // Aplica o valor do servidor p/ ESTA linha (ou a remoção) na row correspondente.
+        const it = (c.dele ?? null) as ItemFlat | null;
+        setBlocks((bs) => aplicarUmItem(bs, id, it));
+        touchedItemIdsRef.current.delete(id);
+      } else {
+        const d = { ...draftLiveRef.current, [path]: c.dele } as DraftHead;
+        aplicarDraftHead(d);
+        touchedRef.current.delete(path);
+      }
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  // Aplica o valor do servidor de UM item (por id) numa row específica dos blocos (resolução "usar o
+  // novo" de um conflito de linha). `it==null` = o servidor removeu → desmarca a row.
+  const aplicarUmItem = (bs: Block[], id: string, it: ItemFlat | null): Block[] =>
+    bs.map((b) => ({
+      ...b,
+      rows: b.rows.map((r) => {
+        if (r.itemId !== id) return r;
+        if (!it) return { ...r, itemId: undefined, incluido: false, qtdPedida: null, qtdRecebida: null };
+        return { ...r, incluido: true, qtdPedida: it.quantidade_pedida, qtdRecebida: it.quantidade_recebida, preco: it.preco };
+      }),
+    }));
+  const temConflito = conflitos.length > 0;
 
   const addInsumo = (id: string) => {
     setAddSel("");
@@ -492,14 +739,23 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     const etq = etqMap[id];
     if (etq) setBlocks((bs) => [...bs, mkBlock(etq)]);
   };
-  const rmBlock = (bi: number) => setBlocks((bs) => bs.filter((_, j) => j !== bi));
+  const rmBlock = (bi: number) =>
+    setBlocks((bs) => {
+      bs[bi]?.rows.forEach(marcarRowTouched); // um bloco removido apaga seus itens persistidos
+      return bs.filter((_, j) => j !== bi);
+    });
   const updRow = (bi: number, ri: number, patch: Partial<VarRow>) =>
-    setBlocks((bs) => bs.map((b, j) => (j === bi ? { ...b, rows: b.rows.map((r, k) => (k === ri ? { ...r, ...patch } : r)) } : b)));
+    setBlocks((bs) => bs.map((b, j) => {
+      if (j !== bi) return b;
+      marcarRowTouched(b.rows[ri]);
+      return { ...b, rows: b.rows.map((r, k) => (k === ri ? { ...r, ...patch } : r)) };
+    }));
   const toggleCor = (bi: number, corId: string, checked: boolean) =>
     setBlocks((bs) => bs.map((b, j) => {
       if (j !== bi) return b;
       const etq = etqMap[b.etiquetaId];
       const sizes = hasTam(etq); // sem tamanho: selecionar a cor já inclui a variante única daquela cor
+      b.rows.forEach((r) => { if (r.corId === corId) marcarRowTouched(r); }); // incluir/excluir toca os itens da cor
       const selectedCores = checked ? [...b.selectedCores, corId] : b.selectedCores.filter((c) => c !== corId);
       const rows = b.rows.map((r) => (r.corId === corId ? { ...r, incluido: checked ? (sizes ? r.incluido : true) : false } : r));
       return { ...b, selectedCores, rows };
@@ -520,6 +776,12 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
 
   const save = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      // Guard SÍNCRONO contra salvar com conflito pendente (o `disabled={temConflito}` do botão é
+      // state assíncrono — não barra um 2º mutate no mesmo tick). Sem isto, após um P0409 o revRef já
+      // avançou p/ o rev fresco, então um save escapado bateria a trava e sobrescreveria em silêncio a
+      // edição do outro no campo em conflito (lição da Onda 2, espelhada da OC Aviamento).
+      if (conflitosRef.current.length > 0)
+        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
       const itens = blocks.flatMap((b) => {
         const etq = etqMap[b.etiquetaId];
@@ -540,11 +802,41 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         prazo_pagamento: prazo || null, quantidade_prazos: qtdPrazos, nf_url: nfs[0]?.url ?? null, nfs,
         parcelas_recebimento: parcelas, status: finalStatus,
       };
-      const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, { _oc_id: isEdit ? ocId : null, _oc: payload, _itens: itens });
+      const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, {
+        _oc_id: isEdit ? ocId : null, _oc: payload, _itens: itens,
+        _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
+      });
       if (error) throw error;
     },
     onSuccess: () => { toast.success("OC salva"); markClean(); onSaved(); },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: async (e: any) => {
+      if (e?.code === "P0409") {
+        // Alguém salvou no meio: recarrega o servidor e faz o merge 3-vias (mantém minhas edições,
+        // sinaliza conflito onde EU e o servidor divergimos). O usuário resolve e salva de novo.
+        toast.warning("Alguém salvou esta OC agora — confira os itens em conflito.");
+        const oc = (await supabase.from("ocs_etiqueta" as any).select("*").eq("id", ocId!).maybeSingle()).data as any;
+        if (!oc) return;
+        const its = ((await supabase.from("ocs_etiqueta_itens" as any).select("*").eq("oc_etiqueta_id", ocId!)).data ?? []) as any[];
+        const freshHead = headFromOc(oc);
+        const freshItens = its.map((i: any) => ({
+          id: i.id as string, etiqueta_id: i.etiqueta_id as string, variante_etiqueta_id: i.variante_etiqueta_id ?? null,
+          quantidade_pedida: i.quantidade_pedida ?? null, quantidade_recebida: i.quantidade_recebida ?? null, preco: i.preco ?? null,
+        })) as ItemFlat[];
+        const base = baseRef.current ?? { draft: freshHead, items: freshItens };
+        const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshHead, touched: touchedRef.current });
+        const ml = mergeLinhas({ base: base.items, draft: blocksToItens(blocksLiveRef.current), fresh: freshItens, touchedIds: touchedItemIdsRef.current });
+        aplicarDraftHead(md.valor);
+        setBlocks((bs) => aplicarItensMerge(bs, ml.linhas));
+        const todos = [...md.conflitos, ...ml.conflitos];
+        conflitosRef.current = todos;
+        setConflitos(todos);
+        setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todos });
+        baseRef.current = { draft: freshHead, items: freshItens };
+        revRef.current = (oc as any).rev ?? null;
+      } else {
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+      }
+    },
   });
   const unmark = useMutation({
     mutationFn: async () => { const { error } = await supabase.rpc("desmarcar_recebimento_oc_etiqueta" as any, { _oc_id: ocId }); if (error) throw error; },
@@ -604,6 +896,14 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </DialogHeader>
+          {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito. */}
+          <ColabBanner
+            presentes={presentesColab}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverPorPath}
+            rotulo={rotuloConflito}
+          />
         </div>
 
         <div className="flex min-h-0 gap-4">
@@ -622,21 +922,23 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           <section id="oci-sec-pedido" className="scroll-mt-2 space-y-4">
           <OcSecTitle n={1}>Pedido</OcSecTitle>
           <div className="grid sm:grid-cols-2 gap-3">
-            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => onNumeroChange(e.target.value)} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => { marcarHeadTouched("numero_pedido"); onNumeroChange(e.target.value); }} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
-              <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { setEmpresaId(emp); setRepId(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
+              {/* Trocar de EMPRESA limpa os blocos (insumos são por empresa; itens de outra empresa
+                  virariam órfãos). Trocar só o representante mantém os blocos. */}
+              <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { marcarHeadTouched("empresa_id"); marcarHeadTouched("representante_id"); if (emp !== empresaId) { blocks.forEach((b) => b.rows.forEach(marcarRowTouched)); setBlocks([]); } setEmpresaId(emp); setRepId(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
             </div>
             <div className="grid gap-1"><Label>Responsável</Label>
-              <ResponsavelSelect nome={respNome} onChange={(n) => setRespNome(n ?? "")} disabled={readOnly} />
+              <ResponsavelSelect nome={respNome} onChange={(n) => { marcarHeadTouched("responsavel_nome"); setRespNome(n ?? ""); }} disabled={readOnly} />
             </div>
             <div className="grid gap-1"><Label>Prazo de Pagamento</Label>
               <Input value={prazo} placeholder="Ex: 30/60/90" disabled={readOnly}
-                onChange={(e) => { const v = e.target.value; const parts = v.split("/").map((s) => s.trim()).filter(Boolean); setPrazo(v); setQtdPrazos(Math.max(1, Math.min(6, parts.length || 1))); }} />
+                onChange={(e) => { const v = e.target.value; const parts = v.split("/").map((s) => s.trim()).filter(Boolean); marcarHeadTouched("prazo_pagamento"); marcarHeadTouched("quantidade_prazos"); setPrazo(v); setQtdPrazos(Math.max(1, Math.min(6, parts.length || 1))); }} />
             </div>
-            <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => setDataPedido(e.target.value)} disabled={readOnly} /></div>
-            <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => setDataPrevista(e.target.value)} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Qtd. Parcelas de Recebimento</Label>
-              <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => setNumParcelas(parseInt(e.target.value, 10))} disabled={isReadOnlyRecebimento || readOnly} />
+              <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => { marcarHeadTouched("parcelas_recebimento"); setNumParcelas(parseInt(e.target.value, 10)); }} disabled={isReadOnlyRecebimento || readOnly} />
             </div>
           </div>
           </section>
@@ -733,7 +1035,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
               <OcSecTitle n={3}>Anexos</OcSecTitle>
               <div className="grid gap-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notas Fiscais</Label>
-                <NfList value={nfs} onChange={setNfs} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly} />
+                <NfList value={nfs} onChange={(v) => { marcarHeadTouched("nfs"); setNfs(v); }} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly} />
               </div>
             </section>
           )}
@@ -752,10 +1054,10 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                         <span className="text-xs font-medium w-20">Parcela {idx + 1}</span>
                         <DateField className="flex-1 max-w-[200px]" value={p.data} disabled={isReadOnlyRecebimento}
                           data-colab-path={`insumo-parcela-data:${idx}`}
-                          onChange={(e) => setParcelas((arr) => arr.map((x, j) => (j === idx ? { ...x, data: e.target.value } : x)))} />
+                          onChange={(e) => { marcarHeadTouched("parcelas_recebimento"); setParcelas((arr) => arr.map((x, j) => (j === idx ? { ...x, data: e.target.value } : x))); }} />
                         <label className="flex items-center gap-2 text-xs">
                           <Checkbox checked={p.recebido} disabled={isReadOnlyRecebimento}
-                            onCheckedChange={(c) => setParcelas((arr) => arr.map((x, j) => (j === idx ? { ...x, recebido: !!c } : x)))} />
+                            onCheckedChange={(c) => { marcarHeadTouched("parcelas_recebimento"); setParcelas((arr) => arr.map((x, j) => (j === idx ? { ...x, recebido: !!c } : x))); }} />
                           Recebida
                         </label>
                       </div>
@@ -779,9 +1081,9 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             {canShowRecebimento && (
               isReadOnlyRecebimento
                 ? <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmark.isPending}>Desmarcar Recebido</Button>
-                : <Button variant="secondary" onClick={() => doSave(true)} disabled={save.isPending}>Marcar Recebido</Button>
+                : <Button variant="secondary" onClick={() => doSave(true)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Marcar Recebido</Button>
             )}
-            {!isReadOnlyRecebimento && <Button onClick={() => doSave(false)} disabled={save.isPending}>Salvar</Button>}
+            {!isReadOnlyRecebimento && <Button onClick={() => doSave(false)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Salvar</Button>}
           </div>
         </div>
         <OcDocumentoPrint modelo={docModelo} />

@@ -17,7 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 export type PresencaColab = { userId: string; nome: string; campoFocado: string | null };
 
-export type ColabTabela = "ocs_tecido" | "ocs_aviamento" | "modelos" | "colecoes" | "producao_terceirizados" | "controle_qualidade" | "direcionamento_controle";
+export type ColabTabela = "ocs_tecido" | "ocs_aviamento" | "ocs_etiqueta" | "modelos" | "colecoes" | "producao_terceirizados" | "controle_qualidade" | "direcionamento_controle";
 export type ColabListener = { tabela: ColabTabela; filtroColuna: string; valor: string };
 
 export function useColabRegistro(o: {
