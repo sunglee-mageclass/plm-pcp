@@ -30,3 +30,18 @@ export function sanitizeStorageName(name: string): string {
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-zA-Z0-9._-]/g, "_");
 }
+
+/**
+ * Upload genérico para um bucket específico, com a key tenant-prefixada e sanitizada — mesma
+ * convenção do `uploadFile` de cada módulo (`tenant/prefixo/uuid-nome`), mas com o BUCKET como
+ * parâmetro. Usado pela foto do card de Produto Acabado/Importado, que agora sobe no bucket
+ * "modelos" (a foto do produto É a foto do modelo — ver 20260915120000_produto_foto_vira_foto_modelo).
+ * Retorna o path (sem o bucket), pronto p/ gravar numa coluna e ler com useSignedUrl(path, bucket).
+ */
+export async function uploadToBucket(bucket: string, prefix: string, file: File): Promise<string> {
+  const tenant = await tenantPrefix();
+  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
+  const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: false });
+  if (error) throw error;
+  return path;
+}

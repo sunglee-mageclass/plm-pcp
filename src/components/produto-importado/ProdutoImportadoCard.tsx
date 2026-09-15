@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Eraser, ImagePlus, Loader2, MoreHorizontal, Paperclip, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadFile } from "@/components/oc-tecido/shared";
+import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { erroValidacao, gradePedidaDeVariantes, variantesBatemComTotal } from "@/components/produto-acabado/shared";
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import { DateField } from "@/components/shared/DateField";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -143,16 +144,18 @@ export function ProdutoImportadoCard({
   // Começa com TODAS fechadas: o card aberto mostra só os 7 títulos (compacto, tamanho de bloco),
   // e o usuário abre a seção que quer — senão o card fica gigante com as 7 seções empilhadas.
   const [secoesAbertas, setSecoesAbertas] = useState<string[]>([]);
-  // Upload de foto: input escondido + path em draft.foto_url (bucket "oc-tecido", como o resto).
-  // A URL assinada dá o preview; a RPC de salvar já persiste foto_url.
+  // Foto do produto = FOTO DO MODELO (set/2026): sobe no bucket "modelos" (prefixo fotos_modelo) e
+  // vira a capa de `modelos.fotos_modelo` do espelho via trigger `_sync_foto_modelo_do_produto`
+  // (migração 20260915120000). Aparece no Planejamento sem re-upload. A URL assinada (bucket
+  // "modelos") dá o preview; a RPC de salvar persiste foto_url (o trigger propaga).
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
-  const fotoUrl = useSignedUrl(draft.foto_url, "oc-tecido");
+  const fotoUrl = useSignedUrl(draft.foto_url, "modelos");
   const anexarFoto = async (file: File | undefined) => {
     if (!file) return;
     setEnviandoFoto(true);
     try {
-      const path = await uploadFile(file, "produto-importado");
+      const path = await uploadToBucket("modelos", "fotos_modelo", file);
       onChange({ foto_url: path });
     } catch (e) {
       toast.error(mensagemErro(e, "Falha ao anexar a foto."));
@@ -323,9 +326,17 @@ export function ProdutoImportadoCard({
       )}
       <button type="button" onClick={onToggleOpen} className={`flex w-full items-start gap-2 p-3 text-left ${onToggleSelect ? "pl-8" : ""}`}>
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground">
-          {fotoUrl ? <img src={fotoUrl} alt={draft.nome || "Produto"} className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" />}
-        </div>
+        {/* Thumb: clicar amplia (zoom via <ImagePreview>, mesmo lightbox das outras telas) sem abrir
+            o card — o ImagePreview bloqueia o bubbling do clique pro botão ancestral. */}
+        {fotoUrl ? (
+          <ImagePreview src={fotoUrl} alt={draft.nome || "Produto"} className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+            <img src={fotoUrl} alt={draft.nome || "Produto"} className="h-full w-full object-cover" />
+          </ImagePreview>
+        ) : (
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground">
+            <ImagePlus className="h-6 w-6" />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{draft.nome || "Sem nome"}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">

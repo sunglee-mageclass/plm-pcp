@@ -27,8 +27,9 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
-import { uploadFile } from "@/components/oc-tecido/shared";
+import { uploadToBucket } from "@/lib/storage-tenant";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
   variantesBatemComTotal, erroValidacao,
@@ -121,16 +122,18 @@ export function ProdutoCard({
   const [criandoCard, setCriandoCard] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [fazendoPedido, setFazendoPedido] = useState(false);
-  // Foto PRÓPRIA do produto (#2.4) — upload real (bucket "oc-tecido", como o Importado); a URL
-  // assinada dá o preview. O thumb do card usa esta com fallback pra do modelo espelho.
+  // Foto do produto = FOTO DO MODELO (set/2026): sobe no bucket "modelos" (prefixo fotos_modelo) e
+  // vira a capa de `modelos.fotos_modelo` do espelho via trigger `_sync_foto_modelo_do_produto`
+  // (migração 20260915120000). Assim aparece no Planejamento sem re-upload. A URL assinada (bucket
+  // "modelos") dá o preview imediato; o thumb do card usa esta foto (fallback pra do modelo espelho).
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
-  const fotoUrl = useSignedUrl(produto.foto_url, "oc-tecido");
+  const fotoUrl = useSignedUrl(produto.foto_url, "modelos");
   const anexarFoto = async (file: File | undefined) => {
     if (!file) return;
     setEnviandoFoto(true);
     try {
-      const path = await uploadFile(file, "produto-acabado");
+      const path = await uploadToBucket("modelos", "fotos_modelo", file);
       onChange({ ...produto, foto_url: path });
     } catch (e) {
       toast.error(mensagemErro(e, "Falha ao anexar a foto."));
@@ -403,11 +406,13 @@ export function ProdutoCard({
       )}
       <button type="button" onClick={onToggleOpen} className={`flex w-full items-start gap-2 p-3 text-left ${onToggleSelect ? "pl-8" : ""}`}>
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-        {/* Thumb (#2.4): foto PRÓPRIA do produto tem prioridade; sem ela, cai na do modelo espelho. */}
+        {/* Thumb (#2.4): foto PRÓPRIA do produto tem prioridade; sem ela, cai na do modelo espelho.
+            Clicar amplia (zoom via <ImagePreview>, mesmo lightbox das outras telas) sem abrir o card
+            (o ImagePreview já bloqueia o bubbling do clique pro botão ancestral). */}
         {fotoUrl ? (
-          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
+          <ImagePreview src={fotoUrl} alt={produto.nome} className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
             <img src={fotoUrl} alt={produto.nome} className="h-full w-full object-cover" />
-          </div>
+          </ImagePreview>
         ) : (
           <ModeloResumoFoto fontes={produto.modeloThumbFontes} nome={produto.nome} className="h-16 w-16" />
         )}
