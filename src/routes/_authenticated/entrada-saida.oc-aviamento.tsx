@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Plus, Upload, Trash2, ArrowLeft, Printer } from "lucide-react";
@@ -26,8 +26,10 @@ import {
 } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { mergeDraft, mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
@@ -571,13 +573,6 @@ function OcDialog({
 }) {
   const isEdit = !!ocId;
   const qc = useQueryClient();
-  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
-  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
-  const colabScopeRef = useRef<HTMLDivElement>(null);
-  const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: ocId ? `colab-oc-avi:${ocId}` : null,
-    campoFocado: campoFocadoColab,
-  });
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
@@ -589,6 +584,50 @@ function OcDialog({
   // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
 
+  // ── Colaboração em tempo real (merge 3-vias, clone da OC Tecido) ──────────────
+  // Presença por campo (ring) + merge de conflito (rev otimista + P0409). base = último visto do
+  // servidor · touched(Ref/ItemIds) = o que EU editei · revRef = rev da OC · conflitos barram Salvar.
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const touchedRef = useRef<Set<string>>(new Set());
+  const touchedItemIdsRef = useRef<Set<string>>(new Set());
+  const baseRef = useRef<{ draft: Draft; items: ItemDraft[] } | null>(null);
+  const revRef = useRef<number | null>(null);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  // Espelhos SEMPRE atualizados de draft/items p/ o merge no onError do save (roda após um await;
+  // ler da closure descartaria teclas digitadas na janela). Ver OC Tecido.
+  const draftLiveRef = useRef(draft); draftLiveRef.current = draft;
+  const itemsLiveRef = useRef(items); itemsLiveRef.current = items;
+
+  // Wrappers que DIFEREM prev→next e marcam o tocado (assinatura idêntica aos setters crus — os
+  // filhos não mudam). Escalares → touchedRef; itens com id → touchedItemIdsRef.
+  const setDraftTracked: typeof setDraft = (upd) =>
+    setDraft((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: Draft) => Draft)(prev) : upd;
+      for (const k of Object.keys(next) as (keyof Draft)[])
+        if (next[k] !== prev[k]) touchedRef.current.add(String(k));
+      return next;
+    });
+  const setItemsTracked: typeof setItems = (upd) =>
+    setItems((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: ItemDraft[]) => ItemDraft[])(prev) : upd;
+      for (const n of next) {
+        const p = prev.find((x) => x.id && x.id === n.id);
+        if (n.id && (!p || JSON.stringify(p) !== JSON.stringify(n))) touchedItemIdsRef.current.add(n.id);
+      }
+      return next;
+    });
+
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: ocId ? `colab:oc-avi:${ocId}` : null,
+    tabela: "ocs_aviamento",
+    registroId: ocId ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["oc-avi", ocId] }),
+    campoFocado: campoFocadoColab,
+  });
+
   // Preview ao vivo do Nº de Pedido (T-/A-/I-...) — só em modo CRIAÇÃO (!isEdit).
   // materialId = aviamento do 1º item selecionado da OC (null se ainda não há item).
   const { onNumeroChange: onNumeroPedidoChange, placeholder: numeroPedidoPlaceholder } = useNumeroPedidoAuto({
@@ -596,41 +635,39 @@ function OcDialog({
     fornecedorId: draft.empresa_id,
     materialId: items[0]?.aviamento_id || null,
     numero: draft.numero_pedido,
-    setNumero: (v) => setDraft((d) => ({ ...d, numero_pedido: v })),
+    setNumero: (v) => setDraftTracked((d) => ({ ...d, numero_pedido: v })),
     ativo: !isEdit,
   });
 
-  useQuery({
+  // A query só BUSCA (retorna oc+items+rev); o seed/merge acontece num useEffect (padrão OC Tecido),
+  // p/ que um refetch alheio (Realtime) faça MERGE 3-vias em vez de sobrescrever o rascunho às cegas.
+  const draftFromOc = (oc: any): Draft => ({
+    numero_pedido: oc.numero_pedido ?? "",
+    responsavel_nome: oc.responsavel_nome ?? "",
+    responsavel_id: null,
+    empresa_id: oc.empresa_id,
+    representante_id: oc.representante_id ?? null,
+    data_pedido: oc.data_pedido ?? "",
+    data_prevista_entrega: oc.data_prevista_entrega ?? "",
+    data_entrega: oc.data_entrega ?? "",
+    prazo_pagamento: oc.prazo_pagamento ?? "",
+    quantidade_prazos: oc.quantidade_prazos ?? 1,
+    nf_url: oc.nf_url,
+    nfs: ((oc.nfs ?? []) as { url: string; data?: string }[]),
+    parcelas_recebimento: (Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0)
+      ? (oc.parcelas_recebimento as ParcelaRecebimento[])
+      : [{ data: "", recebido: false }],
+  });
+  const { data: ocQueryData } = useQuery({
     queryKey: ["oc-avi", ocId],
     enabled: !!ocId,
     queryFn: async () => {
       if (!ocId) return null;
       const { data: oc, error: e1 } = await supabase.from("ocs_aviamento").select("*").eq("id", ocId).maybeSingle();
       if (e1) throw e1;
+      if (!oc) return null;
       const { data: its, error: e2 } = await supabase.from("ocs_aviamento_itens").select("*").eq("oc_aviamento_id", ocId);
       if (e2) throw e2;
-      let nextDraft: Draft | null = null;
-      if (oc) {
-        nextDraft = {
-          numero_pedido: oc.numero_pedido ?? "",
-          responsavel_nome: oc.responsavel_nome ?? "",
-          responsavel_id: null,
-          empresa_id: oc.empresa_id,
-          representante_id: (oc as any).representante_id ?? null,
-          data_pedido: oc.data_pedido ?? "",
-          data_prevista_entrega: oc.data_prevista_entrega ?? "",
-          data_entrega: oc.data_entrega ?? "",
-          prazo_pagamento: oc.prazo_pagamento ?? "",
-          quantidade_prazos: oc.quantidade_prazos ?? 1,
-          nf_url: oc.nf_url,
-          nfs: (((oc as any).nfs ?? []) as { url: string; data?: string }[]),
-          parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
-            ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
-            : [{ data: "", recebido: false }],
-        };
-        setDraft(nextDraft);
-        setStatus((oc.status as OCStatus) ?? "encomendado");
-      }
       const mapped: ItemDraft[] = (its ?? []).map((i: any) => ({
         tempId: i.id,
         id: i.id,
@@ -640,13 +677,52 @@ function OcDialog({
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
         cancelado: !!i.cancelado,
       }));
-      setItems(mapped);
-      setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
-      // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
-      if (nextDraft) resetBaseline({ draft: nextDraft, items: mapped });
-      return oc;
+      return { oc, items: mapped };
     },
   });
+
+  // Seed (1ª carga) OU merge 3-vias (refetch alheio) — clone do padrão da OC Tecido.
+  useEffect(() => {
+    if (!ocQueryData?.oc) return;
+    const freshDraft = draftFromOc(ocQueryData.oc);
+    const freshItems = ocQueryData.items;
+    revRef.current = (ocQueryData.oc as any).rev ?? null;
+
+    if (!baseRef.current) {
+      // 1ª carga: seed normal.
+      baseRef.current = { draft: freshDraft, items: freshItems };
+      setDraft(freshDraft);
+      setItems(freshItems);
+      setStatus((ocQueryData.oc.status as OCStatus) ?? "encomendado");
+      setOriginalItemIds(freshItems.map((m) => m.id).filter((x): x is string => !!x));
+      touchedRef.current = new Set();
+      touchedItemIdsRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      resetBaseline({ draft: freshDraft, items: freshItems });
+      return;
+    }
+
+    // Refetch: MERGE em vez de sobrescrever.
+    const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
+    const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+    const semResultado =
+      md.atualizados.length === 0 && md.conflitos.length === 0 &&
+      ml.atualizadas.length === 0 && ml.conflitos.length === 0;
+    if (semResultado) {
+      // No-op (inclui o refetch que o onError do save P0409 já processou): não tocar em nenhum state.
+      baseRef.current = { draft: freshDraft, items: freshItems };
+      return;
+    }
+    if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
+    if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
+    const todosConflitos = [...md.conflitos, ...ml.conflitos];
+    conflitosRef.current = todosConflitos;
+    setConflitos(todosConflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
+    baseRef.current = { draft: freshDraft, items: freshItems };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocQueryData]);
 
   const { data: aviamentos = [] } = useQuery({
     queryKey: ["aviamentos-by-empresa", draft.empresa_id],
@@ -714,15 +790,48 @@ function OcDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, items, aviMap, empresas]);
 
+  // Edições de item passam pelo setItemsTracked (marca o id tocado p/ o merge de conflito).
+  // Resolução de conflito (ColabBanner): "usar o novo" grava o valor do servidor; "manter meu" só
+  // remove o conflito. path escalar = nome do campo; path de item = `linha:${id}`. Espelha OC Tecido.
+  const ROTULO_CONFLITO_AVI: Record<string, string> = {
+    numero_pedido: "Número do Pedido", empresa_id: "Fornecedor", representante_id: "Representante",
+    responsavel_nome: "Responsável", data_pedido: "Data do Pedido", data_prevista_entrega: "Data Prevista de Entrega",
+    data_entrega: "Data de Entrega", prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
+    parcelas_recebimento: "Parcelas de recebimento", nf_url: "Nota Fiscal", nfs: "Notas Fiscais",
+  };
+  const rotuloConflito = (path: string) =>
+    path.startsWith("linha:") ? "Item (aviamento)" : (ROTULO_CONFLITO_AVI[path] ?? path);
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path.startsWith("linha:")) {
+        const id = path.slice("linha:".length);
+        if (c.dele == null) {
+          setItems((its) => its.filter((i) => i.id !== id)); // item removido no servidor
+        } else {
+          setItems((its) => its.map((i) => (i.id === id ? (c.dele as ItemDraft) : i)));
+        }
+        touchedItemIdsRef.current.delete(id);
+      } else {
+        setDraft((d) => ({ ...d, [path]: c.dele }));
+        touchedRef.current.delete(path);
+      }
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  const temConflito = conflitos.length > 0;
+
   const addItem = () => {
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
-    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", variante_aviamento_id: null, quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
+    setItemsTracked((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", variante_aviamento_id: null, quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
   };
   const removeItem = (tempId: string) =>
     // Remove APENAS o item clicado (não há ordem/cascata entre aviamentos de uma OC).
-    setItems((p) => p.filter((i) => i.tempId !== tempId));
+    setItemsTracked((p) => p.filter((i) => i.tempId !== tempId));
   const updateItem = (tempId: string, patch: Partial<ItemDraft>) =>
-    setItems((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
+    setItemsTracked((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
 
   const valorPrev = (i: ItemDraft) => Number(aviMap[i.aviamento_id]?.preco ?? 0) * i.quantidade_pedida;
   const valorReal = (i: ItemDraft) => Number(aviMap[i.aviamento_id]?.preco ?? 0) * (i.quantidade_recebida ?? 0);
@@ -736,6 +845,12 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      // Guard SÍNCRONO contra salvar com conflito pendente (o `disabled={temConflito}` do botão é
+      // state assíncrono — não barra um 2º mutate no mesmo tick). Sem isto, após um P0409 o revRef
+      // já avançou p/ o rev fresco, então um save escapado bateria a trava e sobrescreveria em
+      // silêncio a edição do outro no campo em conflito (achado do QA da OC Tecido, espelhado aqui).
+      if (conflitosRef.current.length > 0)
+        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.empresa_id) throw new Error("Informe o Fornecedor.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
@@ -780,6 +895,7 @@ function OcDialog({
         _oc_id: isEdit ? ocId : null,
         _oc: ocPayload,
         _itens: itensPayload,
+        _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
       });
       if (error) throw error;
       // NFs (lista) — fora da RPC crítica de parcelas (nf_url já salvo como a primeira).
@@ -802,7 +918,37 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: async (e: any) => {
+      if (e?.code === "P0409") {
+        // Alguém salvou no meio: recarrega o servidor e faz o merge 3-vias (mantém minhas edições,
+        // sinaliza conflito onde EU e o servidor divergimos). O usuário resolve e salva de novo.
+        toast.warning("Alguém salvou esta OC agora — confira os itens em conflito.");
+        const { data: oc } = await supabase.from("ocs_aviamento").select("*").eq("id", ocId!).maybeSingle();
+        const { data: its } = await supabase.from("ocs_aviamento_itens").select("*").eq("oc_aviamento_id", ocId!);
+        if (!oc) return;
+        const freshDraft = draftFromOc(oc);
+        const freshItems: ItemDraft[] = (its ?? []).map((i: any) => ({
+          tempId: i.id, id: i.id, aviamento_id: i.aviamento_id,
+          variante_aviamento_id: i.variante_aviamento_id ?? null,
+          quantidade_pedida: Number(i.quantidade_pedida ?? 0),
+          quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+          cancelado: !!i.cancelado,
+        }));
+        const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
+        const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshDraft, touched: touchedRef.current });
+        const ml = mergeLinhas({ base: base.items, draft: itemsLiveRef.current, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+        setDraft(md.valor);
+        setItems(ml.linhas);
+        const todos = [...md.conflitos, ...ml.conflitos];
+        conflitosRef.current = todos;
+        setConflitos(todos);
+        setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todos });
+        baseRef.current = { draft: freshDraft, items: freshItems };
+        revRef.current = (oc as any).rev ?? null;
+      } else {
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+      }
+    },
   });
 
   const unmarkReceivedMut = useMutation({
@@ -906,6 +1052,14 @@ function OcDialog({
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </DialogHeader>
+          {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito. */}
+          <ColabBanner
+            presentes={presentesColab}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverPorPath}
+            rotulo={rotuloConflito}
+          />
         </div>
 
         <div className="flex min-h-0 gap-4">
@@ -942,15 +1096,15 @@ function OcDialog({
                 empresaId={draft.empresa_id}
                 representanteId={draft.representante_id}
                 onChange={(empresa_id, representante_id) => {
-                  if (empresa_id !== draft.empresa_id) setItems([]);
-                  setDraft((d) => ({ ...d, empresa_id, representante_id }));
+                  if (empresa_id !== draft.empresa_id) setItemsTracked(() => []);
+                  setDraftTracked((d) => ({ ...d, empresa_id, representante_id }));
                 }}
               />
             </div>
 
             <div className="grid gap-1">
               <Label>Responsável</Label>
-              <ResponsavelSelect nome={draft.responsavel_nome} onChange={(n) => setDraft((d) => ({ ...d, responsavel_nome: n ?? "" }))} />
+              <ResponsavelSelect nome={draft.responsavel_nome} onChange={(n) => setDraftTracked((d) => ({ ...d, responsavel_nome: n ?? "" }))} />
             </div>
 
             <div className="grid gap-1">
@@ -961,7 +1115,7 @@ function OcDialog({
                   const v = e.target.value;
                   const parts = v.split("/").map((s) => s.trim()).filter(Boolean);
                   const q = Math.max(1, Math.min(6, parts.length || 1));
-                  setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: q }));
+                  setDraftTracked((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: q }));
                 }}
                 placeholder="Ex: 30/60/90"
               />
@@ -969,11 +1123,11 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Data do Pedido</Label>
-              <DateField value={draft.data_pedido} onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))} />
+              <DateField value={draft.data_pedido} onChange={(e) => setDraftTracked((d) => ({ ...d, data_pedido: e.target.value }))} />
             </div>
             <div className="grid gap-1">
               <Label>Data Prevista de Entrega *</Label>
-              <DateField value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
+              <DateField value={draft.data_prevista_entrega} onChange={(e) => setDraftTracked((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
             </div>
 
 
@@ -987,7 +1141,7 @@ function OcDialog({
                 value={draft.parcelas_recebimento?.length || 1}
                 onChange={(e) => {
                   const n = Math.max(1, Math.min(24, Math.trunc(Number(e.target.value)) || 1));
-                  setDraft((d) => {
+                  setDraftTracked((d) => {
                     const prev = d.parcelas_recebimento ?? [];
                     const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
                       prev[i] ?? { data: "", recebido: false },
@@ -1137,7 +1291,7 @@ function OcDialog({
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notas Fiscais</Label>
                 <NfList
                   value={draft.nfs}
-                  onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
+                  onChange={(nfs) => setDraftTracked((d) => ({ ...d, nfs }))}
                   uploadFn={(f) => uploadFile(f, "nf")}
                   bucket="oc-aviamento"
                   readOnly={isReadOnlyRecebimento}
@@ -1173,7 +1327,7 @@ function OcDialog({
                           disabled={isReadOnlyRecebimento}
                           onChange={(e) => {
                             const val = e.target.value;
-                            setDraft((d) => {
+                            setDraftTracked((d) => {
                               const arr = [...(d.parcelas_recebimento ?? [])];
                               arr[idx] = { ...arr[idx], data: val };
                               return { ...d, parcelas_recebimento: arr };
@@ -1185,7 +1339,7 @@ function OcDialog({
                             checked={p.recebido}
                             disabled={isReadOnlyRecebimento}
                             onCheckedChange={(checked) => {
-                              setDraft((d) => {
+                              setDraftTracked((d) => {
                                 const arr = [...(d.parcelas_recebimento ?? [])];
                                 arr[idx] = { ...arr[idx], recebido: !!checked };
                                 return { ...d, parcelas_recebimento: arr };
@@ -1231,12 +1385,12 @@ function OcDialog({
                   Desmarcar Recebido
                 </Button>
               ) : (
-                <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+                <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>
                   Marcar Recebido
                 </Button>
               )
             )}
-            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+            <Button onClick={handleSave} disabled={saveMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>
               Salvar
             </Button>
           </div>
