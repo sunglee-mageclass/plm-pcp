@@ -25,8 +25,11 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { mergeGradeDir, pathDirCel, type GradeDir } from "@/lib/colab/merge-grade-dir";
+import { type Conflito } from "@/lib/colab/merge";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -39,6 +42,19 @@ type VarState = {
   // loja_id -> { tamanho: qtd } — uma linha digitável por loja
   linhas: Record<string, Record<string, number>>;
 };
+
+// Extrai a parte MERGEÁVEL do state (só as `linhas` editáveis, por variante→loja→tam) no shape que
+// o `mergeGradeDir` entende. A grade `real` (read-only) fica de fora do merge de propósito.
+function stateToGradeDir(state: Record<number, VarState>): GradeDir {
+  const out: GradeDir = {};
+  for (const v of Object.values(state)) {
+    out[v.variante_numero] = {};
+    for (const [loja, grades] of Object.entries(v.linhas)) {
+      out[v.variante_numero][loja] = { ...grades };
+    }
+  }
+  return out;
+}
 
 function DirDetailPage() {
   const { modeloId } = Route.useParams();
@@ -54,13 +70,20 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   const [status, setStatus] = useState("pendente");
   const [editing, setEditing] = useState(false);
 
-  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (o modelo aberto).
+  // Presença por campo + MERGE de conflito (Fase 3). O ring/presença e o `campoFocado` seguem;
+  // o merge 3-vias entra via useColabRegistro (montado mais abaixo, depois de `cad`/`state`).
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
-  const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: modeloId ? `colab-dir:${modeloId}` : null,
-    campoFocado: campoFocadoColab,
-  });
+  // Estado do merge (espelho do CQ): base = último visto do servidor · touched = células que EU
+  // editei (path dir:${variante}:${loja}:${tam}) · rev = rev da âncora · reseeding = gate p/ o
+  // pós-save/reconcile re-baselinar sem disparar o merge. Conflitos pendentes barram Salvar/Confirmar.
+  const baseGradeRef = useRef<GradeDir>({});
+  const touchedRef = useRef<Set<string>>(new Set());
+  const revRef = useRef<number>(0);
+  const reseedingRef = useRef(false);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
@@ -208,6 +231,33 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     },
   });
 
+  // Rev da âncora de colaboração (direcionamento_controle) — base do rev-check otimista (P0409).
+  const { data: dirControle } = useQuery({
+    queryKey: ["dir-controle", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("direcionamento_controle" as any) as any)
+        .select("rev").eq("cad_id", cad!.id).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as { rev: number } | null;
+    },
+  });
+  useEffect(() => { revRef.current = dirControle?.rev ?? 0; }, [dirControle?.rev]);
+
+  // Canal colab por-registro: presença (ring) + reação a UPDATE alheio (merge). A âncora bumpa a cada
+  // save do Direcionamento → postgres_changes → onMudancaServidor invalida e o effect de merge roda.
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: cad?.id ? `colab:dir:${cad.id}` : null,
+    tabela: "direcionamento_controle",
+    filtroColuna: "cad_id",
+    registroId: cad?.id ?? null,
+    campoFocado: campoFocadoColab,
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
+    },
+  });
+
   // Lojas visíveis na grade: ativas sempre; desativadas só se têm linha salva (esmaecidas).
   const lojasComLinha = useMemo(() => new Set((existing as any[]).map((d) => d.loja_id)), [existing]);
   const lojasVisiveis = useMemo(
@@ -250,10 +300,52 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
     // explícito — o estado recém-setado ainda está stale neste tick).
     resetBaseline(obj);
+    // Baseline do MERGE: o que acabou de vir do servidor é a base 3-vias + zera o "tocado".
+    baseGradeRef.current = stateToGradeDir(obj);
+    touchedRef.current = new Set();
     setHydrated(true);
   }, [cadGrades, existing, cad?.id, hydrated, dataSettled]);
 
+  // MERGE 3-vias quando chega UPDATE alheio (o `existing` refetcha por postgres_changes da âncora).
+  // Gated por `hydrated` (só depois do seed) e `!reseedingRef` (o pós-save re-baselina sozinho).
+  // Monta o `fresh` (estado do servidor) no shape GradeDir e funde com o meu (`state`), preservando
+  // minhas células tocadas e sinalizando conflito onde EU e o servidor divergimos na MESMA célula.
+  useEffect(() => {
+    if (!hydrated || reseedingRef.current || !cad?.id || !dataSettled) return;
+    const fresh: GradeDir = {};
+    (cadGrades as any[]).forEach((g) => { fresh[g.variante_numero] = {}; });
+    (existing as any[]).forEach((d) => {
+      (fresh[d.variante_numero] ??= {})[d.loja_id] = d.grades ?? {};
+    });
+    const meu = stateToGradeDir(state);
+    const mg = mergeGradeDir({ base: baseGradeRef.current, meu, fresh, tocadas: touchedRef.current });
+    // Aplica o resultado (mantém minhas edições, adota o fresh no não-tocado), re-baselina e re-tenta.
+    if (mg.atualizados.length > 0 || mg.conflitos.length > 0) {
+      setState((s) => {
+        const out: Record<number, VarState> = {};
+        for (const v of Object.values(s)) out[v.variante_numero] = { ...v, linhas: { ...v.linhas } };
+        for (const [vnum, lojas] of Object.entries(mg.valor)) {
+          const n = Number(vnum);
+          out[n] ??= { variante_numero: n, real: {}, linhas: {} };
+          out[n].linhas = {};
+          for (const [loja, grades] of Object.entries(lojas)) out[n].linhas[loja] = { ...grades };
+        }
+        return out;
+      });
+      setUltimoMerge({ atualizados: mg.atualizados.length, conflitos: mg.conflitos });
+    }
+    conflitosRef.current = mg.conflitos;
+    setConflitos(mg.conflitos);
+    baseGradeRef.current = fresh;                 // a base agora é o servidor fresco
+    // O `revRef` NÃO é atualizado aqui de propósito: `["direcionamento-lojas"]` e `["dir-controle"]`
+    // refetcham independentes; ler `dirControle?.rev` neste effect (deps=[existing]) poderia gravar um
+    // rev STALE se `existing` chega antes. O effect dedicado abaixo (deps=[dirControle?.rev]) é a fonte
+    // ÚNICA do rev — sempre corrige quando a âncora assenta (revisão adversarial, set/2026).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing]);
+
   const setQtd = (num: number, lojaId: string, tam: string, qtd: number) => {
+    touchedRef.current.add(pathDirCel(num, lojaId, tam)); // p/ o merge saber o que EU editei
     setState((s) => {
       const v = s[num] ?? { variante_numero: num, real: {}, linhas: {} };
       return {
@@ -262,6 +354,29 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       };
     });
   };
+
+  // Resolução de conflito (path `dir:${variante}:${loja}:${tam}`): "usar o novo" grava o valor do
+  // servidor na célula e a destoca (sai do meu "tocado"); "manter o meu" só remove o conflito. Depois
+  // limpa o conflito das listas + esvazia o banner quando não sobra nenhum.
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const conf = conflitosRef.current.find((c) => c.path === path);
+    if (conf && escolha === "dele" && path.startsWith("dir:")) {
+      const [, vnum, loja, tam] = path.split(":");
+      setQtd(Number(vnum), loja, tam, Number(conf.dele) || 0);
+      touchedRef.current.delete(path); // adotei o do servidor → não é mais "minha" edição
+    }
+    conflitosRef.current = conflitosRef.current.filter((c) => c.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  // Rótulo humano de um path de conflito p/ o banner: "<loja> · <tam> (var N)".
+  const rotuloConflito = (path: string) => {
+    if (!path.startsWith("dir:")) return path;
+    const [, vnum, loja, tam] = path.split(":");
+    const nome = lojasVisiveis.find((l) => l.id === loja)?.nome ?? "loja";
+    return `${nome} · ${tam} (var ${vnum})`;
+  };
+  const temConflito = conflitos.length > 0;
 
   // Payload v2 = estado COMPLETO: uma linha por loja×variante tocada; o servidor sanitiza
   // pelos tamanhos da grade real e faz o diff (linhas fora do payload são apagadas).
@@ -296,20 +411,36 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado.");
       // Rascunho: a RPC clampa ec≤real e recomputa o split (diff por cad_id+variante).
-      const { error } = await supabase.rpc("salvar_direcionamento" as any, { _cad_id: cad.id, _rows: buildRows() });
+      // `_rev_base` = rev da âncora que eu vi → a RPC dá P0409 se alguém salvou no meio.
+      reseedingRef.current = true; // meu próprio refetch pós-save NÃO deve disparar o merge
+      const { error } = await supabase.rpc("salvar_direcionamento" as any, {
+        _cad_id: cad.id, _rows: buildRows(), _rev_base: { dir: revRef.current },
+      });
       if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Salvo");
       setEditing(false); // salvar trava novamente quando já está confirmado
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
+      setConflitos([]); conflitosRef.current = []; setUltimoMerge(null);
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo e zera os números).
       await qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
       await refetch();
-      setHydrated(false);
+      setHydrated(false); // re-hidrata do servidor (re-baselina base/touched/rev)
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
+    onSettled: () => { reseedingRef.current = false; },
+    onError: (e: any) => {
+      if (e?.code === "P0409") {
+        // Alguém salvou no meio: recarrega o servidor → o effect de merge funde e mostra conflitos.
+        toast.warning("Alguém salvou o Direcionamento agora — confira os itens em conflito.");
+        qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
+        qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
+      } else {
+        toast.error(mensagemErro(e, "Erro"));
+      }
+    },
   });
 
   const confirmMut = useMutation({
@@ -317,7 +448,11 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       if (!cad?.id) throw new Error("CAD não encontrado.");
       // RPC ATÔMICA: salva (strict — RAISE se ec>real) + marca 'separado' na MESMA
       // transação. Um roundtrip, um toast (antes era save + update separados).
-      const { error } = await supabase.rpc("confirmar_direcionamento" as any, { _cad_id: cad.id, _rows: buildRows() });
+      // `_rev_base` → P0409 se alguém salvou no meio (mesma proteção do Salvar).
+      reseedingRef.current = true;
+      const { error } = await supabase.rpc("confirmar_direcionamento" as any, {
+        _cad_id: cad.id, _rows: buildRows(), _rev_base: { dir: revRef.current },
+      });
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -325,13 +460,24 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       setStatus("separado");
       setEditing(false);
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
+      setConflitos([]); conflitosRef.current = []; setUltimoMerge(null);
       await qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await refetch();
       setHydrated(false);
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
+    onSettled: () => { reseedingRef.current = false; },
+    onError: (e: any) => {
+      if (e?.code === "P0409") {
+        toast.warning("Alguém salvou o Direcionamento agora — confira os itens em conflito antes de confirmar.");
+        qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
+        qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
+      } else {
+        toast.error(mensagemErro(e, "Erro ao confirmar"));
+      }
+    },
   });
 
   const desmarcarMut = useMutation({
@@ -388,21 +534,21 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       )}
       {!confirmado ? (
         <>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
-            title={motivo ?? undefined}
+            title={temConflito ? "Resolva os conflitos antes de confirmar" : (motivo ?? undefined)}
             aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
-            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito}
           >
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
         </>
       ) : editing ? (
         <>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
@@ -434,6 +580,14 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         onBlurCapture={() => setCampoFocadoColab(null)}
       >
       <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
+      {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito por célula. */}
+      <ColabBanner
+        presentes={presentesColab}
+        ultimoMerge={ultimoMerge}
+        conflitos={conflitos}
+        onResolver={resolverPorPath}
+        rotulo={rotuloConflito}
+      />
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {/* Cabeçalho: breadcrumb + Imprimir (topo-direita, p/ o indicador global de "não
           salvo" cair logo abaixo). Voltar vai só no rodapé; ações primárias idem. */}
