@@ -22,7 +22,10 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import { mergeGradeGenerico, type GradeGenerica } from "@/lib/colab/merge-grade-generico";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -36,10 +39,14 @@ import { OcImpForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type
 import { OcImpRecebimento, type ColaboradorOpt } from "@/components/oc-p-importado/OcImpRecebimento";
 import {
   emptyDraft, fmtMoney, fmtDate, uploadFile, DEFAULT_TAMANHOS, TAM_ACESSORIO,
-  type Draft, type GradeDetalhe, type OcImportadoRow, type OcImportadoTab, type OcImportadoStatus,
+  type Draft, type GradeDetalhe, type CelulaGrade, type OcImportadoRow, type OcImportadoTab, type OcImportadoStatus,
 } from "@/components/oc-p-importado/shared";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
+
+// Campos da célula da grade `grade_detalhe` (mesma da OC P.Acabado). Parametrizam o
+// mergeGradeGenerico (o mergeGrade do CQ é hard-coded aos 4 campos dele).
+const CAMPOS_GRADE_PA = ["pedida", "recebida", "defeito"] as const;
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-importado")({
   validateSearch: (s: Record<string, unknown>): { tab?: OcImportadoTab; oc?: string } => ({
@@ -529,21 +536,72 @@ function OcImpDialog({
 }) {
   const isEdit = !!ocId;
   const qc = useQueryClient();
-  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (a OC aberta).
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
-  const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: ocId ? `colab-oc-imp:${ocId}` : null,
-    campoFocado: campoFocadoColab,
-  });
-  const [draft, setDraft] = useState<Draft>(emptyDraft());
-  const [grade, setGrade] = useState<GradeDetalhe>({});
+  const [draft, setDraftRaw] = useState<Draft>(emptyDraft());
+  const [grade, setGradeRaw] = useState<GradeDetalhe>({});
   const [status, setStatus] = useState<OcImportadoStatus>("encomendado");
   const [numeroReal, setNumeroReal] = useState<string | null>(null);
   const [secAtiva, setSecAtiva] = useState("ocimp-sec-pedido");
   const [confirmReceber, setConfirmReceber] = useState(false);
 
   const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, grade });
+
+  // ── Colaboração em tempo real (merge de AGREGADO + GRADE) — gêmeo da OC P.Acabado ────────────
+  // Cabeçalho escalar funde por `mergeDraft` (as ETAPAS de pagamento entram como array GRÃO-GROSSO
+  // dentro do draft: conflito = "o cronograma inteiro divergiu", resolução all-or-nothing — elas
+  // não têm chave estável, o servidor faz delete+reinsert). A grade jsonb NA RAIZ funde POR CÉLULA
+  // por `mergeGradeGenerico`. base = último visto do servidor · touched(Ref/GradeRef) = o que EU
+  // editei · revRef = rev da OC · conflitos barram Salvar/Receber.
+  const touchedRef = useRef<Set<string>>(new Set());
+  const touchedGradeRef = useRef<Set<string>>(new Set());
+  const baseRef = useRef<{ draft: Draft; grade: GradeDetalhe } | null>(null);
+  const revRef = useRef<number | null>(null);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  // Espelhos SEMPRE atualizados p/ o merge no onError do save (roda após await; a closure
+  // descartaria teclas digitadas na janela). Espelha OC P.Acabado.
+  const draftLiveRef = useRef(draft); draftLiveRef.current = draft;
+  const gradeLiveRef = useRef(grade); gradeLiveRef.current = grade;
+
+  // setDraft rastreado: difere prev→next e marca o campo tocado. `etapas` (array) é tratado como
+  // um único campo grão-grosso — qualquer mudança no cronograma marca `etapas` como tocado.
+  const setDraft: typeof setDraftRaw = (upd) =>
+    setDraftRaw((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: Draft) => Draft)(prev) : upd;
+      for (const k of Object.keys(next) as (keyof Draft)[])
+        if (next[k] !== prev[k]) touchedRef.current.add(String(k));
+      return next;
+    });
+
+  // setGrade rastreado: difere célula a célula (por ordem×tam×campo) e marca o path tocado ANTES de
+  // aplicar (path `grade:${ordem}:${tam}:${campo}` — MESMA ordem que o mergeGradeGenerico usa).
+  const CAMPOS_CEL: (keyof CelulaGrade)[] = ["pedida", "recebida", "defeito"];
+  const setGrade: typeof setGradeRaw = (upd) =>
+    setGradeRaw((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: GradeDetalhe) => GradeDetalhe)(prev) : upd;
+      const ordens = new Set<string>([...Object.keys(prev), ...Object.keys(next)]);
+      for (const ordem of ordens) {
+        const tams = new Set<string>([...Object.keys(prev[ordem] ?? {}), ...Object.keys(next[ordem] ?? {})]);
+        for (const tam of tams) {
+          for (const campo of CAMPOS_CEL) {
+            const a = Number(prev[ordem]?.[tam]?.[campo] ?? 0);
+            const b = Number(next[ordem]?.[tam]?.[campo] ?? 0);
+            if (a !== b) touchedGradeRef.current.add(`grade:${ordem}:${tam}:${campo}`);
+          }
+        }
+      }
+      return next;
+    });
+
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: ocId ? `colab:oc-imp:${ocId}` : null,
+    tabela: "ocs_importado",
+    registroId: ocId ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["oc-importado", ocId] }),
+    campoFocado: campoFocadoColab,
+  });
 
   // ── Opções (taxonomia, cores, tamanhos, colaboradores) ──
   const { data: grupos = [] } = useOpt("grupos_produto");
@@ -575,6 +633,8 @@ function OcImpDialog({
   const acessorioAtual = ehGrupoAcessorio(grupoNomeAtual);
   const tamanhosAtivos = acessorioAtual ? [TAM_ACESSORIO] : tamanhos;
 
+  // A query só BUSCA (retorna a OC crua + etapas embed); o seed/merge acontece no useEffect abaixo
+  // (padrão OC P.Acabado) — assim um refetch alheio (Realtime) faz MERGE em vez de sobrescrever.
   const { data: ocQueryData } = useQuery({
     queryKey: ["oc-importado", ocId],
     enabled: !!ocId,
@@ -585,21 +645,60 @@ function OcImpDialog({
     },
   });
 
-  useEffect(() => {
-    if (!ocQueryData) return;
-    const freshDraft = draftFromOc(ocQueryData);
-    const etapas = Array.isArray(ocQueryData.etapas)
-      ? [...ocQueryData.etapas].sort((a: any, b: any) => a.ordem - b.ordem).map((e: any) => ({
+  // Monta o draft COMPLETO (cabeçalho + etapas ordenadas do embed) a partir da OC crua. As etapas
+  // entram no draft como array — o mergeDraft as compara por valor (grão-grosso).
+  const draftCompletoFromOc = (oc: any): Draft => {
+    const d = draftFromOc(oc);
+    d.etapas = Array.isArray(oc.etapas)
+      ? [...oc.etapas].sort((a: any, b: any) => a.ordem - b.ordem).map((e: any) => ({
           ordem: e.ordem, rotulo: e.rotulo ?? "", base: e.base, percentual: Number(e.percentual) || 0,
           data_vencimento: e.data_vencimento ?? null, cotacao: Number(e.cotacao) || 0,
         }))
       : [];
-    freshDraft.etapas = etapas;
-    setDraft(freshDraft);
-    setGrade((ocQueryData.grade_detalhe ?? {}) as GradeDetalhe);
-    setStatus((ocQueryData.status as OcImportadoStatus) ?? "encomendado");
-    setNumeroReal(ocQueryData.numero ?? null);
-    resetBaseline({ draft: freshDraft, grade: (ocQueryData.grade_detalhe ?? {}) as GradeDetalhe });
+    return d;
+  };
+
+  // Seed (1ª carga) OU merge combinado (refetch alheio): cabeçalho+etapas por `mergeDraft`, grade
+  // por `mergeGradeGenerico`. Espelha o padrão da OC P.Acabado.
+  useEffect(() => {
+    if (!ocQueryData) return;
+    const freshDraft = draftCompletoFromOc(ocQueryData);
+    const freshGrade = (ocQueryData.grade_detalhe ?? {}) as GradeDetalhe;
+    revRef.current = (ocQueryData as any).rev ?? null;
+
+    if (!baseRef.current) {
+      // 1ª carga: seed normal (setters CRUS — não marcar nada como tocado).
+      baseRef.current = { draft: freshDraft, grade: freshGrade };
+      setDraftRaw(freshDraft);
+      setGradeRaw(freshGrade);
+      setStatus((ocQueryData.status as OcImportadoStatus) ?? "encomendado");
+      setNumeroReal(ocQueryData.numero ?? null);
+      touchedRef.current = new Set();
+      touchedGradeRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      resetBaseline({ draft: freshDraft, grade: freshGrade });
+      return;
+    }
+
+    // Refetch: MERGE em vez de sobrescrever. Cabeçalho+etapas por mergeDraft, grade por célula.
+    const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
+    const mg = mergeGradeGenerico({ base: baseRef.current.grade as unknown as GradeGenerica, meu: grade as unknown as GradeGenerica, fresh: freshGrade as unknown as GradeGenerica, tocadas: touchedGradeRef.current, campos: CAMPOS_GRADE_PA });
+    const semResultado =
+      md.atualizados.length === 0 && md.conflitos.length === 0 &&
+      mg.atualizados.length === 0 && mg.conflitos.length === 0;
+    if (semResultado) {
+      // No-op (inclui o refetch que o onError do P0409 já processou): não tocar em nenhum state.
+      baseRef.current = { draft: freshDraft, grade: freshGrade };
+      return;
+    }
+    if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraftRaw(md.valor);
+    if (mg.atualizados.length > 0 || mg.conflitos.length > 0) setGradeRaw(mg.valor as unknown as GradeDetalhe);
+    const todosConflitos = [...md.conflitos, ...mg.conflitos];
+    conflitosRef.current = todosConflitos;
+    setConflitos(todosConflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todosConflitos });
+    baseRef.current = { draft: freshDraft, grade: freshGrade };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ocQueryData]);
 
@@ -677,6 +776,70 @@ function OcImpDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, grade, grupos, tamanhos, cores, coresApelido, empresas, produtoVinculado, numeroReal]);
 
+  // ── Resolução de conflito (ColabBanner) ──────────────────────────────────────
+  const CAMPO_PT: Record<string, string> = { pedida: "Pedida", recebida: "Recebida", defeito: "Defeito" };
+  const ROTULO_CONFLITO_IMP: Record<string, string> = {
+    numero: "Número", nome_produto: "Nome do Produto", grupo_id: "Grupo", categoria_id: "Categoria",
+    subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2", empresa_id: "Fornecedor",
+    representante_id: "Representante", ref_fornecedor: "Ref. Fornecedor", composicao: "Composição",
+    data_pedido: "Data do Pedido", data_prevista: "Data Prevista", grade_proporcao: "Proporção da grade",
+    variantes: "Variantes", qtd_total: "Quantidade total", moeda_compra: "Moeda de compra",
+    moeda_intermediaria: "Moeda intermediária", valor_unitario_m1: "Valor unitário (M1)",
+    cotacao_ref: "Cotação ref.", peso_kg: "Peso (kg)", transporte_m2: "Transporte (m²)",
+    desconto_pct: "Desconto (%)", cotacao_final: "Cotação final", etapas: "Etapas de pagamento",
+    data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
+    revisao: "Revisão", anexo_pedido_url: "Anexo do pedido", anexo_nf_url: "Anexo da NF",
+  };
+  const rotuloConflito = (path: string) => {
+    if (path.startsWith("grade:")) {
+      const [, vid, tam, campo] = path.split(":");
+      return `${CAMPO_PT[campo] ?? campo} · ${tam} (var ${vid})`;
+    }
+    return ROTULO_CONFLITO_IMP[path] ?? path;
+  };
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path.startsWith("grade:")) {
+        const [, vid, tam, campo] = path.split(":");
+        setGradeRaw((prev) => {
+          const linha = { ...(prev[vid] ?? {}) };
+          linha[tam] = { ...(linha[tam] ?? { pedida: 0, recebida: 0, defeito: 0 }), [campo]: Number(c.dele) || 0 };
+          return { ...prev, [vid]: linha };
+        });
+        touchedGradeRef.current.delete(path);
+      } else {
+        setDraftRaw((d) => ({ ...d, [path]: c.dele as any }));
+        touchedRef.current.delete(path);
+      }
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  const temConflito = conflitos.length > 0;
+
+  // Reconcilia um P0409 (alguém salvou no meio): recarrega o servidor (com etapas) e funde.
+  // Compartilhado pelo save e pelo receber (cujo save intermediário também pode tomar P0409).
+  const reconciliarP0409 = async () => {
+    toast.warning("Alguém salvou esta OC agora — confira os itens em conflito.");
+    const { data: oc } = await supabase.from("ocs_importado" as any).select("*, etapas:ocs_importado_etapas(*)").eq("id", ocId!).maybeSingle();
+    if (!oc) return;
+    const freshDraft = draftCompletoFromOc(oc);
+    const freshGrade = ((oc as any).grade_detalhe ?? {}) as GradeDetalhe;
+    const base = baseRef.current ?? { draft: freshDraft, grade: freshGrade };
+    const md = mergeDraft({ base: base.draft, draft: draftLiveRef.current, fresh: freshDraft, touched: touchedRef.current });
+    const mg = mergeGradeGenerico({ base: base.grade as unknown as GradeGenerica, meu: gradeLiveRef.current as unknown as GradeGenerica, fresh: freshGrade as unknown as GradeGenerica, tocadas: touchedGradeRef.current, campos: CAMPOS_GRADE_PA });
+    setDraftRaw(md.valor);
+    setGradeRaw(mg.valor as unknown as GradeDetalhe);
+    const todos = [...md.conflitos, ...mg.conflitos];
+    conflitosRef.current = todos;
+    setConflitos(todos);
+    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
+    baseRef.current = { draft: freshDraft, grade: freshGrade };
+    revRef.current = (oc as any).rev ?? null;
+  };
+
   const handleUpload = async (file: File, key: "anexo_pedido_url" | "anexo_nf_url") => {
     try {
       const path = await uploadFile(file, key);
@@ -724,12 +887,16 @@ function OcImpDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Guard SÍNCRONO contra salvar com conflito pendente (o disabled do botão é state async).
+      if (conflitosRef.current.length > 0)
+        throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
       const { data: savedId, error } = await supabase.rpc("salvar_oc_importado" as any, {
         _id: isEdit ? ocId : null,
         _dados: montarDados(),
         _grade: grade,
         _etapas: draft.etapas,
+        _rev_base: isEdit ? revRef.current : null, // P0409 se outra pessoa salvou no meio
       });
       if (error) throw error;
       return savedId as string;
@@ -744,11 +911,17 @@ function OcImpDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: async (e: any) => {
+      if (e?.code === "P0409") await reconciliarP0409();
+      else toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   const receberMutation = useMutation({
     mutationFn: async () => {
+      // Guard SÍNCRONO: não receber com conflito pendente (senão o save intermediário sobrescreveria).
+      if (conflitosRef.current.length > 0)
+        throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
       // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste TODO o
       // rascunho, inclusive edições ainda não gravadas) e então aplica a transição
       // (materializa cad/cad_grades/CQ — espelha receber_oc_p_acabado).
@@ -757,6 +930,7 @@ function OcImpDialog({
         _dados: montarDados(),
         _grade: grade,
         _etapas: draft.etapas,
+        _rev_base: isEdit ? revRef.current : null,
       });
       if (saveErr) throw saveErr;
       markClean();
@@ -788,7 +962,20 @@ function OcImpDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => { setConfirmReceber(false); toast.error(mensagemErro(e, "Erro ao marcar recebido")); },
+    onError: async (e: any) => {
+      setConfirmReceber(false);
+      if (e?.code === "P0409") {
+        // P0409 do SAVE intermediário (alguém salvou de verdade no meio): funde + banner.
+        await reconciliarP0409();
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao marcar recebido"));
+      // Save intermediário OK mas a TRANSIÇÃO (receber_oc_importado) falhou → o servidor já bumpou
+      // o rev, mas revRef ficou velho. Sem re-baselinar, a próxima tentativa tomaria P0409 espúrio
+      // contra o próprio save (achado da revisão adversarial do P.Acabado). Invalida p/ o
+      // refetch→useEffect re-baselinar (o guard `semResultado` evita reintroduzir estado velho).
+      if (ocId) qc.invalidateQueries({ queryKey: ["oc-importado", ocId] });
+    },
   });
 
   const canMarkReceived = isEdit && status === "encomendado" && !!draft.data_entrega;
@@ -827,6 +1014,14 @@ function OcImpDialog({
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </DialogHeader>
+          {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito. */}
+          <ColabBanner
+            presentes={presentesColab}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverPorPath}
+            rotulo={rotuloConflito}
+          />
         </div>
 
         <div className="flex min-h-0 gap-4">
@@ -906,11 +1101,11 @@ function OcImpDialog({
           )}
           <div className="ml-auto flex gap-2">
             {canMarkReceived && (
-              <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending}>
+              <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de receber" : undefined}>
                 Marcar Recebido
               </Button>
             )}
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>
               <Check className="h-4 w-4 mr-1" />
               Salvar
             </Button>
