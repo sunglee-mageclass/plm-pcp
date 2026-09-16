@@ -31,6 +31,7 @@ import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from "@/components/ui/popover";
 import {
@@ -485,6 +486,11 @@ function PlanejamentoPage() {
   }, [selected, modelos]);
 
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
+  // Grupo (id→nome) + "é acessório?" p/ o agrupamento por tecido: o card não carrega grupo_id, deriva
+  // pela cadeia categoria → grupo → nome. `ehGrupoAcessorio` é a fonte única da regra (inv. #13).
+  const grupoMap: Record<string, string> = Object.fromEntries(grupos.map((g) => [g.id, g.nome]));
+  const modeloEhAcessorio = (m: Modelo) =>
+    ehGrupoAcessorio(grupoMap[catGrupoMap[m.categoria_principal_id ?? ""] ?? ""] ?? null);
   // CASCATA Grupo→Categoria (filtro): opções de Categoria = união das categorias dos
   // grupos marcados (nenhum grupo marcado = todas as categorias).
   const categoriasParaFiltro = !fGrupo.length ? categorias : categorias.filter((c) => fGrupo.includes(c.grupo_id ?? ""));
@@ -653,9 +659,13 @@ function PlanejamentoPage() {
   // amplo→fino (linha › categoria › repetição); qualquer combinação liga/desliga
   // independente. Cada nó carrega o próprio resumo (poder de venda etc.).
   type Split = { key: string; nome: string; items: Modelo[] };
-  // "__none__" (Sem categoria/linha/subcategoria/tecido) sempre por ÚLTIMO; o resto alfabético pt-BR.
+  // Ordem: nomeados (alfabético pt-BR) → "Acessórios" → "__none__" (Sem tecido/categoria) por último.
+  // Acessórios fica no rodapé mas ANTES do balde genérico, visível como grupo nomeado.
+  const rankSplit = (k: string) => (k === "__none__" ? 2 : k === "__acessorios__" ? 1 : 0);
   const sortSplits = (a: Split, b: Split) =>
-    a.key === "__none__" ? 1 : b.key === "__none__" ? -1 : a.nome.localeCompare(b.nome, "pt-BR");
+    rankSplit(a.key) !== rankSplit(b.key)
+      ? rankSplit(a.key) - rankSplit(b.key)
+      : a.nome.localeCompare(b.nome, "pt-BR");
   // Mix: pertencimento ÚNICO (cada modelo em no máximo 1 mix). "Sem mix" por último.
   const byMix = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
@@ -728,11 +738,12 @@ function PlanejamentoPage() {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
       const cats = [...new Set((m.tecidos_planejados ?? []).filter(Boolean).map((a) => artigoCatTecMap[a]).filter(Boolean))] as string[];
-      const keys = cats.length ? cats : ["__none__"];
+      // Acessório nunca tem tecido → grupo próprio "Acessórios" em vez do balde genérico.
+      const keys = cats.length ? cats : [modeloEhAcessorio(m) ? "__acessorios__" : "__none__"];
       keys.forEach((k) => { const arr = map.get(k); if (arr) arr.push(m); else map.set(k, [m]); });
     });
     return Array.from(map.entries())
-      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria de tecido" : catTecNomeMap[key] ?? "Sem categoria de tecido", items: its }))
+      .map(([key, its]) => ({ key, nome: key === "__acessorios__" ? "Acessórios" : key === "__none__" ? "Sem categoria de tecido" : catTecNomeMap[key] ?? "Sem categoria de tecido", items: its }))
       .sort(sortSplits);
   };
   // Tecido é MULTI-PERTENCIMENTO: um modelo com vários tecidos_planejados aparece em cada
@@ -741,14 +752,15 @@ function PlanejamentoPage() {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
       const arts = (m.tecidos_planejados ?? []).filter(Boolean);
-      const keys = arts.length ? arts : ["__none__"];
+      // Acessório nunca tem tecido → grupo próprio "Acessórios" em vez do balde genérico "Sem tecido".
+      const keys = arts.length ? arts : [modeloEhAcessorio(m) ? "__acessorios__" : "__none__"];
       keys.forEach((k) => {
         const arr = map.get(k);
         if (arr) arr.push(m); else map.set(k, [m]);
       });
     });
     return Array.from(map.entries())
-      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem tecido" : artigoMap[key] ?? "Sem tecido", items: its }))
+      .map(([key, its]) => ({ key, nome: key === "__acessorios__" ? "Acessórios" : key === "__none__" ? "Sem tecido" : artigoMap[key] ?? "Sem tecido", items: its }))
       .sort(sortSplits);
   };
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
