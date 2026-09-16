@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Check, X, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +18,9 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 
 /**
  * Cadastro dedicado da LINHA (Cadastro > Atributos > Linha) — fora do AttributeTab genérico
@@ -76,6 +79,17 @@ function parseMk(s: string): number | null {
 export function LinhasCard({ onChanged, readOnly }: { onChanged?: () => void; readOnly?: boolean }) {
   const qc = useQueryClient();
   const listKey = ["linhas-cadastro"];
+
+  // Ring de presença SÓ (sem trava/merge — markup da Linha é lido AO VIVO pelo Planejamento;
+  // vale avisar "alguém está editando", conflito editor×editor é raro). Linhas é uma GRADE de N
+  // linhas, não 1 registro — sem id único de âncora — então usa `useColabPresencaPagina` (canal
+  // fixo por-página, mesmo padrão do canvas do Planejamento/Explosão), não `useColabRegistro`.
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabPresencaPagina({
+    canal: "colab-canvas:linhas",
+    campoFocado: campoFocadoColab,
+  });
 
   const { data: linhas = [], isLoading } = useQuery({
     queryKey: listKey,
@@ -184,7 +198,16 @@ export function LinhasCard({ onChanged, readOnly }: { onChanged?: () => void; re
   const edTemErro = edInval.min || edInval.ideal || edInval.max;
 
   return (
-    <div className="space-y-3">
+    <div
+      ref={colabScopeRef}
+      className="space-y-3"
+      onFocusCapture={(e) => {
+        const scope = colabScopeRef.current;
+        setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+      }}
+      onBlurCapture={() => setCampoFocadoColab(null)}
+    >
+      <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Markup por faixa (multiplicador ×). O <strong>Ideal</strong> é o markup usado no cálculo de preço; Mín/Máx delimitam a faixa aceitável.

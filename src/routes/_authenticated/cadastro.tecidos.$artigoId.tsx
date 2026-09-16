@@ -62,6 +62,9 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
 // Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
@@ -103,6 +106,7 @@ type Artigo = {
   unidade_medida: string;
   ncm: string | null;
   historico_precos: any;
+  rev?: number | null; // colab: bumpa a cada UPDATE (+ via trigger nas variantes_tecido); ainda não no types.ts gerado
 };
 
 type Variante = {
@@ -170,6 +174,13 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
     if (artigo && !dirtyRef.current) setForm(artigo);
   }, [artigo]);
 
+  // Colab — trava leve (rev otimista, SEM merge campo-a-campo): `revRef` espelha `artigos.rev`
+  // (bump a cada UPDATE + via trigger nas variantes_tecido). Atualiza SEMPRE que o servidor manda
+  // um `artigo` novo (mesmo com dirty=true) — é só o valor pra comparar no PRÓXIMO save; não mexe
+  // no form. O saveMut usa `.eq("rev", revRef.current)` no WHERE do UPDATE (ver mais abaixo).
+  const revRef = useRef<number | null>(null);
+  useEffect(() => { if (artigo) revRef.current = artigo.rev ?? null; }, [artigo]);
+
   // SEM default `= []`: um `[]` novo a cada render viraria dep instável do useEffect
   // abaixo → setCatIds em loop → "Maximum update depth exceeded" (React #185), crash
   // intermitente do detalhe enquanto a query carrega. `undefined` é estável (igual `artigo`).
@@ -195,6 +206,25 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
       resetBaseline({ form: artigo, catIds: catLinks });
     }
   }, [artigo, catLinks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Colab — ring de presença + reação a save alheio no MESMO tecido. SEM merge campo-a-campo
+  // (decisão do dono: trava leve, ver saveMut abaixo). `onMudancaServidor` só invalida — a
+  // rehidratação do form respeita `dirty` (useEffect de `artigo` acima), igual ao padrão do resto
+  // do sistema. Bump de filha (variantes_tecido) também dispara aqui via trigger no `artigos.rev`.
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: `colab-tecido:${artigoId}`,
+    tabela: "artigos",
+    registroId: artigoId,
+    filtroColuna: "id",
+    campoFocado: campoFocadoColab,
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
+      qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
+      qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
+    },
+  });
 
   const { data: empresasBase = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
@@ -271,11 +301,32 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
         unidade_medida: form.unidade_medida,
         rendimento: form.unidade_medida === "kg" ? form.rendimento ?? null : null,
       };
-      const { error } = await supabase.from("artigos").update(payload).eq("id", artigoId);
+      // Colab — TRAVA LEVE (rev otimista, SEM merge campo-a-campo): `.eq("rev", revRef.current)`
+      // só casa a linha se ninguém salvou este tecido desde a última carga (o UPDATE bumpa
+      // `artigos.rev` via trigger). 0 linhas devolvidas = conflito — não é erro de rede/permissão,
+      // então NÃO joga o erro do Supabase (viraria toast genérico); sinaliza com um código próprio
+      // pro onError tratar (recarrega + avisa, sem markClean, sem chamar set_artigo_categorias).
+      // `.eq("rev", ...)`: types.ts ainda não tem a coluna `rev` (regen pendente, débito conhecido
+      // — ver CLAUDE.md) — `as any` no builder inteiro, mesmo padrão já usado em ModeloDetailPanel.
+      const { data: updRows, error } = await (supabase.from("artigos") as any)
+        .update(payload)
+        .eq("id", artigoId)
+        .eq("rev", revRef.current)
+        .select("id, rev");
       if (error) throw error;
+      if (revRef.current != null && (!updRows || updRows.length === 0)) {
+        const conflito: any = new Error("conflito_versao: o tecido foi salvo por outra pessoa");
+        conflito.code = "P0409_LOCAL";
+        throw conflito;
+      }
+      // Re-baseliza o revRef com o rev NOVO (já bumpado por este UPDATE) IMEDIATAMENTE — sem esperar
+      // o refetch assíncrono do onSuccess. Sem isto, um 2º Salvar rápido mandaria o rev velho no
+      // WHERE → 0 linhas → P0409 FALSO contra o próprio save anterior (lição da Explosão).
+      if (updRows && updRows[0]?.rev != null) revRef.current = updRows[0].rev as number;
 
       // Junção de categorias, ATÔMICA (RPC): evita o tecido ficar sem nenhuma categoria caso o
       // insert falhasse após o delete (antes era delete-all + insert em 2 passos no cliente).
+      // Só roda se o UPDATE acima passou (0 linhas já lançou P0409_LOCAL e abortou antes daqui).
       const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
         _artigo_id: artigoId,
         _cat_ids: catIds,
@@ -290,7 +341,16 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
       qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
+    onError: (e: any) => {
+      if (e?.code === "P0409_LOCAL") {
+        // Conflito: NÃO markClean (mantém o dirty p/ o usuário reaplicar a edição se quiser) —
+        // só recarrega a versão do servidor (sem merge campo-a-campo, decisão do dono p/ Tecido).
+        toast.warning("Alguém salvou este tecido agora — recarreguei a versão mais recente; refaça sua alteração se necessário.");
+        qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
+      } else {
+        toast.error(mensagemErro(e, "Erro ao salvar."));
+      }
+    },
   });
 
   // Aplica o preço do tecido (campo Preço) a TODAS as variantes — replicar sob demanda (botão
@@ -634,16 +694,40 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
     </>
   );
 
+  // Ring de presença por campo (colab): foco é derivado no container via `pathDoElemento`
+  // (auto-instrumentado — nenhum campo precisa de marcação manual). `onFocusCapture`/
+  // `onBlurCapture` no container rolável; o overlay reencontra o elemento pelo path recebido
+  // via broadcast das outras abas.
+  const onFocusColab = (e: React.FocusEvent) => {
+    const scope = colabScopeRef.current;
+    setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+  };
+  const onBlurColab = () => setCampoFocadoColab(null);
+
   // EMBUTIDO num Sheet: flex-col ocupando a altura toda → corpo rolável (flex-1 overflow) + rodapé
   // FIXO (shrink-0) sempre colado embaixo. (sticky brigava com o padding do SheetContent.) PÁGINA
   // inteira: fluxo normal + PageActionBar (portal no rodapé do viewport).
   return embedded ? (
     <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">{corpo}</div>
+      <div
+        ref={colabScopeRef}
+        className="relative flex-1 space-y-6 overflow-y-auto p-4 sm:p-6"
+        onFocusCapture={onFocusColab}
+        onBlurCapture={onBlurColab}
+      >
+        <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
+        {corpo}
+      </div>
       <div className="flex shrink-0 items-center gap-2 border-t bg-background p-3">{acoes}</div>
     </div>
   ) : (
-    <div className="space-y-6">
+    <div
+      ref={colabScopeRef}
+      className="relative space-y-6"
+      onFocusCapture={onFocusColab}
+      onBlurCapture={onBlurColab}
+    >
+      <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
       {corpo}
       <PageActionBar>{acoes}</PageActionBar>
     </div>
