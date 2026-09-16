@@ -264,28 +264,23 @@ export function ModelCard({
             />
           </div>
         )}
-        {/* Carrinho (G5): pedido já feito para este card — canto sup. direito, tom neutro. */}
-        {comprado && (
-          <div className="absolute right-1 top-1 z-10" title="Comprado (pedido feito)">
-            <ShoppingCart className="h-3.5 w-3.5 text-muted-foreground" aria-label="Comprado (pedido feito)" />
-          </div>
-        )}
         {/* Foto FORA do <button> (não aninhar interativos): clicar abre o lightbox (item 12); o resto
             do header segue sendo o toggle/handle de arraste. Referência (G4) também fica fora —
             é um Dialog próprio, não pode aninhar num <button>. */}
-        <div className="flex w-full items-center gap-2 p-2">
-          {/* Hierarquia da imagem do card (G4): foto do modelo (thumb_path) vence; se não há
-              (ex.: rascunho sem modelo), cai na 1ª foto de referência anexada. */}
-          <ModeloThumb path={slot.thumb_path ?? slot.referencia_paths?.[0] ?? null} className="h-16 w-16" zoom alt={slot.nome ?? "Modelo"} />
+        {/* Header (redesenho set/2026 — pedido do dono): FOTO grande à esquerda · info empilhada no
+            meio (nome+v, REF, pç·m, badges numa linha própria) · ações à direita no topo (anexar
+            foto + recolher/expandir). O clique no MIOLO (info) recolhe/expande e é o handle de arraste. */}
+        <div className="flex w-full gap-2 p-2">
+          {/* Hierarquia da imagem do card (G4): foto do modelo (thumb_path) vence; senão a 1ª de referência. */}
+          <ModeloThumb path={slot.thumb_path ?? slot.referencia_paths?.[0] ?? null} className="h-24 w-[72px] shrink-0" zoom alt={slot.nome ?? "Modelo"} />
           <button
-            className={`flex min-w-0 flex-1 items-center gap-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
+            className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
             onClick={toggleOpen}
             {...(dragHandle?.attributes ?? {})}
             {...(dragHandle?.listeners ?? {})}
             title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
           >
-          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""} ${comprado ? "pr-6" : ""}`}>
-            <div className="flex items-center gap-1.5">
+            <div className={`flex w-full items-center gap-1.5 ${onToggleSelect ? "pl-5" : ""}`}>
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
               {isComprado && (
@@ -294,62 +289,63 @@ export function ModelCard({
                 </span>
               )}
             </div>
-            {/* REF na PRÓPRIA linha (truncate + title) e "N pç · N m" numa linha separada, com
-                tipografia consistente (.num) — antes os três ficavam espremidos numa flex-wrap de
-                larguras variáveis, sem padrão (pedido do dono 19/ago, item 5). */}
+            {/* REF na PRÓPRIA linha e "N pç · N m" numa linha separada (.num), tipografia consistente. */}
             {slot.ref && (
-              <div className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground tabular-nums" title={slot.ref}>
+              <div className="w-full truncate text-[11px] leading-tight text-muted-foreground tabular-nums" title={slot.ref}>
                 {slot.ref}
               </div>
             )}
             {!isComprado && (
-              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
                 <span><span className="num">{pieces}</span> pç</span>
                 <span aria-hidden className="opacity-60">·</span>
                 <span><span className="num">{total ? fmtInt(total) : "0"}</span> m</span>
               </div>
             )}
-            {/* Fase no fluxo (item 10) — 3ª linha ao lado da foto; só p/ modelo real com fase resolvida. */}
-            {slot.modelo_id && fase && (
-              <div className="mt-1 flex" title={`Etapa atual: ${fase.label}`}>
-                <StatusBadge tone={fase.tone} className="max-w-full truncate normal-case tracking-normal">{fase.label}</StatusBadge>
-              </div>
+            {/* Badges numa linha própria (fase + fornecedor + sem peças) — não mais espremidas na lateral. */}
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              {slot.modelo_id && fase && (
+                <span title={`Etapa atual: ${fase.label}`}>
+                  <StatusBadge tone={fase.tone} className="max-w-full truncate normal-case tracking-normal">{fase.label}</StatusBadge>
+                </span>
+              )}
+              {!isComprado && fornecTotal ? (
+                fornecCom === fornecTotal
+                  ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">✓ fornec.</StatusBadge>
+                  : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
+              ) : null}
+              {!isComprado && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
+              {/* Carrinho (G5): pedido já feito para este card — indicador na linha das badges. */}
+              {comprado && <ShoppingCart className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Comprado (pedido feito)" />}
+            </div>
+          </button>
+          {/* Ações à direita, no topo: anexar foto (ReferenciaDialog) + recolher/expandir; e ⋯ p/ vaga. */}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <div className="flex items-center gap-1">
+              <ReferenciaDialog slot={slot} onChange={onChange} />
+              <button type="button" onClick={toggleOpen} aria-label={open ? "Recolher card" : "Expandir card"}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+                <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
+              </button>
+            </div>
+            {/* Limpar slot (#4c): só em VAGA (slot sem modelo). Zera o rascunho mantendo a vaga. */}
+            {!slot.modelo_id && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <span role="button" tabIndex={0} onClick={(e) => e.stopPropagation()}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Mais ações">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </span>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" onClick={() => setConfirmLimpar(true)}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted">
+                    <Eraser className="h-4 w-4 shrink-0" /> Limpar slot
+                  </button>
+                </PopoverContent>
+              </Popover>
             )}
           </div>
-          {!isComprado && fornecTotal ? (
-            fornecCom === fornecTotal
-              ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">✓ fornec.</StatusBadge>
-              : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
-          ) : null}
-          {!isComprado && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
-          <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-          </button>
-          <ReferenciaDialog slot={slot} onChange={onChange} />
-          {/* Limpar slot (#4c): só em VAGA (slot sem modelo). Zera o rascunho mantendo a vaga. */}
-          {!slot.modelo_id && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => e.stopPropagation()}
-                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label="Mais ações"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </span>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  onClick={() => setConfirmLimpar(true)}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted"
-                >
-                  <Eraser className="h-4 w-4 shrink-0" /> Limpar slot
-                </button>
-              </PopoverContent>
-            </Popover>
-          )}
         </div>
         {!open && necTecidos.length > 0 && (
           <div className="space-y-1.5 border-t px-2 py-1.5">
