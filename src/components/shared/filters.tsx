@@ -269,12 +269,12 @@ export type GroupToggle = {
  * Os agrupamentos são combináveis e aninham na ordem em que `groups` é passado
  * (do mais amplo ao mais fino). Badge mostra quantos estão ativos.
  */
-export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
+export function AgrupamentoButton({ groups, disabled = false, disabledHint }: { groups: GroupToggle[]; disabled?: boolean; disabledHint?: string }) {
   const count = groups.filter((g) => g.active).length;
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant={count > 0 ? "default" : "outline"} size="sm" aria-label="Agrupar" className="relative gap-2 max-sm:aspect-square max-sm:px-0">
+        <Button variant={count > 0 ? "default" : "outline"} size="sm" aria-label="Agrupar" disabled={disabled} title={disabled ? disabledHint : undefined} className="relative gap-2 max-sm:aspect-square max-sm:px-0">
           <Group className="h-4 w-4" />
           <span className="max-sm:sr-only">Agrupar</span>
           {count > 0 && (

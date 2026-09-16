@@ -301,16 +301,17 @@ describe("plan-tecido/engine", () => {
     });
   });
 
-  // FIX 1 (ago/2026): a partição por artigo pode emitir 2+ materiais do MESMO tipo com o mesmo
-  // `numero` do bloco (bloco de forro com variantes de 2 artigos). slotDeModeloReal renumera 1..n
-  // POR TIPO → sem colisão em uq_plan_mat(slot_id,tipo,numero) no salvar_plan_tecido.
-  describe("slotDeModeloReal: numero 1..n por tipo (partição 2 artigos)", () => {
-    it("dois forros de artigos distintos (numero=1 do bloco) viram Forro 1 e Forro 2", () => {
+  // SUBSTITUTOS (set/2026): a partição por artigo emite 2+ materiais do MESMO tipo+numero do bloco
+  // (bloco com variantes de 2 artigos = principal + substituto). slotDeModeloReal FUNDE esses num
+  // ÚNICO PtMaterial: 1º artigo = principal, demais = artigo_ids_extra; variantes de todos convivem,
+  // marcadas com variante_artigo_id. Assim o substituto aparece como alternativa DO MESMO Tecido/Forro
+  // (não como bloco separado) — e não há colisão em uq_plan_mat(slot_id,tipo,numero).
+  describe("slotDeModeloReal: substitutos (fusão de artigos do mesmo tipo+numero)", () => {
+    it("dois forros de artigos distintos (numero=1 do bloco) FUNDEM num Forro 1 com substituto", () => {
       const mr: ModeloReal = {
         id: "M", ref: null, nome: "VESTIDO VALEN", subcolecao: null, subcolecao_id: null,
         linha_id: null, categoria_id: null, proporcoes: null, grade: {},
         materiais: [
-          // principal + substituto no MESMO bloco de forro → partição emite (forro, numero=1) 2x
           { tipo: "forro", numero: 1, artigo_id: "d30bac25", consumo: 1.2, loss_percent: 0,
             variantes: [{ variante_tecido_id: "vP", ordem: 1, multiplicador: 1 }] },
           { tipo: "forro", numero: 1, artigo_id: "809ef37a", consumo: 1.2, loss_percent: 0,
@@ -318,24 +319,29 @@ describe("plan-tecido/engine", () => {
         ],
       };
       const slot = slotDeModeloReal(mr, 0);
-      expect(slot.materiais.map((m) => [m.tipo, m.numero])).toEqual([["forro", 1], ["forro", 2]]);
-      // o substituto (2º artigo) APARECE (pedido de UX) como Forro 2, com sua variante
-      expect(slot.materiais[1].artigo_id).toBe("809ef37a");
-      expect(slot.materiais[1].variantes[0].variante_tecido_id).toBe("vS");
-      // sem colisão de chave (slot_id,tipo,numero) dentro do mesmo tipo
-      const chaves = slot.materiais.map((m) => `${m.tipo}|${m.numero}`);
-      expect(new Set(chaves).size).toBe(chaves.length);
+      // 1 só material (Forro 1); o 1º artigo é o principal, o 2º vira substituto
+      expect(slot.materiais.map((m) => [m.tipo, m.numero])).toEqual([["forro", 1]]);
+      expect(slot.materiais[0].artigo_id).toBe("d30bac25");
+      expect(slot.materiais[0].artigo_ids_extra).toEqual(["809ef37a"]);
+      // as variantes de AMBOS os artigos convivem, marcadas com o artigo real
+      const vs = slot.materiais[0].variantes;
+      expect(vs.map((v) => v.variante_tecido_id).sort()).toEqual(["vP", "vS"]);
+      const vSub = vs.find((v) => v.variante_tecido_id === "vS");
+      expect(vSub?.variante_artigo_id).toBe("809ef37a");
+      const vPri = vs.find((v) => v.variante_tecido_id === "vP");
+      expect(vPri?.variante_artigo_id).toBe("d30bac25");
     });
 
-    it("renumera cada tipo independente e preserva Tecido 1 = numero 1 (auto-categorização)", () => {
+    it("renumera por tipo e preserva Tecido 1 = numero 1; blocos distintos NÃO fundem", () => {
       const mr: ModeloReal = {
         id: "M", ref: null, nome: null, subcolecao: null, subcolecao_id: null,
         linha_id: null, categoria_id: null, proporcoes: null, grade: {},
         materiais: [
+          // tecido 1 e tecido 2 são BLOCOS distintos (numero 1 e 2) → NÃO fundem, viram Tecido 1 e 2
           { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [] },
           { tipo: "forro", numero: 1, artigo_id: "F1", consumo: 1, loss_percent: 0, variantes: [] },
-          { tipo: "tecido", numero: 1, artigo_id: "B", consumo: 1, loss_percent: 0, variantes: [] },
-          { tipo: "forro", numero: 1, artigo_id: "F2", consumo: 1, loss_percent: 0, variantes: [] },
+          { tipo: "tecido", numero: 2, artigo_id: "B", consumo: 1, loss_percent: 0, variantes: [] },
+          { tipo: "forro", numero: 2, artigo_id: "F2", consumo: 1, loss_percent: 0, variantes: [] },
         ],
       };
       const slot = slotDeModeloReal(mr, 0);
@@ -344,6 +350,7 @@ describe("plan-tecido/engine", () => {
       ]);
       const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
       expect(tec1?.artigo_id).toBe("A"); // 1º tecido na ordem estável continua sendo o Tecido 1
+      expect(tec1?.artigo_ids_extra).toBeUndefined(); // blocos distintos não geram substituto
     });
 
     it("card com forro de 2 artigos SALVA a coleção inteira sem colidir numero (repro VESTIDO VALEN)", () => {

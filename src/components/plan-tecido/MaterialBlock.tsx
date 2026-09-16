@@ -1,9 +1,15 @@
 // src/components/plan-tecido/MaterialBlock.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { X, Plus, AlertTriangle } from "lucide-react";
 import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -12,12 +18,12 @@ import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
 import { varKey, fmtMetros, dedupVariantes } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
-type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
+type VarRow = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
 
 export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean }) {
-  const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
+  const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria, artigoMap } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
   // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros. TECIDO é FILTRADO pela categoria
@@ -29,12 +35,30 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
     : base;
   const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
 
+  // SUBSTITUTOS EFETIVOS (set/2026, mesmo padrão do Desenvolvimento): união dos extras MANUAIS
+  // (`material.artigo_ids_extra`, adicionados pelo select) com os DERIVADOS das variantes salvas
+  // (`variante_artigo_id` ≠ principal — a árvore rejunta o artigo real de cada variante no load).
+  // É DERIVADO/computado (não faz onChange) — reabrir o card NÃO marca "não salvo" à toa nem bumpa a
+  // rev do colab; o `variante_artigo_id` não é gravado, sobrevive pelas variantes salvas.
+  const artigoIdsExtra = useMemo(() => {
+    const s = new Set(material.artigo_ids_extra ?? []);
+    if (material.artigo_id) for (const v of material.variantes) {
+      const aid = v.variante_artigo_id ?? null;
+      if (aid && aid !== material.artigo_id) s.add(aid);
+    }
+    return Array.from(s);
+  }, [material.artigo_id, material.artigo_ids_extra, material.variantes]);
+
+  // Pool multi-artigo: principal + substitutos EFETIVOS. As variantes de TODOS os artigos do pool
+  // entram no mesmo `variantesArtigo` — casaReal/opcoesArtigo/agrupamento por fornecedor cobrem o
+  // pool inteiro sem queries separadas.
+  const poolArtigoIds = Array.from(new Set([material.artigo_id, ...artigoIdsExtra].filter((id): id is string => !!id)));
   const { data: variantesArtigo = [] } = useQuery({
-    queryKey: ["plan-tecido-variantes-artigo", material.artigo_id],
-    enabled: !!material.artigo_id,
+    queryKey: ["plan-tecido-variantes-artigo", poolArtigoIds.slice().sort().join(",")],
+    enabled: poolArtigoIds.length > 0,
     queryFn: async () => ((await supabase.from("variantes_tecido")
-      .select("id, nome_variante, codigo_variante, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
-      .eq("artigo_id", material.artigo_id!).order("id")).data ?? []) as unknown as VarRow[],
+      .select("id, artigo_id, nome_variante, codigo_variante, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+      .in("artigo_id", poolArtigoIds).order("id")).data ?? []) as unknown as VarRow[],
   });
   const realById = new Map(variantesArtigo.map((v) => [v.id, v]));
   const realByCombo = new Map<string, VarRow>();   // EXATO: cor base + apelido
@@ -43,11 +67,13 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
     realByCombo.set(comboKey(v.cor_id, v.cor_apelido_id), v);
     if (v.cor_id && !realByCorId.has(v.cor_id)) realByCorId.set(v.cor_id, v);
   }
-  // Variante REAL do artigo que corresponde a esta cor do plano:
-  // - variante real (variante_tecido_id): só casa se for variante DESTE artigo (NÃO remapeia por cor
-  //   entre artigos — isso DUPLICAVA cores e sujava o card ao abrir; a separação por artigo agora é
-  //   feita no seed). Cross-artigo → undefined → aparece como divergente (honesto).
-  // - cor PLANEJADA (sem variante): sobe pra real por cor base+apelido (exato) ou cor base (id).
+  // Variante REAL do POOL (principal + substitutos) que corresponde a esta cor do plano:
+  // - variante real (variante_tecido_id): só casa se for variante de um artigo DO POOL (NÃO
+  //   remapeia por cor pra fora do pool — isso DUPLICAVA cores e sujava o card ao abrir; a
+  //   separação por artigo é feita no seed). Fora do pool → undefined → divergente (honesto).
+  // - cor PLANEJADA (sem variante): sobe pra real por cor base+apelido (exato) ou cor base (id) —
+  //   de QUALQUER artigo do pool; em caso de mesma cor em 2 artigos do pool, o `realByCorId` fica
+  //   com o último visto (ordem da query) — mesma ambiguidade que já existia mono-artigo.
   const casaReal = (v: PtVariante): VarRow | undefined => {
     if (v.variante_tecido_id) return realById.get(v.variante_tecido_id);
     if (v.cor_id) return realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id)) ?? realByCorId.get(v.cor_id);
@@ -117,10 +143,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   };
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmRemSubs, setConfirmRemSubs] = useState<string | null>(null); // substituto pendente de confirmar remoção
   const usados = new Set(material.variantes.map((v) => varKey(v)));
   const usadosCombo = new Set(material.variantes.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
-  // opções: com artigo → variantes do tecido ainda não usadas; sem artigo → todas as combinações.
-  // Em ordem ALFABÉTICA cor base → apelido (dono ago/2026).
+  // opções: com artigo → variantes do POOL (principal + substitutos) ainda não usadas; sem artigo →
+  // todas as combinações. Em ordem ALFABÉTICA cor base → apelido (dono ago/2026).
   const cmpNome = (a: string | null | undefined, b: string | null | undefined) =>
     (a ?? "").localeCompare(b ?? "", "pt-BR", { sensitivity: "base" });
   const opcoesArtigo = variantesArtigo
@@ -129,6 +156,13 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   const opcoesCombo = coresCombos
     .filter((c) => !usadosCombo.has(comboKey(c.cor_id, c.cor_apelido_id)))
     .sort((a, b) => cmpNome(a.cor_nome, b.cor_nome) || cmpNome(a.apelido_nome, b.apelido_nome));
+  // Rótulo da opção do menu de cores: com >1 artigo no pool, prefixa "Nome do artigo · cor" (estilo
+  // ModeloTecidosSection) pra não confundir de qual tecido é cada cor.
+  const nomeArtigoDe = (id: string) => artigoMap.get(id)?.nome ?? "Tecido";
+  const varianteMenuLabel = (v: VarRow) => {
+    const cor = corApelidoLabel(v.cor?.nome, v.apelido?.nome);
+    return poolArtigoIds.length > 1 ? `${nomeArtigoDe(v.artigo_id)} · ${cor}` : cor;
+  };
 
   const addDoArtigo = (v: VarRow) => {
     const nova: PtVariante = {
@@ -158,6 +192,45 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
       rendimento: a?.rendimento ?? null, preco_por_metro: a?.preco_por_metro ?? null,
     });
   };
+
+  // Substitutos (set/2026, portado do Desenvolvimento) — tecidos/forros que também podem ser
+  // usados quando o principal acaba. Opções: mesmo PAPEL do bloco (tecido/forro), menos o
+  // principal e os já-extras.
+  const substitutoOptions = base.filter((a) => a.id !== material.artigo_id && !artigoIdsExtra.includes(a.id));
+  const addSubstituto = (id: string) => {
+    if (!id || artigoIdsExtra.includes(id)) return;
+    onChange({ ...material, artigo_ids_extra: [...(material.artigo_ids_extra ?? []), id] });
+  };
+  // Remover substituto: tira do array manual E remove as variantes daquele artigo (senão o substituto
+  // voltaria como DERIVADO pelas variantes que sobraram). `variante_artigo_id` identifica o artigo da
+  // variante; sem ele (planejadas/cross-artigo), não são deste substituto — ficam.
+  const aplicarRemocaoSubstituto = (id: string) => {
+    onChange({
+      ...material,
+      artigo_ids_extra: (material.artigo_ids_extra ?? []).filter((x) => x !== id),
+      variantes: renum(material.variantes.filter((v) => (v.variante_artigo_id ?? null) !== id)),
+    });
+  };
+  // Se o substituto tem cor(es) com peças planejadas (grade_total > 0), remover perde essas peças —
+  // confirma antes (padrão do sistema: AlertDialog em ação sensível). Sem peças → remove direto.
+  const removerSubstituto = (id: string) => {
+    const comPecas = material.variantes.some((v) => (v.variante_artigo_id ?? null) === id && (Number(v.grade_total) || 0) > 0);
+    if (comPecas) setConfirmRemSubs(id);
+    else aplicarRemocaoSubstituto(id);
+  };
+
+  // Variantes agrupadas por FORNECEDOR do artigo (principal ou substituto) a que pertencem —
+  // descobre o artigo da variante via `variante_tecido_id` → VarRow (`realById`); cor planejada
+  // (sem variante real ainda) cai no fornecedor do PRINCIPAL (fallback, dono set/2026).
+  const fornecedorLabel = (fid: string | null) => fid ?? "Sem fornecedor definido";
+  const fornecedorDaVariante = (v: PtVariante): string => {
+    if (v.variante_tecido_id) {
+      const r = realById.get(v.variante_tecido_id);
+      if (r) return fornecedorLabel(fornecedorDe(r.artigo_id));
+    }
+    return fornecedorLabel(material.artigo_id ? fornecedorDe(material.artigo_id) : null);
+  };
+  const multiFornecedor = poolArtigoIds.length > 1;
 
   return (
     <div className="mb-2 rounded border">
@@ -190,16 +263,51 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
         {(Number(material.consumo) || 0) <= 0 && material.artigo_id && (
           <p className="mt-1 text-[10px] font-medium text-amber-700">consumo não preenchido — este {material.tipo === "forro" ? "forro" : "tecido"} conta 0 m nas contas</p>
         )}
+
+        {/* Substitutos (set/2026, portado do Desenvolvimento): mesmo tecido de fornecedores
+            diferentes / tecidos alternativos "quando o principal acaba". Só com o principal já
+            escolhido; oculto quando travado (readOnly), igual às demais ações. */}
+        {!readOnly && material.artigo_id && (
+          <div className="mt-1.5 space-y-1">
+            <p className="text-[10px] text-muted-foreground">
+              {material.tipo === "forro" ? "forros" : "tecidos"} que também podem ser usados (quando o principal acaba)
+            </p>
+            <div className="flex flex-wrap items-center gap-1">
+              {artigoIdsExtra.map((id) => (
+                <Badge key={id} variant="secondary" className="gap-1">
+                  {artigoMap.get(id)?.nome ?? id}
+                  <button type="button" aria-label="Remover" className="ml-0.5 hover:text-destructive" onClick={() => removerSubstituto(id)}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+              {substitutoOptions.length > 0 && (
+                <Select value="" onValueChange={addSubstituto}>
+                  <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs">
+                    <SelectValue placeholder={`+ adicionar ${material.tipo === "forro" ? "forro" : "tecido"}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {substitutoOptions.map((a) => {
+                      const f = fornecedorDe(a.id);
+                      return <SelectItem key={a.id} value={a.id}>{a.nome}{f ? ` · ${f}` : ""}</SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="p-2">
         {/* cores selecionadas (variantes) */}
         {material.variantes.length === 0 ? (
           <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
-        ) : (
+        ) : (() => {
           // Variantes em ordem ALFABÉTICA (cor base → apelido) só na EXIBIÇÃO (dono, jul/2026) —
           // copia p/ ordenar, sem mexer no material.variantes salvo (não suja o form nem renumera).
-          [...material.variantes].sort(cmpVar).map((v, vi) => {
+          const ordenadas = [...material.variantes].sort(cmpVar);
+          const linha = (v: PtVariante, vi: number) => {
             const div = divergente(v);
             const planejada = !v.variante_tecido_id;
             const { cor, apelido } = corEApelido(v);
@@ -226,8 +334,28 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 {!readOnly && <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>}
               </div>
             );
-          })
-        )}
+          };
+          // Sem substitutos (pool = 1 artigo): lista plana, IGUAL ao comportamento de hoje —
+          // sem cabeçalho de fornecedor.
+          if (!multiFornecedor) return ordenadas.map((v, vi) => linha(v, vi));
+          // Com substitutos: agrupa por FORNECEDOR do artigo de cada variante, preservando a
+          // ordenação alfabética DENTRO de cada grupo (a lista já veio ordenada por cmpVar).
+          const porFornecedor = new Map<string, PtVariante[]>();
+          ordenadas.forEach((v) => {
+            const f = fornecedorDaVariante(v);
+            const arr = porFornecedor.get(f) ?? [];
+            arr.push(v);
+            porFornecedor.set(f, arr);
+          });
+          return Array.from(porFornecedor.entries())
+            .sort(([a], [b]) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }))
+            .map(([fornecedor, vs]) => (
+              <div key={fornecedor}>
+                <p className="mt-1.5 truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground first:mt-0">{fornecedor}</p>
+                {vs.map((v) => linha(v, ordenadas.indexOf(v)))}
+              </div>
+            ));
+        })()}
 
         {/* ações — escondidas quando travado (enviado à Explosão) */}
         {!readOnly && (
@@ -248,7 +376,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
             {material.artigo_id ? (
               opcoesArtigo.length ? opcoesArtigo.map((v) => (
                 <button key={v.id} type="button" onClick={() => addDoArtigo(v)} className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-muted">
-                  <VarianteSwatch nome={v.cor?.nome ?? undefined} /><span className="truncate">{corApelidoLabel(v.cor?.nome, v.apelido?.nome)}</span>
+                  <VarianteSwatch nome={v.cor?.nome ?? undefined} /><span className="truncate">{varianteMenuLabel(v)}</span>
                 </button>
               )) : <div className="px-1.5 py-1 text-[10px] text-muted-foreground">Todas as cores do tecido já adicionadas.</div>
             ) : (
@@ -261,6 +389,26 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
           </div>
         )}
       </div>
+
+      {/* Confirmação ao remover substituto com peças planejadas (evita perda silenciosa, achado da
+          revisão). Montado só quando há um pendente (nasce limpo). */}
+      {confirmRemSubs && (
+        <AlertDialog open onOpenChange={(o) => !o && setConfirmRemSubs(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remover {artigoMap.get(confirmRemSubs)?.nome ?? "substituto"}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Este {rotulo} alternativo tem cores com peças planejadas. Remover vai apagar essas cores e
+                suas quantidades deste material. As cores planejadas (sem variante) e de outros tecidos permanecem.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { aplicarRemocaoSubstituto(confirmRemSubs); setConfirmRemSubs(null); }}>Remover</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

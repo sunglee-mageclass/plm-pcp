@@ -58,51 +58,60 @@ const slotVazio = (i: number): PtSlot => ({ id: crypto.randomUUID(), modelo_id: 
 
 /** Converte um modelo real (BOM + grade) num slot pré-preenchido do Plan. Tecido. */
 export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
-  // numero POR TIPO 1..n na montagem: a partição por artigo (PlanTecidoSheet.modelosReais) pode
-  // emitir 2+ materiais do MESMO tipo com o MESMO `numero` do bloco — ex.: um bloco de forro com
-  // variantes de DOIS artigos (principal + substituto) vira dois materiais (forro, numero=1). Dois
-  // `(forro, numero=1)` colidem em uq_plan_mat(slot_id,tipo,numero) → 23505 ao salvar a coleção
-  // inteira (estado-completo, delete+reinsert). Renumeramos sequencial por tipo (tecido 1..n,
-  // forro 1..n) NA ORDEM ESTÁVEL dos materiais (= ordem de aparição na partição) — mesmo padrão do
-  // `renumMateriais`/variantes 1..n. Efeito UX: o substituto (2º artigo do bloco) passa a APARECER
-  // como "Forro 2" no card. numero é semântico ("Tecido N") — renumerado só aqui no front, NÃO no
-  // servidor. `numero=1` do Tecido 1 é preservado (1º tecido na ordem) → auto-categorização intacta.
+  // SUBSTITUTOS EM CARD REAL (set/2026): a partição por artigo (PlanTecidoSheet.modelosReais) emite
+  // 2+ materiais do MESMO tipo+numero do bloco quando um bloco tem variantes de artigos diferentes
+  // (principal + substituto). Aqui AGRUPAMOS esses por `(tipo, numero)` num ÚNICO PtMaterial: o 1º
+  // artigo do grupo é o PRINCIPAL; os demais entram em `artigo_ids_extra` (substitutos). As variantes
+  // de TODOS os artigos do grupo convivem no material, cada uma marcada com `variante_artigo_id` (=
+  // artigo real da variante) — o `MaterialBlock` agrupa por fornecedor e reconstrói os badges. Assim
+  // o substituto aparece como alternativa DO MESMO Tecido N (não como "Tecido 2"/"Forro 2" separado).
+  // A grade do Dev (`mr.grade`, por variante_numero do TECIDO 1) só vale p/ o Tecido 1; o grupo do
+  // Tecido 1 é o de menor `numero` de bloco entre os tecidos. numero exibido = sequencial por tipo
+  // (Tecido 1..n / Forro 1..n) na ordem de aparição dos GRUPOS.
+  const grupos = new Map<string, { tipo: PtMaterial["tipo"]; mats: typeof mr.materiais }>();
+  for (const mat of mr.materiais) {
+    const k = `${mat.tipo}|${mat.numero}`;
+    const g = grupos.get(k);
+    if (g) g.mats.push(mat);
+    else grupos.set(k, { tipo: mat.tipo, mats: [mat] });
+  }
   const seqPorTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
-  const materiais: PtMaterial[] = mr.materiais.map((mat, mi) => {
-    const numero = (seqPorTipo[mat.tipo] = (seqPorTipo[mat.tipo] ?? 0) + 1);
-    // A grade planejada do Dev (`mr.grade` = modelo_grades, chaveada por variante_numero = ordem da
-    // variante do TECIDO 1) só descreve o Tecido 1. Aplicá-la por `ordem` a FORRO/Tecido 2 é
-    // casamento errado: lê a grade do Tecido 1 na MESMA posição (cross-read) e ignora a identidade da
-    // variante (variante_tecido_id). Só o Tecido 1 puxa a grade do Dev; forro/Tecido 2 nascem SEM
-    // grade e recebem a pç do PLANO salvo (comGradeDoPlano no merge) — "Dev vence só se preenchido;
-    // forro tem grade própria (do plano)". `mat.numero` aqui é o número do BLOCO (Tecido 1 = 1).
-    const puxaGradeDev = mat.tipo === "tecido" && Number(mat.numero) === 1;
-    const variantes: PtVariante[] = mat.variantes
-      .slice()
-      .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
-      .map((v, vi) => {
-        const g = puxaGradeDev ? mr.grade[v.ordem] : undefined;
+  const materiais: PtMaterial[] = Array.from(grupos.values()).map((g, mi) => {
+    const numero = (seqPorTipo[g.tipo] = (seqPorTipo[g.tipo] ?? 0) + 1);
+    const principal = g.mats[0]; // 1º artigo do grupo = principal (ordem estável da partição)
+    const extras = g.mats.slice(1).map((m) => m.artigo_id).filter((id): id is string => !!id);
+    // Só o TECIDO 1 (1º grupo de tecido na ordem de aparição = numero exibido 1) puxa a grade do Dev
+    // (chaveada por variante_numero do bloco do Tecido 1; o grupo do Tecido 1 sempre é o 1º tecido).
+    const puxaGradeDev = g.tipo === "tecido" && numero === 1;
+    // Variantes de TODOS os artigos do grupo, marcadas com o artigo real (p/ agrupar por fornecedor).
+    const variantes: PtVariante[] = g.mats
+      .flatMap((m) => m.variantes.map((v) => ({ v, artigo_id: m.artigo_id })))
+      .sort((a, b) => (a.v.ordem ?? 0) - (b.v.ordem ?? 0))
+      .map(({ v, artigo_id }, vi) => {
+        const g2 = puxaGradeDev ? mr.grade[v.ordem] : undefined;
         return {
           variante_tecido_id: v.variante_tecido_id,
+          variante_artigo_id: artigo_id ?? null, // artigo real da variante (principal ou substituto)
           ordem: vi + 1, // renumera 1..n (uq_plan_var em material_id, ordem)
           multiplicador: Number(v.multiplicador) || 1,
-          grades: g?.grades ?? {},
-          grade_total: Number(g?.grade_total) || 0,
+          grades: g2?.grades ?? {},
+          grade_total: Number(g2?.grade_total) || 0,
           cor_nome: v.cor_nome ?? null,
           label: v.label ?? undefined,
         };
       });
     return {
-      artigo_id: mat.artigo_id,
-      artigo_nome: mat.artigo_nome ?? null,
-      unidade_medida: mat.artigo_unidade_medida ?? null,
-      rendimento: mat.artigo_rendimento ?? null,
-      preco_por_metro: mat.preco_por_metro ?? null,
-      tipo: mat.tipo,
+      artigo_id: principal.artigo_id,
+      artigo_ids_extra: extras.length > 0 ? extras : undefined,
+      artigo_nome: principal.artigo_nome ?? null,
+      unidade_medida: principal.artigo_unidade_medida ?? null,
+      rendimento: principal.artigo_rendimento ?? null,
+      preco_por_metro: principal.preco_por_metro ?? null,
+      tipo: g.tipo,
       numero,
-      consumo: Number(mat.consumo) || 0,
-      consumo_cad: mat.consumo_cad ?? null, // marcador de exibição (item 3c)
-      loss_percent: Number(mat.loss_percent) || 0,
+      consumo: Number(principal.consumo) || 0,
+      consumo_cad: principal.consumo_cad ?? null, // marcador de exibição (item 3c)
+      loss_percent: Number(principal.loss_percent) || 0,
       ordem: mi,
       variantes,
     };

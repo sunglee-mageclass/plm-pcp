@@ -26,7 +26,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
-import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning, CopyPlus } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight, Boxes, BrushCleaning, CopyPlus, LayoutGrid } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
@@ -40,9 +40,11 @@ import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore, slotMetros, fmtMetros, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
+import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
 import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
+import { ModoPlanoView } from "@/components/plan-tecido/ModoPlanoView";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, pointerWithin, rectIntersection, type DragEndEvent, type CollisionDetection } from "@dnd-kit/core";
@@ -329,7 +331,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // como estado local porque o useEffect logo abaixo o liga automaticamente quando a subcoleção
   // declara famílias (workaround FIX G3-A) — não migrar p/ não perder esse comportamento.
   const agrup = useAgrupamentoState("plan-tecido-sheet", ["nome"]);
-  const groupByNome = agrup.isOn("nome");
+  // Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Toggle na toolbar,
+  // ao lado de Agrupar. NÃO persiste (começa desligado). Ao ligar, FORÇA o agrupamento por nome e
+  // esconde o trilho lateral (Resumo/A comprar/OC). Ao desligar, restaura o agrupamento anterior.
+  const [modoPlano, setModoPlano] = useState(false);
+  const [modoPlanoRecolhidos, setModoPlanoRecolhidos] = useState<Set<string>>(new Set()); // faixas recolhidas por nome de tecido
+  const groupByNome = agrup.isOn("nome") || modoPlano;        // Modo Plano força nome
   const groupByMix = agrup.isOn("mix");                       // lanes por MIX (exclui Família)
   const [mixDialogOpen, setMixDialogOpen] = useState(false);  // Editar Mix (escopo = subcoleção ativa)
   const [mixMassaOpen, setMixMassaOpen] = useState(false);    // "Mover p/ mix" (barra de seleção)
@@ -1716,6 +1723,37 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 const next = structuredClone(arvore) as PtArvore;
                 const subNext = next.subcolecoes[subAtiva];
                 subNext.linhas[li].slots[sli] = aplicarMoveFamilia(subNext, ns, slot);
+                // Variantes COMPARTILHADAS por nome de tecido (Fase B, set/2026): SÓ quando agrupado por
+                // nome. Add/remover uma cor num card replica o CONJUNTO (com grade 0) nos outros cards do
+                // MESMO nome de tecido na subcoleção ativa. Peças ficam por card. Detecta a dif material a
+                // material (por tipo+numero) e aplica aos slots-alvo. O slot que MUDOU DE nome de tecido
+                // (trocou o artigo do Tecido 1) não replica (o nome novo é outro grupo).
+                if (groupByNome) {
+                  const nomeAlvo = tecidoNomeDoSlot(ns);
+                  if (nomeAlvo !== "Sem tecido" && tecidoNomeDoSlot(slot) === nomeAlvo) {
+                    // dif por material (o material de ORIGEM do card editado vs. o antigo)
+                    const difs = ns.materiais.map((mNovo) => {
+                      const mAntigo = slot.materiais.find((x) => x.tipo === mNovo.tipo && x.numero === mNovo.numero);
+                      return { ref: mNovo, dif: difVariantes(mAntigo, mNovo) };
+                    }).filter(({ dif }) => dif.adicionadas.length > 0 || dif.removidas.length > 0);
+                    if (difs.length > 0) {
+                      for (const ln of subNext.linhas) for (let k = 0; k < ln.slots.length; k++) {
+                        const alvoSlot = ln.slots[k];
+                        if (alvoSlot === subNext.linhas[li].slots[sli]) continue; // o próprio card já foi
+                        if (tecidoNomeDoSlot(alvoSlot) !== nomeAlvo) continue;
+                        let mudou = false;
+                        const materiais = alvoSlot.materiais.slice();
+                        for (const { ref, dif } of difs) {
+                          const idx = indiceMaterialCorrespondente(materiais, ref);
+                          if (idx < 0) continue; // o alvo não tem esse material (tipo+numero) — não força
+                          const novoMat = aplicarDifNoMaterial(materiais[idx], dif);
+                          if (novoMat !== materiais[idx]) { materiais[idx] = novoMat; mudou = true; }
+                        }
+                        if (mudou) ln.slots[k] = { ...alvoSlot, materiais };
+                      }
+                    }
+                  }
+                }
                 patch(next);
               }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
@@ -1775,7 +1813,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 ))}
               </div>
             <div className="flex flex-1 overflow-hidden">
-              {/* Trilho fixo — Resumo · A comprar · OC (abrem como extensão que empurra) */}
+              {/* Trilho fixo — Resumo · A comprar · OC (abrem como extensão que empurra). Escondido no
+                  MODO PLANO (o resumo por variante vem embutido na própria view). */}
+              {!modoPlano && (
               <div className="hidden w-[46px] shrink-0 flex-col items-center gap-1.5 border-r pt-3 md:flex">
                 {([
                   { k: "resumo", Icon: PanelLeft, label: "Resumo", on: resumoAberto, act: () => setResumoAberto((v) => !v) },
@@ -1789,8 +1829,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                   </button>
                 ))}
               </div>
-              {/* Painel Resumo (322px) */}
-              {resumoAberto && (
+              )}
+              {/* Painel Resumo (322px) — escondido no Modo Plano */}
+              {!modoPlano && resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
                     <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
@@ -1799,7 +1840,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               )}
               {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho. `md:flex` (era lg):
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
-              {drawer && (
+              {!modoPlano && drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
                   <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
@@ -1852,9 +1893,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                         onLimpar={() => setCatFilters(new Set())}
                       />
                     )}
+                    {/* Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Ligar
+                        força o agrupamento por nome. Fica ao lado de Agrupar (pedido do dono). */}
+                    <Button size="sm" variant={modoPlano ? "default" : "outline"} aria-label="Modo Plano"
+                      aria-pressed={modoPlano} className="gap-1 max-sm:aspect-square max-sm:px-0"
+                      onClick={() => setModoPlano((v) => !v)}>
+                      <LayoutGrid className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Modo Plano</span>
+                    </Button>
                     {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
-                        (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. */}
-                    <AgrupamentoButton groups={[
+                        (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. No Modo Plano
+                        o agrupamento fica TRAVADO em "Nome do tecido". */}
+                    <AgrupamentoButton disabled={modoPlano} disabledHint="No Modo Plano o agrupamento é por Nome do tecido" groups={[
                       { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
                       { label: "Família de Tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
@@ -1867,6 +1916,18 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     )}
                   </div>
                 </div>
+                {modoPlano ? (
+                  <ModoPlanoView
+                    arvore={subArvore}
+                    colecaoId={colecaoId}
+                    recolhidos={modoPlanoRecolhidos}
+                    onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}
+                    renderCard={(slot, li, sli) => cardOf(slot, li, sli, chaveSlot(slot.id, subAtiva, li, sli))}
+                    situacaoRows={situacaoRows}
+                    slotOcMap={slotOcMap}
+                    vinculoOcMap={vinculoOcMap}
+                  />
+                ) : (
                 <DndContext sensors={dndSensors} collisionDetection={dndCollision} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
                   <div className="space-y-4">
                     {groupByMix ? laneMixes.map((mid) => {
@@ -1990,6 +2051,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     })() : null}
                   </DragOverlay>
                 </DndContext>
+                )}
               </main>
             </div>
             </div>

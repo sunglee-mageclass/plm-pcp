@@ -1,8 +1,18 @@
 // variante_tecido_id null = cor PLANEJADA (base+apelido) sem variante real ainda (tecido s/ fornecedor)
-export type PtVariante = { id?: string; variante_tecido_id: string | null; cor_id?: string | null; cor_apelido_id?: string | null; label?: string; cor_nome?: string | null; ordem: number; multiplicador: number; grades: Record<string, number>; grade_total: number };
+// variante_artigo_id: artigo REAL da variante (= variantes_tecido.artigo_id), devolvido pela árvore
+// (set/2026). Usado só para RECONSTRUIR os substitutos (`PtMaterial.artigo_ids_extra`) ao carregar —
+// se ≠ artigo principal do material, aquele artigo vira badge de substituto. Display-only; não é
+// gravado (viaja no jsonb da árvore, o servidor não lê esta chave no save).
+export type PtVariante = { id?: string; variante_tecido_id: string | null; variante_artigo_id?: string | null; cor_id?: string | null; cor_apelido_id?: string | null; label?: string; cor_nome?: string | null; ordem: number; multiplicador: number; grades: Record<string, number>; grade_total: number };
 // consumo_cad: MARCADOR de exibição (item 3c) — consumo confirmado no CAD (cad_tecidos.consumo_cad)
 // quando venceu; NÃO é gravado no plano (igual aos outros campos só-exibição artigo_nome/unidade…).
-export type PtMaterial = { id?: string; artigo_id: string | null; artigo_nome?: string | null; unidade_medida?: string | null; rendimento?: number | null; preco_por_metro?: number | null; tipo: "tecido" | "forro"; numero: number; consumo: number; consumo_cad?: number | null; loss_percent: number; ordem: number; variantes: PtVariante[] };
+// artigo_ids_extra: SUBSTITUTOS do material (set/2026, portado do Desenvolvimento — mesmo tecido de
+// fornecedores diferentes / tecidos alternativos "quando o principal acaba"). O `artigo_id` é o
+// PRINCIPAL; `artigo_ids_extra` são os artigos alternativos. Como no Dev, é DERIVADO das variantes ao
+// carregar (variante cujo `variante_tecido_id` aponta a um artigo ≠ principal) — não é coluna própria;
+// sobrevive porque as variantes daquele artigo extra são gravadas normalmente. As variantes do
+// material passam a poder pertencer ao principal OU a um substituto (agrupadas por fornecedor na UI).
+export type PtMaterial = { id?: string; artigo_id: string | null; artigo_ids_extra?: string[]; artigo_nome?: string | null; unidade_medida?: string | null; rendimento?: number | null; preco_por_metro?: number | null; tipo: "tecido" | "forro"; numero: number; consumo: number; consumo_cad?: number | null; loss_percent: number; ordem: number; variantes: PtVariante[] };
 // usar_estoque: flag "Usar estoque existente" APOSENTADO (dono 17/ago/2026) — coluna INERTE, mantida
 // só p/ o round-trip do save preservar o valor legado; a UI não expõe mais nem filtra por ela.
 // markup_editado: markup PRÓPRIO do modelo (congelado, `modelos.markup_editado`) — sobrepõe o
