@@ -37,6 +37,7 @@ import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
@@ -1684,16 +1685,30 @@ export function PlanejamentoDetail({
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Planejamento de Produto" }, { label: draft.nome || "Novo modelo" }]} />
         </div>
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
-          <DialogTitle className="flex flex-wrap items-center gap-2">
-            <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
-            {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
-            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-          </DialogTitle>
-          {/* REF logo abaixo do nome — read-only, discreta. Só aparece quando já existe (gerada no
-              Desenvolvimento, invariante #11); vazia no Planejamento pré-Dev fica oculta (mais clean). */}
-          {isEdit && draft.ref && (
-            <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
-          )}
+          {/* Miniatura da foto do modelo à ESQUERDA do nome/REF (padrão dos headers de Serviços/CQ/
+              Direcionamento). Quadrada (h-14 w-14); `ModeloResumoFoto` resolve a signed URL sozinho.
+              Só no card existente (isEdit) — no "Novo Modelo" ainda não há foto. */}
+          <div className="flex items-start gap-3">
+            {isEdit && (
+              <ModeloResumoFoto
+                fontes={[draft.fotos_modelo?.[0], draft.desenho_tecnico_url, draft.croqui_url]}
+                nome={draft.nome}
+                className="h-14 w-14"
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="flex flex-wrap items-center gap-2">
+                <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
+                {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
+                <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+              </DialogTitle>
+              {/* REF logo abaixo do nome — read-only, discreta. Só aparece quando já existe (gerada no
+                  Desenvolvimento, invariante #11); vazia no Planejamento pré-Dev fica oculta (mais clean). */}
+              {isEdit && draft.ref && (
+                <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
+              )}
+            </div>
+          </div>
           <ColabBanner
             presentes={presentes}
             ultimoMerge={ultimoMerge}

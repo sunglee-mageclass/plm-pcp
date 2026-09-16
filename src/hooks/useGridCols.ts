@@ -14,6 +14,26 @@ export const GRID_COLS_CLASS: Record<number, string> = {
   10: "grid gap-4 grid-cols-2 lg:grid-cols-10",
 };
 
+// Variante do Planejamento de Produto (set/2026): no MOBILE vira um CARROSSEL horizontal com
+// scroll-snap (uma foto por vez, snap-mandatory — para em um card ou outro, nunca no meio); no
+// desktop (lg) volta a ser o grid de N colunas normal. Os itens precisam das classes
+// `GRID_CARROSSEL_ITEM_CLASS` (largura + snap-start no mobile; reset no lg). Só o Planejamento usa
+// isto — as demais telas (tecidos/aviamentos/lançamentos) seguem no grid-cols-2 mobile.
+export const GRID_COLS_CARROSSEL_CLASS: Record<number, string> = {
+  4: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-4",
+  5: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-5",
+  6: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-6",
+  7: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-7",
+  8: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-8",
+  9: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-9",
+  10: "flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:snap-none lg:overflow-x-visible lg:pb-0 lg:grid-cols-10",
+};
+
+// Classe de cada ITEM no carrossel do Planejamento: no mobile largura ~78vw (mostra 1 card + dica
+// do próximo) + snap-start (o snap para no COMEÇO do card, nunca no meio); no lg volta ao fluxo do
+// grid (largura auto). `shrink-0` impede o flex de espremer os cards no mobile.
+export const GRID_CARROSSEL_ITEM_CLASS = "shrink-0 snap-start basis-[78vw] max-w-[78vw] lg:basis-auto lg:max-w-none lg:shrink";
+
 const MIN = 4;
 const MAX = 10;
 

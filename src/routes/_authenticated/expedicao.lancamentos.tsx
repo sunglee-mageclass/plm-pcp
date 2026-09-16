@@ -625,7 +625,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
     <Dialog>
       <DialogTrigger asChild>
         <Card className="overflow-hidden flex flex-col cursor-pointer transition hover:ring-1 hover:ring-primary/40">
-          <div className="aspect-square bg-muted relative">
+          <div className="aspect-[4/5] bg-muted relative">
             {img ? (
               <img src={img} alt={card.ref ?? ""} loading="lazy" className="w-full h-full object-cover" />
             ) : (

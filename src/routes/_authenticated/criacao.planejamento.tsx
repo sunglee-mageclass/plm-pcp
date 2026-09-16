@@ -39,7 +39,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CARROSSEL_CLASS, GRID_CARROSSEL_ITEM_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useFilterState } from "@/hooks/useFilterState";
 import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
@@ -639,7 +639,7 @@ function PlanejamentoPage() {
   ];
 
   const renderCard = (m: Modelo) => (
-    <div key={m.id} className="relative">
+    <div key={m.id} className={`relative ${GRID_CARROSSEL_ITEM_CLASS}`}>
       <div className="absolute left-2 top-2 z-10">
         <Checkbox checked={selected.has(m.id)} onCheckedChange={() => toggleSel(m.id)} className="bg-background/80 shadow-sm" />
       </div>
@@ -896,7 +896,7 @@ function PlanejamentoPage() {
         {!collapsed && (g.subgroups ? (
           <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1, `${path}/${sg.key}`))}</div>
         ) : (
-          <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
+          <div className={GRID_COLS_CARROSSEL_CLASS[cols]}>{g.items!.map(renderCard)}</div>
         ))}
       </section>
     );
@@ -1104,7 +1104,7 @@ function PlanejamentoPage() {
           {groups.map((g) => renderGroup(g, 0, g.key))}
         </div>
       ) : (
-        <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>
+        <div className={GRID_COLS_CARROSSEL_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
 
@@ -1272,7 +1272,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
       onClick={onOpen}
       {...handlers}
     >
-      <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[4/5] bg-muted flex items-center justify-center overflow-hidden">
         {/* STATUS como badge TEXTUAL (não só a cor da borda — acessibilidade/daltônicos, laudo
             jul/2026). A mão de obra saiu daqui (era uma bolinha da MESMA paleta do status, que
             confundia os dois eixos) e virou um badge PRÓPRIO no corpo. */}
