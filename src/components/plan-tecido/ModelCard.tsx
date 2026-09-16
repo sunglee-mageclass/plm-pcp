@@ -280,8 +280,10 @@ export function ModelCard({
             {...(dragHandle?.listeners ?? {})}
             title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
           >
-            <div className={`flex w-full items-center gap-1.5 ${onToggleSelect ? "pl-5" : ""}`}>
-              <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
+            <div className="flex w-full items-start gap-1.5">
+              {/* Nome em até 2 linhas (line-clamp-2); se ainda não couber, o title mostra o nome
+                  completo ao passar o mouse. Sem padding à esquerda — o checkbox fica sobre a foto. */}
+              <span className="line-clamp-2 min-w-0 flex-1 text-[13px] font-semibold leading-tight" title={slot.nome ?? "Modelo"}>{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
               {isComprado && (
                 <span title={`Espelho de produto ${rotuloOrigem(origem).toLowerCase()} — sem tecido a planejar`}>
