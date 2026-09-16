@@ -34,7 +34,10 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import { erroValidacao } from "@/components/produto-acabado/shared";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { printWithImages } from "@/lib/print";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -60,6 +63,57 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
 };
 
+// ── Merge de conflito colaborativo (Fase 3, set/2026) ──────────────────────────────────────
+// As 3 seções da Explosão têm formatos BEM diferentes (array de tecidos com variantes
+// aninhadas vs. 2 mapas rasos) — em vez de reimplementar um merge por-célula pra cada shape,
+// tratamos cada seção como um "ColabBlob" GRÃO-GROSSO (3 campos, cada um comparado como
+// unidade única pelo `mergeDraft` já existente): não-tocada + servidor mudou → adota o fresco
+// inteiro; tocada + diverge do fresco → conflito ALL-OR-NOTHING daquela seção inteira (mantém
+// o meu). `metragemBlob` é um mapa DERIVADO de `tecidos` (chave = id da variante do CAD, só os
+// campos que o payload realmente salva — metragem_enviada/quantidade_folhas — não o tecido
+// inteiro, que tem campos read-only tipo preco/custo_cad que nunca mudam por aqui e só
+// gerariam ruído de comparação). `aviBlob`/`etiBlob` são os próprios mapas de estado (já no
+// formato certo). Comparação por valor via `igual()` (dentro do mergeDraft) — objeto de chave
+// ausente ≈ ausente (paridade OTB).
+type MetragemBlob = Record<string, { metragem_enviada: number; quantidade_folhas: number }>;
+type ExplosaoColabBlob = {
+  metragemBlob: MetragemBlob;
+  aviBlob: Record<string, number>;
+  etiBlob: Record<string, number>;
+};
+
+function metragemBlobDeTecidos(tecidos: TecidoRow[]): MetragemBlob {
+  const out: MetragemBlob = {};
+  for (const t of tecidos) {
+    for (const v of t.variantes) {
+      if (!v.id) continue; // linha nova sem id (não deveria ocorrer aqui — tecidos vêm do CAD) — ignora
+      out[v.id] = { metragem_enviada: Number(v.metragem_enviada) || 0, quantidade_folhas: Number(v.quantidade_folhas) || 0 };
+    }
+  }
+  return out;
+}
+
+/** Reidrata `tecidos` com os valores de metragem/folhas de um `MetragemBlob` — usado ao ADOTAR
+ *  o fresco de uma seção não-tocada: aplica os NÚMEROS sobre a ÁRVORE REAL recém-carregada
+ *  (cadTecidos), nunca o objeto de comparação (lição do OTB — comparar normalizado, aplicar a
+ *  árvore real: preserva nome/cor/ordem/custo/etc. que o blob não carrega). */
+function aplicarMetragemBlobEmTecidos(tecidos: TecidoRow[], blob: MetragemBlob): TecidoRow[] {
+  return tecidos.map((t) => ({
+    ...t,
+    variantes: t.variantes.map((v) => {
+      if (!v.id || !(v.id in blob)) return v;
+      const b = blob[v.id];
+      return { ...v, metragem_enviada: b.metragem_enviada, quantidade_folhas: b.quantidade_folhas };
+    }),
+  }));
+}
+
+const ROTULO_SECAO_EXPLOSAO: Record<string, string> = {
+  metragemBlob: "Metragem",
+  aviBlob: "Aviamentos a separar",
+  etiBlob: "Insumos a enviar",
+};
+
 export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: Props) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
@@ -73,13 +127,12 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // e Salvar re-trava. Definido no seed a partir de `enviado_corte`.
   const [editing, setEditing] = useState(false);
 
-  // Ring de presença por campo (só presença/foco — sem merge). Canal por-registro (o modelo aberto).
+  // Ring de presença por campo + merge de conflito (Fase 3, set/2026). Canal por-registro
+  // (o modelo aberto) — MANTIDO igual (mesmo canal do useColabPresencaPagina anterior); a
+  // tabela/registro do postgres_changes é o `cad` (a âncora de rev é o cad, não o modelo —
+  // ver migração 20260916260000). colabScopeRef/onFocusCapture seguem iguais.
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
-  const { presentes: presentesColab } = useColabPresencaPagina({
-    canal: modeloId ? `colab-explosao:${modeloId}` : null,
-    campoFocado: campoFocadoColab,
-  });
 
   // --- queries (mesmo padrão do CadEditor, mas apenas o necessário) ---
   const { data: modelo } = useQuery({
@@ -103,6 +156,26 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       return data;
     },
+  });
+
+  // rev do cad — âncora otimista (P0409). Guardado à parte (não direto de cadRow) porque
+  // precisa ser re-baselinado no MERGE (não só no seed inicial) — ver reconciliarP0409/useEffect
+  // de merge abaixo. `cadRevRef` é o valor AO VIVO usado nos saves (lido no mutationFn, após
+  // possíveis awaits); `cadRev` (state) só alimenta exibição/memos se algum dia precisar.
+  const cadRevRef = useRef<number | null>(null);
+
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: modeloId ? `colab-explosao:${modeloId}` : null,
+    tabela: "cad",
+    registroId: cadRow?.id ?? null,
+    filtroColuna: "id",
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
+    },
+    campoFocado: campoFocadoColab,
   });
 
   const { data: cadTecidos = [], isFetched: cadTecidosFetched } = useQuery({
@@ -229,6 +302,24 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const [etiSeeded, setEtiSeeded] = useState(false);
   const seededAll = seeded && aviSeeded && etiSeeded;
 
+  // ── Merge de conflito colaborativo (Fase 3) ──────────────────────────────────
+  // touched POR SEÇÃO (grão-grosso — qualquer edição na seção marca a seção inteira; o
+  // conflito, se houver, também é all-or-nothing na seção). `baseServidorRef` guarda o último
+  // ColabBlob VISTO do servidor (seed inicial ou último merge) — é o "base" do 3-vias.
+  const tocouMetragemRef = useRef(false);
+  const tocouAviRef = useRef(false);
+  const tocouEtiRef = useRef(false);
+  const baseServidorRef = useRef<ExplosaoColabBlob | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const temConflito = conflitos.length > 0;
+  // Espelhos AO VIVO (o merge/reconciliação roda depois de um await — a closure do mutationFn
+  // descartaria edições feitas durante o voo do save; mesmo padrão da OC P.Acabado).
+  const tecidosLiveRef = useRef(tecidos); tecidosLiveRef.current = tecidos;
+  const aviSepararLiveRef = useRef(aviSeparar); aviSepararLiveRef.current = aviSeparar;
+  const etiEnviarLiveRef = useRef(etiEnviar); etiEnviarLiveRef.current = etiEnviar;
+
   // Guarda de "alterações não salvas": editáveis = metragem_enviada/quantidade_folhas do
   // tecido + a-separar do aviamento. Snapshot enxuto dos dois lados.
   const editSnapshot = useMemo(
@@ -251,6 +342,127 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     }
   }, [seededAll, markClean]);
   useEffect(() => { onDirtyChange?.(seededAll && dirty); }, [seededAll, dirty, onDirtyChange]);
+
+  // Baseline do rev + do ColabBlob (Fase 3), UMA vez, logo após a 1ª carga completa (mesmo
+  // gate `seededAll` do dirty-guard acima — os 3 lados já semearam). Refetches POSTERIORES
+  // (Realtime via onMudancaServidor, ou o reconciliarP0409 do onError) fazem MERGE em vez de
+  // rebaselinar aqui — ver o effect seguinte, guardado por `baseServidorRef.current` já setado.
+  useEffect(() => {
+    if (!seededAll || baseServidorRef.current) return;
+    cadRevRef.current = (cadRow as any)?.rev ?? null;
+    baseServidorRef.current = {
+      metragemBlob: metragemBlobDeTecidos(tecidosLiveRef.current),
+      aviBlob: aviSepararLiveRef.current,
+      etiBlob: etiEnviarLiveRef.current,
+    };
+  }, [seededAll, cadRow]);
+
+  // Merge grão-grosso por seção: dispara quando o cad OU as 3 filhas re-buscam (refetch alheio,
+  // via onMudancaServidor → invalidateQueries). Só age DEPOIS da 1ª carga (baseServidorRef já
+  // setado pelo effect acima) — a 1ª carga é seed puro, sem merge. Cada seção não-tocada que
+  // mudou no servidor adota o fresco (REIDRATADO da árvore real — cadTecidos/cadAviamentosSeparar/
+  // cadEtiquetas —, não do objeto de comparação); cada seção tocada que diverge vira conflito
+  // ALL-OR-NOTHING (mantém o meu, sinaliza no banner).
+  useEffect(() => {
+    if (!baseServidorRef.current) return;
+    if (!cadTecidosFetched || !cadAviamentosFetched || !cadEtiquetasFetched) return;
+
+    // Reconstrói os 3 blocos "fresh" a partir dos dados crus recém-carregados (mesmas fontes
+    // do seed original), não do state local — senão comparar contra si mesmo nunca acharia
+    // mudança nenhuma.
+    const freshTecidosArvore: TecidoRow[] = (cadTecidos as any[]).map((t) => ({
+      id: t.id,
+      numero: t.numero,
+      tipo: t.tipo,
+      artigo_id: t.artigo_id,
+      consumo_cad: Number(t.consumo_cad ?? 0),
+      loss_percent_cad: Number(t.loss_percent_cad ?? 0),
+      custo_cad: calcCusto(Number(t.consumo_cad ?? 0), Number(t.loss_percent_cad ?? 0), Number(t.artigos?.preco_por_metro ?? 0)),
+      tamanho_folha: Number(t.tamanho_folha ?? 0),
+      preco: Number(t.artigos?.preco_por_metro ?? 0),
+      largura: Number(t.artigos?.largura_estimada ?? 0),
+      artigo_nome: t.artigos?.nome ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome) : null,
+      etiqueta_lavagem_urls: (t.artigos?.etiqueta_lavagem_urls ?? []) as string[],
+      variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
+        id: v.id,
+        variante_tecido_id: v.variante_tecido_id,
+        variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+        variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+        variante_apelido: v.variantes_tecido?.apelido?.nome ?? null,
+        multiplicador: Number(v.multiplicador ?? 1) || 1,
+        ordem: v.ordem,
+        quantidade_folhas: Number(v.quantidade_folhas ?? 0),
+        metragem_planejada: Number(v.metragem_planejada ?? 0),
+        metragem_enviada: Number(v.metragem_enviada ?? 0),
+        complementa_variante_ids: v.complementa_variante_ids ?? null,
+      })),
+    }));
+    const freshAviBlob: Record<string, number> = {};
+    for (const c of cadAviamentosSeparar as any[]) {
+      const k = chaveVarianteAviamento(c.aviamento_id, c.variante_aviamento_id ?? null);
+      freshAviBlob[k] = (freshAviBlob[k] ?? 0) + Number(c.quantidade_separar ?? 0);
+    }
+    const freshEtiBlob: Record<string, number> = {};
+    for (const e of cadEtiquetas as any[]) freshEtiBlob[e.id] = Number(e.quantidade_enviar ?? 0);
+
+    const base = baseServidorRef.current;
+    const fresh: ExplosaoColabBlob = {
+      metragemBlob: metragemBlobDeTecidos(freshTecidosArvore),
+      aviBlob: freshAviBlob,
+      etiBlob: freshEtiBlob,
+    };
+    const draftBlob: ExplosaoColabBlob = {
+      metragemBlob: metragemBlobDeTecidos(tecidosLiveRef.current),
+      aviBlob: aviSepararLiveRef.current,
+      etiBlob: etiEnviarLiveRef.current,
+    };
+    const touched = new Set<string>();
+    if (tocouMetragemRef.current) touched.add("metragemBlob");
+    if (tocouAviRef.current) touched.add("aviBlob");
+    if (tocouEtiRef.current) touched.add("etiBlob");
+
+    const m = mergeDraft({ base: base as any, draft: draftBlob as any, fresh: fresh as any, touched });
+    const novoRev = (cadRow as any)?.rev ?? null;
+    const revMudou = novoRev !== cadRevRef.current;
+    const tinhaConflito = conflitosRef.current.length > 0;
+
+    // ⚠️ Reconstrói o conjunto de conflitos SEMPRE a partir de `m.conflitos` — inclusive p/ LIMPAR
+    // quando uma seção CONVERGE (o usuário digitou de volta o valor do servidor sem clicar "usar o
+    // novo"): antes, os ramos no-op/só-atualizados nunca zeravam o conflito velho e o Salvar ficava
+    // preso p/ sempre (achado da revisão adversarial). Feito ANTES do early-return do no-op.
+    if (conflitosRef.current.length !== m.conflitos.length || m.conflitos.length > 0) {
+      conflitosRef.current = m.conflitos;
+      setConflitos(m.conflitos);
+    }
+
+    if (m.atualizados.length === 0 && m.conflitos.length === 0) {
+      // No-op: nada mudou de fato (inclui o eco do próprio save). Só re-baseliza o rev/base (o
+      // conflito, se havia e convergiu, já foi limpo acima).
+      if (tinhaConflito) setUltimoMerge(null);
+      baseServidorRef.current = fresh;
+      cadRevRef.current = novoRev;
+      return;
+    }
+    // Seção adotada (não-tocada + servidor mudou) → aplica o fresco. Em CONFLITO (tocada +
+    // diverge) não mexe no state local: `mergeDraft` já mantém "o meu" em `m.valor` nesse caso,
+    // e o array de tecidos precisa ser REIDRATADO da árvore real (não copiado do blob), então só
+    // o ramo "atualizados" escreve. Avi/Eti são os próprios mapas — `m.valor.*Blob` já serve.
+    if (m.atualizados.includes("metragemBlob")) {
+      setTecidos(aplicarMetragemBlobEmTecidos(freshTecidosArvore, m.valor.metragemBlob));
+    }
+    if (m.atualizados.includes("aviBlob")) setAviSeparar(m.valor.aviBlob);
+    if (m.atualizados.includes("etiBlob")) setEtiEnviar(m.valor.etiBlob);
+    if (m.conflitos.length > 0) {
+      setUltimoMerge({ atualizados: m.atualizados.length, conflitos: m.conflitos });
+      if (revMudou) toast.warning("Alguém salvou esta Explosão agora — confira os itens em conflito.");
+    } else {
+      if (tinhaConflito) setUltimoMerge(null);
+      if (m.atualizados.length > 0 && revMudou) toast.message("A Explosão foi atualizada por outra pessoa.");
+    }
+    baseServidorRef.current = fresh;
+    cadRevRef.current = novoRev;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cadTecidos, cadTecidosFetched, cadAviamentosSeparar, cadAviamentosFetched, cadEtiquetas, cadEtiquetasFetched, cadRow]);
 
   useEffect(() => {
     if (seeded) return;
@@ -316,7 +528,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   }, [cadRow, cadTecidos, cadGrades, cadTecidosFetched, cadGradesFetched, seeded]);
 
   // Só metragem_enviada é editável — a ÚNICA função de update que o hero (ExplosaoMetragemSection) usa.
+  // Marca a seção "Metragem" como tocada (grão-grosso — qualquer edição toca a seção inteira).
   const updateVar = (i: number, j: number, patch: Partial<VarianteRow>) => {
+    tocouMetragemRef.current = true;
     setTecidos((prev) => {
       const next = [...prev];
       const variantes = [...next[i].variantes];
@@ -416,8 +630,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     [aviamentosExplosao, aviSeparar],
   );
 
-  const updateAviSeparar = (aviamentoId: string, varianteId: string | null, valor: number) =>
+  const updateAviSeparar = (aviamentoId: string, varianteId: string | null, valor: number) => {
+    tocouAviRef.current = true;
     setAviSeparar((prev) => ({ ...prev, [chaveVarianteAviamento(aviamentoId, varianteId)]: Math.max(0, valor) }));
+  };
 
   // Insumos/etiquetas: base direto de cad_etiquetas. Necessária = consumo × grade total (mesma
   // fórmula do aviamento); "a enviar" = quantidade_enviar salvo (default = necessária quando
@@ -459,8 +675,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     [insumosBase, etiEnviar],
   );
 
-  const updateEtiEnviar = (id: string, valor: number) =>
+  const updateEtiEnviar = (id: string, valor: number) => {
+    tocouEtiRef.current = true;
     setEtiEnviar((prev) => ({ ...prev, [id]: Math.max(0, valor) }));
+  };
 
   const buildEtiquetaEnviarPayload = () =>
     insumosView.map((l) => ({ id: l.id, quantidade_enviar: l.aEnviar }));
@@ -530,6 +748,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   // "Usar planejada" — copia metragem_planejada → metragem_enviada. Por tecido (botão da
   // linha) ou em tudo (botão do header do hero); só chamável em modo de edição.
   const usarPlanejadaTecido = (i: number) => {
+    tocouMetragemRef.current = true;
     setTecidos((prev) => {
       const next = [...prev];
       next[i] = { ...next[i], variantes: next[i].variantes.map((v) => ({ ...v, metragem_enviada: v.metragem_planejada })) };
@@ -537,6 +756,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     });
   };
   const usarPlanejadaTudo = () => {
+    tocouMetragemRef.current = true;
     setTecidos((prev) => prev.map((t) => ({ ...t, variantes: t.variantes.map((v) => ({ ...v, metragem_enviada: v.metragem_planejada })) })));
   };
 
@@ -564,25 +784,74 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       })),
     );
 
+  // Resolução de conflito do ColabBanner: "manter meu" só descarta o aviso da seção; "usar o
+  // novo" adota o fresco daquela seção — REIDRATADO da árvore/mapas ao vivo (não do objeto de
+  // comparação), igual ao "atualizados" automático. Como o merge é grão-grosso (a seção
+  // inteira é uma unidade), path aqui é sempre uma das 3 chaves do blob.
+  const rotuloConflitoExplosao = (path: string) => ROTULO_SECAO_EXPLOSAO[path] ?? path;
+  const resolverConflitoExplosao = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path === "metragemBlob") {
+        setTecidos((prev) => aplicarMetragemBlobEmTecidos(prev, c.dele as MetragemBlob));
+        tocouMetragemRef.current = false;
+      } else if (path === "aviBlob") {
+        setAviSeparar(c.dele as Record<string, number>);
+        tocouAviRef.current = false;
+      } else if (path === "etiBlob") {
+        setEtiEnviar(c.dele as Record<string, number>);
+        tocouEtiRef.current = false;
+      }
+    } else if (c && escolha === "meu") {
+      // Mantém o meu: a seção segue "tocada" (o próximo save grava o meu valor por cima).
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+
+  // Reconcilia um P0409 (alguém salvou o CAD no meio): recarrega cad+filhas e funde por seção,
+  // igual ao effect de merge — mas síncrono aqui (roda uma vez, no onError) pois o efeito de
+  // merge só dispara quando o REFETCH das queries chegar (a invalidação abaixo dispara esse
+  // refetch, mas o merge em si é feito por aquele effect — aqui só reconhecemos o rev velho e
+  // pedimos o refetch; o banner/conflito aparece assim que o effect processar).
+  const reconciliarP0409 = async () => {
+    toast.warning("Alguém salvou esta Explosão agora — confira os itens em conflito.");
+    await qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+    await qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
+    await qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
+    await qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
+  };
+
   // --- salvar sem baixa ---
   const salvarMut = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
+      // Guard SÍNCRONO: não salvar com conflito pendente (o disabled do botão é state async —
+      // um clique entre o merge chegar e o re-render não deve escapar por uma frame de corrida).
+      if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de salvar.");
+      // ⚠️ As 3 RPCs são UM save atômico do MESMO cad. SÓ A PRIMEIRA checa o rev: a 1ª RPC (com
+      // dados) bumpa cad.rev via trigger-de-filha, então passar o MESMO _rev_base velho na 2ª/3ª
+      // daria P0409 contra o PRÓPRIO save. As seguintes usam _rev_base: null (bypass) — já estão
+      // dentro da janela do save cuja concorrência a 1ª RPC já barrou (ou liberou).
       const { error } = await supabase.rpc("salvar_explosao_metragem" as any, {
         _cad_id: cadRow.id,
         _variantes: buildVariantesPayload(),
+        _rev_base: cadRevRef.current,
       });
       if (error) throw error;
       // Persiste também a "a separar" do aviamento (RPC estreita — só quantidade_separar).
       const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
         _cad_id: cadRow.id,
         _linhas: buildAviamentoSepararPayload(),
+        _rev_base: null,
       });
       if (errAvi) throw errAvi;
       // E a "a enviar" da etiqueta/insumo (RPC estreita — só cad_etiquetas.quantidade_enviar).
       const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
         _cad_id: cadRow.id,
         _linhas: buildEtiquetaEnviarPayload(),
+        _rev_base: null,
       });
       if (errEti) throw errEti;
     },
@@ -590,13 +859,20 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       toast.success("Salvo");
       markClean(); // limpa o indicador de "alterações não salvas"
       setEditing(false); // trava a edição após salvar (o lápis reabre)
+      // Salvo com sucesso ⇒ nada mais "tocado" (o que estava em rascunho virou o novo base).
+      tocouMetragemRef.current = false;
+      tocouAviRef.current = false;
+      tocouEtiRef.current = false;
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-aviamentos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-etiquetas", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: (e: any) => {
+      if (e?.code === "P0409") { void reconciliarP0409(); return; }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   // --- enviar para PCP (corte) ---
@@ -604,28 +880,42 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const enviarCorte = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
+      // Guard SÍNCRONO: o Enviar baixa ESTOQUE FÍSICO — não pode rodar com conflito pendente
+      // (invariante b: revenda com tudo zerado NÃO é bloqueada por isto — nadaASeparar é um
+      // guard DIFERENTE, avaliado no dialog de confirmação; aqui só barra CONFLITO real).
+      if (conflitosRef.current.length > 0) throw erroValidacao("Resolva os conflitos antes de enviar para o PCP.");
+      // ⚠️ SÓ A PRIMEIRA RPC checa o rev — a 1ª (com dados) bumpa cad.rev via trigger-de-filha, então
+      // as seguintes (e a baixa) usam _rev_base: null (bypass) p/ não tomar P0409 contra o próprio
+      // envio. A 1ª RPC já barrou a concorrência (ninguém salvou antes de começar); daí em diante é a
+      // MESMA sequência atômica do envio. O guard síncrono acima já bloqueou conflito pendente.
       // Primeiro persiste a metragem_enviada atual (RPC estreita — não toca grade/aviamento).
       const { error: errSave } = await supabase.rpc("salvar_explosao_metragem" as any, {
         _cad_id: cadRow.id,
         _variantes: buildVariantesPayload(),
+        _rev_base: cadRevRef.current,
       });
       if (errSave) throw errSave;
       // E a "a separar" do aviamento (não perde a edição ao enviar; não entra na baixa do corte).
       const { error: errAvi } = await supabase.rpc("salvar_explosao_aviamento_separar" as any, {
         _cad_id: cadRow.id,
         _linhas: buildAviamentoSepararPayload(),
+        _rev_base: null,
       });
       if (errAvi) throw errAvi;
       // E a "a enviar" da etiqueta/insumo (idem — não entra na baixa de tecido).
       const { error: errEti } = await supabase.rpc("salvar_explosao_etiqueta_enviar" as any, {
         _cad_id: cadRow.id,
         _linhas: buildEtiquetaEnviarPayload(),
+        _rev_base: null,
       });
       if (errEti) throw errEti;
 
-      // Depois executa a baixa de estoque (o corte que envia para PCP).
+      // Depois executa a baixa de estoque (o corte que envia para PCP). _rev_base: null — os 3 saves
+      // acima já bumparam o rev; a proteção contra "enviar com metragem obsoleta" veio da 1ª RPC
+      // (rev checado no início) + do guard síncrono de conflito acima.
       const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
         _cad_id: cadRow.id,
+        _rev_base: null,
       });
       if (error) throw error;
       return data as any;
@@ -640,6 +930,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       } else {
         toast.success("Enviado para PCP");
       }
+      // Enviado com sucesso ⇒ o rascunho virou o novo base; nada mais "tocado".
+      tocouMetragemRef.current = false;
+      tocouAviRef.current = false;
+      tocouEtiRef.current = false;
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
@@ -658,7 +952,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       onEnviado();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para PCP")),
+    onError: (e: any) => {
+      if (e?.code === "P0409") { void reconciliarP0409(); return; }
+      toast.error(mensagemErro(e, "Erro ao enviar para PCP"));
+    },
   });
 
   // --- voltar ao desenvolvimento ---
@@ -723,6 +1020,16 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
               </Button>
             </div>
           </div>
+
+          {/* Banner de colaboração: presença + "alguém salvou agora" + resolução de conflito
+              POR SEÇÃO (Metragem / Aviamentos a separar / Insumos a enviar). */}
+          <ColabBanner
+            presentes={presentesColab}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverConflitoExplosao}
+            rotulo={rotuloConflitoExplosao}
+          />
 
           {/* Identidade COMPRIMIDA: linha densa (thumb + nome + chips) + 1 linha muted com
               disclosure — substitui o card alto de foto 128px + 11 metadados (empurrava o
@@ -837,7 +1144,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
                 variant="outline"
                 size="sm"
                 onClick={() => salvarMut.mutate()}
-                disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+                disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id || temConflito}
+                title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}
               >
                 <Save className="h-4 w-4 mr-1.5" />
                 {salvarMut.isPending ? "Salvando…" : "Salvar rascunho"}
@@ -855,7 +1163,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
             )}
             <Button
               onClick={handleEnviar}
-              disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
+              disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id || temConflito}
+              title={temConflito ? "Resolva os conflitos antes de enviar" : undefined}
             >
               <Send className="h-4 w-4 mr-1.5" />
               {enviarCorte.isPending ? "Enviando…" : `${jaEnviado ? "Reenviar" : "Enviar"} para PCP · ${fmtNum(totalGeral)} m`}
@@ -891,10 +1200,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
               variant="outline"
               size="icon"
               className="h-11 w-11 shrink-0 ml-auto"
-              title="Salvar rascunho"
+              title={temConflito ? "Resolva os conflitos antes de salvar" : "Salvar rascunho"}
               aria-label="Salvar rascunho"
               onClick={() => salvarMut.mutate()}
-              disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+              disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id || temConflito}
             >
               <Save className="h-4 w-4" />
             </Button>
@@ -914,10 +1223,10 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           <Button
             size="icon"
             className="h-11 w-14 shrink-0"
-            title={jaEnviado ? "Reenviar para PCP" : "Enviar para PCP"}
+            title={temConflito ? "Resolva os conflitos antes de enviar" : (jaEnviado ? "Reenviar para PCP" : "Enviar para PCP")}
             aria-label={jaEnviado ? "Reenviar para PCP" : "Enviar para PCP"}
             onClick={handleEnviar}
-            disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
+            disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id || temConflito}
           >
             <Send className="h-4 w-4" />
           </Button>

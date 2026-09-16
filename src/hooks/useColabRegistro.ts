@@ -17,7 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 export type PresencaColab = { userId: string; nome: string; campoFocado: string | null };
 
-export type ColabTabela = "ocs_tecido" | "ocs_aviamento" | "ocs_etiqueta" | "ocs_p_acabado" | "ocs_importado" | "modelos" | "colecoes" | "producao_terceirizados" | "controle_qualidade" | "direcionamento_controle" | "produtos_acabados" | "produtos_importados" | "mix_padroes";
+export type ColabTabela = "ocs_tecido" | "ocs_aviamento" | "ocs_etiqueta" | "ocs_p_acabado" | "ocs_importado" | "modelos" | "colecoes" | "producao_terceirizados" | "controle_qualidade" | "direcionamento_controle" | "produtos_acabados" | "produtos_importados" | "mix_padroes" | "cad";
 export type ColabListener = { tabela: ColabTabela; filtroColuna: string; valor: string };
 
 export function useColabRegistro(o: {
