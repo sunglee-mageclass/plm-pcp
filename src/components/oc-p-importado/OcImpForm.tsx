@@ -40,7 +40,7 @@ function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null
   const [adicionando, setAdicionando] = useState(false);
   const selectValue = adicionando ? OUTRA_MOEDA : ehDireta ? DIRETA : (value ?? "");
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <Select
         value={selectValue}
         onValueChange={(v) => {
@@ -49,7 +49,12 @@ function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null
           else { setAdicionando(false); onChange(v); }
         }}
       >
-        <SelectTrigger className={adicionando ? "w-32" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
+        {/* min-w-0 + shrink: no mobile (360-390px) o wrapper "flex-1" do card às vezes não tem
+            espaço pra w-32 (trigger) + gap-2 + w-24 (input do código livre) = 232px fixos —
+            sem min-w-0 o flex item não encolhe e estoura a largura do card (bug medido:
+            body.scrollWidth > clientWidth em 360/390px). O trigger cede primeiro; o input do
+            código (w-24, shrink-0) mantém tamanho fixo — 6 caracteres não cabem menor. */}
+        <SelectTrigger className={adicionando ? "w-32 min-w-0 shrink" : "w-full"}><SelectValue placeholder="Moeda" /></SelectTrigger>
         <SelectContent>
           {permitirDireta && <SelectItem value={DIRETA}>Direta (sem M2)</SelectItem>}
           {MOEDAS.map((m) => <SelectItem key={m.code} value={m.code}>{m.nome} ({m.code})</SelectItem>)}
@@ -60,7 +65,7 @@ function MoedaSelect({ value, onChange, permitirDireta }: { value: string | null
       {adicionando && (
         <Input
           autoFocus
-          className="w-24"
+          className="w-24 shrink-0"
           placeholder="Código"
           maxLength={6}
           value={value ?? ""}
@@ -359,19 +364,19 @@ export function OcImpForm({
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Moeda de compra</Label>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <MoedaSelect value={draft.moeda_compra} onChange={(v) => setDraft((d) => ({ ...d, moeda_compra: v ?? "" }))} />
             </div>
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Moeda intermediária</Label>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <MoedaSelect value={draft.moeda_intermediaria} onChange={(v) => setDraft((d) => ({ ...d, moeda_intermediaria: v }))} permitirDireta />
             </div>
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Cotação de ref.</Label>
-            <NumberInput blankZero disabled={disabled} className="flex-1" placeholder="0,00" value={draft.cotacao_ref} onChange={(e) => setDraft((d) => ({ ...d, cotacao_ref: Number(e.target.value) || 0 }))} />
+            <NumberInput blankZero disabled={disabled} className="flex-1" placeholder="0,00" data-colab-path="cotacao-ref" value={draft.cotacao_ref} onChange={(e) => setDraft((d) => ({ ...d, cotacao_ref: Number(e.target.value) || 0 }))} />
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Peso (kg)</Label>
