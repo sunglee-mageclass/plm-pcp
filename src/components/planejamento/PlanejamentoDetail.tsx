@@ -40,6 +40,7 @@ import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejament
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
+import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -565,7 +566,8 @@ export function PlanejamentoDetail({
   // vale nesses; linha recém-adicionada (só no rascunho) pede Salvar antes (senão "linha não
   // encontrada"). Deriva do baseline, não de `moLinhas`, pra uma linha nova não se auto-habilitar.
   const moLinhasPersistidas = useMemo(
-    () => new Set(moLinhasBase.map((l) => l.categoria_terceirizado_id)),
+    // Ids das linhas JÁ salvas no banco (multi-instância: aprovar é por id). Linha nova (sem id) fica de fora.
+    () => new Set(moLinhasBase.map((l) => l.id).filter((x): x is string => !!x)),
     [moLinhasBase],
   );
   // Grade cor×tamanho (revenda, Task 7) — declarado aqui (cedo) só o estado/refs, pra entrar
@@ -833,6 +835,21 @@ export function PlanejamentoDetail({
   // revenda (Task 4) e fica disponível MESMO antes da OC ser recebida (ao contrário de
   // `.real`, que fica null até `oc.status='recebido'` — ver _custo_unitario_modelos_core).
   const custoPrevistoRevenda = Number(custoData?.previsto) || 0;
+  // Base do MARKUP de revenda (set/2026): custo material + M.O. (Σ modelo_servico_mo, ao vivo).
+  // Espelha o banco (`_pa_recomputar_precos_modelo` soma a MO em v_custo). `custoData.previsto`
+  // NÃO inclui a MO (mantém a separação materiais×MO); a MO entra AQUI, só p/ a base do markup.
+  const baseRevendaMarkup = custoPrevistoRevenda + (maoObraDevLive || 0);
+  // Integridade dos 4 campos de topo (Custo→Preço→Sugerido) da REVENDA (set/2026, pedido do dono):
+  // reusa `precoInfo` com a BASE de revenda (previsto+MO, sempre disponível) em vez de `custoData.real`
+  // (que fica null até a OC chegar). Cadeia: custo = base; preço = custo × markup da linha; sugerido =
+  // arredonda do preço; efetivo = preço de venda se houver, senão o sugerido. Só ilustrativo/read-only
+  // — os markups atacado/varejo digitáveis abaixo é que gravam (via a RPC de markup).
+  const piRevenda = precoInfo(
+    baseRevendaMarkup,
+    linhas.find((l) => l.id === draft.linha_id)?.markup,
+    draft.preco_venda,
+    draft.markup_editado,
+  );
 
   // Produto Acabado vinculado a este modelo (revenda, Task 7) — embed REVERSO
   // (`produtos_acabados.modelo_id`): rótulo de variante "cor · apelido" (mesmo padrão do
@@ -900,9 +917,10 @@ export function PlanejamentoDetail({
   // MESMA fórmula/arredondamento do servidor (`_pa_recomputar_precos_modelo`) pra preview AO
   // VIVO — "Preço para venda"/"Preço atacado" no render abaixo mostram isto, não mais
   // `draft.preco_atacado`/`preco_venda` (que viraram read-only, atualizados pelo servidor).
-  const arred2Revenda = (v: number) => Math.round(v * 100) / 100;
-  const precoAtacadoRevendaLive = markupAtacadoInput ? arred2Revenda(custoPrevistoRevenda * markupAtacadoInput) : null;
-  const precoVarejoRevendaLive = precoAtacadoRevendaLive != null && markupVarejoInput ? arred2Revenda(precoAtacadoRevendaLive * markupVarejoInput) : null;
+  // Atacado e varejo INDEPENDENTES sobre a MESMA base (custo previsto): base × markup próprio (não
+  // mais encadeado). Fonte única em `@/lib/preco-revenda`, espelha `_pa_recomputar_precos_modelo`.
+  const precoAtacadoRevendaLive = precoAtacado(baseRevendaMarkup, markupAtacadoInput);
+  const precoVarejoRevendaLive = precoVarejo(baseRevendaMarkup, markupVarejoInput);
   const grupoRevendaNome = grupos.find((g) => g.id === produtoRevenda?.grupo_id)?.nome ?? null;
   const acessorioRevenda = ehGrupoAcessorio(grupoRevendaNome);
   // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
@@ -1067,6 +1085,7 @@ export function PlanejamentoDetail({
   useEffect(() => {
     if (!moResumo) return;
     const seed = (moResumo.linhas ?? []).map((l) => ({
+      id: (l as any).id ?? null,
       categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
       nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
     })) as MaoObraEditorLinha[];
@@ -1086,16 +1105,16 @@ export function PlanejamentoDetail({
   // colab (o rollup no banco bumpa `modelos.rev` — sem re-hidratar `revRef`, o próximo Salvar
   // do card daria P0409 falso).
   const aprovarServicoMO = useMutation({
-    mutationFn: async ({ categoriaId, aprovado, motivo }: { categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+    mutationFn: async ({ linhaId, aprovado, motivo }: { linhaId: string; aprovado: boolean; motivo?: string }) => {
       const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
-        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+        _modelo_id: modeloId, _linha_id: linhaId, _aprovado: aprovado, _motivo: motivo ?? null,
       });
       if (error) throw error;
     },
     onSuccess: (_d, vars) => {
       toast.success(vars.aprovado ? "Mão de obra aprovada." : "Mão de obra reprovada.");
       const patch = (ls: MaoObraEditorLinha[]) => ls.map((l) =>
-        l.categoria_terceirizado_id === vars.categoriaId
+        l.id === vars.linhaId
           ? { ...l, aprovado: vars.aprovado, motivo_reprovacao: vars.aprovado ? null : (vars.motivo ?? null) }
           : l);
       setMoLinhas(patch); setMoLinhasBase(patch);
@@ -1332,6 +1351,7 @@ export function PlanejamentoDetail({
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
           _linhas: moLinhasRef.current.map((l) => ({
+            id: l.id ?? null, // multi-instância: id preserva a linha (e sua aprovação) no diff do servidor
             categoria_terceirizado_id: l.categoria_terceirizado_id,
             valor: Number(l.valor) || 0,
             observacoes: null,
@@ -1840,10 +1860,12 @@ export function PlanejamentoDetail({
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
               // bidirecional) + Preço atacado/para venda DERIVADOS ao vivo. Intocado.
               <div className="grid sm:grid-cols-2 gap-3">
-                <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={custo > 0 ? brl(custo) : "—"} />
-                <CampoRO label="Markup" value={markup > 0 ? markup.toLocaleString("pt-BR") : "—"} />
-                <CampoRO label="Preço" value={preco > 0 ? brl(preco) : "—"} />
-                <CampoRO label="Preço sugerido" value={precoSug > 0 ? brl(precoSug) : "—"} />
+                {/* Cadeia íntegra da revenda (base = custo previsto + M.O.; ver `piRevenda`):
+                    Custo → Preço (custo × markup da linha) → Preço sugerido (derivado). */}
+                <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={piRevenda.custo > 0 ? brl(piRevenda.custo) : "—"} />
+                <CampoRO label="Markup (linha)" value={piRevenda.markupAplicado > 0 ? piRevenda.markupAplicado.toLocaleString("pt-BR") : "—"} />
+                <CampoRO label="Preço" value={piRevenda.preco > 0 ? brl(piRevenda.preco) : "—"} />
+                <CampoRO label="Preço sugerido" value={piRevenda.sugerido > 0 ? brl(piRevenda.sugerido) : "—"} />
                 {produtoRevenda ? (
                   <>
                     <div className="grid gap-1">
@@ -1874,8 +1896,35 @@ export function PlanejamentoDetail({
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
-                    <CampoRO label="Preço atacado" value={precoAtacadoRevendaLive != null ? brl(precoAtacadoRevendaLive) : "—"} />
-                    <CampoRO label="Preço para venda" value={precoVarejoRevendaLive != null ? brl(precoVarejoRevendaLive) : "—"} />
+                    {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
+                        (markup = preço ÷ custo). Grava o markup no estado + salva (onBlur), igual aos
+                        campos de markup. base=0 → markupDePreco null → não muda (mantém o anterior). */}
+                    <div className="grid gap-1">
+                      <Label>Preço atacado</Label>
+                      <MoneyInput
+                        value={precoAtacadoRevendaLive ?? ""}
+                        placeholder="0,00"
+                        disabled={baseRevendaMarkup <= 0}
+                        onChange={(e) => {
+                          const mk = markupDePreco(baseRevendaMarkup, Number(e.target.value) || 0);
+                          if (mk != null) setMarkupAtacadoInput(mk);
+                        }}
+                        onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Preço varejo</Label>
+                      <MoneyInput
+                        value={precoVarejoRevendaLive ?? ""}
+                        placeholder="0,00"
+                        disabled={baseRevendaMarkup <= 0}
+                        onChange={(e) => {
+                          const mk = markupDePreco(baseRevendaMarkup, Number(e.target.value) || 0);
+                          if (mk != null) setMarkupVarejoInput(mk);
+                        }}
+                        onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                      />
+                    </div>
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground sm:col-span-2">
@@ -1893,9 +1942,11 @@ export function PlanejamentoDetail({
               (pendente/aprovado/reprovado) e aprovar/reprovar por serviço. Gated: ver custos
               (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar da página (fica no
               rascunho `moLinhas` até lá — NÃO exige salvar o modelo antes de digitar); aprovar/
-              reprovar é imediato. Oculto p/ comprado (revenda/importado) — o gate de MO já libera
-              sozinho sem linha nenhuma (invariante #8), só a UI some. */}
-          {!isComprado && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+              reprovar é imediato. REVENDA/IMPORTADO (set/2026): a MO é a MESMA fonte
+              `modelo_servico_mo` (chaveada por modelo_id) — a seção aparece igual ao manufaturado,
+              e a MO entra na BASE do markup (banco: _pa/_imp_recomputar). Comprado só mostra com
+              `isEdit` (o modelo espelho já existe p/ gravar; senão não há onde persistir). */}
+          {(!isComprado ? true : isEdit) && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
             <Secao titulo="Mão de obra" defaultOpen={false}>
               <MaoObraEditor
                 linhas={moLinhas}
@@ -1903,9 +1954,9 @@ export function PlanejamentoDetail({
                 podeVerCustos={podeVerCustos}
                 podeAprovar={isEdit && podeAprovarMaoObra}
                 onChangeLinhas={(ls) => setMoLinhas(ls)}
-                onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
-                onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
-                pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
+                onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
+                onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+                pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
                 linhasPersistidas={moLinhasPersistidas}
               />
               {podeVerCustos && (

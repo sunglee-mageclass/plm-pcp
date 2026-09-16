@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes } from "lucide-react";
+import { ClipboardList, Plus, Trash2, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, MoreHorizontal, ExternalLink, Boxes, Check } from "lucide-react";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -29,6 +29,7 @@ import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
+import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado } from "@/lib/cq-status";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
@@ -219,9 +220,9 @@ function PlanejamentoPage() {
   // de `modelo_mo_resumo.estado`) e, na variante completa, a seção expandida `MoListaSection`
   // (spec 2026-08-11, Task 2) — aprovar/reprovar POR SERVIÇO direto da lista, sem abrir o card.
   const aprovarServicoMOLista = useMutation({
-    mutationFn: async ({ modeloId, categoriaId, aprovado, motivo }: { modeloId: string; categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+    mutationFn: async ({ modeloId, linhaId, aprovado, motivo }: { modeloId: string; linhaId: string; aprovado: boolean; motivo?: string }) => {
       const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
-        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+        _modelo_id: modeloId, _linha_id: linhaId, _aprovado: aprovado, _motivo: motivo ?? null,
       });
       if (error) throw error;
     },
@@ -261,6 +262,26 @@ function PlanejamentoPage() {
       qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
       qc.invalidateQueries({ queryKey: ["modelo", v.id] });          // re-sync rev do Sheet/colab
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }); // identidade compartilhada Plan.↔Dev
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
+  });
+  // Revenda: o "preço de venda" do card edita o MARKUP DE VAREJO (preço é derivado — inv. #13). Grava
+  // via a RPC de markup (que recomputa o preço no servidor), NUNCA modelos.preco_venda direto (seria
+  // sobrescrito). Mantém o mk_atacado atual; só o varejo muda a partir do preço digitado.
+  const salvarMarkupVarejoRevenda = useMutation({
+    mutationFn: async ({ produtoId, mkAtacado, mkVarejo }: { produtoId: string; mkAtacado: number | null; mkVarejo: number }) => {
+      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
+        _produto_id: produtoId, _markup_atacado: mkAtacado, _markup_varejo: mkVarejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }); // identidade compartilhada Plan.↔Dev
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+      qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      void v;
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
   });
@@ -377,6 +398,23 @@ function PlanejamentoPage() {
       const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsAll });
       if (error) throw error;
       return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  // Markups de revenda (moram em produtos_acabados, não em modelos) — p/ o card do canvas mostrar o
+  // markup de VAREJO da revenda (não o markup interno, enganoso) e editar o preço → recalcular o
+  // mk_varejo. Mapa modelo_id → {produtoId, mkAtacado, mkVarejo}. Só os modelos de revenda visíveis.
+  const { data: revendaMap = {} } = useQuery({
+    queryKey: ["plan-revenda-markups", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("produtos_acabados" as any)
+        .select("id, modelo_id, markup_atacado, markup_varejo").in("modelo_id", modeloIdsAll);
+      if (error) throw error;
+      const map: Record<string, { produtoId: string; mkAtacado: number | null; mkVarejo: number | null }> = {};
+      for (const r of (data ?? []) as any[]) {
+        if (r.modelo_id) map[r.modelo_id] = { produtoId: r.id, mkAtacado: r.markup_atacado, mkVarejo: r.markup_varejo };
+      }
+      return map;
     },
   });
   // Estado da MO por serviço (badge do card) — derivado do resumo (`modelo_mo_resumo.estado`):
@@ -535,6 +573,10 @@ function PlanejamentoPage() {
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const sub1Map = Object.fromEntries(sub1Opts.map((s) => [s.id, s.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
+  // Nome da coleção por id — p/ resolver o rótulo do card quando o texto `colecao` está vazio.
+  // Revenda só grava `colecao_id` (o espelho não copia o texto livre), então sem isto a coleção
+  // sumia no card. Manufaturado usa o texto direto; este mapa é fallback.
+  const colecaoNomeMap = Object.fromEntries(colecoesList.map((c) => [c.id, c.nome]));
   const artigoMap = Object.fromEntries(artigos.map((a) => [a.id, a.nome]));
   // artigo → categoria de tecido (id + nome), p/ o agrupamento "Categoria de tecido".
   const artigoCatTecMap = Object.fromEntries(artigos.map((a) => [a.id, (a as any).categoria_tecido_id ?? null]));
@@ -606,9 +648,15 @@ function PlanejamentoPage() {
         estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
         categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
         linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
+        colecaoNome={m.colecao || (m.colecao_id ? colecaoNomeMap[m.colecao_id] : null) || null}
         custo={(() => { const p = piFor(m); return p.custo > 0 ? p.custo : null; })()}
         custoReal={!!(custoMap as any)[m.id]?.confirmado}
-        markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
+        markup={(() => {
+          // Revenda: o markup exibido é o de VAREJO da revenda (não o markup interno, que é
+          // irrelevante p/ produto comprado). Manufaturado: o markup interno de sempre.
+          if (ehOrigemComprada(m.origem)) return (revendaMap as any)[m.id]?.mkVarejo ?? null;
+          const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null;
+        })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         maoObra={(() => {
           // MO exibida = a mão de obra PLANEJADA do modelo (Σ modelo_servico_mo), que bate com o
@@ -632,12 +680,12 @@ function PlanejamentoPage() {
         })()}
         moEstado={(moResumoLista as Record<string, { estado: string }>)[m.id]?.estado ?? null}
         linhasMO={(moResumoLista as Record<string, { linhas?: MoLinha[] }>)[m.id]?.linhas ?? []}
-        onAprovarMO={(categoriaId) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: true })}
-        onReprovarMO={(categoriaId, motivo) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: false, motivo })}
+        onAprovarMO={(linhaId) => aprovarServicoMOLista.mutate({ modeloId: m.id, linhaId, aprovado: true })}
+        onReprovarMO={(linhaId, motivo) => aprovarServicoMOLista.mutate({ modeloId: m.id, linhaId, aprovado: false, motivo })}
         // Guard de duplo-clique: a mutation é COMPARTILHADA por todos os cards da lista — só
-        // resolve um categoriaId "pendente" pra ESTE card quando o `modeloId` em voo bate com
+        // resolve um linhaId "pendente" pra ESTE card quando o `modeloId` em voo bate com
         // `m.id` (senão aprovar num card deixaria botões de OUTROS cards desabilitados à toa).
-        pendingCategoriaMO={aprovarServicoMOLista.isPending && aprovarServicoMOLista.variables?.modeloId === m.id ? aprovarServicoMOLista.variables.categoriaId : undefined}
+        pendingLinhaMO={aprovarServicoMOLista.isPending && aprovarServicoMOLista.variables?.modeloId === m.id ? aprovarServicoMOLista.variables.linhaId : undefined}
         dataLancamento={(m as any).data_lancamento ?? null}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
@@ -645,7 +693,21 @@ function PlanejamentoPage() {
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         refModelo={(m as any).ref || (m as any).ref_auto || null}
         precoVenda={(m as any).preco_venda ?? null}
-        onPrecoVenda={(preco) => salvarPrecoVenda.mutate({ id: m.id, preco })}
+        onPrecoVenda={(preco) => {
+          if (ehOrigemComprada(m.origem)) {
+            // Revenda: preço → mk_varejo (= preço ÷ base). base = custo previsto de revenda (custoMap).
+            // Grava o MARKUP (o banco recomputa o preço), mantendo o mk_atacado atual. base=0 ou
+            // preço null → não salva (evita markup inválido; o banco rejeita markup ≤ 0).
+            const rev = (revendaMap as any)[m.id];
+            const base = (custoMap as any)[m.id]?.previsto ?? 0;
+            const mk = markupDePreco(base, preco ?? 0);
+            if (rev?.produtoId && mk != null) {
+              salvarMarkupVarejoRevenda.mutate({ produtoId: rev.produtoId, mkAtacado: rev.mkAtacado ?? null, mkVarejo: mk });
+            }
+          } else {
+            salvarPrecoVenda.mutate({ id: m.id, preco });
+          }
+        }}
         pecasEst={numOr0((gradeByModelo as any)[m.id]) || null}
         pecasReal={numOr0((pecasRealByModelo as any)[m.id]) || null}
         onOpen={() => setOpenId(m.id)}
@@ -1156,8 +1218,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onExcluir, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onExcluir, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1169,8 +1231,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger). VER o preço
-  // segue sob `podeVerCustos`. Revenda tem preço DERIVADO (não editável aqui — edita markups no Sheet).
-  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda") && !ehOrigemComprada(modelo.origem);
+  // segue sob `podeVerCustos`. Revenda TAMBÉM edita aqui: o preço é DERIVADO (inv. #13) mas o
+  // `onPrecoVenda` do mount converte preço→mk_varejo e grava via a RPC de markup (o banco recompõe
+  // o preço). Fluxo manufaturado grava `modelos.preco_venda` direto, como antes.
+  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda");
   // Rascunho local do preço editável (mesmo padrão do dtLanc). Salva no blur/Enter via onPrecoVenda.
   const [precoDraft, setPrecoDraft] = useState<string>(precoVenda != null && precoVenda > 0 ? String(precoVenda) : "");
   const precoBaseRef = useRef(precoVenda);
@@ -1182,6 +1246,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
     const novo = numOr0(precoDraft) > 0 ? Number(precoDraft) : null;
     if (novo !== (precoVenda ?? null)) onPrecoVenda(novo);
   };
+  // "Sujo" = o rascunho difere do preço salvo (habilita o ícone de confirmar da revenda).
+  const precoDirty = (numOr0(precoDraft) > 0 ? Number(precoDraft) : null) !== (precoVenda ?? null);
   // Mão de obra por serviço (estado agregado do modelo): sem_servico | pendente | reprovada |
   // aprovada. Aprovar/reprovar é POR LINHA no editor do detalhe — o card só exibe o estado.
   const moTxt = moEstado === "aprovada" ? "Mão de obra aprovada"
@@ -1311,12 +1377,30 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                 <td className="w-[56%] text-right" onClick={(e) => e.stopPropagation()}>
                   {!podeVerCustos ? <span className="text-muted-foreground">—</span>
                     : podeEditarPreco ? (
-                      <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
-                        data-colab-path={`card-preco:${modelo.id}`}
-                        onChange={(e) => setPrecoDraft(e.target.value)}
-                        onBlur={commitPreco}
-                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                        className="ml-auto h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
+                      // Revenda: o preço grava DIRETO no banco (recalcula o markup de varejo via RPC),
+                      // então em vez do onBlur automático mostramos um ícone de CONFIRMAR — o usuário
+                      // decide quando persistir (pedido do dono, set/2026). Manufaturado segue no blur.
+                      ehOrigemComprada(modelo.origem) ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
+                            data-colab-path={`card-preco:${modelo.id}`}
+                            onChange={(e) => setPrecoDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitPreco(); } }}
+                            className="h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
+                          <Button type="button" size="iconSm" variant="outline" title="Confirmar preço"
+                            aria-label="Confirmar preço" disabled={!precoDirty} onClick={commitPreco}
+                            className={precoDirty ? "bg-background text-green-600 hover:text-green-700 hover:bg-background" : ""}>
+                            <Check className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <MoneyInput value={precoDraft} fixedDecimals placeholder={preco != null ? brl(preco) : "0,00"}
+                          data-colab-path={`card-preco:${modelo.id}`}
+                          onChange={(e) => setPrecoDraft(e.target.value)}
+                          onBlur={commitPreco}
+                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          className="ml-auto h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
+                      )
                     ) : (
                       <span className="font-medium tabular-nums">{precoVenda != null && precoVenda > 0 ? brl(precoVenda) : preco != null ? brl(preco) : "—"}</span>
                     )}
@@ -1325,7 +1409,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               {/* Coleção | Subcoleção */}
               <tr><td colSpan={2} className="text-muted-foreground">
                 <div className="flex items-center justify-between gap-2 min-w-0">
-                  <span className="truncate">{modelo.colecao ?? "—"}</span>
+                  <span className="truncate">{colecaoNome ?? "—"}</span>
                   <span className="truncate text-right shrink-0 max-w-[50%]">{modelo.subcolecao || "—"}</span>
                 </div>
               </td></tr>
@@ -1368,8 +1452,11 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               {/* Materiais (= custo − M.O. embutida; rótulo previsto/real via selo no title) (gated) */}
               <tr><td className="text-muted-foreground whitespace-nowrap">Materiais</td>
                 <td className="text-right tabular-nums" title={custoReal ? "real (do BOM)" : "previsto"}>{podeVerCustos ? (custoMat != null ? brl(custoMat) : "—") : <span className="text-muted-foreground">—</span>}</td></tr>
-              {/* Mão de obra — valor + ✓/✗; estado = botão aceso (multi-serviço vira sub-lista). Gated. */}
-              {(podeVerCustos || podeAprovarMaoObra) && !ehOrigemComprada(modelo.origem) && moEstado !== "sem_servico" ? (
+              {/* Mão de obra — valor + ✓/✗; estado = botão aceso (multi-serviço vira sub-lista). Gated.
+                  Revenda/importado (set/2026): a MO é a MESMA fonte `modelo_servico_mo` — a sub-lista
+                  com aprovar/reprovar aparece igual ao manufaturado (antes um gate `!ehOrigemComprada`
+                  a escondia, deixando só o valor read-only sem botões). */}
+              {(podeVerCustos || podeAprovarMaoObra) && moEstado !== "sem_servico" ? (
                 <tr><td colSpan={2} className="!p-0">
                   <MoListaSection
                     linhas={linhasMO}
@@ -1377,7 +1464,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
                     podeAprovarMaoObra={podeAprovarMaoObra}
                     onAprovar={onAprovarMO}
                     onReprovar={onReprovarMO}
-                    pendingCategoriaId={pendingCategoriaMO}
+                    pendingLinhaId={pendingLinhaMO}
                   />
                 </td></tr>
               ) : (

@@ -4,6 +4,10 @@
  * trigger `_mo_liberada`: liberada = nenhuma linha com aprovado ≠ true (sem linha = liberada).
  */
 export type MoLinha = {
+  // `id` da INSTÂNCIA (set/2026, multi-instância): a identidade de uma linha de MO passou a ser
+  // o `id` próprio, não mais (modelo, categoria) — o mesmo serviço pode aparecer N vezes.
+  // `undefined`/null = linha nova (ainda não persistida); o save insere e o servidor devolve o id.
+  id?: string | null;
   categoria_terceirizado_id: string | null;
   nome?: string | null;
   valor?: number | null;

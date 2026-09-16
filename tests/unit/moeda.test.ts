@@ -129,15 +129,16 @@ describe("moeda — ratearPorPeso (divisão simples, decisão do dono)", () => {
   });
 });
 
-describe("moeda — cadeiaMarkup (custo → atacado → varejo)", () => {
-  it("atacado = custo×mkA; varejo = atacado×mkV", () => {
-    // print: 95,47 × 2 = 190,94 ; × 2 = 381,88
+describe("moeda — cadeiaMarkup (atacado e varejo INDEPENDENTES sobre o custo)", () => {
+  it("atacado = custo×mkA; varejo = custo×mkV (NÃO encadeado)", () => {
+    // set/2026: varejo desencadeado — ambos sobre a MESMA base (custo). 95,47×2 = 190,94 nos dois.
     const r = cadeiaMarkup(95.47, 2, 2);
     expect(r.atacado).toBeCloseTo(190.94, 2);
-    expect(r.varejo).toBeCloseTo(381.88, 2);
+    expect(r.varejo).toBeCloseTo(190.94, 2); // era 381,88 quando era atacado×mkV (encadeado)
   });
-  it("markup ≤ 0 zera o preço correspondente", () => {
-    expect(cadeiaMarkup(100, 0, 2)).toEqual({ atacado: 0, varejo: 0 });
+  it("só o markup de varejo (sem atacado) já produz preço de varejo", () => {
+    // O ponto do desencadeamento: mkA=0 → atacado 0, MAS varejo = custo×mkV (antes ficava 0).
+    expect(cadeiaMarkup(100, 0, 2)).toEqual({ atacado: 0, varejo: 200 });
     expect(cadeiaMarkup(100, 2, 0)).toEqual({ atacado: 200, varejo: 0 });
   });
 });

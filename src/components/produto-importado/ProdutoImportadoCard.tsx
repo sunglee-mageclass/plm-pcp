@@ -20,6 +20,9 @@ import { DateField } from "@/components/shared/DateField";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useAuth } from "@/hooks/useAuth";
+import { useMaoObraModelo } from "@/hooks/useMaoObraModelo";
+import { MaoObraCardMini } from "@/components/planejamento/MaoObraCardMini";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -27,10 +30,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { varianteLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
-import { MOEDAS, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
+import { MOEDAS, cadeiaMarkup, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
+import { MoneyInput } from "@/components/shared/MoneyInput";
+import { markupDePreco } from "@/lib/preco-revenda";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
-  custoDoDraft, precosDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
+  custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 
@@ -141,6 +146,12 @@ export function ProdutoImportadoCard({
   onPedidoCriado?: (produtoId: string, ocId: string) => void;
 }) {
   const navigate = useNavigate();
+  const { canView, canEdit } = useAuth();
+  // Mão de obra POR SERVIÇO — mesma fonte `modelo_servico_mo` do card do Planejamento (editar aqui
+  // reflete lá). Só quando o produto já tem espelho (`modelo_id`). Ver `useMaoObraModelo`.
+  const podeVerCustosMO = canView("criacao_planejamento:custos") || canView("criacao_planejamento");
+  const podeAprovarMO = canEdit("producao_servico_aprovacao");
+  const mo = useMaoObraModelo(draft.modelo_id, podeVerCustosMO);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [fazendoPedido, setFazendoPedido] = useState(false);
@@ -186,7 +197,14 @@ export function ProdutoImportadoCard({
 
   // ── Cálculos AO VIVO — só chamam moeda.ts/shared.ts, nunca reimplementam aritmética aqui. ──
   const resultado = useMemo(() => custoDoDraft(draft), [draft]);
-  const precos = useMemo(() => precosDoDraft(draft, resultado), [draft, resultado]);
+  // Base do markup = custo landed + M.O. (Σ modelo_servico_mo, ao vivo via `mo.total`) — ESPELHA o
+  // banco (`_imp_recomputar_precos_modelo` soma a MO em v_custo). Os previews de preço e o caminho
+  // inverso usam ESTA base (não só o landed), senão o preview divergiria do que o servidor persiste.
+  const baseImp = resultado.unitarioBrl + (mo.total || 0);
+  const precos = useMemo(
+    () => cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0),
+    [baseImp, draft.markup_atacado, draft.markup_varejo],
+  );
   const valorProdutoM2 = useMemo(() => m1ParaM2(draft.valor_unitario_m1, draft.cotacao_ref), [draft.valor_unitario_m1, draft.cotacao_ref]);
   const valorTranspM2 = (Number(draft.peso_kg) || 0) * (Number(draft.transporte_m2) || 0);
   const moedaM2 = draft.moeda_intermediaria; // null = cadeia direta (mostra na moeda de compra)
@@ -805,12 +823,69 @@ export function ProdutoImportadoCard({
                   </div>
                   <InfoStrip itens={[
                     { label: "Valor final (BRL)", valor: fmtMoeda(resultado.unitarioBrl, "BRL"), hi: true },
-                    { label: "Valor atacado", valor: fmtMoeda(precos.atacado, "BRL") },
-                    { label: "Valor varejo", valor: fmtMoeda(precos.varejo, "BRL") },
                   ]} />
+                  {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
+                      (markup = preço ÷ custo landed). Atacado e varejo independentes. O banco só
+                      persiste markup (preço é derivado); grava o markup no draft. base=0 → não grava. */}
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[120px] shrink-0 text-sm">Valor atacado</Label>
+                      <MoneyInput
+                        className="flex-1"
+                        value={precos.atacado > 0 ? precos.atacado : ""}
+                        placeholder="0,00"
+                        disabled={baseImp <= 0}
+                        onChange={(e) => {
+                          const mk = markupDePreco(baseImp, Number(e.target.value) || 0);
+                          if (mk != null) onChange({ markup_atacado: mk });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[120px] shrink-0 text-sm">Valor varejo</Label>
+                      <MoneyInput
+                        className="flex-1"
+                        value={precos.varejo > 0 ? precos.varejo : ""}
+                        placeholder="0,00"
+                        disabled={baseImp <= 0}
+                        onChange={(e) => {
+                          const mk = markupDePreco(baseImp, Number(e.target.value) || 0);
+                          if (mk != null) onChange({ markup_varejo: mk });
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
+
+            {/* ── Mão de obra — mesma fonte do card do Planejamento (modelo_servico_mo). Só quando
+                   há espelho (modelo_id) e o usuário pode ver custos ou aprovar. ── */}
+            {draft.modelo_id && (podeVerCustosMO || podeAprovarMO) && (
+              <AccordionItem value="maoobra">
+                <AccordionTrigger className="text-xs font-semibold">Mão de obra</AccordionTrigger>
+                <AccordionContent className="space-y-2">
+                  <MaoObraCardMini
+                    linhas={mo.linhas}
+                    categorias={mo.catsServico}
+                    podeVerCustos={podeVerCustosMO}
+                    podeAprovar={podeAprovarMO}
+                    onChangeLinhas={mo.setLinhas}
+                    onAprovar={(linhaId) => mo.aprovar.mutate({ linhaId, aprovado: true })}
+                    onReprovar={(linhaId, motivo) => mo.aprovar.mutate({ linhaId, aprovado: false, motivo })}
+                    pendingLinhaId={mo.aprovar.isPending ? mo.aprovar.variables?.linhaId : undefined}
+                    linhasPersistidas={mo.linhasPersistidas}
+                  />
+                  {podeVerCustosMO && mo.dirty && (
+                    <div className="flex justify-end">
+                      <Button type="button" size="sm" disabled={mo.salvar.isPending} onClick={() => mo.salvar.mutate()}>
+                        {mo.salvar.isPending ? "Salvando…" : "Salvar mão de obra"}
+                      </Button>
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            )}
           </Accordion>
         </div>
       )}

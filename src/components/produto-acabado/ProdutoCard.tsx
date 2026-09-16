@@ -15,6 +15,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useAuth } from "@/hooks/useAuth";
+import { useMaoObraModelo } from "@/hooks/useMaoObraModelo";
+import { MaoObraCardMini } from "@/components/planejamento/MaoObraCardMini";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -24,6 +27,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
+import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
@@ -121,6 +125,12 @@ export function ProdutoCard({
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { canView, canEdit } = useAuth();
+  // Mão de obra POR SERVIÇO — mesma fonte `modelo_servico_mo` do card do Planejamento (editar aqui
+  // reflete lá). Só quando o produto já tem espelho (`modelo_id`). Ver `useMaoObraModelo`.
+  const podeVerCustosMO = canView("criacao_planejamento:custos") || canView("criacao_planejamento");
+  const podeAprovarMO = canEdit("producao_servico_aprovacao");
+  const mo = useMaoObraModelo(produto.modelo_id, podeVerCustosMO);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [vincularOpen, setVincularOpen] = useState(false);
@@ -181,17 +191,18 @@ export function ProdutoCard({
   const descontoEfetivo = produto.oc ? produto.oc.desconto_pct : produto.desconto_pct;
   const { bruto, totalDesc, unitReal } = cadeiaValores(produto.qtd_total, valorUnitEfetivo, descontoEfetivo);
   const somaPeso = produto.variantes.reduce((s, v) => s + (Number(v.peso) || 0), 0);
-  const base = unitReal + produto.insumos_total;
+  // Base do markup = custo total da peça: valor unit. real + insumos + M.O. (Σ modelo_servico_mo, ao
+  // vivo via `mo.total`). A M.O. entra na base p/ ESPELHAR o banco (`_pa_recomputar_precos_modelo`
+  // soma a MO em v_custo). Sem isto o preço do preview divergiria do que o servidor persiste.
+  const base = unitReal + produto.insumos_total + (mo.total || 0);
   const markupLinha = produto.modeloLinhaId ? linhasMarkup[produto.modeloLinhaId] ?? null : null;
 
-  // Markups digitáveis (item 3 do refino, ago/2026) — cadeia: custo total da peça (`base`) ×
-  // markup_atacado = PREÇO ATACADO; preço atacado × markup_varejo = PREÇO VAREJO. Espelha a
-  // MESMA fórmula do servidor (`_pa_recomputar_precos_modelo`, arredonda 2 casas em cada
-  // etapa) pra preview AO VIVO — só o Salvar persiste de verdade. Markup ausente → aquele
-  // preço fica "—" (nunca inventa um valor sem o markup correspondente).
-  const arred2 = (v: number) => Math.round(v * 100) / 100;
-  const precoAtacadoLive = produto.markup_atacado ? arred2(base * produto.markup_atacado) : null;
-  const precoVarejoLive = precoAtacadoLive != null && produto.markup_varejo ? arred2(precoAtacadoLive * produto.markup_varejo) : null;
+  // Markups digitáveis — atacado e varejo INDEPENDENTES sobre a MESMA base (custo total da peça):
+  // PREÇO ATACADO = base × markup_atacado; PREÇO VAREJO = base × markup_varejo (não mais encadeado
+  // no atacado). Espelha `_pa_recomputar_precos_modelo` (set/2026) pra preview AO VIVO — só o Salvar
+  // persiste. Fonte única em `@/lib/preco-revenda`. Markup ausente → aquele preço fica "—".
+  const precoAtacadoLive = precoAtacado(base, produto.markup_atacado);
+  const precoVarejoLive = precoVarejo(base, produto.markup_varejo);
   // Pill-resumo: usa o derivado AO VIVO quando dá pra calcular; sem markup ainda configurado,
   // cai pro último preço persistido no espelho (pode ser um preço herdado de antes desta
   // feature, ou o resultado do último save com markup) — nunca fica em branco à toa.
@@ -864,14 +875,34 @@ export function ProdutoCard({
                         </div>
                         {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
                       </div>
+                      {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
+                          (markup = preço ÷ base). Cada par markup↔preço é independente. O banco só
+                          persiste markup (preço é derivado — inv. #13); aqui gravamos o markup no draft.
+                          base=0 → markupDePreco devolve null → não grava (mantém o anterior). */}
                       <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Preço atacado</p>
-                          <p className="text-sm font-semibold tabular-nums">{precoAtacadoLive != null ? fmtMoney(precoAtacadoLive) : "—"}</p>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Preço atacado</Label>
+                          <MoneyInput
+                            value={precoAtacadoLive ?? ""}
+                            placeholder="0,00"
+                            disabled={base <= 0}
+                            onChange={(e) => {
+                              const mk = markupDePreco(base, Number(e.target.value) || 0);
+                              if (mk != null) onChange({ ...produto, markup_atacado: mk });
+                            }}
+                          />
                         </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Preço para venda</p>
-                          <p className="text-sm font-semibold tabular-nums">{precoVarejoLive != null ? fmtMoney(precoVarejoLive) : "—"}</p>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Preço varejo</Label>
+                          <MoneyInput
+                            value={precoVarejoLive ?? ""}
+                            placeholder="0,00"
+                            disabled={base <= 0}
+                            onChange={(e) => {
+                              const mk = markupDePreco(base, Number(e.target.value) || 0);
+                              if (mk != null) onChange({ ...produto, markup_varejo: mk });
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
@@ -881,6 +912,34 @@ export function ProdutoCard({
                 )}
               </AccordionContent>
             </AccordionItem>
+
+            {/* ── Mão de obra — mesma fonte do card do Planejamento (modelo_servico_mo). Só quando
+                   há espelho (modelo_id) e o usuário pode ver custos ou aprovar. ── */}
+            {produto.modelo_id && (podeVerCustosMO || podeAprovarMO) && (
+              <AccordionItem value="maoobra">
+                <AccordionTrigger className="text-xs font-semibold">Mão de obra</AccordionTrigger>
+                <AccordionContent className="space-y-2">
+                  <MaoObraCardMini
+                    linhas={mo.linhas}
+                    categorias={mo.catsServico}
+                    podeVerCustos={podeVerCustosMO}
+                    podeAprovar={podeAprovarMO}
+                    onChangeLinhas={mo.setLinhas}
+                    onAprovar={(linhaId) => mo.aprovar.mutate({ linhaId, aprovado: true })}
+                    onReprovar={(linhaId, motivo) => mo.aprovar.mutate({ linhaId, aprovado: false, motivo })}
+                    pendingLinhaId={mo.aprovar.isPending ? mo.aprovar.variables?.linhaId : undefined}
+                    linhasPersistidas={mo.linhasPersistidas}
+                  />
+                  {podeVerCustosMO && mo.dirty && (
+                    <div className="flex justify-end">
+                      <Button type="button" size="sm" disabled={mo.salvar.isPending} onClick={() => mo.salvar.mutate()}>
+                        {mo.salvar.isPending ? "Salvando…" : "Salvar mão de obra"}
+                      </Button>
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            )}
 
             {/* ── 3 · OC vinculada ──────────────────────────────────── */}
             <AccordionItem value="oc">

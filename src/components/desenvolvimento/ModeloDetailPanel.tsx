@@ -621,6 +621,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   // Refs p/ leitura síncrona (seed guardada + persistModelo, mesmo padrão do `draftLiveRef`).
   const [moLinhas, setMoLinhas] = useState<MaoObraEditorLinha[]>([]);
   const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
+  // Ids das linhas de MO já salvas (multi-instância: aprovar é por id; linha nova sem id não aprova).
+  const moLinhasPersistidas = useMemo(
+    () => new Set(moLinhasBase.map((l) => l.id).filter((x): x is string => !!x)),
+    [moLinhasBase],
+  );
   const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
   const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
 
@@ -691,6 +696,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   useEffect(() => {
     if (!moResumo) return;
     const seed = (moResumo.linhas ?? []).map((l) => ({
+      id: (l as any).id ?? null,
       categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
       nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
     })) as MaoObraEditorLinha[];
@@ -707,16 +713,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   // `["modelo-detail", modeloId]` o próximo Salvar do card daria P0409 falso (mesmo cuidado do
   // Planejamento com `revRef`).
   const aprovarServicoMO = useMutation({
-    mutationFn: async ({ categoriaId, aprovado, motivo }: { categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+    mutationFn: async ({ linhaId, aprovado, motivo }: { linhaId: string; aprovado: boolean; motivo?: string }) => {
       const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
-        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+        _modelo_id: modeloId, _linha_id: linhaId, _aprovado: aprovado, _motivo: motivo ?? null,
       });
       if (error) throw error;
     },
     onSuccess: (_d, vars) => {
       toast.success(vars.aprovado ? "Mão de obra aprovada." : "Mão de obra reprovada.");
       const patch = (ls: MaoObraEditorLinha[]) => ls.map((l) =>
-        l.categoria_terceirizado_id === vars.categoriaId
+        l.id === vars.linhaId
           ? { ...l, aprovado: vars.aprovado, motivo_reprovacao: vars.aprovado ? null : (vars.motivo ?? null) }
           : l);
       setMoLinhas(patch); setMoLinhasBase(patch);
@@ -2107,6 +2113,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: modeloId,
           _linhas: moLinhasEnviadas.map((l) => ({
+            id: l.id ?? null, // multi-instância: id preserva a linha (e sua aprovação) no diff do servidor
             categoria_terceirizado_id: l.categoria_terceirizado_id,
             valor: Number(l.valor) || 0,
             observacoes: null,
@@ -3011,9 +3018,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                     podeVerCustos={podeVerCustos}
                     podeAprovar={podeAprovarMaoObra}
                     onChangeLinhas={(ls) => setMoLinhas(ls)}
-                    onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
-                    onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
-                    pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
+                    onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
+                    onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+                    pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
+                    linhasPersistidas={moLinhasPersistidas}
                   />
                 </Card>
               )}

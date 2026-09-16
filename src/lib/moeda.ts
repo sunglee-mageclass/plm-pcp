@@ -188,13 +188,14 @@ export function ratearPorPeso(qtdTotal: number, pesos: Record<string, number>): 
 // Cadeia de markup (custo → atacado → varejo) — espelha _imp_recomputar_precos_modelo
 // ————————————————————————————————————————————————————————————————————————————
 
-/** ATACADO = custo × markup_atacado; VAREJO = atacado × markup_varejo. Markup ≤ 0 → o
- *  preço correspondente não é calculado (0). Arredonda a 2 casas (como o banco). */
+/** ATACADO = custo × markup_atacado; VAREJO = custo × markup_varejo — INDEPENDENTES sobre a MESMA
+ *  base (custo landed), NÃO mais encadeado (set/2026). Markup ≤ 0 → o preço correspondente é 0.
+ *  Arredonda a 2 casas (como o banco `_imp_recomputar_precos_modelo`). */
 export function cadeiaMarkup(custoBrl: number, markupAtacado: number, markupVarejo: number): { atacado: number; varejo: number } {
   const custo = Number(custoBrl) || 0;
   const mkA = Number(markupAtacado) || 0;
   const mkV = Number(markupVarejo) || 0;
   const atacado = custo > 0 && mkA > 0 ? Math.round(custo * mkA * 100) / 100 : 0;
-  const varejo = atacado > 0 && mkV > 0 ? Math.round(atacado * mkV * 100) / 100 : 0;
+  const varejo = custo > 0 && mkV > 0 ? Math.round(custo * mkV * 100) / 100 : 0;
   return { atacado, varejo };
 }
