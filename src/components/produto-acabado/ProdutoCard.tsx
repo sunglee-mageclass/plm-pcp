@@ -72,6 +72,7 @@ export function ProdutoCard({
   colecaoNome,
   linhasMarkup,
   onSalvarProduto,
+  conflitoPendente,
   onCardCriado,
   onOcVinculada,
   onExcluido,
@@ -102,6 +103,10 @@ export function ProdutoCard({
    *  "Fazer pedido" chama isto ANTES de gerar a OC, pra nunca criar um pedido em cima de um
    *  rascunho de Compra ainda não persistido (fix round 1 item 4a). Lança em caso de erro. */
   onSalvarProduto: (p: ProdutoDraft) => Promise<void>;
+  /** Colab (Fase 3, set/2026): TRUE quando há conflito de merge pendente em QUALQUER produto do
+   *  canvas (não só este card) — barra "Fazer pedido" (chama `onSalvarProduto` por baixo, mesma
+   *  classe de risco do Salvar em lote). Opcional/retrocompatível — ausente = nunca bloqueia. */
+  conflitoPendente?: boolean;
   /** Patch local imediato (sem esperar refetch) após criar o card espelho — preserva edições
    *  não salvas de OUTROS cards (a tela não tem colab/merge — Fora de escopo, ver design spec). */
   onCardCriado: (modeloId: string) => void;
@@ -287,6 +292,13 @@ export function ProdutoCard({
 
   const fazerPedidoMut = useMutation({
     mutationFn: async () => {
+      // Guard SÍNCRONO (item 7, colab Fase 3): não gerar pedido enquanto há conflito de merge
+      // pendente — "Fazer pedido" persiste a Compra por baixo (`onSalvarProduto`), a mesma
+      // classe de risco do Salvar em lote. O `disabled` do botão (abaixo) é o primeiro freio,
+      // mas é async — lição do projeto (guard síncrono no mutationFn é o que conta de verdade).
+      if (conflitoPendente) {
+        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de fazer o pedido.");
+      }
       // NUNCA redistribui silenciosamente (fix round 1 item 3) — usa as qtds ATUAIS das
       // variantes tal como o usuário deixou; se Σ ≠ qtd_total, bloqueia com mensagem clara
       // (ação: "Redistribuir por peso" explícito ou ajuste manual) em vez de gerar uma OC com
@@ -898,7 +910,7 @@ export function ProdutoCard({
                     <Link2 className="mr-1 h-3.5 w-3.5" /> Vincular OC existente
                   </Button>
                   {!produto.oc && (
-                    <Button type="button" size="sm" disabled={fazendoPedido} onClick={() => fazerPedidoMut.mutate()}>
+                    <Button type="button" size="sm" disabled={fazendoPedido || conflitoPendente} title={conflitoPendente ? "Resolva os conflitos de edição pendentes antes de fazer o pedido." : undefined} onClick={() => fazerPedidoMut.mutate()}>
                       <ShoppingCart className="mr-1 h-3.5 w-3.5" /> {fazendoPedido ? "Criando…" : "Fazer pedido"}
                     </Button>
                   )}

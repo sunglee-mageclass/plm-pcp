@@ -105,6 +105,7 @@ export function ProdutoImportadoCard({
   onExcluir,
   onLimpar,
   onSalvarProduto,
+  conflitoPendente,
   onPedidoCriado,
 }: {
   draft: ProdutoImportadoDraft;
@@ -130,6 +131,11 @@ export function ProdutoImportadoCard({
    *  rascunho ainda não persistido (espelha `ProdutoCard.onSalvarProduto`, revenda). Opcional:
    *  ausente (usos futuros deste card sem fluxo de OC) esconde o botão "Fazer pedido". */
   onSalvarProduto?: (p: ProdutoImportadoDraft) => Promise<string>;
+  /** Colab (Fase 3, set/2026): TRUE quando há conflito de merge pendente em QUALQUER produto do
+   *  canvas (não só este card) — barra "Fazer pedido" (chama `onSalvarProduto` por baixo, mesma
+   *  classe de risco do Salvar em lote). Espelha `ProdutoCard.conflitoPendente` (revenda).
+   *  Opcional/retrocompatível — ausente = nunca bloqueia. */
+  conflitoPendente?: boolean;
   /** Chamado depois que a OC é criada com sucesso — o id do produto (já persistido) e o id da
    *  OC recém-criada. O chamador decide navegar (`/entrada-saida/oc-p-importado?oc=<id>`). */
   onPedidoCriado?: (produtoId: string, ocId: string) => void;
@@ -251,6 +257,12 @@ export function ProdutoImportadoCard({
   // compatível, `_touched` é só um campo extra ignorado pela função).
   const fazerPedidoMut = useMutation({
     mutationFn: async () => {
+      // Guard SÍNCRONO (item 7, colab Fase 3): não gerar pedido enquanto há conflito de merge
+      // pendente — "Fazer pedido" persiste o produto por baixo (`onSalvarProduto`), a mesma
+      // classe de risco do Salvar em lote. Espelha `ProdutoCard.fazerPedidoMut` (revenda).
+      if (conflitoPendente) {
+        throw erroValidacao("Há conflitos de edição pendentes nesta coleção — resolva-os antes de fazer o pedido.");
+      }
       const erro = validarParaPedido(draft);
       if (erro) throw erroValidacao(erro);
       if (!variantesBatemComTotal(draft)) {
@@ -722,7 +734,13 @@ export function ProdutoImportadoCard({
                       o conceito de "vincular OC existente" nesta fase), só o botão de criar. */}
                   {onSalvarProduto && (
                     <div className="flex justify-end">
-                      <Button type="button" size="sm" disabled={fazendoPedido} onClick={() => fazerPedidoMut.mutate()}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={fazendoPedido || conflitoPendente}
+                        title={conflitoPendente ? "Resolva os conflitos de edição pendentes antes de fazer o pedido." : undefined}
+                        onClick={() => fazerPedidoMut.mutate()}
+                      >
                         <ShoppingCart className="mr-1 h-3.5 w-3.5" /> {fazendoPedido ? "Criando…" : "Fazer pedido"}
                       </Button>
                     </div>

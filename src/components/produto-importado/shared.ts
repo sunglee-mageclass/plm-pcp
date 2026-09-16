@@ -31,6 +31,12 @@ export type EtapaImportadoDraft = {
 
 export type ProdutoImportadoDraft = {
   id?: string | null;
+  // Colab (Fase 3, set/2026, ver migração 20260916230000): rev otimista POR PRODUTO — bumpa a
+  // cada UPDATE em `produtos_importados` (trigger `trg_colab_rev_prod_importado`). Metadado
+  // READ-ONLY — NUNCA entra em `chaveDirty` (espelha `ProdutoDraft.rev`, Produto Acabado).
+  // Rascunho local (`id` "novo-...", nunca persistido) nasce com `rev: 0` — a RPC não checa
+  // `_rev_base` quando `_id IS NULL` (ver migração), então o valor é inofensivo até salvar.
+  rev: number;
   /** `modelos.id` do card materializado (espelho 1:1) — null se ainda não tem card no
    *  Planejamento. Usado pela ação "Replicar card(s)": só drafts JÁ PERSISTIDOS e com
    *  `modelo_id` preenchido podem ser replicados (a RPC `replicar_produtos_importados`
@@ -85,6 +91,7 @@ export type ProdutoImportadoDraft = {
 export function emptyDraft(colecaoId: string | null, subcolecao: string | null): ProdutoImportadoDraft {
   return {
     id: null,
+    rev: 0,
     modelo_id: null,
     mix_id: null,
     nome: "",
@@ -122,6 +129,47 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
       { ordem: 2, rotulo: "Saldo", base: "mercadoria", percentual: 70, data_vencimento: null, cotacao: 0 },
       { ordem: 3, rotulo: "Frete", base: "frete", percentual: 100, data_vencimento: null, cotacao: 0 },
     ],
+  };
+}
+
+/** Só os campos que a TELA edita — usado como snapshot do dirty-guard/merge colab, espelha
+ *  `chaveDirty` de `produto-acabado/shared.ts`. NÃO inclui `rev` (read-only, bumpa sozinho no
+ *  refetch — incluir aqui faria qualquer merge "sujar" o produto à toa) nem `modelo_id`/`mix_id`
+ *  (read-only, associados por outros fluxos — Criar card / EditarMixDialog — não pela edição do
+ *  card). `etapas`/`variantes` entram como VALOR (array) — o merge trata como campo grão-grosso
+ *  (conflito all-or-nothing no array inteiro se ambos os lados mexeram nele); não há merge por
+ *  linha de etapa/variante aqui, aceitável (ver comentário no Sheet). */
+export function chaveDirty(d: ProdutoImportadoDraft) {
+  return {
+    id: d.id,
+    nome: d.nome,
+    grupo_id: d.grupo_id,
+    categoria_id: d.categoria_id,
+    subcategoria1_id: d.subcategoria1_id,
+    subcategoria2_id: d.subcategoria2_id,
+    empresa_id: d.empresa_id,
+    representante_id: d.representante_id,
+    ref_fornecedor: d.ref_fornecedor,
+    ref: d.ref,
+    composicao: d.composicao,
+    foto_url: d.foto_url,
+    data_pedido: d.data_pedido,
+    data_prevista: d.data_prevista,
+    data_entrega: d.data_entrega,
+    grade_proporcao: d.grade_proporcao,
+    qtd_total: d.qtd_total,
+    moeda_compra: d.moeda_compra,
+    moeda_intermediaria: d.moeda_intermediaria,
+    valor_unitario_m1: d.valor_unitario_m1,
+    cotacao_ref: d.cotacao_ref,
+    peso_kg: d.peso_kg,
+    transporte_m2: d.transporte_m2,
+    desconto_pct: d.desconto_pct,
+    cotacao_final: d.cotacao_final,
+    markup_atacado: d.markup_atacado,
+    markup_varejo: d.markup_varejo,
+    variantes: d.variantes,
+    etapas: d.etapas,
   };
 }
 

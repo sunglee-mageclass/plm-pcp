@@ -45,6 +45,11 @@ export type OcVinculadaInfo = {
 
 export type ProdutoDraft = {
   id: string;
+  // Colab (Fase 3, set/2026, ver migração 20260916220000): rev otimista POR PRODUTO — bumpa a
+  // cada UPDATE em `produtos_acabados` (trigger `fn_colab_touch_rev`). Metadado READ-ONLY —
+  // NUNCA entra em `chaveDirty` (editar outro campo não deve "sujar" por causa do rev mudar
+  // no refetch; e o próprio rev nunca é editado pela UI).
+  rev: number;
   nome: string;
   ref: string | null;
   grupo_id: string | null;

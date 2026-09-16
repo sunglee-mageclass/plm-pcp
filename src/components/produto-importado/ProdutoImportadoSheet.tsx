@@ -12,11 +12,14 @@ import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
-import { useColabPresencaPagina } from "@/hooks/useColabPresencaPagina";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useOrcamento } from "@/components/otb/orcamento";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { erroValidacao } from "@/components/produto-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import { ProdutoImportadoCard } from "./ProdutoImportadoCard";
@@ -24,7 +27,7 @@ import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
-import { emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
+import { chaveDirty, emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -62,6 +65,7 @@ function useOptCat(table: string, fk: string) {
  *  em vez de travar a tela). */
 type ProdutoImportadoRow = {
   id: string;
+  rev: number;
   modelo_id: string | null;
   mix_id: string | null;
   nome: string;
@@ -107,6 +111,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
   return {
     ...base,
     id: r.id,
+    rev: Number(r.rev) || 0,
     modelo_id: r.modelo_id,
     mix_id: r.mix_id ?? null,
     nome: r.nome,
@@ -146,6 +151,23 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
 let idSeq = 0;
 const novoIdLocal = () => `novo-${Date.now()}-${idSeq++}`;
 
+// Rótulo PT de cada campo de `chaveDirty` — consumido pelo `rotulo` do ColabBanner (colab Fase
+// 3) pra formatar "Nome do produto · Campo" em cada linha de conflito pendente. Espelha
+// `ROTULO_CAMPO_PA` (`ProdutoAcabadoSheet.tsx`), adaptado aos campos do Importado (moeda/
+// cotação/frete/etapas em vez de valor_unitario/desconto/insumos).
+const ROTULO_CAMPO_PI: Record<string, string> = {
+  nome: "Nome", grupo_id: "Grupo", categoria_id: "Categoria", subcategoria1_id: "Subcategoria 1",
+  subcategoria2_id: "Subcategoria 2", empresa_id: "Fornecedor", representante_id: "Representante",
+  ref_fornecedor: "Ref. Fornecedor", ref: "REF", composicao: "Composição", foto_url: "Foto",
+  data_pedido: "Data do pedido", data_prevista: "Data prevista", data_entrega: "Data de entrega",
+  grade_proporcao: "Proporção da grade", qtd_total: "Quantidade total",
+  moeda_compra: "Moeda de compra", moeda_intermediaria: "Moeda intermediária",
+  valor_unitario_m1: "Valor unitário (M1)", cotacao_ref: "Cotação de referência",
+  peso_kg: "Peso (kg)", transporte_m2: "Transporte (M2)", desconto_pct: "Desconto (%)",
+  cotacao_final: "Cotação final", markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo",
+  variantes: "Variantes", etapas: "Etapas de pagamento",
+};
+
 /**
  * Sheet do planejador Produto Importado. Layout REFATORADO (set/2026) pra bater FIELMENTE
  * com `ProdutoAcabadoSheet.tsx`: canvas em 3 colunas (rail + aside de resumo fixo no desktop
@@ -176,7 +198,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [replicarPayload, setReplicarPayload] = useState<{ produtoIds: string[]; nIgnorados: number } | null>(null);
   const [replicando, setReplicando] = useState(false);
-  const [baseline, setBaseline] = useState<string>("[]");
+  // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) —
+  // espelha `ProdutoAcabadoSheet.tsx` (não é mais o `useDirtySnapshot` de 1 blob só).
+  const [baseline, setBaseline] = useState<Record<string, string>>({});
   const [carregado, setCarregado] = useState(false);
   const resolvedInicialRef = useRef({ done: false });
   const qc = useQueryClient();
@@ -185,8 +209,21 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // `card:<idDoCard>:<campo>` — namespaced pelo id do card, já que N cards editáveis ao mesmo tempo.
   const [campoFocadoCanvas, setCampoFocadoCanvas] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLElement>(null);
-  const { presentes: presentesCanvas } = useColabPresencaPagina({
+  // Merge de conflito colaborativo (Fase 3, set/2026 — molde = ProdutoAcabadoSheet.tsx, merge POR
+  // PRODUTO num array). `baseServidorRef` guarda o último snapshot visto do servidor POR PRODUTO
+  // (id → ProdutoImportadoDraft) — o "base" do merge 3-vias; `touched` é DERIVADO comparando
+  // `chaveDirty(draft atual)` vs `chaveDirty(base)` no momento do merge. `conflitosPorProduto`
+  // guarda os conflitos pendentes por produto — consumido pelo guard síncrono do save e pelo
+  // `ColabBanner`.
+  const baseServidorRef = useRef<Record<string, ProdutoImportadoDraft>>({});
+  const [conflitosPorProduto, setConflitosPorProduto] = useState<Record<string, Conflito[]>>({});
+  const [ultimoMergeColab, setUltimoMergeColab] = useState<{ atualizados: number; conflitos: number } | null>(null);
+  const { presentes: presentesCanvas } = useColabRegistro({
     canal: `colab-prod-importado:${colecaoId}`,
+    tabela: "produtos_importados",
+    registroId: colecaoId,
+    filtroColuna: "colecao_id",
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] }),
     campoFocado: campoFocadoCanvas,
   });
   const agrup = useAgrupamentoState("produto-importado", ["categoria"]);
@@ -241,18 +278,95 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     retry: false,
   });
 
+  const marcarProdutoLimpo = (d: ProdutoImportadoDraft) =>
+    setBaseline((b) => (d.id ? { ...b, [d.id]: JSON.stringify(chaveDirty(d)) } : b));
+
+  // Load inicial: seed normal (sem merge, sem conflito) — mesmo shape que alimenta `baseline`.
+  // Refetch subsequente (Realtime, `onMudancaServidor` acima, OU invalidação "de fundo" após
+  // criar/salvar): MERGE POR PRODUTO em vez de sobrescrever às cegas — espelha
+  // `ProdutoAcabadoSheet.tsx` (ver comentário lá para o raciocínio completo). Rascunhos LOCAIS
+  // (`id` null/"novo-...", nunca persistidos) nunca têm `base`/`fresh` — ficam de fora do merge,
+  // sempre preservados como estão (o servidor não os conhece ainda).
   useEffect(() => {
-    if (carregado) return;
     // Sucesso OU erro (tabela/RPC ainda não pronta): resolve como "sem produtos" e libera a
     // tela — nunca trava a navegação por causa disso.
-    if (produtosQuery.isSuccess || produtosQuery.isError) {
-      const linhas = produtosQuery.data ?? [];
-      const iniciais: ProdutoImportadoDraft[] = linhas.map(draftDeRow);
-      setDrafts(iniciais);
-      setBaseline(JSON.stringify(iniciais));
+    if (!produtosQuery.isSuccess && !produtosQuery.isError) return;
+    const linhas = produtosQuery.data ?? [];
+    const fresh: ProdutoImportadoDraft[] = linhas.map(draftDeRow);
+    if (!carregado) {
+      setDrafts(fresh);
+      setBaseline(Object.fromEntries(fresh.filter((d) => d.id).map((d) => [d.id as string, JSON.stringify(chaveDirty(d))])));
+      baseServidorRef.current = Object.fromEntries(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
       setCarregado(true);
+      return;
     }
-  }, [carregado, produtosQuery.isSuccess, produtosQuery.isError, produtosQuery.data]);
+    const freshById = new Map(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
+    let totalAtualizados = 0;
+    const novosConflitos: Record<string, Conflito[]> = {};
+    // IDs que PASSARAM pelo merge nesta rodada — só esses podem ter o conflito RECONSTRUÍDO.
+    const idsProcessados = new Set<string>();
+    const proximosDrafts: ProdutoImportadoDraft[] = [];
+    for (const draft of drafts) {
+      if (!draft.id || draft.id.startsWith("novo-")) { proximosDrafts.push(draft); continue; } // rascunho local — fora do merge
+      const base = baseServidorRef.current[draft.id];
+      const fr = freshById.get(draft.id);
+      if (!base || !fr) {
+        if (fr) proximosDrafts.push(draft); // base ainda não seedada (produto nasceu agora)
+        else if (JSON.stringify(chaveDirty(draft)) === baseline[draft.id]) continue; // limpo → some
+        else {
+          // Tinha edição pendente num produto que sumiu no servidor — sinaliza e MANTÉM o card.
+          idsProcessados.add(draft.id);
+          novosConflitos[draft.id] = [{ path: "__produto__", meu: "suas edições", dele: null }];
+          proximosDrafts.push(draft);
+        }
+        continue;
+      }
+      idsProcessados.add(draft.id);
+      const touched = new Set(
+        (Object.keys(chaveDirty(draft)) as (keyof ReturnType<typeof chaveDirty>)[]).filter(
+          (k) => JSON.stringify((chaveDirty(draft) as any)[k]) !== JSON.stringify((chaveDirty(base) as any)[k]),
+        ),
+      );
+      const m = mergeDraft({ base: base as any, draft: draft as any, fresh: fr as any, touched });
+      if (m.atualizados.length > 0) totalAtualizados++;
+      if (m.conflitos.length > 0) novosConflitos[draft.id] = m.conflitos; // ausência = convergiu → poda
+      // rev nunca é "tocado" (não está em chaveDirty) — sempre adota o do fresh.
+      proximosDrafts.push({ ...(m.valor as ProdutoImportadoDraft), rev: fr.rev });
+    }
+    // Produtos novos no servidor (criado por outra aba) que eu ainda não tenho localmente.
+    for (const fr of fresh) {
+      if (fr.id && !drafts.some((d) => d.id === fr.id)) proximosDrafts.push(fr);
+    }
+    baseServidorRef.current = Object.fromEntries(fresh.filter((d) => d.id).map((d) => [d.id as string, d]));
+
+    // Conflitos: RECONSTRÓI o conjunto p/ os produtos processados — mantém quem ainda conflita,
+    // REMOVE quem convergiu (o servidor passou a coincidir com o meu draft SEM eu ter clicado
+    // "resolver"). ⚠️ Isto roda SEMPRE, fora do early-return abaixo — espelha EXATAMENTE
+    // `ProdutoAcabadoSheet.tsx` (comentário "Conflitos: RECONSTRÓI o conjunto" lá): um
+    // conflito-fantasma faz `temConflitoPendente` travar o Salvar mesmo quando `drafts` não mudou
+    // nesta passada. NÃO usar spread-merge (`{...prev, ...novos}`) — isso nunca remove a chave
+    // convergida. Produtos NÃO processados (rascunho local/outra subcoleção) preservam o conflito
+    // que já tinham.
+    setConflitosPorProduto((prev) => {
+      const next = { ...prev };
+      let mudou = false;
+      for (const id of idsProcessados) {
+        const cs = novosConflitos[id];
+        if (cs && cs.length > 0) {
+          if (next[id] !== cs) { next[id] = cs; mudou = true; }
+        } else if (next[id]) {
+          delete next[id]; mudou = true;
+        }
+      }
+      return mudou ? next : prev;
+    });
+
+    const totalConflitos = Object.values(novosConflitos).reduce((a, c) => a + c.length, 0);
+    if (totalAtualizados === 0 && totalConflitos === 0) return; // sem mudança em drafts — não perturba
+    setDrafts(proximosDrafts);
+    setUltimoMergeColab({ atualizados: totalAtualizados, conflitos: totalConflitos });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [produtosQuery.isSuccess, produtosQuery.isError, produtosQuery.data]);
 
   // Resolve a subcoleção da URL (deep-link) uma vez, assim que a lista carregar — mesmo
   // padrão do Produto Acabado (`ProdutoAcabadoSheet.tsx`).
@@ -312,8 +426,16 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     [nivelMacro],
   );
 
-  const dirty = JSON.stringify(drafts) !== baseline;
-  const fecharDeVez = () => { setBaseline(JSON.stringify(drafts)); onClose(); };
+  // dirty: qualquer draft (local ou persistido) cujo `chaveDirty` diverge do baseline daquele
+  // id — rascunho local ("novo-...") nunca tem baseline (`undefined`), então qualquer rascunho
+  // recém-criado já é dirty (mesma semântica de antes: um card novo pede salvamento).
+  const dirty = drafts.some((d) => JSON.stringify(chaveDirty(d)) !== (d.id ? baseline[d.id] : undefined));
+  // Item 7 (espelha P.Acabado): QUALQUER produto com conflito pendente barra Salvar/Fazer pedido.
+  const temConflitoPendente = Object.values(conflitosPorProduto).some((cs) => cs.length > 0);
+  const fecharDeVez = () => {
+    setBaseline((b) => ({ ...b, ...Object.fromEntries(drafts.filter((d) => d.id).map((d) => [d.id as string, JSON.stringify(chaveDirty(d))])) }));
+    onClose();
+  };
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez });
 
   const patchDraft = (id: string, patch: Partial<ProdutoImportadoDraft>) =>
@@ -352,18 +474,28 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // Estado zerado = card recém-criado (emptyDraft: 1 variante + 3 etapas default), preservando
       // a identidade (id/modelo_id/mix_id/ref). A RPC zera as moedas p/ RMB/USD (default do emptyDraft),
       // então banco e front ficam COERENTES (achado D2).
+      // Colab (Fase 3): `limpar_produto_importado` bumpa `rev` no servidor por fora do
+      // `salvar_produto_importado` (RPC dedicada, sem `_rev_base`) — sem resincronizar
+      // `baseServidorRef`/`rev` aqui, o PRÓXIMO save deste produto mandaria um `rev` local
+      // velho e tomaria um P0409 FALSO (não é conflito de outra pessoa, é o meu próprio bump
+      // do Limpar). SELECT pontual do rev novo, mesmo padrão de `salvarUmProduto` (espelha
+      // o `onLimpo` do `ProdutoAcabadoSheet.tsx`).
       const vazio = emptyDraft(d.colecao_id, d.subcolecao);
       const persistido = !!d.id && !d.id.startsWith("novo-");
-      setDrafts((ds) => {
-        const next = ds.map((x) => (x.id === d.id
-          ? { ...vazio, id: d.id, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null }
-          : x));
-        // Persistido: o produto já está limpo no banco → rebaseline p/ o Sheet não ficar "sujo"
-        // por um estado já salvo (achado C4/D2). Local ("novo-"): segue como rascunho não salvo.
-        if (persistido) setBaseline(JSON.stringify(next));
-        return next;
-      });
-      if (persistido) qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+      const limpo: ProdutoImportadoDraft = { ...vazio, id: d.id, rev: d.rev, modelo_id: d.modelo_id ?? null, mix_id: d.mix_id ?? null, ref: d.ref ?? null };
+      setDrafts((ds) => ds.map((x) => (x.id === d.id ? limpo : x)));
+      // Persistido: o produto já está limpo no banco → rebaseline p/ o Sheet não ficar "sujo"
+      // por um estado já salvo (achado C4/D2). Local ("novo-"): segue como rascunho não salvo.
+      if (persistido) {
+        marcarProdutoLimpo(limpo);
+        void supabase.from("produtos_importados" as any).select("rev").eq("id", d.id as string).maybeSingle().then(({ data }) => {
+          const revNovo = data ? Number((data as any).rev) || 0 : limpo.rev;
+          const sincronizado = { ...limpo, rev: revNovo };
+          baseServidorRef.current = { ...baseServidorRef.current, [d.id as string]: sincronizado };
+          setDrafts((ds) => ds.map((x) => (x.id === d.id ? { ...x, rev: revNovo } : x)));
+        });
+        qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+      }
       toast.success("Card limpo.");
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Falha ao limpar.")),
@@ -462,52 +594,48 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     setOpenCards(new Set([novo.id!]));
   };
 
-  // Salva TODOS os drafts (simples — mesmo padrão do Produto Acabado): cada um vira uma
-  // chamada a `salvar_produto_importado` (upsert; `_id` local "novo-..." → null = criação).
-  // Depois de salvar, drafts locais recebem o id definitivo do banco.
-  const salvarMut = useMutation({
-    mutationFn: async () => {
-      // Valida TODOS os drafts no cliente ANTES de qualquer INSERT — senão um produto com
-      // Σ%≠100 (rejeitado pelo servidor) abortaria o Promise.all no meio, deixando os já
-      // criados no banco sem o id refletido no estado local (dupla no próximo save).
-      for (const d of drafts) {
-        const erro = validarDraft(d);
-        if (erro) throw new Error(`${d.nome || "Produto sem nome"}: ${erro}`);
-      }
-      const atualizados = await Promise.all(
-        drafts.map(async (d) => {
-          const isLocal = !d.id || d.id.startsWith("novo-");
-          const { dados, variantes, etapas } = montarPayload(d);
-          const { data, error } = await supabase.rpc("salvar_produto_importado" as any, {
-            _id: isLocal ? null : d.id,
-            _dados: dados,
-            _variantes: variantes,
-            _etapas: etapas,
-          });
-          if (error) throw error;
-          return isLocal ? { ...d, id: data as string } : d;
-        }),
-      );
-      return atualizados;
-    },
-    onSuccess: (atualizados) => {
-      setDrafts(atualizados);
-      setBaseline(JSON.stringify(atualizados));
-      toast.success("Produtos importados salvos.");
-      qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao salvar")),
-  });
-  const salvar = () => salvarMut.mutate();
+  // Reconcilia um P0409 de UM produto (alguém salvou aquele card no meio): recarrega SÓ ele do
+  // servidor (mesmo select da query da tela, com variantes+etapas) e funde com a edição local —
+  // espelha `reconciliarProdutoP0409` do `ProdutoAcabadoSheet.tsx`. base = último snapshot visto
+  // (`baseServidorRef`) · meu = `d` (o que eu tentava salvar) · fresh = recarregado · touched =
+  // diff local vs base. Campos que só o servidor mudou são adotados; campos que EU editei E o
+  // servidor também mudou viram conflito (bloqueia o PRÓXIMO save até resolver).
+  const reconciliarProdutoP0409 = async (d: ProdutoImportadoDraft) => {
+    if (!d.id) return;
+    const { data, error } = await supabase
+      .from("produtos_importados" as any)
+      .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
+      .eq("id", d.id)
+      .maybeSingle();
+    if (error || !data) return; // produto sumiu (excluído por outra aba) — o merge do refetch geral cuida do aviso
+    const fresh = draftDeRow(data as unknown as ProdutoImportadoRow);
+    const base = baseServidorRef.current[d.id] ?? fresh;
+    const touched = new Set(
+      (Object.keys(chaveDirty(d)) as (keyof ReturnType<typeof chaveDirty>)[]).filter(
+        (k) => JSON.stringify((chaveDirty(d) as any)[k]) !== JSON.stringify((chaveDirty(base) as any)[k]),
+      ),
+    );
+    const m = mergeDraft({ base: base as any, draft: d as any, fresh: fresh as any, touched });
+    const fundido: ProdutoImportadoDraft = { ...(m.valor as ProdutoImportadoDraft), rev: fresh.rev };
+    baseServidorRef.current = { ...baseServidorRef.current, [d.id]: fresh };
+    setDrafts((ds) => ds.map((x) => (x.id === d.id ? fundido : x)));
+    if (m.conflitos.length > 0) {
+      setConflitosPorProduto((prev) => ({ ...prev, [d.id as string]: m.conflitos }));
+    } else {
+      // Sem conflito de verdade — o card já está atualizado com o fresh + minhas edições
+      // preservadas; rebaseline pra não segurar `dirty`/bloquear um novo Salvar por um
+      // conflito fantasma.
+      marcarProdutoLimpo(fundido);
+    }
+  };
 
-  // Salva UM produto (não a tela inteira) — usado pelo "Fazer pedido" do card (fase 2, OC):
-  // persiste ANTES de gerar a OC, pra nunca criar um pedido em cima de rascunho ainda não
-  // salvo (mesmo cuidado do `onSalvarProduto`/"Fazer pedido" da revenda, `ProdutoCard.tsx`).
-  // Devolve o id definitivo do banco e já patcheia o draft local (mesmo id, sem esperar o
-  // refetch de `["produtos-importados", colecaoId]`).
+  // Salva UM produto — fonte ÚNICA reusada pelo Salvar em lote (abaixo) E pelo "Fazer pedido" de
+  // cada card (persiste a Compra ANTES de gerar a OC). Colab (Fase 3): manda `_rev_base: d.rev`
+  // (null p/ rascunho local, sem base a checar) — a RPC dá P0409 se outra pessoa salvou ESTE
+  // produto desde que eu o carreguei; reconciliado por `reconciliarProdutoP0409` (acima).
   const salvarUmProduto = async (d: ProdutoImportadoDraft): Promise<string> => {
     const erro = validarDraft(d);
-    if (erro) throw new Error(erro);
+    if (erro) throw erroValidacao(erro);
     const isLocal = !d.id || d.id.startsWith("novo-");
     const { dados, variantes, etapas } = montarPayload(d);
     const { data, error } = await supabase.rpc("salvar_produto_importado" as any, {
@@ -515,19 +643,76 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       _dados: dados,
       _variantes: variantes,
       _etapas: etapas,
+      _rev_base: isLocal ? null : d.rev,
     });
-    if (error) throw error;
+    if (error) {
+      if ((error as any).code === "P0409") {
+        toast.warning(`Alguém salvou "${d.nome}" agora — o card foi recarregado e fundido com suas edições.`);
+        await reconciliarProdutoP0409(d);
+      }
+      throw error;
+    }
     const novoId = data as string;
+    // rev pós-save (espelha `salvarUmProduto` do P.Acabado): a RPC só retorna o `uuid` do
+    // produto, não o rev novo — busca ele pontualmente (1 SELECT leve) e faz um PATCH local
+    // IMEDIATO. Mais seguro que esperar o `invalidateQueries`/refetch geral: a janela até o
+    // refetch terminar deixaria um 2º Salvar comparar `d.rev` contra um valor velho.
+    const { data: revRow } = await supabase.from("produtos_importados" as any).select("rev").eq("id", novoId).maybeSingle();
+    const revNovo = revRow ? Number((revRow as any).rev) || 0 : d.rev + 1; // fallback otimista
+    const salvo: ProdutoImportadoDraft = { ...d, id: novoId, rev: revNovo };
+    baseServidorRef.current = { ...baseServidorRef.current, [novoId]: salvo };
     if (isLocal) {
       const idAntigo = d.id!;
-      patchDraft(idAntigo, { id: novoId });
+      setDrafts((ds) => ds.map((x) => (x.id === idAntigo ? salvo : x)));
       // Mantém o card aberto/selecionado sob o NOVO id (senão "Fazer pedido" fecharia o card
       // visualmente — `openCards` rastreia por id, e o id local "novo-..." deixou de existir).
       setOpenCards((s) => (s.has(idAntigo) ? new Set([novoId]) : s));
+    } else {
+      setDrafts((ds) => ds.map((x) => (x.id === novoId ? salvo : x)));
     }
+    marcarProdutoLimpo(salvo); // baseline por produto
     qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
     return novoId;
   };
+
+  // Salva TODOS os drafts — cada um via `salvarUmProduto` (fonte única). `allSettled` (não
+  // `all`): um P0409 isolado num produto não deve abortar o save dos DEMAIS — `salvarUmProduto`
+  // já reconcilia o card em conflito sozinho; os outros produtos do lote salvam normalmente.
+  // Erros que NÃO são P0409 (ex.: validação/rede) também não devem derrubar o lote inteiro —
+  // propaga o 1º pro onError (espelha `ProdutoAcabadoSheet.tsx`).
+  const salvarMut = useMutation({
+    mutationFn: async () => {
+      // Guard SÍNCRONO (item 4/7, colab Fase 3): há QUALQUER conflito pendente em QUALQUER
+      // produto → bloqueia ANTES de qualquer RPC. O `disabled` do botão (rodapé) é um segundo
+      // freio, mas é async.
+      const produtosEmConflito = Object.entries(conflitosPorProduto).filter(([, cs]) => cs.length > 0);
+      if (produtosEmConflito.length > 0) {
+        throw erroValidacao("Resolva os conflitos indicados nos cards destacados antes de salvar.");
+      }
+      // Valida TODOS os drafts no cliente ANTES de qualquer save — senão um produto com Σ%≠100
+      // (rejeitado pelo servidor) abortaria o lote no meio.
+      for (const d of drafts) {
+        const erro = validarDraft(d);
+        if (erro) throw new Error(`${d.nome || "Produto sem nome"}: ${erro}`);
+      }
+      const resultados = await Promise.allSettled(drafts.map((d) => salvarUmProduto(d)));
+      const falhas = resultados.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+      const falhasP0409 = falhas.filter((r) => (r.reason as any)?.code === "P0409");
+      const outrasFalhas = falhas.filter((r) => (r.reason as any)?.code !== "P0409");
+      if (outrasFalhas.length > 0) throw outrasFalhas[0].reason; // erro "de verdade" — propaga o 1º pro onError
+      return { totalConflitos: falhasP0409.length };
+    },
+    onSuccess: ({ totalConflitos }) => {
+      if (totalConflitos > 0) {
+        toast.warning(`${totalConflitos} produto(s) tiveram conflito e foram recarregados — confira antes de salvar de novo.`);
+      } else {
+        toast.success("Produtos importados salvos.");
+      }
+      qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao salvar")),
+  });
+  const salvar = () => salvarMut.mutate();
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
   const pecasSub = produtosSub.reduce((a, p) => a + (Number(p.qtd_total) || 0), 0);
@@ -571,12 +756,17 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // JSX do `ProdutoImportadoCard`.
   const renderCardsRow = (itens: ProdutoImportadoDraft[]) => (
     <div className="flex items-start gap-3 overflow-x-auto pb-2 max-md:snap-x max-md:snap-mandatory">
-      {itens.map((d) => (
-        <div key={d.id} className="w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start">
+      {itens.map((d) => {
+        const conflitosDoCard = (d.id && conflitosPorProduto[d.id]) || [];
+        return (
+        <div
+          key={d.id}
+          className={`w-[420px] max-md:w-[90vw] shrink-0 max-md:snap-start ${conflitosDoCard.length > 0 ? "rounded-lg ring-2 ring-amber-400 dark:ring-amber-600" : ""}`}
+        >
           <ProdutoImportadoCard
             draft={d}
             onChange={(patch) => patchDraft(d.id!, patch)}
-            open={openCards.has(d.id!)}
+            open={openCards.has(d.id!) || conflitosDoCard.length > 0}
             onToggleOpen={() => toggleCard(d.id!)}
             selected={selecao.has(d.id!)}
             onToggleSelect={() => toggleSel(d.id!)}
@@ -591,6 +781,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             onExcluir={() => removeDraft(d.id!)}
             onLimpar={() => limparDraft(d)}
             onSalvarProduto={salvarUmProduto}
+            // Item 7 (espelha P.Acabado): "Fazer pedido" (dentro do card) chama `onSalvarProduto`
+            // — bloqueia enquanto ESTE produto (ou qualquer outro) tiver conflito pendente.
+            conflitoPendente={temConflitoPendente}
             onPedidoCriado={() => {
               // A navegação pra OC (`/entrada-saida/oc-p-importado?oc=<id>`) acontece dentro do
               // próprio card (tem `useNavigate`); aqui só a higiene de cache dos vizinhos —
@@ -599,7 +792,8 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             }}
           />
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -619,6 +813,40 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             ]} />
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
+          {/* Colab (Fase 3): presença + resultado do último merge + resolução dos conflitos
+              pendentes — espelha `ProdutoAcabadoSheet.tsx` (ver comentário lá). Conflitos são POR
+              PRODUTO (`conflitosPorProduto`) — achatados aqui numa lista única com path
+              `${produtoId}::${campo}` p/ reusar o `ColabBanner` genérico. */}
+          {view === "canvas" && (
+            <ColabBanner
+              presentes={presentesCanvas}
+              ultimoMerge={ultimoMergeColab ? { atualizados: ultimoMergeColab.atualizados, conflitos: [] } : null}
+              conflitos={Object.entries(conflitosPorProduto).flatMap(([produtoId, cs]) => cs.map((c) => ({ ...c, path: `${produtoId}::${c.path}` })))}
+              onResolver={(path, escolha) => {
+                const [produtoId, campo] = path.split("::");
+                const c = conflitosPorProduto[produtoId]?.find((x) => x.path === campo);
+                if (c && escolha === "dele") {
+                  if (campo === "__produto__") {
+                    setDrafts((ds) => ds.filter((d) => d.id !== produtoId)); // servidor não tem mais esse produto — aceita a exclusão
+                  } else {
+                    patchDraft(produtoId, { [campo]: c.dele } as Partial<ProdutoImportadoDraft>);
+                  }
+                }
+                setConflitosPorProduto((prev) => {
+                  const restantes = (prev[produtoId] ?? []).filter((x) => x.path !== campo);
+                  const next = { ...prev, [produtoId]: restantes };
+                  if (restantes.length === 0) delete next[produtoId];
+                  return next;
+                });
+              }}
+              rotulo={(path) => {
+                const [produtoId, campo] = path.split("::");
+                const nomeProduto = drafts.find((d) => d.id === produtoId)?.nome || "Produto";
+                if (campo === "__produto__") return `${nomeProduto} (excluído no servidor)`;
+                return `${nomeProduto} · ${ROTULO_CAMPO_PI[campo] ?? campo}`;
+              }}
+            />
+          )}
         </div>
 
         {!carregado ? (
@@ -831,8 +1059,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <div className="ml-auto" />
-          <Button disabled={!dirty || salvarMut.isPending} onClick={salvar}>
-            {salvarMut.isPending ? "Salvando…" : dirty ? "Salvar" : "Salvo"}
+          <Button
+            disabled={!dirty || salvarMut.isPending || temConflitoPendente}
+            title={temConflitoPendente ? "Resolva os conflitos de edição pendentes antes de salvar." : undefined}
+            onClick={salvar}
+          >
+            {salvarMut.isPending ? "Salvando…" : temConflitoPendente ? "Conflito pendente" : dirty ? "Salvar" : "Salvo"}
           </Button>
         </div>
 
