@@ -55,6 +55,8 @@ import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialo
 import { ETAPAS_DEFAULT, type EtapaCfg } from "@/lib/pcp-etapas";
 import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
+import type { RefConfig } from "@/lib/ref-montar";
+import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -138,6 +140,9 @@ const DEFAULTS = {
   // Campo/seção key → visível p/ revenda. De fábrica semeia os 12 OFF (9 campos de Info
   // Básicas + seções prova/s2/s-cad), p/ revenda já pular esses campos numa loja nova.
   revenda_campos: Object.fromEntries(REVENDA_CAMPOS_DEFAULT_OFF.map((k) => [k, false])) as Record<string, boolean>,
+  // Formato da REF (montagem + siglas + dígitos/início do número) — ver src/lib/ref-montar.ts.
+  // null = loja não configurou; usa o comportamento HISTÓRICO do banco (fallback derivado).
+  ref_config: null as RefConfig | null,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -240,6 +245,10 @@ function ConfiguracoesLojaPage() {
         (r as any).revenda_campos && typeof (r as any).revenda_campos === "object" && !Array.isArray((r as any).revenda_campos)
           ? ((r as any).revenda_campos as Record<string, boolean>)
           : DEFAULTS.revenda_campos,
+      ref_config:
+        (r as any).ref_config && typeof (r as any).ref_config === "object" && !Array.isArray((r as any).ref_config)
+          ? ((r as any).ref_config as RefConfig)
+          : DEFAULTS.ref_config,
     };
     setCfg(next);
     resetCfgBaseline(next);
@@ -252,11 +261,16 @@ function ConfiguracoesLojaPage() {
       // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
       // foi editado nesses outros lugares.
       const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, ...cfgRest } = cfg;
+      // ref_config "vazio" (usuário não marcou nenhuma parte da montagem) → null, mesmo
+      // espírito do "" → null abaixo: sem configuração explícita, a loja usa o comportamento
+      // HISTÓRICO (fallback derivado no banco), sem gravar um objeto vazio/inerte.
+      const refConfigVazio = !cfg.ref_config || !Array.isArray(cfg.ref_config.partes) || cfg.ref_config.partes.length === 0;
       // "" (Aprovado / ausência) → null, p/ manter o default histórico sem gravar valor.
       const payload = {
         tenant_id: data.tenantId, ...cfgRest,
         explosao_envio_status: cfg.explosao_envio_status || null,
         ref_exibir_status: cfg.ref_exibir_status || null,
+        ref_config: refConfigVazio ? null : cfg.ref_config,
       };
       const { error } = await supabase
         .from("tenant_config")
@@ -465,6 +479,11 @@ function ConfiguracoesLojaPage() {
             )}
           </div>
         }
+      />
+
+      <FormatoRefCard
+        value={cfg.ref_config}
+        onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
       />
 
       {modules.produto_acabado && (

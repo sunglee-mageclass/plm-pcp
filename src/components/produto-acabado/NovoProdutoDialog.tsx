@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
-import { ehGrupoAcessorio, previewRefProduto } from "@/lib/produto-acabado";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { montarRef, fmtNumero, type RefConfig } from "@/lib/ref-montar";
 import { erroValidacao, type Opt, type CatOpt, type SubOpt } from "./shared";
 
 /** "+ Novo produto" — Dialog central (§G: criar = Dialog). Sem dirty-guard: a ação "Criar"
@@ -56,8 +58,44 @@ export function NovoProdutoDialog({
   const grupoNome = grupos.find((g) => g.id === grupoId)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === categoriaId)?.nome ?? "";
   const sub1Nome = subcats1.find((s) => s.id === sub1Id)?.nome ?? "";
+  const sub2Nome = subcats2.find((s) => s.id === sub2Id)?.nome ?? "";
   const acessorio = ehGrupoAcessorio(grupoNome);
-  const refPreview = grupoId && categoriaId ? previewRefProduto(grupoNome, categoriaNome, sub1Nome, acessorio) : null;
+
+  // ref_config da loja — mesma fonte que a Config usa p/ montar a REF (montarRef,
+  // src/lib/ref-montar.ts). Sem config (null) = comportamento histórico (fallback derivado).
+  const tenantId = useActiveTenantId();
+  const { data: refConfig = null } = useQuery({
+    queryKey: ["ref-config-preview", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("ref_config").eq("tenant_id", tenantId).maybeSingle();
+      return ((data as any)?.ref_config ?? null) as RefConfig | null;
+    },
+  });
+
+  // Preview: monta a REF completa com um número de EXEMPLO e recorta de volta a sigla (a
+  // parte antes do número), pra manter o visual "SIGLA" + máscara "NNN…" de dígitos que o
+  // número real (sequencial, só o banco sabe) vai ocupar — sem reimplementar a montagem.
+  const numeroExemplo = refConfig?.num_inicio ?? 10000000;
+  const numFmt = fmtNumero(refConfig, numeroExemplo);
+  const refCompleta = grupoId && categoriaId
+    ? montarRef({
+        cfg: refConfig,
+        familia: "acabado",
+        tax: {
+          grupoId, grupoNome,
+          categoriaId, categoriaNome,
+          sub1Id: acessorio ? null : sub1Id, sub1Nome: acessorio ? null : sub1Nome,
+          sub2Id: acessorio ? null : sub2Id, sub2Nome: acessorio ? null : sub2Nome,
+        },
+        numero: numeroExemplo,
+        acessorio,
+      })
+    : null;
+  const refPreview = refCompleta && refCompleta.endsWith(numFmt)
+    ? refCompleta.slice(0, refCompleta.length - numFmt.length)
+    : refCompleta;
+  const refNumMask = "N".repeat(numFmt.length);
 
   const criarMut = useMutation({
     mutationFn: async () => {
@@ -140,7 +178,7 @@ export function NovoProdutoDialog({
           </div>
           {refPreview && (
             <p className="text-xs text-muted-foreground">
-              Prévia da REF: <span className="font-medium tabular-nums text-foreground">{refPreview}NNNNNNN</span> (número sequencial ao criar)
+              Prévia da REF: <span className="font-medium tabular-nums text-foreground">{refPreview}{refNumMask}</span> (número sequencial ao criar)
             </p>
           )}
         </div>
