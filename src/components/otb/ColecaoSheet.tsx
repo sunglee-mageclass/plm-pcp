@@ -30,6 +30,12 @@ import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@
 import { brl } from "@/lib/format";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { erroValidacao } from "@/components/produto-acabado/shared";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
 type Opt = { id: string; nome: string };
@@ -44,6 +50,26 @@ type WeekMeta = Record<string, { texto: string; data: string }>;
 type SubBlock = { key: string; id: string | null; nome: string; weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
 // Atribuição de card feita no editor mas ainda NÃO salva: card → (subcoleção local, semana).
 type PendingAssign = Record<string, { subKey: string | null; sem: string }>;
+
+// ── Colaboração (Fase 3): objeto GRÃO-GROSSO comparado pelo merge 3-vias ──────────────────
+// `subs`/modo-simples/`pendingAssign` são estruturas aninhadas complexas (array de blocos, cada
+// um com sub-grades semana→qtd/meta/categoria). Em vez de merge fino por-subcoleção (muito
+// complexo com essas sub-grades), tratamos cada CONJUNTO (subs / modo-simples / atribuições
+// pendentes) como 1 campo do mergeDraft (comparado por valor JSON via `igual`, que já faz deep-
+// compare) — se EU toquei numa dessas 3 chaves e o servidor TAMBÉM mudou, vira 1 conflito
+// all-or-nothing por chave ("estrutura de subcoleções/semanas divergiu"). Resolução na UI trata
+// as 3 como uma unidade só (ver `resolverPorPath`). Cabeçalho escalar (nome/ano/mês/orçamento)
+// continua fino, campo a campo. `SubBlock.key` é um UUID local (crypto.randomUUID(), regenerado
+// a cada hydrate) — EXCLUÍDO da comparação via `subsParaCmp` (senão toda carga pareceria "mudança").
+type SubBlockCmp = { id: string | null; nome: string; weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
+type ColabBlob = {
+  nome: string; anoId: string | null; mesId: string | null; orcamento: string;
+  subsBlob: SubBlockCmp[];
+  simplesBlob: { weeks: Record<string, number | null>; weeksMeta: WeekMeta; weekCats: CatDist };
+  pendingAssign: PendingAssign;
+};
+const subsParaCmp = (subs: SubBlock[]): SubBlockCmp[] =>
+  subs.map((s) => ({ id: s.id, nome: s.nome, weeks: s.weeks, meta: s.meta, cats: s.cats }));
 
 const somaCats = (m?: Record<string, number>) => Object.values(m ?? {}).reduce((a, b) => a + (b || 0), 0);
 
@@ -250,28 +276,68 @@ export function ColecaoSheet({
   onClose: () => void; onSaved: () => void;
 }) {
   const qc = useQueryClient();
-  const [nome, setNome] = useState("");
-  const [anoId, setAnoId] = useState<string | null>(null);
-  const [mesId, setMesId] = useState<string | null>(null);
-  const [orcamento, setOrcamento] = useState<string>("");
-  const [weeks, setWeeks] = useState<Record<string, number | null>>({}); // modo simples (sem subcoleção)
-  const [weeksMeta, setWeeksMeta] = useState<WeekMeta>({}); // texto/data por semana (modo simples)
-  const [weekCats, setWeekCats] = useState<CatDist>({}); // distribuição por categoria (modo simples)
-  const [subs, setSubs] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
+  const [nome, setNomeRaw] = useState("");
+  const [anoId, setAnoIdRaw] = useState<string | null>(null);
+  const [mesId, setMesIdRaw] = useState<string | null>(null);
+  const [orcamento, setOrcamentoRaw] = useState<string>("");
+  const [weeks, setWeeksRaw] = useState<Record<string, number | null>>({}); // modo simples (sem subcoleção)
+  const [weeksMeta, setWeeksMetaRaw] = useState<WeekMeta>({}); // texto/data por semana (modo simples)
+  const [weekCats, setWeekCatsRaw] = useState<CatDist>({}); // distribuição por categoria (modo simples)
+  const [subs, setSubsRaw] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
+  const [pendingAssign, setPendingAssignRaw] = useState<PendingAssign>({}); // atribuições feitas no editor, gravadas no Save
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  // ── Colaboração em tempo real (Fase 3) ─────────────────────────────────────────────────
+  // `otb_rev` NÃO entra no formSnapshot/dirty (é metadado de concorrência, não conteúdo editável).
+  const [otbRev, setOtbRev] = useState<number | null>(null);
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  // touched: campos do cabeçalho escalar EU editei (path = chave do ColabBlob: nome/anoId/mesId/
+  // orcamento) + um path único p/ o bloco grão-grosso (subs/simples/pendingAssign juntos).
+  const touchedRef = useRef<Set<string>>(new Set());
+  const baseRef = useRef<ColabBlob | null>(null);
+  // Espelha o subList/simples "cheio" (com key/id/weeks/meta/cats reais, não o blob de
+  // comparação) do ÚLTIMO fresh visto — usado pela resolução "usar o novo" de um conflito de
+  // estrutura (subsBlob/simplesBlob/pendingAssign), que precisa reidratar o estado de verdade.
+  const freshParsedRef = useRef<{ simples: { weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist }; subList: SubBlock[] } | null>(null);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+
+  // Setters RASTREADOS: mesma assinatura dos setState crus (os call sites do resto do arquivo
+  // não mudam) — marcam o path tocado ANTES/ao aplicar. Cabeçalho = 1 path por campo (chave do
+  // ColabBlob). `subs`/modo-simples/`pendingAssign` marcam as 3 chaves GRÃO-GROSSO do ColabBlob
+  // (`subsBlob`/`simplesBlob`/`pendingAssign`) — são as chaves que o mergeDraft realmente itera
+  // (`Object.keys(fresh)`), então têm que bater literalmente pra ele achar o campo touched certo.
+  const setNome: typeof setNomeRaw = (v) => { touchedRef.current.add("nome"); setNomeRaw(v); };
+  const setAnoId: typeof setAnoIdRaw = (v) => { touchedRef.current.add("anoId"); setAnoIdRaw(v); };
+  const setMesId: typeof setMesIdRaw = (v) => { touchedRef.current.add("mesId"); setMesIdRaw(v); };
+  const setOrcamento: typeof setOrcamentoRaw = (v) => { touchedRef.current.add("orcamento"); setOrcamentoRaw(v); };
+  const setWeeks: typeof setWeeksRaw = (v) => { touchedRef.current.add("simplesBlob"); setWeeksRaw(v); };
+  const setWeeksMeta: typeof setWeeksMetaRaw = (v) => { touchedRef.current.add("simplesBlob"); setWeeksMetaRaw(v); };
+  const setWeekCats: typeof setWeekCatsRaw = (v) => { touchedRef.current.add("simplesBlob"); setWeekCatsRaw(v); };
+  const setSubs: typeof setSubsRaw = (v) => { touchedRef.current.add("subsBlob"); setSubsRaw(v); };
+  const setPendingAssign: typeof setPendingAssignRaw = (v) => { touchedRef.current.add("pendingAssign"); setPendingAssignRaw(v); };
+
+  // Espelhos SEMPRE atualizados do estado vivo p/ o merge no onError do save (roda após um
+  // await; ler da closure descartaria teclas digitadas na janela do save). Espelha OC P.Acabado.
+  const liveRef = useRef({ nome, anoId, mesId, orcamento, subs, weeks, weeksMeta, weekCats, pendingAssign });
+  liveRef.current = { nome, anoId, mesId, orcamento, subs, weeks, weeksMeta, weekCats, pendingAssign };
+
   // Coleção NOVA: ao abrir o sheet, cria automaticamente a 1ª subcoleção (paridade com o
   // fluxo PV). Nasce "Subcoleção 1" (não em branco) p/ SOBREVIVER ao filtro de nome-vazio do
   // save (persistColecao descarta sub sem nome). One-shot por montagem: excluir manualmente
   // NÃO recria; coleção EXISTENTE nunca passa aqui (o hydrate cuida dela); a sub entra no
-  // save (otb_salvar_colecao) como INSERT normal (id null), sem tocar a RPC.
+  // save (otb_salvar_colecao) como INSERT normal (id null), sem tocar a RPC. Usa o setter CRU
+  // (RawSet) — auto-seed de coleção nova não é "edição minha" a defender em merge (não há
+  // servidor ainda pra essa coleção).
   const autoSubFeita = useRef(false);
   useEffect(() => {
     if (colecaoId || autoSubFeita.current || subs.length > 0) return;
     autoSubFeita.current = true;
-    setSubs((p) => [...p, { key: crypto.randomUUID(), id: null, nome: "Subcoleção 1", weeks: {}, meta: {}, cats: {} }]);
+    setSubsRaw((p) => [...p, { key: crypto.randomUUID(), id: null, nome: "Subcoleção 1", weeks: {}, meta: {}, cats: {} }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colecaoId, subs.length]);
-  const [pendingAssign, setPendingAssign] = useState<PendingAssign>({}); // atribuições feitas no editor, gravadas no Save
-  const [confirmDel, setConfirmDel] = useState(false);
 
   const formSnapshot = { nome, anoId, mesId, orcamento, weeks, weeksMeta, weekCats, subs, pendingAssign };
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
@@ -298,14 +364,14 @@ export function ColecaoSheet({
       return col as any;
     },
   });
-  useEffect(() => {
-    if (!data) return;
-    setNome(data.nome ?? "");
-    setAnoId(data.ano_id ?? null);
-    setMesId(data.mes_id ?? null);
-    setOrcamento(data.orcamento != null ? String(data.orcamento) : "");
-    const allSem = (data.colecao_semanas ?? []) as { semana: string; qtd_planejada: number; subcolecao_id: string | null; texto: string | null; data: string | null }[];
-    const allCat = (data.colecao_semana_categorias ?? []) as { subcolecao_id: string | null; semana: string; categoria_id: string; qtd: number }[];
+
+  // Parse PURO do row cru → shape do editor (cabeçalho + modo simples + subList). Extraído do
+  // hydrate p/ ser reusado tanto no seed (1ª carga) quanto na reconciliação de P0409 (recarrega
+  // fora da query). NÃO gera `key` estável nova sem necessidade — cada chamada gera UUIDs novos
+  // pras subs (ok: `key` é local-only, nunca entra na comparação de merge — ver `subsParaCmp`).
+  const parseColecaoRow = (row: any) => {
+    const allSem = (row.colecao_semanas ?? []) as { semana: string; qtd_planejada: number; subcolecao_id: string | null; texto: string | null; data: string | null }[];
+    const allCat = (row.colecao_semana_categorias ?? []) as { subcolecao_id: string | null; semana: string; categoria_id: string; qtd: number }[];
     const catsFor = (subId: string | null): CatDist => {
       const out: CatDist = {};
       for (const c of allCat) if ((c.subcolecao_id ?? null) === subId) (out[c.semana] ??= {})[c.categoria_id] = c.qtd;
@@ -326,11 +392,8 @@ export function ColecaoSheet({
     const flat: Record<string, number | null> = {};
     for (const s of allSem) if (!s.subcolecao_id) flat[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
     const simples = normalizarTrio(flat, metaFor(null), catsFor(null));
-    setWeeks(simples.weeks);
-    setWeeksMeta(simples.meta);
-    setWeekCats(simples.cats);
     // Subcoleções ordenadas, cada uma com os seus lançamentos + distribuição por categoria.
-    const subList = ((data.colecao_subcolecoes ?? []) as { id: string; nome: string; ordem: number }[])
+    const subList = ((row.colecao_subcolecoes ?? []) as { id: string; nome: string; ordem: number }[])
       .slice()
       .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
       .map((sc) => {
@@ -339,15 +402,151 @@ export function ColecaoSheet({
         const t = normalizarTrio(wk, metaFor(sc.id), catsFor(sc.id));
         return { key: crypto.randomUUID(), id: sc.id, nome: sc.nome, weeks: t.weeks, meta: t.meta, cats: t.cats } as SubBlock;
       });
-    setSubs(subList);
-    setPendingAssign({}); // recarregou do banco → zera atribuições pendentes (já refletidas)
-    // Re-baseline do snapshot com os dados carregados (evita falso-dirty ao abrir).
-    const nextNome = data.nome ?? "";
-    const nextAnoId = data.ano_id ?? null;
-    const nextMesId = data.mes_id ?? null;
-    const nextOrcamento = data.orcamento != null ? String(data.orcamento) : "";
-    resetBaseline({ nome: nextNome, anoId: nextAnoId, mesId: nextMesId, orcamento: nextOrcamento, weeks: simples.weeks, weeksMeta: simples.meta, weekCats: simples.cats, subs: subList, pendingAssign: {} });
+    return {
+      nome: row.nome ?? "" as string,
+      anoId: (row.ano_id ?? null) as string | null,
+      mesId: (row.mes_id ?? null) as string | null,
+      orcamento: (row.orcamento != null ? String(row.orcamento) : "") as string,
+      simples, subList,
+      otbRev: (row.otb_rev ?? null) as number | null,
+    };
+  };
+
+  // Seed (1ª carga) OU merge (refetch alheio — Realtime disparou onMudancaServidor). Espelha o
+  // padrão OC P.Acabado: cabeçalho por `mergeDraft` fino; subs/simples/pendingAssign como 1 campo
+  // grão-grosso (`subsParaCmp` exclui a `key` local antes de comparar).
+  useEffect(() => {
+    if (!data) return;
+    const parsed = parseColecaoRow(data);
+    const freshBlob: ColabBlob = {
+      nome: parsed.nome, anoId: parsed.anoId, mesId: parsed.mesId, orcamento: parsed.orcamento,
+      subsBlob: subsParaCmp(parsed.subList),
+      simplesBlob: { weeks: parsed.simples.weeks, weeksMeta: parsed.simples.meta, weekCats: parsed.simples.cats },
+      pendingAssign: {},
+    };
+
+    if (!baseRef.current) {
+      // 1ª carga: seed normal (setters CRUS — não marcar nada como tocado).
+      baseRef.current = freshBlob;
+      freshParsedRef.current = { simples: parsed.simples, subList: parsed.subList };
+      setNomeRaw(parsed.nome);
+      setAnoIdRaw(parsed.anoId);
+      setMesIdRaw(parsed.mesId);
+      setOrcamentoRaw(parsed.orcamento);
+      setWeeksRaw(parsed.simples.weeks);
+      setWeeksMetaRaw(parsed.simples.meta);
+      setWeekCatsRaw(parsed.simples.cats);
+      setSubsRaw(parsed.subList);
+      setPendingAssignRaw({});
+      setOtbRev(parsed.otbRev);
+      touchedRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      resetBaseline({ nome: parsed.nome, anoId: parsed.anoId, mesId: parsed.mesId, orcamento: parsed.orcamento, weeks: parsed.simples.weeks, weeksMeta: parsed.simples.meta, weekCats: parsed.simples.cats, subs: parsed.subList, pendingAssign: {} });
+      return;
+    }
+
+    // Refetch: MERGE em vez de sobrescrever. draft atual (comparado por valor JSON via `igual`
+    // dentro de mergeDraft — cobre tanto os 4 campos escalares quanto o bloco grão-grosso).
+    const draftBlob: ColabBlob = {
+      nome: liveRef.current.nome, anoId: liveRef.current.anoId, mesId: liveRef.current.mesId, orcamento: liveRef.current.orcamento,
+      subsBlob: subsParaCmp(liveRef.current.subs),
+      simplesBlob: { weeks: liveRef.current.weeks, weeksMeta: liveRef.current.weeksMeta, weekCats: liveRef.current.weekCats },
+      pendingAssign: liveRef.current.pendingAssign,
+    };
+    const md = mergeDraft({ base: baseRef.current, draft: draftBlob, fresh: freshBlob, touched: touchedRef.current });
+    const semResultado = md.atualizados.length === 0 && md.conflitos.length === 0;
+    if (semResultado) {
+      // No-op (inclui o refetch que o onError do P0409 já processou): não tocar em nenhum state.
+      baseRef.current = freshBlob;
+      freshParsedRef.current = { simples: parsed.simples, subList: parsed.subList };
+      setOtbRev(parsed.otbRev);
+      return;
+    }
+    // Campos escalares atualizados/sem conflito aplicam direto; subsBlob/simplesBlob/pendingAssign
+    // (grão-grosso) — se atualizados sem conflito, REHIDRATA a partir do subList/simples
+    // RECÉM-PARSEADOS (o valor de `md.valor.subsBlob`/`simplesBlob` não carrega `key`/estrutura
+    // completa de volta — é só o objeto de comparação sem os UUIDs locais).
+    if (md.atualizados.includes("nome") || md.conflitos.some((c) => c.path === "nome")) setNomeRaw(md.valor.nome);
+    if (md.atualizados.includes("anoId") || md.conflitos.some((c) => c.path === "anoId")) setAnoIdRaw(md.valor.anoId);
+    if (md.atualizados.includes("mesId") || md.conflitos.some((c) => c.path === "mesId")) setMesIdRaw(md.valor.mesId);
+    if (md.atualizados.includes("orcamento") || md.conflitos.some((c) => c.path === "orcamento")) setOrcamentoRaw(md.valor.orcamento);
+    // Aplica cada dimensão grão-grosso INDEPENDENTEMENTE (só a que foi atualizada sem conflito) —
+    // um wipe conjunto apagaria `pendingAssign` (atribuições em voo dos não-classificados) quando o
+    // servidor mexeu só nas SUBS e eu não toquei em nada disso (achado da revisão adversarial: perda
+    // silenciosa de trabalho não salvo). `mudouNoServidor` só é true p/ subsBlob/simplesBlob (o
+    // fresh.pendingAssign é sempre {} = base, então "pendingAssign" nunca entra em atualizados).
+    if (md.atualizados.includes("subsBlob") && !md.conflitos.some((c) => c.path === "subsBlob")) {
+      setSubsRaw(parsed.subList);
+    }
+    if (md.atualizados.includes("simplesBlob") && !md.conflitos.some((c) => c.path === "simplesBlob")) {
+      setWeeksRaw(parsed.simples.weeks);
+      setWeeksMetaRaw(parsed.simples.meta);
+      setWeekCatsRaw(parsed.simples.cats);
+    }
+    // estruturaConflito: mantém o MEU estado local (subs/weeks/... já são os meus valores) —
+    // o conflito fica visível no ColabBanner ("estrutura de subcoleções/semanas divergiu");
+    // resolução "usar o novo" (ver resolverPorPath) aplica o fresh sob demanda.
+    conflitosRef.current = md.conflitos;
+    setConflitos(md.conflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+    baseRef.current = freshBlob;
+    freshParsedRef.current = { simples: parsed.simples, subList: parsed.subList };
+    setOtbRev(parsed.otbRev);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: colecaoId ? `colab-otb-colecao:${colecaoId}` : null,
+    tabela: "colecoes",
+    registroId: colecaoId ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["otb-colecao", colecaoId] }),
+    campoFocado: campoFocadoColab,
+  });
+
+  // ── Resolução de conflito (ColabBanner) ──────────────────────────────────────
+  // "usar o novo" (dele) grava o valor do servidor e tira do touched; "manter meu" só
+  // descarta o aviso. Path "estrutura" (subsBlob/simplesBlob/pendingAssign) reidrata do
+  // ÚLTIMO fresh visto (`freshParsedRef`), não do valor resumido guardado no Conflito.
+  const ROTULO_CONFLITO_OTB: Record<string, string> = {
+    nome: "Nome da coleção", anoId: "Ano", mesId: "Mês", orcamento: "Orçamento",
+    subsBlob: "Subcoleções e lançamentos", simplesBlob: "Lançamentos (sem subcoleção)",
+    pendingAssign: "Atribuições de cards não classificados",
+  };
+  const rotuloConflito = (path: string) => ROTULO_CONFLITO_OTB[path] ?? path;
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path === "subsBlob" || path === "simplesBlob" || path === "pendingAssign") {
+        // Grão-grosso: reidrata os TRÊS juntos a partir do fresh completo — a estrutura é uma
+        // unidade só (mesmo que o conflito tenha nascido numa chave específica do ColabBlob).
+        const fp = freshParsedRef.current;
+        if (fp) {
+          setSubsRaw(fp.subList);
+          setWeeksRaw(fp.simples.weeks);
+          setWeeksMetaRaw(fp.simples.meta);
+          setWeekCatsRaw(fp.simples.cats);
+          setPendingAssignRaw({});
+        }
+        touchedRef.current.delete("subsBlob");
+        touchedRef.current.delete("simplesBlob");
+        touchedRef.current.delete("pendingAssign");
+        conflitosRef.current = conflitosRef.current.filter((x) => x.path !== "subsBlob" && x.path !== "simplesBlob" && x.path !== "pendingAssign");
+        setConflitos(conflitosRef.current);
+        if (conflitosRef.current.length === 0) setUltimoMerge(null);
+        return;
+      }
+      if (path === "nome") setNomeRaw(c.dele as string);
+      else if (path === "anoId") setAnoIdRaw(c.dele as string | null);
+      else if (path === "mesId") setMesIdRaw(c.dele as string | null);
+      else if (path === "orcamento") setOrcamentoRaw(c.dele as string);
+      touchedRef.current.delete(path);
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  const temConflito = conflitos.length > 0;
 
   // Queries para painel de resumo (só quando editando coleção existente)
   const { data: modelos = [] } = useQuery({
@@ -447,7 +646,12 @@ export function ColecaoSheet({
 
   // Helper compartilhado: persiste a coleção + semanas, devolve o id.
   // NÃO exibe toast nem fecha o sheet — quem chama é responsável por isso.
+  const isEdit = !!colecaoId;
   const persistColecao = async (): Promise<string> => {
+    // Guard SÍNCRONO contra salvar com conflito pendente (o disabled do botão é state async;
+    // chamado de dentro do mutationFn de save/confirmar, ambos passam por aqui).
+    if (conflitosRef.current.length > 0)
+      throw erroValidacao("Resolva os conflitos listados no aviso antes de salvar.");
     if (!nome.trim()) throw new Error("Informe o nome da coleção.");
     const cleanSubs = subs.map((s) => ({ ...s, nome: s.nome.trim() })).filter((s) => s.nome !== "");
     const nomesLower = cleanSubs.map((s) => s.nome.toLowerCase());
@@ -487,10 +691,61 @@ export function ColecaoSheet({
           sub_nome: a.subKey ? (subs.find((s) => s.key === a.subKey)?.nome.trim() || null) : null,
           semana: a.sem,
         })),
+        // Trava otimista (Fase 3): o banco lê `_payload->>'rev_base'` e dá P0409 se `otb_rev`
+        // divergir. null/ausente = bypass (coleção nova, ou merge já reconciliou/reidratou).
+        rev_base: isEdit ? otbRev : null,
       },
     });
     if (error) throw error;
     return id as string;
+  };
+
+  // Reconcilia um P0409 (alguém salvou no meio): recarrega a coleção do servidor e funde (mantém
+  // minhas edições via mergeDraft, sinaliza conflito onde EU e o servidor divergem). Compartilhado
+  // pelo save e pelo confirmar (os dois chamam persistColecao). Lê o estado dos *liveRef* (roda
+  // após um await — a closure descartaria teclas digitadas na janela do save).
+  const reconciliarP0409 = async () => {
+    if (!colecaoId) return;
+    toast.warning("Alguém salvou esta coleção agora — confira os itens em conflito.");
+    const { data: row, error } = await supabase.from("colecoes")
+      .select("*, colecao_semanas(semana, qtd_planejada, subcolecao_id, texto, data), colecao_subcolecoes(id, nome, ordem), colecao_semana_categorias(subcolecao_id, semana, categoria_id, qtd)")
+      .eq("id", colecaoId).maybeSingle();
+    if (error || !row) return;
+    const parsed = parseColecaoRow(row);
+    const freshBlob: ColabBlob = {
+      nome: parsed.nome, anoId: parsed.anoId, mesId: parsed.mesId, orcamento: parsed.orcamento,
+      subsBlob: subsParaCmp(parsed.subList),
+      simplesBlob: { weeks: parsed.simples.weeks, weeksMeta: parsed.simples.meta, weekCats: parsed.simples.cats },
+      pendingAssign: {},
+    };
+    const base = baseRef.current ?? freshBlob;
+    const draftBlob: ColabBlob = {
+      nome: liveRef.current.nome, anoId: liveRef.current.anoId, mesId: liveRef.current.mesId, orcamento: liveRef.current.orcamento,
+      subsBlob: subsParaCmp(liveRef.current.subs),
+      simplesBlob: { weeks: liveRef.current.weeks, weeksMeta: liveRef.current.weeksMeta, weekCats: liveRef.current.weekCats },
+      pendingAssign: liveRef.current.pendingAssign,
+    };
+    const md = mergeDraft({ base, draft: draftBlob, fresh: freshBlob, touched: touchedRef.current });
+    if (md.atualizados.includes("nome") || md.conflitos.some((c) => c.path === "nome")) setNomeRaw(md.valor.nome);
+    if (md.atualizados.includes("anoId") || md.conflitos.some((c) => c.path === "anoId")) setAnoIdRaw(md.valor.anoId);
+    if (md.atualizados.includes("mesId") || md.conflitos.some((c) => c.path === "mesId")) setMesIdRaw(md.valor.mesId);
+    if (md.atualizados.includes("orcamento") || md.conflitos.some((c) => c.path === "orcamento")) setOrcamentoRaw(md.valor.orcamento);
+    // Cada dimensão grão-grosso independente (não zera pendingAssign no wipe de subs — ver o merge
+    // principal e o achado da revisão adversarial).
+    if (md.atualizados.includes("subsBlob") && !md.conflitos.some((c) => c.path === "subsBlob")) {
+      setSubsRaw(parsed.subList);
+    }
+    if (md.atualizados.includes("simplesBlob") && !md.conflitos.some((c) => c.path === "simplesBlob")) {
+      setWeeksRaw(parsed.simples.weeks);
+      setWeeksMetaRaw(parsed.simples.meta);
+      setWeekCatsRaw(parsed.simples.cats);
+    }
+    conflitosRef.current = md.conflitos;
+    setConflitos(md.conflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+    baseRef.current = freshBlob;
+    freshParsedRef.current = { simples: parsed.simples, subList: parsed.subList };
+    setOtbRev(parsed.otbRev);
   };
 
   const isConfirmada = data?.status === "confirmada";
@@ -523,7 +778,10 @@ export function ColecaoSheet({
       invalidarDownstream();
       onSaved(); onClose();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar coleção")),
+    onError: async (e: any) => {
+      if (e?.code === "P0409") await reconciliarP0409();
+      else toast.error(mensagemErro(e, "Erro ao salvar coleção"));
+    },
   });
 
   const confirmar = useMutation({
@@ -541,7 +799,10 @@ export function ColecaoSheet({
       invalidarDownstream();
       onSaved(); onClose();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar coleção")),
+    onError: async (e: any) => {
+      if (e?.code === "P0409") await reconciliarP0409();
+      else toast.error(mensagemErro(e, "Erro ao confirmar coleção"));
+    },
   });
 
   const desconfirmar = useMutation({
@@ -584,7 +845,30 @@ export function ColecaoSheet({
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </SheetTitle>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div
+          ref={colabScopeRef}
+          className="flex-1 overflow-y-auto p-4 space-y-4"
+          onFocusCapture={(e) => {
+            const scope = colabScopeRef.current;
+            if (!scope) return;
+            const path = pathDoElemento(e.target as HTMLElement, scope);
+            if (path) setCampoFocadoColab(path);
+          }}
+          onBlurCapture={(e) => {
+            // Só limpa se o foco NÃO for pra outro campo dentro do mesmo scope (evita
+            // piscar entre campos vizinhos — mesmo padrão do molde OC P.Acabado).
+            const next = e.relatedTarget as HTMLElement | null;
+            if (!next || !colabScopeRef.current?.contains(next)) setCampoFocadoColab(null);
+          }}
+        >
+          <ColabBanner
+            presentes={presentesColab}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverPorPath}
+            rotulo={rotuloConflito}
+          />
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <div className="grid gap-1"><Label>Nome de Coleção</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} /></div>
           <div className="grid sm:grid-cols-3 gap-3">
             <div className="grid gap-1"><Label>Ano</Label>
@@ -673,7 +957,7 @@ export function ColecaoSheet({
             </Button>
           )}
           {!isConfirmada ? (
-            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending} aria-label="Confirmar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending || temConflito} aria-label="Confirmar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
             </Button>
@@ -683,7 +967,7 @@ export function ColecaoSheet({
               <span className="max-sm:sr-only">{desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}</span>
             </Button>
           )}
-          <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending} aria-label="Salvar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending || temConflito} aria-label="Salvar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <Save className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">{save.isPending ? "Salvando…" : "Salvar"}</span>
           </Button>

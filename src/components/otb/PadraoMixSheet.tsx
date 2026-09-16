@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/shared/MoneyInput";
@@ -28,7 +30,8 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
  */
 
 type LinhaMix = { id: string; linhaId: string; numModelos: number; aParte: boolean; profCor: number; cores: number; min: number; max: number };
-type Draft = { nome: string; linhas: LinhaMix[] };
+// rev = versão otimista do padrão (colab Fase 3). Read-only, bumpa por trigger no servidor.
+type Draft = { nome: string; linhas: LinhaMix[]; rev: number };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
@@ -41,7 +44,7 @@ function mapFromDb(p: any): Draft {
     id: l.id, linhaId: l.linha_id ?? "", numModelos: Number(l.num_modelos) || 0, aParte: !!l.a_parte,
     profCor: Number(l.prof_cor) || 0, cores: Number(l.cores) || 0, min: Number(l.preco_min) || 0, max: Number(l.preco_max) || 0,
   }));
-  return { nome: p.nome, linhas };
+  return { nome: p.nome, linhas, rev: Number(p.rev) || 0 };
 }
 
 export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
@@ -51,7 +54,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
     queryKey: ["mix-padroes", "full"],
     queryFn: async () => {
       const { data, error } = await supabase.from("mix_padroes" as any)
-        .select("id, nome, linhas:mix_padrao_linhas(id, linha_id, num_modelos, a_parte, prof_cor, cores, preco_min, preco_max, ordem)").order("nome");
+        .select("id, nome, rev, linhas:mix_padrao_linhas(id, linha_id, num_modelos, a_parte, prof_cor, cores, preco_min, preco_max, ordem)").order("nome");
       if (error) throw error;
       return (data ?? []) as any[];
     },
@@ -60,8 +63,18 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const markupDe = (linhaId: string) => Number((linhaOpts as any[]).find((l) => l.id === linhaId)?.markup) || 0;
 
   const [selId, setSelId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ nome: "", linhas: [] });
+  const [draft, setDraft] = useState<Draft>({ nome: "", linhas: [], rev: 0 });
   const [draftFor, setDraftFor] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+
+  // Colab (Fase 3): ring de presença + reação a save alheio no MESMO padrão. Sem merge campo-a-campo
+  // (decisão do dono: template de baixa concorrência) — só a trava P0409 + recarrega em conflito.
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: selId ? `colab-otb-mix:${selId}` : null,
+    tabela: "mix_padroes",
+    registroId: selId,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["mix-padroes", "full"] }),
+  });
   const [dirty, setDirty] = useState(false);
   const [editNome, setEditNome] = useState(false);
   // Trocar de padrão / excluir com edição pendente descartaria o rascunho — confirma antes.
@@ -97,12 +110,25 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
         linha_id: l.linhaId || null, num_modelos: l.numModelos, a_parte: l.aParte,
         prof_cor: l.profCor, cores: l.cores, preco_min: l.min, preco_max: l.max,
       }));
-      const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, { _id: selId, _nome: draft.nome.trim(), _linhas: payload });
+      const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, {
+        _id: selId, _nome: draft.nome.trim(), _linhas: payload,
+        _rev_base: selId ? draft.rev : null, // P0409 se outra pessoa salvou este padrão no meio
+      });
       if (error) throw error;
       return data as string;
     },
     onSuccess: () => { toast.success("Padrão salvo."); setDirty(false); qc.invalidateQueries({ queryKey: ["mix-padroes"] }); },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o padrão.")),
+    onError: (e: any) => {
+      if (e?.code === "P0409") {
+        // Outra pessoa salvou este padrão: recarrega a versão do servidor (sem merge campo-a-campo —
+        // template de baixa concorrência) e avisa. O usuário reaplica a edição se ainda quiser.
+        toast.warning("Alguém salvou este padrão agora — recarreguei a versão mais recente.");
+        setDraftFor(null); // força o useEffect a re-hidratar o draft do refetch
+        qc.invalidateQueries({ queryKey: ["mix-padroes", "full"] });
+      } else {
+        toast.error(mensagemErro(e, "Erro ao salvar o padrão."));
+      }
+    },
   });
   const criar = useMutation({
     mutationFn: async () => { const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, { _id: null, _nome: `Padrão ${padroes.length + 1}`, _linhas: [] }); if (error) throw error; return data as string; },
@@ -133,7 +159,8 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
           </div>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={colabScopeRef} className="relative flex-1 overflow-y-auto p-4 space-y-4">
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <p className="text-sm text-muted-foreground">
             Defaults que uma coleção por <strong>Poder de Venda</strong> herda. Por linha: o <strong>nº de modelos</strong>
             {" "}(a <strong>%</strong> é calculada), profundidade/cor, cores e a faixa de preço mín–máx (markup vem do cadastro).

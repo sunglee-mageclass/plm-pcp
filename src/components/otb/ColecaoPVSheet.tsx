@@ -7,6 +7,12 @@ import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/Unsave
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { supabase } from "@/integrations/supabase/client";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import { pathDoElemento } from "@/lib/colab/colab-field-path";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
+import { erroValidacao } from "@/components/produto-acabado/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -42,6 +48,14 @@ type Subcolecao = { id: string; dbId?: string | null; nome: string; semanas: num
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
+// Versão de `subs` p/ COMPARAÇÃO de merge (colab Fase 3): os `id` locais (`Subcolecao.id`/
+// `LinhaSub.id`) são gerados de novo (`nid`) a cada mapeamento de `loaded` — comparar o array
+// bruto por valor (`igual()`) sempre acharia diferença mesmo sem mudança real no servidor.
+// Troca `id` por um índice posicional estável (dbId ausente = subcoleção nova local, sem
+// contrapartida no banco — usa o índice mesmo).
+const paraComparacao = (list: Subcolecao[]) =>
+  list.map((s) => ({ dbId: s.dbId ?? null, nome: s.nome, semanas: s.semanas, datasSemanas: s.datasSemanas,
+    linhas: s.linhas.map((l) => ({ linhaId: l.linhaId, aParte: l.aParte, profCor: l.profCor, cores: l.cores, min: l.min, max: l.max, q: l.q })) }));
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
 const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const totLinha = (l: LinhaSub, semanas: number[]) => semanas.reduce((s, w) => s + (Number(l.q[String(w)]) || 0), 0);
@@ -159,20 +173,60 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const [savedId, setSavedId] = useState<string | null>(colecaoId);
   const [confirmada, setConfirmada] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [padraoId, setPadraoId] = useState("");
-  const [nome, setNome] = useState("");
-  const [mesId, setMesId] = useState("");
-  const [anoId, setAnoId] = useState("");
-  const [meta, setMeta] = useState(0);
-  const [perda, setPerda] = useState(25);
-  const [subs, setSubs] = useState<Subcolecao[]>([]);
+  const [padraoId, setPadraoIdRaw] = useState("");
+  const [nome, setNomeRaw] = useState("");
+  const [mesId, setMesIdRaw] = useState("");
+  const [anoId, setAnoIdRaw] = useState("");
+  const [meta, setMetaRaw] = useState(0);
+  const [perda, setPerdaRaw] = useState(25);
+  const [subs, setSubsRaw] = useState<Subcolecao[]>([]);
   const [aberta, setAberta] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
+
+  // ---- Colab (Fase 3): cabeçalho escalar funde por `mergeDraft`; `subs` (árvore de
+  // subcoleção+linhas, ids LOCAIS sem contrapartida estável no banco — a RPC recria tudo do
+  // zero) funde como campo ÚNICO grão-grosso — `igual()` já compara o array inteiro por
+  // valor; qualquer divergência estrutural vira 1 conflito "estrutura divergiu" (all-or-nothing,
+  // aprovado pelo dono — merge fino exigiria id estável nas linhas, fora de escopo aqui).
+  const touchedRef = useRef<Set<string>>(new Set());
+  const baseRef = useRef<{ nome: string; mesId: string; anoId: string; padraoId: string; meta: number; perda: number; subs: Subcolecao[] } | null>(null);
+  const revRef = useRef<number | null>(null);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  // Espelhos SEMPRE atualizados p/ o merge no onError do save (roda após um await; ler da
+  // closure descartaria teclas digitadas na janela do save) — espelha OC Aviamento/P.Acabado.
+  const nomeLiveRef = useRef(nome); nomeLiveRef.current = nome;
+  const mesIdLiveRef = useRef(mesId); mesIdLiveRef.current = mesId;
+  const anoIdLiveRef = useRef(anoId); anoIdLiveRef.current = anoId;
+  const padraoIdLiveRef = useRef(padraoId); padraoIdLiveRef.current = padraoId;
+  const metaLiveRef = useRef(meta); metaLiveRef.current = meta;
+  const perdaLiveRef = useRef(perda); perdaLiveRef.current = perda;
+  const subsLiveRef = useRef(subs); subsLiveRef.current = subs;
+
+  const setNome = (v: string) => { touchedRef.current.add("nome"); setNomeRaw(v); };
+  const setMesId = (v: string) => { touchedRef.current.add("mesId"); setMesIdRaw(v); };
+  const setAnoId = (v: string) => { touchedRef.current.add("anoId"); setAnoIdRaw(v); };
+  const setPadraoId = (v: string) => { touchedRef.current.add("padraoId"); setPadraoIdRaw(v); };
+  const setMeta = (v: number) => { touchedRef.current.add("meta"); setMetaRaw(v); };
+  const setPerda = (v: number) => { touchedRef.current.add("perda"); setPerdaRaw(v); };
+  // Todo mutator de `subs` (addSub/delSub/patchSub/setQ/…) passa por aqui — marca grão-grosso.
+  const setSubs: typeof setSubsRaw = (upd) => { touchedRef.current.add("subs"); setSubsRaw(upd); };
 
   const formSnapshot = { nome, mesId, anoId, padraoId, meta, perda, subs };
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
   const dirty = changed;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
+  const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
+  const colabScopeRef = useRef<HTMLDivElement>(null);
+  const { presentes: presentesColab } = useColabRegistro({
+    canal: colecaoId ? `colab-otb-pv:${colecaoId}` : null,
+    tabela: "colecoes",
+    registroId: colecaoId ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["colecao-pv", colecaoId] }),
+    campoFocado: campoFocadoColab,
+  });
+  const temConflito = conflitos.length > 0;
 
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
@@ -194,7 +248,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     enabled: !!colecaoId,
     queryFn: async () => {
       const { data, error } = await supabase.from("colecoes" as any)
-        .select("id, nome, mes_id, ano_id, status, mix_padrao_id, poder_venda_meta, perda_markup, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas, datas_semanas), itens:colecao_pv_itens(id, subcolecao_id, linha_id, a_parte, prof_cor, cores, preco_min, preco_max, qtd_semanas, ordem)")
+        .select("id, nome, mes_id, ano_id, status, mix_padrao_id, poder_venda_meta, perda_markup, otb_rev, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas, datas_semanas), itens:colecao_pv_itens(id, subcolecao_id, linha_id, a_parte, prof_cor, cores, preco_min, preco_max, qtd_semanas, ordem)")
         .eq("id", colecaoId).single();
       if (error) throw error;
       return data as any;
@@ -218,15 +272,10 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     },
   });
 
-  useEffect(() => {
-    if (!colecaoId || !loaded || hydrated) return;
-    const c = loaded;
-    setNome(c.nome ?? ""); setMesId(c.mes_id ?? ""); setAnoId(c.ano_id ?? "");
-    setPadraoId(c.mix_padrao_id ?? ""); setMeta(Number(c.poder_venda_meta) || 0); setPerda(Number(c.perda_markup) || 25);
-    setConfirmada(c.status === "confirmada");
+  const mapearSubs = (c: any): Subcolecao[] => {
     const bySub: Record<string, any[]> = {};
     for (const it of (c.itens ?? [])) (bySub[it.subcolecao_id] ??= []).push(it);
-    const mapped: Subcolecao[] = [...(c.subcolecoes ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((sc: any) => {
+    return [...(c.subcolecoes ?? [])].sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((sc: any) => {
       const its = [...(bySub[sc.id] ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
       const linhas: LinhaSub[] = its.map((it) => ({
         id: nid("l"), linhaId: it.linha_id ?? "", aParte: !!it.a_parte, profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0,
@@ -239,10 +288,75 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
       const linhasNorm = linhas.map((l) => ({ ...l, q: remapChaves(l.q, remap) }));
       return { id: nid("s"), dbId: sc.id ?? null, nome: sc.nome, semanas, datasSemanas, linhas: linhasNorm };
     });
-    setSubs(mapped); setHydrated(true);
-    // Re-baseline do snapshot com os dados carregados (evita falso-dirty ao abrir).
-    resetBaseline({ nome: c.nome ?? "", mesId: c.mes_id ?? "", anoId: c.ano_id ?? "", padraoId: c.mix_padrao_id ?? "", meta: Number(c.poder_venda_meta) || 0, perda: Number(c.perda_markup) || 25, subs: mapped });
-  }, [colecaoId, loaded, hydrated]);
+  };
+
+  // Colab Fase 3: 1ª carga = SEED (setters CRUS, sem marcar touched); refetch subsequente
+  // (meu próprio save ecoando OU alguém mais salvando) = MERGE 3-vias. Cabeçalho escalar via
+  // `mergeDraft`; `subs` é comparado pela versão NORMALIZADA (`paraComparacao`, sem os ids
+  // locais voláteis) mas o VALOR final aplicado — quando não-touched e mudou no servidor, ou
+  // ao resolver "usar o novo" — é sempre o array remapeado inteiro vindo de `mapearSubs(fresh)`
+  // (com ids locais novos e estáveis o bastante p/ esta sessão de render).
+  useEffect(() => {
+    if (!colecaoId || !loaded) return;
+    const c = loaded;
+    const freshHeader = { nome: c.nome ?? "", mesId: c.mes_id ?? "", anoId: c.ano_id ?? "", padraoId: c.mix_padrao_id ?? "", meta: Number(c.poder_venda_meta) || 0, perda: Number(c.perda_markup) || 25 };
+    const freshSubs = mapearSubs(c);
+    revRef.current = (c as any).otb_rev ?? null;
+
+    if (!baseRef.current) {
+      // 1ª carga: seed cru — nada marcado como tocado.
+      setNomeRaw(freshHeader.nome); setMesIdRaw(freshHeader.mesId); setAnoIdRaw(freshHeader.anoId);
+      setPadraoIdRaw(freshHeader.padraoId); setMetaRaw(freshHeader.meta); setPerdaRaw(freshHeader.perda);
+      setConfirmada(c.status === "confirmada");
+      setSubsRaw(freshSubs);
+      touchedRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      baseRef.current = { ...freshHeader, subs: freshSubs };
+      resetBaseline({ ...freshHeader, subs: freshSubs });
+      return;
+    }
+
+    setConfirmada(c.status === "confirmada");
+    const base = baseRef.current;
+    const draftHeader = { nome: nomeLiveRef.current, mesId: mesIdLiveRef.current, anoId: anoIdLiveRef.current, padraoId: padraoIdLiveRef.current, meta: metaLiveRef.current, perda: perdaLiveRef.current };
+    const baseHeader = { nome: base.nome, mesId: base.mesId, anoId: base.anoId, padraoId: base.padraoId, meta: base.meta, perda: base.perda };
+    const md = mergeDraft({ base: baseHeader, draft: draftHeader, fresh: freshHeader, touched: touchedRef.current });
+
+    // `subs`: comparação por valor NORMALIZADO (sem ids locais); grão-grosso — toda a árvore
+    // é uma unidade (a RPC recria as linhas do zero, sem id estável p/ merge fino).
+    const subsTouched = touchedRef.current.has("subs");
+    const baseCmp = JSON.stringify(paraComparacao(base.subs));
+    const freshCmp = JSON.stringify(paraComparacao(freshSubs));
+    const meuCmp = JSON.stringify(paraComparacao(subsLiveRef.current));
+    const mudouNoServidor = baseCmp !== freshCmp;
+    let subsConflito: Conflito | null = null;
+    let subsAtualizou = false;
+    let subsValor = subsLiveRef.current;
+    if (!subsTouched) {
+      if (mudouNoServidor) { subsValor = freshSubs; subsAtualizou = true; }
+    } else if (mudouNoServidor && meuCmp !== freshCmp) {
+      subsConflito = { path: "subs", meu: "(edições locais nas subcoleções)", dele: "(alguém alterou as subcoleções)" };
+      subsValor = subsLiveRef.current; // mantém o meu
+    }
+
+    const todosConflitos = [...md.conflitos, ...(subsConflito ? [subsConflito] : [])];
+    const semResultado = md.atualizados.length === 0 && todosConflitos.length === 0 && !subsAtualizou;
+    if (semResultado) {
+      baseRef.current = { ...freshHeader, subs: freshSubs };
+      return;
+    }
+    if (md.atualizados.length > 0 || md.conflitos.length > 0) {
+      setNomeRaw(md.valor.nome); setMesIdRaw(md.valor.mesId); setAnoIdRaw(md.valor.anoId);
+      setPadraoIdRaw(md.valor.padraoId); setMetaRaw(md.valor.meta); setPerdaRaw(md.valor.perda);
+    }
+    if (subsAtualizou) setSubsRaw(subsValor);
+    conflitosRef.current = todosConflitos;
+    setConflitos(todosConflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length + (subsAtualizou ? 1 : 0), conflitos: todosConflitos });
+    baseRef.current = { ...freshHeader, subs: freshSubs };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colecaoId, loaded]);
 
   const cloneDoPadrao = (): LinhaSub[] => {
     const p = (padroes as any[]).find((x) => x.id === padraoId);
@@ -317,7 +431,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const addLinha = (sid: string) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, linhas: [...s.linhas, { id: nid("l"), linhaId: "", aParte: false, profCor: 64, cores: 3, min: 0, max: 0, q: {} }] } : s)));
 
   const salvarRaw = async (): Promise<string> => {
-    const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
+    // Guard SÍNCRONO contra salvar com conflito pendente (o disabled do botão é state async).
+    if (conflitosRef.current.length > 0)
+      throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
+    const isEdit = !!savedId;
+    const _header: Record<string, unknown> = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
+    // `_rev_base`: o banco lê `_header->>'rev_base'`; null/ausente = bypass (coleção nova).
+    _header.rev_base = isEdit ? revRef.current : null;
     const _subcolecoes = subs.map((s) => ({
       id: s.dbId ?? null, nome: s.nome, semanas: s.semanas,
       // Data resolvida (override ?? default do calendário) p/ cada semana marcada.
@@ -338,11 +458,77 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
   };
   const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarDownstream(); onSaved?.(); };
-  const salvar = useMutation({ mutationFn: salvarRaw, onSuccess: (cid) => { toast.success("Coleção salva."); markClean(); feito(cid); }, onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")) });
+  // Reconcilia um P0409 (alguém salvou no meio): recarrega o servidor e funde (mantém minhas
+  // edições, sinaliza conflito onde EU e o servidor divergem). Lê os *LiveRef* (roda após um
+  // await — a closure descartaria teclas digitadas na janela do save).
+  const reconciliarP0409 = async () => {
+    if (!colecaoId && !savedId) return;
+    const cid = colecaoId ?? savedId!;
+    toast.warning("Alguém salvou esta coleção agora — confira os itens em conflito.");
+    const { data: c } = await supabase.from("colecoes" as any)
+      .select("id, nome, mes_id, ano_id, status, mix_padrao_id, poder_venda_meta, perda_markup, otb_rev, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas, datas_semanas), itens:colecao_pv_itens(id, subcolecao_id, linha_id, a_parte, prof_cor, cores, preco_min, preco_max, qtd_semanas, ordem)")
+      .eq("id", cid).maybeSingle();
+    if (!c) return;
+    const freshHeader = { nome: (c as any).nome ?? "", mesId: (c as any).mes_id ?? "", anoId: (c as any).ano_id ?? "", padraoId: (c as any).mix_padrao_id ?? "", meta: Number((c as any).poder_venda_meta) || 0, perda: Number((c as any).perda_markup) || 25 };
+    const freshSubs = mapearSubs(c);
+    const base = baseRef.current ?? { ...freshHeader, subs: freshSubs };
+    const baseHeader = { nome: base.nome, mesId: base.mesId, anoId: base.anoId, padraoId: base.padraoId, meta: base.meta, perda: base.perda };
+    const draftHeader = { nome: nomeLiveRef.current, mesId: mesIdLiveRef.current, anoId: anoIdLiveRef.current, padraoId: padraoIdLiveRef.current, meta: metaLiveRef.current, perda: perdaLiveRef.current };
+    const md = mergeDraft({ base: baseHeader, draft: draftHeader, fresh: freshHeader, touched: touchedRef.current });
+
+    const subsTouched = touchedRef.current.has("subs");
+    const baseCmp = JSON.stringify(paraComparacao(base.subs));
+    const freshCmp = JSON.stringify(paraComparacao(freshSubs));
+    const meuCmp = JSON.stringify(paraComparacao(subsLiveRef.current));
+    const mudouNoServidor = baseCmp !== freshCmp;
+    let subsConflito: Conflito | null = null;
+    let subsValor = subsLiveRef.current;
+    if (!subsTouched) {
+      if (mudouNoServidor) subsValor = freshSubs;
+    } else if (mudouNoServidor && meuCmp !== freshCmp) {
+      subsConflito = { path: "subs", meu: "(edições locais nas subcoleções)", dele: "(alguém alterou as subcoleções)" };
+      subsValor = subsLiveRef.current;
+    }
+
+    setNomeRaw(md.valor.nome); setMesIdRaw(md.valor.mesId); setAnoIdRaw(md.valor.anoId);
+    setPadraoIdRaw(md.valor.padraoId); setMetaRaw(md.valor.meta); setPerdaRaw(md.valor.perda);
+    setSubsRaw(subsValor);
+    const todos = [...md.conflitos, ...(subsConflito ? [subsConflito] : [])];
+    conflitosRef.current = todos;
+    setConflitos(todos);
+    setUltimoMerge({ atualizados: md.atualizados.length + (mudouNoServidor && !subsConflito ? 1 : 0), conflitos: todos });
+    baseRef.current = { ...freshHeader, subs: freshSubs };
+    revRef.current = (c as any).otb_rev ?? null;
+  };
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosRef.current.find((x) => x.path === path);
+    if (c && escolha === "dele") {
+      if (path === "subs") setSubsRaw(baseRef.current?.subs ?? subs);
+      else if (path === "nome") setNomeRaw(c.dele as string);
+      else if (path === "mesId") setMesIdRaw(c.dele as string);
+      else if (path === "anoId") setAnoIdRaw(c.dele as string);
+      else if (path === "padraoId") setPadraoIdRaw(c.dele as string);
+      else if (path === "meta") setMetaRaw(c.dele as number);
+      else if (path === "perda") setPerdaRaw(c.dele as number);
+      touchedRef.current.delete(path);
+    }
+    conflitosRef.current = conflitosRef.current.filter((x) => x.path !== path);
+    setConflitos(conflitosRef.current);
+    if (conflitosRef.current.length === 0) setUltimoMerge(null);
+  };
+  const rotuloConflito = (path: string): string => {
+    const map: Record<string, string> = { nome: "Nome", mesId: "Mês", anoId: "Ano", padraoId: "Padrão do mix", meta: "Poder de venda meta", perda: "Perda markup", subs: "Subcoleções" };
+    return map[path] ?? path;
+  };
+  const salvar = useMutation({
+    mutationFn: salvarRaw,
+    onSuccess: (cid) => { toast.success("Coleção salva."); markClean(); feito(cid); },
+    onError: async (e: any) => { if (e?.code === "P0409") await reconciliarP0409(); else toast.error(mensagemErro(e, "Erro ao salvar a coleção.")); },
+  });
   const confirmar = useMutation({
     mutationFn: async () => { const cid = await salvarRaw(); const { error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid }); if (error) throw error; return cid; },
     onSuccess: (cid) => { toast.success("Coleção confirmada."); markClean(); setConfirmada(true); feito(cid); },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar a coleção.")),
+    onError: async (e: any) => { if (e?.code === "P0409") await reconciliarP0409(); else toast.error(mensagemErro(e, "Erro ao confirmar a coleção.")); },
   });
   const desconfirmar = useMutation({
     mutationFn: async () => { if (!savedId) return; const { error } = await supabase.rpc("otb_desconfirmar" as any, { _colecao_id: savedId }); if (error) throw error; },
@@ -423,9 +609,19 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
             <StatusBadge tone={confirmada ? "success" : "warning"}>{confirmada ? "Confirmada" : "Rascunho"}</StatusBadge>
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
+          <ColabBanner presentes={presentesColab} ultimoMerge={ultimoMerge} conflitos={conflitos} onResolver={resolverPorPath} rotulo={rotuloConflito} />
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div
+          ref={colabScopeRef}
+          className="flex-1 overflow-y-auto p-4 space-y-4"
+          onFocusCapture={(e) => {
+            const scope = colabScopeRef.current;
+            setCampoFocadoColab(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
+          }}
+          onBlurCapture={() => setCampoFocadoColab(null)}
+        >
+          <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <Card className="p-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Nome</span>
@@ -604,16 +800,16 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400">
                 {desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}
               </Button>
-              <Button onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+              <Button onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
                 <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
               </Button>
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+              <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
                 <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
               </Button>
-              <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
+              <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de confirmar" : undefined} className="shrink-0">
                 <Check className="h-4 w-4 mr-1" /> Confirmar
               </Button>
             </>
