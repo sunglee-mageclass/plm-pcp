@@ -1669,6 +1669,11 @@ export function PlanejamentoDetail({
             {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </DialogTitle>
+          {/* REF logo abaixo do nome — read-only, discreta. Só aparece quando já existe (gerada no
+              Desenvolvimento, invariante #11); vazia no Planejamento pré-Dev fica oculta (mais clean). */}
+          {isEdit && draft.ref && (
+            <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
+          )}
           <ColabBanner
             presentes={presentes}
             ultimoMerge={ultimoMerge}
@@ -1705,18 +1710,6 @@ export function PlanejamentoDetail({
                 onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
                 colabPath="nome"
               />
-              {/* REF — READ-ONLY: a REF é gerada/gerida no Desenvolvimento (fluxo ref_auto→ref,
-                  invariante #11). No Planejamento (pré-Dev) costuma estar vazia — exibida só p/ consulta. */}
-              <div className="grid gap-1">
-                <Label>REF</Label>
-                <Input
-                  value={draft.ref || ""}
-                  readOnly
-                  disabled
-                  placeholder="Gerada no Desenvolvimento"
-                  className="disabled:opacity-100 disabled:cursor-default text-muted-foreground"
-                />
-              </div>
               <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
               <div className="grid gap-1">
                 <Label>Origem</Label>
