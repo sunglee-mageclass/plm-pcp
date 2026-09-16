@@ -75,6 +75,7 @@ export function useSignedUrlBucket(path: string | null | undefined) {
 
 export type Draft = {
   nome: string;
+  ref: string;          // REF do modelo — READ-ONLY no Planejamento (gerada no Desenvolvimento, inv. #11)
   estilista_id: string | null;
   linha_id: string | null;
   colecao: string;
@@ -104,7 +105,7 @@ export type Draft = {
   custo_simulado: CustoSimInput;
 };
 export const emptyDraft = (): Draft => ({
-  nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
+  nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null,
   subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, preco_atacado: null, markup_editado: null, data_lancamento: null,
   tecidos_planejados: [],
@@ -123,6 +124,7 @@ export const emptyDraft = (): Draft => ({
 export function draftFromModeloRow(data: any): Draft {
   return {
     nome: data.nome ?? "",
+    ref: data.ref ?? "",
     estilista_id: data.estilista_id,
     linha_id: data.linha_id ?? null,
     colecao: data.colecao ?? "",

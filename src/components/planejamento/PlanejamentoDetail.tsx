@@ -1220,6 +1220,10 @@ export function PlanejamentoDetail({
         observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
       };
+      // REF é READ-ONLY no Planejamento (só EXIBIDA) — gerada/gerida no fluxo do Desenvolvimento
+      // (ref_auto→ref, invariante #11). Herdada do `...draft` só p/ mostrar; nunca reenviar no save,
+      // senão um Salvar disparado por outro campo sobrescreveria a REF que o trigger controla.
+      delete payload.ref;
       // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
       // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
       // markup/OC (`_pa_recomputar_precos_modelo`), nunca mais digitados aqui. NÃO reenviar
@@ -1613,7 +1617,9 @@ export function PlanejamentoDetail({
       if (eFam) throw eFam;
       const maxV = (fam ?? []).reduce((m, r: any) => Math.max(m, r.versao ?? 1), 1);
       // A cópia mantém o nome do original; a versão é que diferencia.
-      const { versao: _v, modelo_base_id: _b, ...rest } = draft;
+      // Exclui `ref` do spread: a nova versão NÃO herda a REF do original — nasce sem REF e gera a
+      // própria quando chegar ao Desenvolvimento (fluxo ref_auto, invariante #11). REF é read-only aqui.
+      const { versao: _v, modelo_base_id: _b, ref: _ref, ...rest } = draft;
       const payload: any = {
         ...rest,
         status_planejamento: "em_planejamento",
@@ -1699,6 +1705,18 @@ export function PlanejamentoDetail({
                 onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
                 colabPath="nome"
               />
+              {/* REF — READ-ONLY: a REF é gerada/gerida no Desenvolvimento (fluxo ref_auto→ref,
+                  invariante #11). No Planejamento (pré-Dev) costuma estar vazia — exibida só p/ consulta. */}
+              <div className="grid gap-1">
+                <Label>REF</Label>
+                <Input
+                  value={draft.ref || ""}
+                  readOnly
+                  disabled
+                  placeholder="Gerada no Desenvolvimento"
+                  className="disabled:opacity-100 disabled:cursor-default text-muted-foreground"
+                />
+              </div>
               <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
               <div className="grid gap-1">
                 <Label>Origem</Label>
