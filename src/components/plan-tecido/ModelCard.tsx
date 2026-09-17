@@ -6,6 +6,8 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { OcHoverResumo } from "./OcHoverResumo";
+import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
 import { fmtInt } from "@/lib/format";
@@ -79,6 +81,8 @@ export function ModelCard({
   fornecTotal,
   dragHandle,
   variantesGrupoT1,
+  situacaoRows,
+  onAbrirOcDialog,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -116,6 +120,10 @@ export function ModelCard({
       Tecido 1 exibe as faltantes com qtd 0 (fantasma, editável — digitar promove p/ real).
       NÃO grava por exibir. undefined fora do Modo Plano (comportamento normal). */
   variantesGrupoT1?: PtVariante[];
+  /** Modo Plano: as OCs do dropdown do Dev viram clicáveis (→ dialog da OC) + popover no hover
+      (Cor·Pedido·Reserva·Sobra). `situacaoRows` alimenta o popover; `onAbrirOcDialog` abre o dialog. */
+  situacaoRows?: SituacaoOcRow[];
+  onAbrirOcDialog?: (ocId: string) => void;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -503,15 +511,34 @@ export function ModelCard({
                                 <Lock className="h-3 w-3" /> Vínculos do Desenvolvimento — congelam o custo
                               </div>
                               <div className="max-h-48 space-y-1 overflow-y-auto">
-                                {vinculos!.map((v) => (
-                                  <div key={v.oc_id} className="flex items-start gap-1.5 rounded border bg-muted/40 px-2 py-1 text-[11px]">
-                                    <Lock className="mt-0.5 h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-                                    <span className="min-w-0">
-                                      <span className="block font-medium tabular-nums">{v.numero_pedido || "OC s/ nº"}</span>
-                                      {v.tecidos && <span className="block truncate text-[10px] text-muted-foreground">{v.tecidos}</span>}
-                                    </span>
-                                  </div>
-                                ))}
+                                {vinculos!.map((v) => {
+                                  // Cada OC do Dev vira clicável (→ dialog completo) + popover no hover (só no
+                                  // Modo Plano, quando o pai passa situacaoRows/onAbrirOcDialog). Fora do Modo
+                                  // Plano segue como linha estática (sem dialog nem situacaoRows disponíveis).
+                                  const linha = (
+                                    <div className="flex items-start gap-1.5 rounded border bg-muted/40 px-2 py-1 text-[11px]">
+                                      <Lock className="mt-0.5 h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                                      <span className="min-w-0">
+                                        <span className="block font-medium tabular-nums">{v.numero_pedido || "OC s/ nº"}</span>
+                                        {v.tecidos && <span className="block truncate text-[10px] text-muted-foreground">{v.tecidos}</span>}
+                                      </span>
+                                    </div>
+                                  );
+                                  // Só torna interativa se a OC EXISTE em situacaoRows — o vínculo do Dev
+                                  // (`plan_tecido_vinculos_modelo`) pode apontar p/ OC ausente da situação (rolo /
+                                  // item cancelado / sem variante — a RPC de situação filtra esses). Sem isto,
+                                  // o clique caía no `return null` do dialog (dead-click) e o popover ficava vazio
+                                  // (achado C da revisão). Nesse caso deixa a linha estática.
+                                  const naSituacao = !!situacaoRows && situacaoRows.some((r) => r.oc_tecido_id === v.oc_id);
+                                  if (!onAbrirOcDialog || !situacaoRows || !naSituacao) return <div key={v.oc_id}>{linha}</div>;
+                                  return (
+                                    <OcHoverResumo key={v.oc_id} situacaoRows={situacaoRows} ocId={v.oc_id}>
+                                      <button type="button" onClick={() => onAbrirOcDialog(v.oc_id)} className="block w-full text-left hover:brightness-95">
+                                        {linha}
+                                      </button>
+                                    </OcHoverResumo>
+                                  );
+                                })}
                               </div>
                             </PopoverContent>
                           </Popover>

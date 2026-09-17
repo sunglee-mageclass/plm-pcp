@@ -239,10 +239,14 @@ function FormAplicarTecido({
   );
 }
 
-export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onClose }: {
+export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, focoModelo, onSubChange, onClose }: {
   colecaoId: string;
   /** subcolecao_id vindo da URL (?sub=; "none" = sub sem id) — deep-link direto no canvas. */
   subInicial?: string | null;
+  /** `"plano"` (do deep-link do dialog da OC) força o Modo Plano ao abrir. */
+  modoInicial?: "plano";
+  /** modelo_id a DESTACAR no Modo Plano (deep-link): recolhe as outras faixas + realça o card. */
+  focoModelo?: string;
   /** Reflete a subcoleção aberta na URL (replace) — F5/Back seguros; null = voltou p/ etapa 2. */
   onSubChange?: (subId: string | null) => void;
   onClose: () => void;
@@ -334,8 +338,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // Modo Plano (set/2026): view por nome de tecido (resumo + carrossel + cards). Toggle na toolbar,
   // ao lado de Agrupar. NÃO persiste (começa desligado). Ao ligar, FORÇA o agrupamento por nome e
   // esconde o trilho lateral (Resumo/A comprar/OC). Ao desligar, restaura o agrupamento anterior.
-  const [modoPlano, setModoPlano] = useState(false);
+  const [modoPlano, setModoPlano] = useState(modoInicial === "plano"); // deep-link do dialog da OC força o Modo Plano
   const [modoPlanoRecolhidos, setModoPlanoRecolhidos] = useState<Set<string>>(new Set()); // faixas recolhidas por nome de tecido
+  const [focoDestaque, setFocoDestaque] = useState<string | null>(null); // modelo_id realçado (borda laranja + scroll) por 10s no deep-link
   const groupByNome = agrup.isOn("nome") || modoPlano;        // Modo Plano força nome
   const groupByMix = agrup.isOn("mix");                       // lanes por MIX (exclui Família)
   const [mixDialogOpen, setMixDialogOpen] = useState(false);  // Editar Mix (escopo = subcoleção ativa)
@@ -1494,12 +1499,51 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, groupByNome, subAtiva, subAtual]);
 
+  // Deep-link ?focoModelo= (Modo Plano, do dialog da OC): quando a árvore chega, acha a faixa (nome de
+  // tecido) do modelo, RECOLHE todas as outras faixas e realça o card. Uma vez só — depois a navegação
+  // manda. O destaque some após alguns segundos (`focoDestaque` → o ModoPlanoView aplica o anel/scroll).
+  // Reage a um NOVO focoModelo (nova navegação do dialog da OC) MESMO com o Sheet já montado na mesma
+  // coleção (não remonta): liga o Modo Plano e rearma o effect de foco. Sem isto, clicar "Ir ao
+  // Plan.Tecido" num modelo da coleção JÁ ABERTA mudava só a URL e nada acontecia na tela.
+  const focoModeloAnteriorRef = useRef<string | undefined>(focoModelo);
+  const focoAplicadoRef = useRef(false);
+  if (focoModelo && focoModelo !== focoModeloAnteriorRef.current) {
+    focoModeloAnteriorRef.current = focoModelo;
+    focoAplicadoRef.current = false; // rearma p/ o effect abaixo reprocessar o novo foco
+    if (!modoPlano) setModoPlano(true);
+  }
+  useEffect(() => {
+    if (focoAplicadoRef.current || view !== "canvas" || !modoPlano || !focoModelo || !subAtual) return;
+    let nomeFoco: string | null = null;
+    const outros = new Set<string>();
+    for (const ln of subAtual.linhas) for (const s of ln.slots) {
+      const nome = tecidoNomeDoSlot(s);
+      if (s.modelo_id === focoModelo) nomeFoco = nome;
+      else outros.add(nome);
+    }
+    if (nomeFoco === null) return; // modelo não está nesta sub (ainda) — espera a árvore certa
+    focoAplicadoRef.current = true;
+    outros.delete(nomeFoco); // a faixa do foco NUNCA recolhe, mesmo se outro card divide o nome
+    setModoPlanoRecolhidos(outros);
+    setFocoDestaque(focoModelo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, modoPlano, focoModelo, subAtual]);
+  // Timeout do destaque num effect SEPARADO (dep = focoDestaque): reagenda sempre que o destaque
+  // liga/desliga → em StrictMode (dev) o timer não fica órfão após o cleanup do 1º run (achado C).
+  useEffect(() => {
+    if (!focoDestaque) return;
+    const t = setTimeout(() => setFocoDestaque(null), 10000); // borda laranja por 10s, depois normal
+    return () => clearTimeout(t);
+  }, [focoDestaque]);
+
   // Deep-link ?sub=: quando a árvore chega, abre direto o canvas da subcoleção da URL
   // (uma vez só — depois disso a navegação interna manda). "none" = sub sem subcolecao_id.
-  const subInicialAplicada = useRef(false);
+  const subInicialAplicada = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (subInicialAplicada.current || !arvore || !subInicial) return;
-    subInicialAplicada.current = true;
+    // Aplica quando ainda não aplicou ESTE subInicial (1ª carga) OU quando ele MUDOU (deep-link de foco
+    // navegando p/ outra sub da MESMA coleção — o Sheet não remonta, mas a sub tem que trocar).
+    if (subInicialAplicada.current === subInicial || !arvore || !subInicial) return;
+    subInicialAplicada.current = subInicial;
     const si = arvore.subcolecoes.findIndex((s) => (s.subcolecao_id ?? "none") === subInicial);
     if (si >= 0) { setSubAtiva(si); setView("canvas"); }
     else onSubChange?.(null); // sub não existe (excluída?) → limpa a URL
@@ -1725,9 +1769,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           });
           // Recolher/expandir CADA card via `recolhidos`/`toggleRecolhido` — vale nos DOIS modos (canvas
           // e Modo Plano). No Modo Plano a FAIXA (nome de tecido) também recolhe, pelo ModoPlanoView.
-          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string, dragHandle?: DragHandle, variantesGrupoT1?: PtVariante[]) => (
+          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string, dragHandle?: DragHandle, variantesGrupoT1?: PtVariante[], onAbrirOcDialog?: (ocId: string) => void) => (
             <ModelCard key={slot.id ?? `${li}-${sli}`} slot={slot} colecaoId={colecaoId} subcolecaoId={sub.subcolecao_id}
               variantesGrupoT1={variantesGrupoT1}
+              situacaoRows={onAbrirOcDialog ? situacaoRows : undefined}
+              onAbrirOcDialog={onAbrirOcDialog}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
@@ -1960,8 +2006,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}
                     onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}
-                    renderCard={(slot, li, sli, variantesGrupoT1) => cardOf(slot, li, sli, chaveSlot(slot.id, subAtiva, li, sli), undefined, variantesGrupoT1)}
+                    renderCard={(slot, li, sli, variantesGrupoT1, onAbrirOcDialog) => cardOf(slot, li, sli, chaveSlot(slot.id, subAtiva, li, sli), undefined, variantesGrupoT1, onAbrirOcDialog)}
                     situacaoRows={situacaoRows}
+                    slotOcMap={slotOcMap}
+                    vinculoOcMap={vinculoOcMap}
+                    focoDestaque={focoDestaque}
                   />
                 ) : (
                 <DndContext sensors={dndSensors} collisionDetection={dndCollision} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>

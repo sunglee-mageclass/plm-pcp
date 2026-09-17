@@ -18,12 +18,16 @@ import { fmtMetros } from "@/lib/plan-tecido/calc";
 // Coleção e subcoleção ABERTAS vivem na URL (?colecao=&sub=) — F5 e Voltar do navegador
 // preservam onde o usuário estava, e a tela vira endereçável ("olha a R2"). Laudo das
 // 3 lentes, jul/2026: antes era useState e o Back descartava as 3 etapas de uma vez.
-type PlanTecidoSearch = { colecao?: string; sub?: string };
+// `modo=plano` + `focoModelo=<id>`: deep-link do dialog da OC (Modo Plano) → abre a coleção/sub do
+// modelo, força o Modo Plano e destaca a faixa/card daquele modelo (as demais faixas recolhidas).
+type PlanTecidoSearch = { colecao?: string; sub?: string; modo?: "plano"; focoModelo?: string };
 
 export const Route = createFileRoute("/_authenticated/criacao/plan-tecido")({
   validateSearch: (s: Record<string, unknown>): PlanTecidoSearch => ({
     colecao: typeof s.colecao === "string" && s.colecao ? s.colecao : undefined,
     sub: typeof s.sub === "string" && s.sub ? s.sub : undefined,
+    modo: s.modo === "plano" ? "plano" : undefined,
+    focoModelo: typeof s.focoModelo === "string" && s.focoModelo ? s.focoModelo : undefined,
   }),
   component: () => (
     <RequirePermission page="criacao_plan_tecido">
@@ -81,7 +85,7 @@ function AComprarChip({ colecaoId }: { colecaoId: string }) {
 function PlanTecidoListPage() {
   const { isModuleEnabled } = useTenantModules();
   const navigate = useNavigate({ from: Route.fullPath });
-  const { colecao: openColecaoId, sub: subAberta } = Route.useSearch();
+  const { colecao: openColecaoId, sub: subAberta, modo, focoModelo } = Route.useSearch();
 
   const { data: colecoes = [] } = useQuery({
     queryKey: ["plan-tecido-colecoes"],
@@ -221,6 +225,8 @@ function PlanTecidoListPage() {
         <PlanTecidoSheet
           colecaoId={openColecaoId}
           subInicial={subAberta ?? null}
+          modoInicial={modo}
+          focoModelo={focoModelo}
           onSubChange={(subId) => navigate({ search: { colecao: openColecaoId, sub: subId ?? undefined }, replace: true, resetScroll: false })}
           onClose={() => navigate({ search: {}, resetScroll: false })}
         />

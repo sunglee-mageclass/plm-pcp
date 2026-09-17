@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronRight as GoIcon } from "lucide-react";
 import { agruparPorOc, type SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import { OcVinculadaDialog } from "./OcVinculadaDialog";
+import { OcHoverResumo } from "./OcHoverResumo";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import type { PreviaRpc, PreviaCoberturaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -200,6 +201,9 @@ function FaixaModoPlano({
   categoriaNomeDe,
   pf,
   situacaoRows,
+  slotOcMap,
+  vinculoOcMap,
+  focoDestaque,
   renderCard,
   setOcDialog,
   onToggleRecolhido,
@@ -214,7 +218,10 @@ function FaixaModoPlano({
   categoriaNomeDe: (artigoId: string) => string | null;
   pf: ReturnType<typeof usePedidoFotos>;
   situacaoRows: SituacaoOcRow[];
-  renderCard: (slot: PtSlot, li: number, sli: number, variantesGrupoT1: PtVariante[]) => ReactNode;
+  slotOcMap: Record<string, string[]>;
+  vinculoOcMap: Record<string, string[]>;
+  focoDestaque?: string | null;
+  renderCard: (slot: PtSlot, li: number, sli: number, variantesGrupoT1: PtVariante[], onAbrirOcDialog: (ocId: string) => void) => ReactNode;
   setOcDialog: (ocId: string | null) => void;
   onToggleRecolhido: (nomeTecido: string) => void;
 }) {
@@ -277,15 +284,27 @@ function FaixaModoPlano({
   }
   const posicoes = [...posicoesMap.values()].sort((a, b) => (a.isForro === b.isForro ? a.numero - b.numero : a.isForro ? 1 : -1));
 
-  // OCs VINCULADAS ao grupo: OCs cujos itens tocam algum artigo usado pelos cards do grupo
-  // (via situacaoRows por artigo). `agruparPorOc` dá nº/status/fornecedor. Ordena por número.
-  const artigosDoGrupo = new Set<string>();
-  for (const { slot } of itens) for (const m of slot.materiais) if (m.artigo_id) artigosDoGrupo.add(m.artigo_id);
-  const rowsDoGrupo = situacaoRows.filter((r) => artigosDoGrupo.has(r.artigo_id));
+  // OCs VINCULADAS ao grupo (fix set/2026): SÓ as OCs efetivamente ligadas aos slots/modelos deste
+  // grupo — via hint de OC do card (`slotOcMap[slot_id]`) OU vínculo do Desenvolvimento
+  // (`vinculoOcMap[modelo_id]`). ⚠️ ANTES filtrava por ARTIGO (`artigosDoGrupo.has(r.artigo_id)`), o que
+  // listava QUALQUER OC daquele tecido, mesmo sem vínculo com nenhum card do grupo ("qual OC contém
+  // esse tecido?"). Agora é o conjunto de oc_ids realmente vinculados. `agruparPorOc` dá nº/status/forn.
+  const ocIdsDoGrupo = new Set<string>();
+  for (const { slot } of itens) {
+    if (slot.id) for (const oc of slotOcMap[slot.id] ?? []) ocIdsDoGrupo.add(oc);
+    if (slot.modelo_id) for (const oc of vinculoOcMap[slot.modelo_id] ?? []) ocIdsDoGrupo.add(oc);
+  }
+  const rowsDoGrupo = situacaoRows.filter((r) => ocIdsDoGrupo.has(r.oc_tecido_id));
   const ocsDoGrupo = agruparPorOc(rowsDoGrupo).sort((a, b) => (a.numero ?? "").localeCompare(b.numero ?? "", "pt-BR"));
 
   // ENCAIXE DO TOPO — mede a 1ª variante do card vs a âncora do resumo e empurra o resumo p/ baixo.
   const faixaRef = useRef<HTMLDivElement>(null);
+  // Guarda: scrolla até o card destacado UMA vez por foco (o ref callback dispara a cada re-render
+  // enquanto `destacado` for true — sem isto o card ficaria "puxando" o scroll a cada hover/render).
+  // RESETA quando o destaque cai (focoDestaque=null) — senão re-navegar ao MESMO modelo (id igual)
+  // não re-scrollaria (achado D da revisão): scrollFocoRef ficaria preso no id antigo.
+  const scrollFocoRef = useRef<string | null>(null);
+  if (!focoDestaque && scrollFocoRef.current !== null) scrollFocoRef.current = null;
   // Deps ESTÁVEIS (não o array `tec1Grupos`, recriado a cada render — reconectaria o ResizeObserver
   // à toa): nº de fornecedores + nº total de linhas de variante + aberto capturam toda mudança de
   // geometria do resumo; qualquer variação de ALTURA restante o próprio RO já pega.
@@ -389,15 +408,18 @@ function FaixaModoPlano({
                 <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">OCs vinculadas</div>
                 <div className="space-y-1">
                   {ocsDoGrupo.map((oc) => (
-                    <button key={oc.oc_tecido_id} type="button" onClick={() => setOcDialog(oc.oc_tecido_id)}
-                      className="flex w-full items-center gap-1.5 rounded-md border bg-card px-2 py-1.5 text-left text-[11px] hover:border-primary">
-                      <span className="shrink-0 font-semibold tabular-nums">{oc.numero ?? "s/ nº"}</span>
-                      <span className="min-w-0 flex-1 truncate text-muted-foreground">{oc.tecidos.join(", ")}</span>
-                      <StatusBadge tone={oc.status === "recebido" ? "success" : "warning"} className="shrink-0 normal-case tracking-normal">
-                        {oc.status === "recebido" ? "Recebido" : "Encomendado"}
-                      </StatusBadge>
-                      <GoIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    </button>
+                    // Hover (desktop) → popover Cor·Pedido·Reserva·Sobra (sem modelos); clique → dialog completo.
+                    <OcHoverResumo key={oc.oc_tecido_id} situacaoRows={situacaoRows} ocId={oc.oc_tecido_id}>
+                      <button type="button" onClick={() => setOcDialog(oc.oc_tecido_id)}
+                        className="flex w-full items-center gap-1.5 rounded-md border bg-card px-2 py-1.5 text-left text-[11px] hover:border-primary">
+                        <span className="shrink-0 font-semibold tabular-nums">{oc.numero ?? "s/ nº"}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">{oc.tecidos.join(", ")}</span>
+                        <StatusBadge tone={oc.status === "recebido" ? "success" : "warning"} className="shrink-0 normal-case tracking-normal">
+                          {oc.status === "recebido" ? "Recebido" : "Encomendado"}
+                        </StatusBadge>
+                        <GoIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      </button>
+                    </OcHoverResumo>
                   ))}
                 </div>
               </div>
@@ -412,11 +434,24 @@ function FaixaModoPlano({
               meio de um card), como o carrossel de fotos. */}
           <div className="min-w-0 flex-1" style={{ paddingTop: padTrilha }}>
             <div className="flex gap-3 overflow-x-auto p-3 snap-x snap-mandatory md:snap-none">
-              {itens.map(({ slot, li, sli }, idx) => (
-                <div key={slot.id ?? `${li}-${sli}`} className="w-[85vw] max-w-[330px] shrink-0 snap-start snap-always md:w-[330px]" {...(idx === 0 ? { "data-pt-card": "" } : {})}>
-                  {renderCard(slot, li, sli, uniaoVariantesT1)}
+              {itens.map(({ slot, li, sli }, idx) => {
+                const destacado = !!focoDestaque && slot.modelo_id === focoDestaque;
+                return (
+                <div
+                  key={slot.id ?? `${li}-${sli}`}
+                  ref={destacado ? (el) => {
+                    if (el && scrollFocoRef.current !== focoDestaque) {
+                      scrollFocoRef.current = focoDestaque ?? null;
+                      el.scrollIntoView({ behavior: "smooth", block: "start", inline: "center" });
+                    }
+                  } : undefined}
+                  className={`w-[85vw] max-w-[330px] shrink-0 snap-start snap-always md:w-[330px] ${destacado ? "rounded-lg ring-2 ring-orange-500 ring-offset-2" : ""}`}
+                  {...(idx === 0 ? { "data-pt-card": "" } : {})}
+                >
+                  {renderCard(slot, li, sli, uniaoVariantesT1, setOcDialog)}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -432,6 +467,9 @@ export function ModoPlanoView({
   onToggleRecolhido,
   renderCard,
   situacaoRows,
+  slotOcMap,
+  vinculoOcMap,
+  focoDestaque,
 }: {
   arvore: PtArvore;
   colecaoId: string;
@@ -440,9 +478,15 @@ export function ModoPlanoView({
   onToggleRecolhido: (nomeTecido: string) => void;
   /** O pai monta o <ModelCard> com todos os handlers/props que já tem hoje — este componente só agrupa. */
   /** Recebe também a UNIÃO das variantes do Tecido 1 do grupo (p/ o card exibir as faltantes com 0). */
-  renderCard: (slot: PtSlot, li: number, sli: number, variantesGrupoT1: PtVariante[]) => ReactNode;
+  renderCard: (slot: PtSlot, li: number, sli: number, variantesGrupoT1: PtVariante[], onAbrirOcDialog: (ocId: string) => void) => ReactNode;
   /** Situação das OCs da coleção (pedida/entregue/usada/comprometida por variante) — do useSituacaoOcs. */
   situacaoRows: SituacaoOcRow[];
+  /** OCs VINCULADAS por slot (hint do plano) e por modelo (vínculo do Dev) — a seção "OCs vinculadas"
+      do resumo lista só as OCs realmente ligadas aos slots/modelos do grupo, NÃO toda OC do tecido. */
+  slotOcMap: Record<string, string[]>;
+  vinculoOcMap: Record<string, string[]>;
+  /** modelo_id a REALÇAR (deep-link do dialog da OC): borda laranja + scroll até o card por ~10s. */
+  focoDestaque?: string | null;
 }) {
   const { artigoMap, fornecedorDe, categoriaNomeDe } = useArtigosTecido();
   const pf = usePedidoFotos(colecaoId);
@@ -510,6 +554,9 @@ export function ModoPlanoView({
           categoriaNomeDe={categoriaNomeDe}
           pf={pf}
           situacaoRows={situacaoRows}
+          slotOcMap={slotOcMap}
+          vinculoOcMap={vinculoOcMap}
+          focoDestaque={focoDestaque}
           renderCard={renderCard}
           setOcDialog={setOcDialog}
           onToggleRecolhido={onToggleRecolhido}

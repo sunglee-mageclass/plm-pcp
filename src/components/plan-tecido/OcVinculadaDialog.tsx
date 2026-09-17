@@ -1,10 +1,15 @@
+import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloThumb } from "./ModeloThumb";
-import { fmtMetros } from "@/lib/plan-tecido/calc";
+import { OcResumoCores } from "./OcResumoCores";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
-import { useModelosDaOc } from "./useModelosDaOc";
+import { useModelosDaOc, type ModeloDaOc } from "./useModelosDaOc";
 
 // Dialog de uma OC vinculada (Modo Plano, set/2026). Mostra, daquela OC:
 //  • Cores: Pedido · Reserva · Sobra por variante (de `situacaoRows` filtrado pela OC).
@@ -25,25 +30,30 @@ export function OcVinculadaDialog({
 }) {
   const recebido = status === "recebido";
   const { data: modelosDaOc = [], isLoading: carregandoModelos } = useModelosDaOc(open ? ocId : null);
+  const navigate = useNavigate();
+  // Modelo a confirmar redirecionamento (clique no card, fora da foto) → AlertDialog. null = fechado.
+  const [redirModelo, setRedirModelo] = useState<ModeloDaOc | null>(null);
+  // Navega para o Plan.Tecido do modelo: coleção + subcoleção dele, em Modo Plano, com a faixa daquele
+  // tecido aberta e o card destacado (o Sheet lê `modo`/`focoModelo` do search e monta o estado).
+  const irParaPlanTecido = (m: ModeloDaOc) => {
+    if (!m.colecao_id) return;
+    onOpenChange(false); // fecha o dialog da OC antes de navegar
+    navigate({
+      to: "/criacao/plan-tecido",
+      // ?sub= casa contra subcolecao_id (uuid), NÃO o nome — usa o id da sub do modelo.
+      search: { colecao: m.colecao_id, sub: m.subcolecao_id ?? undefined, modo: "plano", focoModelo: m.modelo_id },
+    });
+  };
+  // Planejamento de PRODUTO: abre o Sheet do modelo direto (deep-link `?modelo=<id>`).
+  const irParaPlanProduto = (m: ModeloDaOc) => {
+    onOpenChange(false);
+    navigate({ to: "/criacao/planejamento", search: { modelo: m.modelo_id } });
+  };
   // Semântica ÚNICA (decisão do dono jul/2026, espelha `contabilizarOc` em calc.ts:124-133):
   //  • Reserva = max(comprometido, baixa) — NÃO a soma (o comprometido e a baixa da MESMA demanda se
   //    sobrepõem; somar dupla-conta).
   //  • Sobra = ENTREGUE − Reserva (o físico que REALMENTE chegou, não a metragem pedida). NÃO clampa:
   //    negativo = déficit real (vermelho), igual ao Resumo. Encomendada (entregue 0) → sobra negativa.
-  // Agrega por variante ANTES de exibir (a RPC de situação não tem GROUP BY — 2 itens da mesma OC×
-  // variante viriam como 2 linhas com a mesma key; somar aqui corrige display e a key).
-  const porVar = new Map<string, { variante_tecido_id: string; variante_label: string | null; pedida: number; entregue: number; usada: number; comprometida: number }>();
-  for (const r of situacaoRows.filter((x) => x.oc_tecido_id === ocId)) {
-    const g = porVar.get(r.variante_tecido_id) ?? { variante_tecido_id: r.variante_tecido_id, variante_label: r.variante_label, pedida: 0, entregue: 0, usada: 0, comprometida: 0 };
-    g.pedida += r.pedida_m; g.entregue += r.entregue_m; g.usada += r.usada_m; g.comprometida += r.comprometida_m;
-    porVar.set(r.variante_tecido_id, g);
-  }
-  const linhas = [...porVar.values()].map((g) => {
-    const reserva = Math.max(g.comprometida, g.usada);
-    return { ...g, reserva, sobra: g.entregue - reserva };
-  });
-  const tot = linhas.reduce((a, r) => { a.pedida += r.pedida; a.reserva += r.reserva; a.sobra += r.sobra; return a; }, { pedida: 0, reserva: 0, sobra: 0 });
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
@@ -57,37 +67,8 @@ export function OcVinculadaDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {/* Cores: Pedido · Reserva · Sobra. ⚠️ Colunas numéricas de largura FIXA (5rem): cada linha é
-            um grid INDEPENDENTE — com `auto`, cada uma dimensionava as colunas pelo próprio conteúdo
-            ("0" virava coluna de 10px) e os números desalinhavam do cabeçalho (dono set/2026). */}
-        <div className="rounded-lg border">
-          <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-b bg-muted px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <span>Cor</span><span className="text-right">Pedido</span><span className="text-right">Reserva</span><span className="text-right">Sobra</span>
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            {linhas.length === 0 ? (
-              <div className="px-3 py-3 text-center text-xs text-muted-foreground">Sem cores nesta OC.</div>
-            ) : linhas.map((r) => (
-                <div key={r.variante_tecido_id} className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <VarianteSwatch nome={r.variante_label ?? undefined} />
-                    <span className="truncate">{r.variante_label ?? "Variante"}</span>
-                  </span>
-                  <span className="text-right tabular-nums">{fmtMetros(r.pedida)}</span>
-                  <span className="text-right tabular-nums text-amber-700">{fmtMetros(r.reserva)}</span>
-                  <span className={`text-right tabular-nums font-medium ${r.sobra < 0 ? "text-red-600" : "text-emerald-700"}`}>{fmtMetros(r.sobra)}</span>
-                </div>
-              ))}
-          </div>
-          {linhas.length > 0 && (
-            <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-t bg-muted px-3 py-1.5 text-xs font-bold">
-              <span className="uppercase text-muted-foreground">Total</span>
-              <span className="text-right tabular-nums">{fmtMetros(tot.pedida)}</span>
-              <span className="text-right tabular-nums text-amber-700">{fmtMetros(tot.reserva)}</span>
-              <span className={`text-right tabular-nums ${tot.sobra < 0 ? "text-red-600" : "text-emerald-700"}`}>{fmtMetros(tot.sobra)}</span>
-            </div>
-          )}
-        </div>
+        {/* Cores: Pedido · Reserva · Sobra (tabela compartilhada com o popover de hover). */}
+        <OcResumoCores situacaoRows={situacaoRows} ocId={ocId} />
 
         {/* Modelos que usam a OC — GLOBAL (todas as coleções). Foto + nome + REF + coleção. */}
         <div>
@@ -100,18 +81,60 @@ export function OcVinculadaDialog({
             <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
               {modelosDaOc.map((m) => (
                 <div key={m.modelo_id} className="overflow-hidden rounded-lg border">
+                  {/* Foto abre ZOOM (ModeloThumb `zoom`) — NÃO redireciona. */}
                   <ModeloThumb path={m.thumb_path} className="aspect-[4/5] w-full" zoom alt={m.nome ?? "Modelo"} />
-                  <div className="px-2 py-1">
+                  {/* A área de TEXTO é o botão de redirecionar (clicar → alerta com as opções de página).
+                      Sempre clicável — o Plan. Produto funciona sem coleção; a opção de Plan. Tecido é
+                      que fica desabilitada no alerta quando o modelo não tem coleção. */}
+                  <button
+                    type="button"
+                    onClick={() => setRedirModelo(m)}
+                    title="Ir para este produto"
+                    className="block w-full px-2 py-1 text-left hover:bg-muted"
+                  >
                     <div className="truncate text-xs font-medium">{m.nome ?? "Modelo"}</div>
                     {m.ref && <div className="truncate text-[10px] tabular-nums text-muted-foreground">{m.ref}</div>}
-                    {m.colecao_nome && <div className="truncate text-[10px] text-muted-foreground" title={`Coleção: ${m.colecao_nome}`}>{m.colecao_nome}</div>}
-                  </div>
+                    {m.colecao_nome && (
+                      <div className="truncate text-[10px] text-muted-foreground" title={`Coleção: ${m.colecao_nome}`}>
+                        {m.colecao_nome}{m.subcolecao ? ` · ${m.subcolecao}` : ""}
+                      </div>
+                    )}
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </div>
       </DialogContent>
+
+      {/* Redirecionamento (clique num card de modelo) — 3 opções: cancelar / Plan. Produto (Sheet do
+          modelo) / Plan. Tecido (Modo Plano com o card destacado). Montado só quando há um pendente. */}
+      {redirModelo && (
+        <AlertDialog open onOpenChange={(o) => !o && setRedirModelo(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Ir para este produto?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {redirModelo.nome ?? "Modelo"}{redirModelo.ref ? ` · ${redirModelo.ref}` : ""}
+                {redirModelo.colecao_nome ? ` — ${redirModelo.colecao_nome}${redirModelo.subcolecao ? ` · ${redirModelo.subcolecao}` : ""}` : ""}.
+                Escolha para onde ir.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+              <AlertDialogCancel className="mt-0">Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { const m = redirModelo; setRedirModelo(null); irParaPlanProduto(m); }}>
+                Planejamento de Produto
+              </AlertDialogAction>
+              <AlertDialogAction
+                disabled={!redirModelo.colecao_id}
+                onClick={() => { const m = redirModelo; setRedirModelo(null); irParaPlanTecido(m); }}
+              >
+                Planejamento de Tecido
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </Dialog>
   );
 }
