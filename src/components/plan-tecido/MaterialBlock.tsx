@@ -22,7 +22,7 @@ type VarRow = { id: string; artigo_id: string; nome_variante: string | null; cod
 
 const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
 
-export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean }) {
+export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false, variantesGrupo }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean; variantesGrupo?: PtVariante[] }) {
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria, artigoMap } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
@@ -110,6 +110,34 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
   const removerDivergentes = () => onChange({ ...material, variantes: renum(material.variantes.filter((v) => !divergente(v))) });
   const setGrade = (v: PtVariante, val: number) =>
     onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, grade_total: val } : x)) });
+
+  // UNIÃO VISUAL das variantes do grupo (Modo Plano, set/2026): as cores que OUTROS cards do mesmo
+  // nome de tecido têm neste Tecido 1 mas ESTE não. Aparecem como linhas FANTASMA (esmaecidas, qtd 0
+  // editável). NÃO gravam por exibir — só entram no material quando o usuário digita peças (promover).
+  // `variantesGrupo` só chega no bloco do Tecido 1 e só no Modo Plano; undefined = comportamento normal.
+  const fantasmas = useMemo(() => {
+    if (!variantesGrupo?.length) return [] as PtVariante[];
+    const tenho = new Set(material.variantes.map((v) => varKey(v)));
+    // Dedup entre as próprias do grupo (a união já vem sem repetição, mas guarda-costas).
+    const vistas = new Set<string>();
+    const out: PtVariante[] = [];
+    for (const v of variantesGrupo) {
+      const k = varKey(v);
+      if (tenho.has(k) || vistas.has(k)) continue;
+      vistas.add(k);
+      out.push(v);
+    }
+    return out;
+  }, [variantesGrupo, material.variantes]);
+
+  // Promover uma fantasma para variante real do material ao digitar peças (>0). Reusa o mesmo shape
+  // de `addDoArtigo`/`addPlanejada` (grade zerada), já com o grade_total digitado; o useEffect de
+  // auto-upgrade reconcilia a variante_tecido_id com o pool depois.
+  const promoverFantasma = (v: PtVariante, val: number) => {
+    if (val <= 0) return; // 0 não promove: continua fantasma
+    const nova: PtVariante = { ...v, ordem: 0, grade_total: val, grades: v.grades ?? {} };
+    onChange({ ...material, variantes: renum([...material.variantes, nova]) });
+  };
 
   // nome completo "cor base - apelido": da variante real do artigo quando existir (o seed do Dev
   // só traz a cor base), senão do label salvo / cor_nome.
@@ -269,9 +297,6 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
             escolhido; oculto quando travado (readOnly), igual às demais ações. */}
         {!readOnly && material.artigo_id && (
           <div className="mt-1.5 space-y-1">
-            <p className="text-[10px] text-muted-foreground">
-              {material.tipo === "forro" ? "forros" : "tecidos"} que também podem ser usados (quando o principal acaba)
-            </p>
             <div className="flex flex-wrap items-center gap-1">
               {artigoIdsExtra.map((id) => (
                 <Badge key={id} variant="secondary" className="gap-1">
@@ -284,7 +309,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
               {substitutoOptions.length > 0 && (
                 <Select value="" onValueChange={addSubstituto}>
                   <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs">
-                    <SelectValue placeholder={`+ adicionar ${material.tipo === "forro" ? "forro" : "tecido"}`} />
+                    <SelectValue placeholder={`+ adicionar ${material.tipo === "forro" ? "forro" : "tecido"} substituto`} />
                   </SelectTrigger>
                   <SelectContent>
                     {substitutoOptions.map((a) => {
@@ -300,59 +325,75 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
       </div>
 
       <div className="p-2">
-        {/* cores selecionadas (variantes) */}
-        {material.variantes.length === 0 ? (
+        {/* cores selecionadas (variantes) + fantasmas do grupo (Modo Plano) */}
+        {material.variantes.length === 0 && fantasmas.length === 0 ? (
           <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
         ) : (() => {
           // Variantes em ordem ALFABÉTICA (cor base → apelido) só na EXIBIÇÃO (dono, jul/2026) —
           // copia p/ ordenar, sem mexer no material.variantes salvo (não suja o form nem renumera).
-          const ordenadas = [...material.variantes].sort(cmpVar);
-          const linha = (v: PtVariante, vi: number) => {
-            const div = divergente(v);
-            const planejada = !v.variante_tecido_id;
+          // As FANTASMAS (união do grupo, Modo Plano) entram junto na mesma ordenação, marcadas
+          // p/ render esmaecido; ao digitar peças elas se promovem a reais (`promoverFantasma`).
+          const ordenadas = [...material.variantes.map((v) => ({ v, fantasma: false })), ...fantasmas.map((v) => ({ v, fantasma: true }))]
+            .sort((a, b) => cmpVar(a.v, b.v));
+          const linha = ({ v, fantasma }: { v: PtVariante; fantasma: boolean }, vi: number) => {
+            const div = !fantasma && divergente(v);
+            const planejada = !fantasma && !v.variante_tecido_id;
             const { cor, apelido } = corEApelido(v);
             return (
               // key com índice de exibição: uma cor pode aparecer DUPLICADA no material (anomalia de
               // dado — variante repetida no plano/BOM); `varKey(v)` sozinho colidia e disparava o
               // warning "two children with the same key" do React. O índice garante unicidade no
               // render sem mascarar o dado (as duas linhas continuam visíveis).
-              <div key={`${varKey(v)}-${vi}`} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
+              // h-[var(--h-var,auto)]: no Modo Plano a var CSS `--h-var` (herdada da faixa) fixa a altura
+              // da linha IGUAL à do resumo → alinhamento linha-a-linha. Fora do Modo Plano a var não
+              // existe → cai em `auto` (altura natural pelo py-1), comportamento idêntico ao de antes.
+              // data-pt-primeira-var na 1ª linha (só Modo Plano, sinalizado por `variantesGrupo`): âncora
+              // que o ModoPlanoView mede p/ empurrar o topo do resumo e alinhar a 1ª variante (encaixe do topo).
+              <div key={`${varKey(v)}-${vi}`} data-pt-primeira-var={variantesGrupo && vi === 0 ? "" : undefined} className={`flex h-[var(--h-var,auto)] items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""} ${fantasma ? "opacity-55" : ""}`}>
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
                 {/* 1ª linha cor base, 2ª linha cor apelido (dono ago/2026 — igual aos painéis) */}
                 <span className="min-w-0 flex-1" title={nomeVariante(v)}>
                   <span className="block truncate">{cor}</span>
                   {apelido && <span className="block truncate text-[10px] leading-tight text-muted-foreground">{apelido}</span>}
                 </span>
-                {div ? (
+                {fantasma ? (
+                  <span className="shrink-0 rounded bg-muted px-1 text-[9px] font-medium text-muted-foreground" title="Cor de outro card do mesmo tecido — digite peças para adicioná-la aqui">do grupo</span>
+                ) : div ? (
                   <span className="flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-red-600" title="Cor não existe nas variantes do tecido"><AlertTriangle className="h-3 w-3" />divergente</span>
                 ) : planejada ? (
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
-                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} data-colab-path={`pt-grade:${material.id ?? `${material.tipo}#${material.numero}`}:${varKey(v)}`} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
+                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={fantasma ? 0 : (v.grade_total ?? 0)} data-colab-path={fantasma ? undefined : `pt-grade:${material.id ?? `${material.tipo}#${material.numero}`}:${varKey(v)}`} onChange={(e) => fantasma ? promoverFantasma(v, Number(e.target.value) || 0) : setGrade(v, Number(e.target.value) || 0)} />
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
-                <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (v.grade_total || 0))} m</span>
-                {!readOnly && <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>}
+                <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (fantasma ? 0 : (v.grade_total || 0)))} m</span>
+                {!readOnly && !fantasma ? (
+                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>
+                ) : (
+                  <span className="w-5 shrink-0" aria-hidden />
+                )}
               </div>
             );
           };
           // Sem substitutos (pool = 1 artigo): lista plana, IGUAL ao comportamento de hoje —
           // sem cabeçalho de fornecedor.
-          if (!multiFornecedor) return ordenadas.map((v, vi) => linha(v, vi));
+          if (!multiFornecedor) return ordenadas.map((row, vi) => linha(row, vi));
           // Com substitutos: agrupa por FORNECEDOR do artigo de cada variante, preservando a
           // ordenação alfabética DENTRO de cada grupo (a lista já veio ordenada por cmpVar).
-          const porFornecedor = new Map<string, PtVariante[]>();
-          ordenadas.forEach((v) => {
-            const f = fornecedorDaVariante(v);
+          const porFornecedor = new Map<string, { v: PtVariante; fantasma: boolean }[]>();
+          ordenadas.forEach((row) => {
+            const f = fornecedorDaVariante(row.v);
             const arr = porFornecedor.get(f) ?? [];
-            arr.push(v);
+            arr.push(row);
             porFornecedor.set(f, arr);
           });
           return Array.from(porFornecedor.entries())
             .sort(([a], [b]) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }))
-            .map(([fornecedor, vs]) => (
+            .map(([fornecedor, rows]) => (
               <div key={fornecedor}>
-                <p className="mt-1.5 truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground first:mt-0">{fornecedor}</p>
-                {vs.map((v) => linha(v, ordenadas.indexOf(v)))}
+                {/* h-[var(--h-fornec,auto)]: casa a altura do cabeçalho de fornecedor com o do resumo
+                    no Modo Plano; fora dele, altura natural. */}
+                <p className="flex h-[var(--h-fornec,auto)] items-center truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{fornecedor}</p>
+                {rows.map((row) => linha(row, ordenadas.indexOf(row)))}
               </div>
             ));
         })()}

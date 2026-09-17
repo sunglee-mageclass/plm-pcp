@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
+import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DragHandle } from "./dnd";
@@ -11,6 +11,7 @@ import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/pl
 import { fmtInt } from "@/lib/format";
 import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -77,6 +78,7 @@ export function ModelCard({
   fornecCom,
   fornecTotal,
   dragHandle,
+  variantesGrupoT1,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -110,11 +112,25 @@ export function ModelCard({
   fornecTotal?: number;
   /** Alça de arraste (o header vira handle do drag-n-drop entre lanes). */
   dragHandle?: DragHandle;
+  /** Modo Plano: união VISUAL das variantes do Tecido 1 do grupo (nome de tecido). O bloco do
+      Tecido 1 exibe as faltantes com qtd 0 (fantasma, editável — digitar promove p/ real).
+      NÃO grava por exibir. undefined fora do Modo Plano (comportamento normal). */
+  variantesGrupoT1?: PtVariante[];
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
   const open = openProp ?? openLocal;
   const toggleOpen = onToggleOpen ?? (() => setOpenLocal((o) => !o));
+  // Índice (no array original `slot.materiais`) do "Tecido 1" — o que dá nome à faixa no Modo Plano.
+  // MESMO critério do ModoPlanoView (`tec1 = materiais.find(tipo tecido && artigo_id)`): o 1º tecido
+  // COM artigo escolhido; fallback p/ o 1º tecido (sem artigo) se nenhum tiver. Só esse bloco recebe
+  // a união de variantes do grupo (`variantesGrupoT1`) — casar o critério evita aplicar a união de um
+  // material a outro (desalinhamento). -1 se não houver material de tecido → nenhuma fantasma.
+  const tec1Idx = (() => {
+    const comArtigo = slot.materiais.findIndex((m) => m.tipo === "tecido" && m.artigo_id);
+    if (comArtigo >= 0) return comArtigo;
+    return slot.materiais.findIndex((m) => m.tipo === "tecido");
+  })();
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
   // Guarda vazio-sobre-preenchido (backend RAISE P0001, hint 'plan_tecido_sobrescrita'):
@@ -276,17 +292,24 @@ export function ModelCard({
         <div className="flex w-full gap-2 p-2">
           {/* Hierarquia da imagem do card (G4): foto do modelo (thumb_path) vence; senão a 1ª de referência. */}
           <ModeloThumb path={slot.thumb_path ?? slot.referencia_paths?.[0] ?? null} className="h-24 w-[72px] shrink-0" zoom alt={slot.nome ?? "Modelo"} />
+          {/* Coluna de INFO: o <button> (toggle recolher/expandir) cobre nome/REF/pç·m/badges; a
+              Categoria fica FORA do button (select é inválido dentro de button e o clique conflitaria
+              com o toggle) mas na MESMA coluna — no header, logo abaixo da REF/badges (dono set/2026). */}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {/* Nome + REF = handle de toggle (button). Sai antes da Categoria p/ ela ficar logo abaixo
+              da REF (dono set/2026) — o select é inválido dentro de <button> e o clique conflitaria. */}
           <button
-            className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
+            className={`flex min-w-0 flex-col items-start gap-0.5 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
             onClick={toggleOpen}
             {...(dragHandle?.attributes ?? {})}
             {...(dragHandle?.listeners ?? {})}
             title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
           >
             <div className="flex w-full items-start gap-1.5">
-              {/* Nome em até 2 linhas (line-clamp-2); se ainda não couber, o title mostra o nome
-                  completo ao passar o mouse. Sem padding à esquerda — o checkbox fica sobre a foto. */}
-              <span className="line-clamp-2 min-w-0 flex-1 text-[13px] font-semibold leading-tight" title={slot.nome ?? "Modelo"}>{slot.nome ?? "Modelo"}</span>
+              {/* Nome reserva SEMPRE 2 linhas de altura (min-h = 2×leading-tight = 2.5em), mesmo quando
+                  cabe em 1 — mantém a altura do topo idêntica entre cards p/ o alinhamento no Modo Plano.
+                  line-clamp-2 corta em 2 linhas; title mostra o nome completo ao passar o mouse. */}
+              <span className="line-clamp-2 min-h-[2.5em] min-w-0 flex-1 text-[13px] font-semibold leading-tight" title={slot.nome ?? "Modelo"}>{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
               {isComprado && (
                 <span title={`Espelho de produto ${rotuloOrigem(origem).toLowerCase()} — sem tecido a planejar`}>
@@ -300,6 +323,33 @@ export function ModelCard({
                 {slot.ref}
               </div>
             )}
+          </button>
+          {/* Categoria — logo ABAIXO da REF (dono set/2026). Fora do <button> do toggle. Usa o Select
+              ESTILIZADO do sistema (Radix), não o <select> nativo — dropdown consistente com o resto.
+              Radix não aceita SelectItem value="" → sentinela "__none__" p/ "sem categoria". */}
+          <div className="flex items-center gap-1">
+            <span className="shrink-0 text-[10px] text-muted-foreground">Categoria</span>
+            <Select
+              value={slot.categoria_id ?? "__none__"}
+              onValueChange={(v) => onChange({ ...slot, categoria_id: v === "__none__" ? null : v })}
+            >
+              <SelectTrigger className="h-7 min-w-0 flex-1 text-[11px] max-md:h-11 max-md:text-base">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">—</SelectItem>
+                {categorias.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {/* pç·m + badges = 2ª área clicável do toggle. */}
+          <button
+            type="button"
+            className="flex min-w-0 flex-col items-start gap-0.5 text-left"
+            onClick={toggleOpen}
+          >
             {!isComprado && (
               <div className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
                 <span><span className="num">{pieces}</span> pç</span>
@@ -307,23 +357,33 @@ export function ModelCard({
                 <span><span className="num">{total ? fmtInt(total) : "0"}</span> m</span>
               </div>
             )}
-            {/* Badges numa linha própria (fase + fornecedor + sem peças) — não mais espremidas na lateral. */}
-            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            {/* Badges numa ÚNICA linha (fase + fornecedor + sem peças) — SEM flex-wrap: quebrar a
+                "sem peças" pra 2ª linha variava a altura do topo entre cards e desalinhava o Modo
+                Plano (dono set/2026). Truncagem CORRETA da fase: `min-w-0` no BADGE (item da linha,
+                encolhe só quando falta espaço) + `truncate` num SPAN interno — text-overflow não
+                funciona direto em container flex (o Badge é inline-flex; truncate nele só CLIPAVA
+                sem "…" e o max-w-full percentual colapsava a largura mesmo com espaço sobrando). */}
+            <div className="mt-0.5 flex w-full items-center gap-0.5">
+              {/* Sem prefixos "✓ "/"⚠ " nas curtas (dono set/2026): a COR do badge (verde/âmbar) já
+                  comunica o estado, e os ~24px poupados são o que deixa a FASE caber INTEIRA no card
+                  estreito do Modo Plano. O truncate da fase fica só como última defesa (fase longa
+                  em card muito apertado), com o rótulo completo no tooltip. */}
               {slot.modelo_id && fase && (
-                <span title={`Etapa atual: ${fase.label}`}>
-                  <StatusBadge tone={fase.tone} className="max-w-full truncate normal-case tracking-normal">{fase.label}</StatusBadge>
-                </span>
+                <StatusBadge tone={fase.tone} title={`Etapa atual: ${fase.label}`} className="min-w-0 px-1 normal-case tracking-normal">
+                  <span className="min-w-0 truncate">{fase.label}</span>
+                </StatusBadge>
               )}
               {!isComprado && fornecTotal ? (
                 fornecCom === fornecTotal
-                  ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">✓ fornec.</StatusBadge>
-                  : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
+                  ? <StatusBadge tone="success" title="Todos os materiais têm fornecedor" className="shrink-0 px-1 py-0.5 normal-case tracking-normal">fornec.</StatusBadge>
+                  : <StatusBadge tone="warning" title="Materiais com fornecedor" className="shrink-0 px-1 py-0.5 normal-case tracking-normal">{fornecCom}/{fornecTotal}</StatusBadge>
               ) : null}
-              {!isComprado && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1.5 py-0.5 normal-case tracking-normal">⚠ sem peças</StatusBadge>}
-              {/* Carrinho (G5): pedido já feito para este card — indicador na linha das badges. */}
-              {comprado && <ShoppingCart className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Comprado (pedido feito)" />}
+              {!isComprado && !temGrade && <StatusBadge tone="warning" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'." className="shrink-0 px-1 py-0.5 normal-case tracking-normal">s/ peças</StatusBadge>}
+              {/* Carrinho (G5) MOVIDO p/ o fim da linha do dropdown das OCs (dono set/2026) — na linha
+                  das badges ele quebrava para uma 2ª linha e variava a altura do topo entre cards. */}
             </div>
           </button>
+          </div>
           {/* Ações à direita, no topo: anexar foto (ReferenciaDialog) + recolher/expandir; e ⋯ p/ vaga. */}
           <div className="flex shrink-0 flex-col items-end gap-1">
             <div className="flex items-center gap-1">
@@ -389,21 +449,7 @@ export function ModelCard({
                 <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} readOnly={!!travado} />
               </div>
             )}
-            <div className="border-t px-2 py-1 flex items-center gap-2">
-              <span className="text-[10px] text-muted-foreground shrink-0">Categoria</span>
-              <select
-                className="flex-1 rounded border bg-background px-2 py-1 text-xs h-8 max-md:h-11 max-md:text-base"
-                value={slot.categoria_id ?? ""}
-                onChange={(e) => onChange({ ...slot, categoria_id: e.target.value || null })}
-              >
-                <option value="">—</option>
-                {categorias.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Categoria MOVIDA para o header (abaixo da REF/badges) — dono set/2026. */}
             {/* Flag "Usar estoque existente" APOSENTADO (dono 17/ago/2026) — checkbox removido. A régua
                 única agora é por VÍNCULO (OC/rolo abaixo, no hint), não por um flag de card. */}
             {/* "Aplicar ao modelo"/"Criar card" empurram BOM de TECIDO + o hint de OC de tecido —
@@ -435,18 +481,50 @@ export function ModelCard({
                         <div className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground">
                           <Lock className="h-3 w-3" /> OC do Desenvolvimento
                         </div>
-                        <div className="flex flex-wrap gap-1">
-                          {vinculos!.map((v) => (
-                            <span key={v.oc_id} className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                              title={`Vínculo do Desenvolvimento — congela o custo${v.tecidos ? ` · ${v.tecidos}` : ""}`}>
-                              <Lock className="h-2.5 w-2.5" />
-                              {v.numero_pedido || "OC s/ nº"}{v.tecidos ? ` — ${v.tecidos}` : ""}
-                            </span>
-                          ))}
+                        {/* Modo Plano: as OCs vinculadas viram UM chip de altura FIXA (1 linha), com a
+                            lista completa no popover. Empilhar N badges dava altura variável por card e
+                            desalinhava as variantes do Tecido 1 com o resumo (decisão do dono set/2026).
+                            O carrinho (pedido feito) fica no FIM desta linha (dono set/2026). */}
+                        <div className="flex items-center justify-between gap-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button type="button" className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-full border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/70">
+                                <Lock className="h-2.5 w-2.5 shrink-0" />
+                                <span className="truncate">
+                                  {vinculos!.length === 1
+                                    ? (vinculos![0].numero_pedido || "OC s/ nº")
+                                    : `${vinculos!.length} OCs vinculadas`}
+                                </span>
+                                <ChevronRight className="h-2.5 w-2.5 shrink-0 rotate-90" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="w-64 p-2">
+                              <div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                                <Lock className="h-3 w-3" /> Vínculos do Desenvolvimento — congelam o custo
+                              </div>
+                              <div className="max-h-48 space-y-1 overflow-y-auto">
+                                {vinculos!.map((v) => (
+                                  <div key={v.oc_id} className="flex items-start gap-1.5 rounded border bg-muted/40 px-2 py-1 text-[11px]">
+                                    <Lock className="mt-0.5 h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                                    <span className="min-w-0">
+                                      <span className="block font-medium tabular-nums">{v.numero_pedido || "OC s/ nº"}</span>
+                                      {v.tecidos && <span className="block truncate text-[10px] text-muted-foreground">{v.tecidos}</span>}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                          {comprado && <ShoppingCart className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Comprado (pedido feito)" />}
                         </div>
                       </div>
                     ) : (
-                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} slotArtigos={(slot.materiais ?? []).map((m) => m.artigo_id).filter((a): a is string => !!a)} onEnsureSaved={onEnsureSaved} />
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} slotArtigos={(slot.materiais ?? []).map((m) => m.artigo_id).filter((a): a is string => !!a)} onEnsureSaved={onEnsureSaved} />
+                        </div>
+                        {comprado && <ShoppingCart className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Comprado (pedido feito)" />}
+                      </div>
                     )}
                   </div>
                 )}
@@ -469,6 +547,7 @@ export function ModelCard({
                         readOnly={!!travado}
                         laneCategoriaId={slot.categoria_tecido_id ?? null}
                         paleta={paleta}
+                        variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
                         onChange={(nm) => {
                           const materiais = slot.materiais.slice();
                           materiais[i] = nm;

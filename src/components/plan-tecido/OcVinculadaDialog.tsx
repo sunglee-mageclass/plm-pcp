@@ -4,14 +4,16 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloThumb } from "./ModeloThumb";
 import { fmtMetros } from "@/lib/plan-tecido/calc";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
-import type { PtSlot } from "@/lib/plan-tecido/types";
+import { useModelosDaOc } from "./useModelosDaOc";
 
 // Dialog de uma OC vinculada (Modo Plano, set/2026). Mostra, daquela OC:
 //  • Cores: Pedido · Reserva · Sobra por variante (de `situacaoRows` filtrado pela OC).
 //    Reserva = usada (baixa real) + comprometida (uso planejado/enviado); Sobra = pedida − reserva.
-//  • Modelos que usam a OC: foto (ModeloThumb) + nome + REF (os slots do grupo vinculados à OC).
+//  • Modelos que usam a OC: foto + nome + REF + COLEÇÃO — escopo GLOBAL (todas as coleções da loja,
+//    via RPC `plan_tecido_modelos_da_oc`), pra casar com a Reserva (que já é global). Antes listava só
+//    os slots da subcoleção aberta e escondia quem reserva de outra coleção → Sobra parecia maior.
 export function OcVinculadaDialog({
-  open, onOpenChange, ocId, numero, fornecedor, status, situacaoRows, modelosDaOc,
+  open, onOpenChange, ocId, numero, fornecedor, status, situacaoRows,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -20,9 +22,9 @@ export function OcVinculadaDialog({
   fornecedor: string | null;
   status: string | null;
   situacaoRows: SituacaoOcRow[];
-  modelosDaOc: PtSlot[];
 }) {
   const recebido = status === "recebido";
+  const { data: modelosDaOc = [], isLoading: carregandoModelos } = useModelosDaOc(open ? ocId : null);
   // Semântica ÚNICA (decisão do dono jul/2026, espelha `contabilizarOc` em calc.ts:124-133):
   //  • Reserva = max(comprometido, baixa) — NÃO a soma (o comprometido e a baixa da MESMA demanda se
   //    sobrepõem; somar dupla-conta).
@@ -55,16 +57,18 @@ export function OcVinculadaDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {/* Cores: Pedido · Reserva · Sobra */}
+        {/* Cores: Pedido · Reserva · Sobra. ⚠️ Colunas numéricas de largura FIXA (5rem): cada linha é
+            um grid INDEPENDENTE — com `auto`, cada uma dimensionava as colunas pelo próprio conteúdo
+            ("0" virava coluna de 10px) e os números desalinhavam do cabeçalho (dono set/2026). */}
         <div className="rounded-lg border">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-b bg-muted px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-b bg-muted px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             <span>Cor</span><span className="text-right">Pedido</span><span className="text-right">Reserva</span><span className="text-right">Sobra</span>
           </div>
           <div className="max-h-64 overflow-y-auto">
             {linhas.length === 0 ? (
               <div className="px-3 py-3 text-center text-xs text-muted-foreground">Sem cores nesta OC.</div>
             ) : linhas.map((r) => (
-                <div key={r.variante_tecido_id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
+                <div key={r.variante_tecido_id} className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <VarianteSwatch nome={r.variante_label ?? undefined} />
                     <span className="truncate">{r.variante_label ?? "Variante"}</span>
@@ -76,7 +80,7 @@ export function OcVinculadaDialog({
               ))}
           </div>
           {linhas.length > 0 && (
-            <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-t bg-muted px-3 py-1.5 text-xs font-bold">
+            <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_5rem] items-center gap-2 border-t bg-muted px-3 py-1.5 text-xs font-bold">
               <span className="uppercase text-muted-foreground">Total</span>
               <span className="text-right tabular-nums">{fmtMetros(tot.pedida)}</span>
               <span className="text-right tabular-nums text-amber-700">{fmtMetros(tot.reserva)}</span>
@@ -85,19 +89,22 @@ export function OcVinculadaDialog({
           )}
         </div>
 
-        {/* Modelos que usam a OC */}
+        {/* Modelos que usam a OC — GLOBAL (todas as coleções). Foto + nome + REF + coleção. */}
         <div>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Modelos que usam esta OC</p>
-          {modelosDaOc.length === 0 ? (
+          {carregandoModelos ? (
+            <p className="text-xs text-muted-foreground">Carregando…</p>
+          ) : modelosDaOc.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhum modelo vinculado.</p>
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
-              {modelosDaOc.map((s) => (
-                <div key={s.id ?? s.modelo_id ?? s.ref} className="overflow-hidden rounded-lg border">
-                  <ModeloThumb path={s.thumb_path ?? s.referencia_paths?.[0] ?? null} className="aspect-[4/5] w-full" zoom alt={s.nome ?? "Modelo"} />
+              {modelosDaOc.map((m) => (
+                <div key={m.modelo_id} className="overflow-hidden rounded-lg border">
+                  <ModeloThumb path={m.thumb_path} className="aspect-[4/5] w-full" zoom alt={m.nome ?? "Modelo"} />
                   <div className="px-2 py-1">
-                    <div className="truncate text-xs font-medium">{s.nome ?? "Modelo"}</div>
-                    {s.ref && <div className="truncate text-[10px] tabular-nums text-muted-foreground">{s.ref}</div>}
+                    <div className="truncate text-xs font-medium">{m.nome ?? "Modelo"}</div>
+                    {m.ref && <div className="truncate text-[10px] tabular-nums text-muted-foreground">{m.ref}</div>}
+                    {m.colecao_nome && <div className="truncate text-[10px] text-muted-foreground" title={`Coleção: ${m.colecao_nome}`}>{m.colecao_nome}</div>}
                   </div>
                 </div>
               ))}

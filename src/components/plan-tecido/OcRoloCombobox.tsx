@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -18,30 +18,40 @@ export type OcComboOption = OcBuscavel & { id: string; is_rolo?: boolean | null;
  * (mobile) via `OcHoverInfo` (variantes×metragem + anexo, lazy).
  */
 export function OcRoloCombobox({
-  options, onSelect, disabled, placeholder, emptyMessage,
+  options, onSelect, disabled, placeholder, emptyMessage, open: openProp, onOpenChange, trigger,
 }: {
   options: OcComboOption[];
   onSelect: (id: string) => void;
   disabled?: boolean;
   placeholder: string;
   emptyMessage: string;
+  /** Controle EXTERNO do aberto (opcional). Sem ele, usa estado interno (retrocompatível). */
+  open?: boolean;
+  onOpenChange?: (o: boolean) => void;
+  /** Trigger CUSTOMIZADO (ex.: um botão "+"). Sem ele, usa o botão "Adicionar OC / Rolo…" padrão.
+      É o PRÓPRIO PopoverTrigger — 1 clique abre a lista, sem passo intermediário. */
+  trigger?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openLocal, setOpenLocal] = useState(false);
+  const open = openProp ?? openLocal;
+  const setOpen = onOpenChange ?? setOpenLocal;
   const semOpcoes = options.length === 0;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled || semOpcoes}
-          className="h-8 w-full justify-between px-2 text-xs font-normal text-muted-foreground max-md:h-11"
-        >
-          <span className="truncate">{semOpcoes ? emptyMessage : placeholder}</span>
-          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
-        </Button>
+        {trigger ?? (
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            disabled={disabled || semOpcoes}
+            className="h-8 w-full justify-between px-2 text-xs font-normal text-muted-foreground max-md:h-11"
+          >
+            <span className="truncate">{semOpcoes ? emptyMessage : placeholder}</span>
+            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-[260px] p-0">
         <Command filter={(value, search) => (semAcento(value).includes(semAcento(search)) ? 1 : 0)}>

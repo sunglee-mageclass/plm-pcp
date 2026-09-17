@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { X } from "lucide-react";
+import { X, Plus, ChevronDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OcRoloCombobox } from "./OcRoloCombobox";
 
 type OcLite = {
@@ -75,35 +76,72 @@ export function SlotOcHint({
     ? "Todas as OCs já escolhidas"
     : slotArtigos.length > 0 ? "Nenhuma OC deste tecido" : "Nenhuma OC desta categoria";
 
+  const semDisponiveis = disponiveis.length === 0;
+
   return (
     <div>
-      <div className="mb-1 text-[10px] text-muted-foreground">OC</div>
-      {!slotId ? (
-        <div className="text-[10px] text-muted-foreground">Salve o plano para atribuir OC a este card.</div>
-      ) : ocsAplicadas.length === 0 ? (
-        <div className="text-[10px] text-muted-foreground">Nenhuma OC/rolo vinculada à coleção — use "vincular OC / rolo" no Resumo (ou gere pelo Fazer pedido).</div>
-      ) : (
-        <div className="space-y-1">
-          {selected.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {selected.map((id) => {
-                const oc = byId(id);
-                return (
-                  <span key={id} className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-2 py-0.5 text-[10px]" title={oc ? label(oc) : id}>
-                    <span className="max-w-[12rem] truncate">{oc ? label(oc) : "OC s/ nº"}</span>
-                    <button className="text-muted-foreground hover:text-foreground" disabled={salvar.isPending} onClick={() => remove(id)} title="Remover"><X className="h-3 w-3" /></button>
-                  </span>
-                );
-              })}
-            </div>
-          )}
+      {/* Rótulo "OC" + botão "+" que É O PRÓPRIO trigger do dropdown (1 clique abre a LISTA direto, sem
+          passo intermediário). O combobox padrão fica de fora — só o "+" aciona o popover. */}
+      <div className="mb-1 flex items-center gap-1">
+        <span className="text-[10px] text-muted-foreground">OC</span>
+        {slotId && ocsAplicadas.length > 0 && (
           <OcRoloCombobox
             options={disponiveis}
             onSelect={add}
             disabled={salvar.isPending}
             placeholder="Adicionar OC / Rolo…"
             emptyMessage={vazioMsg}
+            trigger={
+              <button
+                type="button"
+                disabled={salvar.isPending || semDisponiveis}
+                aria-label="Adicionar OC"
+                title={semDisponiveis ? vazioMsg : "Adicionar OC / Rolo"}
+                className="flex h-4 w-4 items-center justify-center rounded border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" />
+              </button>
+            }
           />
+        )}
+      </div>
+      {!slotId ? (
+        <div className="text-[10px] text-muted-foreground">Salve o plano para atribuir OC a este card.</div>
+      ) : ocsAplicadas.length === 0 ? (
+        <div className="text-[10px] text-muted-foreground">Nenhuma OC/rolo vinculada à coleção — use "vincular OC / rolo" no Resumo (ou gere pelo Fazer pedido).</div>
+      ) : (
+        <div className="space-y-1">
+          {/* OCs escolhidas viram UM chip de altura fixa (1 linha) com a lista no popover — N chips
+              empilhados variavam a altura do card e desalinhavam as variantes no Modo Plano (dono
+              set/2026, mesmo padrão do chip de vínculos do Dev). Remover cada OC fica no popover. */}
+          {selected.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="inline-flex max-w-full min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-primary bg-primary/10 px-2 py-0.5 text-[10px] hover:bg-primary/15">
+                  <span className="truncate">
+                    {selected.length === 1
+                      ? (byId(selected[0]) ? label(byId(selected[0])!) : "OC s/ nº")
+                      : `${selected.length} OCs no plano`}
+                  </span>
+                  <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 p-2">
+                <div className="mb-1 text-[10px] font-medium text-muted-foreground">OCs / rolos deste card</div>
+                <div className="max-h-48 space-y-1 overflow-y-auto">
+                  {selected.map((id) => {
+                    const oc = byId(id);
+                    return (
+                      <div key={id} className="flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1 text-[11px]">
+                        <span className="min-w-0 flex-1 truncate" title={oc ? label(oc) : id}>{oc ? label(oc) : "OC s/ nº"}</span>
+                        <button className="shrink-0 text-muted-foreground hover:text-destructive" disabled={salvar.isPending} onClick={() => remove(id)} title="Remover"><X className="h-3 w-3" /></button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
       )}
     </div>

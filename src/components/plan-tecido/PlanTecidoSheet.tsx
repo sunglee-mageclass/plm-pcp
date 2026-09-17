@@ -451,7 +451,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
           "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad))",
         )
-        .eq("colecao_id", colecaoId)).data ?? []) as any[],
+        .eq("colecao_id", colecaoId)
+        // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
+        // Plan.Tecido (nem card no canvas, nem faixa "Sem tecido" no Modo Plano). Traz só fabricados:
+        // interno E origem NULL (modelos antigos sem a coluna preenchida = interno por semântica).
+        // `.not(in)` sozinho descartaria os NULL (NULL not-in → UNKNOWN); por isso o OR explícito.
+        .or("origem.is.null,origem.eq.interno")).data ?? []) as any[],
   });
 
   // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
@@ -1695,19 +1700,34 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                 return [laneKey, ...nomeKeys];
               })
             : porNome(flat).map(([nome]) => `${subAtiva}:nome:${nome}`);
-          const todasSecoesRecolhidas = allSectionKeys.length > 0 && allSectionKeys.every((k) => lanesRecolhidas.has(k));
-          const toggleSecoes = () => setLanesRecolhidas((prev) => {
-            if (todasSecoesRecolhidas) { const n = new Set(prev); allSectionKeys.forEach((k) => n.delete(k)); return n; }
-            return new Set([...prev, ...allSectionKeys]);
-          });
+          // No Modo Plano, as SEÇÕES são as faixas por NOME de tecido (estado próprio
+          // `modoPlanoRecolhidos`, chave = nome puro), não as lanes do canvas (`lanesRecolhidas`).
+          // O botão "recolher/expandir seções" da toolbar precisa operar no estado do modo ativo —
+          // senão, no Modo Plano, ele mexia num estado que a view nem lê (bug: "seção não recolhe").
+          const nomesModoPlano = modoPlano ? porNome(flat).map(([nome]) => nome) : [];
+          const todasSecoesRecolhidas = modoPlano
+            ? nomesModoPlano.length > 0 && nomesModoPlano.every((nm) => modoPlanoRecolhidos.has(nm))
+            : allSectionKeys.length > 0 && allSectionKeys.every((k) => lanesRecolhidas.has(k));
+          const toggleSecoes = modoPlano
+            ? () => setModoPlanoRecolhidos((prev) => {
+                if (todasSecoesRecolhidas) { const n = new Set(prev); nomesModoPlano.forEach((nm) => n.delete(nm)); return n; }
+                return new Set([...prev, ...nomesModoPlano]);
+              })
+            : () => setLanesRecolhidas((prev) => {
+                if (todasSecoesRecolhidas) { const n = new Set(prev); allSectionKeys.forEach((k) => n.delete(k)); return n; }
+                return new Set([...prev, ...allSectionKeys]);
+              });
           const allChaves = flat.map((f) => f.chave);
           const todosRecolhidos = allChaves.length > 0 && allChaves.every((c) => recolhidos.has(c));
           const toggleTodos = () => setRecolhidos((prev) => {
             if (todosRecolhidos) { const n = new Set(prev); allChaves.forEach((c) => n.delete(c)); return n; }
             return new Set([...prev, ...allChaves]);
           });
-          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string, dragHandle?: DragHandle) => (
+          // Recolher/expandir CADA card via `recolhidos`/`toggleRecolhido` — vale nos DOIS modos (canvas
+          // e Modo Plano). No Modo Plano a FAIXA (nome de tecido) também recolhe, pelo ModoPlanoView.
+          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string, dragHandle?: DragHandle, variantesGrupoT1?: PtVariante[]) => (
             <ModelCard key={slot.id ?? `${li}-${sli}`} slot={slot} colecaoId={colecaoId} subcolecaoId={sub.subcolecao_id}
+              variantesGrupoT1={variantesGrupoT1}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
@@ -1880,9 +1900,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       onToggleSecoes={toggleSecoes}
                       onToggleCards={toggleTodos}
                     />
-                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Só no modo
-                        Família PURO (com Mix aninhado, o filtro global não bate com as sub-lanes). */}
-                    {groupByCategoria && !groupByMix && (
+                    {/* Filtro por categoria de tecido — entre Recolher e Agrupar (dono). Vale no modo
+                        Família PURO (sem Mix aninhado) E no MODO PLANO (que agrupa por nome de tecido,
+                        cada nome pertence a uma família — o filtro por família continua fazendo sentido). */}
+                    {((groupByCategoria && !groupByMix) || modoPlano) && (
                       <CategoriaTecidoFilter
                         cats={cats}
                         catNome={(id) => catTecidoNome(id) ?? "?"}
@@ -1900,32 +1921,47 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       onClick={() => setModoPlano((v) => !v)}>
                       <LayoutGrid className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Modo Plano</span>
                     </Button>
-                    {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
-                        (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. No Modo Plano
-                        o agrupamento fica TRAVADO em "Nome do tecido". */}
-                    <AgrupamentoButton disabled={modoPlano} disabledHint="No Modo Plano o agrupamento é por Nome do tecido" groups={[
-                      { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
-                      { label: "Família de Tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
-                      { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
-                    ]} />
-                    {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
-                    <Button size="sm" variant="outline" aria-label="Adicionar família de tecido" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família de Tecido</span></Button>
-                    {/* Editar Fam. — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
-                    {subNomeAtiva && (
-                      <Button size="sm" variant="outline" aria-label="Editar Família de Produtos" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Fam.</span></Button>
+                    {/* Agrupar · + Família · Editar Fam. — ESCONDIDOS no Modo Plano (agrupamento travado em
+                        nome de tecido; não há lanes de família nem edição de mix pra fazer aqui). */}
+                    {!modoPlano && (
+                      <>
+                        {/* "Família" = categoria de tecido (só rótulo de UI). Combináveis e ANINHADOS
+                            (amplo→fino): Fam. de Produtos › Família (tecido) › Nome do tecido. */}
+                        <AgrupamentoButton groups={[
+                          { label: "Fam. de Produtos", active: groupByMix, onToggle: () => agrup.toggle("mix", !groupByMix) },
+                          { label: "Família de Tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
+                          { label: "Nome do tecido", active: groupByNome, onToggle: () => agrup.toggle("nome", !groupByNome) },
+                        ]} />
+                        {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
+                        <Button size="sm" variant="outline" aria-label="Adicionar família de tecido" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Família de Tecido</span></Button>
+                        {/* Editar Fam. — escopo = subcoleção ativa (nome-texto casa com modelos.subcolecao). */}
+                        {subNomeAtiva && (
+                          <Button size="sm" variant="outline" aria-label="Editar Família de Produtos" className="gap-1 max-sm:aspect-square max-sm:px-0" onClick={() => setMixDialogOpen(true)}><Boxes className="h-3.5 w-3.5" /><span className="max-sm:sr-only"> Editar Fam.</span></Button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
                 {modoPlano ? (
                   <ModoPlanoView
-                    arvore={subArvore}
+                    // No Modo Plano o canvas normal (laneCats) não roda — então o filtro por família
+                    // de tecido é aplicado AQUI, podando os slots cuja categoria_tecido_id não está
+                    // selecionada, antes de a view agrupar por nome (set/2026). Set vazio = tudo.
+                    arvore={catFilters.size === 0 ? subArvore : {
+                      ...subArvore,
+                      subcolecoes: subArvore.subcolecoes.map((s) => ({
+                        ...s,
+                        linhas: s.linhas.map((l) => ({
+                          ...l,
+                          slots: l.slots.filter((sl) => catFilters.has(sl.categoria_tecido_id ?? null)),
+                        })),
+                      })),
+                    }}
                     colecaoId={colecaoId}
                     recolhidos={modoPlanoRecolhidos}
                     onToggleRecolhido={(nome) => setModoPlanoRecolhidos((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; })}
-                    renderCard={(slot, li, sli) => cardOf(slot, li, sli, chaveSlot(slot.id, subAtiva, li, sli))}
+                    renderCard={(slot, li, sli, variantesGrupoT1) => cardOf(slot, li, sli, chaveSlot(slot.id, subAtiva, li, sli), undefined, variantesGrupoT1)}
                     situacaoRows={situacaoRows}
-                    slotOcMap={slotOcMap}
-                    vinculoOcMap={vinculoOcMap}
                   />
                 ) : (
                 <DndContext sensors={dndSensors} collisionDetection={dndCollision} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>

@@ -42,11 +42,6 @@ export function CategoriaTecidoFilter({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 p-1">
-        {selecionadas.size > 0 && (
-          <Button type="button" variant="ghost" size="sm" className="mb-1 w-full" onClick={onLimpar}>
-            Limpar
-          </Button>
-        )}
         {cats.map((cid) => (
           <label
             key={cid}
@@ -61,6 +56,12 @@ export function CategoriaTecidoFilter({
             <Checkbox checked={selecionadas.has(null)} onCheckedChange={() => onToggle(null)} />
             <span>Sem categoria ({contagem(null)})</span>
           </label>
+        )}
+        {/* "Limpar" ABAIXO da lista (dono set/2026) — no topo ele empurrava as opções e confundia. */}
+        {selecionadas.size > 0 && (
+          <Button type="button" variant="ghost" size="sm" className="mt-1 w-full border-t" onClick={onLimpar}>
+            Limpar
+          </Button>
         )}
       </PopoverContent>
     </Popover>
