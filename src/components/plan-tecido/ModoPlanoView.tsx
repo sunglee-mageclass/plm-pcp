@@ -89,7 +89,7 @@ function TabelaVariantes({ grupos, compact }: { grupos: { fornecedor: string; it
             </div>
           )}
           {g.itens.map((v) => (
-            <div key={v.key} className="grid grid-cols-[1.3fr_repeat(4,1fr)] items-center gap-1 border-b px-2 py-1">
+            <div key={v.key} className={`grid grid-cols-[1.3fr_repeat(4,1fr)] items-center gap-1 border-b px-2 ${compact ? "py-1" : "min-h-[36px] py-1.5"}`}>
               <span className="flex min-w-0 items-center gap-1.5">
                 <VarianteSwatch nome={v.cor} />
                 <span className="min-w-0 leading-tight">
