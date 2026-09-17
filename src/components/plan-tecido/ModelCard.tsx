@@ -377,7 +377,7 @@ export function ModelCard({
             {!isComprado && travado && (
               <div className="flex items-start gap-1.5 border-t bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
                 <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-                <span><b>Enviado à Explosão</b> — edição de tecido pelo PCP/CAD. O card está travado aqui.</span>
+                <span><b>Enviado à Explosão</b></span>
               </div>
             )}
             {/* Proporção por tamanho (fixa no topo, não colapsável) — só a DISTRIBUIÇÃO; a quantidade
