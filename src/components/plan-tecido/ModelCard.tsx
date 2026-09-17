@@ -206,14 +206,17 @@ export function ModelCard({
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
   const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || !!travado || aplicandoGrade;
+  // Mensagem do botão "Aplicar ao modelo" (tooltip ao passar o mouse). Os avisos de lançado/travado
+  // ficam AQUI (antes eram um <p> abaixo do botão que ocupava espaço vertical e desalinhava as
+  // variantes do resumo — pedido do dono set/2026): o botão desabilitado explica no hover.
   const gradeTitle = !slot.id
     ? "Salve o plano primeiro"
     : !slot.modelo_id
       ? "Este item não está ligado a um card de modelo"
       : lancado
-        ? "Modelo já lançado — não é possível alterar"
+        ? "Modelo lançado — aplicar não altera o BOM."
         : travado
-          ? "Modelo já enviado ao CAD (travado) — destrave no Desenvolvimento para alterar"
+          ? "Modelo enviado ao CAD (travado). Destrave no Desenvolvimento para alterar; aplicar aqui não terá efeito."
           : undefined;
 
   async function aplicarAoModelo(confirmarSobrescrita = false) {
@@ -420,12 +423,8 @@ export function ModelCard({
                     {aplicandoGrade ? "Aplicando…" : "Aplicar ao modelo"}
                   </Button>
                 ) : null}
-                {slot.modelo_id && (lancado || travado) && (
-                  <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700">
-                    <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-                    <span>{lancado ? "Modelo lançado — aplicar não altera o BOM." : "Modelo enviado ao CAD (travado). Destrave no Desenvolvimento para alterar; aplicar aqui não terá efeito."}</span>
-                  </p>
-                )}
+                {/* Aviso de lançado/travado saiu daqui (era um <p> que ocupava espaço e desalinhava as
+                    variantes) — virou o `title`/tooltip do botão "Aplicar ao modelo" acima. */}
                 {/* "Criar card no Planejamento" saiu do card — agora é ação em massa na barra de
                     seleção do PlanTecidoSheet (G6). */}
                 {/* OC vinculada no Desenvolvimento (read-only, congela custo) — ou hint do plano */}
