@@ -315,7 +315,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [slotIdsPedido, setSlotIdsPedido] = useState<string[] | null>(null); // slots do pedido POR SELEÇÃO (null = coleção inteira)
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
-  const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
+  const [resumoAberto, setResumoAberto] = useState(false); // resumo colapsável (trilho) — RECOLHIDO por default (dono set/2026); botão "Resumo" na toolbar abre
   // MOBILE (<md): Resumo/A comprar/OCs viram ABAS full-width — antes os asides eram
   // hidden md:/lg: e a camada analítica + vincular/desvincular OC não existiam no celular.
   const [mobileTab, setMobileTab] = useState<"canvas" | "resumo" | "comprar" | "oc">("canvas");
