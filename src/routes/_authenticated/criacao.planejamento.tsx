@@ -265,13 +265,16 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
   });
-  // Revenda: o "preço de venda" do card edita o MARKUP DE VAREJO (preço é derivado — inv. #13). Grava
-  // via a RPC de markup (que recomputa o preço no servidor), NUNCA modelos.preco_venda direto (seria
-  // sobrescrito). Mantém o mk_atacado atual; só o varejo muda a partir do preço digitado.
-  const salvarMarkupVarejoRevenda = useMutation({
-    mutationFn: async ({ produtoId, mkAtacado, mkVarejo }: { produtoId: string; mkAtacado: number | null; mkVarejo: number }) => {
-      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
-        _produto_id: produtoId, _markup_atacado: mkAtacado, _markup_varejo: mkVarejo,
+  // Revenda: o "preço de venda" do card grava o PREÇO DE VAREJO FIXO (set/2026 — antes convertia p/
+  // markup e o arredondamento fazia "298"→"297,84"). A RPC `salvar_precos_fixo_produto_acabado` grava
+  // o preço EXATO e limpa o markup do canal varejo (o preço manda); o recompute do servidor respeita
+  // o fixo. NUNCA grava modelos.preco_venda direto (seria sobrescrito pelo recompute).
+  const salvarPrecoVarejoRevenda = useMutation({
+    mutationFn: async ({ produtoId, precoVarejo }: { produtoId: string; precoVarejo: number | null }) => {
+      // Toca SÓ o canal varejo (o atacado fica intacto). precoVarejo null = destrava (volta a derivar).
+      const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
+        _produto_id: produtoId, _tocar_atacado: false, _preco_atacado_fixo: null,
+        _tocar_varejo: true, _preco_varejo_fixo: precoVarejo,
       });
       if (error) throw error;
     },
@@ -653,8 +656,15 @@ function PlanejamentoPage() {
         custoReal={!!(custoMap as any)[m.id]?.confirmado}
         markup={(() => {
           // Revenda: o markup exibido é o de VAREJO da revenda (não o markup interno, que é
-          // irrelevante p/ produto comprado). Manufaturado: o markup interno de sempre.
-          if (ehOrigemComprada(m.origem)) return (revendaMap as any)[m.id]?.mkVarejo ?? null;
+          // irrelevante p/ produto comprado). Se o markup gravado é null (preço FIXO — set/2026), DERIVA
+          // do preço real ÷ base (= custo previsto + MO), espelhando o Sheet. Manufaturado: markup interno.
+          if (ehOrigemComprada(m.origem)) {
+            const mk = (revendaMap as any)[m.id]?.mkVarejo;
+            if (mk != null) return mk;
+            const c = (custoMap as any)[m.id];
+            const base = (Number(c?.previsto) || 0) + (Number(c?.mao_obra_previsto) || 0);
+            return (m as any).preco_venda != null ? markupDePreco(base, (m as any).preco_venda) : null;
+          }
           const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null;
         })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
@@ -695,14 +705,17 @@ function PlanejamentoPage() {
         precoVenda={(m as any).preco_venda ?? null}
         onPrecoVenda={(preco) => {
           if (ehOrigemComprada(m.origem)) {
-            // Revenda: preço → mk_varejo (= preço ÷ base). base = custo previsto de revenda (custoMap).
-            // Grava o MARKUP (o banco recomputa o preço), mantendo o mk_atacado atual. base=0 ou
-            // preço null → não salva (evita markup inválido; o banco rejeita markup ≤ 0).
+            // Revenda: grava o PREÇO DE VAREJO FIXO EXATO (set/2026 — antes convertia p/ markup e o
+            // arredondamento fazia "298"→"297,84"). O servidor grava o preço fixo e recomputa; o
+            // atacado não é tocado. NÃO depende mais do custo (base) — funciona mesmo com base 0.
             const rev = (revendaMap as any)[m.id];
-            const base = (custoMap as any)[m.id]?.previsto ?? 0;
-            const mk = markupDePreco(base, preco ?? 0);
-            if (rev?.produtoId && mk != null) {
-              salvarMarkupVarejoRevenda.mutate({ produtoId: rev.produtoId, mkAtacado: rev.mkAtacado ?? null, mkVarejo: mk });
+            if (rev?.produtoId) {
+              salvarPrecoVarejoRevenda.mutate({ produtoId: rev.produtoId, precoVarejo: preco });
+            } else {
+              // Sem produto de revenda carregado ainda (a query `plan-revenda-markups` é assíncrona) ou
+              // sem vínculo — não engole em silêncio (achado A): avisa p/ o usuário reclicar (senão o
+              // campo fica "sujo" e ele acha que salvou).
+              toast.error("Aguarde o produto de revenda carregar e tente de novo.");
             }
           } else {
             salvarPrecoVenda.mutate({ id: m.id, preco });

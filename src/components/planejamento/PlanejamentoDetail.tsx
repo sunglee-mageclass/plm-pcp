@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Copy, Upload, ArrowLeft, Save, ChevronDown, ChevronRight, ExternalLink, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,6 @@ import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
-import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -861,7 +861,7 @@ export function PlanejamentoDetail({
     enabled: isEdit && !!modeloId && isRevenda && paOn,
     queryFn: async () => {
       const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
-        .select("id, colecao_id, categoria_id, grupo_id, grade_proporcao, markup_atacado, markup_varejo, variantes:produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .select("id, colecao_id, categoria_id, grupo_id, grade_proporcao, markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, variantes:produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -869,6 +869,7 @@ export function PlanejamentoDetail({
         id: string; colecao_id: string | null; categoria_id: string | null; grupo_id: string | null;
         grade_proporcao: Record<string, number>;
         markup_atacado: number | null; markup_varejo: number | null;
+        preco_atacado_fixo: number | null; preco_varejo_fixo: number | null;
         variantes: { ordem: number; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[];
       } | null;
     },
@@ -883,13 +884,50 @@ export function PlanejamentoDetail({
   // card, mesmo padrão de `gradeRevendaSeededRef` acima.
   const [markupAtacadoInput, setMarkupAtacadoInput] = useState<number | null>(null);
   const [markupVarejoInput, setMarkupVarejoInput] = useState<number | null>(null);
-  const markupRevendaSeededRef = useRef(false);
-  useEffect(() => {
-    if (!produtoRevenda || markupRevendaSeededRef.current) return;
-    setMarkupAtacadoInput(produtoRevenda.markup_atacado);
-    setMarkupVarejoInput(produtoRevenda.markup_varejo);
-    markupRevendaSeededRef.current = true;
-  }, [produtoRevenda]);
+  // Rascunho LOCAL do texto digitado nos campos de PREÇO de revenda (preço FIXO, set/2026). É o
+  // `value` CONTROLADO do MoneyInput (o que o usuário vê enquanto digita). RE-SEMEADO quando o preço
+  // REAL do servidor muda (`draft.preco_*`, já = fixo-ou-derivado recomputado) — mesmo padrão do
+  // `precoBaseRef` do card da lista: sem isto o campo ficaria preso ao valor antigo e não mostraria a
+  // digitação; e após salvar/refetch não refletiria o novo preço. (O markup segue seed-1×.)
+  const [precoAtacadoDraft, setPrecoAtacadoDraft] = useState<string>("");
+  const [precoVarejoDraft, setPrecoVarejoDraft] = useState<string>("");
+  const precoAtacadoBaseRef = useRef<number | null | undefined>(undefined);
+  const precoVarejoBaseRef = useRef<number | null | undefined>(undefined);
+  const strDeNum = (v: number | null | undefined) => (v != null ? String(v) : "");
+  // Re-semeia o rascunho quando o preço REAL do servidor muda — MAS só se o rascunho estiver LIMPO
+  // (igual ao ÚLTIMO valor conhecido do servidor). Se o usuário está digitando (rascunho diverge do
+  // base anterior), PRESERVA a digitação — senão um refetch concorrente (save de outro usuário via
+  // Realtime, foco de janela) sobrescreveria o campo no meio (achado C da revisão). Mesma guarda que
+  // MO/grade já têm. 1ª passada (base undefined) sempre semeia.
+  if (precoAtacadoBaseRef.current !== (draft.preco_atacado ?? null)) {
+    const limpo = precoAtacadoBaseRef.current === undefined || precoAtacadoDraft === strDeNum(precoAtacadoBaseRef.current);
+    precoAtacadoBaseRef.current = draft.preco_atacado ?? null;
+    if (limpo) setPrecoAtacadoDraft(strDeNum(draft.preco_atacado));
+  }
+  if (precoVarejoBaseRef.current !== (draft.preco_venda ?? null)) {
+    const limpo = precoVarejoBaseRef.current === undefined || precoVarejoDraft === strDeNum(precoVarejoBaseRef.current);
+    precoVarejoBaseRef.current = draft.preco_venda ?? null;
+    if (limpo) setPrecoVarejoDraft(strDeNum(draft.preco_venda));
+  }
+  // Markup local RE-SEMEADO do valor EFETIVO (markup gravado no servidor OU, se o preço está fixo,
+  // o derivado preço÷custo) sempre que o efetivo muda — só se o rascunho estiver LIMPO (não sobrescreve
+  // digitação; mesma guarda dos preços). Regra "última edição manda": editar preço grava preço + limpa
+  // markup no banco → aqui o markup re-semeia p/ o derivado do novo preço; editar markup grava markup
+  // + limpa o preço fixo → o preço re-semeia p/ o derivado. Cada campo sempre mostra o efetivo.
+  const markupAtacadoEfetivo = produtoRevenda?.markup_atacado ?? (draft.preco_atacado != null ? markupDePreco(baseRevendaMarkup, draft.preco_atacado) : null);
+  const markupVarejoEfetivo = produtoRevenda?.markup_varejo ?? (draft.preco_venda != null ? markupDePreco(baseRevendaMarkup, draft.preco_venda) : null);
+  const markupAtacadoBaseRef = useRef<number | null | undefined>(undefined);
+  const markupVarejoBaseRef = useRef<number | null | undefined>(undefined);
+  if (markupAtacadoBaseRef.current !== (markupAtacadoEfetivo ?? null)) {
+    const limpo = markupAtacadoBaseRef.current === undefined || markupAtacadoInput === markupAtacadoBaseRef.current;
+    markupAtacadoBaseRef.current = markupAtacadoEfetivo ?? null;
+    if (limpo) setMarkupAtacadoInput(markupAtacadoEfetivo ?? null);
+  }
+  if (markupVarejoBaseRef.current !== (markupVarejoEfetivo ?? null)) {
+    const limpo = markupVarejoBaseRef.current === undefined || markupVarejoInput === markupVarejoBaseRef.current;
+    markupVarejoBaseRef.current = markupVarejoEfetivo ?? null;
+    if (limpo) setMarkupVarejoInput(markupVarejoEfetivo ?? null);
+  }
   const salvarMarkupsRevenda = useMutation({
     mutationFn: async (payload: { markup_atacado: number | null; markup_varejo: number | null }) => {
       if (!produtoRevenda) return;
@@ -912,16 +950,29 @@ export function PlanejamentoDetail({
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o markup.")),
   });
-  // Custo total da peça (mesmo `custoPrevistoRevenda` acima — já traz valor unitário com
-  // desconto + insumos, ver ramo revenda de `_custo_unitario_modelos_core`) ×
-  // markup_atacado = PREÇO ATACADO; preço atacado × markup_varejo = PREÇO VAREJO. Espelha a
-  // MESMA fórmula/arredondamento do servidor (`_pa_recomputar_precos_modelo`) pra preview AO
-  // VIVO — "Preço para venda"/"Preço atacado" no render abaixo mostram isto, não mais
-  // `draft.preco_atacado`/`preco_venda` (que viraram read-only, atualizados pelo servidor).
-  // Atacado e varejo INDEPENDENTES sobre a MESMA base (custo previsto): base × markup próprio (não
-  // mais encadeado). Fonte única em `@/lib/preco-revenda`, espelha `_pa_recomputar_precos_modelo`.
-  const precoAtacadoRevendaLive = precoAtacado(baseRevendaMarkup, markupAtacadoInput);
-  const precoVarejoRevendaLive = precoVarejo(baseRevendaMarkup, markupVarejoInput);
+  // Preço FIXO de revenda (set/2026): grava o preço EXATO digitado (sem derivar do markup, sem
+  // arredondar de volta). `_tocar_X=true` mexe SÓ no canal X; preço não-null FIXA + limpa o markup
+  // daquele canal; null DESTRAVA (limpa o fixo, mantém markup → volta a derivar). O servidor recomputa
+  // `modelos.preco_atacado`/`preco_venda` = coalesce(fixo, round(base×markup,2)). Mesmas invalidações
+  // de `salvarMarkupsRevenda` (o preço real do modelo mudou no servidor).
+  const salvarPrecosFixoRevenda = useMutation({
+    mutationFn: async (p: { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null }) => {
+      if (!produtoRevenda) return;
+      const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
+        _produto_id: produtoRevenda.id,
+        _tocar_atacado: p.tocarAtacado, _preco_atacado_fixo: p.precoAtacado,
+        _tocar_varejo: p.tocarVarejo, _preco_varejo_fixo: p.precoVarejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o preço.")),
+  });
   const grupoRevendaNome = grupos.find((g) => g.id === produtoRevenda?.grupo_id)?.nome ?? null;
   const acessorioRevenda = ehGrupoAcessorio(grupoRevendaNome);
   // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
@@ -1873,7 +1924,7 @@ export function PlanejamentoDetail({
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
-              // bidirecional) + Preço atacado/para venda DERIVADOS ao vivo. Intocado.
+              // bidirecional) + Preço atacado/varejo FIXO (preço exato digitado, sem derivar do markup).
               <div className="grid sm:grid-cols-2 gap-3">
                 {/* Cadeia íntegra da revenda (base = custo previsto + M.O.; ver `piRevenda`):
                     Custo → Preço (custo × markup da linha) → Preço sugerido (derivado). */}
@@ -1886,13 +1937,18 @@ export function PlanejamentoDetail({
                     <div className="grid gap-1">
                       <Label>Markup atacado</Label>
                       <div className="relative">
+                        {/* value = markup EFETIVO (gravado OU derivado do preço — re-semeado no topo).
+                            onBlur SÓ salva se o valor MUDOU vs o efetivo anterior (`markupAtacadoBaseRef`)
+                            — senão está só exibindo o derivado e salvar destravaria o preço à toa.
+                            Editar markup grava markup (o banco limpa o preço fixo → preço deriva). */}
                         <NumberInput
                           blankZero
                           placeholder="2,50"
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
-                          onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -1906,38 +1962,51 @@ export function PlanejamentoDetail({
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
-                          onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
-                    {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
-                        (markup = preço ÷ custo). Grava o markup no estado + salva (onBlur), igual aos
-                        campos de markup. base=0 → markupDePreco null → não muda (mantém o anterior). */}
+                    {/* Preços EDITÁVEIS = preço FIXO (set/2026, sem derivar do markup): o que se EXIBE
+                        em repouso é o preço REAL do modelo (`draft.preco_atacado`/`preco_venda`, já
+                        fixo-ou-derivado pelo servidor) — NÃO mais o derivado do markup, que mostraria
+                        valor errado quando há preço fixo. onChange só guarda o texto num rascunho local;
+                        o save (onBlur/Enter) manda o número EXATO à RPC `salvar_precos_fixo_...`, tocando
+                        SÓ o canal do campo. Vazio/≤0 = null = DESTRAVA (volta a derivar do markup).
+                        Só dispara se o valor mudou vs o preço real atual (evita salvar à toa). */}
                     <div className="grid gap-1">
                       <Label>Preço atacado</Label>
                       <MoneyInput
-                        value={precoAtacadoRevendaLive ?? ""}
+                        fixedDecimals
+                        value={precoAtacadoDraft}
                         placeholder="0,00"
-                        disabled={baseRevendaMarkup <= 0}
-                        onChange={(e) => {
-                          const mk = markupDePreco(baseRevendaMarkup, Number(e.target.value) || 0);
-                          if (mk != null) setMarkupAtacadoInput(mk);
+                        onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                        onBlur={() => {
+                          const n = Number(precoAtacadoDraft) || 0;
+                          const novo = n > 0 ? n : null;
+                          const atual = draft.preco_atacado ?? null;
+                          if (novo === atual) return;
+                          salvarPrecosFixoRevenda.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
                         }}
-                        onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
                       />
                     </div>
                     <div className="grid gap-1">
                       <Label>Preço varejo</Label>
                       <MoneyInput
-                        value={precoVarejoRevendaLive ?? ""}
+                        fixedDecimals
+                        value={precoVarejoDraft}
                         placeholder="0,00"
-                        disabled={baseRevendaMarkup <= 0}
-                        onChange={(e) => {
-                          const mk = markupDePreco(baseRevendaMarkup, Number(e.target.value) || 0);
-                          if (mk != null) setMarkupVarejoInput(mk);
+                        onChange={(e) => setPrecoVarejoDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                        onBlur={() => {
+                          const n = Number(precoVarejoDraft) || 0;
+                          const novo = n > 0 ? n : null;
+                          const atual = draft.preco_venda ?? null;
+                          if (novo === atual) return;
+                          salvarPrecosFixoRevenda.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
                         }}
-                        onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
                       />
                     </div>
                   </>
