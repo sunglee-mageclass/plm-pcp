@@ -265,7 +265,7 @@ export function EditarMixDialog({
                       {mods.map((m) => (
                         <div key={m.id} className="w-16">
                           <div className="relative">
-                            <ModeloResumoFoto fontes={fotoFontes(m)} className="aspect-[3/4] w-16" nome={m.nome ?? ""} />
+                            <ModeloResumoFoto fontes={fotoFontes(m)} className="aspect-[3/4] w-16" nome={m.nome ?? ""} zoom />
                             <button
                               className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm"
                               aria-label="Tirar da família"

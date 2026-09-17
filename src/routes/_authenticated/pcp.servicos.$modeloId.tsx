@@ -1639,7 +1639,7 @@ export function TerceirizadosDetail({
         <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <ModeloResumoFoto
           fontes={[(modelo as any)?.fotos_modelo?.[0], (modelo as any)?.desenho_tecnico_url, (modelo as any)?.croqui_url]}
-          nome={modelo?.nome} className="h-14 w-14"
+          nome={modelo?.nome} className="h-14 w-14" zoom
         />
         <div className="flex-1 min-w-0">
           <h1 className="font-display text-xl font-semibold tracking-tight">

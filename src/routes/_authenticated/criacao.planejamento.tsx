@@ -29,6 +29,7 @@ import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { cqLiberado } from "@/lib/cq-status";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigemLane } from "@/lib/origem";
@@ -1297,7 +1298,11 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
         ) : coverIsPdf ? (
           <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="w-full h-full pointer-events-none" />
         ) : (
-          <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
+          // Zoom ao clicar (padrão do sistema). O ImagePreview faz stopPropagation → NÃO dispara o
+          // onClick do <Card> (abrir o Sheet); mesmo padrão do CardCover do Desenvolvimento.
+          <ImagePreview src={url} alt={modelo.nome ?? ""} className="h-full w-full">
+            <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
+          </ImagePreview>
         )}
       </div>
       {compact ? (

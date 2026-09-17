@@ -1745,6 +1745,7 @@ export function PlanejamentoDetail({
                 fontes={[draft.fotos_modelo?.[0], draft.desenho_tecnico_url, draft.croqui_url]}
                 nome={draft.nome}
                 className="h-14 w-14"
+                zoom
               />
             )}
             <div className="min-w-0 flex-1">

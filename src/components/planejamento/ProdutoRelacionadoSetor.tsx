@@ -12,17 +12,20 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Trash2, ImageOff } from "lucide-react";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 
 type Membro = { id: string; ref: string | null; nome: string; fotos_modelo: string[] | null };
 type Resultado = Membro & { conjunto_id: string | null };
 
-function Thumb({ path, alt }: { path: string | null; alt: string }) {
+// `zoom` (opt-in): clicar amplia (padrão do sistema). NÃO ligar dentro do picker (competiria com o
+// clique de selecionar) — só na lista de membros do conjunto.
+function Thumb({ path, alt, zoom = false }: { path: string | null; alt: string; zoom?: boolean }) {
   const url = useSignedUrl(path, "modelos");
-  return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
-      {url ? <img src={url} alt={alt} className="h-full w-full object-cover" /> : <ImageOff className="h-4 w-4 text-muted-foreground" />}
-    </div>
-  );
+  const box = "flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40";
+  if (!url) return <div className={box}><ImageOff className="h-4 w-4 text-muted-foreground" /></div>;
+  const img = <img src={url} alt={alt} className="h-full w-full object-cover" />;
+  if (!zoom) return <div className={box}>{img}</div>;
+  return <ImagePreview src={url} alt={alt} className={box}>{img}</ImagePreview>;
 }
 
 export function ProdutoRelacionadoSetor({ modeloId }: { modeloId: string }) {
@@ -101,7 +104,7 @@ export function ProdutoRelacionadoSetor({ modeloId }: { modeloId: string }) {
         <ul className="space-y-2">
           {membros.map((m) => (
             <li key={m.id} className="flex items-center gap-3 rounded-md border p-2">
-              <Thumb path={m.fotos_modelo?.[0] ?? null} alt={m.ref ?? m.nome} />
+              <Thumb path={m.fotos_modelo?.[0] ?? null} alt={m.ref ?? m.nome} zoom />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-mono text-xs text-primary">{m.ref ?? "—"}</p>
                 <p className="truncate text-sm">{m.nome}</p>

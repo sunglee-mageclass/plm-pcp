@@ -61,7 +61,8 @@ export function ModeloResumoLinhaMobile({
   return (
     <td data-label="card" className="md:hidden">
       <div className="flex items-center gap-3">
-        <ModeloResumoFoto fontes={fontes} nome={nome} className="h-16 w-16 shrink-0" />
+        {/* Mobile: sem hover → zoom ao TOCAR (senão não há como ampliar no celular). */}
+        <ModeloResumoFoto fontes={fontes} nome={nome} className="h-16 w-16 shrink-0" zoom />
         <div className="min-w-0 flex-1 space-y-0.5">
           {/* 1 — REF + versão */}
           <div className="flex items-center gap-2">
