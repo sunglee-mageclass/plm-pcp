@@ -74,6 +74,13 @@ export type ProdutoDraft = {
   // `salvar_produto_acabado`) em `modelos.preco_atacado`/`preco_venda` do espelho.
   markup_atacado: number | null;
   markup_varejo: number | null;
+  // Preço FIXO por canal (set/2026): quando o usuário DIGITA um preço, ele é gravado EXATO aqui e o
+  // markup do canal é limpo ("última edição manda"); o recompute usa `coalesce(preco_fixo, base×markup)`.
+  // Espelha o Planejamento de Produto — as 2 telas usam o MESMO modelo. Read-only no draft (a escrita
+  // vai pelas RPCs `salvar_precos_fixo_produto_acabado`/`salvar_markups_produto_acabado`, não pelo save
+  // em lote de `salvar_produto_acabado`, que só toca markup).
+  preco_atacado_fixo: number | null;
+  preco_varejo_fixo: number | null;
   // Foto PRÓPRIA do produto (#2.4) — path no bucket "oc-tecido" (como o Importado). O thumb do
   // card usa esta com fallback pra do modelo espelho.
   foto_url: string | null;

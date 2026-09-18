@@ -201,13 +201,15 @@ export function ProdutoCard({
   // PREÇO ATACADO = base × markup_atacado; PREÇO VAREJO = base × markup_varejo (não mais encadeado
   // no atacado). Espelha `_pa_recomputar_precos_modelo` (set/2026) pra preview AO VIVO — só o Salvar
   // persiste. Fonte única em `@/lib/preco-revenda`. Markup ausente → aquele preço fica "—".
-  const precoAtacadoLive = precoAtacado(base, produto.markup_atacado);
-  const precoVarejoLive = precoVarejo(base, produto.markup_varejo);
-  // Pill-resumo: usa o derivado AO VIVO quando dá pra calcular; sem markup ainda configurado,
-  // cai pro último preço persistido no espelho (pode ser um preço herdado de antes desta
-  // feature, ou o resultado do último save com markup) — nunca fica em branco à toa.
-  const pillAtacado = precoAtacadoLive ?? produto.modeloPrecoAtacado;
-  const pillVarejo = precoVarejoLive ?? produto.modeloPrecoVenda;
+  // Preço EFETIVO (set/2026, espelha o Planejamento e `_pa_recomputar_precos_modelo`): preço FIXO
+  // manda; senão deriva do markup (base × markup). Markup EXIBIDO = markup gravado OU, quando há preço
+  // fixo, o derivado (preço ÷ base) — assim digitar preço "preenche" o markup em vez de deixá-lo vazio.
+  const precoAtacadoLive = produto.preco_atacado_fixo ?? precoAtacado(base, produto.markup_atacado) ?? produto.modeloPrecoAtacado;
+  const precoVarejoLive = produto.preco_varejo_fixo ?? precoVarejo(base, produto.markup_varejo) ?? produto.modeloPrecoVenda;
+  const markupAtacadoExib = produto.markup_atacado ?? (produto.preco_atacado_fixo != null ? markupDePreco(base, produto.preco_atacado_fixo) : null);
+  const markupVarejoExib = produto.markup_varejo ?? (produto.preco_varejo_fixo != null ? markupDePreco(base, produto.preco_varejo_fixo) : null);
+  const pillAtacado = precoAtacadoLive;
+  const pillVarejo = precoVarejoLive;
 
   // ── ⋯ menu: criar card / aplicar ao modelo / excluir ──
   // Invalidação ampla é segura aqui (não sobrescreve os `drafts` em memória do Sheet — a
@@ -245,6 +247,40 @@ export function ProdutoCard({
     onSuccess: () => { toast.success("Quantidade/variantes reaplicadas ao modelo."); invalidarVizinhos(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar ao modelo.")),
     onSettled: () => setAplicando(false),
+  });
+
+  // Preço/markup de revenda (ESPELHA o Planejamento, set/2026): salva DIRETO via as RPCs dedicadas no
+  // onBlur — NÃO pelo save em lote (`salvar_produto_acabado`), que só toca markup e apagaria o preço
+  // fixo. "Última edição manda": digitar PREÇO grava o fixo (limpa markup); digitar MARKUP grava markup
+  // (limpa o fixo). Invalida `produtos-acabados` (relê o card) + as keys do Planejamento (espelho bidir).
+  const invalidarPrecoRevenda = () => {
+    qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    qc.invalidateQueries({ queryKey: ["modelo"] });
+    qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
+    qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+  };
+  const salvarPrecoFixoMut = useMutation({
+    mutationFn: async (p: { tocarAtacado: boolean; precoAtacado: number | null; tocarVarejo: boolean; precoVarejo: number | null }) => {
+      const { error } = await supabase.rpc("salvar_precos_fixo_produto_acabado" as any, {
+        _produto_id: produto.id,
+        _tocar_atacado: p.tocarAtacado, _preco_atacado_fixo: p.precoAtacado,
+        _tocar_varejo: p.tocarVarejo, _preco_varejo_fixo: p.precoVarejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: invalidarPrecoRevenda,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o preço.")),
+  });
+  const salvarMarkupMut = useMutation({
+    mutationFn: async (p: { markupAtacado: number | null; markupVarejo: number | null }) => {
+      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
+        _produto_id: produto.id, _markup_atacado: p.markupAtacado, _markup_varejo: p.markupVarejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: invalidarPrecoRevenda,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o markup.")),
   });
 
   const excluirMut = useMutation({
@@ -848,13 +884,20 @@ export function ProdutoCard({
                       <div className="space-y-1">
                         <Label className="text-sm">Markup atacado</Label>
                         <div className="relative">
+                          {/* value = markup EFETIVO (gravado OU derivado do preço fixo). Salva no onBlur
+                              (RPC direta, destrava o preço) só se MUDOU vs o exibido — senão está só
+                              mostrando o derivado e salvar destravaria o preço à toa. */}
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-atac`}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
-                            value={produto.markup_atacado ?? 0}
-                            onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                            value={markupAtacadoExib ?? 0}
+                            onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_atacado_fixo: null })}
+                            onBlur={(e) => {
+                              const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+                              if (mk !== (markupAtacadoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: produto.markup_varejo });
+                            }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
@@ -868,39 +911,45 @@ export function ProdutoCard({
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
-                            value={produto.markup_varejo ?? 0}
-                            onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                            value={markupVarejoExib ?? 0}
+                            onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_varejo_fixo: null })}
+                            onBlur={(e) => {
+                              const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+                              if (mk !== (markupVarejoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: produto.markup_atacado, markupVarejo: mk });
+                            }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
                         {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
                       </div>
-                      {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
-                          (markup = preço ÷ base). Cada par markup↔preço é independente. O banco só
-                          persiste markup (preço é derivado — inv. #13); aqui gravamos o markup no draft.
-                          base=0 → markupDePreco devolve null → não grava (mantém o anterior). */}
+                      {/* Preços EDITÁVEIS = preço FIXO EXATO (set/2026, espelha o Planejamento; sem
+                          derivar do markup arredondado — fim do "298"→"297,84"). Digitar grava o preço
+                          fixo no draft + salva no onBlur (RPC, toca SÓ o canal, limpa o markup dele).
+                          Funciona com base 0 (sem `disabled`). fixedDecimals p/ sempre 2 casas. */}
                       <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Preço atacado</Label>
                           <MoneyInput
+                            fixedDecimals
                             value={precoAtacadoLive ?? ""}
                             placeholder="0,00"
-                            disabled={base <= 0}
-                            onChange={(e) => {
-                              const mk = markupDePreco(base, Number(e.target.value) || 0);
-                              if (mk != null) onChange({ ...produto, markup_atacado: mk });
+                            onChange={(e) => onChange({ ...produto, preco_atacado_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_atacado: null })}
+                            onBlur={(e) => {
+                              const novo = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+                              if (novo !== (produto.preco_atacado_fixo ?? null)) salvarPrecoFixoMut.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
                             }}
                           />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Preço varejo</Label>
                           <MoneyInput
+                            fixedDecimals
                             value={precoVarejoLive ?? ""}
                             placeholder="0,00"
-                            disabled={base <= 0}
-                            onChange={(e) => {
-                              const mk = markupDePreco(base, Number(e.target.value) || 0);
-                              if (mk != null) onChange({ ...produto, markup_varejo: mk });
+                            onChange={(e) => onChange({ ...produto, preco_varejo_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_varejo: null })}
+                            onBlur={(e) => {
+                              const novo = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+                              if (novo !== (produto.preco_varejo_fixo ?? null)) salvarPrecoFixoMut.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
                             }}
                           />
                         </div>

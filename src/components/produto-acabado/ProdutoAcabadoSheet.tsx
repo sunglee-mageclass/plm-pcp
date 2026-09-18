@@ -104,6 +104,8 @@ function rowToDraft(row: any): ProdutoDraft {
     insumos_total: Number(row.insumos_total) || 0,
     markup_atacado: row.markup_atacado != null ? Number(row.markup_atacado) : null,
     markup_varejo: row.markup_varejo != null ? Number(row.markup_varejo) : null,
+    preco_atacado_fixo: row.preco_atacado_fixo != null ? Number(row.preco_atacado_fixo) : null,
+    preco_varejo_fixo: row.preco_varejo_fixo != null ? Number(row.preco_varejo_fixo) : null,
     foto_url: row.foto_url ?? null,
     modelo_id: row.modelo_id,
     mix_id: row.mix_id ?? null,
@@ -137,7 +139,7 @@ const SELECT_PRODUTO = `
   id, rev, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
-  markup_atacado, markup_varejo, modelo_id, mix_id, foto_url,
+  markup_atacado, markup_varejo, preco_atacado_fixo, preco_varejo_fixo, modelo_id, mix_id, foto_url,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url),
   ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
@@ -717,6 +719,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
         toast.success("Produtos salvos.");
       }
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      // Espelho c/ o Planejamento de Produto (bug do "não espelha", set/2026): o save daqui precisa
+      // invalidar as keys que AQUELA tela lê — senão editar preço/markup no Produto Acabado não
+      // refletia no Planejamento sem reload. Simétrico ao que o Planejamento já faz p/ cá.
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["modelo"] });
+      qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
