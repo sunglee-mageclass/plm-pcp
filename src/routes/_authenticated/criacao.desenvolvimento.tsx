@@ -403,30 +403,32 @@ function DesenvolvimentoPage() {
 
   // Agrupamento aninhado (mesmo padrão do Planejamento). Splitters ativos aninham nesta ordem.
   type Split = { key: string; nome: string; items: Modelo[] };
-  // Rótulos "sem tecido" (o comum e os de comprado "Sem tecido — Revenda/Importado") — ficam no
-  // FIM da coluna; os de comprado depois do interno. Prefixo cobre qualquer origem comprada.
-  const ehSemTecido = (nome: string) => nome === "Sem tecido" || nome.startsWith("Sem tecido — ");
   const byTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     for (const m of items) {
-      // Comprado (revenda/importado) nunca tem tecido → lane própria "Sem tecido — <Origem>"
-      // (separa dos internos pendentes). MAS só quando NÃO se agrupa por Origem — aí a dimensão
-      // Origem já separa e o sufixo seria redundante (decisão do dono; evita lane repetida/vazia).
-      const semTec =
-        !groupByOrigem && ehOrigemComprada(m.origem)
-          ? `Sem tecido — ${rotuloOrigem(m.origem)}`
-          : "Sem tecido";
-      const nome = tecidoPrincipalMap.get(m.id) ?? semTec;
+      // Comprado (revenda/importado) NÃO tem tecido → agrupa pela CATEGORIA do produto (dono set/2026,
+      // antes caía tudo em "Sem tecido — <Origem>"). Rótulo "<Categoria> — <Origem>" (marca de revenda),
+      // "Sem categoria — <Origem>" quando falta categoria. Só quando NÃO se agrupa por Origem — aí a
+      // dimensão Origem já separa e o sufixo seria redundante (evita lane repetida/vazia).
+      let nome: string;
+      if (ehOrigemComprada(m.origem)) {
+        const cat = (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null) ?? "Sem categoria";
+        nome = !groupByOrigem ? `${cat} — ${rotuloOrigem(m.origem)}` : cat;
+      } else {
+        nome = tecidoPrincipalMap.get(m.id) ?? "Sem tecido";
+      }
       const arr = map.get(nome); if (arr) arr.push(m); else map.set(nome, [m]);
     }
+    // Ordem: tecidos reais (alfabético) → "Sem tecido" (interno) → comprados por categoria (alfabético).
+    const ehComprado = (nome: string) => nome.endsWith(` — Revenda`) || nome.endsWith(` — Importado`);
     return Array.from(map.entries())
       .map(([nome, its]) => ({ key: nome, nome, items: its }))
       .sort((a, b) => {
-        const sa = ehSemTecido(a.nome), sb = ehSemTecido(b.nome);
-        if (sa && sb) return a.nome.localeCompare(b.nome, "pt-BR"); // "Sem tecido" antes de "… — Revenda"
-        if (sa) return 1;
-        if (sb) return -1;
-        return a.nome.localeCompare(b.nome, "pt-BR");
+        // rank: 0 tecido real · 1 "Sem tecido" interno · 2 comprado por categoria — no FIM.
+        const rank = (n: string) => (ehComprado(n) ? 2 : n === "Sem tecido" ? 1 : 0);
+        const ra = rank(a.nome), rb = rank(b.nome);
+        if (ra !== rb) return ra - rb;
+        return a.nome.localeCompare(b.nome, "pt-BR"); // dentro do mesmo rank, alfabético
       });
   };
   // Origem (interno/revenda/importado) — reusa o padrão do Planejamento. Interno (NULL/default)
