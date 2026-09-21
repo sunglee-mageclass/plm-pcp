@@ -26,14 +26,14 @@ export type AgregadoResult = {
 };
 
 /**
- * Agrega as linhas cruas em entidades. `duplicatasBanco` (opcional) = chaves que já existem
- * no banco (o descritor consulta antes); marcadas como problema "duplicata".
+ * Agrega as linhas cruas em entidades (1 cabeçalho + N variantes por chave natural).
+ * O estado vs banco (novo/complementar/so_foto/conflito) é preenchido DEPOIS por
+ * `descriptor.analisarBanco` — aqui só agrupamos e detectamos duplicata INTRA-arquivo.
  */
 export function agregar(
   desc: EntityImportDescriptor,
   linhas: RawRow[],
   maps: LookupMaps,
-  duplicatasBanco?: Set<string>,
 ): AgregadoResult {
   const byChave = new Map<string, EntidadeAgregada>();
 
@@ -44,13 +44,6 @@ export function agregar(
     let ent = byChave.get(chave);
     if (!ent) {
       ent = { ...resolved, variantes: [...resolved.variantes], problemas: [...resolved.problemas] };
-      // duplicata já existente no banco (nome sem unique, ex.: artigos)
-      if (duplicatasBanco?.has(chave)) {
-        ent.problemas.push({
-          nivel: "duplicata",
-          mensagem: "Já existe um registro com este nome — será pulado.",
-        });
-      }
       byChave.set(chave, ent);
     } else {
       // cabeçalho divergente: o modelo é "1 tecido = N cores", então só o cabeçalho da 1ª

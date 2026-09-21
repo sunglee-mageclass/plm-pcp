@@ -40,6 +40,14 @@ export type LookupSpec = {
 export type LookupMap = Map<string, string> | Map<string, string[]>;
 export type LookupMaps = Record<string, LookupMap>;
 
+// Estado de uma entidade após confrontar com o banco (upsert incremental):
+//  - "novo": nome+fornecedor não existem → cria.
+//  - "complementar": tecido existe (nome+MESMO fornecedor) → adiciona variantes/foto que faltam.
+//  - "so_foto": tecido+cor já existem SEM foto → só completa a foto.
+//  - "conflito_fornecedor": nome existe com fornecedor DIFERENTE → precisa do usuário
+//    ("é o mesmo tecido?"). `artigoExistenteId`/`fornecedorExistenteNome` descrevem o que há.
+export type EstadoEntidade = "novo" | "complementar" | "so_foto" | "conflito_fornecedor";
+
 // ---------------------------------------------------------------------------
 // Problema detectado numa linha ANTES de gravar. `nivel`:
 //  - "erro"    → bloqueia a linha (não será enviada ao servidor)
@@ -75,6 +83,15 @@ export type EntidadeAgregada = ResolvedRow & {
   fotoPath?: string | null; // (fotoModo "entidade") path no storage da foto principal
   // (fotoModo "variante") path por índice de variante — só as que o usuário confirmou.
   fotoPathVariante?: (string | null)[];
+  // --- preenchidos por analisarBanco (upsert incremental) ---
+  estado?: EstadoEntidade;
+  artigoAlvoId?: string | null; // artigo existente a complementar (ou null = criar)
+  // por variante: true se a cor+apelido já existe no artigo alvo (p/ marcar "só foto"/"existe").
+  varianteExiste?: boolean[];
+  varianteTemFoto?: boolean[]; // por variante: já tem foto no banco (não sobrescrever)
+  // conflito_fornecedor: nome do fornecedor do tecido existente + a decisão do usuário.
+  fornecedorExistenteNome?: string | null;
+  mesmoTecidoConfirmado?: boolean; // usuário disse "sim, é o mesmo" (usa artigoAlvoId)
 };
 
 // Modo de casamento de foto:
@@ -107,18 +124,24 @@ export type EntityImportDescriptor = {
   // resolve + valida UMA linha crua (nome→id no CLIENTE, via maps). NÃO grava nada.
   resolve: (row: RawRow, maps: LookupMaps) => ResolvedRow;
 
-  // detecta duplicata já EXISTENTE no banco (consulta), p/ entidades cujo nome não tem UNIQUE
-  // (ex.: artigos.nome). Recebe as chaves naturais do arquivo; devolve o set das que já existem.
-  // Opcional — só para entidades sem unique de nome.
-  duplicatasExistentes?: (
-    sb: SupabaseClient,
-    chaves: string[],
-  ) => Promise<Set<string>>;
+  // recomputa `problemas` a partir dos VALORES RESOLVIDOS atuais (após o usuário corrigir na
+  // tabela editável). Sem isso, um erro do resolve inicial persistiria e a linha corrigida seria
+  // pulada em silêncio. Devolve o novo array de problemas. Opcional (entidades sem edição inline).
+  revalidar?: (ent: EntidadeAgregada) => Problema[];
+
+  // confronta as entidades agregadas com o BANCO (1 consulta em lote) e MUTA cada uma com o
+  // estado do upsert: novo / complementar / so_foto / conflito_fornecedor + artigoAlvoId +
+  // varianteExiste[]/varianteTemFoto[]. Opcional (entidades sem upsert não implementam).
+  analisarBanco?: (sb: SupabaseClient, entidades: EntidadeAgregada[]) => Promise<void>;
 
   // grava UMA entidade agregada (cabeçalho + variantes) atômico via RPC transacional.
   // Recebe a foto já subida (path) quando houver. Lança em erro (o motor isola por linha).
-  rpc: (sb: SupabaseClient, ent: EntidadeAgregada) => Promise<void>;
+  // Retorna a AÇÃO realizada (do upsert) p/ o relatório; void = trata como "criado" (retrocompat).
+  rpc: (sb: SupabaseClient, ent: EntidadeAgregada) => Promise<AcaoImport | void>;
 };
+
+// Ação efetiva de uma linha do upsert (espelha o `acao` da RPC importar_tecido_linha).
+export type AcaoImport = "criado" | "complementado" | "so_foto" | "inalterado";
 
 // ---------------------------------------------------------------------------
 // Relatório final da importação (mostrado após confirmar).
@@ -126,13 +149,17 @@ export type EntityImportDescriptor = {
 export type ImportReportItem = {
   chave: string;
   nome: string;
-  status: "criado" | "pulado" | "erro";
+  // sucesso: criado/complementado/so_foto/inalterado. pulado (ignorado/duplicata) e erro à parte.
+  status: AcaoImport | "pulado" | "erro";
   motivo?: string;
 };
 
 export type ImportReport = {
   entidade: string;
   criados: number;
+  complementados: number;
+  soFoto: number;
+  inalterados: number;
   pulados: number;
   erros: number;
   itens: ImportReportItem[];

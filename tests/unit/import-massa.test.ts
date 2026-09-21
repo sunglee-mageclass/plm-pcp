@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import { parseNomeFoto, casarFotos, alvosDeFoto } from "@/lib/import/foto-match";
-import { agregar, resumoProblemas, gravaveis, ehDuplicata, temErroBloqueante } from "@/lib/import/aggregate";
+import { levenshtein, similaridade, sugestoes, melhorSugestao } from "@/lib/import/fuzzy";
+import { agregar, resumoProblemas, gravaveis, temErroBloqueante } from "@/lib/import/aggregate";
 import { tecidoDescriptor } from "@/lib/import/entities/tecido.descriptor";
+import { importar } from "@/lib/import/engine";
+import type { EntidadeAgregada } from "@/lib/import/types";
 import { parseAba, lerWorkbook } from "@/lib/import/parse";
 import { gerarTemplateWorkbook } from "@/lib/import/template";
 import type { LookupMaps, RawRow } from "@/lib/import/types";
@@ -48,6 +51,41 @@ describe("foto-match: casarFotos", () => {
     const vestal = matches.find((m) => m.chave === "vestal")!;
     expect(vestal.principal).toBeNull();
     expect(orfas.map((o) => o.arquivo)).toEqual(["Sobra.png"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fuzzy — sugestão do valor de cadastro mais próximo
+// ---------------------------------------------------------------------------
+describe("fuzzy match", () => {
+  const empresas = [{ id: "1", nome: "Tecidos Suzy" }, { id: "2", nome: "Royal Malhas" }, { id: "3", nome: "Alfaiataria Prime" }];
+
+  it("levenshtein básico", () => {
+    expect(levenshtein("gato", "gato")).toBe(0);
+    expect(levenshtein("gato", "pato")).toBe(1);
+    expect(levenshtein("", "abc")).toBe(3);
+  });
+
+  it("similaridade ignora acento/caixa", () => {
+    expect(similaridade("Petróleo", "petroleo")).toBe(1);
+    expect(similaridade("Azul", "Azul")).toBe(1);
+    expect(similaridade("Azul", "Verde")).toBeLessThan(0.5);
+  });
+
+  it("melhorSugestao acha o fornecedor mais próximo do erro de digitação", () => {
+    expect(melhorSugestao("Tecidos Suzi", empresas, (e) => e.nome)?.nome).toBe("Tecidos Suzy");
+    expect(melhorSugestao("Royal", empresas, (e) => e.nome)?.nome).toBe("Royal Malhas");
+  });
+
+  it("sem candidato próximo o suficiente = null", () => {
+    expect(melhorSugestao("XYZ Totalmente Diferente", empresas, (e) => e.nome)).toBeNull();
+  });
+
+  it("sugestoes ranqueia do mais próximo ao menos", () => {
+    const r = sugestoes("Tecido Suzy", empresas, (e) => e.nome, 3, 0.2);
+    expect(r[0].item.nome).toBe("Tecidos Suzy"); // o topo é o mais parecido
+    expect(r[0].score).toBeGreaterThanOrEqual(r[r.length - 1].score); // ordenado desc
+    expect(r[0].score).toBeGreaterThan(0.8); // e é uma sugestão forte
   });
 });
 
@@ -210,13 +248,6 @@ describe("aggregate: agrupa variantes da mesma entidade e detecta duplicatas", (
     expect(ag.entidades[0].problemas.some((p) => p.nivel === "duplicata" && p.campo === "cor")).toBe(true);
   });
 
-  it("duplicata já existente no banco = entidade pulada", () => {
-    const linhas = [row(2, { nome: "Malha Fiore", cor_base: "Azul" })];
-    const ag = agregar(tecidoDescriptor, linhas, maps, new Set(["malha fiore"]));
-    expect(ehDuplicata(ag.entidades[0])).toBe(true);
-    expect(gravaveis(ag.entidades)).toHaveLength(0);
-  });
-
   it("entidade com erro bloqueante não é gravável", () => {
     const linhas = [row(2, { nome: "X", cor_base: "Roxo" })];
     const ag = agregar(tecidoDescriptor, linhas, maps);
@@ -245,5 +276,99 @@ describe("aggregate: agrupa variantes da mesma entidade e detecta duplicatas", (
     expect(res.total).toBe(2);
     expect(res.comErro).toBe(1);
     expect(res.semFoto).toBe(0); // fotoNome = nome normalizado (sempre presente aqui)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// analisarBanco — estado do UPSERT incremental (novo/complementar/so_foto/conflito)
+// ---------------------------------------------------------------------------
+describe("tecidoDescriptor.analisarBanco (upsert)", () => {
+  // fake do supabase: .from("artigos").select(...) resolve os artigos existentes fornecidos.
+  const fakeSb = (artigos: unknown[]) =>
+    ({ from: () => ({ select: async () => ({ data: artigos, error: null }) }) }) as never;
+
+  const EMP = "emp-suzy";
+  // maps com fornecedor "Tecidos Suzy" = emp-suzy
+  const maps2: LookupMaps = { ...maps, fornecedores: new Map([["tecidos suzy", [EMP]]]) };
+
+  async function analisar(linhas: RawRow[], artigos: unknown[]) {
+    const ag = agregar(tecidoDescriptor, linhas, maps2);
+    await tecidoDescriptor.analisarBanco!(fakeSb(artigos), ag.entidades);
+    return ag.entidades;
+  }
+
+  it("nome+fornecedor inexistentes = novo", async () => {
+    const [e] = await analisar([row(2, { nome: "Malha Nova", cor_base: "Azul", fornecedor: "Tecidos Suzy" })], []);
+    expect(e.estado).toBe("novo");
+    expect(e.artigoAlvoId).toBeNull();
+  });
+
+  it("mesmo nome+fornecedor, cor nova = complementar", async () => {
+    const artigos = [{ id: "art-1", nome: "Malha Fiore", empresa_id: EMP, empresas: { nome_fantasia: "Tecidos Suzy" },
+      variantes_tecido: [{ cor_id: "cor-verm", cor_apelido_id: null, foto_url: null }] }];
+    const [e] = await analisar([row(2, { nome: "Malha Fiore", cor_base: "Azul", fornecedor: "Tecidos Suzy" })], artigos);
+    expect(e.estado).toBe("complementar");
+    expect(e.artigoAlvoId).toBe("art-1");
+    expect(e.varianteExiste).toEqual([false]); // Azul é nova
+  });
+
+  it("cor já existe SEM foto = so_foto", async () => {
+    const artigos = [{ id: "art-1", nome: "Malha Fiore", empresa_id: EMP, empresas: { nome_fantasia: "Tecidos Suzy" },
+      variantes_tecido: [{ cor_id: "cor-azul", cor_apelido_id: null, foto_url: null }] }];
+    const [e] = await analisar([row(2, { nome: "Malha Fiore", cor_base: "Azul", fornecedor: "Tecidos Suzy" })], artigos);
+    expect(e.estado).toBe("so_foto");
+    expect(e.varianteExiste).toEqual([true]);
+    expect(e.varianteTemFoto).toEqual([false]);
+  });
+
+  it("nome existe com fornecedor DIFERENTE = conflito_fornecedor", async () => {
+    const artigos = [{ id: "art-9", nome: "Malha Fiore", empresa_id: "emp-outro", empresas: { nome_fantasia: "Royal" },
+      variantes_tecido: [] }];
+    const [e] = await analisar([row(2, { nome: "Malha Fiore", cor_base: "Azul", fornecedor: "Tecidos Suzy" })], artigos);
+    expect(e.estado).toBe("conflito_fornecedor");
+    expect(e.artigoAlvoId).toBe("art-9");
+    expect(e.fornecedorExistenteNome).toBe("Royal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REGRESSÃO (achados da revisão): revalidar após correção + ação no relatório
+// ---------------------------------------------------------------------------
+describe("regressão: revalidar limpa erro após correção inline", () => {
+  const maps3: LookupMaps = {
+    cores: new Map([["azul", "cor-azul"]]),
+    apelidos: new Map(), categorias: new Map(), meses: new Map(), anos: new Map(),
+    fornecedores: new Map(), representantes: new Map(),
+  };
+  it("cor base inexistente = erro; após corrigir cor_id, revalidar remove o erro", () => {
+    const ag = agregar(tecidoDescriptor, [{ __linha: 2, nome: "Malha", cor_base: "Roxo" } as RawRow], maps3);
+    const ent = ag.entidades[0];
+    expect(temErroBloqueante(ent)).toBe(true); // Roxo não existe
+    // usuário corrige a cor no dropdown → cor_id preenchido
+    const corrigida: EntidadeAgregada = { ...ent, variantes: ent.variantes.map((v) => ({ ...v, cor_id: "cor-azul" })) };
+    corrigida.problemas = tecidoDescriptor.revalidar!(corrigida);
+    expect(temErroBloqueante(corrigida)).toBe(false); // erro sumiu → será gravada, não pulada
+    expect(gravaveis([corrigida])).toHaveLength(1);
+  });
+});
+
+describe("regressão: engine reporta a AÇÃO retornada pela rpc", () => {
+  const desc = {
+    ...tecidoDescriptor,
+    temFoto: false, // sem foto p/ não depender de upload no teste
+    rpc: async (_sb: unknown, ent: EntidadeAgregada) =>
+      // simula a RPC: 1º "criado", os demais pela cor
+      (ent.cabecalho.nome === "A" ? "criado" : ent.cabecalho.nome === "B" ? "complementado" : "so_foto") as const,
+  };
+  it("criado/complementado/so_foto entram no relatório certo (não tudo 'criado')", async () => {
+    const ents = ["A", "B", "C"].map((n) => ({
+      chave: n, cabecalho: { nome: n }, variantes: [{ cor_id: "x" }], problemas: [], raw: { __linha: 2 },
+      fotoNome: null, categoriaIds: [],
+    })) as unknown as EntidadeAgregada[];
+    const rep = await importar({} as never, desc as never, ents, new Map());
+    expect(rep.criados).toBe(1);
+    expect(rep.complementados).toBe(1);
+    expect(rep.soFoto).toBe(1);
+    expect(rep.itens.map((i) => i.status).sort()).toEqual(["complementado", "criado", "so_foto"]);
   });
 });

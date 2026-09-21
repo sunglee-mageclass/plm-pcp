@@ -6,7 +6,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Upload, FileSpreadsheet, Loader2, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, Images } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, Loader2, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, Images, Image as ImageIcon, MinusCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -21,8 +21,9 @@ import { MatchVisualFoto } from "@/components/importar/MatchVisualFoto";
 import { alvosDeFoto } from "@/lib/import/foto-match";
 import { DESCRIPTORS, descriptorPorEntidade } from "@/lib/import/registry";
 import { lerWorkbook, parseAba } from "@/lib/import/parse";
-import { carregarLookups } from "@/lib/import/lookup";
-import { agregar, resumoProblemas, todosProblemas, type AgregadoResult } from "@/lib/import/aggregate";
+import { carregarLookups, carregarOpcoes, type OpcoesLookup } from "@/lib/import/lookup";
+import { TabelaAnalise } from "@/components/importar/TabelaAnalise";
+import { agregar, resumoProblemas, type AgregadoResult } from "@/lib/import/aggregate";
 import { baixarTemplate } from "@/lib/import/template";
 import { importar, type FotosConfirmadas } from "@/lib/import/engine";
 import type { EntidadeAgregada, ImportReport } from "@/lib/import/types";
@@ -43,6 +44,8 @@ function ImportarDadosPage() {
   const [entidade, setEntidade] = useState<string>(DESCRIPTORS[0]?.entidade ?? "");
   const [fase, setFase] = useState<Fase>("vazio");
   const [agregado, setAgregado] = useState<AgregadoResult | null>(null);
+  const [opcoes, setOpcoes] = useState<OpcoesLookup>({});
+  const [ignoradas, setIgnoradas] = useState<Set<string>>(new Set());
   const [fotos, setFotos] = useState<File[]>([]);
   const [fotosConfirmadas, setFotosConfirmadas] = useState<FotosConfirmadas>(new Map());
   const [relatorio, setRelatorio] = useState<ImportReport | null>(null);
@@ -96,15 +99,16 @@ function ImportarDadosPage() {
         setFase("vazio");
         return;
       }
-      // carrega lookups da loja (tenant-scoped por RLS) e resolve nome→id.
-      const maps = await carregarLookups(supabase, desc.lookups);
-      // duplicatas já existentes no banco (nome sem unique — ex.: artigos).
-      let dup: Set<string> | undefined;
-      if (desc.duplicatasExistentes) {
-        const chaves = parsed.linhas.map((l) => desc.chaveNatural(l));
-        dup = await desc.duplicatasExistentes(supabase, chaves);
-      }
-      const ag = agregar(desc, parsed.linhas, maps, dup);
+      // carrega lookups da loja (tenant-scoped por RLS): maps p/ casar + opções p/ os dropdowns.
+      const [maps, opts] = await Promise.all([
+        carregarLookups(supabase, desc.lookups),
+        carregarOpcoes(supabase, desc.lookups),
+      ]);
+      const ag = agregar(desc, parsed.linhas, maps);
+      // upsert incremental: confronta com o banco e marca o estado de cada entidade.
+      if (desc.analisarBanco) await desc.analisarBanco(supabase, ag.entidades);
+      setOpcoes(opts);
+      setIgnoradas(new Set());
       setAgregado(ag);
       setFase("analisado");
     } catch (err) {
@@ -114,7 +118,6 @@ function ImportarDadosPage() {
   };
 
   const resumo = useMemo(() => (agregado ? resumoProblemas(agregado.entidades) : null), [agregado]);
-  const problemasLista = useMemo(() => (agregado ? todosProblemas(agregado.entidades) : []), [agregado]);
 
   // Alvos de foto conforme o modo do descritor (tecido = 1 por cor; produto = 1 por registro).
   const alvosParaMatch = useMemo(
@@ -124,15 +127,52 @@ function ImportarDadosPage() {
 
   const handleFotosChange = useCallback((m: FotosConfirmadas) => setFotosConfirmadas(m), []);
 
+  // Patch local de UMA entidade (dropdown corrigido, cor trocada, "mesmo tecido", etc.).
+  // Recomputa os `problemas` da linha (revalidar) — senão um erro do resolve inicial persistiria
+  // e a linha corrigida seria pulada em silêncio (achado da revisão).
+  const onPatch = useCallback((chave: string, patch: Partial<EntidadeAgregada>) => {
+    setAgregado((prev) => prev && ({
+      ...prev,
+      entidades: prev.entidades.map((e) => {
+        if (e.chave !== chave) return e;
+        const merged = { ...e, ...patch };
+        return desc?.revalidar ? { ...merged, problemas: desc.revalidar(merged) } : merged;
+      }),
+    }));
+  }, [desc]);
+  const onToggleIgnorar = useCallback((chave: string) => {
+    setIgnoradas((prev) => { const n = new Set(prev); n.has(chave) ? n.delete(chave) : n.add(chave); return n; });
+  }, []);
+  // v1: cadastrar-novo abre a tela de cadastro correspondente numa nova aba (o dono cadastra e
+  // reimporta ou troca no dropdown). Refino futuro: dialog inline.
+  const onCadastrar = useCallback((tipo: "fornecedor" | "cor" | "categoria", nome: string) => {
+    const url = tipo === "fornecedor" ? "/cadastro/servico" : "/cadastro/atributos";
+    toast.info(`Cadastre "${nome}" em ${tipo === "fornecedor" ? "Fornecedores" : "Atributos"} e selecione no campo.`);
+    window.open(url, "_blank");
+  }, []);
+
+  // pendência aberta = campo de cadastro obrigatório não resolvido, ou conflito sem decisão.
+  const pendencias = useMemo(() => {
+    if (!agregado) return 0;
+    return agregado.entidades.filter((e) => {
+      if (ignoradas.has(e.chave)) return false;
+      const semForn = e.raw.fornecedor?.trim() && !e.cabecalho.empresa_id;
+      const conflito = e.estado === "conflito_fornecedor" && e.mesmoTecidoConfirmado == null;
+      const corPend = e.variantes.some((v) => !v.cor_id);
+      return semForn || conflito || corPend;
+    }).length;
+  }, [agregado, ignoradas]);
+
   const onConfirmar = async () => {
     if (!desc || !agregado) return;
     setFase("importando");
     setProgresso({ feito: 0, total: 0 });
     try {
+      const aGravar = agregado.entidades.filter((e) => !ignoradas.has(e.chave)) as EntidadeAgregada[];
       const rep = await importar(
         supabase,
         desc,
-        agregado.entidades as EntidadeAgregada[],
+        aGravar,
         fotosConfirmadas,
         (feito, total) => setProgresso({ feito, total }),
       );
@@ -140,8 +180,9 @@ function ImportarDadosPage() {
       setFase("concluido");
       // invalida as listas que a entidade alimenta (tecido → artigos).
       if (desc.entidade === "tecido") qc.invalidateQueries({ queryKey: ["artigos"] });
-      if (rep.erros === 0) toast.success(`${rep.criados} criado(s), ${rep.pulados} pulado(s).`);
-      else toast.warning(`${rep.criados} criado(s), ${rep.pulados} pulado(s), ${rep.erros} com erro.`);
+      const resumoTxt = `${rep.criados} criado(s), ${rep.complementados} complementado(s), ${rep.soFoto} c/ foto`;
+      if (rep.erros === 0) toast.success(resumoTxt + ".");
+      else toast.warning(`${resumoTxt}, ${rep.erros} com erro.`);
     } catch (err) {
       toast.error(mensagemErro(err, "Erro na importação."));
       setFase("analisado");
@@ -198,38 +239,41 @@ function ImportarDadosPage() {
         )}
 
         {(fase === "analisado" || fase === "importando") && resumo && agregado && (
-          <div className="space-y-5">
-            <div>
-              <h3 className="font-semibold mb-2">Análise ({desc?.label})</h3>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{resumo.total} item(ns) no arquivo</Badge>
-                {resumo.comErro > 0 && <Badge variant="destructive">{resumo.comErro} com erro</Badge>}
-                {resumo.duplicatas > 0 && <Badge variant="outline">{resumo.duplicatas} duplicata(s)</Badge>}
-                {resumo.semFoto > 0 && <Badge variant="outline">{resumo.semFoto} sem foto</Badge>}
-                {resumo.avisos > 0 && <Badge variant="outline" className="text-amber-600 border-amber-300">{resumo.avisos} com aviso</Badge>}
-              </div>
+          <div className="space-y-4">
+            {/* resumo por estado do upsert */}
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">{resumo.total} item(ns)</Badge>
+              {(() => {
+                const cont = { novo: 0, complementar: 0, so_foto: 0, conflito_fornecedor: 0 } as Record<string, number>;
+                agregado.entidades.forEach((e) => { if (!ignoradas.has(e.chave)) cont[e.estado ?? "novo"] = (cont[e.estado ?? "novo"] ?? 0) + 1; });
+                return (
+                  <>
+                    {cont.novo > 0 && <Badge variant="outline">{cont.novo} novo(s)</Badge>}
+                    {cont.complementar > 0 && <Badge variant="outline" className="text-emerald-600 border-emerald-300">{cont.complementar} complementar</Badge>}
+                    {cont.so_foto > 0 && <Badge variant="outline" className="text-sky-600 border-sky-300">{cont.so_foto} só foto</Badge>}
+                    {cont.conflito_fornecedor > 0 && <Badge variant="outline" className="text-amber-600 border-amber-300">{cont.conflito_fornecedor} conflito</Badge>}
+                    {pendencias > 0 && <Badge variant="destructive">{pendencias} pendência(s)</Badge>}
+                  </>
+                );
+              })()}
             </div>
 
-            {problemasLista.length > 0 && (
-              <div className="rounded-md border p-3 max-h-56 overflow-auto text-sm space-y-2">
-                {problemasLista.map((p) => (
-                  <div key={p.nome}>
-                    <p className="font-medium">{p.nome}</p>
-                    <ul className="pl-4 list-disc text-muted-foreground">
-                      {p.problemas.map((pr, i) => (
-                        <li key={i} className={pr.nivel === "erro" ? "text-destructive" : pr.nivel === "duplicata" ? "text-muted-foreground" : "text-amber-600"}>
-                          {pr.mensagem}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              Campos de cadastro são dropdown (vermelho = corrigir; sugestão automática no topo). Role à direita para todos os campos.
+            </p>
+
+            <TabelaAnalise
+              entidades={agregado.entidades as EntidadeAgregada[]}
+              opcoes={opcoes}
+              ignoradas={ignoradas}
+              onToggleIgnorar={onToggleIgnorar}
+              onPatch={onPatch}
+              onCadastrar={onCadastrar}
+            />
 
             {desc?.temFoto && (
               <div>
-                <h3 className="font-semibold mb-2">Fotos</h3>
+                <h3 className="font-semibold mb-2 mt-2">Fotos por cor</h3>
                 <MatchVisualFoto alvos={alvosParaMatch} arquivos={fotos} onChange={handleFotosChange} />
               </div>
             )}
@@ -246,17 +290,25 @@ function ImportarDadosPage() {
           <div className="space-y-4">
             <h3 className="font-semibold">Resultado</h3>
             <div className="flex flex-wrap gap-2">
-              <Badge className="bg-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 mr-1" />{relatorio.criados} criado(s)</Badge>
-              <Badge variant="outline">{relatorio.pulados} pulado(s)</Badge>
+              {relatorio.criados > 0 && <Badge className="bg-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 mr-1" />{relatorio.criados} criado(s)</Badge>}
+              {relatorio.complementados > 0 && <Badge variant="outline" className="text-emerald-600 border-emerald-300">{relatorio.complementados} complementado(s)</Badge>}
+              {relatorio.soFoto > 0 && <Badge variant="outline" className="text-sky-600 border-sky-300">{relatorio.soFoto} foto(s) adicionada(s)</Badge>}
+              {relatorio.inalterados > 0 && <Badge variant="outline">{relatorio.inalterados} sem mudança</Badge>}
+              {relatorio.pulados > 0 && <Badge variant="outline">{relatorio.pulados} pulado(s)</Badge>}
               {relatorio.erros > 0 && <Badge variant="destructive"><XCircle className="h-3.5 w-3.5 mr-1" />{relatorio.erros} com erro</Badge>}
             </div>
             <div className="rounded-md border max-h-72 overflow-auto text-sm divide-y">
               {relatorio.itens.map((it) => (
                 <div key={it.chave} className="flex items-center gap-2 p-2">
-                  {it.status === "criado" && <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />}
+                  {(it.status === "criado" || it.status === "complementado") && <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />}
+                  {it.status === "so_foto" && <ImageIcon className="h-4 w-4 text-sky-600 shrink-0" />}
+                  {it.status === "inalterado" && <MinusCircle className="h-4 w-4 text-muted-foreground shrink-0" />}
                   {it.status === "pulado" && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />}
                   {it.status === "erro" && <XCircle className="h-4 w-4 text-destructive shrink-0" />}
                   <span className="font-medium">{it.nome}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {it.status === "complementado" ? "complementado" : it.status === "so_foto" ? "foto adicionada" : it.status === "inalterado" ? "sem mudança" : ""}
+                  </span>
                   {it.motivo && <span className="text-muted-foreground truncate">— {it.motivo}</span>}
                 </div>
               ))}
@@ -267,8 +319,20 @@ function ImportarDadosPage() {
 
       <PageActionBar>
         <Button variant="ghost" onClick={resetar}><ArrowLeft className="h-4 w-4 mr-2" /> Recomeçar</Button>
+        {fase === "analisado" && agregado && (
+          <span className="text-sm text-muted-foreground">
+            {agregado.entidades.filter((e) => !ignoradas.has(e.chave)).length} a importar
+            {ignoradas.size > 0 && ` · ${ignoradas.size} ignorado(s)`}
+            {pendencias > 0 && ` · ${pendencias} pendência(s)`}
+          </span>
+        )}
         {fase === "analisado" && (
-          <Button className="ml-auto" onClick={onConfirmar} disabled={readOnly || !agregado || agregado.entidades.length === 0}>
+          <Button
+            className="ml-auto"
+            onClick={onConfirmar}
+            disabled={readOnly || !agregado || agregado.entidades.length === 0 || pendencias > 0}
+            title={pendencias > 0 ? "Resolva as pendências (campos em vermelho) para confirmar" : undefined}
+          >
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar importação
           </Button>
         )}

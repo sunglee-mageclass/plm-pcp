@@ -37,6 +37,9 @@ export async function importar(
 ): Promise<ImportReport> {
   const itens: ImportReportItem[] = [];
   let criados = 0;
+  let complementados = 0;
+  let soFoto = 0;
+  let inalterados = 0;
   let pulados = 0;
   let erros = 0;
 
@@ -86,10 +89,13 @@ export async function importar(
           if (file) fotoPath = await uploadToBucket(desc.bucket, desc.fotoPrefix ?? "importacao", file);
         }
       }
-      // 2) RPC transacional
-      await desc.rpc(sb, { ...e, fotoPath, fotoPathVariante });
-      itens.push({ chave: e.chave, nome: nomeDe(e), status: "criado" });
-      criados++;
+      // 2) RPC transacional — devolve a AÇÃO (criado/complementado/so_foto/inalterado); void=criado.
+      const acao = (await desc.rpc(sb, { ...e, fotoPath, fotoPathVariante })) ?? "criado";
+      itens.push({ chave: e.chave, nome: nomeDe(e), status: acao });
+      if (acao === "complementado") complementados++;
+      else if (acao === "so_foto") soFoto++;
+      else if (acao === "inalterado") inalterados++;
+      else criados++;
     } catch (err) {
       // duplicata do banco (23505) vira "pulado"; o resto é "erro".
       const msg = mensagemErro(err, "Erro ao importar.");
@@ -106,5 +112,5 @@ export async function importar(
   }
   onProgress?.(feito, total, "");
 
-  return { entidade: desc.entidade, criados, pulados, erros, itens };
+  return { entidade: desc.entidade, criados, complementados, soFoto, inalterados, pulados, erros, itens };
 }

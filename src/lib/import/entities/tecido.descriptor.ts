@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
 import type {
+  AcaoImport,
   EntidadeAgregada,
   EntityImportDescriptor,
   LookupMaps,
@@ -197,15 +198,75 @@ export const tecidoDescriptor: EntityImportDescriptor = {
     };
   },
 
-  // artigos.nome NÃO tem unique → duplicata detectada por CONSULTA na análise.
-  async duplicatasExistentes(sb: SupabaseClient, chaves: string[]): Promise<Set<string>> {
-    const { data, error } = await sb.from("artigos").select("nome");
-    if (error) return new Set(); // sem consulta = sem bloqueio (a RPC ainda cria; nome dup é permitido no banco)
-    const existentes = new Set((data ?? []).map((r) => normalizeCat((r as { nome: string }).nome)));
-    return new Set(chaves.filter((c) => existentes.has(c)));
+  // Recomputa os problemas a partir dos VALORES RESOLVIDOS atuais (após correção inline na tabela).
+  // Só os problemas ESTRUTURAIS que dependem de id resolvido: nome presente + cor base por variante.
+  // (o apelido↔base já é garantido pelo CelulaLookup, que só lista apelidos da cor base escolhida.)
+  // Preserva os avisos não-bloqueantes que não dependem de edição (ex.: mês/ano não achado).
+  revalidar(ent: EntidadeAgregada): Problema[] {
+    const out: Problema[] = [];
+    if (!String(ent.cabecalho.nome ?? "").trim()) {
+      out.push({ nivel: "erro", campo: "nome", mensagem: "Nome do tecido é obrigatório." });
+    }
+    ent.variantes.forEach((v, i) => {
+      if (!v.cor_id) {
+        out.push({ nivel: "erro", campo: "cor_base", mensagem: `Cor base da variante ${i + 1} não resolvida.` });
+      }
+    });
+    // mantém avisos originais que não são resolvíveis na grade (mês/ano/categoria não achados,
+    // cabeçalho divergente) — filtra os erros/avisos de campo já corrigidos.
+    const camposEditaveis = new Set(["nome", "cor_base", "cor_apelido", "fornecedor"]);
+    for (const p of ent.problemas) {
+      if (p.nivel === "aviso" && !camposEditaveis.has(p.campo ?? "")) out.push(p);
+    }
+    return out;
   },
 
-  async rpc(sb: SupabaseClient, ent: EntidadeAgregada): Promise<void> {
+  // UPSERT INCREMENTAL: confronta cada tecido com o banco e marca o estado (novo/complementar/
+  // so_foto/conflito_fornecedor). artigos.nome não tem unique → a decisão é por nome+fornecedor.
+  async analisarBanco(sb: SupabaseClient, entidades: EntidadeAgregada[]): Promise<void> {
+    // traz todos os artigos da loja (RLS tenant-scoped) + suas variantes (cor/apelido/foto).
+    const { data, error } = await sb
+      .from("artigos")
+      .select("id, nome, empresa_id, empresas(nome_fantasia), variantes_tecido(cor_id, cor_apelido_id, foto_url)");
+    if (error) return; // sem consulta → tudo tratado como novo (a RPC ainda faz upsert no servidor)
+    type ArtRow = {
+      id: string; nome: string; empresa_id: string | null;
+      empresas?: { nome_fantasia?: string | null } | null;
+      variantes_tecido?: { cor_id: string | null; cor_apelido_id: string | null; foto_url: string | null }[];
+    };
+    const artigos = (data ?? []) as unknown as ArtRow[];
+    // índice por nome normalizado → lista de artigos homônimos (podem ter fornecedores diferentes).
+    const porNome = new Map<string, ArtRow[]>();
+    for (const a of artigos) {
+      const k = normalizeCat(a.nome);
+      (porNome.get(k) ?? porNome.set(k, []).get(k)!).push(a);
+    }
+
+    for (const ent of entidades) {
+      const empresaId = (ent.cabecalho.empresa_id as string | null) ?? null;
+      const homonimos = porNome.get(ent.chave) ?? [];
+      // 1) mesmo nome + MESMO fornecedor → complementar
+      const mesmo = homonimos.find((a) => (a.empresa_id ?? null) === empresaId);
+      if (mesmo) {
+        marcarEstado(ent, mesmo);
+      } else if (homonimos.length > 0) {
+        // 2) nome existe, fornecedor diferente → conflito (usuário decide)
+        ent.estado = "conflito_fornecedor";
+        ent.artigoAlvoId = homonimos[0].id; // candidato p/ "é o mesmo?"
+        ent.fornecedorExistenteNome = homonimos[0].empresas?.nome_fantasia ?? null;
+        ent.varianteExiste = ent.variantes.map(() => false);
+        ent.varianteTemFoto = ent.variantes.map(() => false);
+      } else {
+        // 3) não existe → novo
+        ent.estado = "novo";
+        ent.artigoAlvoId = null;
+        ent.varianteExiste = ent.variantes.map(() => false);
+        ent.varianteTemFoto = ent.variantes.map(() => false);
+      }
+    }
+  },
+
+  async rpc(sb: SupabaseClient, ent: EntidadeAgregada): Promise<AcaoImport | void> {
     const cabecalho = { ...ent.cabecalho };
     // foto POR VARIANTE: cada cor grava sua própria foto_url (ent.fotoPathVariante[i]).
     // Remove os campos auxiliares (_corNome/_apelidoNome) — não são colunas do banco.
@@ -215,11 +276,49 @@ export const tecidoDescriptor: EntityImportDescriptor = {
       const foto = ent.fotoPathVariante?.[i] ?? null;
       return foto ? { ...limpa, foto_url: foto } : limpa;
     });
-    const { error } = await sb.rpc("importar_tecido_linha" as never, {
+    // alvo do upsert: complementar/so_foto usam o artigo existente; conflito só se o usuário
+    // confirmou "é o mesmo tecido"; novo = null (a RPC cria). A RPC ainda revalida por nome+forn.
+    const alvo =
+      ent.estado === "complementar" || ent.estado === "so_foto"
+        ? ent.artigoAlvoId ?? null
+        : ent.estado === "conflito_fornecedor" && ent.mesmoTecidoConfirmado
+          ? ent.artigoAlvoId ?? null
+          : null;
+    const { data, error } = await sb.rpc("importar_tecido_linha" as never, {
       _cabecalho: cabecalho as never,
       _variantes: variantes as never,
       _categoria_ids: (ent.categoriaIds ?? []) as never,
+      _artigo_alvo_id: alvo as never,
     });
     if (error) throw error;
+    // a RPC retorna {artigo_id, acao, ...} — devolve a ação p/ o relatório.
+    const acao = (data as { acao?: string } | null)?.acao;
+    if (acao === "criado" || acao === "complementado" || acao === "so_foto" || acao === "inalterado") return acao;
   },
 };
+
+/** Marca estado (complementar / so_foto) confrontando as variantes do payload com as do artigo. */
+function marcarEstado(
+  ent: EntidadeAgregada,
+  art: { id: string; variantes_tecido?: { cor_id: string | null; cor_apelido_id: string | null; foto_url: string | null }[] },
+): void {
+  ent.artigoAlvoId = art.id;
+  const existentes = art.variantes_tecido ?? [];
+  const sig = (cor: unknown, ap: unknown) => `${cor ?? ""}::${ap ?? ""}`;
+  const mapExist = new Map(existentes.map((v) => [sig(v.cor_id, v.cor_apelido_id), v]));
+  ent.varianteExiste = [];
+  ent.varianteTemFoto = [];
+  let temNova = false;
+  let completaFoto = false;
+  for (const v of ent.variantes) {
+    const achou = mapExist.get(sig(v.cor_id, v.cor_apelido_id));
+    ent.varianteExiste.push(!!achou);
+    const temFoto = !!(achou?.foto_url && achou.foto_url !== "");
+    ent.varianteTemFoto.push(temFoto);
+    if (!achou) temNova = true;
+    else if (!temFoto) completaFoto = true; // existe sem foto → candidata a "só foto"
+  }
+  ent.estado = temNova ? "complementar" : completaFoto ? "so_foto" : "complementar";
+  // (se nada novo e nenhuma foto a completar, ainda marca "complementar" — a RPC devolve
+  //  "inalterado" e o engine reporta como pulado; o estado aqui é só p/ agrupar a UI.)
+}

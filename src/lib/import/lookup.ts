@@ -61,3 +61,27 @@ export async function carregarLookups(
   );
   return Object.fromEntries(entradas);
 }
+
+// Opção de dropdown (id + nome exibível). Para apelidos, `corBaseId` permite filtrar pela cor base.
+export type OpcaoLookup = { id: string; nome: string; corBaseId?: string };
+export type OpcoesLookup = Record<string, OpcaoLookup[]>;
+
+/** Carrega as LISTAS (id+nome) de cada lookup, p/ preencher os dropdowns da tabela editável. */
+export async function carregarOpcoes(sb: SupabaseClient, specs: LookupSpec[]): Promise<OpcoesLookup> {
+  const entradas = await Promise.all(
+    specs.map(async (s) => {
+      const nameCol = s.nameCol ?? "nome";
+      const cols = ["id", nameCol, ...(s.extraCols ?? [])].join(", ");
+      const { data, error } = await sb.from(s.table).select(cols).order(nameCol);
+      if (error) return [s.id, []] as const;
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
+      const opts: OpcaoLookup[] = rows.map((r) => ({
+        id: r["id"] as string,
+        nome: String(r[nameCol] ?? ""),
+        corBaseId: s.apelidoDeCorBase ? (r["cor_base_id"] as string | undefined) : undefined,
+      }));
+      return [s.id, opts] as const;
+    }),
+  );
+  return Object.fromEntries(entradas);
+}
