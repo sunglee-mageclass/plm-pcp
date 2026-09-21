@@ -67,6 +67,17 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
+    // Item de TOPO próprio, logo abaixo de Cadastro (pedido do dono) — não é sub-item do Cadastro.
+    // Página única cuja key = nome do módulo e basePath = a URL; como `importar` NÃO entra em
+    // PAGE_URLS, o sidebar o renderiza como LINK DIRETO (mesmo padrão do OTB).
+    module: "importar",
+    label: "Importar Dados",
+    basePath: "/cadastro/importar",
+    pages: [
+      { key: "importar", label: "Importar Dados", description: "Importação em massa via planilha (tecido, aviamento, insumo, produto).", modes: ["full"] },
+    ],
+  },
+  {
     module: "entrada_saida",
     label: "Entrada e Saída",
     basePath: "/entrada-saida",

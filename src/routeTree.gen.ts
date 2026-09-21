@@ -54,6 +54,7 @@ import { Route as AuthenticatedCriacaoDesenvolvimentoRouteImport } from './route
 import { Route as AuthenticatedCadastroTecidosRouteImport } from './routes/_authenticated/cadastro.tecidos'
 import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroLojasRouteImport } from './routes/_authenticated/cadastro.lojas'
+import { Route as AuthenticatedCadastroImportarRouteImport } from './routes/_authenticated/cadastro.importar'
 import { Route as AuthenticatedCadastroEtiquetasRouteImport } from './routes/_authenticated/cadastro.etiquetas'
 import { Route as AuthenticatedCadastroDestinosRouteImport } from './routes/_authenticated/cadastro.destinos'
 import { Route as AuthenticatedCadastroColaboradoresRouteImport } from './routes/_authenticated/cadastro.colaboradores'
@@ -329,6 +330,12 @@ const AuthenticatedCadastroLojasRoute =
     path: '/lojas',
     getParentRoute: () => AuthenticatedCadastroRoute,
   } as any)
+const AuthenticatedCadastroImportarRoute =
+  AuthenticatedCadastroImportarRouteImport.update({
+    id: '/importar',
+    path: '/importar',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedCadastroEtiquetasRoute =
   AuthenticatedCadastroEtiquetasRouteImport.update({
     id: '/etiquetas',
@@ -486,6 +493,7 @@ export interface FileRoutesByFullPath {
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/destinos': typeof AuthenticatedCadastroDestinosRoute
   '/cadastro/etiquetas': typeof AuthenticatedCadastroEtiquetasRoute
+  '/cadastro/importar': typeof AuthenticatedCadastroImportarRoute
   '/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -548,6 +556,7 @@ export interface FileRoutesByTo {
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/destinos': typeof AuthenticatedCadastroDestinosRoute
   '/cadastro/etiquetas': typeof AuthenticatedCadastroEtiquetasRoute
+  '/cadastro/importar': typeof AuthenticatedCadastroImportarRoute
   '/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
@@ -612,6 +621,7 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/_authenticated/cadastro/destinos': typeof AuthenticatedCadastroDestinosRoute
   '/_authenticated/cadastro/etiquetas': typeof AuthenticatedCadastroEtiquetasRoute
+  '/_authenticated/cadastro/importar': typeof AuthenticatedCadastroImportarRoute
   '/_authenticated/cadastro/lojas': typeof AuthenticatedCadastroLojasRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -682,6 +692,7 @@ export interface FileRouteTypes {
     | '/cadastro/colaboradores'
     | '/cadastro/destinos'
     | '/cadastro/etiquetas'
+    | '/cadastro/importar'
     | '/cadastro/lojas'
     | '/cadastro/servico'
     | '/cadastro/tecidos'
@@ -744,6 +755,7 @@ export interface FileRouteTypes {
     | '/cadastro/colaboradores'
     | '/cadastro/destinos'
     | '/cadastro/etiquetas'
+    | '/cadastro/importar'
     | '/cadastro/lojas'
     | '/cadastro/servico'
     | '/criacao/desenvolvimento'
@@ -807,6 +819,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/colaboradores'
     | '/_authenticated/cadastro/destinos'
     | '/_authenticated/cadastro/etiquetas'
+    | '/_authenticated/cadastro/importar'
     | '/_authenticated/cadastro/lojas'
     | '/_authenticated/cadastro/servico'
     | '/_authenticated/cadastro/tecidos'
@@ -1175,6 +1188,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCadastroLojasRouteImport
       parentRoute: typeof AuthenticatedCadastroRoute
     }
+    '/_authenticated/cadastro/importar': {
+      id: '/_authenticated/cadastro/importar'
+      path: '/importar'
+      fullPath: '/cadastro/importar'
+      preLoaderRoute: typeof AuthenticatedCadastroImportarRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
+    }
     '/_authenticated/cadastro/etiquetas': {
       id: '/_authenticated/cadastro/etiquetas'
       path: '/etiquetas'
@@ -1382,6 +1402,7 @@ interface AuthenticatedCadastroRouteChildren {
   AuthenticatedCadastroColaboradoresRoute: typeof AuthenticatedCadastroColaboradoresRoute
   AuthenticatedCadastroDestinosRoute: typeof AuthenticatedCadastroDestinosRoute
   AuthenticatedCadastroEtiquetasRoute: typeof AuthenticatedCadastroEtiquetasRoute
+  AuthenticatedCadastroImportarRoute: typeof AuthenticatedCadastroImportarRoute
   AuthenticatedCadastroLojasRoute: typeof AuthenticatedCadastroLojasRoute
   AuthenticatedCadastroServicoRoute: typeof AuthenticatedCadastroServicoRoute
   AuthenticatedCadastroTecidosRoute: typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -1395,6 +1416,7 @@ const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
     AuthenticatedCadastroColaboradoresRoute,
   AuthenticatedCadastroDestinosRoute: AuthenticatedCadastroDestinosRoute,
   AuthenticatedCadastroEtiquetasRoute: AuthenticatedCadastroEtiquetasRoute,
+  AuthenticatedCadastroImportarRoute: AuthenticatedCadastroImportarRoute,
   AuthenticatedCadastroLojasRoute: AuthenticatedCadastroLojasRoute,
   AuthenticatedCadastroServicoRoute: AuthenticatedCadastroServicoRoute,
   AuthenticatedCadastroTecidosRoute:

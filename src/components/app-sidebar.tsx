@@ -144,13 +144,20 @@ export function AppSidebar() {
   moveTop("/otb");     // …e OTB fica acima dela.
 
   // Cadastro vai pro FIM, logo abaixo de Dashboard, separado por uma linha (pedido do dono).
+  // "Importar Dados" é um item de topo PRÓPRIO logo abaixo de Cadastro (não sub-item dele).
   const cadastroItem = visibleMainItems.find((x) => x.url === "/cadastro");
-  const mainItems = visibleMainItems.filter((x) => x.url !== "/cadastro");
+  const importarItem = visibleMainItems.find((x) => x.url === "/cadastro/importar");
+  const mainItems = visibleMainItems.filter((x) => x.url !== "/cadastro" && x.url !== "/cadastro/importar");
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
+  // URL de topo MAIS ESPECÍFICA que casa o pathname atual (precedência): assim "/cadastro/importar"
+  // (item próprio) fica ativo sem também acender "/cadastro". Sem isso os dois destacariam juntos.
+  const activeTopUrl = [...visibleMainItems.map((x) => x.url), "/cadastro/importar", "/cadastro"]
+    .filter((u) => isActive(u))
+    .sort((a, b) => b.length - a.length)[0] ?? null;
 
   const renderItem = (item: (typeof visibleMainItems)[number]) => {
-    const active = isActive(item.url);
+    const active = item.url === activeTopUrl;
     const { total: badgeTotal, cls: badgeCls } = itemBadge(item.subs);
     if (item.subs.length === 0) {
       // OTB divergência: espelha o padrão dos itens com subitens — pílula (NavBadge)
@@ -261,6 +268,8 @@ export function AppSidebar() {
                   {renderItem(cadastroItem)}
                 </>
               )}
+              {/* Importar Dados: item de topo próprio, logo ABAIXO de Cadastro (pedido do dono). */}
+              {importarItem && renderItem(importarItem)}
 
             </SidebarMenu>
           </SidebarGroupContent>

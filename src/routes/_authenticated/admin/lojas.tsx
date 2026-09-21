@@ -53,6 +53,9 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
   for (const m of PAGES_CATALOG) {
     const key = m.gate ?? m.module;
     if (seen.has(key)) continue;
+    // "importar" (Importar Dados) NÃO é módulo contratável — é infra de Cadastro, sempre ligada
+    // (isModuleEnabled cai no `?? true`). Fora dos toggles de contratação do super_admin.
+    if (key === "importar") continue;
     seen.add(key);
     out.push({ key, label: m.label });
   }

@@ -20,11 +20,17 @@ export const Route = createFileRoute("/_authenticated")({
 
 // Módulo dono do path atual (por basePath). null = rota não gateada por módulo (home, /admin, perfil).
 // Casa basePath exato ou com "/" depois, pra "/cadastro" não pegar "/cadastroX".
+// ⚠️ Escolhe o basePath MAIS ESPECÍFICO (mais longo) que casa: "/cadastro/importar" (módulo
+// `importar`, item de topo próprio) tem de ganhar de "/cadastro" (módulo `cadastro`), senão o
+// header/breadcrumb mostraria "Cadastro" na tela de Importar.
 function moduleForPath(pathname: string): { module: string; label: string } | null {
+  let best: { module: string; label: string; len: number } | null = null;
   for (const mod of PAGES_CATALOG) {
-    if (pathname === mod.basePath || pathname.startsWith(mod.basePath + "/")) return { module: mod.module, label: mod.label };
+    if ((pathname === mod.basePath || pathname.startsWith(mod.basePath + "/")) && (!best || mod.basePath.length > best.len)) {
+      best = { module: mod.module, label: mod.label, len: mod.basePath.length };
+    }
   }
-  return null;
+  return best ? { module: best.module, label: best.label } : null;
 }
 
 function useCurrentModule() {
@@ -43,7 +49,10 @@ function useCurrentModule() {
 function useBreadcrumb(): { section: string | null; page: string | null } {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const section = pathname.startsWith("/admin") ? "Admin" : (moduleForPath(pathname)?.label ?? null);
-  const mod = PAGES_CATALOG.find((m) => pathname === m.basePath || pathname.startsWith(m.basePath + "/"));
+  // mesmo critério de "mais específico" do moduleForPath (senão /cadastro/importar casaria /cadastro).
+  const mod = PAGES_CATALOG
+    .filter((m) => pathname === m.basePath || pathname.startsWith(m.basePath + "/"))
+    .sort((a, b) => b.basePath.length - a.basePath.length)[0];
   let page: string | null = null;
   if (mod) {
     let best = "";
