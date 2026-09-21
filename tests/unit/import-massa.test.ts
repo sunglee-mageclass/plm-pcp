@@ -372,3 +372,47 @@ describe("regressão: engine reporta a AÇÃO retornada pela rpc", () => {
     expect(rep.itens.map((i) => i.status).sort()).toEqual(["complementado", "criado", "so_foto"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// FLUXO foto → engine → rpc (bug "foto não aparece na lista"): a foto casada por
+// cor tem de chegar ao foto_url da variante certa na chamada da rpc.
+// ---------------------------------------------------------------------------
+import { vi } from "vitest";
+vi.mock("@/lib/storage-tenant", () => ({
+  uploadToBucket: vi.fn(async (_b: string, _p: string, f: File) => `tenant/importacao/${f.name}`),
+}));
+
+describe("fluxo foto por variante chega à rpc", () => {
+  const maps4: LookupMaps = {
+    cores: new Map([["azul", "cor-azul"], ["verde", "cor-verde"]]),
+    apelidos: new Map([["cor-azul::petroleo", "ap-pet"]]),
+    categorias: new Map(), meses: new Map(), anos: new Map(),
+    fornecedores: new Map(), representantes: new Map(),
+  };
+  it("foto 'Malha Fiore_Petróleo.jpg' vai p/ a variante Azul/Petróleo (não a Verde)", async () => {
+    const linhas = [
+      { __linha: 2, nome: "Malha Fiore", cor_base: "Azul", cor_apelido: "Petróleo" } as RawRow,
+      { __linha: 3, nome: "Malha Fiore", cor_base: "Verde" } as RawRow,
+    ];
+    const ag = agregar(tecidoDescriptor, linhas, maps4);
+    // constrói fotosParaEngine igual à página: casa por alvo (chaveFotoVariante)
+    const alvos = alvosDeFoto(tecidoDescriptor, ag.entidades);
+    const file = new File([""], "Malha Fiore_Petróleo.jpg", { type: "image/jpeg" });
+    const { matches } = casarFotos(alvos.map((a) => ({ chave: a.chave, rotulo: a.rotulo })), [file.name]);
+    const fotos = new Map<string, File>();
+    for (const a of alvos) {
+      const arq = matches.find((x) => x.chave === a.chave)?.principal?.arquivo;
+      if (arq === file.name) fotos.set(a.chave, file);
+    }
+    // captura o que a rpc recebe (fotoPathVariante por índice)
+    let capturado: (string | null)[] | undefined;
+    const desc = {
+      ...tecidoDescriptor,
+      rpc: async (_sb: unknown, ent: EntidadeAgregada) => { capturado = ent.fotoPathVariante; return "criado" as const; },
+    };
+    await importar({} as never, desc as never, ag.entidades as EntidadeAgregada[], fotos);
+    // variante 0 = Azul/Petróleo (recebe foto); variante 1 = Verde (sem foto)
+    expect(capturado?.[0]).toBe("tenant/importacao/Malha Fiore_Petróleo.jpg");
+    expect(capturado?.[1]).toBeNull();
+  });
+});

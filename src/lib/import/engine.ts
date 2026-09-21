@@ -76,17 +76,21 @@ export async function importar(
       let fotoPathVariante: (string | null)[] | undefined;
       if (desc.temFoto && desc.bucket) {
         const alvos = alvosPorEnt.get(e.chave) ?? [];
+        // upload da foto é TOLERANTE a falha: se o upload falhar, cria o item SEM a foto (a foto
+        // é secundária — não deve derrubar o cadastro inteiro). Só o insert do dado é crítico.
+        const subir = async (file: File): Promise<string | null> => {
+          try { return await uploadToBucket(desc.bucket!, desc.fotoPrefix ?? "importacao", file); }
+          catch { return null; }
+        };
         if (modoVariante) {
           fotoPathVariante = new Array(e.variantes.length).fill(null);
           for (const a of alvos) {
             const file = fotos.get(a.chave);
-            if (file && a.varIdx != null) {
-              fotoPathVariante[a.varIdx] = await uploadToBucket(desc.bucket, desc.fotoPrefix ?? "importacao", file);
-            }
+            if (file && a.varIdx != null) fotoPathVariante[a.varIdx] = await subir(file);
           }
         } else {
           const file = fotos.get(e.chave);
-          if (file) fotoPath = await uploadToBucket(desc.bucket, desc.fotoPrefix ?? "importacao", file);
+          if (file) fotoPath = await subir(file);
         }
       }
       // 2) RPC transacional — devolve a AÇÃO (criado/complementado/so_foto/inalterado); void=criado.

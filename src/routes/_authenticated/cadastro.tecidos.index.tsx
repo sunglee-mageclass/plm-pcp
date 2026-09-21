@@ -173,9 +173,14 @@ function TecidosGallery() {
   });
 
   const firstVarMap = useMemo(() => {
+    // foto do card = a PRIMEIRA variante COM foto (não a variante mais antiga, que pode estar sem
+    // foto — bug: tecido com foto só na 2ª cor, ou importado, ficava sem thumb). Cai na 1ª variante
+    // (mesmo sem foto) só se NENHUMA tiver, p/ manter a chave presente.
     const m = new Map<string, string | null>();
     variantes.forEach((v) => {
+      const atual = m.get(v.artigo_id);
       if (!m.has(v.artigo_id)) m.set(v.artigo_id, v.foto_url);
+      else if (!atual && v.foto_url) m.set(v.artigo_id, v.foto_url);
     });
     return m;
   }, [variantes]);
