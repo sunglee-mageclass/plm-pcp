@@ -15,6 +15,22 @@ async function carregarUm(
   sb: SupabaseClient,
   spec: LookupSpec,
 ): Promise<Map<string, string> | Map<string, string[]>> {
+  // GRADE de tamanhos (não é tabela): lê tenant_config.tamanhos_grade e casa TOLERANTE — o
+  // número ("34") E a letra ("PPP") apontam p/ a chave completa ("34|PPP"). O "id" é a própria chave.
+  if (spec.gradeTamanhos) {
+    const { data } = await sb.from("tenant_config").select("tamanhos_grade").maybeSingle();
+    const arr = ((data as { tamanhos_grade?: string[] } | null)?.tamanhos_grade ?? []) as string[];
+    const grade = arr.length ? arr : ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+    const m = new Map<string, string>();
+    for (const chave of grade) {
+      m.set(normalizeCat(chave), chave); // "34|ppp" → "34|PPP" (a chave completa também casa)
+      const [num, sigla] = chave.split("|");
+      if (num) m.set(normalizeCat(num), chave);      // "34" → "34|PPP"
+      if (sigla) m.set(normalizeCat(sigla), chave);  // "ppp" → "34|PPP"
+    }
+    return m;
+  }
+
   const nameCol = spec.nameCol ?? "nome";
   const cols = ["id", nameCol, ...(spec.extraCols ?? [])].join(", ");
   const { data, error } = await sb.from(spec.table).select(cols);
@@ -70,6 +86,12 @@ export type OpcoesLookup = Record<string, OpcaoLookup[]>;
 export async function carregarOpcoes(sb: SupabaseClient, specs: LookupSpec[]): Promise<OpcoesLookup> {
   const entradas = await Promise.all(
     specs.map(async (s) => {
+      if (s.gradeTamanhos) {
+        const { data } = await sb.from("tenant_config").select("tamanhos_grade").maybeSingle();
+        const arr = ((data as { tamanhos_grade?: string[] } | null)?.tamanhos_grade ?? []) as string[];
+        const grade = arr.length ? arr : ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+        return [s.id, grade.map((k) => ({ id: k, nome: k.replace("|", " · ") }))] as const;
+      }
       const nameCol = s.nameCol ?? "nome";
       const cols = ["id", nameCol, ...(s.extraCols ?? [])].join(", ");
       const { data, error } = await sb.from(s.table).select(cols).order(nameCol);

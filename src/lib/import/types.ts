@@ -44,6 +44,7 @@ export type GridColuna = {
   cadastroTipo?: "fornecedor" | "cor" | "categoria"; // p/ o "cadastrar novo"
   wide?: boolean; // texto largo (composição)
   narrow?: boolean; // texto estreito (código, ncm) — default = largura padrão
+  readonly?: boolean; // só exibe (não edita) — ex.: tamanho derivado da explosão cor×tamanho
 };
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,9 @@ export type LookupSpec = {
   extraCols?: string[]; // colunas extra a trazer (ex.: cor_base_id do apelido)
   apelidoDeCorBase?: boolean; // cores_apelido: chave `${cor_base_id}::${nomeNorm}`
   semUnique?: boolean; // sem UNIQUE(tenant,nome) → Map<nomeNorm, id[]> (homônimo = aviso)
+  // GRADE de tamanhos (tenant_config.tamanhos_grade, não é tabela). O "id" resolvido é a própria
+  // chave da grade ("34|PPP"); o Map casa TOLERANTE: número ("34") E letra ("PPP") → chave.
+  gradeTamanhos?: boolean;
 };
 
 // Um lookup carregado: nomeNorm → id (ou id[] quando semUnique).

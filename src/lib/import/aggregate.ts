@@ -13,9 +13,11 @@ import type {
   RawRow,
 } from "./types";
 
-/** Assinatura de variante p/ detectar duplicata intra-arquivo (cor + apelido). */
+/** Assinatura de variante p/ detectar duplicata intra-arquivo. Inclui cor + apelido + TAMANHO:
+ *  tecido/aviamento não têm tamanho (fica "::" no fim, retrocompat), mas o insumo é cor×tamanho —
+ *  sem o tamanho, variantes que diferem só no tamanho eram descartadas como duplicata (perda de dado). */
 function assinaturaVariante(v: Record<string, unknown>): string {
-  return `${v.cor_id ?? ""}::${v.cor_apelido_id ?? ""}`;
+  return `${v.cor_id ?? ""}::${v.cor_apelido_id ?? ""}::${v.tamanho ?? ""}`;
 }
 
 export type AgregadoResult = {
@@ -63,7 +65,7 @@ export function agregar(
           ent.problemas.push({
             nivel: "duplicata",
             campo: "cor",
-            mensagem: `Cor repetida na planilha (linha ${row.__linha}) — será ignorada.`,
+            mensagem: `Variante repetida na planilha (linha ${row.__linha}) — será ignorada.`,
           });
         } else {
           ent.variantes.push(v);

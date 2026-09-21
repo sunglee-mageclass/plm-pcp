@@ -202,6 +202,7 @@ function renderCelula(c: import("@/lib/import/types").GridColuna, ctx: CelCtx): 
   }
   // escopo variante
   if (!temVar || !v) return null;
+  if (c.readonly) return <span className="text-xs tabular-nums text-muted-foreground">{String(v[c.campoId] ?? "—")}</span>;
   switch (c.tipo) {
     case "texto":
       return <TextCell value={String(v[c.campoId] ?? "")} onChange={(x) => onPatchVar(i, c.campoId, x || null)} narrow={c.narrow} wide={c.wide} />;
