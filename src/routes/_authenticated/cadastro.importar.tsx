@@ -17,8 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageActionBar } from "@/components/shared/PageActionBar";
-import { MatchVisualFoto } from "@/components/importar/MatchVisualFoto";
-import { alvosDeFoto } from "@/lib/import/foto-match";
+import { alvosDeFoto, casarFotos } from "@/lib/import/foto-match";
 import { DESCRIPTORS, descriptorPorEntidade } from "@/lib/import/registry";
 import { lerWorkbook, parseAba } from "@/lib/import/parse";
 import { carregarLookups, carregarOpcoes, type OpcoesLookup } from "@/lib/import/lookup";
@@ -47,7 +46,8 @@ function ImportarDadosPage() {
   const [opcoes, setOpcoes] = useState<OpcoesLookup>({});
   const [ignoradas, setIgnoradas] = useState<Set<string>>(new Set());
   const [fotos, setFotos] = useState<File[]>([]);
-  const [fotosConfirmadas, setFotosConfirmadas] = useState<FotosConfirmadas>(new Map());
+  // trocas manuais de foto na tabela: chave do alvo (chaveFotoVariante) → File (override do auto-match).
+  const [fotosManuais, setFotosManuais] = useState<Map<string, File>>(new Map());
   const [relatorio, setRelatorio] = useState<ImportReport | null>(null);
   const [progresso, setProgresso] = useState<{ feito: number; total: number } | null>(null);
 
@@ -60,7 +60,7 @@ function ImportarDadosPage() {
     setFase("vazio");
     setAgregado(null);
     setFotos([]);
-    setFotosConfirmadas(new Map());
+    setFotosManuais(new Map());
     setRelatorio(null);
     setProgresso(null);
     if (xlsxRef.current) xlsxRef.current.value = "";
@@ -119,13 +119,34 @@ function ImportarDadosPage() {
 
   const resumo = useMemo(() => (agregado ? resumoProblemas(agregado.entidades) : null), [agregado]);
 
-  // Alvos de foto conforme o modo do descritor (tecido = 1 por cor; produto = 1 por registro).
-  const alvosParaMatch = useMemo(
-    () => (desc && agregado ? alvosDeFoto(desc, agregado.entidades) : []),
-    [desc, agregado],
-  );
+  // Fotos finais p/ o engine: auto-match (por nome do arquivo) + trocas manuais (override).
+  // Chave = chaveFotoVariante do alvo (o engine casa por ela). Reage a fotos/manuais/entidades.
+  const fotosParaEngine = useMemo<FotosConfirmadas>(() => {
+    const out = new Map<string, File>();
+    if (!desc || !agregado) return out;
+    const alvos = alvosDeFoto(desc, agregado.entidades);
+    const fileByName = new Map(fotos.map((f) => [f.name, f]));
+    const { matches } = casarFotos(alvos.map((a) => ({ chave: a.chave, rotulo: a.rotulo })), fotos.map((f) => f.name));
+    for (const a of alvos) {
+      const manual = fotosManuais.get(a.chave);
+      const auto = fileByName.get(matches.find((x) => x.chave === a.chave)?.principal?.arquivo ?? "");
+      const file = manual ?? auto;
+      if (file) out.set(a.chave, file);
+    }
+    return out;
+  }, [desc, agregado, fotos, fotosManuais]);
 
-  const handleFotosChange = useCallback((m: FotosConfirmadas) => setFotosConfirmadas(m), []);
+  const onTrocarFoto = useCallback((chaveAlvo: string, file: File | null) => {
+    setFotosManuais((prev) => { const n = new Map(prev); if (file) n.set(chaveAlvo, file); else n.delete(chaveAlvo); return n; });
+  }, []);
+
+  // fotos que não casaram com nenhuma cor (aviso; a foto agora é inline na tabela).
+  const fotosOrfas = useMemo<string[]>(() => {
+    if (!desc || !agregado || fotos.length === 0) return [];
+    const alvos = alvosDeFoto(desc, agregado.entidades);
+    const { orfas } = casarFotos(alvos.map((a) => ({ chave: a.chave, rotulo: a.rotulo })), fotos.map((f) => f.name));
+    return orfas.map((o) => o.arquivo);
+  }, [desc, agregado, fotos]);
 
   // Patch local de UMA entidade (dropdown corrigido, cor trocada, "mesmo tecido", etc.).
   // Recomputa os `problemas` da linha (revalidar) — senão um erro do resolve inicial persistiria
@@ -173,7 +194,7 @@ function ImportarDadosPage() {
         supabase,
         desc,
         aGravar,
-        fotosConfirmadas,
+        fotosParaEngine,
         (feito, total) => setProgresso({ feito, total }),
       );
       setRelatorio(rep);
@@ -263,19 +284,22 @@ function ImportarDadosPage() {
             </p>
 
             <TabelaAnalise
+              descriptor={desc!}
               entidades={agregado.entidades as EntidadeAgregada[]}
               opcoes={opcoes}
+              arquivos={fotos}
               ignoradas={ignoradas}
               onToggleIgnorar={onToggleIgnorar}
               onPatch={onPatch}
               onCadastrar={onCadastrar}
+              fotosManuais={fotosManuais}
+              onTrocarFoto={onTrocarFoto}
             />
 
-            {desc?.temFoto && (
-              <div>
-                <h3 className="font-semibold mb-2 mt-2">Fotos por cor</h3>
-                <MatchVisualFoto alvos={alvosParaMatch} arquivos={fotos} onChange={handleFotosChange} />
-              </div>
+            {desc?.temFoto && fotosOrfas.length > 0 && (
+              <p className="text-xs text-amber-600">
+                {fotosOrfas.length} foto(s) não casaram com nenhuma cor: {fotosOrfas.slice(0, 5).join(", ")}{fotosOrfas.length > 5 ? "…" : ""}
+              </p>
             )}
 
             {fase === "importando" && progresso && (

@@ -7,24 +7,30 @@
 // Consome a EntidadeAgregada já analisada (analisarBanco) + as opções de lookup (dropdowns) +
 // as fotos casadas por alvo. Emite mutações locais no estado das entidades para o pai gravar.
 
-import { useMemo } from "react";
-import { Check, RefreshCw, Image as ImageIcon, AlertTriangle, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, RefreshCw, Image as ImageIcon, AlertTriangle, XCircle, Plus, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
 import { CelulaLookup } from "@/components/importar/CelulaLookup";
 import type { OpcoesLookup } from "@/lib/import/lookup";
-import type { EntidadeAgregada, EstadoEntidade } from "@/lib/import/types";
+import type { EntidadeAgregada, EstadoEntidade, EntityImportDescriptor } from "@/lib/import/types";
 import { temErroBloqueante } from "@/lib/import/aggregate";
+import { casarFotos, alvosDeFoto } from "@/lib/import/foto-match";
 
 export type PatchEntidade = (chave: string, patch: Partial<EntidadeAgregada>) => void;
 
 type Props = {
+  descriptor: EntityImportDescriptor;
   entidades: EntidadeAgregada[];
   opcoes: OpcoesLookup;
+  arquivos: File[]; // imagens soltas selecionadas (para casar a foto por cor inline)
   ignoradas: Set<string>;
   onToggleIgnorar: (chave: string) => void;
   onPatch: PatchEntidade;
   onCadastrar: (tipo: "fornecedor" | "cor" | "categoria", nome: string, chave: string) => void;
+  /** foto trocada manualmente: chave do ALVO (chaveFotoVariante) → File (override do auto-match). */
+  fotosManuais: Map<string, File>;
+  onTrocarFoto: (chaveAlvo: string, file: File | null) => void;
 };
 
 const ESTADO_ICON: Record<EstadoEntidade | "erro", { cls: string; icon: React.ReactNode; label: string }> = {
@@ -35,7 +41,7 @@ const ESTADO_ICON: Record<EstadoEntidade | "erro", { cls: string; icon: React.Re
   erro: { cls: "bg-destructive/10 text-destructive", icon: <XCircle className="h-3.5 w-3.5" />, label: "erro" },
 };
 
-export function TabelaAnalise({ entidades, opcoes, ignoradas, onToggleIgnorar, onPatch, onCadastrar }: Props) {
+export function TabelaAnalise({ descriptor, entidades, opcoes, arquivos, ignoradas, onToggleIgnorar, onPatch, onCadastrar, fotosManuais, onTrocarFoto }: Props) {
   const forn = opcoes["fornecedores"] ?? [];
   const reps = opcoes["representantes"] ?? [];
   const cores = opcoes["cores"] ?? [];
@@ -44,6 +50,22 @@ export function TabelaAnalise({ entidades, opcoes, ignoradas, onToggleIgnorar, o
   const meses = opcoes["meses"] ?? [];
   const anos = opcoes["anos"] ?? [];
 
+  // casa as imagens soltas com cada variante (por Nome_CorApelido). Guarda, por (entChave,varIdx):
+  // a chave do ALVO (p/ trocar) e o File exibido (troca manual tem prioridade sobre o auto-match).
+  const fileByName = useMemo(() => { const m = new Map<string, File>(); arquivos.forEach((f) => m.set(f.name, f)); return m; }, [arquivos]);
+  const fotoInfo = useMemo(() => {
+    const alvos = alvosDeFoto(descriptor, entidades);
+    const { matches } = casarFotos(alvos.map((a) => ({ chave: a.chave, rotulo: a.rotulo })), arquivos.map((f) => f.name));
+    const map = new Map<string, { chaveAlvo: string; file: File | null }>();
+    alvos.forEach((a) => {
+      if (a.varIdx == null) return;
+      const auto = fileByName.get(matches.find((x) => x.chave === a.chave)?.principal?.arquivo ?? "") ?? null;
+      const manual = fotosManuais.get(a.chave) ?? null; // troca manual vence
+      map.set(`${a.entChave}::${a.varIdx}`, { chaveAlvo: a.chave, file: manual ?? auto });
+    });
+    return map;
+  }, [descriptor, entidades, arquivos, fileByName, fotosManuais]);
+
   return (
     <div className="overflow-auto rounded-xl border">
       <table className="w-max min-w-full border-separate border-spacing-0 text-[13px]">
@@ -51,7 +73,7 @@ export function TabelaAnalise({ entidades, opcoes, ignoradas, onToggleIgnorar, o
           <tr className="[&>th]:sticky [&>th]:top-0 [&>th]:z-[3] [&>th]:bg-muted [&>th]:px-2.5 [&>th]:py-2 [&>th]:text-left [&>th]:text-[10px] [&>th]:uppercase [&>th]:tracking-wide [&>th]:text-muted-foreground [&>th]:font-semibold">
             <th className="!sticky left-0 !z-[4] w-9"></th>
             <th className="!sticky left-9 !z-[4] w-[150px]">Tecido</th>
-            <th className="!sticky left-[186px] !z-[4] w-[180px] shadow-[6px_0_8px_-6px_rgba(0,0,0,0.15)]">Cor · Apelido</th>
+            <th className="!sticky left-[186px] !z-[4] w-[240px] shadow-[6px_0_8px_-6px_rgba(0,0,0,0.15)]">Foto · Cor · Apelido</th>
             <th>Unidade</th><th>NCM</th><th>Fornecedor</th><th>Representante</th><th>Categorias</th>
             <th>Composição</th><th className="text-right">Preço</th><th>Mês</th><th>Ano</th>
             <th>Nome variante</th><th>Cód. var.</th><th className="text-right">Preço var.</th>
@@ -97,24 +119,31 @@ export function TabelaAnalise({ entidades, opcoes, ignoradas, onToggleIgnorar, o
                       </div>
                     ) : <span className="text-[11px] text-muted-foreground">↳ mesma peça</span>}
                   </td>
-                  {/* cor (fixo) */}
+                  {/* cor (fixo) — miniatura da foto casada + dropdowns cor/apelido */}
                   <td className="!sticky left-[186px] z-[2] !bg-card shadow-[6px_0_8px_-6px_rgba(0,0,0,0.15)]">
-                    <div className="flex flex-col gap-1">
-                      <CelulaLookup
-                        value={corId}
-                        digitado={String((v as Record<string, unknown>)._corNome ?? "")}
-                        opcoes={cores}
-                        onChange={(id) => patchVar("cor_id", id)}
-                        onCadastrarNovo={(n) => onCadastrar("cor", n, ent.chave)}
-                        placeholder="Cor base"
-                      />
-                      <CelulaLookup
-                        value={(v.cor_apelido_id as string | null) ?? null}
-                        digitado={String((v as Record<string, unknown>)._apelidoNome ?? "")}
-                        opcoes={apelidosDaBase(corId)}
-                        onChange={(id) => patchVar("cor_apelido_id", id)}
-                        placeholder="Apelido (opc.)"
-                      />
+                    <div className="flex items-start gap-2">
+                      {(() => {
+                        const fi = fotoInfo.get(`${ent.chave}::${i}`);
+                        return <FotoVariante file={fi?.file ?? null} onTrocar={(f) => fi && onTrocarFoto(fi.chaveAlvo, f)} />;
+                      })()}
+                      <div className="flex flex-1 flex-col gap-1">
+                        <CelulaLookup
+                          value={corId}
+                          digitado={String((v as Record<string, unknown>)._corNome ?? "")}
+                          opcoes={cores}
+                          onChange={(id) => patchVar("cor_id", id)}
+                          onCadastrarNovo={(n) => onCadastrar("cor", n, ent.chave)}
+                          placeholder="Cor base"
+                          obrigatorio
+                        />
+                        <CelulaLookup
+                          value={(v.cor_apelido_id as string | null) ?? null}
+                          digitado={String((v as Record<string, unknown>)._apelidoNome ?? "")}
+                          opcoes={apelidosDaBase(corId)}
+                          onChange={(id) => patchVar("cor_apelido_id", id)}
+                          placeholder="Apelido (opc.)"
+                        />
+                      </div>
                     </div>
                   </td>
                   {/* ---- campos que rolam ---- */}
@@ -137,6 +166,53 @@ export function TabelaAnalise({ entidades, opcoes, ignoradas, onToggleIgnorar, o
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Miniatura da foto casada por cor + trocar (escolher outra imagem) / ampliar (lightbox simples).
+function FotoVariante({ file, onTrocar }: { file: File | null; onTrocar: (f: File | null) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!file) { setUrl(null); return; }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+
+  const pick = () => inputRef.current?.click();
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) onTrocar(f); e.target.value = ""; };
+
+  return (
+    <div className="shrink-0">
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+      {url ? (
+        <div className="group relative h-11 w-11">
+          <img src={url} alt="" className="h-11 w-11 rounded-lg object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+            <button type="button" title="Ampliar" className="grid h-5 w-5 place-items-center rounded bg-white/90 text-slate-800" onClick={() => setZoom(true)}>
+              <Search className="h-3 w-3" />
+            </button>
+            <button type="button" title="Trocar imagem" className="grid h-5 w-5 place-items-center rounded bg-white/90 text-slate-800" onClick={pick}>
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </div>
+          <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full border-2 border-card bg-emerald-500 text-white">
+            <Check className="h-2.5 w-2.5" />
+          </span>
+        </div>
+      ) : (
+        <button type="button" title="Escolher imagem" onClick={pick} className="grid h-11 w-11 place-items-center rounded-lg border border-dashed text-muted-foreground hover:bg-accent">
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
+      {zoom && url && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8" onClick={() => setZoom(false)}>
+          <img src={url} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      )}
     </div>
   );
 }

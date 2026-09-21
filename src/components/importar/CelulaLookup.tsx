@@ -22,19 +22,26 @@ type Props = {
   onChange: (id: string | null) => void;
   /** oferece cadastrar o texto digitado como novo registro (fornecedor/cor…). */
   onCadastrarNovo?: (nome: string) => void;
+  /** campo OBRIGATÓRIO (ex.: cor base): vazio = pendência (vermelho). Opcional (fornecedor/mês/
+   *  ano): vazio = "— nenhum" (neutro), só fica vermelho se DIGITOU algo que não casou. */
+  obrigatorio?: boolean;
   placeholder?: string;
   className?: string;
 };
 
-export function CelulaLookup({ value, digitado, opcoes, onChange, onCadastrarNovo, placeholder = "Selecionar…", className }: Props) {
+export function CelulaLookup({ value, digitado, opcoes, onChange, onCadastrarNovo, obrigatorio, placeholder = "Selecionar…", className }: Props) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState(""); // busca digitada no popover (filtramos manualmente, shouldFilter=false)
   const selecionado = useMemo(() => opcoes.find((o) => o.id === value) ?? null, [opcoes, value]);
-  const pendente = value == null; // não resolvido = pendência (vermelho)
-  // sugestões fuzzy do que foi digitado (só quando pendente e há texto).
+  const temTextoNaoCasado = value == null && !!digitado?.trim();
+  // PENDENTE (vermelho) só quando: obrigatório sem valor, OU digitou algo que não casou.
+  // Opcional vazio (sem digitar) = neutro "— nenhum", não é pendência.
+  const pendente = temTextoNaoCasado || (!!obrigatorio && value == null);
+  const vazioOpcional = value == null && !digitado?.trim() && !obrigatorio;
+  // sugestões fuzzy do que foi digitado (só quando há texto não-casado).
   const sugeridos = useMemo(
-    () => (pendente && digitado ? sugestoes(digitado, opcoes, (o) => o.nome, 4, 0.4) : []),
-    [pendente, digitado, opcoes],
+    () => (temTextoNaoCasado && digitado ? sugestoes(digitado, opcoes, (o) => o.nome, 4, 0.4) : []),
+    [temTextoNaoCasado, digitado, opcoes],
   );
   const melhor = sugeridos[0]?.item ?? null;
   // lista "Todos" filtrada pela busca do popover (substring sem acento).
@@ -62,8 +69,10 @@ export function CelulaLookup({ value, digitado, opcoes, onChange, onCadastrarNov
               <AlertTriangle className="h-3 w-3 shrink-0" />
               {melhor ? <span className="text-primary font-medium truncate">{melhor.nome}?</span> : <span className="truncate">Corrigir…</span>}
             </span>
+          ) : selecionado ? (
+            <span className="truncate">{selecionado.nome}</span>
           ) : (
-            <span className="truncate">{selecionado?.nome ?? placeholder}</span>
+            <span className="truncate text-muted-foreground">{vazioOpcional ? "— nenhum" : placeholder}</span>
           )}
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
         </Button>
