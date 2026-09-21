@@ -21,6 +21,32 @@ export type ColumnSpec = {
 };
 
 // ---------------------------------------------------------------------------
+// Coluna da TABELA DE ANÁLISE (grade editável) — como renderizar cada campo já resolvido.
+// Separada de ColumnSpec (que é do template XLSX). Dirige a TabelaAnalise genérica: cada
+// entidade mostra SEUS campos (tecido ≠ aviamento), sem hardcode.
+//   escopo: "cabecalho" (1 valor por entidade, editável só na 1ª linha) | "variante" (por cor).
+//   tipo: "lookup" (dropdown CelulaLookup) | "texto" | "num" | "unidade" (metro/kg) | "multi-lookup".
+//   campoId: a chave RESOLVIDA no cabeçalho/variante (ex.: "empresa_id", "cor_id").
+//   digitadoKey: a chave do texto CRU (raw) p/ o fuzzy quando não casou (ex.: "fornecedor").
+//   lookupId: qual lookup do descritor alimenta o dropdown (ex.: "fornecedores").
+//   obrigatorio: campo obrigatório (vazio = pendência vermelha; senão "— nenhum").
+//   filtraPorCorBase: apelido — filtra opções pela cor base da variante.
+// ---------------------------------------------------------------------------
+export type GridColuna = {
+  rotulo: string;
+  escopo: "cabecalho" | "variante";
+  tipo: "lookup" | "multi-lookup" | "texto" | "num" | "unidade";
+  campoId: string;
+  digitadoKey?: string;
+  lookupId?: string;
+  obrigatorio?: boolean;
+  filtraPorCorBase?: boolean;
+  cadastroTipo?: "fornecedor" | "cor" | "categoria"; // p/ o "cadastrar novo"
+  wide?: boolean; // texto largo (composição)
+  narrow?: boolean; // texto estreito (código, ncm) — default = largura padrão
+};
+
+// ---------------------------------------------------------------------------
 // Uma tabela de apoio a resolver nome→id. `table` = nome da tabela Supabase;
 // `nameCol` = coluna do nome (default "nome"). `apelidoDeCorBase` marca o caso
 // especial cores_apelido (chave composta `${corBaseId}::${nomeNorm}`).
@@ -108,6 +134,13 @@ export type EntityImportDescriptor = {
   label: string; // rótulo humano ("Tecidos")
   colunas: ColumnSpec[];
   lookups: LookupSpec[];
+  // colunas da TABELA DE ANÁLISE (grade editável) — como renderizar cada campo. Se ausente, a
+  // tabela cai num fallback mínimo (só nome+cor). Ordem = ordem das colunas na grade.
+  gridColunas?: GridColuna[];
+  // chave do cabecalho que guarda o NOME EXIBÍVEL (original, não normalizado). Tecido="nome",
+  // aviamento="codigo_nome". Usado pela tabela de análise, relatório e rótulo de foto. Default "nome".
+  nomeCampo?: string;
+  temVariante?: boolean; // a entidade tem variantes de cor? (aviamento: cor opcional; produto revenda: sim)
   temFoto: boolean;
   fotoModo?: FotoModo; // default "entidade"; tecido usa "variante"
   bucket?: string; // bucket de storage p/ a foto (ex.: "tecido-variantes")

@@ -4,10 +4,11 @@
 
 import type { EntityImportDescriptor } from "./types";
 import { tecidoDescriptor } from "./entities/tecido.descriptor";
+import { aviamentoDescriptor } from "./entities/aviamento.descriptor";
 
 export const DESCRIPTORS: EntityImportDescriptor[] = [
   tecidoDescriptor,
-  // aviamentoDescriptor,  // Fase 2
+  aviamentoDescriptor,
   // insumoDescriptor,     // Fase 3
   // produtoDescriptor,    // Fase 4
 ];

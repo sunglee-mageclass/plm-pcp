@@ -109,9 +109,16 @@ export function gravaveis(entidades: EntidadeAgregada[]): EntidadeAgregada[] {
   return entidades.filter((e) => !temErroBloqueante(e) && !ehDuplicata(e));
 }
 
+/** Nome EXIBÍVEL (original) de uma entidade: lê o campo do descritor (tecido="nome",
+ *  aviamento="codigo_nome"); fallback p/ a chave normalizada só se o cabeçalho não tiver. */
+export function nomeEntidade(desc: EntityImportDescriptor, ent: EntidadeAgregada): string {
+  const campo = desc.nomeCampo ?? "nome";
+  return String(ent.cabecalho[campo] ?? ent.chave);
+}
+
 /** Reúne os problemas de todas as entidades num único array (para depuração/aviso). */
-export function todosProblemas(entidades: EntidadeAgregada[]): { nome: string; problemas: Problema[] }[] {
+export function todosProblemas(desc: EntityImportDescriptor, entidades: EntidadeAgregada[]): { nome: string; problemas: Problema[] }[] {
   return entidades
     .filter((e) => e.problemas.length > 0)
-    .map((e) => ({ nome: String(e.cabecalho.nome ?? e.chave), problemas: e.problemas }));
+    .map((e) => ({ nome: nomeEntidade(desc, e), problemas: e.problemas }));
 }

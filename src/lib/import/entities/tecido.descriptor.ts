@@ -98,6 +98,25 @@ export const tecidoDescriptor: EntityImportDescriptor = {
     { id: "representantes", table: "representantes", semUnique: true },
   ],
 
+  nomeCampo: "nome",
+  temVariante: true,
+
+  // colunas da grade de análise (reproduz o que a TabelaAnalise mostrava hardcoded p/ tecido).
+  gridColunas: [
+    { rotulo: "Unidade", escopo: "cabecalho", tipo: "unidade", campoId: "unidade_medida" },
+    { rotulo: "NCM", escopo: "cabecalho", tipo: "texto", campoId: "ncm", narrow: true },
+    { rotulo: "Fornecedor", escopo: "cabecalho", tipo: "lookup", campoId: "empresa_id", digitadoKey: "fornecedor", lookupId: "fornecedores", cadastroTipo: "fornecedor" },
+    { rotulo: "Representante", escopo: "cabecalho", tipo: "lookup", campoId: "representante_id", digitadoKey: "representante", lookupId: "representantes" },
+    { rotulo: "Categorias", escopo: "cabecalho", tipo: "multi-lookup", campoId: "__categorias", lookupId: "categorias", cadastroTipo: "categoria" },
+    { rotulo: "Composição", escopo: "cabecalho", tipo: "texto", campoId: "composicao", wide: true },
+    { rotulo: "Preço", escopo: "cabecalho", tipo: "num", campoId: "preco" },
+    { rotulo: "Mês", escopo: "cabecalho", tipo: "lookup", campoId: "mes_id", digitadoKey: "mes", lookupId: "meses" },
+    { rotulo: "Ano", escopo: "cabecalho", tipo: "lookup", campoId: "ano_id", digitadoKey: "ano", lookupId: "anos" },
+    { rotulo: "Nome variante", escopo: "variante", tipo: "texto", campoId: "nome_variante" },
+    { rotulo: "Cód. var.", escopo: "variante", tipo: "texto", campoId: "codigo_variante", narrow: true },
+    { rotulo: "Preço var.", escopo: "variante", tipo: "num", campoId: "preco" },
+  ],
+
   chaveNatural: (row) => normalizeCat(row.nome),
 
   resolve(row: RawRow, maps: LookupMaps): ResolvedRow {

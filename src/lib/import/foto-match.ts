@@ -115,7 +115,7 @@ export function alvosDeFoto(desc: EntityImportDescriptor, entidades: EntidadeAgr
   const alvos: AlvoFoto[] = [];
   const modo = desc.fotoModo ?? "entidade";
   for (const ent of entidades) {
-    const nome = String(ent.cabecalho.nome ?? ent.chave);
+    const nome = String(ent.cabecalho[desc.nomeCampo ?? "nome"] ?? ent.chave);
     if (modo === "variante" && desc.chaveFotoVariante) {
       ent.variantes.forEach((v, i) => {
         alvos.push({

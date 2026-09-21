@@ -13,15 +13,13 @@ import type {
   ImportReport,
   ImportReportItem,
 } from "./types";
-import { ehDuplicata, gravaveis, temErroBloqueante } from "./aggregate";
+import { ehDuplicata, gravaveis, temErroBloqueante, nomeEntidade } from "./aggregate";
 import { alvosDeFoto, type AlvoFoto } from "./foto-match";
 
 // Foto confirmada pelo usuário no match visual: chave do ALVO (entidade ou variante) → File.
 export type FotosConfirmadas = Map<string, File>;
 
 export type ProgressoCb = (feito: number, total: number, nomeAtual: string) => void;
-
-const nomeDe = (e: EntidadeAgregada) => String(e.cabecalho.nome ?? e.chave);
 
 /**
  * Executa a importação. Grava só as entidades sem erro e não-duplicata; as demais
@@ -50,10 +48,10 @@ export async function importar(
   for (const e of entidades) {
     if (temErroBloqueante(e)) {
       const motivo = e.problemas.find((p) => p.nivel === "erro")?.mensagem ?? "Dados inválidos";
-      itens.push({ chave: e.chave, nome: nomeDe(e), status: "pulado", motivo });
+      itens.push({ chave: e.chave, nome: nomeEntidade(desc, e), status: "pulado", motivo });
       pulados++;
     } else if (ehDuplicata(e)) {
-      itens.push({ chave: e.chave, nome: nomeDe(e), status: "pulado", motivo: "Duplicata" });
+      itens.push({ chave: e.chave, nome: nomeEntidade(desc, e), status: "pulado", motivo: "Duplicata" });
       pulados++;
     }
   }
@@ -69,7 +67,7 @@ export async function importar(
 
   let feito = 0;
   for (const e of paraGravar) {
-    onProgress?.(feito, total, nomeDe(e));
+    onProgress?.(feito, total, nomeEntidade(desc, e));
     try {
       // 1) foto(s) — SÓ na confirmação (sem lixo no storage se o usuário cancelar antes).
       let fotoPath: string | null = null;
@@ -95,7 +93,7 @@ export async function importar(
       }
       // 2) RPC transacional — devolve a AÇÃO (criado/complementado/so_foto/inalterado); void=criado.
       const acao = (await desc.rpc(sb, { ...e, fotoPath, fotoPathVariante })) ?? "criado";
-      itens.push({ chave: e.chave, nome: nomeDe(e), status: acao });
+      itens.push({ chave: e.chave, nome: nomeEntidade(desc, e), status: acao });
       if (acao === "complementado") complementados++;
       else if (acao === "so_foto") soFoto++;
       else if (acao === "inalterado") inalterados++;
@@ -105,10 +103,10 @@ export async function importar(
       const msg = mensagemErro(err, "Erro ao importar.");
       const dup = /duplicat|já exist|23505/i.test(String((err as { code?: string })?.code ?? "") + msg);
       if (dup) {
-        itens.push({ chave: e.chave, nome: nomeDe(e), status: "pulado", motivo: "Duplicata" });
+        itens.push({ chave: e.chave, nome: nomeEntidade(desc, e), status: "pulado", motivo: "Duplicata" });
         pulados++;
       } else {
-        itens.push({ chave: e.chave, nome: nomeDe(e), status: "erro", motivo: msg });
+        itens.push({ chave: e.chave, nome: nomeEntidade(desc, e), status: "erro", motivo: msg });
         erros++;
       }
     }
