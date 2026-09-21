@@ -14,7 +14,6 @@ import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { alvosDeFoto, casarFotos } from "@/lib/import/foto-match";
@@ -212,9 +211,15 @@ function ImportarDadosPage() {
 
   return (
     <div className="container mx-auto p-4 pb-28 max-w-5xl">
-      <div className="mb-4">
-        <Breadcrumb items={[{ label: "Importar Dados" }]} />
-      </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex items-start gap-3">
+          <Upload className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+          <div>
+            <h1 className="font-display text-xl font-semibold tracking-tight">Importar Dados</h1>
+            <p className="text-sm text-muted-foreground">Importe planilhas e imagens em massa.</p>
+          </div>
+        </div>
+      </header>
 
       <div className="flex flex-wrap items-end gap-3 mb-6">
         <div className="space-y-1">

@@ -78,6 +78,16 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
+    // Módulo de página única (padrão OTB), opt-in. Fica no sidebar entre Estilo & Engenharia e
+    // Entrada e Saída (via moveTop no app-sidebar). NÃO entra em PAGE_URLS → link direto, sem hub.
+    module: "distribuicao",
+    label: "Distribuição",
+    basePath: "/distribuicao",
+    pages: [
+      { key: "distribuicao", label: "Distribuição", description: "Distribuição por loja e poder de venda.", modes: ["full"] },
+    ],
+  },
+  {
     module: "entrada_saida",
     label: "Entrada e Saída",
     basePath: "/entrada-saida",

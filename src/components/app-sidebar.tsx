@@ -140,6 +140,9 @@ export function AppSidebar() {
     const i = visibleMainItems.findIndex((x) => x.url === url);
     if (i > 0) visibleMainItems.unshift(visibleMainItems.splice(i, 1)[0]);
   };
+  // Distribuição fica logo ABAIXO de Estilo & Engenharia (entre criacao e entrada_saida): sobe
+  // ANTES de criacao, depois criacao/otb sobem por cima → ordem final [otb, criacao, distribuicao, …].
+  moveTop("/distribuicao");
   moveTop("/criacao"); // Criação sobe primeiro…
   moveTop("/otb");     // …e OTB fica acima dela.
 

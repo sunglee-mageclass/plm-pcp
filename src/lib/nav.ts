@@ -14,6 +14,7 @@ export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = 
   cadastro: { title: "Cadastro", icon: ClipboardList },
   entrada_saida: { title: "Entrada e Saída", icon: Package },
   criacao: { title: "Estilo & Engenharia", icon: Palette },
+  distribuicao: { title: "Distribuição", icon: BarChart3 },
   pcp: { title: "PCP", icon: Factory },
   expedicao: { title: "Expedição & Logística", icon: Truck },
   financeiro: { title: "Financeiro", icon: DollarSign },

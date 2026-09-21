@@ -69,6 +69,7 @@ const MODULE_DESC: Record<string, string> = {
   cadastro: "Materiais, fornecedores, atributos e colaboradores.",
   entrada_saida: "Ordens de compra de tecido/aviamento, rolos e estoque.",
   otb: "OTB — orçamento de coleção (Open To Buy) antes do Planejamento.",
+  distribuicao: "Distribuição por loja e poder de venda (resumo da coleção + tabelas).",
   criacao: "Planejamento e Desenvolvimento (kanban) dos modelos.",
   producao: "CAD, Serviços, CQ, Direcionamento e Lançamentos.",
   financeiro: "Contas a pagar, calendário e resumo financeiro.",
@@ -80,6 +81,7 @@ const MODULE_DESC: Record<string, string> = {
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
   otb: false, // opt-in
+  distribuicao: false, // opt-in — mesmo padrão do otb
   produto_acabado: false, // opt-in — mesmo padrão do otb
   produto_importado: false, // opt-in — mesmo padrão do otb
   etapas_pl: false, // opt-in — mesmo padrão do otb
