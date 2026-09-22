@@ -1277,6 +1277,23 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
     return Array.from(s).sort();
   }, [blocks]);
 
+  // Completude da seção "4. CAD": o badge só fica "ok" quando os dados que a tornam
+  // realmente usável estão preenchidos — consumo (por tecido), largura do tecido (por
+  // tecido) e metragem planejada (por variante). Faltando qualquer um, o badge é ÂMBAR
+  // (não "ok"), com o rótulo do que falta. Só de haver linhas não basta.
+  const cadFalta = useMemo(() => {
+    if (cadTecidosState.length === 0) return [] as string[];
+    const faltas = new Set<string>();
+    for (const t of cadTecidosState) {
+      if (Number(t.consumo_cad ?? 0) <= 0) faltas.add("consumo");
+      if (Number(t.largura ?? 0) <= 0) faltas.add("largura do tecido");
+      for (const v of t.variantes) {
+        if (Number(v.metragem_planejada ?? 0) <= 0) faltas.add("metragem planejada");
+      }
+    }
+    return Array.from(faltas);
+  }, [cadTecidosState]);
+
   const { data: blockVariantesInfo = {}, isFetched: blockVariantesInfoFetched } = useQuery({
     queryKey: ["variantes-info-blocks", allBlockVarianteIds.join(",")],
     enabled: allBlockVarianteIds.length > 0,
@@ -2868,7 +2885,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                 <span>{secNum("s-cad")}. CAD</span>
                 {cadTecidosState.length === 0
                   ? <SecBadge tone="muted">vazio</SecBadge>
-                  : <SecBadge tone="ok"><Check className="h-3 w-3" />ok</SecBadge>}
+                  : cadFalta.length > 0
+                    ? <SecBadge tone="warn" title={`Falta: ${cadFalta.join(", ")}`}><AlertTriangle className="h-3 w-3" />falta {cadFalta.join(", ")}</SecBadge>
+                    : <SecBadge tone="ok"><Check className="h-3 w-3" />ok</SecBadge>}
               </span>
             </AccordionTrigger>
             <AccordionContent>
