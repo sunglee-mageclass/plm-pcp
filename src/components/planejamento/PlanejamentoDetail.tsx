@@ -1781,6 +1781,7 @@ export function PlanejamentoDetail({
         >
           {/* SETOR 1 — Informações Gerais do Produto */}
           <Secao titulo="Informações Gerais do Produto">
+            {/* Linha 1: Status · Nome · Estilista · Origem */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="grid gap-1">
                 <Label>Status</Label>
@@ -1808,11 +1809,13 @@ export function PlanejamentoDetail({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Linha 2: Versão (editável; versão≥2 = repetição — badge ↻ vN e filtros derivam de
+                versao>1; corrige a versão automática errada; clamp mínimo 1, coluna NOT NULL). */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="grid gap-1">
                 <Label>Versão</Label>
-                {/* Editável: 2 ou mais = repetição (o sistema deriva "repetição" de versao>1, badge
-                    ↻ vN e filtros). Corrige a versão automática errada (v2→v4) ou marca um "novo"
-                    como repetição. Clamp mínimo 1 (coluna NOT NULL; duplicação usa max(versao)+1). */}
                 <NumberInput
                   integer
                   value={draft.versao}
@@ -1822,8 +1825,11 @@ export function PlanejamentoDetail({
                   }}
                   data-colab-path="versao"
                 />
-                <span className="text-[11px] text-muted-foreground">2 ou mais = repetição</span>
               </div>
+            </div>
+
+            {/* Linha 3: Grupo · Categoria · Subcategoria 1 · Subcategoria 2 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <FieldSelect
                 label="Grupo"
                 value={grupoSel}
