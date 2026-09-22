@@ -47,11 +47,6 @@ export function agregar(
     if (!ent) {
       ent = { ...resolved, variantes: [...resolved.variantes], problemas: [...resolved.problemas] };
       byChave.set(chave, ent);
-    } else if (desc.mesclar) {
-      // Entidade com estrutura NÃO-uniforme (ex.: MODELO = cabeçalho + N materiais heterogêneos
-      // de BOM em linhas-filhas). O descritor sabe mesclar a nova linha na entidade acumulada
-      // (juntar arrays de BOM, escolher a linha de cabeçalho) — não é o fluxo de variantes por cor.
-      desc.mesclar(ent, resolved, row);
     } else {
       // cabeçalho divergente: o modelo é "1 tecido = N cores", então só o cabeçalho da 1ª
       // linha vale. Se uma linha seguinte traz cabeçalho diferente (ex.: outro fornecedor/preço),

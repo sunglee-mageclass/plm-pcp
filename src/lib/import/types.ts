@@ -68,9 +68,6 @@ export type LookupSpec = {
   // GRADE de tamanhos (tenant_config.tamanhos_grade, não é tabela). O "id" resolvido é a própria
   // chave da grade ("34|PPP"); o Map casa TOLERANTE: número ("34") E letra ("PPP") → chave.
   gradeTamanhos?: boolean;
-  // VARIANTE DE TECIDO (não tem nome próprio): chave composta `${artigo_id}::${cor_id}::${apelido||""}`
-  // → variante_tecido_id. Usado só pelo MODELO (resolve o BOM de tecidos por artigo+cor+apelido).
-  varianteTecido?: boolean;
 };
 
 // Um lookup carregado: nomeNorm → id (ou id[] quando semUnique).
@@ -177,12 +174,6 @@ export type EntityImportDescriptor = {
   // estado do upsert: novo / complementar / so_foto / conflito_fornecedor + artigoAlvoId +
   // varianteExiste[]/varianteTemFoto[]. Opcional (entidades sem upsert não implementam).
   analisarBanco?: (sb: SupabaseClient, entidades: EntidadeAgregada[]) => Promise<void>;
-
-  // Mescla uma linha SEGUINTE (`novo`) na entidade já acumulada (`ent`). Só p/ entidades de
-  // estrutura NÃO-uniforme (MODELO: cabeçalho + N materiais de BOM heterogêneos em linhas-filhas),
-  // onde o fluxo padrão de "agregar variantes por cor" não serve. Muta `ent` no lugar. Quando
-  // ausente, o aggregate usa o caminho de variantes (retrocompat p/ tecido/aviamento/insumo/produto).
-  mesclar?: (ent: EntidadeAgregada, novo: ResolvedRow, row: RawRow) => void;
 
   // grava UMA entidade agregada (cabeçalho + variantes) atômico via RPC transacional.
   // Recebe a foto já subida (path) quando houver. Lança em erro (o motor isola por linha).

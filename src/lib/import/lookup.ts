@@ -31,19 +31,6 @@ async function carregarUm(
     return m;
   }
 
-  // VARIANTE DE TECIDO: não tem nome — a chave é `${artigo_id}::${cor_id}::${apelido||""}`, que
-  // o MODELO usa p/ resolver o BOM de tecidos por artigo+cor+apelido → variante_tecido_id.
-  if (spec.varianteTecido) {
-    const { data, error } = await sb.from("variantes_tecido").select("id, artigo_id, cor_id, cor_apelido_id");
-    if (error) throw new Error(`Falha ao carregar variantes_tecido: ${error.message}`);
-    const m = new Map<string, string>();
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
-      const chave = `${r.artigo_id ?? ""}::${r.cor_id ?? ""}::${r.cor_apelido_id ?? ""}`;
-      m.set(chave, r.id as string);
-    }
-    return m;
-  }
-
   const nameCol = spec.nameCol ?? "nome";
   const cols = ["id", nameCol, ...(spec.extraCols ?? [])].join(", ");
   const { data, error } = await sb.from(spec.table).select(cols);
@@ -105,8 +92,6 @@ export async function carregarOpcoes(sb: SupabaseClient, specs: LookupSpec[]): P
         const grade = arr.length ? arr : ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
         return [s.id, grade.map((k) => ({ id: k, nome: k.replace("|", " · ") }))] as const;
       }
-      // variante de tecido não é dropdown na tabela de análise (resolvida por artigo+cor no BOM).
-      if (s.varianteTecido) return [s.id, []] as const;
       const nameCol = s.nameCol ?? "nome";
       const cols = ["id", nameCol, ...(s.extraCols ?? [])].join(", ");
       const { data, error } = await sb.from(s.table).select(cols).order(nameCol);
