@@ -21,6 +21,19 @@ import type {
 const UNIDADES = new Set(["unidade", "metro", "rolo", "milheiro"]);
 const FORMATOS = new Set(["ambos", "numero", "letra", "nenhum"]);
 
+/** Rótulo EXIBÍVEL de um tamanho da grade conforme o formato do insumo. A chave é "num|sigla"
+ *  (ex.: "34|PPP"): `letra`→sigla ("PPP"), `numero`→número ("34"), `ambos`→"34 · PPP".
+ *  Sem uma das partes, cai na outra. `null` (sem tamanho) → "—". */
+export function rotuloTamanho(chave: string | null, formato: string): string {
+  if (!chave) return "—";
+  const [num, sigla] = chave.split("|");
+  if (formato === "letra") return sigla || num || chave;
+  if (formato === "numero") return num || sigla || chave;
+  // ambos / nenhum / desconhecido → mostra o que houver
+  if (num && sigla) return `${num} · ${sigla}`;
+  return num || sigla || chave;
+}
+
 function parseNum(s: string | undefined): number | null {
   const v = (s ?? "").trim();
   if (!v) return null;
@@ -77,8 +90,8 @@ export const insumoDescriptor: EntityImportDescriptor = {
     { rotulo: "Representante", escopo: "cabecalho", tipo: "lookup", campoId: "representante_id", digitadoKey: "representante", lookupId: "representantes" },
     { rotulo: "Formato", escopo: "cabecalho", tipo: "texto", campoId: "formato_tamanho", narrow: true },
     { rotulo: "Observações", escopo: "cabecalho", tipo: "texto", campoId: "observacoes", wide: true },
-    // variante (por cor×tamanho): tamanho e preço
-    { rotulo: "Tamanho", escopo: "variante", tipo: "texto", campoId: "__tamanhoLabel", narrow: true, readonly: true },
+    // variante (por cor×tamanho): tamanho (dropdown da grade, corrige match errado) e preço
+    { rotulo: "Tamanho", escopo: "variante", tipo: "tamanho", campoId: "tamanho", lookupId: "tamanhos", narrow: true },
     { rotulo: "Preço", escopo: "variante", tipo: "num", campoId: "preco" },
   ],
 
@@ -129,7 +142,7 @@ export const insumoDescriptor: EntityImportDescriptor = {
     if (cor_id || tamanhosChave.length) {
       const tams = tamanhosChave.length ? tamanhosChave : [null];
       for (const tam of tams) {
-        variantes.push({ cor_id: cor_id ?? null, tamanho: tam, preco, __tamanhoLabel: tam ? tam.split("|")[0] : "—" });
+        variantes.push({ cor_id: cor_id ?? null, tamanho: tam, preco, __tamanhoLabel: rotuloTamanho(tam, formato) });
       }
     }
 

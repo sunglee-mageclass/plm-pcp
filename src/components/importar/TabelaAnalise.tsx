@@ -12,6 +12,7 @@ import { Check, RefreshCw, Image as ImageIcon, AlertTriangle, XCircle, Plus, Sea
 import { cn } from "@/lib/utils";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
 import { CelulaLookup } from "@/components/importar/CelulaLookup";
+import { rotuloTamanho } from "@/lib/import/entities/insumo.descriptor";
 import type { OpcoesLookup } from "@/lib/import/lookup";
 import type { EntidadeAgregada, EstadoEntidade, EntityImportDescriptor } from "@/lib/import/types";
 import { temErroBloqueante } from "@/lib/import/aggregate";
@@ -27,7 +28,7 @@ type Props = {
   ignoradas: Set<string>;
   onToggleIgnorar: (chave: string) => void;
   onPatch: PatchEntidade;
-  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria", nome: string, chave: string) => void;
+  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria" | "apelido", nome: string, chave: string) => void;
   /** foto trocada manualmente: chave do ALVO (chaveFotoVariante) → File (override do auto-match). */
   fotosManuais: Map<string, File>;
   onTrocarFoto: (chaveAlvo: string, file: File | null) => void;
@@ -86,7 +87,11 @@ export function TabelaAnalise({ descriptor, entidades, opcoes, arquivos, ignorad
             const nome = String(ent.cabecalho[descriptor.nomeCampo ?? "nome"] ?? ent.chave);
             const patchCab = (k: string, val: unknown) => onPatch(ent.chave, { cabecalho: { ...ent.cabecalho, [k]: val } });
             const patchVarAt = (i: number, k: string, val: unknown) => {
-              const nv = ent.variantes.map((x, xi) => (xi === i ? { ...x, [k]: val } : x));
+              // `k === "__patch"` = merge de VÁRIOS campos de uma vez (val é um objeto parcial);
+              // senão, seta um campo só. Usado p/ tamanho (chave + rótulo derivado juntos).
+              const nv = ent.variantes.map((x, xi) =>
+                xi !== i ? x : k === "__patch" ? { ...x, ...(val as Record<string, unknown>) } : { ...x, [k]: val },
+              );
               onPatch(ent.chave, { variantes: nv });
             };
             const st = erro ? ESTADO_ICON.erro : ESTADO_ICON[(ent.estado ?? "novo") as EstadoEntidade];
@@ -139,7 +144,8 @@ export function TabelaAnalise({ descriptor, entidades, opcoes, arquivos, ignorad
                               onChange={(id) => patchVarAt(i, "cor_id", id)} onCadastrarNovo={(n) => onCadastrar("cor", n, ent.chave)}
                               placeholder="Cor base" obrigatorio />
                             <CelulaLookup value={(v?.cor_apelido_id as string | null) ?? null} digitado={String(v?._apelidoNome ?? "")}
-                              opcoes={apelidosDaBase(corId)} onChange={(id) => patchVarAt(i, "cor_apelido_id", id)} placeholder="Apelido (opc.)" />
+                              opcoes={apelidosDaBase(corId)} onChange={(id) => patchVarAt(i, "cor_apelido_id", id)}
+                              onCadastrarNovo={(n) => onCadastrar("apelido", n, ent.chave)} placeholder="Apelido (opc.)" />
                           </>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">sem cor</span>
@@ -175,7 +181,7 @@ type CelCtx = {
   first: boolean; temVar: boolean; ent: EntidadeAgregada; v: Record<string, unknown> | null; i: number;
   opcoes: OpcoesLookup; apelidosDaBase: (corId: string | null) => { id: string; nome: string; corBaseId?: string }[]; corId: string | null;
   onPatchCab: (k: string, val: unknown) => void; onPatchVar: (i: number, k: string, val: unknown) => void;
-  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria", nome: string) => void;
+  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria" | "apelido", nome: string) => void;
   onCatIds: (ids: string[]) => void; categoriaIds: string[];
 };
 function renderCelula(c: import("@/lib/import/types").GridColuna, ctx: CelCtx): React.ReactNode {
@@ -211,6 +217,17 @@ function renderCelula(c: import("@/lib/import/types").GridColuna, ctx: CelCtx): 
     case "lookup": {
       const opc = c.filtraPorCorBase ? apelidosDaBase(corId) : (c.lookupId ? opcoes[c.lookupId] ?? [] : []);
       return <CelulaLookup value={(v[c.campoId] as string | null) ?? null} opcoes={opc} onChange={(id) => onPatchVar(i, c.campoId, id)} placeholder={c.rotulo} obrigatorio={c.obrigatorio} />;
+    }
+    case "tamanho": {
+      // dropdown da grade da loja (chave "num|sigla"). O RÓTULO exibido respeita o formato do
+      // insumo (letra→sigla, número→número, ambos→"34 · PPP"); ao trocar, guarda a chave em
+      // `tamanho` e re-deriva `__tamanhoLabel`. Corrige o match automático quando pega o lado errado.
+      const formato = String(ent.cabecalho.formato_tamanho ?? "ambos");
+      const grade = (c.lookupId ? opcoes[c.lookupId] ?? [] : []).map((o) => ({ id: o.id, nome: rotuloTamanho(o.id, formato) }));
+      const atual = (v[c.campoId] as string | null) ?? null;
+      return <CelulaLookup value={atual} opcoes={grade}
+        onChange={(id) => onPatchVar(i, "__patch", { tamanho: id, __tamanhoLabel: rotuloTamanho(id, formato) })}
+        placeholder={c.rotulo} />;
     }
     default:
       return null;

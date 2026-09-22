@@ -18,7 +18,7 @@ type Props = {
   ignoradas: Set<string>;
   onToggleIgnorar: (chave: string) => void;
   onPatch: (chave: string, patch: Partial<EntidadeAgregada>) => void;
-  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria", nome: string, chave: string) => void;
+  onCadastrar: (tipo: "fornecedor" | "cor" | "categoria" | "apelido", nome: string, chave: string) => void;
   fotosManuais: Map<string, File>;
   onTrocarFoto: (chaveAlvo: string, file: File | null) => void;
 };

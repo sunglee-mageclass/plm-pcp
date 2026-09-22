@@ -104,6 +104,7 @@ export const tecidoDescriptor: EntityImportDescriptor = {
   // colunas da grade de análise (reproduz o que a TabelaAnalise mostrava hardcoded p/ tecido).
   gridColunas: [
     { rotulo: "Unidade", escopo: "cabecalho", tipo: "unidade", campoId: "unidade_medida" },
+    { rotulo: "Rendimento", escopo: "cabecalho", tipo: "num", campoId: "rendimento", narrow: true },
     { rotulo: "NCM", escopo: "cabecalho", tipo: "texto", campoId: "ncm", narrow: true },
     { rotulo: "Fornecedor", escopo: "cabecalho", tipo: "lookup", campoId: "empresa_id", digitadoKey: "fornecedor", lookupId: "fornecedores", cadastroTipo: "fornecedor" },
     { rotulo: "Representante", escopo: "cabecalho", tipo: "lookup", campoId: "representante_id", digitadoKey: "representante", lookupId: "representantes" },

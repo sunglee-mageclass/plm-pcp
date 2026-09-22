@@ -201,7 +201,7 @@ function ImportarDadosPage() {
 
   // v1: cadastrar-novo abre a tela de cadastro correspondente numa nova aba (o dono cadastra e
   // reimporta ou troca no dropdown). Refino futuro: dialog inline.
-  const onCadastrar = useCallback((tipo: "fornecedor" | "cor" | "categoria", nome: string) => {
+  const onCadastrar = useCallback((tipo: "fornecedor" | "cor" | "categoria" | "apelido", nome: string) => {
     const url = tipo === "fornecedor" ? "/cadastro/servico" : "/cadastro/atributos";
     toast.info(`Cadastre "${nome}" em ${tipo === "fornecedor" ? "Fornecedores" : "Atributos"} e selecione no campo.`);
     window.open(url, "_blank");

@@ -35,7 +35,7 @@ export type ColumnSpec = {
 export type GridColuna = {
   rotulo: string;
   escopo: "cabecalho" | "variante";
-  tipo: "lookup" | "multi-lookup" | "texto" | "num" | "unidade";
+  tipo: "lookup" | "multi-lookup" | "texto" | "num" | "unidade" | "tamanho";
   campoId: string;
   digitadoKey?: string;
   lookupId?: string;
