@@ -1808,6 +1808,22 @@ export function PlanejamentoDetail({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="grid gap-1">
+                <Label>Versão</Label>
+                {/* Editável: 2 ou mais = repetição (o sistema deriva "repetição" de versao>1, badge
+                    ↻ vN e filtros). Corrige a versão automática errada (v2→v4) ou marca um "novo"
+                    como repetição. Clamp mínimo 1 (coluna NOT NULL; duplicação usa max(versao)+1). */}
+                <NumberInput
+                  integer
+                  value={draft.versao}
+                  onChange={(e) => {
+                    const n = Math.max(1, Math.trunc(Number(e.target.value) || 1));
+                    setDraftTracked((d) => ({ ...d, versao: n }));
+                  }}
+                  data-colab-path="versao"
+                />
+                <span className="text-[11px] text-muted-foreground">2 ou mais = repetição</span>
+              </div>
               <FieldSelect
                 label="Grupo"
                 value={grupoSel}
