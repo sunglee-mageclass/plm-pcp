@@ -45,6 +45,7 @@ export type GridColuna = {
   wide?: boolean; // texto largo (composição)
   narrow?: boolean; // texto estreito (código, ncm) — default = largura padrão
   readonly?: boolean; // só exibe (não edita) — ex.: tamanho derivado da explosão cor×tamanho
+  moeda?: boolean; // (tipo "num") campo de dinheiro → exibe SEMPRE 2 casas ("60" → "60,00")
 };
 
 // ---------------------------------------------------------------------------

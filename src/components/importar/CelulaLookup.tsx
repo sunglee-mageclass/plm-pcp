@@ -88,17 +88,10 @@ export function CelulaLookup({ value, digitado, opcoes, onChange, onCadastrarNov
                 Digitado na planilha: <span className="font-medium text-destructive">“{digitado}”</span>
               </div>
             )}
+            {/* Lista vazia: só a mensagem. O "Cadastrar" fica no rodapé (bloco único abaixo) —
+                senão apareceria DUAS vezes quando não há nenhuma opção (bug do apelido "Royal"). */}
             <CommandEmpty>
-              {onCadastrarNovo && digitado ? (
-                <button
-                  className="flex w-full items-center gap-2 px-2 py-2 text-sm text-primary hover:bg-accent"
-                  onClick={() => { onCadastrarNovo(digitado); setOpen(false); }}
-                >
-                  <Plus className="h-4 w-4" /> Cadastrar “{digitado}”
-                </button>
-              ) : (
-                <span className="px-2 py-3 text-sm text-muted-foreground">Nada encontrado.</span>
-              )}
+              <span className="px-2 py-3 text-sm text-muted-foreground">Nada encontrado.</span>
             </CommandEmpty>
             {sugeridos.length > 0 && (
               <CommandGroup heading="Você quis dizer">

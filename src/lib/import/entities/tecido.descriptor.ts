@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
+import { parseNumeroBR } from "../parse";
 import type {
   AcaoImport,
   EntidadeAgregada,
@@ -19,13 +20,7 @@ import type {
 const UNIDADES = new Set(["metro", "kg"]);
 
 /** parse de número tolerante a vírgula decimal e milhar PT-BR ("1.234,50" → 1234.5). */
-function parseNum(s: string | undefined): number | null {
-  const v = (s ?? "").trim();
-  if (!v) return null;
-  const norm = v.replace(/\./g, "").replace(",", ".");
-  const n = Number(norm);
-  return Number.isFinite(n) ? n : null;
-}
+const parseNum = parseNumeroBR;
 
 /** resolve UM nome num Map simples; devolve id ou null. */
 function look(maps: LookupMaps, id: string, nome: string | undefined): string | null {
@@ -110,12 +105,12 @@ export const tecidoDescriptor: EntityImportDescriptor = {
     { rotulo: "Representante", escopo: "cabecalho", tipo: "lookup", campoId: "representante_id", digitadoKey: "representante", lookupId: "representantes" },
     { rotulo: "Categorias", escopo: "cabecalho", tipo: "multi-lookup", campoId: "__categorias", lookupId: "categorias", cadastroTipo: "categoria" },
     { rotulo: "Composição", escopo: "cabecalho", tipo: "texto", campoId: "composicao", wide: true },
-    { rotulo: "Preço", escopo: "cabecalho", tipo: "num", campoId: "preco" },
+    { rotulo: "Preço", escopo: "cabecalho", tipo: "num", campoId: "preco", moeda: true },
     { rotulo: "Mês", escopo: "cabecalho", tipo: "lookup", campoId: "mes_id", digitadoKey: "mes", lookupId: "meses" },
     { rotulo: "Ano", escopo: "cabecalho", tipo: "lookup", campoId: "ano_id", digitadoKey: "ano", lookupId: "anos" },
     { rotulo: "Nome variante", escopo: "variante", tipo: "texto", campoId: "nome_variante" },
     { rotulo: "Cód. var.", escopo: "variante", tipo: "texto", campoId: "codigo_variante", narrow: true },
-    { rotulo: "Preço var.", escopo: "variante", tipo: "num", campoId: "preco" },
+    { rotulo: "Preço var.", escopo: "variante", tipo: "num", campoId: "preco", moeda: true },
   ],
 
   chaveNatural: (row) => normalizeCat(row.nome),

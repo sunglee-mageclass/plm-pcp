@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
 import { CelulaLookup } from "@/components/importar/CelulaLookup";
 import { rotuloTamanho } from "@/lib/import/entities/insumo.descriptor";
+import { parseNumeroBR } from "@/lib/import/parse";
 import type { OpcoesLookup } from "@/lib/import/lookup";
 import type { EntidadeAgregada, EstadoEntidade, EntityImportDescriptor } from "@/lib/import/types";
 import { temErroBloqueante } from "@/lib/import/aggregate";
@@ -196,7 +197,7 @@ function renderCelula(c: import("@/lib/import/types").GridColuna, ctx: CelCtx): 
       case "texto":
         return <TextCell value={String(cabValor(c.campoId) ?? "")} onChange={(x) => onPatchCab(c.campoId, x || null)} wide={c.wide} narrow={c.narrow} />;
       case "num":
-        return <TextCell value={fmt(cabValor(c.campoId))} onChange={(x) => onPatchCab(c.campoId, parseNum(x))} narrow num />;
+        return <TextCell value={fmt(cabValor(c.campoId), c.moeda)} onChange={(x) => onPatchCab(c.campoId, parseNum(x))} narrow num />;
       case "multi-lookup":
         return <CategoriasCell ids={categoriaIds} opcoes={opc} onChange={onCatIds} onCadastrar={c.cadastroTipo ? (n) => onCadastrar(c.cadastroTipo!, n) : undefined} />;
       case "lookup":
@@ -213,7 +214,7 @@ function renderCelula(c: import("@/lib/import/types").GridColuna, ctx: CelCtx): 
     case "texto":
       return <TextCell value={String(v[c.campoId] ?? "")} onChange={(x) => onPatchVar(i, c.campoId, x || null)} narrow={c.narrow} wide={c.wide} />;
     case "num":
-      return <TextCell value={fmt(v[c.campoId])} onChange={(x) => onPatchVar(i, c.campoId, parseNum(x))} narrow num />;
+      return <TextCell value={fmt(v[c.campoId], c.moeda)} onChange={(x) => onPatchVar(i, c.campoId, parseNum(x))} narrow num />;
     case "lookup": {
       const opc = c.filtraPorCorBase ? apelidosDaBase(corId) : (c.lookupId ? opcoes[c.lookupId] ?? [] : []);
       return <CelulaLookup value={(v[c.campoId] as string | null) ?? null} opcoes={opc} onChange={(id) => onPatchVar(i, c.campoId, id)} placeholder={c.rotulo} obrigatorio={c.obrigatorio} />;
@@ -282,14 +283,20 @@ function FotoVariante({ file, onTrocar }: { file: File | null; onTrocar: (f: Fil
 }
 
 // --- células auxiliares ---
+// `value` já vem FORMATADO do pai (fmt). Em campo numérico, formatar a cada tecla faria o
+// cursor pular e engoliria a vírgula em progresso; por isso, enquanto FOCADO, o input edita
+// texto cru (estado local) e só ressincroniza com o `value` formatado do pai ao desfocar.
 function TextCell({ value, onChange, narrow, wide, num, disabled }: { value: string; onChange: (v: string) => void; narrow?: boolean; wide?: boolean; num?: boolean; disabled?: boolean }) {
+  const [editando, setEditando] = useState<string | null>(null);
   if (disabled) return null;
   return (
     <input
       className={cn("h-8 rounded-md border bg-card px-2 text-xs", narrow ? "min-w-[64px] w-[74px]" : wide ? "min-w-[150px]" : "min-w-[90px]", num && "text-right")}
-      value={value}
+      value={editando ?? value}
       placeholder="—"
-      onChange={(e) => onChange(e.target.value)}
+      onFocus={num ? () => setEditando(value) : undefined}
+      onChange={(e) => { if (num) setEditando(e.target.value); onChange(e.target.value); }}
+      onBlur={num ? () => setEditando(null) : undefined}
     />
   );
 }
@@ -318,17 +325,22 @@ function CategoriasCell({ ids, opcoes, onChange, onCadastrar }: { ids: string[];
   );
 }
 
-function fmt(v: unknown): string {
+// Exibe um número na célula em pt-BR (vírgula decimal). `moeda` = sempre 2 casas ("60" → "60,00");
+// senão, casas naturais ("2,34" → "2,34", "60" → "60"). Aceita o valor já parseado (number) ou o
+// texto cru (parseNumeroBR trata vírgula BR e ponto-decimal do SheetJS).
+function fmt(v: unknown, moeda?: boolean): string {
   if (v == null || v === "") return "";
-  const n = typeof v === "number" ? v : Number(String(v).replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? String(v) : "";
+  const n = typeof v === "number" ? v : parseNumeroBR(String(v));
+  if (n == null || !Number.isFinite(n)) return "";
+  // vírgula decimal, SEM separador de milhar (o ponto de milhar atrapalharia a digitação inline).
+  // `moeda` fixa 2 casas ("60" → "60,00"); senão casas naturais ("2,34" → "2,34", "60" → "60").
+  return n.toLocaleString("pt-BR", {
+    useGrouping: false,
+    minimumFractionDigits: moeda ? 2 : 0,
+    maximumFractionDigits: moeda ? 2 : 6,
+  });
 }
-function parseNum(s: string): number | null {
-  const v = s.trim();
-  if (!v) return null;
-  const n = Number(v.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
+const parseNum = parseNumeroBR;
 
 // re-export p/ conveniência
 export { normalizeCat };

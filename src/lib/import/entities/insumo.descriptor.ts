@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
+import { parseNumeroBR } from "../parse";
 import type {
   AcaoImport,
   EntidadeAgregada,
@@ -34,12 +35,7 @@ export function rotuloTamanho(chave: string | null, formato: string): string {
   return num || sigla || chave;
 }
 
-function parseNum(s: string | undefined): number | null {
-  const v = (s ?? "").trim();
-  if (!v) return null;
-  const n = Number(v.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
+const parseNum = parseNumeroBR;
 function look(maps: LookupMaps, id: string, nome: string | undefined): string | null {
   const key = normalizeCat(nome);
   if (!key) return null;
@@ -92,7 +88,7 @@ export const insumoDescriptor: EntityImportDescriptor = {
     { rotulo: "Observações", escopo: "cabecalho", tipo: "texto", campoId: "observacoes", wide: true },
     // variante (por cor×tamanho): tamanho (dropdown da grade, corrige match errado) e preço
     { rotulo: "Tamanho", escopo: "variante", tipo: "tamanho", campoId: "tamanho", lookupId: "tamanhos", narrow: true },
-    { rotulo: "Preço", escopo: "variante", tipo: "num", campoId: "preco" },
+    { rotulo: "Preço", escopo: "variante", tipo: "num", campoId: "preco", moeda: true },
   ],
 
   chaveNatural: (row) => normalizeCat(row.nome),

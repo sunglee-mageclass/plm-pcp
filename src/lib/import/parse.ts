@@ -84,3 +84,29 @@ export function parseAba(
 export function lerWorkbook(buf: ArrayBuffer): XLSX.WorkBook {
   return XLSX.read(buf, { type: "array" });
 }
+
+/**
+ * Converte um valor de célula em número, aceitando OS DOIS formatos que aparecem na prática:
+ *  • texto BR digitado pelo usuário: "1.234,56" (ponto = milhar, vírgula = decimal) → 1234.56
+ *  • número já formatado pelo SheetJS (raw:false): "2.34" / "0.25" (PONTO = decimal) → 2.34
+ *
+ * A distinção é pela VÍRGULA: se há vírgula, ela é o separador decimal e os pontos são milhar
+ * (padrão BR); se NÃO há vírgula, o ponto é o separador decimal (padrão JS/SheetJS). Isso corrige
+ * o bug em que "2,34"/"2.34" viravam 234 (o parser antigo removia TODOS os pontos cegamente).
+ * Retorna null p/ vazio ou não-numérico.
+ */
+export function parseNumeroBR(s: string | number | undefined | null): number | null {
+  if (typeof s === "number") return Number.isFinite(s) ? s : null;
+  const v = (s ?? "").toString().trim();
+  if (!v) return null;
+  let norm: string;
+  if (v.includes(",")) {
+    // BR: vírgula decimal, pontos = milhar → remove pontos, vírgula vira ponto.
+    norm = v.replace(/\./g, "").replace(",", ".");
+  } else {
+    // sem vírgula → o ponto (se houver) já é o separador decimal (SheetJS/JS). Não mexer.
+    norm = v;
+  }
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : null;
+}

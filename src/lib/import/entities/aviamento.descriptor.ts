@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
+import { parseNumeroBR } from "../parse";
 import type {
   AcaoImport,
   EntidadeAgregada,
@@ -19,13 +20,8 @@ import type {
   ResolvedRow,
 } from "../types";
 
-/** parse de número tolerante a vírgula/milhar PT-BR ("1.234,50" → 1234.5). */
-function parseNum(s: string | undefined): number | null {
-  const v = (s ?? "").trim();
-  if (!v) return null;
-  const n = Number(v.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
+/** parse de número tolerante a vírgula/milhar PT-BR e a ponto-decimal do SheetJS. */
+const parseNum = parseNumeroBR;
 function look(maps: LookupMaps, id: string, nome: string | undefined): string | null {
   const key = normalizeCat(nome);
   if (!key) return null;
@@ -90,14 +86,14 @@ export const aviamentoDescriptor: EntityImportDescriptor = {
     { rotulo: "Fornecedor", escopo: "cabecalho", tipo: "lookup", campoId: "empresa_id", digitadoKey: "fornecedor", lookupId: "fornecedores", cadastroTipo: "fornecedor" },
     { rotulo: "Representante", escopo: "cabecalho", tipo: "lookup", campoId: "representante_id", digitadoKey: "representante", lookupId: "representantes" },
     { rotulo: "Composição", escopo: "cabecalho", tipo: "texto", campoId: "composicao", wide: true },
-    { rotulo: "Preço", escopo: "cabecalho", tipo: "num", campoId: "preco" },
+    { rotulo: "Preço", escopo: "cabecalho", tipo: "num", campoId: "preco", moeda: true },
     { rotulo: "NCM", escopo: "cabecalho", tipo: "texto", campoId: "ncm", narrow: true },
     { rotulo: "Intervalo largura", escopo: "cabecalho", tipo: "lookup", campoId: "intervalo_largura_id", digitadoKey: "intervalo_largura", lookupId: "intervalos" },
     { rotulo: "Largura exata", escopo: "cabecalho", tipo: "num", campoId: "largura_exata" },
     { rotulo: "Observações", escopo: "cabecalho", tipo: "texto", campoId: "observacoes", wide: true },
     { rotulo: "Nome variante", escopo: "variante", tipo: "texto", campoId: "nome_variante" },
     { rotulo: "Cód. var.", escopo: "variante", tipo: "texto", campoId: "codigo_variante", narrow: true },
-    { rotulo: "Preço var.", escopo: "variante", tipo: "num", campoId: "preco" },
+    { rotulo: "Preço var.", escopo: "variante", tipo: "num", campoId: "preco", moeda: true },
   ],
 
   chaveNatural: (row) => normalizeCat(row.nome),
