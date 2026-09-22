@@ -724,7 +724,13 @@ function PlanejamentoPage() {
         }}
         pecasEst={numOr0((gradeByModelo as any)[m.id]) || null}
         pecasReal={numOr0((pecasRealByModelo as any)[m.id]) || null}
-        onOpen={() => setOpenId(m.id)}
+        // Com seleção ATIVA (≥1 card marcado), clicar no card/foto ALTERNA a seleção em vez de
+        // abrir o sheet — facilita marcar vários em sequência (abrir = botão "↗"). Sem seleção,
+        // abre o sheet como antes. `selectionActive` desliga o zoom da foto no modo seleção.
+        selectionActive={selected.size > 0}
+        selecionado={selected.has(m.id)}
+        onOpen={() => (selected.size > 0 ? toggleSel(m.id) : setOpenId(m.id))}
+        onAbrir={() => setOpenId(m.id)}
         onExcluir={() => { setSelected(new Set([m.id])); setConfirmBulkDel(true); }}
         compact={compact}
       />
@@ -1232,8 +1238,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onExcluir, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onExcluir: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1282,7 +1288,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
   return (
     <>
     <Card
-      className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border}`}
+      className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border} ${selecionado ? "ring-2 ring-primary ring-offset-1" : ""}`}
       onClick={onOpen}
       {...handlers}
     >
@@ -1297,6 +1303,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
         ) : coverIsPdf ? (
           <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="w-full h-full pointer-events-none" />
+        ) : selectionActive ? (
+          // Modo seleção ativo: a foto NÃO dá zoom — o clique borbulha p/ o <Card onClick> e alterna
+          // a seleção (facilita marcar vários). Sem seleção, volta ao zoom (ImagePreview abaixo).
+          <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
         ) : (
           // Zoom ao clicar (padrão do sistema). O ImagePreview faz stopPropagation → NÃO dispara o
           // onClick do <Card> (abrir o Sheet); mesmo padrão do CardCover do Desenvolvimento.
@@ -1317,7 +1327,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
             )}
             <button type="button" title="Abrir card" aria-label="Abrir card"
               className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onOpen(); }}>
+              onClick={(e) => { e.stopPropagation(); onAbrir(); }}>
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
             <Popover>
@@ -1363,7 +1373,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
             <VersaoBadge versao={modelo.versao} />
             <button type="button" title="Abrir card" aria-label="Abrir card"
               className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onOpen(); }}>
+              onClick={(e) => { e.stopPropagation(); onAbrir(); }}>
               <ExternalLink className="h-4 w-4" />
             </button>
             <Popover>

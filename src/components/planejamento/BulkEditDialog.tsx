@@ -41,6 +41,7 @@ export function BulkEditDialog({
   const [mes, setMes] = useState(NONE);
   const [ano, setAno] = useState(NONE);
   const [status, setStatus] = useState(NONE);
+  const [versao, setVersao] = useState(NONE);
 
   const catOpts = grupo === NONE ? categorias : categorias.filter((c) => c.grupo_id === grupo);
   const s1Opts = categoria === NONE ? [] : sub1.filter((s) => s.categoria_id === categoria);
@@ -100,6 +101,9 @@ export function BulkEditDialog({
       if (mes !== NONE) patch.mes_id = mes;
       if (ano !== NONE) patch.ano_id = ano;
       if (status !== NONE) patch.status_planejamento = status;
+      // versao é numérica (os demais campos são uuid/text) → Number(). 2+ = repetição (o sistema
+      // deriva "repetição" de versao>1). O `field` grava a string; convertemos aqui.
+      if (versao !== NONE) patch.versao = Number(versao);
       if (Object.keys(patch).length === 0) throw new Error("Nada para alterar. Preencha ao menos um campo.");
       const { error } = await supabase.from("modelos").update(patch as any).in("id", ids);
       if (error) throw error;
@@ -137,6 +141,7 @@ export function BulkEditDialog({
     categoria !== NONE ? "Categoria" : "", s1 !== NONE ? "Subcategoria 1" : "", s2 !== NONE ? "Subcategoria 2" : "",
     estilista !== NONE ? "Estilista" : "", linha !== NONE ? "Linha" : "", origem !== NONE ? "Origem" : "",
     semana !== NONE ? "Lançamento" : "", mes !== NONE ? "Mês" : "", ano !== NONE ? "Ano" : "", status !== NONE ? "Status" : "",
+    versao !== NONE ? "Versão" : "",
   ].filter(Boolean);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -181,6 +186,7 @@ export function BulkEditDialog({
             {field("Mês", mes, setMes, meses)}
             {field("Ano", ano, setAno, anos)}
             {field("Status", status, setStatus, statusOpts)}
+            {field("Versão", versao, setVersao, ["1","2","3","4","5","6"].map((s) => ({ id: s, nome: s })))}
           </div>
         </DialogBody>
         <DialogFooter className="border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3">
