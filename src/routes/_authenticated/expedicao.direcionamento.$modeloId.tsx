@@ -20,6 +20,8 @@ import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import { OrcamentoTag } from "@/components/otb/orcamento";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -97,6 +99,28 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   useEffect(() => {
     if (cad) setStatus((cad as any).direcionamento_status ?? "pendente");
   }, [cad]);
+
+  // Resumo "direcionados / planejado" da subcoleção (tira no topo). direcionados = modelos separados
+  // da subcoleção; planejado = Σ TOTAL das tabelas de Distribuição da subcoleção (unidade = modelos).
+  // A RPC deriva coleção/subcoleção do próprio modelo. Só busca quando o modelo tem subcoleção.
+  const { isModuleEnabled } = useTenantModules();
+  const distribOn = isModuleEnabled("distribuicao");
+  const subcolecao = (modelo as any)?.subcolecao as string | undefined;
+  const { data: resumoSub } = useQuery({
+    queryKey: ["dir-resumo-subcol", modeloId],
+    enabled: !!modelo && !!subcolecao?.trim(),
+    queryFn: async () => {
+      const { data, error } = await (supabase.rpc as any)("direcionamento_resumo_subcolecao", { _modelo_id: modeloId });
+      if (error) throw error;
+      return data as {
+        direcionados: number; planejado: number; subcolecao: string | null;
+        tamanhos: string[];
+        lojas: { nome: string; grade: Record<string, number>; total: number }[];
+      };
+    },
+  });
+  // Mostra "X/Y" só com Distribuição ligada E havendo plano (tabela); senão, só o realizado.
+  const mostrarTotal = distribOn && (resumoSub?.planejado ?? 0) > 0;
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos", tenantId],
@@ -465,6 +489,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       await qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await qc.invalidateQueries({ queryKey: ["dir-resumo-subcol", modeloId] });
       await refetch();
       setHydrated(false);
     },
@@ -497,6 +522,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      await qc.invalidateQueries({ queryKey: ["dir-resumo-subcol", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
@@ -624,6 +650,70 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           {confirmado ? "Separado" : "Pendente"}
         </StatusBadge>
       </header>
+
+      {/* Resumo da subcoleção: quantos modelos já foram direcionados + COMO foi planejado (loja ×
+          tamanho, da tela Distribuição). Com Distribuição ligada e plano → "X/Y" + mini-tabela;
+          senão, só o realizado. Só aparece se há subcoleção. */}
+      {resumoSub && subcolecao?.trim() && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm">
+              <span className="text-muted-foreground">Subcoleção </span>
+              <span className="font-medium">{subcolecao}</span>
+            </div>
+            {mostrarTotal ? (
+              <div className="flex items-center gap-2 text-sm">
+                {/* OrcamentoTag: fica vermelho se direcionados > planejado (passou do plano). */}
+                <OrcamentoTag realizado={resumoSub.direcionados} total={resumoSub.planejado} className="text-sm font-semibold" />
+                <span className="text-muted-foreground">modelos direcionados</span>
+              </div>
+            ) : (
+              <div className="text-sm">
+                <span className="font-semibold tabular-nums">{resumoSub.direcionados}</span>
+                <span className="text-muted-foreground"> modelo(s) direcionado(s)</span>
+              </div>
+            )}
+          </div>
+
+          {mostrarTotal && (
+            <>
+              {/* barra de progresso direcionados/planejado */}
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.min(100, Math.round((resumoSub.direcionados / resumoSub.planejado) * 100))}%` }} />
+              </div>
+              {/* mini-tabela do planejado (loja × tamanho), replicando a Distribuição da subcoleção */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs tabular-nums border-collapse">
+                  <thead>
+                    <tr className="text-muted-foreground [&>th]:px-2 [&>th]:py-1 [&>th]:font-medium">
+                      <th className="text-left">Planejado por loja</th>
+                      {resumoSub.tamanhos.map((t) => <th key={t} className="text-center">{t.split("|")[0]}</th>)}
+                      <th className="text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumoSub.lojas.map((l) => (
+                      <tr key={l.nome} className="border-t [&>td]:px-2 [&>td]:py-1">
+                        <td className="text-left font-medium">{l.nome}</td>
+                        {resumoSub.tamanhos.map((t) => <td key={t} className="text-center text-muted-foreground">{l.grade?.[t] ?? "—"}</td>)}
+                        <td className="text-right font-semibold">{l.total}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 [&>td]:px-2 [&>td]:py-1 font-semibold">
+                      <td className="text-left">Total</td>
+                      {resumoSub.tamanhos.map((t) => (
+                        <td key={t} className="text-center">{resumoSub.lojas.reduce((s, l) => s + (l.grade?.[t] ?? 0), 0)}</td>
+                      ))}
+                      <td className="text-right">{resumoSub.planejado}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
       {!cad?.id && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
