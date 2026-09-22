@@ -14,7 +14,7 @@ orquestrador (sessão principal) consulta ESTE arquivo ao receber uma tarefa.
   `statusline-setup` (e os de plugins tipo `claude-security:*`). Ao querer um papel do
   roster → general-purpose + conteúdo da ficha + modelo por política.
   **Exceção**: fichas no nível PAI do workspace (`PLM + Criação/.claude/agents/` —
-  hoje `code-reviewer`, `bug-hunter` e `mobile-ui-auditor`) SÃO invocáveis por `subagent_type` quando a
+  hoje `code-reviewer`, `bug-hunter`, `mobile-ui-auditor` e `guardiao-unificacao`) SÃO invocáveis por `subagent_type` quando a
   sessão roda na pasta pai (raiz do workspace), que é o caso normal.
 - **Modelos por papel** (política do dono): sessão = Opus (coordenação) · planejar =
   **Fable** · executar = **Sonnet** · revisar rotina = **Opus** · revisar/planejar
@@ -109,6 +109,14 @@ Aprovado → segue como FEATURE (do Plano em diante).
 | Aplicação | `release-shipper`/`devops-specialist` (`psql -f`; destrutiva em `BEGIN…COMMIT` idempotente; diff `pg_get_functiondef`; teste txn revertido) | Sonnet/Opus |
 | Revisão | `security-auditor` + `code-reviewer` | **Fable** |
 O orquestrador AVISA o dono antes ("essa é sensível") — política de modelos.
+
+### 🛡️ CAMPANHA SENSÍVEL COM GUARDIÃO (set/2026 — pedido do dono)
+Campanha "Planejamento unificado + Kanban automático": o `guardiao-unificacao` (ficha no nível PAI,
+report-only, diário append-only em `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md`)
+roda AUTOMATICAMENTE em todo portão — G-mockup, G-migration (Fable, não-retorno), G-commit, G-chave
+(antes de ligar o kanban automático numa loja, Fable) e G-fase. Veredito BLOQUEIA para o fluxo e vai
+ao dono. Não substitui o `code-reviewer`; soma o olhar de campanha (decisões travadas, save point,
+"Sheet do Dev intocado", deriva de escopo).
 
 ### 🚀 ENTREGA / RELEASE
 `release-shipper` (ponta a ponta) + gate `qa-engineer` + `devops-specialist` para
