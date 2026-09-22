@@ -605,6 +605,8 @@ function PlanejamentoPage() {
     categoria: (m: Modelo) => (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null),
     linha: (m: Modelo) => (m.linha_id ? linhaMap[m.linha_id] : null),
     status: (m: Modelo) => statusMeta(m.status_planejamento).label,
+    // versão do modelo (2+ = repetição); default 1. useSort compara numericamente.
+    versao: (m: Modelo) => m.versao ?? 1,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [estilistas, categorias, linhas]);
   // `opts` precisa ser estável (referência) — senão o useMemo interno do useSort,
@@ -640,6 +642,7 @@ function PlanejamentoPage() {
     { key: "linha", label: "Linha" },
     { key: "semana", label: "Lançamento" },
     { key: "status", label: "Status" },
+    { key: "versao", label: "Versão" },
   ];
 
   const renderCard = (m: Modelo) => (
