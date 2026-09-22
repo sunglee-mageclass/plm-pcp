@@ -4,6 +4,8 @@ import { parseNomeFoto, casarFotos, alvosDeFoto } from "@/lib/import/foto-match"
 import { levenshtein, similaridade, sugestoes, melhorSugestao } from "@/lib/import/fuzzy";
 import { agregar, resumoProblemas, gravaveis, temErroBloqueante } from "@/lib/import/aggregate";
 import { tecidoDescriptor } from "@/lib/import/entities/tecido.descriptor";
+import { produtoDescriptor } from "@/lib/import/entities/produto.descriptor";
+import { headerComOpcoes } from "@/lib/import/parse";
 import { importar } from "@/lib/import/engine";
 import type { EntidadeAgregada } from "@/lib/import/types";
 import { parseAba, lerWorkbook } from "@/lib/import/parse";
@@ -167,6 +169,30 @@ describe("parse: round-trip template → parseAba", () => {
     expect(parsed.linhas[0].cor_base).toBe("Verde");
     expect(parsed.linhas[1].cor_base).toBe("Amarelo");
     // nenhum header do template ficou "desconhecido"
+    expect(parsed.headersDesconhecidos).toEqual([]);
+  });
+
+  // colunas com valores fixos: o template escreve "Tipo (Revenda | Importado)" no header p/
+  // auto-documentar; o parser TEM de casar esse header com a key `tipo` (senão viria undefined).
+  it("casa header com OPÇÕES anexadas ('Tipo (Revenda | Importado)') → key tipo", () => {
+    const tipoCol = produtoDescriptor.colunas.find((c) => c.key === "tipo")!;
+    // o header exibível carrega as opções
+    expect(headerComOpcoes(tipoCol)).toBe("Tipo (Revenda | Importado)");
+
+    const wb = gerarTemplateWorkbook([produtoDescriptor]);
+    const ws = wb.Sheets["Produto"];
+    // 1 linha real: tipo=Importado, nome=Bolsa, grupo, categoria (as 4 primeiras colunas)
+    const linha = produtoDescriptor.colunas.map((c) =>
+      c.key === "tipo" ? "Importado" : c.key === "nome" ? "Bolsa" : c.key === "grupo" ? "Roupas" : c.key === "categoria" ? "Camisa" : "",
+    );
+    XLSX.utils.sheet_add_aoa(ws, [linha], { origin: -1 });
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const parsed = parseAba(lerWorkbook(buf), "Produto", produtoDescriptor.colunas, "nome");
+
+    expect(parsed.linhas).toHaveLength(1);
+    expect(parsed.linhas[0].tipo).toBe("Importado"); // header com opções casou → valor lido
+    expect(parsed.linhas[0].nome).toBe("Bolsa");
+    // "Moeda compra (BRL | USD | RMB | PYG)" e "Peso (kg)" (parênteses legítimos) não confundem o parser
     expect(parsed.headersDesconhecidos).toEqual([]);
   });
 });

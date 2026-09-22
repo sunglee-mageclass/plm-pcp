@@ -65,7 +65,7 @@ export const tecidoDescriptor: EntityImportDescriptor = {
 
   colunas: [
     { key: "nome", header: "Nome", required: true, hint: "nome do tecido", exemplo: "Malha Fiore" },
-    { key: "unidade", header: "Unidade", hint: "metro ou kg (default metro)", exemplo: "metro" },
+    { key: "unidade", header: "Unidade", opcoes: ["metro", "kg"], hint: "default metro", exemplo: "metro" },
     { key: "ncm", header: "NCM", exemplo: "6006.32" },
     { key: "fornecedor", header: "Fornecedor", hint: "nome da empresa fornecedora", exemplo: "Tecidos Suzy" },
     { key: "representante", header: "Representante", hint: "nome do representante" },

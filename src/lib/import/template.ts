@@ -8,12 +8,15 @@
 // + uma aba "Instruções" com a legenda de cada coluna (obrigatório / valores aceitos).
 
 import * as XLSX from "xlsx";
+import { headerComOpcoes } from "./parse";
 import type { ColumnSpec, EntityImportDescriptor } from "./types";
 
 const N_LINHAS_VAZIAS = 50;
 
+// Header exibível: opções fixas anexadas ("Tipo (Revenda | Importado)") + "*" de obrigatório.
 function headerCell(c: ColumnSpec): string {
-  return c.required ? `${c.header} *` : c.header;
+  const h = headerComOpcoes(c);
+  return c.required ? `${h} *` : h;
 }
 
 /** Constrói a matriz (array de arrays) de uma aba: header + exemplos + linhas vazias. */
@@ -21,12 +24,16 @@ function matrizAba(desc: EntityImportDescriptor): string[][] {
   const headers = desc.colunas.map(headerCell);
   const rows: string[][] = [headers];
 
-  // 1 linha de exemplo (a 1ª coluna recebe o prefixo "(exemplo)").
+  // 1 linha de exemplo. O prefixo "(exemplo)" tem de cair na coluna do CAMPO-CHAVE que o parser
+  // usa p/ descartar exemplos (`nomeCampo`, default "nome") — NÃO na coluna 0 cega: no Produto a
+  // coluna 0 é `tipo`, então prefixar 0 deixava a linha de exemplo passar (parser olha `nome`).
+  const chaveExemplo = desc.nomeCampo ?? "nome";
+  const idxChave = Math.max(0, desc.colunas.findIndex((c) => c.key === chaveExemplo));
   const temExemplo = desc.colunas.some((c) => c.exemplo);
   if (temExemplo) {
     const ex = desc.colunas.map((c, i) => {
       const v = c.exemplo ?? "";
-      if (i === 0) return v ? `(exemplo) ${v}` : "(exemplo)";
+      if (i === idxChave) return v ? `(exemplo) ${v}` : "(exemplo)";
       return v;
     });
     rows.push(ex);
@@ -54,7 +61,7 @@ function matrizInstrucoes(descs: EntityImportDescriptor[]): string[][] {
     for (const c of d.colunas) {
       const flags = c.required ? "obrigatório" : "opcional";
       const hint = c.hint ? ` — ${c.hint}` : "";
-      rows.push([`   • ${c.header} (${flags})${hint}`]);
+      rows.push([`   • ${headerComOpcoes(c)} (${flags})${hint}`]);
     }
     if (d.temFoto) {
       const modo = d.fotoModo ?? "entidade";
@@ -75,7 +82,7 @@ export function gerarTemplateWorkbook(descs: EntityImportDescriptor[]): XLSX.Wor
   for (const d of descs) {
     const ws = XLSX.utils.aoa_to_sheet(matrizAba(d));
     // largura de coluna generosa p/ leitura
-    ws["!cols"] = d.colunas.map((c) => ({ wch: Math.max(14, c.header.length + 4) }));
+    ws["!cols"] = d.colunas.map((c) => ({ wch: Math.max(14, headerComOpcoes(c).length + 4) }));
     XLSX.utils.book_append_sheet(wb, ws, d.sheetName);
   }
   const wsInstr = XLSX.utils.aoa_to_sheet(matrizInstrucoes(descs));

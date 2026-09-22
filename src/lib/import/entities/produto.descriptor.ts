@@ -82,7 +82,7 @@ export const produtoDescriptor: EntityImportDescriptor = {
   fotoPrefix: "importacao",
 
   colunas: [
-    { key: "tipo", header: "Tipo", required: true, hint: "revenda ou importado", exemplo: "revenda" },
+    { key: "tipo", header: "Tipo", required: true, opcoes: ["Revenda", "Importado"], hint: "revenda ou importado", exemplo: "revenda" },
     { key: "nome", header: "Nome", required: true, exemplo: "Camisa Social" },
     { key: "grupo", header: "Grupo", required: true, hint: "grupo do produto (deve existir)", exemplo: "Roupas" },
     { key: "categoria", header: "Categoria", required: true, hint: "categoria do produto (deve existir)", exemplo: "Camisa" },
@@ -106,7 +106,7 @@ export const produtoDescriptor: EntityImportDescriptor = {
     { key: "markup_atacado", header: "Markup atacado" },
     { key: "markup_varejo", header: "Markup varejo" },
     // IMPORTADO (câmbio)
-    { key: "moeda_compra", header: "Moeda compra", hint: "IMPORTADO: BRL/USD/RMB/PYG", exemplo: "USD" },
+    { key: "moeda_compra", header: "Moeda compra", opcoes: ["BRL", "USD", "RMB", "PYG"], hint: "IMPORTADO: moeda de compra", exemplo: "USD" },
     { key: "moeda_intermediaria", header: "Moeda intermediária", hint: "opcional (cadeia M1→M2)" },
     { key: "valor_unitario_m1", header: "Valor unit. (moeda)", hint: "custo unitário na moeda de compra" },
     { key: "cotacao_ref", header: "Cotação ref." },

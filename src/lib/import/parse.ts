@@ -9,6 +9,13 @@ import type { ColumnSpec, RawRow } from "./types";
 
 const EXEMPLO_RE = /^\s*\(exemplo\)/i;
 
+/** Header EXIBÍVEL no template: anexa as opções quando a coluna tem valores fixos, p/
+ *  auto-documentar ("Tipo" → "Tipo (Revenda | Importado)"). SSOT usado pelo template (escreve)
+ *  e pelo parser (aceita as duas formas do header). NÃO inclui o "*" de obrigatório. */
+export function headerComOpcoes(c: ColumnSpec): string {
+  return c.opcoes && c.opcoes.length ? `${c.header} (${c.opcoes.join(" | ")})` : c.header;
+}
+
 /** Normaliza um header do XLSX p/ casar com ColumnSpec.header. Tira o "*" de obrigatório
  *  (o template escreve "Nome *" mas o ColumnSpec.header é "Nome"), colapsa espaços, lower. */
 function normHeader(s: string): string {
@@ -47,9 +54,13 @@ export function parseAba(
   }
 
   const headerRow = matriz[0].map((h) => normHeader(h));
-  // header normalizado → key da coluna
+  // header normalizado → key da coluna. Registra as DUAS formas (limpa e com opções) p/ casar
+  // tanto "Tipo" quanto "Tipo (Revenda | Importado)" que o template escreve.
   const headerToKey = new Map<string, string>();
-  for (const c of colunas) headerToKey.set(normHeader(c.header), c.key);
+  for (const c of colunas) {
+    headerToKey.set(normHeader(c.header), c.key);
+    headerToKey.set(normHeader(headerComOpcoes(c)), c.key);
+  }
 
   const headersDesconhecidos: string[] = [];
   // índice da coluna → key (ou null se desconhecida)

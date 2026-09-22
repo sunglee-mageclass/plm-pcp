@@ -59,12 +59,12 @@ export const insumoDescriptor: EntityImportDescriptor = {
 
   colunas: [
     { key: "nome", header: "Nome", required: true, hint: "nome do insumo", exemplo: "Etiqueta bordada" },
-    { key: "unidade", header: "Unidade", hint: "unidade | metro | rolo | milheiro", exemplo: "unidade" },
+    { key: "unidade", header: "Unidade", opcoes: ["unidade", "metro", "rolo", "milheiro"], exemplo: "unidade" },
     { key: "tipo_insumo", header: "Tipo de insumo", hint: "tipo cadastrado (Etiqueta, Cartão…)", exemplo: "Etiqueta" },
     { key: "fornecedor", header: "Fornecedor", hint: "nome da empresa fornecedora" },
     { key: "representante", header: "Representante", hint: "nome do representante" },
     { key: "observacoes", header: "Observações", hint: "opcional" },
-    { key: "formato_tamanho", header: "Formato do tamanho", hint: "ambos | numero | letra | nenhum", exemplo: "ambos" },
+    { key: "formato_tamanho", header: "Formato do tamanho", opcoes: ["ambos", "numero", "letra", "nenhum"], exemplo: "ambos" },
     // variante: 1 linha por COR + lista de tamanhos (explode em cor × tamanho)
     { key: "cor_base", header: "Cor", hint: "cor (opcional — insumo pode não ter cor)", exemplo: "Branco" },
     { key: "tamanhos", header: "Tamanhos", hint: "lista separada por vírgula (ex.: 34,36,38 ou P,M,G) — vazio p/ sem tamanho", exemplo: "34,36,38,40,42,44" },

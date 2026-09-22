@@ -18,6 +18,9 @@ export type ColumnSpec = {
   required?: boolean;
   hint?: string; // valores aceitos / observação, mostrado na legenda
   exemplo?: string; // valor de exemplo nas linhas `(exemplo)`
+  // valores fixos aceitos (ex.: ["Revenda","Importado"]). O template escreve no header
+  // "Header (Op1 | Op2)" p/ auto-documentar; o parser TOLERA o sufixo "(...)" ao casar.
+  opcoes?: string[];
 };
 
 // ---------------------------------------------------------------------------
