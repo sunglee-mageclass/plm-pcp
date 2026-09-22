@@ -5,9 +5,30 @@
 // — nunca viram cadastro por engano (decisão do dono).
 
 import * as XLSX from "xlsx";
-import type { ColumnSpec, RawRow } from "./types";
+import { normalizeCat } from "@/lib/fornecedor-categoria";
+import type { ColumnSpec, Problema, RawRow } from "./types";
 
 const EXEMPLO_RE = /^\s*\(exemplo\)/i;
+
+/** "P:1, M:2, 40:1" → {"38|P":1,"40|M":2,…} casando tamanhos TOLERANTE contra a grade da loja
+ *  (número OU letra → chave "34|PPP"). Tamanho fora da grade vira aviso e é ignorado. Genérico:
+ *  usado por Produto (grade_proporcao) e Modelo (grade do BOM). */
+export function parseGrade(
+  txt: string | undefined,
+  gradeMap: Map<string, string> | undefined,
+  problemas: Problema[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const t = (txt ?? "").trim();
+  if (!t) return out;
+  for (const par of t.split(/[,;]/).map((s) => s.trim()).filter(Boolean)) {
+    const [tamRaw, pesoRaw] = par.split(":").map((s) => s.trim());
+    const chave = gradeMap?.get(normalizeCat(tamRaw));
+    if (!chave) { problemas.push({ nivel: "aviso", campo: "grade", mensagem: `Tamanho "${tamRaw}" não existe na grade — ignorado.` }); continue; }
+    out[chave] = parseNumeroBR(pesoRaw) ?? 1;
+  }
+  return out;
+}
 
 /** Header EXIBÍVEL no template: anexa as opções quando a coluna tem valores fixos, p/
  *  auto-documentar ("Tipo" → "Tipo (Revenda | Importado)"). SSOT usado pelo template (escreve)

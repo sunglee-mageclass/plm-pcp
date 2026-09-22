@@ -16,7 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCat } from "@/lib/fornecedor-categoria";
 import { MOEDAS } from "@/lib/moeda";
-import { parseNumeroBR } from "../parse";
+import { parseNumeroBR, parseGrade } from "../parse";
 import type {
   AcaoImport,
   EntidadeAgregada,
@@ -53,21 +53,6 @@ function resolverMoeda(txt: string | undefined): string | null {
   if (CODES_MOEDA.has(up.toLowerCase())) return up;
   const porNome = MOEDAS.find((m) => normalizeCat(m.nome) === normalizeCat(t));
   return porNome ? porNome.code : up; // code livre permitido (o banco aceita texto)
-}
-
-/** "P:1, M:2, 40:1" → {"38|P":1,"40|M":2,...} casando tamanhos TOLERANTE contra a grade da loja. */
-function parseGrade(txt: string | undefined, gradeMap: Map<string, string> | undefined, problemas: Problema[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  const t = (txt ?? "").trim();
-  if (!t) return out;
-  for (const par of t.split(/[,;]/).map((s) => s.trim()).filter(Boolean)) {
-    const [tamRaw, pesoRaw] = par.split(":").map((s) => s.trim());
-    const chave = gradeMap?.get(normalizeCat(tamRaw));
-    if (!chave) { problemas.push({ nivel: "aviso", campo: "grade", mensagem: `Tamanho "${tamRaw}" não existe na grade — ignorado.` }); continue; }
-    const peso = parseNum(pesoRaw) ?? 1;
-    out[chave] = peso;
-  }
-  return out;
 }
 
 export const produtoDescriptor: EntityImportDescriptor = {
