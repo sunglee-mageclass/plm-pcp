@@ -33,6 +33,10 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG_TXN = process.env.KANBAN_AUTO_MIG_TXN === "1";
 /** Banco em uso é a CÓPIA LOCAL (Docker 127.0.0.1:54422)? DDL só nela (decisão 17 do dono, 23/set). */
 const LOCAL = ehBancoLocal();
+// Fix round 1 (achado 3, incidente 23/set): com KANBAN_AUTO_MIG_TXN=1 e banco configurado, o arquivo
+// recusa JÁ NA COLETA (module load) se o banco não é a cópia local — antes de QUALQUER describe/it
+// abrir conexão. `exigeBancoLocal` é `function` (hoisted), pode ser chamada aqui mesmo definida abaixo.
+if (MIG_TXN && hasDb) exigeBancoLocal();
 /** SSL dos `Client` abertos fora do `withTx`: a cópia local não tem SSL; o pooler de produção exige. */
 const SSL = LOCAL ? false : { rejectUnauthorized: false };
 const MIGRACOES = [
@@ -54,10 +58,25 @@ const RE_COMMIT = /^[ \t]*COMMIT[ \t]*;[ \t]*$/im;
 const RE_NOTIFY = /^[ \t]*select[ \t]+pg_notify\('pgrst',[ \t]*'reload schema'\)[ \t]*;[ \t]*$/im;
 const todas = (re: RegExp) => new RegExp(re.source, "gim");
 
+/** Fix round 1 (achado 1, incidente 23/set): a checagem de "controle de transação solto" precisa
+ *  pegar `;`-separado na MESMA linha (`SELECT 2; COMMIT;`) e depois de comentário (`/* x *\/ COMMIT;`),
+ *  não só início de linha. Âncora `(^|;)` em vez de `^` + comentários `--`/`/* *\/` apagados ANTES da
+ *  checagem (depois do dollar-strip, que já cobre `BEGIN`/`END;`/`END IF`/`END LOOP` legítimos de
+ *  plpgsql). `END` ganha lookahead negativo p/ NÃO capturar `END IF`/`END LOOP`/`END CASE`/`END WHILE`
+ *  (terminador de bloco, não controle de transação) — defesa em profundidade: no SQL real do plano
+ *  esses `END …` sempre vivem DENTRO de corpo `$…$` (já removido), mas a regex não deve depender só
+ *  disso. Matriz provada em `semTransacao` (testes desta task) + manualmente contra o estilo real das
+ *  migrations (`supabase/migrations/*.sql`, nenhum `END`/`BEGIN`/`COMMIT` sobra fora de corpo `$…$`). */
+const RE_COMENTARIO_LINHA = /--[^\n]*/g;
+const RE_COMENTARIO_BLOCO = /\/\*[\s\S]*?\*\//g;
+const RE_TXN_CTRL_SOLTA =
+  /(^|;)[ \t]*(BEGIN|COMMIT|ROLLBACK|ABORT|START[ \t]+TRANSACTION|SAVEPOINT|RELEASE|END(?!\s*(IF|LOOP|CASE|WHILE)\b))\b[^\n]*;/im;
+
 /** Conteúdo de um arquivo de migration/inverso SEM o controle de transação, p/ rodar dentro do withTx.
  *  Exige exatamente 1 `BEGIN;` e 1 `COMMIT;` em linha própria e recusa qualquer outro controle de
  *  transação fora de corpo `$…$` (a checagem roda depois de apagar os corpos dollar-quoted, onde
- *  `BEGIN`/`END;` do plpgsql são legítimos). */
+ *  `BEGIN`/`END;` do plpgsql são legítimos, E depois de apagar comentários `--`/`/* *\/`, pra não deixar
+ *  `SELECT 2; COMMIT;`/`/* x *\/ COMMIT;` passarem). */
 function semTransacao(sql: string, nome: string): string {
   const nb = (sql.match(todas(RE_BEGIN)) ?? []).length;
   const nc = (sql.match(todas(RE_COMMIT)) ?? []).length;
@@ -68,8 +87,11 @@ function semTransacao(sql: string, nome: string): string {
     .replace(todas(RE_BEGIN), "-- [harness] BEGIN removido")
     .replace(todas(RE_COMMIT), "-- [harness] COMMIT removido")
     .replace(todas(RE_NOTIFY), "-- [harness] notify removido");
-  const foraDeCorpos = out.replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, "");
-  if (/^[ \t]*(BEGIN|COMMIT|ROLLBACK|END|ABORT|START[ \t]+TRANSACTION|SAVEPOINT|RELEASE)\b[^\n]*;/im.test(foraDeCorpos)) {
+  const foraDeCorpos = out
+    .replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, "")
+    .replace(RE_COMENTARIO_BLOCO, "")
+    .replace(RE_COMENTARIO_LINHA, "");
+  if (RE_TXN_CTRL_SOLTA.test(foraDeCorpos)) {
     throw new Error(`${nome}: controle de transação fora de corpo de função — recusado`);
   }
   if (/^[ \t]*\\/m.test(foraDeCorpos)) throw new Error(`${nome}: meta-comando psql (\\i, \\set…) — recusado`);
@@ -77,8 +99,12 @@ function semTransacao(sql: string, nome: string): string {
 }
 
 /** Roda o SQL dentro da txn aberta. O SAVEPOINT prova que a txn continua aberta no fim
- *  (se algo tivesse comitado, o RELEASE falharia alto). */
+ *  (se algo tivesse comitado, o RELEASE falharia alto).
+ *  Fix round 1 (achado 2, incidente 23/set): a trava vira ESTRUTURAL — `exigeBancoLocal()` é a
+ *  PRIMEIRA linha da função (não só chamada em `prepara`), então `aplicarArquivo`/qualquer chamador
+ *  futuro herda a trava por construção, mesmo que esqueça de checar antes de chamar. */
 async function aplicarSql(c: Client, sql: string, nome: string): Promise<void> {
+  exigeBancoLocal();
   await c.query("SAVEPOINT kanban_auto_prepara");
   await c.query(semTransacao(sql, nome));
   await c.query("RELEASE SAVEPOINT kanban_auto_prepara");
@@ -154,9 +180,60 @@ describe("kanban-auto — harness: semTransacao (Task 4)", () => {
     expect(() => semTransacao("BEGIN;\n\\i outro.sql\nCOMMIT;", "d")).toThrow(/meta-comando/);
   });
 
+  it("fix round 1 (achado 1): recusa controle de transação solto na MESMA linha ou após comentário, sem falso positivo no estilo real das migrations", () => {
+    // Recusa — antes só pegava início de linha; achado: `;`-separado e comentário passavam batido.
+    // O único `BEGIN;`/`COMMIT;` "próprios" (que satisfazem a contagem 1/1) ficam nas bordas; o
+    // controle de transação SOLTO (`SELECT 2; COMMIT;` / `/* x */ COMMIT;`) vem no MEIO do corpo.
+    expect(() => semTransacao("BEGIN;\nSELECT 2; ROLLBACK;\nSELECT 1;\nCOMMIT;", "e")).toThrow(
+      /controle de transação/,
+    );
+    expect(() => semTransacao("BEGIN;\n/* x */ ROLLBACK;\nSELECT 1;\nCOMMIT;", "f")).toThrow(
+      /controle de transação/,
+    );
+    // Sem falso positivo — terminador de bloco plpgsql (`END IF`/`END LOOP`/`END CASE`/`END WHILE`)
+    // não é controle de transação, mesmo fora de corpo `$…$` (defesa em profundidade: no SQL real do
+    // plano eles sempre vivem dentro de corpo dollar-quoted, já removido antes desta checagem).
+    const semControleSolto = [
+      "BEGIN;",
+      "CREATE OR REPLACE FUNCTION public._probe_matriz() RETURNS int LANGUAGE plpgsql AS $function$",
+      "BEGIN",
+      "  IF true THEN",
+      "    RETURN 1;",
+      "  END IF;",
+      "  RETURN 0;",
+      "END;",
+      "$function$;",
+      "COMMIT;",
+    ].join("\n");
+    expect(() => semTransacao(semControleSolto, "g")).not.toThrow();
+  });
+
   it("exigeBancoLocal: recusa, com erro claro, DDL/migration fora da cópia local (decisão 17)", () => {
     expect(() => exigeBancoLocal(false)).toThrow(/só na cópia local — ver banco-local/);
     expect(() => exigeBancoLocal(true)).not.toThrow();
+  });
+
+  it("fix round 1 (achado 2): aplicarSql chama exigeBancoLocal() estruturalmente (1ª linha, ANTES de qualquer .query) — prova por chamador fake que nunca deveria ser tocado quando não-local", async () => {
+    // `aplicarSql` não recebe `local` por parâmetro (chama `exigeBancoLocal()` sem args, que lê o
+    // `LOCAL` do módulo) — não dá pra "forçar" não-local nesta suíte sem mockar módulo. A prova
+    // estrutural: um `Client` fake cujo `.query` lança se for chamado; ele SÓ deve ser invocado
+    // quando `LOCAL` é true (o guard já passou) — nunca antes do guard, em NENHUM dos dois casos.
+    const chamadas: string[] = [];
+    const clienteFake = {
+      query: async (sql: string) => {
+        chamadas.push(sql);
+        return { rows: [] };
+      },
+    } as unknown as Client;
+    if (LOCAL) {
+      await aplicarSql(clienteFake, "BEGIN;\nSELECT 1;\nCOMMIT;", "h");
+      expect(chamadas).toContain("SAVEPOINT kanban_auto_prepara"); // passou do guard, chegou a .query
+    } else {
+      await expect(aplicarSql(clienteFake, "BEGIN;\nSELECT 1;\nCOMMIT;", "h")).rejects.toThrow(
+        /só na cópia local — ver banco-local/,
+      );
+      expect(chamadas).toEqual([]); // guard barrou ANTES do 1º .query — nada tocou o banco
+    }
   });
 
   it.skipIf(!hasDb || !LOCAL)("aplicarSql roda DENTRO da txn — depois do ROLLBACK nada existe no banco", async () => {

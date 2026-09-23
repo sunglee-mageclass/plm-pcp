@@ -10,6 +10,7 @@
 // dedicado (branch do Supabase) e apontar DATABASE_URL pra ele.
 import { Client } from "pg";
 import { readFileSync, existsSync } from "node:fs";
+import { parse as parseConnectionString } from "pg-connection-string";
 
 export const TENANT_TESTE = "37889b78-fffb-404b-8c75-18b7e50a1d9b"; // "Loja Teste"
 export const USER_TESTE = "f1378ea4-5f6a-47ed-8ac4-95accd03326e"; // usuário da Loja Teste
@@ -27,16 +28,25 @@ export function dbUrl(): string | null {
 export const hasDb = !!dbUrl();
 
 /**
- * true quando o banco em uso é a CÓPIA LOCAL (Docker em localhost/127.0.0.1 — ver
+ * true quando o banco em uso é a CÓPIA LOCAL (Docker em localhost:54422/127.0.0.1:54422 — ver
  * `PLM + Criação/banco-local/`). Testes que aplicam DDL/migration SÓ podem rodar nela:
  * DDL em transação contra produção trava o app de todas as lojas mesmo com ROLLBACK
  * (incidente 23/set/2026 — AccessExclusive em tenant_config).
+ *
+ * Fix round 1 (achado 4, incidente 23/set): decide via `pg-connection-string` (o MESMO parser que
+ * o driver `pg` usa pra abrir a conexão de verdade), não `new URL()` — `new URL(url).hostname` IGNORA
+ * um `?host=` na query string, que o `pg`/libpq HONRAM (troca o host efetivo da conexão). Uma
+ * DATABASE_URL como `postgresql://postgres:postgres@127.0.0.1:54422/postgres?host=db.pooler...`
+ * teria hostname da URL = "127.0.0.1" (local) mas a conexão REAL iria pro host da query — `new URL`
+ * daria falso positivo de "é a cópia local". Exige host ∈ {localhost,127.0.0.1,::1} E porta==="54422"
+ * (a porta da cópia local no Docker) — sem porta explícita ou porta diferente não conta.
  */
 export function ehBancoLocal(): boolean {
   const url = dbUrl();
   if (!url) return false;
   try {
-    return ["localhost", "127.0.0.1", "::1"].includes(new URL(url).hostname);
+    const { host, port } = parseConnectionString(url);
+    return !!host && ["localhost", "127.0.0.1", "::1"].includes(host) && port === "54422";
   } catch {
     return false;
   }
