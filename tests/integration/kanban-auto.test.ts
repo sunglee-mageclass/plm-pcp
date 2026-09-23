@@ -377,3 +377,67 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 1 (Tas
     });
   });
 });
+
+// ─────────────────── Migration 2A — _kanban_status_rows_raw (Task 7) ───────────────────
+type LinhaBoard = { key: string; lbl: string };
+
+async function boardSql(c: Client, raw: unknown): Promise<LinhaBoard[]> {
+  const { rows } = await c.query(
+    `SELECT key, lbl FROM public._kanban_status_rows_raw($1::jsonb) ORDER BY ord`,
+    [raw === undefined ? null : JSON.stringify(raw)],
+  );
+  return rows;
+}
+const boardTs = (raw: unknown): LinhaBoard[] => normalizeKanbanStatuses(raw).map((s) => ({ key: s.key, lbl: s.label }));
+
+// Divergências CONHECIDAS e aceitas (a F1 NÃO muda a saída de hoje): (1) elemento ARRAY dentro de
+// status_kanban vira {key:'',label:''} no TS (typeof [] === 'object') e é descartado no SQL;
+// (2) objeto SEM label/nome/name mas com id/value/slug: o TS usa a key como label, o SQL devolve
+// lbl=''. Só a KEY entra na derivação — nos sintéticos a comparação é por key; nos boards REAIS
+// (todos strings) é key+label. Nenhuma loja tem (1) ou (2).
+const BOARDS_SINTETICOS: unknown[] = [
+  null,
+  [],
+  "nao-e-array",
+  { a: 1 },
+  ["Em Modelagem", "Stand By", "Aprovado"],
+  ["Prova de Roupa ", "  Stand By  ", "Corte de Piloto II", "Coleção Verão", "Ação/Reação"],
+  ["Em Modelagem", "em_modelagem", "Em Modelagem"],
+  [{ key: "aprovado", label: "Aprovado" }, { label: "Em Ajuste" }, { nome: "Stand By" }, { id: "x_1", name: "X" }, { value: "v" }, { slug: "s" }],
+  [42, null, true, "Aprovado"],
+];
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 2A: _kanban_status_rows_raw (Task 7)", () => {
+  it("_kanban_status_rows devolve EXATAMENTE o mesmo de antes nas lojas reais", async () => {
+    await withTx(async (c) => {
+      const { rows: lojas } = await c.query(`SELECT tenant_id, status_kanban FROM public.tenant_config ORDER BY tenant_id`);
+      const antes: Record<string, unknown[]> = {};
+      for (const l of lojas) antes[l.tenant_id] = (await c.query(`SELECT * FROM public._kanban_status_rows($1)`, [l.tenant_id])).rows;
+      await prepara(c, 2);
+      for (const l of lojas) {
+        const depois = (await c.query(`SELECT * FROM public._kanban_status_rows($1)`, [l.tenant_id])).rows;
+        expect(depois, l.tenant_id).toEqual(antes[l.tenant_id]);
+        const raw = (await c.query(`SELECT * FROM public._kanban_status_rows_raw($1::jsonb)`, [JSON.stringify(l.status_kanban)])).rows;
+        expect(raw, l.tenant_id).toEqual(depois);
+      }
+    });
+  });
+
+  it("anti-drift: normalizeKanbanStatuses (TS) ≡ _kanban_status_rows_raw (SQL) nos boards REAIS das lojas", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const { rows: lojas } = await c.query(`SELECT tenant_id, status_kanban FROM public.tenant_config ORDER BY tenant_id`);
+      expect(lojas.length).toBeGreaterThanOrEqual(6);
+      for (const l of lojas) expect(await boardSql(c, l.status_kanban), l.tenant_id).toEqual(boardTs(l.status_kanban));
+    });
+  });
+
+  it("anti-drift: … e as KEYS em boards sintéticos (nulo, vazio, não-array, espaço final, acento, duplicado, objetos, lixo)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      for (const b of BOARDS_SINTETICOS) {
+        expect((await boardSql(c, b)).map((x) => x.key), JSON.stringify(b)).toEqual(boardTs(b).map((x) => x.key));
+      }
+    });
+  });
+});
