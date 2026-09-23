@@ -84,13 +84,32 @@ export { FieldText, FieldSelect } from "@/components/planejamento/planejamento-d
 
 /* ============ DETALHE (Sheet/Dialog) ============ */
 
-export function PlanejamentoDetail({
-  modeloId, onClose, onSaved, contexto = "planejamento",
+// API pública INALTERADA: `{ modeloId, onClose, onSaved, contexto? }`. Fix do bug do card NOVO (F3.1; R15 da
+// F3.0): no 1º Salvar do Dialog "Novo Modelo" o card ganha id e o detalhe REMONTA (key nova) como o Sheet desse
+// id — estado limpo, semeado do servidor como qualquer card existente, já com as seções do Dev. Antes o Dialog
+// ficava aberto sem id e um 2º Salvar INSERIA de novo (card duplicado). Fica AQUI, não na rota, p/ valer em
+// todo caller sem mexer em `criacao.planejamento.tsx` (arquivo da F2). Bônus: se o caller trocar `modeloId`
+// sem desmontar, o detalhe remonta em vez de mesclar o card novo no rascunho do anterior.
+export function PlanejamentoDetail(props: {
+  modeloId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+  contexto?: "planejamento" | "produto-acabado";
+}) {
+  const [idCriado, setIdCriado] = useState<string | null>(null);
+  const id = props.modeloId ?? idCriado;
+  return <PlanejamentoDetailConteudo key={id ?? "novo"} {...props} modeloId={id} onCreated={setIdCriado} />;
+}
+
+function PlanejamentoDetailConteudo({
+  modeloId, onClose, onSaved, contexto = "planejamento", onCreated,
 }: {
   modeloId: string | null;
   onClose: () => void;
   onSaved: () => void;
   contexto?: "planejamento" | "produto-acabado";
+  /** Card NOVO: chamado com o id depois do INSERT (o wrapper remonta como Sheet desse id). */
+  onCreated?: (id: string) => void;
 }) {
   // As 7 listas de opção vêm do hook (cache compartilhado com a página, sem refetch duplo).
   // `artigos` do hook traz a forma completa (com categoria_tecido_id/categorias_tecido, campos
@@ -635,7 +654,7 @@ export function PlanejamentoDetail({
     setEnviada, setLancado, markClean,
     moLinhas, moLinhasRef, moBaseRef, setMoLinhasBase,
     gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
-    qc, onSaved: aoSalvar,
+    qc, onSaved: aoSalvar, onCreated,
   });
 
   // Resolve um conflito de campo escalar: "usar o novo" aplica `dele` no rascunho e tira o

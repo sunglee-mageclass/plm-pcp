@@ -4,7 +4,7 @@
 // (mesmas chamadas, mesma ordem, mesmas queryKeys). Refs e estados continuam sendo do orquestrador e
 // chegam por argumento com os MESMOS nomes (refs como OBJETO — o retry lê `.current` na hora). A F3.2
 // reescreve aqui a cadeia de gravação (UPDATE → salvar_modelo_bom → etiquetas → MO → marcar_revisao).
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { useMutation, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -54,6 +54,8 @@ export type UsePlanejamentoSaveArgs = {
   buildLinhasGradeRevenda: () => { variante_numero: number; grades: Record<string, number>; grade_total: number }[];
   qc: QueryClient;
   onSaved: () => void;
+  /** F3.1 — card NOVO: chamado com o id depois do INSERT (o `PlanejamentoDetail` remonta como Sheet dele). */
+  onCreated?: (id: string) => void;
 };
 
 export function usePlanejamentoSave({
@@ -63,8 +65,11 @@ export function usePlanejamentoSave({
   setEnviada, setLancado, markClean,
   moLinhas, moLinhasRef, moBaseRef, setMoLinhasBase,
   gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
-  qc, onSaved,
+  qc, onSaved, onCreated,
 }: UsePlanejamentoSaveArgs) {
+  // F3.1 — card NOVO: id do INSERT já feito neste detalhe. Um 2º Salvar (ou o retry depois de um erro nas
+  // gravações seguintes) NUNCA insere de novo; o detalhe vira o Sheet desse id (`onCreated`).
+  const criadoIdRef = useRef<string | null>(null);
   const save = useMutation({
     mutationFn: async () => {
       // Colab (Task 2): com conflitos pendentes na tela, o save NÃO pode passar — mesmo que
@@ -169,10 +174,15 @@ export function usePlanejamentoSave({
         }
         await syncTecidosToDesenvolvimento(modeloId, d.tecidos_planejados);
       } else {
-        // Card novo: sem concorrência possível (linha ainda não existe) — insert direto.
-        const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
-        if (error) throw error;
-        savedId = inserted?.id ?? null;
+        // Card novo: sem concorrência possível (linha ainda não existe) — insert direto, UMA vez só (F3.1).
+        if (criadoIdRef.current) {
+          savedId = criadoIdRef.current;
+        } else {
+          const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
+          if (error) throw error;
+          savedId = inserted?.id ?? null;
+          criadoIdRef.current = savedId;
+        }
         if (savedId) await syncTecidosToDesenvolvimento(savedId, d.tecidos_planejados);
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
         // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
@@ -253,7 +263,8 @@ export function usePlanejamentoSave({
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
       // o `onSuccess` abaixo usa este (não o `draft` do closure do render que chamou
       // `save.mutate`) pra fixar `baseRef`/decidir invalidations, mesma razão do `d` acima.
-      return { autoProduto, savedDraft: d };
+      // `savedId` (F3.1): id do card — usado no onSuccess pra disparar `onCreated` no card NOVO.
+      return { autoProduto, savedDraft: d, savedId };
     },
     onSuccess: (result) => {
       toast.success("Modelo salvo");
@@ -320,8 +331,18 @@ export function usePlanejamentoSave({
       // (ex.: o preço/custo recalculado). `markClean()` + `setMoLinhasBase` acima já apagaram o
       // selo "não salvo". Fechar é só pelo Voltar (`requestClose`). Não chamar `onClose()` aqui.
       onSaved();
+      // F3.1 — card NOVO: vira o Sheet do id criado (o `PlanejamentoDetail` remonta com a key nova).
+      if (!isEdit && result?.savedId) onCreated?.(result.savedId);
     },
     onError: async (e: any) => {
+      // F3.1 — card NOVO já INSERIDO que falhou numa gravação seguinte (tecidos/grade/MO): mostra o erro, atualiza
+      // a lista e abre o Sheet do card criado — o usuário confere e salva de lá (UPDATE). Nunca um 2º INSERT.
+      if (!isEdit && criadoIdRef.current) {
+        toast.error(`O card foi criado, mas algo não foi salvo: ${mensagemErro(e, "erro desconhecido")}`);
+        onSaved();
+        onCreated?.(criadoIdRef.current);
+        return;
+      }
       // Grade cor×tamanho (revenda, fast-follow): conflito tratado por RECARGA, NÃO por merge
       // — refaz o fetch da grade e deixa o usuário reaplicar (política "conflito → recarrega",
       // limitação consciente; ver comentário no `mutationFn`). Fica ANTES do branch de P0409
