@@ -58,11 +58,13 @@ import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } fr
 import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
+import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
+import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
-import { modoColuna, MOTIVO_REPROVADO_MANUAL } from "@/lib/kanban-auto-ui";
+import { modoColuna, motorKanbanDisponivel, MOTIVO_REPROVADO_MANUAL, type PreviaRecalculo } from "@/lib/kanban-auto-ui";
 import {
-  conflitoKanban, diffKanban, mensagemConflitoKanban, pickKanban, resolverEcoKanban, separarPayloadKanban,
-  type KanbanColsValor,
+  conflitoKanban, descreverMudancasKanban, diffKanban, mensagemConflitoKanban, pickKanban, resolverEcoKanban,
+  separarPayloadKanban, type KanbanCol, type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
@@ -202,6 +204,8 @@ function ConfiguracoesLojaPage() {
   const kanbanBaseRef = useRef(kanbanBase);
   kanbanBaseRef.current = kanbanBase;
   const [preparandoSalvar, setPreparandoSalvar] = useState(false);
+  // "Salvar e mover N cards" (chave ligada + requisitos/ordem mudados): prévia calculada no clique de Salvar.
+  const [previaSalvar, setPreviaSalvar] = useState<{ previa: PreviaRecalculo; mudancas: string } | null>(null);
   // Fix round 2 (revisão Opus): PROTEGE o kanban local (na tela) enquanto (a) o save com diff de
   // kanban está EM VOO ou (b) o `update(diff)` falhou depois do `upsert(geral)` ter sucesso (falha
   // parcial — ver round 1). É um REF, não estado: precisa estar TRUE já no início do `mutationFn`,
@@ -380,6 +384,7 @@ function ConfiguracoesLojaPage() {
     onSuccess: (diff) => {
       toast.success("Configurações salvas");
       markClean();
+      setPreviaSalvar(null);
       kanbanProtegidoRef.current = false;
       // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
       // é a ÚLTIMA escrita do mutationFn (R3): chegar aqui = geral E kanban gravados.
@@ -406,16 +411,21 @@ function ConfiguracoesLojaPage() {
     },
   });
 
-  // Salvar: com mudança nas colunas de kanban, confere o conflito ANTES de pedir a confirmação.
-  // (A Task 7 troca esta função pela versão que abre a prévia "Salvar e mover N cards" com a chave ligada.)
+  // Salvar: com mudança nas colunas de kanban, confere o conflito (RP3) e, com a chave LIGADA no banco, mostra a
+  // prévia (`kanban_previa_recalculo` com SÓ o que mudou) antes de confirmar. Sem cards mudando nem REF revelada
+  // → o AlertDialog de sempre. A F1 não confere se a prévia foi vista (D19) — a garantia é esta função.
   const prepararSalvar = async () => {
     const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
     if (!data?.tenantId || Object.keys(diff).length === 0) { setConfirmSalvar(true); return; }
     setPreparandoSalvar(true);
     try {
-      const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
+      const row = await lerConfigServidor(data.tenantId);
+      const conflito = conflitoKanban(kanbanBase.servidor, row);
       if (conflito.length > 0) { toast.error(mensagemConflitoKanban(conflito)); return; }
-      setConfirmSalvar(true);
+      if (row?.kanban_automatico !== true) { setConfirmSalvar(true); return; }
+      const previa = await kanbanPreviaRecalculo(diff as Record<string, unknown>);
+      if (previa.mudam === 0 && previa.revelam_ref === 0) { setConfirmSalvar(true); return; }
+      setPreviaSalvar({ previa, mudancas: descreverMudancasKanban(Object.keys(diff) as KanbanCol[]) });
     } catch (e) {
       toast.error(mensagemErro(e, "Erro ao preparar o salvamento"));
     } finally {
@@ -515,6 +525,20 @@ function ConfiguracoesLojaPage() {
         // sobrescreveria a limpeza (regressão real, pega em QA interativo).
         onChange={(items) => setCfg((c) => ({ ...c, status_kanban: items }))}
         placeholder="Ex: Em Modelagem"
+        topo={
+          <KanbanAutomaticoBloco
+            ligado={(data?.cfg as any)?.kanban_automatico === true}
+            disponivel={motorKanbanDisponivel(data?.cfg) && (modules as any).criacao !== false}
+            travadoMotivo={dirty ? "Salve ou descarte as alterações desta página antes de ligar ou desligar o Kanban automático." : null}
+            cols={boardDaLoja(kanbanCfgTela)}
+            timezone={cfg.timezone}
+            onMudou={() => {
+              qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
+              qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+              qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+            }}
+          />
+        }
         renderItemExtra={(label) => {
           const key = resolveStatusKey(label);
           const checked = !explosaoOrphan && key === explosaoEffectiveKey;
@@ -794,6 +818,17 @@ function ConfiguracoesLojaPage() {
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
       </PageActionBar>
+
+      {previaSalvar && (
+        <KanbanSalvarDialog
+          previa={previaSalvar.previa}
+          cols={boardDaLoja(kanbanCfgTela)}
+          mudancas={previaSalvar.mudancas}
+          salvando={save.isPending}
+          onConfirmar={() => save.mutate()}
+          onClose={() => setPreviaSalvar(null)}
+        />
+      )}
 
       {/* Confirmação: salvar config afeta dados de toda a loja. */}
       <AlertDialog open={confirmSalvar} onOpenChange={setConfirmSalvar}>
@@ -1118,6 +1153,7 @@ function SortableListCard({
   renderItemExtra,
   onItemRemoved,
   footer,
+  topo,
 }: {
   title: string;
   description?: string;
@@ -1130,6 +1166,8 @@ function SortableListCard({
   onItemRemoved?: (label: string, index: number) => void;
   // Conteúdo extra abaixo da lista (legenda/avisos do bloco).
   footer?: React.ReactNode;
+  // Conteúdo no TOPO do card, antes do campo de adicionar (Status do Kanban: a chave "Kanban automático").
+  topo?: React.ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -1174,6 +1212,7 @@ function SortableListCard({
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-3">
+        {topo}
         <div className="flex gap-2">
           <Input
             placeholder={placeholder}
