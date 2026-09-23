@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Check, X, AlertTriangle, Tag } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Check, X, AlertTriangle, Tag, Zap, Hand, Pin, ArrowRight } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -13,6 +13,16 @@ import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/
 import { requisitosOk, requisitosEfetivos, type Condicao } from "@/lib/kanban-condicoes";
 import { lerRevendaConfig, revendaColunaPermitida, revendaRequisitos } from "@/lib/revenda-config";
 import { ehOrigemComprada, normalizarOrigem, rotuloOrigem, rotuloOrigemLane } from "@/lib/origem";
+import { useKanbanConfig } from "@/hooks/useKanbanConfig";
+import {
+  boardDaLoja, derivarModelo, destinoDrop, entradaParaDerivacao,
+  type Derivacao, type DestinoDrop, type ModeloKanban,
+} from "@/lib/kanban-auto";
+import {
+  dropBloqueado, modoColuna, notaMoverPara, proximaFalta, rotuloModoColuna, subtituloColuna, textoFaixaDrop, toastDoMover,
+  type ModoColuna,
+} from "@/lib/kanban-auto-ui";
+import { kanbanMover } from "@/lib/kanban-auto-rpc";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -249,6 +259,11 @@ function DesenvolvimentoPage() {
     },
   });
   const revendaCfg = useMemo(() => lerRevendaConfig(revendaCfgRaw), [revendaCfgRaw]);
+  // KANBAN AUTOMÁTICO (F2). Chave por loja (`tenant_config.kanban_automatico`). DESLIGADA = todo o caminho
+  // abaixo é o de hoje (podeEntrar + updateStatus). LIGADA = a tabela única de arraste (`destinoDrop`, espelho
+  // do SQL) dá a DICA e a RPC `kanban_mover` DECIDE (o servidor é a autoridade: as condições aqui podem
+  // estar velhas). Sem a F1 aplicada o hook devolve ligado=false.
+  const { cfg: kanbanCfg, ligado: kanbanAuto } = useKanbanConfig();
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-desenvolvimento"],
@@ -286,7 +301,7 @@ function DesenvolvimentoPage() {
   }, [modeloTecidos]);
 
   const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
-  const { data: condicoesMap = {} } = useQuery({
+  const { data: condicoesMap = {}, isSuccess: condicoesProntas } = useQuery({
     queryKey: ["desenv-condicoes", modeloIdsAll],
     enabled: modeloIdsAll.length > 0,
     queryFn: async () => {
@@ -330,6 +345,26 @@ function DesenvolvimentoPage() {
     const efetivos = requisitosEfetivos(statusKey, ordemColunas, kanbanRequisitos, kanbanExcecoes);
     return requisitosOk(efetivos, (condicoesMap as any)[modeloId] ?? {});
   };
+
+  // ── Chave LIGADA (F2): helpers. Cards do board têm ordem_criacao_enviada=true (filtro da query). ──
+  const kanbanBoardKeys = useMemo(() => boardDaLoja(kanbanCfg).map((c) => c.key), [kanbanCfg]);
+  const modeloKanban = (m: Modelo): ModeloKanban => ({
+    origem: m.origem, status_desenvolvimento: m.status_desenvolvimento, ordem_criacao_enviada: true, lancado: m.lancado,
+  });
+  const condDe = (id: string) => (condicoesMap as Record<string, Record<string, boolean>>)[id] ?? {};
+  const derivacaoAuto = (m: Modelo): Derivacao => derivarModelo(modeloKanban(m), kanbanCfg, condDe(m.id));
+  const destinoAuto = (m: Modelo, para: string): DestinoDrop =>
+    destinoDrop(entradaParaDerivacao(modeloKanban(m), kanbanCfg, condDe(m.id)), para);
+  // Cabeçalho mostra o modo do fluxo INTERNO (board + kanban_requisitos); o card de revenda leva a derivação dele.
+  const modoDaColuna = (key: string): ModoColuna | null =>
+    kanbanAuto ? modoColuna(key, kanbanBoardKeys, kanbanCfg.kanban_requisitos) : null;
+  const infoAutoDoCard = (m: Modelo) => {
+    if (!kanbanAuto) return undefined;
+    const d = derivacaoAuto(m);
+    return { fixado: d.fixado, proxima: proximaFalta(d) };
+  };
+  // Com a chave ligada, arrastar/"Mover para…" só depois das condições carregarem (senão a dica mentiria).
+  const podeMover = editable && (!kanbanAuto || condicoesProntas);
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();
@@ -466,7 +501,8 @@ function DesenvolvimentoPage() {
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       onOpen={() => setOpenId(m.id)}
-      draggable={editable}
+      draggable={podeMover}
+      auto={infoAutoDoCard(m)}
       dragging={draggingId === m.id}
       onDragStartCard={() => setDraggingId(m.id)}
       onDragEndCard={() => setDraggingId(null)}
@@ -478,10 +514,19 @@ function DesenvolvimentoPage() {
     // Coluna EFETIVA = mesma lógica do byStatus (status inválido/null cai na 1ª coluna) — assim
     // a coluna onde o card aparece nunca entra no "Mover para…".
     const effStatus = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento) ? m.status_desenvolvimento : firstStatusKey;
-    const moverOpts = editable
+    const moverOpts = podeMover
       ? statusKanban
           .filter((s) => s.key !== effStatus)
-          .map((s) => { const { ok, faltando } = podeEntrar(m.id, s.key); return { key: s.key, label: s.label, faltando: ok ? [] : faltando.map((c) => c.label) }; })
+          .map((s) => {
+            if (kanbanAuto) {
+              // Chave ligada: anota pela tabela única ("fixa aqui", "já cumpre", "falta N dados"…); escolher
+              // um destino "bloqueado" ainda vai à RPC, que decide e responde com o toast.
+              const nota = notaMoverPara(destinoAuto(m, s.key));
+              return { key: s.key, label: s.label, faltando: [] as string[], nota: nota.texto, bloqueada: nota.bloqueada, modo: modoDaColuna(s.key) };
+            }
+            const { ok, faltando } = podeEntrar(m.id, s.key);
+            return { key: s.key, label: s.label, faltando: ok ? [] : faltando.map((c) => c.label) };
+          })
       : undefined;
     return (
       <MobileCard
@@ -492,8 +537,10 @@ function DesenvolvimentoPage() {
         categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
         onOpen={() => setOpenId(m.id)}
         moverOpts={moverOpts}
+        auto={infoAutoDoCard(m)}
         onMove={(statusKey) => {
           if (statusKey === effStatus) return;
+          if (kanbanAuto) { moverAuto(m, statusKey); return; }
           const { ok, faltando } = podeEntrar(m.id, statusKey);
           if (!ok) { toast.error(`Não pode entrar aqui. Faltam: ${faltando.map((c) => c.label).join(", ")}`); return; }
           updateStatus.mutate({ id: m.id, status: statusKey });
@@ -510,6 +557,7 @@ function DesenvolvimentoPage() {
         <div key={g.key} className="space-y-2">
           <button
             type="button"
+            data-testid="kanban-grupo-toggle"
             onClick={() => toggleGroup(p)}
             className="flex w-full items-center gap-1.5 px-1 pt-1 text-left text-xs font-semibold text-muted-foreground hover:text-foreground"
           >
@@ -570,6 +618,45 @@ function DesenvolvimentoPage() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }),
   });
 
+  // Chave LIGADA (F2): o servidor aplica a tabela única de arraste (fixar/soltar/nada/bloqueios), apaga o
+  // #Erro quando o usuário revisou e NÃO mexe no motivo de cancelamento (decisão 15). Otimista só p/
+  // fixar/soltar PREVISTOS; o status final e o toast vêm da RESPOSTA.
+  const moverAutoMut = useMutation({
+    mutationFn: (v: { id: string; para: string; previsto: DestinoDrop; statusAntes: string | null; fixadoAntes: boolean }) =>
+      kanbanMover(v.id, v.para),
+    onMutate: async ({ id, previsto }) => {
+      await qc.cancelQueries({ queryKey: ["modelos-desenvolvimento"] });
+      const prev = qc.getQueryData<Modelo[]>(["modelos-desenvolvimento"]);
+      if (previsto.acao === "fixar" || previsto.acao === "soltar") {
+        qc.setQueryData<Modelo[]>(["modelos-desenvolvimento"], (old) =>
+          (old ?? []).map((m) => (m.id === id ? { ...m, status_desenvolvimento: previsto.status } : m)),
+        );
+      }
+      return { prev };
+    },
+    onSuccess: (r, { id, para, statusAntes, fixadoAntes }) => {
+      qc.setQueryData<Modelo[]>(["modelos-desenvolvimento"], (old) =>
+        (old ?? []).map((m) => (m.id === id ? { ...m, status_desenvolvimento: r.status } : m)),
+      );
+      const t = toastDoMover(r, para, statusKanban, statusAntes, fixadoAntes);
+      if (t?.tipo === "error") toast.error(t.texto);
+      else if (t?.tipo === "success") toast.success(t.texto);
+      else if (t) toast.info(t.texto);
+    },
+    onError: (e: any, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["modelos-desenvolvimento"], ctx.prev);
+      toast.error(mensagemErro(e, "Erro ao mover o card"));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+    },
+  });
+  const moverAuto = (m: Modelo, para: string) => {
+    const d = derivacaoAuto(m);
+    moverAutoMut.mutate({ id: m.id, para, previsto: destinoAuto(m, para), statusAntes: m.status_desenvolvimento, fixadoAntes: d.fixado });
+  };
+
   const handleDrop = (statusKey: string, e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(null);
@@ -581,6 +668,8 @@ function DesenvolvimentoPage() {
     if (!id) return;
     const cur = modelos.find((m) => m.id === id);
     if (!cur || cur.status_desenvolvimento === statusKey) return;
+    // Chave LIGADA: sem trava local — a RPC decide (e responde com o toast). A coluna "bloqueada" só dá a dica.
+    if (kanbanAuto) { moverAuto(cur, statusKey); return; }
     // Motor de regras: só entra no status se os requisitos estiverem satisfeitos.
     const { ok, faltando } = podeEntrar(id, statusKey);
     if (!ok) {
@@ -761,6 +850,19 @@ function DesenvolvimentoPage() {
         </div>
       </header>
 
+      {kanbanAuto && (
+        <div
+          data-testid="kanban-auto-faixa"
+          className="flex items-start gap-2 rounded-md bg-[var(--tone-info-bg)] px-3 py-2 text-sm text-[var(--tone-info-fg)]"
+        >
+          <Zap className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-semibold">Kanban automático ligado.</span> Colunas <Zap className="inline h-3 w-3 align-baseline" /> andam
+            sozinhas pelos campos salvos. Colunas <Hand className="inline h-3 w-3 align-baseline" /> são manuais: o card entra e sai delas arrastado.
+          </span>
+        </div>
+      )}
+
       {/* Desktop: Kanban — coluna EXPANDIDA tem título HORIZONTAL no topo (era vertical, ~2× mais
           lento de ler — laudo das 3 lentes); coluna RECOLHIDA vira trilho estreito com título
           vertical (só cabe vertical). items-stretch = colunas na altura da mais alta. */}
@@ -775,14 +877,21 @@ function DesenvolvimentoPage() {
           const dragModel = draggingId ? modelos.find((m) => m.id === draggingId) : null;
           const dragEff = dragModel ? (dragModel.status_desenvolvimento && statusKeySet.has(dragModel.status_desenvolvimento) ? dragModel.status_desenvolvimento : firstStatusKey) : null;
           const isSelf = !!draggingId && dragEff === s.key;
-          const bloqueio = !!draggingId && !isSelf ? podeEntrar(draggingId!, s.key).faltando : [];
-          const blocked = bloqueio.length > 0;
+          // Chave LIGADA (F2): a tabela única dá a DICA; a coluna NÃO fica inerte (sem pointer-events-none) —
+          // o drop vai à RPC kanban_mover, que decide com as condições do banco.
+          const destino = kanbanAuto && dragModel && !isSelf ? destinoAuto(dragModel, s.key) : null;
+          const faixaAuto = destino ? textoFaixaDrop(destino, s.key, statusKanban) : null;
+          const bloqueio = !kanbanAuto && !!draggingId && !isSelf ? podeEntrar(draggingId!, s.key).faltando : [];
+          const blocked = kanbanAuto ? (destino ? dropBloqueado(destino) : false) : bloqueio.length > 0;
           const canDrop = !!draggingId && !isSelf && !blocked;
+          const modo = modoDaColuna(s.key);
+          const subtitulo = modo ? subtituloColuna(modo, kanbanCfg.kanban_requisitos[s.key] ?? []) : "";
           return (
             <div
               key={s.key}
+              data-testid={`kanban-coluna-${s.key}`}
               className={`shrink-0 rounded-lg flex flex-col max-h-[calc(100vh-260px)] transition-colors ${isCollapsed ? "" : "w-80"} ${
-                blocked ? "border border-dashed border-destructive/50 bg-destructive/5 pointer-events-none"
+                blocked ? `border border-dashed border-destructive/50 bg-destructive/5${kanbanAuto ? "" : " pointer-events-none"}`
                 : canDrop ? "border-2 border-dashed border-primary/60 bg-primary/10"
                 : "border bg-muted/30"
               } ${isOver && !isSelf ? "ring-2 ring-primary" : ""}`}
@@ -800,6 +909,7 @@ function DesenvolvimentoPage() {
                 >
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
+                  {modo && <ModoColunaIcone modo={modo} />}
                   <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.label}</span>
                   <span className="text-xs text-muted-foreground">{cards.length}</span>
                 </button>
@@ -814,19 +924,34 @@ function DesenvolvimentoPage() {
                   >
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
                     <span className="text-sm font-semibold truncate">{s.label}</span>
+                    {modo && <ModoColunaIcone modo={modo} />}
+                    {modo === "entrada" && (
+                      <StatusBadge tone="neutral" className="text-[10px] normal-case tracking-normal shrink-0">entrada</StatusBadge>
+                    )}
                     <span className="ml-auto text-xs text-muted-foreground tabular-nums">{cards.length}</span>
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 rotate-90" />
                   </button>
+                  {/* Chave ligada: o que a coluna exige (ou que é manual) — mockup aprovado. */}
+                  {modo && (
+                    <div data-testid="kanban-col-sub" className="truncate border-b px-3 py-1.5 text-[11px] text-muted-foreground" title={subtitulo}>
+                      {subtitulo}
+                    </div>
+                  )}
                   {/* Bloqueio no arraste: diz O QUE falta (não fica só apagado) */}
-                  {blocked && (
+                  {!kanbanAuto && blocked && (
                     <div className="px-3 py-1.5 border-b border-dashed border-destructive/40 text-[11px] leading-snug text-destructive">
                       <span className="font-semibold">Não pode entrar aqui.</span> Faltam: {bloqueio.map((c) => c.label).join(" · ")}
+                    </div>
+                  )}
+                  {kanbanAuto && blocked && faixaAuto && (
+                    <div data-testid="kanban-drop-faixa" className="px-3 py-1.5 border-b border-dashed border-destructive/40 text-[11px] leading-snug text-destructive">
+                      {faixaAuto}
                     </div>
                   )}
                   {/* Destino válido em foco: convite positivo (espelho da faixa de bloqueio). */}
                   {canDrop && isOver && (
                     <div className="px-3 py-1.5 border-b border-dashed border-primary/40 text-[11px] leading-snug text-primary">
-                      Solte aqui para mover
+                      {faixaAuto ?? "Solte aqui para mover"}
                     </div>
                   )}
                   {/* Cards empilhados */}
@@ -919,6 +1044,7 @@ function DesenvolvimentoPage() {
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
                       <span className="truncate text-sm font-semibold">{s.label}</span>
+                      {modoDaColuna(s.key) && <ModoColunaIcone modo={modoDaColuna(s.key)!} testId="kanban-col-modo-mobile" />}
                     </div>
                     <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>
                   </div>
@@ -974,7 +1100,14 @@ function DesenvolvimentoPage() {
         </Accordion>
       </div>
 
-      <ModeloDetailPanel modeloId={openId} onClose={() => setOpenId(null)} />
+      <ModeloDetailPanel
+        modeloId={openId}
+        onClose={() => {
+          setOpenId(null);
+          // Chave ligada: o Sheet pode ter mudado campos que as condições leem — a dica do arraste precisa delas frescas.
+          if (kanbanAuto) qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+        }}
+      />
     </div>
   );
 }
@@ -1006,14 +1139,45 @@ function MaoObraBadge({ estado }: { estado?: string }) {
   return null;
 }
 
-function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, moverOpts, onMove }: {
+// Kanban automático (F2): ícone do modo da coluna (Zap = automática/entrada; Hand = manual). Nunca emoji.
+function ModoColunaIcone({ modo, testId = "kanban-col-modo" }: { modo: ModoColuna; testId?: string }) {
+  const manual = modo === "manual" || modo === "manual_sempre";
+  const Icon = manual ? Hand : Zap;
+  return (
+    <span data-testid={testId} title={rotuloModoColuna(modo)} aria-label={rotuloModoColuna(modo)} className="inline-flex shrink-0 text-muted-foreground">
+      <Icon className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+// Kanban automático (F2): card FIXADO numa coluna manual (não anda sozinho) ou a PRÓXIMA falta do card automático.
+function CardAutoInfo({ auto }: { auto?: { fixado: boolean; proxima: string | null } }) {
+  if (!auto) return null;
+  if (auto.fixado) {
+    return (
+      <StatusBadge tone="neutral" data-testid="kanban-card-fixado" className="mt-0.5 gap-1 normal-case tracking-normal">
+        <Pin className="h-3 w-3" />fixado — não anda sozinho
+      </StatusBadge>
+    );
+  }
+  if (!auto.proxima) return null;
+  return (
+    <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+      <ArrowRight className="h-3 w-3 shrink-0" />próx.: {auto.proxima}
+    </p>
+  );
+}
+
+function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, moverOpts, onMove, auto }: {
   modelo: Modelo;
   moEstado?: string;
   estilistaNome: string | null;
   categoriaNome: string | null;
   onOpen: () => void;
-  moverOpts?: { key: string; label: string; faltando: string[] }[];
+  // `nota`/`bloqueada`/`modo` só com a chave LIGADA (F2); sem eles = rótulo de hoje ("· falta …").
+  moverOpts?: { key: string; label: string; faltando: string[]; nota?: string; bloqueada?: boolean; modo?: ModoColuna | null }[];
   onMove?: (statusKey: string) => void;
+  auto?: { fixado: boolean; proxima: string | null };
 }) {
   const fl = useFieldLabels();
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
@@ -1042,6 +1206,7 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
           <MaoObraBadge estado={moEstado} />
+          <CardAutoInfo auto={auto} />
         </div>
       </div>
       {/* "Mover para…" = arraste do desktop, no toque. key por status reseta o placeholder ao mover. */}
@@ -1052,9 +1217,16 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
           </SelectTrigger>
           <SelectContent>
             {moverOpts.map((o) => (
-              <SelectItem key={o.key} value={o.key} className={o.faltando.length ? "text-muted-foreground" : ""}>
+              <SelectItem key={o.key} value={o.key} className={o.faltando.length || o.bloqueada ? "text-muted-foreground" : ""}>
                 {o.label}
-                {o.faltando.length > 0 && <span className="text-xs opacity-70"> · falta {o.faltando.join(", ")}</span>}
+                {o.modo && (
+                  <span className="ml-1 inline-flex align-middle text-muted-foreground">
+                    {o.modo === "manual" || o.modo === "manual_sempre" ? <Hand className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+                  </span>
+                )}
+                {o.nota !== undefined
+                  ? o.nota && <span className="text-xs opacity-70"> · {o.nota}</span>
+                  : o.faltando.length > 0 && <span className="text-xs opacity-70"> · falta {o.faltando.join(", ")}</span>}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1065,9 +1237,10 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
 }
 
 
-function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, dragging, onDragStartCard, onDragEndCard }: {
+function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, dragging, onDragStartCard, onDragEndCard, auto }: {
   modelo: Modelo; moEstado?: string; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
   dragging?: boolean; onDragStartCard?: () => void; onDragEndCard?: () => void;
+  auto?: { fixado: boolean; proxima: string | null };
 }) {
   const fl = useFieldLabels();
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
@@ -1079,6 +1252,7 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
   return (
     <>
     <div
+      data-testid="kanban-card"
       draggable={isDraggable}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", modelo.id);
@@ -1110,6 +1284,7 @@ function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, dr
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
           <MaoObraBadge estado={moEstado} />
+          <CardAutoInfo auto={auto} />
         </div>
       </div>
     </div>
