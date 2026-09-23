@@ -32,6 +32,7 @@ export function RequisitosStatusButton({
   excecoes,
   onExcecoesChange,
   nomeEtapa,
+  bloqueadoMotivo,
 }: {
   label: string;
   requisitos: string[];
@@ -48,9 +49,21 @@ export function RequisitosStatusButton({
   onExcecoesChange?: (next: string[]) => void;
   // Resolve o statusKey de origem → nome legível da etapa (p/ o selo "herdado de X").
   nomeEtapa?: (statusKey: string) => string;
+  // Kanban automático (F2): coluna em que requisito NÃO vale (Reprovado é sempre manual) → botão travado + motivo.
+  bloqueadoMotivo?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmarExcecao, setConfirmarExcecao] = useState<{ key: string; label: string } | null>(null);
+  if (bloqueadoMotivo) {
+    return (
+      <span title={bloqueadoMotivo} className="inline-flex" data-testid="requisitos-bloqueado">
+        <Button type="button" variant="outline" size="sm" disabled className="h-8 shrink-0 max-md:h-11 max-md:w-11 max-md:p-0" aria-label={`Requisitos — ${bloqueadoMotivo}`}>
+          <ListChecks className="h-4 w-4 sm:mr-1" />
+          <span className="max-sm:sr-only">Requisitos</span>
+        </Button>
+      </span>
+    );
+  }
   const set = new Set(requisitos);
   const naSet = new Set(condsIndisponiveis ?? []);
   const herdMap = new Map((herdados ?? []).map((h) => [h.key, h.origem]));

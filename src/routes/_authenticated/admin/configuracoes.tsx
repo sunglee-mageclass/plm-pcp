@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -57,6 +57,12 @@ import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
+import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
+import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
+import { modoColuna, MOTIVO_REPROVADO_MANUAL } from "@/lib/kanban-auto-ui";
+import {
+  conflitoKanban, diffKanban, mensagemConflitoKanban, pickKanban, separarPayloadKanban, type KanbanColsValor,
+} from "@/lib/kanban-auto-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -163,6 +169,13 @@ const MODULE_LABELS: { key: string; label: string }[] = [
   { key: "etapas_pl", label: "Etapas PL" },
 ];
 
+// Linha CRUA de tenant_config (RP3: conferir, antes de gravar o kanban, que ninguém o mudou depois que a tela abriu).
+async function lerConfigServidor(tenantId: string): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase.from("tenant_config").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (error) throw error;
+  return (data ?? null) as Record<string, unknown> | null;
+}
+
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
@@ -174,6 +187,14 @@ function ConfiguracoesLojaPage() {
 
   const { dirty, markClean, reset: resetCfgBaseline } = useDirtySnapshot(cfg);
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+
+  // RP3 (guardião): as 5 colunas de kanban NÃO vão no upsert genérico. `cfg` = como a TELA abriu (base do diff
+  // do que o usuário mexeu); `servidor` = valor CRU lido do banco (p/ detectar outra aba/admin que mudou depois).
+  const [kanbanBase, setKanbanBase] = useState<{ cfg: KanbanColsValor; servidor: KanbanColsValor }>(() => ({
+    cfg: pickKanban(DEFAULTS),
+    servidor: pickKanban(null),
+  }));
+  const [preparandoSalvar, setPreparandoSalvar] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -252,6 +273,7 @@ function ConfiguracoesLojaPage() {
     };
     setCfg(next);
     resetCfgBaseline(next);
+    setKanbanBase({ cfg: pickKanban(next), servidor: pickKanban(r) });
   }, [data?.cfg]);
 
   const save = useMutation({
@@ -272,14 +294,43 @@ function ConfiguracoesLojaPage() {
         ref_exibir_status: cfg.ref_exibir_status || null,
         ref_config: refConfigVazio ? null : cfg.ref_config,
       };
+      // RP3: as colunas de kanban SAEM do upsert genérico (uma aba velha regravaria requisitos/ordem de outro
+      // admin e, com a chave ligada, o gatilho recalcularia a loja sem prévia). Vão SÓ as que o usuário mudou,
+      // num UPDATE próprio, depois de conferir que o banco ainda tem o que esta tela carregou.
+      // ORDEM (R3 do G-plano): 1) conflito (nada gravado se houver) → 2) upsert do geral → 3) kanban POR ÚLTIMO.
+      // Se o geral falhar, o kanban não foi gravado: o retry não acusa "Outra pessoa mudou…" contra a própria
+      // gravação e, com a chave ligada, nenhum card se move com a tela mostrando erro. O upsert também garante
+      // a linha de tenant_config antes do UPDATE (sem linha, o UPDATE afetaria 0 linhas calado).
+      const { geral } = separarPayloadKanban(payload);
+      const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+      const temKanban = Object.keys(diff).length > 0;
+      if (temKanban) {
+        const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
+        if (conflito.length > 0) throw new Error(mensagemConflitoKanban(conflito));
+      }
       const { error } = await supabase
         .from("tenant_config")
-        .upsert(payload as any, { onConflict: "tenant_id" });
+        .upsert(geral as any, { onConflict: "tenant_id" });
       if (error) throw error;
+      if (temKanban) {
+        const { data: gravadas, error: errKanban } = await supabase
+          .from("tenant_config")
+          .update(diff as any)
+          .eq("tenant_id", data.tenantId)
+          .select("tenant_id");
+        if (errKanban) throw errKanban;
+        if (!gravadas || gravadas.length === 0) {
+          throw new Error("As colunas do kanban não foram gravadas (configuração da loja não encontrada). Recarregue a página e tente de novo.");
+        }
+      }
+      return diff;
     },
-    onSuccess: () => {
+    onSuccess: (diff) => {
       toast.success("Configurações salvas");
       markClean();
+      // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
+      // é a ÚLTIMA escrita do mutationFn (R3): chegar aqui = geral E kanban gravados.
+      setKanbanBase((b) => ({ cfg: pickKanban(cfg), servidor: { ...b.servidor, ...diff } }));
       // Invalida TODA leitura de config para refletir na hora. As leituras usam prefixos
       // divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
       // tenant-status-kanban, ft-tamanhos, confeccao-prioridade…), então casamos por
@@ -289,6 +340,23 @@ function ConfiguracoesLojaPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
+
+  // Salvar: com mudança nas colunas de kanban, confere o conflito ANTES de pedir a confirmação.
+  // (A Task 7 troca esta função pela versão que abre a prévia "Salvar e mover N cards" com a chave ligada.)
+  const prepararSalvar = async () => {
+    const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+    if (!data?.tenantId || Object.keys(diff).length === 0) { setConfirmSalvar(true); return; }
+    setPreparandoSalvar(true);
+    try {
+      const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
+      if (conflito.length > 0) { toast.error(mensagemConflitoKanban(conflito)); return; }
+      setConfirmSalvar(true);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Erro ao preparar o salvamento"));
+    } finally {
+      setPreparandoSalvar(false);
+    }
+  };
 
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
@@ -306,6 +374,12 @@ function ConfiguracoesLojaPage() {
   const refCfgSet = !!(cfg.ref_exibir_status ?? "").trim();
   const refEffectiveKey = refCfgSet ? (cfg.ref_exibir_status as string).trim() : APROVADO_KEY;
   const refOrphan = !explosaoOptionKeys.has(refEffectiveKey);
+
+  // Etiqueta Entrada/Automática/Manual por coluna (F2) — mesma regra do motor (`colunaManual`): sem requisito
+  // PRÓPRIO = manual; Reprovado sempre manual; 1ª coluna = Entrada. Reflete o que está NA TELA (não salvo ainda).
+  const kanbanCfgTela = lerKanbanAutoConfig(cfg);
+  const boardKeysTela = boardDaLoja(kanbanCfgTela).map((c) => c.key);
+  const fluxoRevendaTela = fluxoDoModelo("revenda", kanbanCfgTela).map((c) => c.key);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
@@ -388,8 +462,10 @@ function ConfiguracoesLojaPage() {
           const nomeDaEtapa = (sk: string) => cfg.status_kanban.find((l) => resolveStatusKey(l) === sk) ?? sk;
           return (
             <>
+              <ModoColunaBadge modo={modoColuna(key, boardKeysTela, cfg.kanban_requisitos ?? {})} />
               <RequisitosStatusButton
                 label={label}
+                bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                 requisitos={cfg.kanban_requisitos?.[key] ?? []}
                 onChange={(next) =>
                   setCfg((c) => {
@@ -477,6 +553,10 @@ function ConfiguracoesLojaPage() {
                   : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual exibir a REF no card.`}
               </p>
             )}
+            <p className="text-xs text-foreground">
+              <Hand className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+              Coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual.
+            </p>
           </div>
         }
       />
@@ -489,6 +569,7 @@ function ConfiguracoesLojaPage() {
       {modules.produto_acabado && (
         <FluxoRevendaCard
           statusKanban={cfg.status_kanban}
+          fluxoKeys={fluxoRevendaTela}
           colunas={cfg.revenda_kanban_colunas}
           requisitos={cfg.revenda_kanban_requisitos}
           campos={cfg.revenda_campos}
@@ -643,7 +724,7 @@ function ConfiguracoesLojaPage() {
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <Button className="ml-auto" onClick={() => setConfirmSalvar(true)} disabled={save.isPending || isLoading}>
+        <Button className="ml-auto" onClick={prepararSalvar} disabled={save.isPending || isLoading || preparandoSalvar}>
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
@@ -1161,6 +1242,7 @@ const REVENDA_CAMPO_LABELS: Record<string, string> = {
 
 function FluxoRevendaCard({
   statusKanban,
+  fluxoKeys,
   colunas,
   requisitos,
   campos,
@@ -1169,6 +1251,8 @@ function FluxoRevendaCard({
   onCamposChange,
 }: {
   statusKanban: string[];
+  // Keys do fluxo da revenda (board ∩ colunas; [] = todas) — base da etiqueta Entrada/Automática/Manual.
+  fluxoKeys: string[];
   colunas: string[];
   requisitos: Record<string, string[]>;
   campos: Record<string, boolean>;
@@ -1245,12 +1329,15 @@ function FluxoRevendaCard({
                     >
                       {label}
                     </span>
+                    {(on || semTrava) && <ModoColunaBadge modo={modoColuna(key, fluxoKeys, requisitos)} />}
+                    {!on && !semTrava && <span className="shrink-0 text-xs text-muted-foreground">revenda não passa</span>}
                     {on && (
                       <RequisitosStatusButton
                         label={label}
                         requisitos={requisitos[key] ?? []}
                         onChange={(next) => setRequisitos(key, next)}
                         condsIndisponiveis={REVENDA_COND_NA}
+                        bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                       />
                     )}
                   </div>
@@ -1263,6 +1350,10 @@ function FluxoRevendaCard({
               </li>
             )}
           </ul>
+          <p className="flex gap-1.5 text-xs text-muted-foreground">
+            <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Com o kanban automático ligado, a revenda anda sozinha só pelas colunas ligadas aqui, também em cascata.
+          </p>
         </div>
 
         {/* Bloco 2 — seções e campos do card de Desenvolvimento visíveis p/ revenda. */}
