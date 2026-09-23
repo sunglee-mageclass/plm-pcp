@@ -1756,3 +1756,116 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4A: kanban_definir_automatic
     });
   });
 });
+
+// ─────────── Migration 4B — prévia de restauração, restaurar e ACL (Task 16) ───────────
+describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)", () => {
+  async function cenarioLigado(c: Client) {
+    await prepara(c, 4);
+    await comoUsuario(c);
+    await configurarBoard(c);
+    const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+    const N = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE }));
+    await chave(c, true); // lote 'ligar': M entrada→etapa_a, N entrada→etapa_b
+    const lote = (await um<{ l: string }>(c,
+      `SELECT lote_id AS l FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'ligar' LIMIT 1`, [T])).l;
+    expect((await mover(c, N, "stand_by")).acao).toBe("fixar"); // movimento MANUAL depois do lote
+    return { M, N, lote };
+  }
+
+  it("prévia (lote NULL = o 'ligar' mais recente): quem volta, quem foi movido à mão depois, avisos — e NÃO grava", async () => {
+    await withTx(async (c) => {
+      const { M, N, lote } = await cenarioLigado(c);
+      await chave(c, false);
+      const antes = (await c.query(`SELECT id, status_desenvolvimento FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows;
+      const p = (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao(NULL) AS p`)).p;
+      expect(p.lote_id).toBe(lote);
+      expect(p.motivo).toBe("ligar");
+      expect(p.chave_ligada).toBe(false);
+      expect(p.cards.find((x: any) => x.modelo_id === M)).toMatchObject({ de: "etapa_a", para: "entrada", movido_manual_depois: false });
+      expect(p.cards.find((x: any) => x.modelo_id === N)).toMatchObject({ de: "stand_by", para: "entrada", movido_manual_depois: true });
+      expect(p.movidos_depois).toBeGreaterThanOrEqual(1);
+      expect(p.avisos).toContain("A REF revelada e o #Erro não voltam.");
+      expect((await c.query(`SELECT id, status_desenvolvimento FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows).toEqual(antes);
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.kanban_snapshot WHERE lote_id = $1 AND restaurado_at IS NOT NULL`, [lote])).n).toBe("0");
+    });
+  });
+
+  it("restaurar: exige chave DESLIGADA; volta o status, apaga linhas auto/config do lote, marca restaurado_at; não restaura 2×", async () => {
+    await withTx(async (c) => {
+      const { M, N, lote } = await cenarioLigado(c);
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [lote])).rejects.toMatchObject({
+        code: "P0001", message: "Desligue o Kanban automático antes de restaurar as colunas.",
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await chave(c, false);
+      const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [lote])).r;
+      expect(r.restaurados).toBeGreaterThanOrEqual(2);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+      expect((await lerModelo(c, N)).status).toBe("entrada");
+      // a linha 'config' do lote sumiu; D14: a última restante já é 'entrada' → a restauração não duplica
+      expect(await historico(c, M)).toEqual(["entrada:manual"]);
+      expect(await historico(c, N)).toEqual(["entrada:manual", "stand_by:manual", "entrada:restauracao"]);
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.kanban_snapshot WHERE lote_id = $1 AND restaurado_at IS NULL`, [lote])).n).toBe("0");
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [lote])).rejects.toMatchObject({ code: "P0001", message: "Este lote já foi restaurado." });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar(gen_random_uuid())`)).rejects.toMatchObject({ code: "P0002" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+
+  it("só admin: usuário comum → 42501 nas duas RPCs", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoSemPermissao(c);
+      for (const sql of [`SELECT public.kanban_previa_restauracao(NULL)`, `SELECT public.kanban_restaurar(gen_random_uuid())`]) {
+        await c.query("SAVEPOINT sp");
+        await expect(c.query(sql), sql).rejects.toMatchObject({ code: "42501" });
+        await c.query("ROLLBACK TO SAVEPOINT sp");
+      }
+    });
+  });
+});
+
+// ─────────────────────────── ACL de TUDO que a F1 cria (Task 16) ───────────────────────────
+const RPCS_F1 = [
+  "kanban_mover(uuid,text)", "kanban_previa_recalculo(jsonb)", "kanban_definir_automatico(boolean)",
+  "kanban_previa_restauracao(uuid)", "kanban_restaurar(uuid)",
+];
+const INTERNAS_F1 = [...FUNCOES_M2, "_kanban_enfileirar(uuid[])", "_kanban_enfileirar_tenant(uuid)", "_kanban_aplicar(uuid,uuid[],text,uuid)"];
+
+describe.skipIf(!PRONTO)("kanban-auto — ACL (invariante #9) de todas as funções/tabelas novas (Task 16)", () => {
+  it("internas: sem EXECUTE p/ anon/authenticated/PUBLIC · RPCs: só authenticated · tabelas: sem GRANT", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      for (const f of INTERNAS_F1) {
+        const r = await um<{ anon: boolean; auth: boolean; publico: boolean; definer_ou_imutavel: boolean }>(c,
+          `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon,
+                  has_function_privilege('authenticated', $1, 'EXECUTE') AS auth,
+                  EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0) AS publico,
+                  (p.prosecdef OR p.provolatile = 'i') AS definer_ou_imutavel
+             FROM pg_proc p WHERE p.oid = to_regprocedure($1)`, ["public." + f]);
+        expect(r, f).toEqual({ anon: false, auth: false, publico: false, definer_ou_imutavel: true });
+      }
+      for (const f of RPCS_F1) {
+        const r = await um<{ anon: boolean; auth: boolean; definer: boolean; sp: boolean }>(c,
+          `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon,
+                  has_function_privilege('authenticated', $1, 'EXECUTE') AS auth,
+                  p.prosecdef AS definer,
+                  coalesce(array_to_string(p.proconfig, ',') LIKE '%search_path=public%', false) AS sp
+             FROM pg_proc p WHERE p.oid = to_regprocedure($1)`, ["public." + f]);
+        expect(r, f).toEqual({ anon: false, auth: true, definer: true, sp: true });
+      }
+      for (const t of ["kanban_recalculo_fila", "kanban_snapshot"]) {
+        for (const papel of ["anon", "authenticated"]) {
+          const r = await um<{ ok: boolean }>(c,
+            `SELECT has_table_privilege($1, $2, 'SELECT') OR has_table_privilege($1, $2, 'INSERT')
+                 OR has_table_privilege($1, $2, 'UPDATE') OR has_table_privilege($1, $2, 'DELETE') AS ok`, [papel, "public." + t]);
+          expect(r.ok, `${papel} ${t}`).toBe(false);
+        }
+      }
+    });
+  });
+});

@@ -293,6 +293,177 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.kanban_definir_automatico(boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.kanban_definir_automatico(boolean) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- C) kanban_previa_restauracao — admin; NÃO grava. `_lote_id` NULL = o lote 'ligar' mais recente
+--    ainda não restaurado da loja. Lista quem VOLTA (status atual ≠ status_anterior) e marca quem
+--    teve movimento MANUAL depois do lote (a restauração desfaz esse movimento). Avisa que REF
+--    revelada e #Erro NÃO voltam. "Depois" = modelo_kanban_historico.created_at (relógio, gravado
+--    por fn_kanban_historico) > kanban_snapshot.criado_at (relógio, gravado por fn_kanban_config).
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.kanban_previa_restauracao(_lote_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant  uuid;
+  v_lote    uuid;
+  v_motivo  text;
+  v_criado  timestamptz;
+  v_restaur timestamptz;
+  v_ligada  boolean;
+  v_out     jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo Criação não habilitado para esta loja.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_tenant_admin() OR public.is_super_admin()) THEN
+    RAISE EXCEPTION 'Apenas o administrador da loja pode restaurar as colunas do Kanban.' USING ERRCODE = '42501';
+  END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant IS NULL OR v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant — operação não permitida.' USING ERRCODE = '42501';
+  END IF;
+
+  v_lote := coalesce(_lote_id, (
+    SELECT s.lote_id FROM public.kanban_snapshot s
+     WHERE s.tenant_id = v_tenant AND s.motivo = 'ligar' AND s.restaurado_at IS NULL
+     ORDER BY s.criado_at DESC LIMIT 1));
+  v_ligada := public._kanban_ligado(v_tenant);
+  IF v_lote IS NULL THEN
+    RETURN jsonb_build_object('lote_id', NULL, 'chave_ligada', v_ligada, 'total', 0, 'voltam', 0,
+      'movidos_depois', 0, 'cards', '[]'::jsonb,
+      'avisos', jsonb_build_array('Não há colunas guardadas para restaurar.'));
+  END IF;
+
+  SELECT min(s.motivo), min(s.criado_at), max(s.restaurado_at) INTO v_motivo, v_criado, v_restaur
+    FROM public.kanban_snapshot s
+   WHERE s.lote_id = v_lote AND s.tenant_id = v_tenant;
+  IF v_criado IS NULL THEN
+    RAISE EXCEPTION 'Lote de colunas não encontrado.' USING ERRCODE = 'P0002';
+  END IF;
+
+  WITH s AS (
+    SELECT s.modelo_id, s.status_anterior, m.nome, coalesce(nullif(m.ref, ''), m.ref_auto) AS ref_exib,
+           m.status_desenvolvimento AS status_atual,
+           EXISTS (SELECT 1 FROM public.modelo_kanban_historico h
+                    WHERE h.modelo_id = s.modelo_id AND h.origem = 'manual' AND h.created_at > v_criado) AS manual_depois
+      FROM public.kanban_snapshot s
+      JOIN public.modelos m ON m.id = s.modelo_id AND m.tenant_id = v_tenant
+     WHERE s.lote_id = v_lote
+  )
+  SELECT jsonb_build_object(
+    'lote_id', v_lote, 'motivo', v_motivo, 'criado_at', v_criado, 'restaurado_at', v_restaur,
+    'chave_ligada', v_ligada,
+    'total', (SELECT count(*) FROM s),
+    'voltam', (SELECT count(*) FROM s WHERE s.status_atual IS DISTINCT FROM s.status_anterior),
+    'movidos_depois', (SELECT count(*) FROM s WHERE s.manual_depois AND s.status_atual IS DISTINCT FROM s.status_anterior),
+    'cards', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'modelo_id', s.modelo_id, 'nome', s.nome, 'ref', s.ref_exib,
+               'de', s.status_atual, 'para', s.status_anterior, 'movido_manual_depois', s.manual_depois)
+             ORDER BY s.nome, s.modelo_id)
+        FROM s WHERE s.status_atual IS DISTINCT FROM s.status_anterior), '[]'::jsonb),
+    'avisos', to_jsonb(array_remove(ARRAY[
+      'A REF revelada e o #Erro não voltam.',
+      CASE WHEN v_ligada THEN 'Desligue o Kanban automático antes de restaurar (senão o próximo salvamento refaz as colunas).' END,
+      CASE WHEN v_restaur IS NOT NULL THEN 'Este lote já foi restaurado.' END
+    ], NULL)))
+  INTO v_out;
+  RETURN v_out;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.kanban_previa_restauracao(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.kanban_previa_restauracao(uuid) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- D) kanban_restaurar — admin; exige a chave DESLIGADA (senão o próximo evento desfaria a
+--    restauração). Volta status_anterior onde difere (histórico origem 'restauracao'), apaga as
+--    linhas auto/config do histórico dos modelos do lote desde criado_at (created_at do histórico,
+--    relógio), marca restaurado_at. A linha 'restauracao' do histórico só entra quando a última
+--    linha restante é de OUTRA coluna (D14 — fn_kanban_historico).
+--    REF revelada e #Erro NÃO voltam (avisado na prévia).
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.kanban_restaurar(_lote_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant   uuid;
+  v_sis_ant  text := coalesce(current_setting('app.kanban_sistema', true), '');
+  v_lote_ant text := coalesce(current_setting('app.kanban_lote', true), '');
+  v_criado   timestamptz;
+  v_restaur  timestamptz;
+  v_hist     integer := 0;
+  v_n        integer := 0;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo Criação não habilitado para esta loja.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_tenant_admin() OR public.is_super_admin()) THEN
+    RAISE EXCEPTION 'Apenas o administrador da loja pode restaurar as colunas do Kanban.' USING ERRCODE = '42501';
+  END IF;
+  v_tenant := public.get_user_tenant_id();
+  IF v_tenant IS NULL OR v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'Loja inativa ou sem tenant — operação não permitida.' USING ERRCODE = '42501';
+  END IF;
+  IF public._kanban_ligado(v_tenant) THEN
+    RAISE EXCEPTION 'Desligue o Kanban automático antes de restaurar as colunas.' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT min(s.criado_at), max(s.restaurado_at) INTO v_criado, v_restaur
+    FROM public.kanban_snapshot s
+   WHERE s.lote_id = _lote_id AND s.tenant_id = v_tenant;
+  IF v_criado IS NULL THEN
+    RAISE EXCEPTION 'Lote de colunas não encontrado.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_restaur IS NOT NULL THEN
+    RAISE EXCEPTION 'Este lote já foi restaurado.' USING ERRCODE = 'P0001';
+  END IF;
+
+  PERFORM set_config('app.kanban_sistema', 'restauracao', true);
+  PERFORM set_config('app.kanban_lote', _lote_id::text, true);
+
+  DELETE FROM public.modelo_kanban_historico h
+   USING public.kanban_snapshot s
+   WHERE s.lote_id = _lote_id
+     AND h.modelo_id = s.modelo_id
+     AND h.tenant_id = v_tenant
+     AND h.origem IN ('auto', 'config')
+     AND h.created_at >= v_criado;
+  GET DIAGNOSTICS v_hist = ROW_COUNT;
+
+  UPDATE public.modelos m
+     SET status_desenvolvimento = s.status_anterior
+    FROM public.kanban_snapshot s
+   WHERE s.lote_id = _lote_id
+     AND m.id = s.modelo_id
+     AND m.tenant_id = v_tenant
+     AND m.status_desenvolvimento IS DISTINCT FROM s.status_anterior;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+
+  UPDATE public.kanban_snapshot SET restaurado_at = now()
+   WHERE lote_id = _lote_id AND tenant_id = v_tenant;
+
+  PERFORM set_config('app.kanban_sistema', v_sis_ant, true);
+  PERFORM set_config('app.kanban_lote', v_lote_ant, true);
+  RETURN jsonb_build_object('lote_id', _lote_id, 'restaurados', v_n, 'historico_apagado', v_hist);
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.kanban_restaurar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.kanban_restaurar(uuid) TO authenticated;
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');
