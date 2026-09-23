@@ -75,7 +75,7 @@ export function useSignedUrlBucket(path: string | null | undefined) {
 
 export type Draft = {
   nome: string;
-  ref: string;          // REF do modelo — READ-ONLY no Planejamento (gerada no Desenvolvimento, inv. #11)
+  ref: string;          // REF do modelo — editável na seção "Desenvolvimento" a partir da etapa configurada (refCampoVisivel); fora disso só exibida (inv. #11)
   estilista_id: string | null;
   linha_id: string | null;
   colecao: string;
@@ -103,6 +103,25 @@ export type Draft = {
   versao: number;
   modelo_base_id: string | null;
   custo_simulado: CustoSimInput;
+  // ── F3.1 — campos vindos do Desenvolvimento (as MESMAS colunas de `modelos` que o Sheet do Dev grava).
+  // Aqui: VER com canView("criacao_desenvolvimento"), EDITAR com canEdit (decisão F3 #8) e travados após
+  // Enviar à Explosão (decisão F3 #1). Datas/textos vazios = "" (o Salvar manda NULL — aplicarRegrasCamposDev).
+  // A etapa (`status_desenvolvimento`) NÃO entra no Draft: muda só pelo "Mover para…" do selo.
+  modelista_id: string | null;
+  piloteiro1_id: string | null;
+  piloteiro2_id: string | null;
+  piloteiro3_id: string | null;
+  data_piloto1: string;
+  data_piloto2: string;
+  data_piloto3: string;
+  data_desenho_tecnico: string;
+  data_aprovacao: string;
+  observacoes_tecnicas: string;
+  motivo_cancelamento: string;
+  ficha_medida_url: string;
+  // Campo NOVO (dono, 22/set): texto longo no fim da seção 1. Coluna `modelos.descricao_produto`
+  // (migration 20260930180000) — fora do types.ts até regenerar; o Draft é tipo próprio.
+  descricao_produto: string;
 };
 export const emptyDraft = (): Draft => ({
   nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -114,6 +133,10 @@ export const emptyDraft = (): Draft => ({
   observacoes_mao_obra: "",
   versao: 1, modelo_base_id: null,
   custo_simulado: {},
+  modelista_id: null, piloteiro1_id: null, piloteiro2_id: null, piloteiro3_id: null,
+  data_piloto1: "", data_piloto2: "", data_piloto3: "", data_desenho_tecnico: "", data_aprovacao: "",
+  observacoes_tecnicas: "", motivo_cancelamento: "", ficha_medida_url: "",
+  descricao_produto: "",
 });
 
 // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto). Extraída como função PURA (era
@@ -152,5 +175,18 @@ export function draftFromModeloRow(data: any): Draft {
     versao: data.versao ?? 1,
     modelo_base_id: data.modelo_base_id ?? null,
     custo_simulado: (data.custo_simulado ?? {}) as CustoSimInput,
+    modelista_id: data.modelista_id ?? null,
+    piloteiro1_id: data.piloteiro1_id ?? null,
+    piloteiro2_id: data.piloteiro2_id ?? null,
+    piloteiro3_id: data.piloteiro3_id ?? null,
+    data_piloto1: data.data_piloto1 ?? "",
+    data_piloto2: data.data_piloto2 ?? "",
+    data_piloto3: data.data_piloto3 ?? "",
+    data_desenho_tecnico: data.data_desenho_tecnico ?? "",
+    data_aprovacao: data.data_aprovacao ?? "",
+    observacoes_tecnicas: data.observacoes_tecnicas ?? "",
+    motivo_cancelamento: data.motivo_cancelamento ?? "",
+    ficha_medida_url: data.ficha_medida_url ?? "",
+    descricao_produto: data.descricao_produto ?? "",
   };
 }

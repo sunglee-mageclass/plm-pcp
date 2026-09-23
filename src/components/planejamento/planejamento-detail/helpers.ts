@@ -3,6 +3,7 @@
 // `export`). A F3.1 acrescenta em ROTULO_CONFLITO_PLAN os rótulos dos campos novos.
 import { useQueryClient } from "@tanstack/react-query";
 import { type CustoSimInput } from "@/lib/preco";
+import type { Draft } from "@/components/planejamento/modelo-shared";
 
 // Colab round 4 (padrão do piloto/Desenvolvimento) — rótulos PT dos paths do Draft p/ o
 // banner de resolução genérica de conflito. O merge compara TODAS as chaves do Draft; path
@@ -18,6 +19,14 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
   observacoes_gerais: "Observações Gerais", observacoes_mao_obra: "Obs. Mão de obra",
   versao: "Versão", modelo_base_id: "Modelo base", custo_simulado: "Simulação de custo",
+  // F3.1 — campos vindos do Desenvolvimento + Descrição do produto (rótulos do Dev,
+  // ModeloDetailPanel.tsx:145-160, e do mockup aprovado).
+  ref: "REF", modelista_id: "Modelista",
+  piloteiro1_id: "Piloteiro 1", piloteiro2_id: "Piloteiro 2", piloteiro3_id: "Piloteiro 3",
+  data_piloto1: "Data Piloto 1", data_piloto2: "Data Piloto 2", data_piloto3: "Data Piloto 3",
+  data_desenho_tecnico: "Data Desenho Técnico", data_aprovacao: "Data Aprovação",
+  observacoes_tecnicas: "Observações Técnicas", motivo_cancelamento: "Motivo do cancelamento",
+  ficha_medida_url: "Ficha de Medida", descricao_produto: "Descrição do produto",
 };
 export function rotuloConflitoPlan(path: string): string {
   return ROTULO_CONFLITO_PLAN[path] ?? path;
@@ -53,4 +62,73 @@ export function invalidarAposAprovarMO(qc: ReturnType<typeof useQueryClient>, mo
   qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
   // Reprovar MO pode REGREDIR o card no kanban (Fase 2) — refresca o board de Desenvolvimento.
   qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+}
+
+// ── F3.1 — regras dos campos vindos do Desenvolvimento no payload do Salvar/Duplicar ──────────────
+// Chaves do Draft que são do Desenvolvimento. SEM permissão de editar o Dev, o Salvar as OMITE
+// (decisão F3 #8); o Duplicar não as leva, menos Obs. Gerais, que já era copiada (decisão F3 #9).
+// A F3.2 acrescenta aqui os escalares do Dev que ela passar a gravar (ex.: proporcoes, custos_adicionais).
+export const CAMPOS_DEV_DRAFT = [
+  "modelista_id", "piloteiro1_id", "piloteiro2_id", "piloteiro3_id",
+  "data_piloto1", "data_piloto2", "data_piloto3", "data_desenho_tecnico", "data_aprovacao",
+  "observacoes_tecnicas", "motivo_cancelamento", "ficha_medida_url", "observacoes_gerais",
+] as const satisfies readonly (keyof Draft)[];
+export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
+
+/** Texto vazio/só-espaço (ou ausente) → NULL; senão o texto como está. */
+export function textoOuNull(s: string | null | undefined): string | null {
+  return s != null && s.trim() !== "" ? s : null;
+}
+
+/**
+ * Aplica ao payload (UPDATE ou INSERT de `modelos`) as regras dos campos vindos do Dev. PURO: devolve cópia.
+ *  • podeEditarDev → normaliza vazios para NULL (paridade com o Dev, ModeloDetailPanel.tsx:1877-1898 —
+ *    data "" daria 22007 no PostgREST). `motivo_cancelamento` vai como está no Draft: a etapa NUNCA o apaga
+ *    aqui (dono, 23/set — ao contrário do Dev, que zera fora de Reprovado).
+ *  • sem podeEditarDev → as chaves de `CAMPOS_DEV_DRAFT` SAEM do payload (o banco fica com o que tinha).
+ *  • REF: só vai quando `refEditavel` (campo visível a partir da etapa configurada E Dev editável, sem
+ *    trava), aparada, vazia → NULL; senão SAI do payload, como antes (a REF é do trigger fn_modelo_ref_auto,
+ *    invariante #11).
+ *  • A etapa (`status_desenvolvimento`) não existe no Draft e nunca é posta aqui.
+ */
+export function aplicarRegrasCamposDev(
+  payload: Record<string, unknown>,
+  draft: Draft,
+  o: { podeEditarDev: boolean; refEditavel: boolean },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...payload };
+  if (o.podeEditarDev) {
+    out.modelista_id = draft.modelista_id || null;
+    out.piloteiro1_id = draft.piloteiro1_id || null;
+    out.piloteiro2_id = draft.piloteiro2_id || null;
+    out.piloteiro3_id = draft.piloteiro3_id || null;
+    out.data_piloto1 = draft.data_piloto1 || null;
+    out.data_piloto2 = draft.data_piloto2 || null;
+    out.data_piloto3 = draft.data_piloto3 || null;
+    out.data_desenho_tecnico = draft.data_desenho_tecnico || null;
+    out.data_aprovacao = draft.data_aprovacao || null;
+    out.observacoes_tecnicas = draft.observacoes_tecnicas || null;
+    out.motivo_cancelamento = draft.motivo_cancelamento || null;
+    out.ficha_medida_url = draft.ficha_medida_url || null;
+    out.observacoes_gerais = draft.observacoes_gerais || null;
+  } else {
+    for (const k of CAMPOS_DEV_DRAFT) delete out[k];
+  }
+  const ref = (draft.ref ?? "").trim();
+  if (o.podeEditarDev && o.refEditavel) out.ref = ref || null;
+  else delete out.ref;
+  return out;
+}
+
+/**
+ * Duplicar (decisão F3 #9): a nova versão herda o de HOJE — Planejamento + tecidos (só o artigo) + Obs. Gerais —
+ * e o resto do Desenvolvimento nasce vazio. Tira REF (a nova versão gera a própria), versão e base (o chamador
+ * recalcula) e os campos do Dev. A Descrição do produto VAI (é do Planejamento).
+ */
+export function camposParaDuplicar(draft: Draft): Record<string, unknown> {
+  const { versao: _v, modelo_base_id: _b, ref: _r, ...rest } = draft;
+  const out: Record<string, unknown> = { ...rest };
+  for (const k of CAMPOS_DEV_DRAFT) if (k !== "observacoes_gerais") delete out[k];
+  out.descricao_produto = textoOuNull(draft.descricao_produto);
+  return out;
 }

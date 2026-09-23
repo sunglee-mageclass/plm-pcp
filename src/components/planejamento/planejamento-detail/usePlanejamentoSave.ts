@@ -13,7 +13,7 @@ import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
-import { limparCustoSim } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { syncTecidosToDesenvolvimento } from "@/components/planejamento/planejamento-detail/sync-tecidos";
 
 export type UsePlanejamentoSaveArgs = {
@@ -23,6 +23,10 @@ export type UsePlanejamentoSaveArgs = {
   paOn: boolean;
   podeEditarPreco: boolean;
   podeVerCustos: boolean;
+  /** F3.1: pode editar o Desenvolvimento? Sem isso os campos do Dev saem do payload (decisão F3 #8). */
+  podeEditarDev: boolean;
+  /** F3.1: o campo REF está editável na seção "Desenvolvimento"? Só então a REF vai no payload. */
+  refEditavel: boolean;
   categorias: CatOpt[];
   draft: Draft;
   setDraft: Dispatch<SetStateAction<Draft>>;
@@ -53,7 +57,7 @@ export type UsePlanejamentoSaveArgs = {
 };
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, categorias,
+  modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, refEditavel, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado, markClean,
@@ -69,18 +73,19 @@ export function usePlanejamentoSave({
       // versão da outra pessoa em silêncio).
       if (conflitosRef.current.length > 0)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      const payload: any = {
+      // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
+      // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
+      // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
+      const payload: any = aplicarRegrasCamposDev({
         ...draft,
         croqui_url: draft.croqui_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         data_lancamento: draft.data_lancamento || null,
         observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
-      };
-      // REF é READ-ONLY no Planejamento (só EXIBIDA) — gerada/gerida no fluxo do Desenvolvimento
-      // (ref_auto→ref, invariante #11). Herdada do `...draft` só p/ mostrar; nunca reenviar no save,
-      // senão um Salvar disparado por outro campo sobrescreveria a REF que o trigger controla.
-      delete payload.ref;
+        // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
+        descricao_produto: textoOuNull(draft.descricao_produto),
+      }, draft, { podeEditarDev, refEditavel });
       // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
       // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
       // markup/OC (`_pa_recomputar_precos_modelo`), nunca mais digitados aqui. NÃO reenviar

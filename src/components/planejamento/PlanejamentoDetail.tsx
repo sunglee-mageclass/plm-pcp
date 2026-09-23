@@ -65,7 +65,7 @@ import {
   type EstoqueArtigo,
 } from "@/components/planejamento/planejamento-detail/campos";
 import { PrecoTabela } from "@/components/planejamento/planejamento-detail/PrecoTabela";
-import { rotuloConflitoPlan, invalidarAposAprovarMO } from "@/components/planejamento/planejamento-detail/helpers";
+import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "@/components/planejamento/planejamento-detail/helpers";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
@@ -100,6 +100,9 @@ export function PlanejamentoDetail({
   // VER o preço segue sob podeVerCustos; editar o preço passa a exigir esta section.
   const podeEditarPreco = canEdit("criacao_planejamento:preco_venda");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
+  // F3.1 — campos vindos do Desenvolvimento (decisão F3 #8): EDITAR exige canEdit da página do Dev; sem ela o
+  // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
+  const podeEditarDev = canEdit("criacao_desenvolvimento");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
   // `draft` principal; persiste no Salvar da página via RPC `salvar_modelo_servico_mo`. O
@@ -581,7 +584,9 @@ export function PlanejamentoDetail({
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave } = usePlanejamentoSave({
-    modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, categorias,
+    modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
+    // REF segue só-leitura até a seção "Desenvolvimento" existir (a Task 5 passa a calcular `refEditavel`).
+    refEditavel: false,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
     setEnviada, setLancado, markClean,
@@ -696,12 +701,12 @@ export function PlanejamentoDetail({
         .or(`id.eq.${root},modelo_base_id.eq.${root}`);
       if (eFam) throw eFam;
       const maxV = (fam ?? []).reduce((m, r: any) => Math.max(m, r.versao ?? 1), 1);
-      // A cópia mantém o nome do original; a versão é que diferencia.
-      // Exclui `ref` do spread: a nova versão NÃO herda a REF do original — nasce sem REF e gera a
-      // própria quando chegar ao Desenvolvimento (fluxo ref_auto, invariante #11). REF é read-only aqui.
-      const { versao: _v, modelo_base_id: _b, ref: _ref, ...rest } = draft;
+      // A cópia mantém o nome do original; a versão é que diferencia. `camposParaDuplicar` (helpers.ts,
+      // decisão F3 #9): herda o de hoje (Planejamento + tecidos + Obs. Gerais + Descrição); NÃO herda a REF
+      // (a nova versão gera a própria ao chegar ao Desenvolvimento — ref_auto, invariante #11) nem os demais
+      // campos do Desenvolvimento (nascem vazios).
       const payload: any = {
-        ...rest,
+        ...camposParaDuplicar(draft),
         status_planejamento: "em_planejamento",
         data_lancamento: null, // a cópia (nova versão) não nasce lançada (lancado default false)
         versao: maxV + 1,
