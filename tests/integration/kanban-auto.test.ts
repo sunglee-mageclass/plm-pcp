@@ -1827,6 +1827,58 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
       }
     });
   });
+
+  // ─────────── Fix round 1: modelo LANÇADO depois do lote não volta (Important) ───────────
+  it("modelo lançado depois do lote: não volta de coluna, mantém as linhas auto/config no histórico, e a prévia não o conta", async () => {
+    await withTx(async (c) => {
+      const { M, N, lote } = await cenarioLigado(c);
+      const totalLote = Number((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.kanban_snapshot WHERE lote_id = $1`, [lote])).n);
+      await comoSistema(c, () => setar(c, N, { lancado: true })); // N lançado DEPOIS do lote 'ligar'
+      const histNAntes = await historico(c, N);
+      await chave(c, false);
+
+      const p = (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao($1) AS p`, [lote])).p;
+      expect(p.cards.find((x: any) => x.modelo_id === N)).toBeUndefined(); // não entra em cards
+      expect(p.cards.find((x: any) => x.modelo_id === M)).toBeDefined(); // M segue normal
+      expect(p.total).toBe(totalLote - 1); // N (lançado) sai da contagem, resto do lote continua
+      expect(p.avisos.some((a: string) => /1 card\(s\)? lançado/.test(a))).toBe(true);
+
+      const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [lote])).r;
+      expect((await lerModelo(c, M)).status).toBe("entrada"); // M volta normalmente
+      expect((await lerModelo(c, N)).status).toBe("stand_by"); // N NÃO volta (continua onde estava)
+      expect(await historico(c, N)).toEqual(histNAntes); // histórico de N intocado (nada apagado)
+    });
+  });
+
+  // ─────────── Fix round 1: concorrência — trava tenant_config + lote (Minor) ───────────
+  it("historico_apagado: número exato num cenário conhecido (M e N, só linhas auto/config do lote)", async () => {
+    await withTx(async (c) => {
+      const { lote } = await cenarioLigado(c);
+      await chave(c, false);
+      const v_criado = (await um<{ t: string }>(c,
+        `SELECT min(criado_at)::text AS t FROM public.kanban_snapshot WHERE lote_id = $1`, [lote])).t;
+      const esperado = Number((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.modelo_kanban_historico h
+          JOIN public.kanban_snapshot s ON s.modelo_id = h.modelo_id AND s.lote_id = $1
+          WHERE h.origem IN ('auto', 'config') AND h.created_at >= $2::timestamptz`, [lote, v_criado])).n);
+      const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [lote])).r;
+      expect(r.historico_apagado).toBe(esperado);
+    });
+  });
+
+  it("concorrência: FOR UPDATE em tenant_config + lote serializa 2 restaurar simultâneos (2º dá P0001 'já foi restaurado')", async () => {
+    await withTx(async (c) => {
+      const { lote } = await cenarioLigado(c);
+      await chave(c, false);
+      await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [lote]);
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [lote])).rejects.toMatchObject({
+        code: "P0001", message: "Este lote já foi restaurado.",
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
 });
 
 // ─────────────────────────── ACL de TUDO que a F1 cria (Task 16) ───────────────────────────

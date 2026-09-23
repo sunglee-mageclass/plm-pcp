@@ -300,6 +300,11 @@ GRANT EXECUTE ON FUNCTION public.kanban_definir_automatico(boolean) TO authentic
 --    teve movimento MANUAL depois do lote (a restauração desfaz esse movimento). Avisa que REF
 --    revelada e #Erro NÃO voltam. "Depois" = modelo_kanban_historico.created_at (relógio, gravado
 --    por fn_kanban_historico) > kanban_snapshot.criado_at (relógio, gravado por fn_kanban_config).
+--    Fix round 1: modelo LANÇADO (coalesce(m.lancado,false)) DEPOIS do lote é IGNORADO — o spec diz
+--    "não deriva se lançado", e o snapshot só guarda modelos não lançados no MOMENTO do lote
+--    (fn_kanban_config, migration 3); um modelo lançado depois carrega um status_anterior obsoleto
+--    que distorceria o Leadtime de modelo concluído se restaurado. Não entra em cards/total/voltam/
+--    movidos_depois; soma num aviso à parte.
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_previa_restauracao(_lote_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -308,13 +313,14 @@ CREATE OR REPLACE FUNCTION public.kanban_previa_restauracao(_lote_id uuid DEFAUL
  SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_tenant  uuid;
-  v_lote    uuid;
-  v_motivo  text;
-  v_criado  timestamptz;
-  v_restaur timestamptz;
-  v_ligada  boolean;
-  v_out     jsonb;
+  v_tenant   uuid;
+  v_lote     uuid;
+  v_motivo   text;
+  v_criado   timestamptz;
+  v_restaur  timestamptz;
+  v_ligada   boolean;
+  v_lancados integer;
+  v_out      jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Não autenticado.' USING ERRCODE = '42501';
@@ -348,6 +354,11 @@ BEGIN
     RAISE EXCEPTION 'Lote de colunas não encontrado.' USING ERRCODE = 'P0002';
   END IF;
 
+  SELECT count(*) INTO v_lancados
+    FROM public.kanban_snapshot s
+    JOIN public.modelos m ON m.id = s.modelo_id AND m.tenant_id = v_tenant
+   WHERE s.lote_id = v_lote AND coalesce(m.lancado, false);
+
   WITH s AS (
     SELECT s.modelo_id, s.status_anterior, m.nome, coalesce(nullif(m.ref, ''), m.ref_auto) AS ref_exib,
            m.status_desenvolvimento AS status_atual,
@@ -356,6 +367,7 @@ BEGIN
       FROM public.kanban_snapshot s
       JOIN public.modelos m ON m.id = s.modelo_id AND m.tenant_id = v_tenant
      WHERE s.lote_id = v_lote
+       AND NOT coalesce(m.lancado, false)
   )
   SELECT jsonb_build_object(
     'lote_id', v_lote, 'motivo', v_motivo, 'criado_at', v_criado, 'restaurado_at', v_restaur,
@@ -372,7 +384,8 @@ BEGIN
     'avisos', to_jsonb(array_remove(ARRAY[
       'A REF revelada e o #Erro não voltam.',
       CASE WHEN v_ligada THEN 'Desligue o Kanban automático antes de restaurar (senão o próximo salvamento refaz as colunas).' END,
-      CASE WHEN v_restaur IS NOT NULL THEN 'Este lote já foi restaurado.' END
+      CASE WHEN v_restaur IS NOT NULL THEN 'Este lote já foi restaurado.' END,
+      CASE WHEN v_lancados > 0 THEN v_lancados || ' card(s) lançado(s) depois não voltam.' END
     ], NULL)))
   INTO v_out;
   RETURN v_out;
@@ -389,6 +402,12 @@ GRANT EXECUTE ON FUNCTION public.kanban_previa_restauracao(uuid) TO authenticate
 --    relógio), marca restaurado_at. A linha 'restauracao' do histórico só entra quando a última
 --    linha restante é de OUTRA coluna (D14 — fn_kanban_historico).
 --    REF revelada e #Erro NÃO voltam (avisado na prévia).
+--    Fix round 1: [Important] modelo LANÇADO depois do lote (coalesce(m.lancado,false)) é excluído
+--    do UPDATE de status E do DELETE do histórico — mesma regra da prévia (C), espelhada aqui.
+--    [Minor] Concorrência: trava `tenant_config` (FOR UPDATE) e a(s) linha(s) do lote em
+--    `kanban_snapshot` (FOR UPDATE) ANTES das checagens de chave/lote/já-restaurado — serializa 2
+--    `kanban_restaurar` simultâneos (o 2º vê `restaurado_at` já setado → P0001) e restaurar ×
+--    `kanban_definir_automatico(true)` (que também escreve `tenant_config`).
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_restaurar(_lote_id uuid)
  RETURNS jsonb
@@ -418,6 +437,10 @@ BEGIN
   IF v_tenant IS NULL OR v_tenant = '00000000-0000-0000-0000-000000000000'::uuid THEN
     RAISE EXCEPTION 'Loja inativa ou sem tenant — operação não permitida.' USING ERRCODE = '42501';
   END IF;
+
+  PERFORM 1 FROM public.tenant_config WHERE tenant_id = v_tenant FOR UPDATE;
+  PERFORM 1 FROM public.kanban_snapshot WHERE lote_id = _lote_id AND tenant_id = v_tenant FOR UPDATE;
+
   IF public._kanban_ligado(v_tenant) THEN
     RAISE EXCEPTION 'Desligue o Kanban automático antes de restaurar as colunas.' USING ERRCODE = 'P0001';
   END IF;
@@ -437,11 +460,13 @@ BEGIN
 
   DELETE FROM public.modelo_kanban_historico h
    USING public.kanban_snapshot s
+   JOIN public.modelos m ON m.id = s.modelo_id AND m.tenant_id = v_tenant
    WHERE s.lote_id = _lote_id
      AND h.modelo_id = s.modelo_id
      AND h.tenant_id = v_tenant
      AND h.origem IN ('auto', 'config')
-     AND h.created_at >= v_criado;
+     AND h.created_at >= v_criado
+     AND NOT coalesce(m.lancado, false);
   GET DIAGNOSTICS v_hist = ROW_COUNT;
 
   UPDATE public.modelos m
@@ -450,7 +475,8 @@ BEGIN
    WHERE s.lote_id = _lote_id
      AND m.id = s.modelo_id
      AND m.tenant_id = v_tenant
-     AND m.status_desenvolvimento IS DISTINCT FROM s.status_anterior;
+     AND m.status_desenvolvimento IS DISTINCT FROM s.status_anterior
+     AND NOT coalesce(m.lancado, false);
   GET DIAGNOSTICS v_n = ROW_COUNT;
 
   UPDATE public.kanban_snapshot SET restaurado_at = now()
