@@ -130,15 +130,21 @@ export function FieldText({ label, value, onChange, colabPath }: {
     </div>
   );
 }
-export function FieldSelect({ label, value, onChange, options }: {
+// Valor-sentinela da opção "— Nenhum —" (o Radix Select não aceita item com value "").
+const OPCAO_NENHUM = "__nenhum__";
+export function FieldSelect({ label, value, onChange, options, onLimpar }: {
   label: string; value: string | null; onChange: (v: string) => void; options: Opt[];
+  // F3.1 (opcional): com `onLimpar`, a lista ganha "— Nenhum —" no topo, que ZERA o campo (mockup: Estilista
+  // "ganha '— Nenhum —' p/ limpar"; Modelista/Piloteiros idem). Sem ele, igual a antes.
+  onLimpar?: () => void;
 }) {
   return (
     <div className="grid gap-1">
       <Label>{label}</Label>
-      <Select value={value ?? ""} onValueChange={onChange}>
+      <Select value={value ?? ""} onValueChange={(v) => (v === OPCAO_NENHUM ? onLimpar?.() : onChange(v))}>
         <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
         <SelectContent>
+          {onLimpar && <SelectItem value={OPCAO_NENHUM}>— Nenhum —</SelectItem>}
           {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
         </SelectContent>
       </Select>

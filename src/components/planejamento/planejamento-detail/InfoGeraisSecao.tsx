@@ -1,10 +1,11 @@
 // Seção 1 "Informações Gerais do Produto" do detalhe do Planejamento. Extraída na F3.0 (set/2026)
 // de `PlanejamentoDetail.tsx` SEM mudança de comportamento: o JSX abaixo foi MOVIDO como estava; o
-// estado continua no orquestrador e chega por props com os MESMOS nomes. A F3.1 acrescenta aqui, no
-// fim da seção (antes do `</Secao>`), o campo "Descrição do produto".
+// estado continua no orquestrador e chega por props com os MESMOS nomes. F3.1: "Descrição do produto" no
+// fim da seção (último campo, largura total) e "— Nenhum —" no Estilista.
 import type { Dispatch, SetStateAction } from "react";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { STATUS_OPTS, type Opt, type CatOpt, type SubOpt, type Draft } from "@/components/planejamento/modelo-shared";
@@ -43,7 +44,13 @@ export function InfoGeraisSecao({
                 onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
                 colabPath="nome"
               />
-              <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
+              <FieldSelect
+                label={fl("estilista")}
+                value={draft.estilista_id}
+                onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))}
+                onLimpar={() => setDraftTracked((d) => ({ ...d, estilista_id: null }))}
+                options={estilistas}
+              />
               <div className="grid gap-1">
                 <Label>Origem</Label>
                 <Select value={draft.origem} onValueChange={(v) => setDraftTracked((d) => ({ ...d, origem: v }))}>
@@ -108,6 +115,20 @@ export function InfoGeraisSecao({
                 value={draft.subcategoria2_id}
                 onChange={(v) => setDraftTracked((d) => ({ ...d, subcategoria2_id: v }))}
                 options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+              />
+            </div>
+
+            {/* Campo NOVO "Descrição do produto" (dono, 22/set): texto longo, largura total, ÚLTIMO campo da
+                seção 1 — no Sheet e no Dialog de card novo. Coluna `modelos.descricao_produto` (migration
+                20260930180000); o Salvar manda NULL quando vazio. Não vai para a Ficha Técnica (não pedido). */}
+            <div className="grid gap-1">
+              <Label>Descrição do produto</Label>
+              <Textarea
+                rows={3}
+                placeholder="Descreva o produto…"
+                value={draft.descricao_produto}
+                onChange={(e) => setDraftTracked((d) => ({ ...d, descricao_produto: e.target.value }))}
+                data-colab-path="descricao_produto"
               />
             </div>
           </Secao>
