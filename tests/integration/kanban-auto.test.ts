@@ -1921,3 +1921,52 @@ describe.skipIf(!PRONTO)("kanban-auto — ACL (invariante #9) de todas as funç�
     });
   });
 });
+
+// ─────────────── Round-trip: ida 1→4 (2×, idempotente) e volta 4→1 (Task 17) ───────────────
+const SNAPSHOT_FUNCOES = "/Users/sunglee/PLM + Criação/savepoints/2026-09-22-pre-unificacao/funcoes.sql";
+/** Bloco de uma função no snapshot (texto do pg_get_functiondef + "\n;"), ou null se o arquivo não existe. */
+function blocoSnapshot(nome: string): string | null {
+  let txt: string;
+  try {
+    txt = readFileSync(SNAPSHOT_FUNCOES, "utf8");
+  } catch {
+    return null;
+  }
+  const ini = txt.indexOf(`CREATE OR REPLACE FUNCTION public.${nome}(`);
+  if (ini < 0) return null;
+  const fim = txt.indexOf("$function$\n;", ini);
+  return txt.slice(ini, fim + "$function$\n".length);
+}
+async function contagens(c: Client) {
+  return um<{ funcoes: string; gatilhos: string; colunas: string; indices: string; tabelas: string }>(c,
+    `SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public') AS funcoes,
+            (SELECT count(*) FROM pg_trigger t JOIN pg_class k ON k.oid = t.tgrelid JOIN pg_namespace n ON n.oid = k.relnamespace
+              WHERE n.nspname = 'public' AND NOT t.tgisinternal) AS gatilhos,
+            (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public') AS colunas,
+            (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public') AS indices,
+            (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') AS tabelas`);
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — round-trip das 4 migrations (Task 17)", () => {
+  it("ida 2× (idempotente) + volta 4→1: contagens, redefinidas BYTE-A-BYTE (= snapshot) e nada sobra", async () => {
+    await withTx(async (c) => {
+      const antes = await contagens(c);
+      const defs: Record<string, string | null> = {};
+      for (const f of [...REDEFINIDAS_M3, "_kanban_status_rows(uuid)"]) defs[f] = await defFuncao(c, f);
+      await prepara(c, 4);
+      for (const rel of MIGRACOES) await aplicarArquivo(c, rel); // 2ª vez: idempotente
+      const depois = await contagens(c);
+      expect(Number(depois.funcoes) - Number(antes.funcoes)).toBe(FUNCOES_M2.length + FUNCOES_M3.length + RPCS_F1.length);
+      expect(Number(depois.gatilhos) - Number(antes.gatilhos)).toBe(44);
+      for (const n of [4, 3, 2, 1] as const) await aplicarArquivo(c, INVERSOS[n]);
+      expect(await contagens(c)).toEqual(antes);
+      for (const f of Object.keys(defs)) {
+        expect(await defFuncao(c, f), f).toBe(defs[f]);
+        const snap = blocoSnapshot(f.slice(0, f.indexOf("(")));
+        if (snap !== null) expect(defs[f], `${f} = snapshot 22/set`).toBe(snap);
+      }
+      for (const n of [4, 3, 2, 1] as const) await aplicarArquivo(c, INVERSOS[n]); // inversos idempotentes
+      expect(await contagens(c)).toEqual(antes);
+    });
+  });
+});
