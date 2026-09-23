@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, ArrowLeft, Save, ExternalLink, PackagePlus } from "lucide-react";
+import { Trash2, Copy, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,8 +30,6 @@ import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
-import { NumberInput } from "@/components/shared/NumberInput";
-import { MoneyInput } from "@/components/shared/MoneyInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
@@ -46,14 +44,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useGridCols } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { brl } from "@/lib/format";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
-import { varianteLabel } from "@/lib/variante";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 
@@ -65,7 +61,7 @@ import {
   type ArtigoOpt, type SubOpt, type Draft,
 } from "@/components/planejamento/modelo-shared";
 import {
-  Secao, CampoRO, MultiArtigosField, FieldText, FieldSelect, PhotoList, SingleFileField,
+  Secao, MultiArtigosField, FieldText, FieldSelect, PhotoList, SingleFileField,
   type EstoqueArtigo,
 } from "@/components/planejamento/planejamento-detail/campos";
 import { PrecoTabela } from "@/components/planejamento/planejamento-detail/PrecoTabela";
@@ -73,6 +69,7 @@ import { rotuloConflitoPlan, limparCustoSim, invalidarAposAprovarMO } from "@/co
 import { syncTecidosToDesenvolvimento } from "@/components/planejamento/planejamento-detail/sync-tecidos";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
+import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 // API pública mantida: a rota `criacao.planejamento.tsx` importa FieldText/FieldSelect DAQUI.
 export { FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 
@@ -400,14 +397,7 @@ export function PlanejamentoDetail({
   });
   const {
     gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty,
-    produtoRevenda, produtoRevendaLoading,
-    markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
-    markupAtacadoBaseRef, markupVarejoBaseRef,
-    precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft,
-    salvarMarkupsRevenda, salvarPrecosFixoRevenda,
-    variantesRevenda, tamanhosRevenda,
-    setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
-    buildLinhasGradeRevenda, criarProdutoAcabado,
+    produtoRevenda, buildLinhasGradeRevenda,
   } = revenda;
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
@@ -1181,97 +1171,7 @@ export function PlanejamentoDetail({
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
               // bidirecional) + Preço atacado/varejo FIXO (preço exato digitado, sem derivar do markup).
-              <div className="grid sm:grid-cols-2 gap-3">
-                {/* Cadeia íntegra da revenda (base = custo previsto + M.O.; ver `piRevenda`):
-                    Custo → Preço (custo × markup da linha) → Preço sugerido (derivado). */}
-                <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={piRevenda.custo > 0 ? brl(piRevenda.custo) : "—"} />
-                <CampoRO label="Markup (linha)" value={piRevenda.markupAplicado > 0 ? piRevenda.markupAplicado.toLocaleString("pt-BR") : "—"} />
-                <CampoRO label="Preço" value={piRevenda.preco > 0 ? brl(piRevenda.preco) : "—"} />
-                <CampoRO label="Preço sugerido" value={piRevenda.sugerido > 0 ? brl(piRevenda.sugerido) : "—"} />
-                {produtoRevenda ? (
-                  <>
-                    <div className="grid gap-1">
-                      <Label>Markup atacado</Label>
-                      <div className="relative">
-                        {/* value = markup EFETIVO (gravado OU derivado do preço — re-semeado no topo).
-                            onBlur SÓ salva se o valor MUDOU vs o efetivo anterior (`markupAtacadoBaseRef`)
-                            — senão está só exibindo o derivado e salvar destravaria o preço à toa.
-                            Editar markup grava markup (o banco limpa o preço fixo → preço deriva). */}
-                        <NumberInput
-                          blankZero
-                          placeholder="2,50"
-                          className="pr-6"
-                          value={markupAtacadoInput ?? 0}
-                          onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
-                        />
-                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
-                      </div>
-                    </div>
-                    <div className="grid gap-1">
-                      <Label>Markup varejo</Label>
-                      <div className="relative">
-                        <NumberInput
-                          blankZero
-                          placeholder="2,50"
-                          className="pr-6"
-                          value={markupVarejoInput ?? 0}
-                          onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
-                        />
-                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
-                      </div>
-                    </div>
-                    {/* Preços EDITÁVEIS = preço FIXO (set/2026, sem derivar do markup): o que se EXIBE
-                        em repouso é o preço REAL do modelo (`draft.preco_atacado`/`preco_venda`, já
-                        fixo-ou-derivado pelo servidor) — NÃO mais o derivado do markup, que mostraria
-                        valor errado quando há preço fixo. onChange só guarda o texto num rascunho local;
-                        o save (onBlur/Enter) manda o número EXATO à RPC `salvar_precos_fixo_...`, tocando
-                        SÓ o canal do campo. Vazio/≤0 = null = DESTRAVA (volta a derivar do markup).
-                        Só dispara se o valor mudou vs o preço real atual (evita salvar à toa). */}
-                    <div className="grid gap-1">
-                      <Label>Preço atacado</Label>
-                      <MoneyInput
-                        fixedDecimals
-                        value={precoAtacadoDraft}
-                        placeholder="0,00"
-                        onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                        onBlur={() => {
-                          const n = Number(precoAtacadoDraft) || 0;
-                          const novo = n > 0 ? n : null;
-                          const atual = draft.preco_atacado ?? null;
-                          if (novo === atual) return;
-                          salvarPrecosFixoRevenda.mutate({ tocarAtacado: true, precoAtacado: novo, tocarVarejo: false, precoVarejo: null });
-                        }}
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <Label>Preço varejo</Label>
-                      <MoneyInput
-                        fixedDecimals
-                        value={precoVarejoDraft}
-                        placeholder="0,00"
-                        onChange={(e) => setPrecoVarejoDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                        onBlur={() => {
-                          const n = Number(precoVarejoDraft) || 0;
-                          const novo = n > 0 ? n : null;
-                          const atual = draft.preco_venda ?? null;
-                          if (novo === atual) return;
-                          salvarPrecosFixoRevenda.mutate({ tocarVarejo: true, precoVarejo: novo, tocarAtacado: false, precoAtacado: null });
-                        }}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground sm:col-span-2">
-                    {produtoRevendaLoading ? "Carregando…" : "Crie o produto acabado (abaixo) para definir os markups de preço."}
-                  </p>
-                )}
-              </div>
+              <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft} />
             )}
           </Secao>
           )}
@@ -1312,91 +1212,14 @@ export function PlanejamentoDetail({
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
           {isEdit && isRevenda && paOn && (
-            <Secao titulo="Produto Acabado" defaultOpen={false}>
-              {produtoRevendaLoading ? (
-                <p className="text-sm text-muted-foreground">Carregando…</p>
-              ) : produtoRevenda ? (
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-muted-foreground">Este modelo está vinculado a um produto de revenda.</p>
-                  {contexto !== "produto-acabado" && (
-                    <Button
-                      type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
-                      onClick={() => navigate({ to: "/criacao/produto-acabado", search: produtoRevenda.colecao_id ? ({ colecao: produtoRevenda.colecao_id } as any) : ({} as any) })}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" /> Ver no Produto Acabado
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-muted-foreground">Nenhum produto de revenda vinculado ainda.</p>
-                  <Button
-                    type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
-                    onClick={() => criarProdutoAcabado.mutate()}
-                    disabled={criarProdutoAcabado.isPending || !modeloId}
-                  >
-                    <PackagePlus className="h-3.5 w-3.5" /> Criar produto acabado
-                  </Button>
-                </div>
-              )}
-            </Secao>
+            <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} />
           )}
 
           {/* Revenda (Task 7): grade cor×tamanho editável — por variante do produto (rótulo
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {isEdit && isRevenda && paOn && produtoRevenda && (
-            <Secao titulo="Grade" defaultOpen={false}>
-              {variantesRevenda.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  O produto vinculado ainda não tem variantes de cor — cadastre-as no Produto Acabado.
-                </p>
-              ) : tamanhosRevenda.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Defina a proporção de tamanhos deste produto no Produto Acabado antes de preencher a grade.
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 text-left">
-                      <tr>
-                        <th className="px-3 py-2">Variante</th>
-                        {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
-                        <th className="px-3 py-2 text-right font-semibold">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variantesRevenda.map((v) => (
-                        <tr key={v.ordem} className="border-t">
-                          <td className="px-3 py-2">{varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome })}</td>
-                          {tamanhosRevenda.map((t) => (
-                            <td key={t} className="px-3 py-1.5 text-right">
-                              <NumberInput
-                                integer
-                                blankZero
-                                placeholder="0"
-                                className="h-8 w-20 text-right ml-auto"
-                                value={gradeRevenda[v.ordem]?.[t] ?? 0}
-                                data-colab-path={`grade-revenda:${v.ordem}:${t}`}
-                                onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
-                              />
-                            </td>
-                          ))}
-                          <td className="px-3 py-2 text-right font-medium tabular-nums">{totalLinhaRevenda(v.ordem)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t bg-muted/30 font-medium">
-                        <td className="px-3 py-2">Total</td>
-                        {tamanhosRevenda.map((t) => <td key={t} className="px-3 py-2 text-right tabular-nums">{totalColunaRevenda(t)}</td>)}
-                        <td className="px-3 py-2 text-right tabular-nums">{totalGeralRevenda}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </Secao>
+            <GradeRevendaSecao rv={revenda} />
           )}
 
           {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
