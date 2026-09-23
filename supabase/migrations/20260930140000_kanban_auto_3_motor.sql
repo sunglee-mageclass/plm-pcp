@@ -238,6 +238,243 @@ CREATE CONSTRAINT TRIGGER trg_kanban_processar_fila
   AFTER INSERT ON public.kanban_recalculo_fila
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.fn_kanban_processar_fila();
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- E) Enfileiradores nas tabelas-FONTE das condições (G-inicial #4/#8/#10).
+--    modelos: POR LINHA, só quando muda coluna lida pelo core (26) ou `origem` (define o fluxo).
+--    Sem status/rev/revisao_pendente no WHEN: o Sheet do Dev manda ~40 colunas por save.
+--    Tabelas-filhas: 3 gatilhos STATEMENT-LEVEL por tabela (INSERT/UPDATE/DELETE) com
+--    transition tables — no PG 17.6 transition table não aceita multi-evento nem lista de colunas.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_modelo()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM public._kanban_enfileirar(ARRAY[NEW.id]);
+  RETURN NULL;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_kanban_fila_upd ON public.modelos;
+CREATE TRIGGER trg_kanban_fila_upd
+  AFTER UPDATE ON public.modelos
+  FOR EACH ROW
+  WHEN (OLD.categoria_principal_id IS DISTINCT FROM NEW.categoria_principal_id
+     OR OLD.subcategoria1_id IS DISTINCT FROM NEW.subcategoria1_id
+     OR OLD.subcategoria2_id IS DISTINCT FROM NEW.subcategoria2_id
+     OR OLD.estilista_id IS DISTINCT FROM NEW.estilista_id
+     OR OLD.linha_id IS DISTINCT FROM NEW.linha_id
+     OR OLD.colecao IS DISTINCT FROM NEW.colecao
+     OR OLD.tecidos_planejados IS DISTINCT FROM NEW.tecidos_planejados
+     OR OLD.ordem_criacao_enviada IS DISTINCT FROM NEW.ordem_criacao_enviada
+     OR OLD.preco_venda IS DISTINCT FROM NEW.preco_venda
+     OR OLD.data_lancamento IS DISTINCT FROM NEW.data_lancamento
+     OR OLD.lancado IS DISTINCT FROM NEW.lancado
+     OR OLD.modelista_id IS DISTINCT FROM NEW.modelista_id
+     OR OLD.piloteiro1_id IS DISTINCT FROM NEW.piloteiro1_id
+     OR OLD.piloteiro2_id IS DISTINCT FROM NEW.piloteiro2_id
+     OR OLD.piloteiro3_id IS DISTINCT FROM NEW.piloteiro3_id
+     OR OLD.data_desenho_tecnico IS DISTINCT FROM NEW.data_desenho_tecnico
+     OR OLD.data_piloto1 IS DISTINCT FROM NEW.data_piloto1
+     OR OLD.data_piloto2 IS DISTINCT FROM NEW.data_piloto2
+     OR OLD.data_piloto3 IS DISTINCT FROM NEW.data_piloto3
+     OR OLD.data_aprovacao IS DISTINCT FROM NEW.data_aprovacao
+     OR OLD.croqui_url IS DISTINCT FROM NEW.croqui_url
+     OR OLD.desenho_tecnico_url IS DISTINCT FROM NEW.desenho_tecnico_url
+     OR OLD.fotos_modelo IS DISTINCT FROM NEW.fotos_modelo
+     OR OLD.ficha_medida_url IS DISTINCT FROM NEW.ficha_medida_url
+     OR OLD.enviado_cad IS DISTINCT FROM NEW.enviado_cad
+     OR OLD.custo_terceirizados_aprovado IS DISTINCT FROM NEW.custo_terceirizados_aprovado
+     OR OLD.origem IS DISTINCT FROM NEW.origem)
+  EXECUTE FUNCTION public.fn_kanban_fila_modelo();
+
+DROP TRIGGER IF EXISTS trg_kanban_fila_ins ON public.modelos;
+CREATE TRIGGER trg_kanban_fila_ins
+  AFTER INSERT ON public.modelos
+  FOR EACH ROW
+  WHEN (NEW.ordem_criacao_enviada)
+  EXECUTE FUNCTION public.fn_kanban_fila_modelo();
+
+-- Tabelas com coluna modelo_id: modelo_tecidos, modelo_grades, modelo_aviamentos, modelo_servico_mo, cad
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_por_modelo()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ids uuid[];
+BEGIN
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN NULL; END IF;
+  IF TG_OP = 'INSERT' THEN
+    SELECT array_agg(DISTINCT n.modelo_id) INTO v_ids FROM novas n WHERE n.modelo_id IS NOT NULL;
+  ELSIF TG_OP = 'DELETE' THEN
+    SELECT array_agg(DISTINCT o.modelo_id) INTO v_ids FROM antigas o WHERE o.modelo_id IS NOT NULL;
+  ELSE
+    SELECT array_agg(DISTINCT u.modelo_id) INTO v_ids
+      FROM (SELECT n.modelo_id FROM novas n UNION SELECT o.modelo_id FROM antigas o) u
+     WHERE u.modelo_id IS NOT NULL;
+  END IF;
+  PERFORM public._kanban_enfileirar(v_ids);
+  RETURN NULL;
+END;
+$function$;
+
+-- Tabelas com coluna cad_id: cad_tecidos, cad_aviamentos, cad_etiquetas, controle_qualidade, producao_terceirizados
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_por_cad()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ids uuid[];
+BEGIN
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN NULL; END IF;
+  IF TG_OP = 'INSERT' THEN
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM novas n JOIN public.cad c ON c.id = n.cad_id WHERE c.modelo_id IS NOT NULL;
+  ELSIF TG_OP = 'DELETE' THEN
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM antigas o JOIN public.cad c ON c.id = o.cad_id WHERE c.modelo_id IS NOT NULL;
+  ELSE
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM (SELECT n.cad_id FROM novas n UNION SELECT o.cad_id FROM antigas o) u
+      JOIN public.cad c ON c.id = u.cad_id
+     WHERE c.modelo_id IS NOT NULL;
+  END IF;
+  PERFORM public._kanban_enfileirar(v_ids);
+  RETURN NULL;
+END;
+$function$;
+
+-- modelo_tecido_variantes → modelo_tecidos.modelo_id
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_por_modelo_tecido()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ids uuid[];
+BEGIN
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN NULL; END IF;
+  IF TG_OP = 'INSERT' THEN
+    SELECT array_agg(DISTINCT mt.modelo_id) INTO v_ids
+      FROM novas n JOIN public.modelo_tecidos mt ON mt.id = n.modelo_tecido_id WHERE mt.modelo_id IS NOT NULL;
+  ELSIF TG_OP = 'DELETE' THEN
+    SELECT array_agg(DISTINCT mt.modelo_id) INTO v_ids
+      FROM antigas o JOIN public.modelo_tecidos mt ON mt.id = o.modelo_tecido_id WHERE mt.modelo_id IS NOT NULL;
+  ELSE
+    SELECT array_agg(DISTINCT mt.modelo_id) INTO v_ids
+      FROM (SELECT n.modelo_tecido_id FROM novas n UNION SELECT o.modelo_tecido_id FROM antigas o) u
+      JOIN public.modelo_tecidos mt ON mt.id = u.modelo_tecido_id
+     WHERE mt.modelo_id IS NOT NULL;
+  END IF;
+  PERFORM public._kanban_enfileirar(v_ids);
+  RETURN NULL;
+END;
+$function$;
+
+-- cad_tecido_variantes → cad_tecidos.cad_id → cad.modelo_id
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_por_cad_tecido()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ids uuid[];
+BEGIN
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN NULL; END IF;
+  IF TG_OP = 'INSERT' THEN
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM novas n
+      JOIN public.cad_tecidos ct ON ct.id = n.cad_tecido_id
+      JOIN public.cad c ON c.id = ct.cad_id
+     WHERE c.modelo_id IS NOT NULL;
+  ELSIF TG_OP = 'DELETE' THEN
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM antigas o
+      JOIN public.cad_tecidos ct ON ct.id = o.cad_tecido_id
+      JOIN public.cad c ON c.id = ct.cad_id
+     WHERE c.modelo_id IS NOT NULL;
+  ELSE
+    SELECT array_agg(DISTINCT c.modelo_id) INTO v_ids
+      FROM (SELECT n.cad_tecido_id FROM novas n UNION SELECT o.cad_tecido_id FROM antigas o) u
+      JOIN public.cad_tecidos ct ON ct.id = u.cad_tecido_id
+      JOIN public.cad c ON c.id = ct.cad_id
+     WHERE c.modelo_id IS NOT NULL;
+  END IF;
+  PERFORM public._kanban_enfileirar(v_ids);
+  RETURN NULL;
+END;
+$function$;
+
+-- categorias_terceirizado (etapa/nome/ativo → _cq_liberado/_resolver_fonte_confeccao): a LOJA inteira.
+CREATE OR REPLACE FUNCTION public.fn_kanban_fila_categoria()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM public._kanban_enfileirar_tenant(coalesce(NEW.tenant_id, OLD.tenant_id));
+  RETURN NULL;
+END;
+$function$;
+
+-- 3 gatilhos statement-level por tabela-filha (nomes iguais em todas: trg_kanban_fila_{ins,upd,del}).
+DO $do$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('modelo_tecidos',          'fn_kanban_fila_por_modelo'),
+      ('modelo_grades',           'fn_kanban_fila_por_modelo'),
+      ('modelo_aviamentos',       'fn_kanban_fila_por_modelo'),
+      ('modelo_servico_mo',       'fn_kanban_fila_por_modelo'),
+      ('cad',                     'fn_kanban_fila_por_modelo'),
+      ('modelo_tecido_variantes', 'fn_kanban_fila_por_modelo_tecido'),
+      ('cad_tecidos',             'fn_kanban_fila_por_cad'),
+      ('cad_aviamentos',          'fn_kanban_fila_por_cad'),
+      ('cad_etiquetas',           'fn_kanban_fila_por_cad'),
+      ('controle_qualidade',      'fn_kanban_fila_por_cad'),
+      ('producao_terceirizados',  'fn_kanban_fila_por_cad'),
+      ('cad_tecido_variantes',    'fn_kanban_fila_por_cad_tecido')
+    ) AS t(tabela, fn)
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_kanban_fila_ins ON public.%I', r.tabela);
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_kanban_fila_upd ON public.%I', r.tabela);
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_kanban_fila_del ON public.%I', r.tabela);
+    EXECUTE format('CREATE TRIGGER trg_kanban_fila_ins AFTER INSERT ON public.%I '
+                   || 'REFERENCING NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    EXECUTE format('CREATE TRIGGER trg_kanban_fila_upd AFTER UPDATE ON public.%I '
+                   || 'REFERENCING OLD TABLE AS antigas NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+    EXECUTE format('CREATE TRIGGER trg_kanban_fila_del AFTER DELETE ON public.%I '
+                   || 'REFERENCING OLD TABLE AS antigas FOR EACH STATEMENT EXECUTE FUNCTION public.%I()', r.tabela, r.fn);
+  END LOOP;
+END
+$do$;
+
+DROP TRIGGER IF EXISTS trg_kanban_fila_upd ON public.categorias_terceirizado;
+CREATE TRIGGER trg_kanban_fila_upd
+  AFTER UPDATE ON public.categorias_terceirizado
+  FOR EACH ROW
+  WHEN (OLD.etapa IS DISTINCT FROM NEW.etapa
+     OR OLD.nome IS DISTINCT FROM NEW.nome
+     OR OLD.ativo IS DISTINCT FROM NEW.ativo)
+  EXECUTE FUNCTION public.fn_kanban_fila_categoria();
+
+DROP TRIGGER IF EXISTS trg_kanban_fila_del ON public.categorias_terceirizado;
+CREATE TRIGGER trg_kanban_fila_del
+  AFTER DELETE ON public.categorias_terceirizado
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_kanban_fila_categoria();
+
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');

@@ -1026,3 +1026,188 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
     });
   });
 });
+
+// ─────────────────── Migration 3E — enfileiradores (Task 12) ───────────────────
+async function filaIds(c: Client): Promise<string[]> {
+  return (await c.query(`SELECT modelo_id FROM public.kanban_recalculo_fila`)).rows.map((r) => r.modelo_id);
+}
+/** Um evento em CADA tabela-fonte das condições (13 + categorias). Cada item: [rótulo, sql, params]. */
+async function eventosFonte(c: Client, M: string): Promise<[string, string, unknown[]][]> {
+  const vt = await um<{ vid: string; aid: string }>(c, `SELECT id AS vid, artigo_id AS aid FROM public.variantes_tecido WHERE tenant_id = $1 LIMIT 1`, [T]);
+  const av = await um<{ id: string }>(c, `SELECT id FROM public.aviamentos WHERE tenant_id = $1 LIMIT 1`, [T]);
+  const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 AND ativo LIMIT 1`, [T]);
+  return [
+    ["modelos (coluna do WHEN)", `UPDATE public.modelos SET data_piloto3 = $2 WHERE id = $1`, [M, HOJE]],
+    ["modelos.origem → revenda", `UPDATE public.modelos SET origem = 'revenda' WHERE id = $1`, [M]],
+    ["modelos.origem → interno", `UPDATE public.modelos SET origem = 'interno' WHERE id = $1`, [M]],
+    ["modelo_tecidos INSERT", `INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido')`, [M, vt.aid]],
+    ["modelo_tecido_variantes INSERT", `INSERT INTO public.modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem)
+        SELECT id, $2, 1 FROM public.modelo_tecidos WHERE modelo_id = $1`, [M, vt.vid]],
+    ["modelo_grades INSERT", `INSERT INTO public.modelo_grades (modelo_id, variante_numero, grades, grade_total) VALUES ($1, 1, '{"P": 2}', 2)`, [M]],
+    ["modelo_grades UPDATE", `UPDATE public.modelo_grades SET grade_total = 3 WHERE modelo_id = $1`, [M]],
+    ["modelo_aviamentos INSERT", `INSERT INTO public.modelo_aviamentos (modelo_id, aviamento_id, numero) VALUES ($1, $2, 1)`, [M, av.id]],
+    ["modelo_aviamentos DELETE", `DELETE FROM public.modelo_aviamentos WHERE modelo_id = $1`, [M]],
+    ["modelo_servico_mo INSERT", `INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($3, $1, $2, 5)`, [M, cat.id, T]],
+    ["cad INSERT", `INSERT INTO public.cad (modelo_id, tenant_id) VALUES ($1, $2)`, [M, T]],
+    ["cad_tecidos INSERT", `INSERT INTO public.cad_tecidos (cad_id, artigo_id, numero, tipo) SELECT id, $2, 1, 'tecido' FROM public.cad WHERE modelo_id = $1`, [M, vt.aid]],
+    ["cad_tecido_variantes INSERT", `INSERT INTO public.cad_tecido_variantes (cad_tecido_id, variante_tecido_id, ordem)
+        SELECT ct.id, $2, 1 FROM public.cad_tecidos ct JOIN public.cad c ON c.id = ct.cad_id WHERE c.modelo_id = $1`, [M, vt.vid]],
+    ["cad_tecido_variantes UPDATE", `UPDATE public.cad_tecido_variantes SET quantidade_folhas = 2
+        WHERE cad_tecido_id IN (SELECT ct.id FROM public.cad_tecidos ct JOIN public.cad c ON c.id = ct.cad_id WHERE c.modelo_id = $1)`, [M]],
+    ["cad_aviamentos INSERT", `INSERT INTO public.cad_aviamentos (cad_id, aviamento_id, numero) SELECT id, $2, 1 FROM public.cad WHERE modelo_id = $1`, [M, av.id]],
+    ["cad_etiquetas INSERT", `INSERT INTO public.cad_etiquetas (cad_id) SELECT id FROM public.cad WHERE modelo_id = $1`, [M]],
+    ["controle_qualidade INSERT", `INSERT INTO public.controle_qualidade (cad_id, tenant_id) SELECT id, $2 FROM public.cad WHERE modelo_id = $1`, [M, T]],
+    ["controle_qualidade UPDATE", `UPDATE public.controle_qualidade SET status_pos = 'pendente' WHERE cad_id IN (SELECT id FROM public.cad WHERE modelo_id = $1)`, [M]],
+    ["producao_terceirizados INSERT", `INSERT INTO public.producao_terceirizados (cad_id, tenant_id, categoria_terceirizado_id)
+        SELECT id, $2, $3 FROM public.cad WHERE modelo_id = $1`, [M, T, cat.id]],
+    ["cad UPDATE", `UPDATE public.cad SET enviado_corte = true WHERE modelo_id = $1`, [M]],
+  ];
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3E: enfileiradores (Task 12)", () => {
+  it("chave DESLIGADA: NENHUM evento em nenhuma tabela-fonte enfileira (fila vazia antes e depois do COMMIT)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c));
+      for (const [nome, sql, params] of await eventosFonte(c, M)) {
+        await c.query(sql, params);
+        expect(await tamanhoFila(c), nome).toBe(0);
+      }
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 LIMIT 1`, [T]);
+      await c.query(`UPDATE public.categorias_terceirizado SET ativo = NOT ativo WHERE id = $1`, [cat.id]);
+      expect(await tamanhoFila(c)).toBe(0);
+      await imediato(c);
+      expect(await tamanhoFila(c)).toBe(0);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+    });
+  });
+
+  it("chave LIGADA: cada tabela-fonte enfileira o modelo; coluna fora do WHEN (e escrita do sistema) não enfileira", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c));
+      for (const [nome, sql, params] of await eventosFonte(c, M)) {
+        await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+        await c.query(sql, params);
+        expect(await filaIds(c), nome).toContain(M);
+      }
+      await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+      await setar(c, M, { observacoes_gerais: "fora do WHEN", revisao_pendente: { x: true } });
+      expect(await tamanhoFila(c)).toBe(0);
+      await comoSistema(c, () => setar(c, M, { data_piloto3: null }));
+      expect(await tamanhoFila(c)).toBe(0);
+      const N = await novoModelo(c, { ordem_criacao_enviada: false });
+      expect(await filaIds(c)).not.toContain(N); // INSERT sem Ordem de Criação não entra
+      const O = await novoModelo(c);
+      expect(await filaIds(c)).toContain(O); // INSERT com Ordem de Criação entra
+      await imediato(c);
+      expect(await tamanhoFila(c)).toBe(0);
+    });
+  });
+
+  it("categorias_terceirizado (etapa/nome/ativo) enfileira a LOJA inteira; `ordem` não", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 LIMIT 1`, [T]);
+      await c.query(`UPDATE public.categorias_terceirizado SET ordem = ordem + 1 WHERE id = $1`, [cat.id]);
+      expect(await tamanhoFila(c)).toBe(0);
+      await c.query(`UPDATE public.categorias_terceirizado SET etapa = CASE WHEN etapa = 'pos_costura' THEN 'ate_costura' ELSE 'pos_costura' END WHERE id = $1`, [cat.id]);
+      const elegiveis = await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.modelos WHERE tenant_id = $1 AND ordem_criacao_enviada AND NOT lancado`, [T]);
+      expect(await tamanhoFila(c)).toBe(Number(elegiveis.n));
+    });
+  });
+
+  it("motor por evento: avança/regride em cascata, reprovado SEMPRE manual, fixado não anda, colunas puladas sem linha", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { reqs: { ...REQS, reprovado: ["data_desenho_tecnico"] } });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c));
+      await setar(c, M, { data_desenho_tecnico: HOJE });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      await setar(c, M, { data_piloto2: HOJE });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // c sem b: não pula
+      await setar(c, M, { data_piloto1: HOJE, data_aprovacao: HOJE });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("aprovado"); // reprovado (c/ requisito satisfeito) NUNCA é destino
+      expect(await historico(c, M)).toEqual(["entrada:manual", "aprovado:auto"]); // janela: 1 linha auto, pulos sem linha
+      await setar(c, M, { data_piloto1: null });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // regride p/ a última satisfeita antes de b
+      expect((await lerModelo(c, M)).erro).toBe(false); // decisão 14: recuo automático não acende #Erro
+      await setar(c, M, { data_piloto1: HOJE });
+      await imediato(c);
+      await setar(c, M, { status_desenvolvimento: "stand_by" }); // fixa (coluna manual)
+      await imediato(c);
+      await setar(c, M, { data_aprovacao: null, data_piloto2: null });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("stand_by"); // fixado não anda
+    });
+  });
+
+  // DDL próprio (TEMP TABLE + função pg_temp + CREATE/DROP TRIGGER na fila) → SÓ na cópia local (decisão 17)
+  it.skipIf(!LOCAL)("sem recursão: o UPDATE do motor não re-enfileira (1 inserção na fila, antes e depois do COMMIT)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c));
+      await c.query(`CREATE TEMP TABLE _ka_fila_log (profundidade int)`);
+      await c.query(`CREATE FUNCTION pg_temp.fn_ka_fila_log() RETURNS trigger LANGUAGE plpgsql AS $f$
+                     BEGIN INSERT INTO _ka_fila_log VALUES (pg_trigger_depth()); RETURN NULL; END $f$`);
+      await c.query(`CREATE TRIGGER zz_ka_fila_log AFTER INSERT ON public.kanban_recalculo_fila
+                     FOR EACH ROW EXECUTE FUNCTION pg_temp.fn_ka_fila_log()`);
+      await setar(c, M, { data_desenho_tecnico: HOJE });
+      const antes = await c.query(`SELECT profundidade FROM _ka_fila_log`);
+      await imediato(c);
+      const depois = await c.query(`SELECT profundidade FROM _ka_fila_log`);
+      expect(antes.rows.length).toBe(1);
+      expect(depois.rows).toEqual(antes.rows);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      // a trava: com GUC não vazio (escrita do motor/RPCs) o enfileirador sai cedo
+      await guc(c, "auto");
+      await c.query(`SELECT public._kanban_enfileirar(ARRAY[$1]::uuid[])`, [M]);
+      await guc(c, "");
+      expect(await tamanhoFila(c)).toBe(0);
+      await c.query(`DROP TRIGGER zz_ka_fila_log ON public.kanban_recalculo_fila`);
+    });
+  });
+
+  it("salvar_modelo_bom (apaga e reinsere o BOM) NÃO gera linha transitória nem muda o status", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c);
+      await configurarBoard(c, { reqs: { etapa_a: ["tecido_com_variante"] } });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c));
+      const vt = await um<{ vid: string; aid: string }>(c, `SELECT id AS vid, artigo_id AS aid FROM public.variantes_tecido WHERE tenant_id = $1 LIMIT 1`, [T]);
+      const bom = JSON.stringify([{ artigo_id: vt.aid, numero: 1, tipo: "tecido", variantes: [vt.vid] }]);
+      const salvar = () => c.query(`SELECT public.salvar_modelo_bom($1, $2::jsonb, '[]'::jsonb, '[]'::jsonb)`, [M, bom]);
+      await salvar();
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      const hist = await historico(c, M);
+      await salvar(); // DELETE de tudo + INSERT de novo na MESMA txn
+      expect(await filaIds(c)).toContain(M);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // nada recalculado no meio
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      expect(await historico(c, M)).toEqual(hist);
+      // o estado INTERMEDIÁRIO (sem variante) recuaria se o recálculo não fosse adiado:
+      await c.query(`DELETE FROM public.modelo_tecido_variantes WHERE modelo_tecido_id IN (SELECT id FROM public.modelo_tecidos WHERE modelo_id = $1)`, [M]);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      await salvar();
+      await imediato(c);
+      expect(await historico(c, M)).toEqual(hist);
+    });
+  });
+});
