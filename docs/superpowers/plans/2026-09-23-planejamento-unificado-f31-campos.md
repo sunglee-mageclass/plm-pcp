@@ -18,7 +18,7 @@
 **Requisitos da spec (texto literal)**
 - Campo NOVO: rótulo **"Descrição do produto"**, placeholder **"Descreva o produto…"**, "texto longo, largura total, no fim da seção 1 'Informações Gerais do Produto' (Sheet e Dialog de novo)". Coluna `modelos.descricao_produto text`, "migration aditiva PRÓPRIA … FORA das `kanban_auto_*` e do `_kanban_auto_down.sql` … `ADD COLUMN IF NOT EXISTS` … inverso próprio avisando que o DROP apaga o digitado". Número fixado aqui: **`20260930180000`** (a F3.2, se precisar de migration, usa ≥ `20260930190000`).
 - "'Replicar card(s)' LEVA a descrição — redefinir `_replicar_cards_plan_tecido_core` (lista fixa de colunas) na MESMA migration própria da coluna, com diff `pg_get_functiondef` e inverso (G-migration)". "Duplicar copia (via `...draft`)". "'Importar dados' (Dev) não copia". "Ficha Técnica não imprime (não pedido)". "`types.ts` sem a coluna até regenerar (cast)". `data-colab-path="descricao_produto"`.
-- **ORDEM OBRIGATÓRIA:** a coluna é aplicada em PRODUÇÃO (Task 9) ANTES de qualquer QA e ANTES do merge — o vite local do dono (`:5173`) grava em produção e o payload do Salvar passa a levar `descricao_produto` (sem a coluna, TODO Salvar do Planejamento cai com PGRST204).
+- **ORDEM OBRIGATÓRIA (re-check do guardião N1/N2):** a coluna vai a PRODUÇÃO (Task 9) **só DEPOIS da F1 em produção** (runbook da F1, Step 7 OK) e **ANTES do merge** — o vite local do dono (`:5173`) grava em produção e o payload do Salvar passa a levar `descricao_produto` (sem a coluna, TODO Salvar do Planejamento cai com PGRST204). Se a coluna chegasse ANTES da F1, o pré-voo da F1 PARARIA: a fidelidade produção × `fidelidade_ref_local.txt` diverge em colunas (runbook v2 da F1, :383-384). O QA NÃO espera a Task 9: roda na CÓPIA LOCAL, com a coluna aplicada lá (Task 10).
 - "Etapa FORA do Salvar: o Draft unificado NÃO carrega `status_desenvolvimento` … A etapa muda só pelo selo 'Mover para…' (regras do QUADRO: cascata + limpa `#Erro` kanban; com a chave desligada = comportamento de hoje), sem apagar `motivo_cancelamento` ao sair de Reprovado (dono, 23/set: o motivo fica guardado)."
 - Selo da etapa no **header do Sheet (Nome → REF → selo)** (decisão travada 5), consumindo `EtapaKanbanBadge` da F2.
 - Decisão F3 #8: seções do Dev **sempre visíveis (independente da etapa)** p/ quem tem `canView("criacao_desenvolvimento")`, **editáveis com `canEdit("criacao_desenvolvimento")`**; "sem permissão o Salvar omite esses campos"; revenda/comprado segue "Fluxo de Revenda" (`revendaCampoVisivel`). Decisão travada 6: recolhidas.
@@ -38,18 +38,48 @@
 
 **Banco**
 - NUNCA teste de integração contra produção (`/tmp/dburl.txt` = PRODUÇÃO; `tests/integration/db.ts:18-26` cai nele sem `DATABASE_URL`). DDL/migration SÓ na cópia local `postgresql://postgres:postgres@127.0.0.1:54422/postgres`, dentro do harness (`exigeBancoLocal`). PROIBIDO `psql -f`/`\i` de migration (incidentes 15/set e 23/set). A cópia local é compartilhada com a F1: o controlador NÃO roda a integração da F3.1 junto com a suíte `kanban-auto` (DDL em `modelos` segura lock até o ROLLBACK).
-- **Receita de travas (R7 do G-plano conjunto = G-migration da F1, R1):** a migration e o inverso só vão a um banco FORA do harness pelo `aplica_v2` de `.superpowers/f31/mig/aplica.sh` (Task 1 — cópia fiel do bloco do runbook `.superpowers/sdd/2026-09-22-kanban-automatico-f1-banco/task-18-runbook-v2.md` §2-§3): o arquivo INTEIRO numa mensagem (`psql -X -v ON_ERROR_STOP=1 -c "…"`, sem `-f`/`-1`), `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` injetados logo depois do `BEGIN;`, nova tentativa SÓ em 55P03/40P01/25P04 (máx. 5, com o ATIV antes), qualquer outro erro PARA. Dentro do arquivo: `CREATE FUNCTION` antes e o `ALTER TABLE modelos` POR ÚLTIMO. Só dois usos: o ensaio na cópia local (Task 1 Step 8) e a produção (Task 9).
-- Produção só na Task 9: G-migration do guardião APROVA + OK explícito do dono. Leitura em produção antes disso: proibida nesta fase.
+- **N3 (re-check do guardião) — a cópia é também o APP DE TESTE do dono** (`banco-local/APP-TESTE-LOCAL.md`: `http://localhost:5188`, Supabase local `127.0.0.1:54321` sobre o MESMO Postgres `:54422`). Todo teste com DDL em transação na cópia CONGELA o `:5188` enquanto roda: a suíte inteira inclui `tests/integration/kanban-auto.test.ts`, que aplica a F1 DENTRO de uma transação (`ALTER TABLE public.tenant_config`, `20260930120000:67` — toda tela lê `tenant_config`); o teste da F3.1 e o ensaio fazem `ALTER TABLE modelos`. Vale para o T0 Step 5, os T1 Steps 3/6/8 e o T11 Step 2. Em cada um: (1) o controlador AVISA o dono por chat ANTES (texto: *"Vou rodar <o quê> na cópia local agora (~<N> min). Enquanto roda, o app de teste :5188 congela — a suíte faz ALTER em tenant_config/modelos dentro de transação. Se estiver usando o :5188, salve e me avise quando posso começar."*) e só roda com o `:5188` ocioso (o dono confirma); (2) anota o estado da cópia nas DUAS pontas com `bash .superpowers/f31/n3-copia.sh antes|depois <passo>` — `funções|gatilhos|coluna`: `427|219|0` = sem a F1 e sem a coluna (referência); `427|219|1` = com a coluna (QA, ou depois do merge); `458|263|…` = a F1 APLICADA na cópia pelo controlador para o teste do dono (APP-TESTE-LOCAL.md §8) — aí os testes da F1 mudam de resultado e a falha se classifica como "de outra fase". Sem o aviso ou com o `:5188` em uso: não roda e registra o desvio (R10) em `.superpowers/f31/logs/r10-desvio.txt`.
+- Criar UMA vez (fora do git; se ainda não existir) `.superpowers/f31/n3-copia.sh` — só leitura:
 
-**Gates (toda task de código)** — `.superpowers/f31/gates.sh` (Task 0): `npm run build` ok · `npx tsc --noEmit` = 0 erro (build NÃO faz type-check) · `env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit` com o MESMO conjunto de falhas da linha de base (hoje: 2, ambas do `ui-padroes-antidrift`, fora do escopo) · nenhum hit do anti-drift em arquivo da F3.1 · Dev intocado · diff só nos caminhos permitidos. NUNCA `npx vitest run` sem caminho. **Suíte INTEIRA (R10 do G-plano):** 1× na linha de base (Task 0 Step 5) e 1× no G-commit (Task 11 Step 2), sempre com `DATABASE_URL` = cópia local e SEM sobrepor a nenhum teste da F1 na cópia (o controlador confere que nenhum `vitest` está rodando); se não der, o desvio é registrado no relato do G-commit.
+```bash
+#!/usr/bin/env bash
+# N3 (re-check do guardião) — estado da CÓPIA LOCAL nas duas pontas de um uso que congela o app de teste do dono (:5188).
+# Uso (raiz da worktree): bash .superpowers/f31/n3-copia.sh antes|depois <passo>   ex.: antes t11s2   — SÓ LEITURA.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+LOCAL="postgresql://postgres:postgres@127.0.0.1:54422/postgres"
+Q="select (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public') || '|' || (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal) || '|' || (select count(*) from information_schema.columns where table_schema='public' and table_name='modelos' and column_name='descricao_produto')"
+case "${1:-}" in antes|depois) ;; *) echo "uso: n3-copia.sh antes|depois <passo>"; exit 2;; esac
+PASSO="${2:?informe o passo, ex.: t11s2}"
+mkdir -p .superpowers/f31/logs
+E=$(PGCONNECT_TIMEOUT=5 psql "$LOCAL" -X -A -t -v ON_ERROR_STOP=1 -c "$Q") || { echo "cópia local fora do ar"; exit 1; }
+P=$(lsof -nP -iTCP:5188 -sTCP:LISTEN -t 2>/dev/null | head -1)
+if [ -n "$P" ]; then APP="app de teste :5188 no ar (PID $P)"; else APP="app de teste :5188 fora do ar"; fi
+echo "$(date '+%F %T') $1 $PASSO: funções|gatilhos|coluna = $E · $APP" | tee -a .superpowers/f31/logs/n3-copia.log
+case "$E" in
+  "427|219|0") echo "  = sem a F1 e sem a coluna (referência)";;
+  "427|219|1") echo "  = sem a F1, COM a coluna (QA da F3.1/F3.2, ou depois do merge da F3.1)";;
+  458\|263\|*) echo "  = F1 APLICADA na cópia (teste do dono, APP-TESTE-LOCAL.md §8): falha de teste da F1 = 'de outra fase'";;
+  *) echo "  = estado INESPERADO — registrar e avisar o controlador";;
+esac
+```
+- **Receita de travas (R7 do G-plano conjunto = G-migration da F1, R1):** a migration e o inverso só vão a um banco FORA do harness pelo `aplica_v2` de `.superpowers/f31/mig/aplica.sh` (Task 1 — cópia fiel do bloco do runbook `.superpowers/sdd/2026-09-22-kanban-automatico-f1-banco/task-18-runbook-v2.md` §2-§3): o arquivo INTEIRO numa mensagem (`psql -X -v ON_ERROR_STOP=1 -c "…"`, sem `-f`/`-1`), `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` injetados logo depois do `BEGIN;`, nova tentativa SÓ em 55P03/40P01/25P04 (máx. 5, com o ATIV antes), qualquer outro erro PARA. Dentro do arquivo: `CREATE FUNCTION` antes e o `ALTER TABLE modelos` POR ÚLTIMO. Só três usos: o ensaio na cópia local (Task 1 Step 8), a coluna na CÓPIA para o QA (`copia-qa.sh ida|volta` — Task 10 Steps 2/8, Task 11 Step 5b, QA da F3.2; N2) e a produção (Task 9).
+- Produção só na Task 9: G-migration do guardião APROVA + **a F1 JÁ aplicada em produção (runbook da F1, Step 7 OK — N1)** + OK explícito do dono. Leitura em produção antes disso: proibida nesta fase.
+- **Coluna na CÓPIA para o QA (N2 — ruling do controlador):** entra por `aplica_v2 $LOCAL` (`.superpowers/f31/mig/copia-qa.sh ida`, Task 10 Step 2), com backup `pg_dump -Fc` antes, SÓ DEPOIS dos T1 Steps 6/8 (esses testes pressupõem a coluna AUSENTE); sai (`copia-qa.sh volta`) ANTES do T11 Step 2 e ANTES de qualquer re-ensaio da F1 ou regravação das referências dela (`fidelidade_ref_local.txt` é da cópia SEM a coluna). Depois do merge da F3.1 ela VOLTA e fica (o `:5188` do dono serve o checkout principal, que passa a gravar `descricao_produto` — Task 11 Step 5b). A F1, na cópia, só é aplicada pelo controlador na hora do teste do dono (APP-TESTE-LOCAL.md §8) — nunca por uma task desta fase.
 
-**QA de navegador**
-- `E2E_BASE_URL` SEMPRE explícito e local (o default do `playwright.config.ts:26` é PRODUÇÃO); o spec LANÇA erro sem ele (não "pula calado" — RS1 da F2). Guarda de rede fail-closed em 2 frentes (Supabase: escrita simulada ou barrada; origem do app: todo NÃO-GET barrado). Barradas "esperadas" (continuam barradas, não reprovam): `rpc/servicos_financeiro` da Home (NUNCA liberar — sincroniza `parcelas_servico` em produção) e o broadcast REST do Realtime (lição da G-fase F3.0). O robô NÃO troca de loja: toda leitura de `tenant_config` tem de ser da Loja Teste (`37889b78-fffb-404b-8c75-18b7e50a1d9b`), senão o teste falha. Único efeito inerente: metadado de login no Auth.
-- 2º vite na worktree em `:5199` (checar porta livre; se ocupada, PARAR — nunca matar nada); encerrar SÓ o PID que escuta `:5199` com `cwd` = worktree. NUNCA tocar no vite do dono (`:5173`). Nunca rodar junto com o E2E da F2 nem com QA da F3.2 (mesmo usuário, presença Realtime).
+**Gates (toda task de código)** — `.superpowers/f31/gates.sh` (Task 0): `npm run build` ok · `npx tsc --noEmit` = 0 erro (build NÃO faz type-check) · `env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit` com o MESMO conjunto de falhas da linha de base (hoje: 2, ambas do `ui-padroes-antidrift`, fora do escopo) · nenhum hit do anti-drift em arquivo da F3.1 · Dev intocado · diff só nos caminhos permitidos. NUNCA `npx vitest run` sem caminho. **Suíte INTEIRA (R10 do G-plano):** 1× na linha de base (Task 0 Step 5) e 1× no G-commit (Task 11 Step 2), sempre com `DATABASE_URL` = cópia local, SEM sobrepor a nenhum teste da F1 na cópia (o controlador confere que nenhum `vitest` está rodando), com o procedimento N3 (dono avisado, `:5188` ocioso, estado nas duas pontas) e com a coluna AUSENTE da cópia; se não der, o desvio é registrado no relato do G-commit.
+
+**QA de navegador — CONTRA A CÓPIA (N2 do re-check do guardião + ruling do controlador)**
+- O QA (Task 10) roda num **app de teste PRÓPRIO da worktree**: variante do mecanismo `banco-local/app-teste/` (APP-TESTE-LOCAL.md §5) em `http://localhost:5187`, sobre a CÓPIA LOCAL (Supabase `127.0.0.1:54321`), com porta, PID, log, `cacheDir`, `envDir` e `wrangler.jsonc` próprios e a MESMA guarda que aborta a subida se qualquer URL não for local (+ raiz = a worktree). **NUNCA o `:5188`** (serve o checkout PRINCIPAL do dono). **NUNCA `npm run dev` + `VITE_*`**: o `@cloudflare/vite-plugin` lê o `.env` da pasta do wrangler (a worktree) e as server functions iriam a PRODUÇÃO com a service role.
+- **Guarda de rede INVERTIDA na cópia:** gravação liberada SÓ para `127.0.0.1:54321`; QUALQUER requisição a `*.supabase.co` (GET inclusive) reprova. O spec automático continua com as escritas simuladas (cenários determinísticos); os fluxos que GRAVAM de verdade (card novo, Replicar, "Mover para…", conflito/Realtime, os testes manuais da §5) rodam na cópia, um item por vez, pelo controlador, mostrando cada passo ao dono (OK item a item).
+- **Produção:** só a Task 9 (coluna) e o smoke SÓ-LEITURA pós-merge no `:5173` (Task 11 Step 6), com a guarda de sempre: fail-closed em 2 frentes (Supabase: escrita simulada ou barrada; origem do app: todo NÃO-GET barrado) e as barradas "esperadas" (continuam barradas, não reprovam): `rpc/servicos_financeiro` da Home (NUNCA liberar — sincroniza `parcelas_servico` em produção) e o broadcast REST do Realtime (lição da G-fase F3.0).
+- `E2E_BASE_URL`, `VITE_SUPABASE_URL` e `F31_ALVO` (`copia` | `producao`) SEMPRE explícitos (o default do `playwright.config.ts:26` é PRODUÇÃO); o spec LANÇA erro sem eles — sem fallback de host (NOTA do re-check: fallback = guarda aberta). O robô NÃO troca de loja: toda leitura de `tenant_config` tem de ser da Loja Teste (`37889b78-fffb-404b-8c75-18b7e50a1d9b`), senão o teste falha.
+- Login na cópia: a senha do usuário de teste (`E2E_EMAIL`/`E2E_PASSWORD` do `.env`) JÁ confere na cópia (opção A de APP-TESTE-LOCAL.md §3, aplicada em 23/set). O **Storage NÃO funciona na cópia** (§4: 0 buckets): Ficha de Medida/anexos ficam para o smoke em produção (Task 11 Step 6b).
+- Portas: F3.1 = `:5187`, F3.2 = `:5186`; `:5188` (dono, app de teste), `:5173` (dono, produção) e `:5198`/`:5199` (QAs antigos) nunca. Porta ocupada ⇒ PARAR (nunca matar nada); derrubar SÓ pelo `descer.sh` da variante (confere o PID). Nunca rodar junto com o E2E da F2 nem com o QA da F3.2 (mesmo usuário; presença e Realtime agora REAIS na cópia).
 
 **UI (docs/design/ui-padroes.md §A/§G/§Q)** — editar = Sheet, novo = Dialog; datas `<DateField>` (nunca `<input type="date">`); erros `mensagemErro()`; ações no rodapé sticky; cor só por token; ícones lucide com tamanho por `className`; fonte ≥ `text-[11px]`; componentes SEMPRE no nível do módulo (nunca declarados dentro de outro); alvos de toque 44px no mobile (`max-sm:min-h-11`).
 
-**Modelos e comunicação** — Sonnet executa (Tasks 0–10), Opus revisa (ver §4); sem Fable. Avisos ao dono por CHAT, sem popup de plano (`ExitPlanMode` proibido).
+**Modelos e comunicação** — Sonnet executa (Tasks 0–10), Opus revisa (ver §4); sem Fable. O controlador faz a Task 9, os testes manuais M1–M8 da Task 10 Step 6 (mostrando cada passo ao dono) e o item 2 da §5 (Task 11 Step 6b). Avisos ao dono por CHAT, sem popup de plano (`ExitPlanMode` proibido).
 
 ---
 
@@ -80,6 +110,9 @@
 - `_replicar_cards_plan_tecido_core` VIVO = corpo de `supabase/migrations/20260908240000_plan_tecido_replicar_ref.sql:16-195` = snapshot `savepoints/2026-09-22-pre-unificacao/funcoes.sql:6140-6319` = cópia local (diff feito 23/set; `md5(pg_get_functiondef)` na cópia local = `e0393c79fb962a068fd7a3e4636acbe6`). Linhas-âncora únicas: `:96` `      versao, modelo_base_id, mix_id, ref, ref_auto` e `:107` `      v_versao, v_root, o.mix_id, o.ref, o.ref_auto`; fecha em `:195` `end $function$;`. ACL na cópia local: `{postgres=X/postgres,service_role=X/postgres}` (REVOKE dos 3 em `20260903140000:191`).
 - Cópia local: `modelos` com 66 colunas, sem `descricao_produto`; Loja Teste + usuário de teste presentes; `set_tenant_id_trg` em `modelos`/`colecoes`/`plan_tecido*`. `_replicar_produtos_acabados_core` insere em `modelos` só identidade (funcoes.sql:6391-6397) — não copia textos do card (ver Decisão do dono D2).
 
+**Cópia local = app de teste do dono (conferido 23/set, só leitura — re-check do guardião)**
+- `funções|gatilhos|coluna` = `427|219|0` (sem a F1, sem `descricao_produto`); `:5188` no ar (PID do dono) servindo o checkout PRINCIPAL por `banco-local/app-teste/vite.config.local-copia.mjs` (REPO e PORTA fixos); `:5186`/`:5187` livres. Loja Teste na cópia: 14 internos, 5 com `enviado_cad`, 13 com Ordem de Criação, 4 internos com BOM e sem CAD; `tenant_config` SEM `kanban_automatico` (a F1 não está na cópia). Storage local vazio (fotos quebradas); Realtime, PostgREST e server functions locais funcionando (APP-TESTE-LOCAL.md §4).
+
 **Testes**
 - `tests/integration/db.ts`: `ehBancoLocal()` (:44-53), `withTx` (:63-77), `comoUsuario` (:80-92), `um` (:100-103). O harness de migration da F1 é local ao arquivo `kanban-auto.test.ts` (:56-128) — a F3.1 copia o essencial para `tests/integration/mig-txn.ts` (não mexe no arquivo da F1).
 - `useAuth.tsx:111-118`: admin/super/tenant_admin furam `canView/canEdit`; perfis vêm de `user_roles` (GET) + `rpc/minhas_permissoes_efetivas` (:40-43) — o QA simula um usuário comum respondendo essas 2 leituras.
@@ -93,6 +126,8 @@
 | `tests/integration/mig-txn.ts` (novo) | harness mínimo: aplica arquivo SQL DENTRO da txn, só na cópia local | 1 |
 | `tests/integration/modelo-descricao-produto.test.ts` (novo) | estático (arquivos, ALTER por último) + DB (coluna, diff da função, ACL, Replicar, inverso, desistência em 55P03 com `modelos` ocupada) | 1 |
 | `.superpowers/f31/mig/{aplica.sh,ensaio-local.sh,ida-producao.sh,volta-producao.sh}` (fora do git) | receita de travas do G-migration F1 (`aplica_v2`) + ensaio local + produção + volta de emergência | 1, 9 |
+| `.superpowers/f31/mig/copia-qa.sh` + `.superpowers/f31/n3-copia.sh` (fora do git) | coluna na CÓPIA para o QA (ida/volta com backup) + estado da cópia nas pontas (N3) | 10, 11 (N3: 0, 1, 11) |
+| `banco-local/app-teste-variantes/{criar-variante.sh,f31/}` (fora do repo) | app de teste da worktree em `:5187` (variante do `banco-local/app-teste`, guarda "tudo local" + raiz) | 10 (a F3.2 reusa com `f32`/`:5186`) |
 | `src/components/planejamento/modelo-shared.ts` (mod.) | `Draft` +13 campos, `emptyDraft`, `draftFromModeloRow` | 2 |
 | `planejamento-detail/helpers.ts` (mod.) | rótulos de conflito; `CAMPOS_DEV_DRAFT`, `textoOuNull`, `aplicarRegrasCamposDev`, `camposParaDuplicar` | 2 |
 | `planejamento-detail/usePlanejamentoSave.ts` (mod.) | payload pelas regras (T2); invalida condições (T5) e composição (T6); card novo: insert-uma-vez + `onCreated` (T7) | 2, 5, 6, 7 |
@@ -112,7 +147,7 @@
 | `tests/unit/planejamento-detail-helpers.test.ts` (mod.) | rótulos novos + regras de payload + Duplicar | 2 |
 | `tests/unit/planejamento-ficha-etapa.test.ts` (novo) | `etapa-kanban.ts` | 4 |
 | `tests/unit/planejamento-ficha-mover.test.ts` (novo) | `etapa-mover.ts` | 8 |
-| `tests/e2e/f31-qa.spec.ts` (novo, NUNCA commitado) | QA só-leitura com guarda de rede | 10 |
+| `tests/e2e/f31-qa.spec.ts` (novo, NUNCA commitado) | QA na CÓPIA (escritas simuladas + guarda invertida), testes manuais M1–M8 na cópia (gravam de verdade, item a item) e smoke só-leitura em produção | 10, 11 |
 
 **Fronteiras e o que NÃO entra (vai p/ outra subfase)**
 - BOM/tecidos/aviamentos/insumos/grade/custos adicionais/`custo_peca_previsto` → **F3.2** (o `MultiArtigosField` e o `sync-tecidos.ts` continuam como estão aqui).
@@ -128,10 +163,10 @@
 - Arquivos DISJUNTOS: a F3.1 não toca em nenhum arquivo da F2 (lista nas Global Constraints) — o fix do card novo foi desenhado DENTRO do `PlanejamentoDetail` para não mexer em `criacao.planejamento.tsx`. Não há conflito textual em nenhuma ordem de merge.
 - Dependência de API só na **Task 8** (selo + "Mover para…"): precisa das Tasks 1, 3 e 4 da F2 no branch (`src/lib/kanban-auto-ui.ts`, `src/lib/kanban-auto-rpc.ts`, `src/components/shared/EtapaKanbanBadge.tsx`). As Tasks 1–7 só usam a F1-TS que já está no branch.
 - Em RUNTIME: com a chave desligada (o normal até a G-chave), o "Mover para…" usa o caminho de hoje (UPDATE + `marcar_etapa_verificada`) e funciona sem a F1 aplicada no banco; o ramo "chave ligada" (`kanban_mover`) só age depois da F1 em produção + G-chave. `useFichaKanban` lê `tenant_config` com `select("*")` → sem a F1, `kanban_automatico` vem ausente = desligada.
-- **Ordem (R8 do G-plano conjunto):** F3.0 → (F3.1 Tasks 0–7 ∥ F2) → merge da F3.1 (ou da F3.1a) → **só então nasce a F3.2** (worktree criada do HEAD com a F3.1/F3.1a juntada; a F3.2 escreve por cima do texto FINAL da F3.1 — não roda em paralelo às Tasks 0–7 nem faz rebase sobre elas). Se, ao terminar a Task 7, as Tasks 1/3/4 da F2 JÁ estiverem no branch: rebase, Task 8, QA completo (`F31_SELO=1`), um merge só. **Se a F2 ainda NÃO estiver juntada:** a F3.1 vai em 2 partes — **F3.1a** = Tasks 0–7 + 9 + 10 (QA sem `F31_SELO`) + 11 (merge); a worktree fica; quando as 3 peças da F2 entrarem no branch, **F3.1b** = rebase + Task 8 + QA com `F31_SELO=1` (só o teste desktop e o mobile) + revisão da Task 8 + guardião G-commit + merge. O dono é avisado de que o selo no header chega no 2º merge. Nada da F3.1a depende da F2 nem quebra sem ela.
+- **Ordem (R8 do G-plano conjunto, ajustada pelos N1/N4 do re-check do guardião):** F3.0 → (F3.1 Tasks 0–8 e 10 ∥ F2) → Task 11 Steps 1–3 (revisão, suíte inteira, **G-commit da F3.1**) → **a F3.2 nasce da PONTA do branch `f31/planejamento-campos`** (Task 11 Step 3b) → Task 9 (coluna em produção, **só depois da F1 em produção** — N1) → Task 11 Steps 4–7 (merge da F3.1 e smoke). A F3.2 NÃO nasce do merge (que espera a T9 e, com ela, a F1 em produção), mas continua escrevendo por cima do texto FINAL da F3.1 (mesmas âncoras — o intuito do R8 fica): não roda em paralelo às Tasks 0–8 nem faz rebase sobre elas. Se, ao terminar a Task 7, as Tasks 1/3/4 da F2 JÁ estiverem no branch: rebase, Task 8, QA completo (`F31_SELO=1`), um merge só. **Se a F2 ainda NÃO estiver juntada:** a F3.1 vai em 2 partes — **F3.1a** = Tasks 0–7 + 10 (QA na cópia sem `F31_SELO`) + 11 Steps 1–3 (G-commit; a F3.2 pode nascer) + 9 (depois da F1 em produção) + 11 Steps 4–7 (merge); a worktree fica; quando as 3 peças da F2 entrarem no branch, **F3.1b** = rebase + Task 8 + QA na cópia com `F31_SELO=1` (o teste desktop, o mobile e o manual M6; o M8 só com a F1 na cópia e a chave ligada) + revisão da Task 8 + guardião G-commit + merge. O dono é avisado de que o selo no header chega no 2º merge. Nada da F3.1a depende da F2 nem quebra sem ela.
 - **F3.1b × F3.2:** podem correr ao mesmo tempo (a F3.2 não depende da Task 8). As duas mexem no `PlanejamentoDetail.tsx` em pontos DIFERENTES (F3.1b: imports do selo, o bloco logo depois de `const campoVisivelDev = …` e o `<EtapaHeader>` no header) — quem juntar por ÚLTIMO faz rebase, roda os gates e o próprio QA antes do ff.
 
-**F3.1 × F3.2 (em sequência — R8):** mexem nos MESMOS arquivos (`PlanejamentoDetail.tsx`, `usePlanejamentoSave.ts`, `modelo-shared.ts`, `helpers.ts`). **Ordem: F3.1 (ou F3.1a) juntada primeiro; a F3.2 nasce do HEAD com ela** e acrescenta os blocos dela por cima do texto final (blocos novos no `Draft`, no `ROTULO`, na lista `CAMPOS_DEV_DRAFT` e seções no JSX). Interfaces que a F3.2 consome da F3.1:
+**F3.1 × F3.2 (em sequência — R8 + N4):** mexem nos MESMOS arquivos (`PlanejamentoDetail.tsx`, `usePlanejamentoSave.ts`, `modelo-shared.ts`, `helpers.ts`). **Ordem: a F3.2 nasce da ponta de `f31/planejamento-campos` DEPOIS do G-commit da F3.1 (o sha fica em `.superpowers/f32/BASE` da F3.2); a F3.1 é juntada PRIMEIRO; a F3.2 junta depois, com `git rebase --onto feature/plan-tecido-a1 "$(cat .superpowers/f32/BASE)" f32/ficha-bom`** (reaplica SÓ os commits da F3.2 — funciona igual se a F3.1 juntou por ff puro ou se foi rebaseada antes do merge, e absorve commits da F3.1 feitos depois do BASE, como a F3.1b ou um fix do smoke; F32 Task 16 Step 5). A F3.2 NUNCA junta antes da F3.1 (ela carrega os commits da F3.1, que gravam `descricao_produto` — sem a coluna em produção, PGRST204 em todo Salvar). Rebasear a F3.1 antes do merge dela (T11 Step 4) é permitido: a F3.2 absorve pelo `--onto`. A F3.2 acrescenta os blocos dela por cima do texto final (blocos novos no `Draft`, no `ROTULO`, na lista `CAMPOS_DEV_DRAFT` e seções no JSX). Interfaces que a F3.2 consome da F3.1:
 1. `Draft` (modelo-shared.ts) ganha, depois de `custo_simulado`: `modelista_id`, `piloteiro1_id`, `piloteiro2_id`, `piloteiro3_id` (`string | null`); `data_piloto1`, `data_piloto2`, `data_piloto3`, `data_desenho_tecnico`, `data_aprovacao`, `observacoes_tecnicas`, `motivo_cancelamento`, `ficha_medida_url`, `descricao_produto` (`string`, vazio = `""`). A F3.2 acrescenta os dela (ex.: `proporcoes`, `custos_adicionais`) DEPOIS desse bloco e não os repete.
 2. `helpers.ts`: `CAMPOS_DEV_DRAFT` (lista `as const` de chaves do Draft que são do Dev — **a lista ÚNICA da campanha**), `aplicarRegrasCamposDev(payload, draft, { podeEditarDev, refEditavel })` (normaliza vazios → NULL; sem permissão OMITE a lista; REF só quando editável), `camposParaDuplicar(draft)` (tira REF/versão/base e a lista, MENOS `observacoes_gerais`), `textoOuNull(s)`. **A F3.2 acrescenta à `CAMPOS_DEV_DRAFT` os escalares do Dev que ela passar a gravar** (`proporcoes`, `custos_adicionais` — objeto/array, sem normalização) e CONSOME a lista (não cria outra: o Duplicar dela usa o `camposParaDuplicar` da F3.1) — assim somem do payload sem permissão e do Duplicar (decisão 9) sem código novo.
 3. Orquestrador: `podeVerDev`, `podeEditarDev`, `campoVisivelDev(key)`, `enviadoCad`, `editandoDev`/`setEditandoDev`, `devBloqueado` (`!podeEditarDev || (enviadoCad && !editandoDev)`), `motivoTravaDev` (`MotivoTravaDev`), `kanbanCard` (`FichaKanban`, de `useFichaKanban`). **A query `["modelo", modeloId]` e a trava (`enviadoCad`, `editandoDev`, `devBloqueado`, `motivoTravaDev`) ficam logo DEPOIS de `const podeVerDev = …`** (antes do cálculo de preço), porque a F3.2 passa `motivoTravaDev` ao `useFichaTecnica`, chamado logo depois de `const maoObraPlanejada = maoObraDevLive;` e antes do `const dirty = …`. **O nome `ficha` fica LIVRE para a F3.2** (o plano dela declara `const ficha = useFichaTecnica(...)` no orquestrador). A trava do BOM da F3.2 (`motivoSomenteLeitura`) DERIVA de `motivoTravaDev` (uma trava só, um "Editar" só — R2 do G-plano): soma "enviado à Explosão"/"sem permissão" daqui à trava interina "tem CAD" dela; os avisos dela reusam `AvisoCamposDev` (sem permissão) e seguem o texto daqui (enviado).
@@ -140,7 +175,7 @@
 5. `usePlanejamentoSave`: args novos `podeEditarDev`, `refEditavel`, `onCreated?`; `mutationFn` devolve `{ autoProduto, savedId }`; `criadoIdRef` (insert UMA vez; no card novo, gravações seguintes que falham abrem o Sheet do id criado). A reescrita da cadeia na F3.2 PRESERVA: `aplicarRegrasCamposDev` no payload, a guarda `criadoIdRef`, o `onCreated` no fim do `onSuccess` e o ramo "card criado mas algo falhou" no começo do `onError`, o `onSaved: aoSalvar` (re-trava) e as invalidações `["plan-kanban-cond", modeloId]` e `["modelo-composicao", modeloId]`.
 6. O Dialog "Novo Modelo" continua sem as seções do Dev (elas exigem o card criado); a gravação do BOM Tecido 1..N no Dialog (G-mockup R3) é da F3.2, **DENTRO do `else` do INSERT real, logo depois de `criadoIdRef.current = savedId;`** — nunca no caminho em que `criadoIdRef.current` já estava preenchido (lá o card já existe e pode ter BOM; `salvar_modelo_bom` APAGA tudo antes de inserir — "só com modelo recém-criado", regra da F3.2).
 
-**F3.1 × F1:** a F1 não mexe no Planejamento nem no Replicar. A migration da F3.1 é independente das `kanban_auto_*` (pode ir a produção antes ou depois delas) e o inverso da F1 não a desfaz.
+**F3.1 × F1 (N1 do re-check do guardião):** a F1 não mexe no Planejamento nem no Replicar, e a migration da F3.1 é independente das `kanban_auto_*` no conteúdo — mas vai a produção **DEPOIS da F1** (ordem do dono, 23/set: F1 em produção → só então a coluna). Se a coluna chegasse ANTES, o pré-voo da F1 PARARIA: a fidelidade produção × `fidelidade_ref_local.txt` diverge em colunas (runbook v2 da F1, :383-384). Depois dela, nada quebra: o `volta_prevoo` da F1 compara só o `MD5F` das 5 funções (runbook :518-527), e o inverso da F1 não desfaz a coluna. Pela mesma razão, a coluna sai da CÓPIA antes de qualquer re-ensaio da F1 ou regravação das referências dela (`copia-qa.sh volta`).
 
 ## 4. Revisão e gates por task
 
@@ -153,8 +188,8 @@
 | 6 (Prova + Anexos + Observações) | **lote B** (junto do lote A se este ainda não tiver rodado) | reuso de componentes, sem regra nova |
 | 7 (card novo → Sheet) | **individual Opus** | Salvar/criação (bug de duplicar) |
 | 8 (selo + Mover para…) | **individual Opus** | etapa fora do Salvar, RPC, colab rev |
-| 9 (produção) | guardião G-migration já aprovado + OK do dono | aplicação final |
-| 10 (QA) | — | evidência p/ a Task 11 |
+| 9 (produção) | guardião G-migration já aprovado + F1 em produção (N1) + OK do dono | aplicação final (depois do G-commit; antes do merge) |
+| 10 (QA na cópia) | — | evidência p/ a Task 11 (+ testes manuais M1–M8 com o OK do dono item a item) |
 | 11 (final) | **code-reviewer Opus no diff inteiro** + suíte INTEIRA 1× na cópia local (R10) + guardião **G-commit** e **G-fase F3.1** | portões da campanha |
 
 O revisor recebe: o diff da(s) task(s) (`git diff <antes>..<depois>`), este plano (seção da task + §3 + §6), e a instrução de conferir arquivo:linha contra o código real. Achado BLOQUEANTE volta para o implementador na mesma worktree; a task só fecha com o revisor OK.
@@ -259,21 +294,27 @@ Esperado: `build ok`; `0`; as falhas listadas são SÓ do `tests/unit/ui-padroes
 
 Só quando NENHUM teste da F1 (nem de outra fase) estiver rodando na cópia local — hoje a F1 não roda testes; se estiver rodando, espere (não mate nada).
 
+⚠️ **N3 (re-check do guardião; Task 0 já executada em 23/set — vale para qualquer re-execução):** a suíte inteira inclui `tests/integration/kanban-auto.test.ts`, que faz `ALTER TABLE public.tenant_config` DENTRO de uma transação — enquanto ela roda, o app de teste do dono (`:5188`, mesma cópia) CONGELA. Antes: o controlador avisa o dono por chat (texto nas Global Constraints › Banco) e espera o `:5188` ocioso; anota o estado da cópia nas duas pontas (esperado `427|219|0`; `458|263|…` = a F1 aplicada na cópia pelo controlador para o teste do dono ⇒ as falhas da F1 são "de outra fase"). Sem isso: não rodar e registrar o desvio (R10).
+
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
 ps -Ao pid,command | grep -E "[v]itest" ; echo "vitest-checado"
 PGCONNECT_TIMEOUT=5 psql "postgresql://postgres:postgres@127.0.0.1:54422/postgres" -X -Atc "select 1" && echo "cópia local no ar"
+bash .superpowers/f31/n3-copia.sh antes t0s5
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/unit tests/integration > .superpowers/f31/logs/suite-t0.log 2>&1
+bash .superpowers/f31/n3-copia.sh depois t0s5
 grep -E "Test Files|Tests " .superpowers/f31/logs/suite-t0.log | tail -2
 grep -E "^ *FAIL " .superpowers/f31/logs/suite-t0.log | sed -E 's/ +[0-9]+ms$//' | sort -u > .superpowers/f31/suite-fail-t0.txt
 wc -l < .superpowers/f31/suite-fail-t0.txt
 ```
 
-Esperado: só `vitest-checado` na 1ª linha (nenhum vitest rodando); `1` + `cópia local no ar`; as contagens registradas. As falhas da linha de base são HERDADAS (não se corrigem aqui) — a Task 11 Step 2 compara contra este arquivo. Se a cópia local estiver fora do ar ou ocupada pela F1: pular este Step, anotar "R10: linha de base da suíte inteira não rodou (<motivo>)" em `.superpowers/f31/logs/r10-desvio.txt` e seguir (o G-commit registra o desvio).
+Esperado: só `vitest-checado` na 1ª linha (nenhum vitest rodando); `1` + `cópia local no ar`; o estado da cópia IGUAL nas duas pontas (`427|219|0` — a suíte roda em transação revertida); as contagens registradas. As falhas da linha de base são HERDADAS (não se corrigem aqui) — a Task 11 Step 2 compara contra este arquivo. Se a cópia local estiver fora do ar ou ocupada pela F1: pular este Step, anotar "R10: linha de base da suíte inteira não rodou (<motivo>)" em `.superpowers/f31/logs/r10-desvio.txt` e seguir (o G-commit registra o desvio).
 
 ---
 
 ### Task 1: Migration `modelos.descricao_produto` + Replicar leva a descrição + inverso + teste na cópia local
+
+> **Estado (re-check do guardião, 23/set):** Task 1 EXECUTADA (`a6fc8b4`, 14/14; ensaio ida/volta ~20 ms na cópia, `427|219` nas pontas). O texto abaixo fica como registro e para uma re-execução. O comentário do `cabecalho.sql` ("pré-condição do QA e do merge") ficou histórico: o QA agora roda na CÓPIA (N2) e a produção espera a F1 (N1) — o arquivo commitado NÃO é reaberto por isso. Os Steps 3, 6 e 8 seguem o procedimento N3 (Global Constraints › Banco).
 
 **Files:**
 - Create: `supabase/migrations/20260930180000_modelo_descricao_produto.sql`, `supabase/rollback/20260930180000_modelo_descricao_produto_down.sql`, `tests/integration/mig-txn.ts`, `tests/integration/modelo-descricao-produto.test.ts`
@@ -635,8 +676,8 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
 
 - [ ] **Step 3: Rodar e ver falhar**
 
-Run: `cd "$WT" && DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/modelo-descricao-produto.test.ts`
-Expected: FAIL nos testes que leem `MIG`/`INV` (ENOENT) — inclusive o da receita de travas; os 3 do `mig-txn` e o "base" PASSAM. Antes de rodar, o controlador confirma que a suíte `kanban-auto` da F1 NÃO está rodando na cópia local.
+Run: `cd "$WT" && bash .superpowers/f31/n3-copia.sh antes t1s3 && DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/modelo-descricao-produto.test.ts; bash .superpowers/f31/n3-copia.sh depois t1s3`
+Expected: FAIL nos testes que leem `MIG`/`INV` (ENOENT) — inclusive o da receita de travas; os 3 do `mig-txn` e o "base" PASSAM. Antes de rodar, o controlador confirma que a suíte `kanban-auto` da F1 NÃO está rodando na cópia local. **N3:** este teste faz `ALTER TABLE modelos` dentro de transação (na suíte inteira, o `kanban-auto` faz o mesmo em `tenant_config`) e congela o app de teste `:5188` enquanto roda — dono avisado antes e `:5188` ocioso; estado da cópia nas duas pontas (esperado `427|219|0` e IGUAL — o "base" exige a coluna AUSENTE).
 
 - [ ] **Step 4: Escrever as partes fixas da migration e do inverso**
 
@@ -952,7 +993,8 @@ Expected: `migration e inverso montados`; o 1º diff mostra EXATAMENTE 2 linhas 
 
 - [ ] **Step 6: Rodar e ver passar**
 
-Run: `cd "$WT" && DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/modelo-descricao-produto.test.ts 2>&1 | tee .superpowers/f31/logs/t1-integracao.log | tail -6`
+Run: `cd "$WT" && bash .superpowers/f31/n3-copia.sh antes t1s6 && DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/modelo-descricao-produto.test.ts 2>&1 | tee .superpowers/f31/logs/t1-integracao.log | tail -6; bash .superpowers/f31/n3-copia.sh depois t1s6`
+**N3:** mesmo procedimento do Step 3 (dono avisado, `:5188` ocioso — o `ALTER TABLE modelos` em transação e a espera de trava do teste de 55P03 congelam o app de teste por alguns segundos).
 Expected: `14 passed` (3 estáticos + 3 do harness + 8 no banco, inclusive a desistência em 55P03). Se sair `6 passed | 8 skipped`, o banco NÃO é a cópia local: não conta como teste — corrija o `DATABASE_URL` e rode de novo. Depois conferir que a cópia local ficou como estava: `PGCONNECT_TIMEOUT=5 psql "postgresql://postgres:postgres@127.0.0.1:54422/postgres" -Atc "select count(*) from information_schema.columns where table_schema='public' and table_name='modelos' and column_name='descricao_produto'; select md5(pg_get_functiondef('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)'::regprocedure))"` → `0` e `e0393c79fb962a068fd7a3e4636acbe6`.
 
 - [ ] **Step 7: Gates + commit**
@@ -969,12 +1011,14 @@ Expected: `GATES OK`; commit com SÓ os 4 arquivos. A aplicação em produção 
 
 - [ ] **Step 8: Ensaio da receita de travas na cópia LOCAL (G-migration F1 R1(f))**
 
-É o único apply fora do harness antes da produção — o mesmo ensaio que a F1 fez no Step 1 do runbook. O controlador confirma antes que NENHUM teste (F1 ou F3.1) está rodando na cópia local.
+É o único apply fora do harness antes da produção — o mesmo ensaio que a F1 fez no Step 1 do runbook. O controlador confirma antes que NENHUM teste (F1 ou F3.1) está rodando na cópia local. **N3:** o ensaio aplica e desfaz de verdade (`ALTER TABLE modelos` ida e volta, milissegundos cada) — dono avisado, `:5188` ocioso, estado nas duas pontas (esperado `427|219|0` antes e depois; o pré-voo do ensaio exige a coluna AUSENTE).
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
 ps -Ao pid,command | grep -E "[v]itest"; echo "vitest-checado"
+bash .superpowers/f31/n3-copia.sh antes t1s8
 bash .superpowers/f31/mig/ensaio-local.sh 2>&1 | tee .superpowers/f31/logs/t1-ensaio-local.log | tail -25
+bash .superpowers/f31/n3-copia.sh depois t1s8
 ```
 
 Expected: só `vitest-checado` na 1ª consulta; no log, na ordem: `== PRÉ-VOO OK`, os 2 arquivos aplicados (cada um com o `real … s` do `/usr/bin/time`, décimos de segundo), `OK (ida: coluna criada): text|YES`, `OK (ida: função trocada): t`, `OK (volta: coluna fora + função = corpo vivo): 0|e0393c79fb962a068fd7a3e4636acbe6` e `== ENSAIO OK`. Qualquer `FALHOU`/`PAROU`: PARE e reporte (a cópia local pode ter ficado com a coluna — o controlador decide; nunca apagar à mão). Depois: revisão individual Opus + guardião **G-migration** (evidências: `t1-diff-funcao.txt`, `t1-integracao.log`, `t1-ensaio-local.log`, o md5 da cópia local).
@@ -3241,15 +3285,15 @@ Expected: PASS; `GATES OK`; 5 arquivos. Revisão individual Opus (foco: chave de
 
 ---
 
-### Task 9: Aplicar a migration em PRODUÇÃO (G-migration aprovado + OK do dono)
+### Task 9: Aplicar a migration em PRODUÇÃO (G-migration aprovado + F1 já em produção + OK do dono)
 
 **Files:** nenhum no repo. Evidência fora do repo em `/Users/sunglee/PLM + Criação/savepoints/pre-apply-f31-descricao/` (`replicar_core_{antes,depois}.sql`, `replicar_core_acl_antes.txt`, `replicar_core_diff.txt`) e `$WT/.superpowers/f31/logs/prod-apply.log`.
 
 **Interfaces:**
-- Consumes: Task 1 commitada e revisada, com o ensaio da cópia local OK (Step 8); guardião G-migration APROVA; OK explícito do dono registrado no diário; `.superpowers/f31/mig/{aplica.sh,ida-producao.sh,volta-producao.sh}` (Task 1 Step 4).
-- Produces: coluna existente em produção (pré-condição das Tasks 10 e 11); `== IDA OK` no `prod-apply.log`.
+- Consumes: Task 1 commitada e revisada, com o ensaio da cópia local OK (Step 8); guardião G-migration APROVA; **a F1 aplicada em PRODUÇÃO com a verificação pós-apply OK (runbook da F1, Step 7 (a)–(f), registrada no diário do guardião) — N1**; OK explícito do dono registrado no diário; `.superpowers/f31/mig/{aplica.sh,ida-producao.sh,volta-producao.sh}` (Task 1 Step 4).
+- Produces: coluna existente em produção (pré-condição do merge — Task 11 Steps 4–5 — e do smoke em produção); `== IDA OK` no `prod-apply.log`.
 
-Executada pelo CONTROLADOR (ou subagente com o comando exato), nunca por iniciativa própria de um executor. Pode ocorrer logo depois do G-migration (em paralelo às Tasks 2–8); tem de ocorrer ANTES da Task 10. **Receita de travas (R7 do G-plano conjunto = G-migration F1 R1):** `CREATE FUNCTION` antes e `ALTER` por último (no arquivo); arquivo INTEIRO numa mensagem com `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` injetados após o `BEGIN;` (`aplica_v2`); nova tentativa SÓ em 55P03/40P01/25P04 (ATIV + 60 s, até 5); qualquer outro erro PARA. NUNCA `psql -f`.
+Executada pelo CONTROLADOR (ou subagente com o comando exato), nunca por iniciativa própria de um executor. **Ordem (N1/N4 do re-check do guardião):** … → Task 10 (QA na CÓPIA) → Task 11 Steps 1–3 (G-commit; a F3.2 nasce) → **Task 9, SÓ DEPOIS da F1 em produção** (ordem do dono, 23/set: se a coluna chegasse antes, o pré-voo da F1 PARARIA pela fidelidade de colunas — runbook v2 :383-384) → Task 11 Steps 4–7 (merge). Não depende do QA (que roda na cópia) e tem de ocorrer ANTES do merge. **Receita de travas (R7 do G-plano conjunto = G-migration F1 R1):** `CREATE FUNCTION` antes e `ALTER` por último (no arquivo); arquivo INTEIRO numa mensagem com `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` injetados após o `BEGIN;` (`aplica_v2`); nova tentativa SÓ em 55P03/40P01/25P04 (ATIV + 60 s, até 5); qualquer outro erro PARA. NUNCA `psql -f`.
 
 - [ ] **Step 1: Pré-condições**
 
@@ -3258,9 +3302,13 @@ cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-ca
 git log -1 --format='%h %s' -- supabase/migrations/20260930180000_modelo_descricao_produto.sql
 git diff --quiet HEAD -- supabase/migrations/20260930180000_modelo_descricao_produto.sql supabase/rollback/20260930180000_modelo_descricao_produto_down.sql && echo "SQL commitado e sem alteração"
 grep -c "== ENSAIO OK" .superpowers/f31/logs/t1-ensaio-local.log
+# N1 — a F1 JÁ está em produção (só leitura; txn READ ONLY): a tabela de snapshot e a chave em tenant_config existem.
+PGOPTIONS='-c default_transaction_read_only=on' psql "$(cat /tmp/dburl.txt)" -X -A -t -v ON_ERROR_STOP=1 \
+  -c "select to_regclass('public.kanban_snapshot') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'kanban_automatico')" \
+  | sed 's/^t$/N1 OK: F1 em produção/; s/^f$/N1 FALHOU: a F1 NÃO está em produção — PARE/'
 ```
 
-Expected: o commit `F3.1 (1)`; `SQL commitado e sem alteração`; `1` (ensaio da Task 1 Step 8 aprovado). O controlador confirma no diário do guardião o G-migration APROVA e o OK do dono. Janela: fora do horário de uso das lojas, se o dono indicar (o ALTER segura `modelos` por milissegundos; com fila, desiste em 500 ms e nada fica).
+Expected: o commit `F3.1 (1)`; `SQL commitado e sem alteração`; `1` (ensaio da Task 1 Step 8 aprovado); `N1 OK: F1 em produção`. O controlador confirma no diário do guardião: o G-migration APROVA, o relatório pós-apply da F1 (runbook, Step 7 (a)–(f) OK) e o OK do dono. `N1 FALHOU` ⇒ PARE (a coluna não vai antes da F1). Janela: fora do horário de uso das lojas, se o dono indicar (o ALTER segura `modelos` por milissegundos; com fila, desiste em 500 ms e nada fica).
 
 - [ ] **Step 2: Ida (pré-voo + retrato + apply + conferência num comando só)**
 
@@ -3289,38 +3337,320 @@ Sem descrição preenchida, volta direto (`== VOLTA OK`). Com descrições, a gu
 
 ---
 
-### Task 10: QA no navegador (só leitura, guarda de rede)
+### Task 10: QA contra a CÓPIA — app de teste da worktree (`:5187`), guarda invertida, testes manuais na cópia
+
+> **Por que na cópia (N2 do re-check do guardião + ruling do controlador):** antes, o T10 exigia `== IDA OK` em produção — o QA inteiro esperava a F1 (N1). Agora o QA roda num app de teste PRÓPRIO da worktree sobre a CÓPIA LOCAL, com a coluna aplicada LÁ, e cobre de verdade os fluxos que GRAVAM (card novo, Replicar, "Mover para…", conflito/Realtime, os testes manuais da §5). Produção fica com a Task 9 e o smoke só-leitura (Task 11 Step 6), com a guarda de sempre.
 
 **Files:**
-- Create (NUNCA commitado): `tests/e2e/f31-qa.spec.ts`; evidência em `.superpowers/f31/qa/`.
+- Create (NUNCA commitado): `tests/e2e/f31-qa.spec.ts`; evidência em `.superpowers/f31/qa/` (automático) e `.superpowers/f31/qa/manual/` (M1–M8).
+- Create (fora do git): `.superpowers/f31/mig/copia-qa.sh` (coluna na cópia: `estado`/`ida`/`volta`).
+- Create (fora do repo): `/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/criar-variante.sh` e a variante `banco-local/app-teste-variantes/f31/` (a F3.2 reusa o mesmo `criar-variante.sh` com `f32`/`:5186`).
 
 **Interfaces:**
-- Consumes: Tasks 2–7 (e 8 se `F31_SELO=1`); coluna em produção (Task 9).
-- Produces: `.superpowers/f31/qa/{desktop,permissoes-*,mobile}.json` + PNGs; log com `3 passed`.
+- Consumes: Tasks 2–7 (e 8 se `F31_SELO=1`); Task 1 Steps 6/8 CONCLUÍDOS (a coluna só entra na cópia depois deles — os testes pressupõem a coluna ausente); `.superpowers/f31/mig/aplica.sh` (Task 1 Step 4); o mecanismo `banco-local/app-teste/` (só como MODELO — não é tocado).
+- Produces: `.superpowers/f31/qa/{desktop,permissoes-*,mobile}.json` + PNGs; log com `3 passed`; `.superpowers/f31/qa/manual/*` (um JSON + PNGs por item, cada um com o OK do dono); a cópia de volta SEM a coluna (Step 8) antes do T11 Step 2.
 
-- [ ] **Step 1: Pré-condições**
-
-```bash
-grep -c "== IDA OK" "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos/.superpowers/f31/logs/prod-apply.log"
-lsof -nP -iTCP:5199 -sTCP:LISTEN; echo "porta-5199-checada"
-ps -Ao pid,command | grep -E "playwright|kanban-auto.spec|f3[02]-qa" | grep -v grep; echo "e2e-checado"
-curl -s -o /dev/null -w 'dono :5173 http=%{http_code}\n' http://localhost:5173/
-```
-Expected: `1` (a ida da Task 9 concluiu — `== IDA OK`); só `porta-5199-checada` (porta livre — se ocupada, PARE, não mate nada); nenhum Playwright rodando (E2E da F2/QA da F3.2 NÃO rodam junto); o `:5173` do dono só é observado.
-
-- [ ] **Step 2: Subir o vite da worktree em `:5199` (em background)**
+- [ ] **Step 1: Pré-condições (só leitura)**
 
 ```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" && node_modules/.bin/vite dev --port 5199 --strictPort > .superpowers/f31/logs/vite-5199.log 2>&1
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
+grep -c "14 passed" .superpowers/f31/logs/t1-integracao.log; grep -c "== ENSAIO OK" .superpowers/f31/logs/t1-ensaio-local.log
+bash .superpowers/f31/n3-copia.sh antes t10
+ps -Ao pid,command | grep -E "[v]itest|playwright|kanban-auto.spec|f3[0-9]-qa" | grep -v grep; echo "testes-checados"
+lsof -nP -iTCP:5187 -sTCP:LISTEN; echo "porta-5187-checada"
+curl -s -o /dev/null -w 'Supabase local http=%{http_code}\n' http://127.0.0.1:54321/auth/v1/health
+curl -s -o /dev/null -w 'app de teste do dono :5188 http=%{http_code} (só observado)\n' http://localhost:5188/
 ```
-(rodar com `run_in_background`). Depois:
-```bash
-curl -s -o /dev/null --retry 40 --retry-connrefused --retry-delay 2 -w 'F3.1(:5199) http=%{http_code}\n' http://localhost:5199/
-PID=$(lsof -nP -iTCP:5199 -sTCP:LISTEN -t | head -1); lsof -a -p "$PID" -d cwd -Fn | grep '^n'; echo "$PID" > .superpowers/f31/vite-5199.pid
-```
-Expected: `http=200`; o `cwd` do PID é a worktree da F3.1.
+Expected: `1` e `1` (T1 Steps 6/8 concluídos); estado `427|219|0` (ou `458|263|0` se o controlador tiver aplicado a F1 na cópia para o teste do dono — anotar); só `testes-checados` (nenhum vitest/Playwright rodando — E2E da F2 e QA da F3.2 NÃO rodam junto); só `porta-5187-checada` (livre — ocupada: PARE, não mate nada); `Supabase local http=200` (senão: o dono sobe os serviços, APP-TESTE-LOCAL.md §1 — não subir por conta própria); o `:5188` só é observado. Login: a senha do usuário de teste já confere na cópia (opção A, 23/set).
 
-- [ ] **Step 3: Criar `tests/e2e/f31-qa.spec.ts`**
+- [ ] **Step 2: Coluna `descricao_produto` NA CÓPIA (backup antes; `aplica_v2 $LOCAL`)**
+
+Criar `.superpowers/f31/mig/copia-qa.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Coluna modelos.descricao_produto NA CÓPIA LOCAL para o QA da F3.1/F3.2 (N2 do re-check do guardião + ruling do
+# controlador). NUNCA produção: só usa $LOCAL (aplica.sh). Mesma receita de travas (aplica_v2). Uso (raiz da worktree):
+#   bash .superpowers/f31/mig/copia-qa.sh estado|ida|volta [--apos-merge]
+#  • ida   — SÓ depois dos T1 Steps 6/8 (os testes pressupõem a coluna AUSENTE). Backup pg_dump -Fc ANTES.
+#  • volta — ANTES do T11 Step 2 (suíte inteira) e de QUALQUER re-ensaio da F1 / regravação das referências dela
+#            (fidelidade_ref_local.txt é da cópia SEM a coluna). Exporta as descrições (dado de QA) e confirma o DROP.
+#            Com a F3.1 já juntada no checkout principal, o :5188 do dono passa a dar PGRST204 no Salvar do
+#            Planejamento até a coluna voltar — por isso exige --apos-merge nesse caso.
+#  • A F1 na cópia só é aplicada pelo CONTROLADOR, na hora do teste do dono (APP-TESTE-LOCAL.md §8) — nunca aqui.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+source .superpowers/f31/mig/aplica.sh || exit 1
+BK="/Users/sunglee/PLM + Criação/banco-local/backups"
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"
+ESTADO_COPIA="select (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public') || '|' || (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal) || '|' || (select count(*) from information_schema.columns where table_schema='public' and table_name='modelos' and column_name='descricao_produto')"
+mostra() { echo "cópia (funções|gatilhos|coluna): $(psql "$LOCAL" -X -A -t -c "$ESTADO_COPIA")"; }
+sem_testes() { if ps -Ao pid,command | grep -E "[v]itest"; then echo "PARE: vitest rodando (pode estar na cópia)"; return 1; fi; }
+case "${1:-}" in
+  estado) mostra ;;
+  ida)
+    sem_testes || exit 1
+    mostra
+    mkdir -p "$BK"
+    F="$BK/pre-f31-coluna-$(date +%F-%H%M%S).dump"
+    docker exec -e PGPASSWORD=postgres supabase_db_banco-local pg_dump -h 127.0.0.1 -U supabase_admin -d postgres -Fc > "$F" && [ -s "$F" ] \
+      || { echo "PARE: backup falhou"; rm -f "$F"; exit 1; }
+    echo "backup: $F ($(du -h "$F" | cut -f1))"
+    prevoo_f31 "$LOCAL" || exit 1
+    aplica_v2 "$LOCAL" "$MIG" || exit 1
+    espera "$LOCAL" "select data_type || '|' || is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name = 'descricao_produto'" "text|YES" "coluna na cópia" || exit 1
+    psql "$LOCAL" -X -q -c "NOTIFY pgrst, 'reload schema'"
+    mostra
+    echo "== COLUNA NA CÓPIA (QA). Tirar antes do T11 Step 2 / re-ensaio da F1: copia-qa.sh volta" ;;
+  volta)
+    sem_testes || exit 1
+    for p in 5186 5187; do
+      if lsof -nP -iTCP:$p -sTCP:LISTEN -t >/dev/null 2>&1; then echo "PARE: a variante :$p está no ar (o Salvar dela cairia com PGRST204) — descer antes"; exit 1; fi
+    done
+    if git -C "$MAIN" cat-file -e "feature/plan-tecido-a1:$MIG" 2>/dev/null && [ "${2:-}" != "--apos-merge" ]; then
+      echo "PARE: a F3.1 já está no checkout principal — sem a coluna, o :5188 do dono dá PGRST204 no Salvar do Planejamento. Só com --apos-merge (e o dono avisado)."; exit 1
+    fi
+    mostra
+    mkdir -p "$BK"
+    X="$BK/f31-descricoes-copia-$(date +%F-%H%M%S).csv"
+    psql "$LOCAL" -X -q -c "\copy (SELECT id, tenant_id, nome, descricao_produto FROM public.modelos WHERE length(btrim(descricao_produto)) > 0 ORDER BY tenant_id, nome) TO '$X' CSV HEADER" 2>/dev/null \
+      && echo "descrições da cópia exportadas: $X" || echo "(sem a coluna — nada a exportar)"
+    ativ_vazio "$LOCAL" || exit 1
+    export EXTRA_SQL="SET LOCAL app.confirmo_apagar_descricao_produto = 'sim';"
+    aplica_v2 "$LOCAL" "$INV"; rc=$?
+    unset EXTRA_SQL
+    [ "$rc" = 0 ] || exit 1
+    espera "$LOCAL" "$ESTADO" "0|$MD5_VIVO" "volta: coluna fora + função = corpo vivo" || exit 1
+    psql "$LOCAL" -X -q -c "NOTIFY pgrst, 'reload schema'"
+    mostra
+    echo "== COLUNA FORA DA CÓPIA" ;;
+  *) echo "uso: copia-qa.sh estado|ida|volta [--apos-merge]"; exit 2 ;;
+esac
+```
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
+chmod +x .superpowers/f31/mig/copia-qa.sh
+bash .superpowers/f31/mig/copia-qa.sh ida 2>&1 | tee .superpowers/f31/logs/t10-copia-ida.log | tail -20
+```
+
+Expected: `cópia (…): 427|219|0` → `backup: …/pre-f31-coluna-<data>.dump (…)` → `== PRÉ-VOO OK` → o arquivo aplicado (`real …` do `/usr/bin/time`) → `OK (coluna na cópia): text|YES` → `cópia (…): 427|219|1` → `== COLUNA NA CÓPIA`. O ALTER segura `modelos` por milissegundos (o `:5188` não percebe); nenhum aviso ao dono é preciso para isto. Qualquer `FALHOU`/`PAROU`: PARE e reporte (o backup está no caminho impresso; restaurar só com OK do dono).
+
+- [ ] **Step 3: App de teste da worktree em `:5187` (variante do `banco-local/app-teste`)**
+
+Criar `/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/criar-variante.sh` — gera a variante a partir do MODELO do dono (`banco-local/app-teste/`: `vite.config.local-copia.mjs`, `subir-app-5188.sh`, `descer-app-5188.sh`, `wrangler.jsonc`, `.env.local-copia`, `.dev.vars`), que só é LIDO:
+
+```bash
+#!/usr/bin/env bash
+# Cria/atualiza uma VARIANTE do app de teste do dono (banco-local/app-teste — :5188, checkout PRINCIPAL) para uma
+# WORKTREE da campanha "Planejamento unificado": porta, PID, log, cacheDir, envDir e wrangler PRÓPRIOS; a MESMA guarda
+# "tudo local" do modelo (APP-TESTE-LOCAL.md §5) + raiz = a worktree (nunca o checkout principal).
+# Uso: criar-variante.sh <nome> <worktree> <porta>   ex.: criar-variante.sh f31 ".../worktrees/f31-planejamento-campos" 5187
+# Portas: F3.1 = 5187, F3.2 = 5186. NUNCA 5188 (dono), 5173 (dono/produção), 5198/5199 (QAs antigos).
+# Só LÊ banco-local/app-teste/ (modelo). Nada disto é versionado (fica fora do repo; .env.local-copia/.dev.vars = chmod 600).
+set -euo pipefail
+NOME="${1:?nome}"; WT="${2:?worktree}"; PORTA="${3:?porta}"
+BL="/Users/sunglee/PLM + Criação/banco-local"
+AT="$BL/app-teste"
+V="$BL/app-teste-variantes/$NOME"
+case "$PORTA" in 5186|5187) ;; *) echo "RECUSADO: porta $PORTA (variantes: F3.1=5187, F3.2=5186)"; exit 1;; esac
+case "$WT" in */plm-pcp/.claude/worktrees/*) ;; *) echo "RECUSADO: $WT não é uma worktree de plm-pcp/.claude/worktrees/"; exit 1;; esac
+[ -f "$WT/vite.config.ts" ] && [ -x "$WT/node_modules/.bin/vite" ] || { echo "RECUSADO: worktree sem vite.config.ts ou sem node_modules (npm ci)"; exit 1; }
+valor() { grep -E "\"$1\"" "$2" | head -1 | sed -E 's/^[^:]*:[[:space:]]*//; s/,[[:space:]]*$//'; }
+for k in compatibility_date compatibility_flags main; do
+  [ -n "$(valor "$k" "$AT/wrangler.jsonc")" ] && [ "$(valor "$k" "$AT/wrangler.jsonc")" = "$(valor "$k" "$WT/wrangler.jsonc")" ] \
+    || { echo "RECUSADO: wrangler.jsonc da worktree difere do modelo em $k — espelhar no app-teste do dono primeiro (APP-TESTE-LOCAL.md §6)"; exit 1; }
+done
+WTB="$(basename "$WT")"
+REL="../../../plm-pcp/.claude/worktrees/$WTB/vite.config.ts"
+mkdir -p "$V"; chmod 700 "$V"
+install -m 600 "$AT/.env.local-copia" "$V/.env.local-copia"
+install -m 600 "$AT/.dev.vars" "$V/.dev.vars"
+sub() { sed -e "s|__NOME__|$NOME|g" -e "s|__PORTA__|$PORTA|g" -e "s|__WTBASE__|$WTB|g" -e "s|__WT__|$WT|g" -e "s|__V__|$V|g" -e "s|__REL__|$REL|g"; }
+
+sub > "$V/wrangler.jsonc" <<'EOF'
+// Cópia do wrangler.jsonc do repo SÓ para a variante __NOME__ (:__PORTA__). Gerado por criar-variante.sh.
+// O @cloudflare/vite-plugin lê as variáveis do worker (.dev.vars/.env) da PASTA deste arquivo: apontando para cá
+// (CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH), o .env de PRODUÇÃO da worktree nunca chega ao worker.
+{
+  "name": "sistrama-copia-__NOME__",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry"
+}
+EOF
+
+sub > "$V/vite.config.copia.mjs" <<'EOF'
+// Vite da VARIANTE "__NOME__" do app de teste: http://localhost:__PORTA__ -> Supabase LOCAL da cópia (banco-local).
+// Gerado por banco-local/app-teste-variantes/criar-variante.sh a partir do modelo banco-local/app-teste/
+// vite.config.local-copia.mjs (o :5188 do dono, que serve o checkout PRINCIPAL e NÃO é tocado). Serve a WORKTREE
+// __WTBASE__. Isolamento = o do modelo (APP-TESTE-LOCAL.md §5): envDir = esta pasta (cliente); worker = wrangler.jsonc
+// DESTA pasta (.dev.vars local, nunca o .env de produção da worktree); process.env pré-carregado com os valores locais
+// (o TanStack Start copia o .env da raiz para o process.env, mas quem já está lá tem prioridade); cacheDir próprio.
+// Guarda: ABORTA a subida se qualquer URL do Supabase não for 127.0.0.1/localhost, se algo citar supabase.co/.com, se o
+// wrangler não for o daqui, se a raiz não for a worktree (ou for o checkout principal) ou se a porta não for a daqui.
+import fs from "node:fs";
+import path from "node:path";
+import base from "__REL__";
+
+// O "ç/ã" de "Criação" está em NFD no disco; normalizar p/ a forma nativa (senão root ≠ cwd e o alias @/ não resolve).
+const nativo = (p) => fs.realpathSync.native(p);
+const WT = nativo("__WT__");
+const MAIN = nativo("/Users/sunglee/PLM + Criação/plm-pcp");
+const HERE = nativo("__V__");
+const PORTA = __PORTA__;
+if (PORTA === 5188 || PORTA === 5173) throw new Error(`[guarda-copia-local] ABORTADO — a porta ${PORTA} é do dono`);
+
+function lerDotenv(arquivo) {
+  const out = {};
+  for (const linha of fs.readFileSync(arquivo, "utf8").split(/\r?\n/)) {
+    const m = linha.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m) out[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return out;
+}
+
+const envCliente = lerDotenv(path.join(HERE, ".env.local-copia"));
+const envWorker = lerDotenv(path.join(HERE, ".dev.vars"));
+
+// 1) Worker: o @cloudflare/vite-plugin lê este caminho no hook `config` (depois deste módulo rodar).
+process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH = path.join(HERE, "wrangler.jsonc");
+delete process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV;
+// 2) Node: pré-carregar os valores LOCAIS impede que SUPABASE_URL/chaves de produção do .env da worktree entrem.
+for (const [k, v] of Object.entries({ ...envWorker, ...envCliente })) process.env[k] = v;
+
+const ehLocal = (u) => typeof u === "string" && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(u);
+
+function guardaCopiaLocal() {
+  return {
+    name: "guarda-copia-local",
+    enforce: "post",
+    configResolved(config) {
+      const verificar = {
+        "VITE_SUPABASE_URL (cliente/import.meta.env)": config.env?.VITE_SUPABASE_URL,
+        "SUPABASE_URL (worker/.dev.vars)": envWorker.SUPABASE_URL,
+        "process.env.SUPABASE_URL (node)": process.env.SUPABASE_URL,
+        "process.env.VITE_SUPABASE_URL (node)": process.env.VITE_SUPABASE_URL,
+      };
+      const erros = Object.entries(verificar)
+        .filter(([, v]) => !ehLocal(v))
+        .map(([k, v]) => `${k} = ${v ?? "(vazio)"}`);
+      const todos = { ...config.env, ...envWorker };
+      for (const [k, v] of Object.entries(todos)) {
+        if (typeof v === "string" && /supabase\.(co|com)\b/i.test(v)) erros.push(`${k} aponta para supabase.co/.com`);
+      }
+      if (process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH !== path.join(HERE, "wrangler.jsonc")) {
+        erros.push("CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH não aponta para o wrangler.jsonc desta variante");
+      }
+      if (process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV) erros.push("CLOUDFLARE_INCLUDE_PROCESS_ENV está ligado");
+      if (config.root !== WT) erros.push(`raiz = ${config.root} (esperado a worktree ${WT})`);
+      if (config.root === MAIN) erros.push("raiz = checkout PRINCIPAL (é o que o :5188 do dono serve)");
+      if (config.server?.port !== PORTA) erros.push(`porta = ${config.server?.port} (esperado ${PORTA})`);
+      if (erros.length) {
+        throw new Error(`[guarda-copia-local] ABORTADO — algo poderia falar com PRODUÇÃO ou servir o código errado:\n  - ${erros.join("\n  - ")}`);
+      }
+      config.logger.info(`[guarda-copia-local] OK: variante __NOME__ (:${PORTA}, raiz ${WT}) — cliente e worker -> ${envWorker.SUPABASE_URL} (cópia local)`);
+    },
+  };
+}
+
+export default {
+  ...base,
+  root: WT,
+  mode: "local-copia",
+  envDir: HERE,
+  cacheDir: path.join(WT, "node_modules/.vite-copia-__PORTA__"),
+  clearScreen: false,
+  server: { ...(base.server ?? {}), port: PORTA, strictPort: true },
+  plugins: [...(base.plugins ?? []), guardaCopiaLocal()],
+};
+EOF
+
+sub > "$V/subir.sh" <<'EOF'
+#!/bin/zsh
+# Sobe a VARIANTE __NOME__ do app de teste em http://localhost:__PORTA__ (worktree __WTBASE__) -> Supabase LOCAL.
+# Gerado por criar-variante.sh (modelo: banco-local/app-teste/subir-app-5188.sh). NÃO mexe no :5188 nem no :5173.
+set -euo pipefail
+BL="/Users/sunglee/PLM + Criação/banco-local"
+AT="$BL/app-teste"
+V="__V__"
+WT="__WT__"
+PORTA=__PORTA__
+PIDF="$BL/vite-$PORTA.pid"
+LOG="$V/vite-$PORTA.log"
+
+if ! curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:54321/auth/v1/health; then
+  echo "ERRO: Supabase local não responde em 127.0.0.1:54321 (APP-TESTE-LOCAL.md §1) — NÃO subo."; exit 1
+fi
+"$AT/kong-urls-longas.sh"
+if [[ -f "$PIDF" ]] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+  echo "Já está rodando (PID $(cat "$PIDF")) -> http://localhost:$PORTA"; exit 0
+fi
+if lsof -nP -iTCP:$PORTA -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "ERRO: a porta $PORTA já está ocupada por outro processo — NÃO derrubo nada:"; lsof -nP -iTCP:$PORTA -sTCP:LISTEN; exit 1
+fi
+cd "$WT"
+nohup ./node_modules/.bin/vite dev --config "$V/vite.config.copia.mjs" --mode local-copia --port $PORTA --strictPort \
+  > "$LOG" 2>&1 < /dev/null &
+PID=$!
+disown "$PID" 2>/dev/null || true
+echo "$PID" > "$PIDF"
+for _ in {1..90}; do
+  if curl -fsS -o /dev/null --max-time 2 "http://localhost:$PORTA/"; then
+    if ! grep -qF "[guarda-copia-local] OK: variante __NOME__ " "$LOG"; then
+      echo "ERRO: respondeu SEM a linha OK da guarda no log — derrubando o PRÓPRIO PID $PID"; kill "$PID"; rm -f "$PIDF"; exit 1
+    fi
+    echo "OK: variante __NOME__ em http://localhost:$PORTA (PID $PID; log: $LOG)"
+    grep -m1 "guarda-copia-local" "$LOG"; exit 0
+  fi
+  if ! kill -0 "$PID" 2>/dev/null; then
+    echo "ERRO: o vite morreu ao subir (a guarda pode ter abortado). Últimas linhas do log:"; tail -30 "$LOG"; rm -f "$PIDF"; exit 1
+  fi
+  sleep 1
+done
+echo "AVISO: ainda não respondeu em 90 s (PID $PID). Veja: tail -f \"$LOG\""
+EOF
+
+sub > "$V/descer.sh" <<'EOF'
+#!/bin/zsh
+# Derruba SÓ a variante __NOME__ (:__PORTA__), pelo PID anotado, conferindo que é mesmo ela. Nunca toca no :5188/:5173.
+# Gerado por criar-variante.sh (modelo: banco-local/app-teste/descer-app-5188.sh).
+set -uo pipefail
+BL="/Users/sunglee/PLM + Criação/banco-local"
+V="__V__"
+PORTA=__PORTA__
+PIDF="$BL/vite-$PORTA.pid"
+if [[ ! -f "$PIDF" ]]; then echo "Sem $PIDF — nada a derrubar."; exit 0; fi
+PID="$(cat "$PIDF")"
+if ! kill -0 "$PID" 2>/dev/null; then echo "PID $PID já não existe. Limpando o arquivo."; rm -f "$PIDF"; exit 0; fi
+CMD="$(ps -p "$PID" -o command= || true)"
+if [[ "$CMD" != *"$V/vite.config.copia.mjs"* ]]; then
+  echo "RECUSADO: o PID $PID não é a variante __NOME__:"; echo "  $CMD"; exit 1
+fi
+FILHOS=($(pgrep -P "$PID" || true))   # workerd do @cloudflare/vite-plugin
+kill "$PID"
+for _ in {1..15}; do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
+if kill -0 "$PID" 2>/dev/null; then echo "Não saiu com TERM; forçando só o PID $PID."; kill -9 "$PID"; fi
+for F in "${FILHOS[@]}"; do kill -0 "$F" 2>/dev/null && kill "$F" 2>/dev/null; done
+rm -f "$PIDF"
+echo "Variante __NOME__ (:$PORTA) derrubada (PID $PID)."
+EOF
+
+chmod +x "$V/subir.sh" "$V/descer.sh"
+echo "variante $NOME pronta em $V (porta $PORTA, worktree $WTB) — subir: \"$V/subir.sh\" · descer: \"$V/descer.sh\""
+```
+
+```bash
+VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
+chmod +x "$VAR/criar-variante.sh"
+bash "$VAR/criar-variante.sh" f31 "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" 5187
+"$VAR/f31/subir.sh"
+lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
+```
+
+Expected: `variante f31 pronta …`; `Kong: URLs longas liberadas …`; `OK: variante f31 em http://localhost:5187 (PID …)` seguida da linha `[guarda-copia-local] OK: variante f31 (:5187, raiz …/f31-planejamento-campos) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o PID do `:5188` igual ao de antes. `RECUSADO`/`ABORTADO`/`ERRO`: PARE e reporte (nunca contornar a guarda; nunca subir com `npm run dev` + `VITE_*`).
+
+- [ ] **Step 4: Criar `tests/e2e/f31-qa.spec.ts`**
 
 ```ts
 // tests/e2e/f31-qa.spec.ts — QA da F3.1 (Sheet unificado do Planejamento: campos do Dev, Descrição do produto,
@@ -3328,27 +3658,51 @@ Expected: `http=200`; o `cwd` do PID é a worktree da F3.1.
 // NÃO COMMITAR: existe só na worktree da F3.1 e é apagado na Task 11 do plano
 // docs/superpowers/plans/2026-09-23-planejamento-unificado-f31-campos.md (evidência → .superpowers/sdd/2026-09-23-f31/).
 //
-// SÓ LEITURA. O app local fala com o Supabase de PRODUÇÃO, então:
-//  • toda ESCRITA no Supabase é SIMULADA aqui (route.fulfill — nunca chega ao banco) ou BARRADA (violação ⇒ falha);
-//  • GETs passam; alguns são "patchados" no caminho p/ montar o cenário (card enviado à Explosão, Reprovado,
-//    chave ligada, permissões) — o banco não muda;
-//  • na ORIGEM DO APP (o vite), qualquer requisição NÃO-GET é barrada (server fns rodam com service role);
-//  • o robô NÃO troca de loja: toda leitura de tenant_config tem de ser da Loja Teste, senão falha.
-// Único efeito inerente, sem dado de loja: cada login grava last_sign_in_at/refresh token no Auth (4 logins).
-// Variáveis: E2E_BASE_URL (obrigatória, local) · F31_SELO=1 (selo/"Mover para…", exige a F2 juntada) · F31_OUT.
-import { test, expect, type Browser, type BrowserContext, type Page, type Request, type Route } from "@playwright/test";
+// DOIS ALVOS (re-check do guardião N2 + ruling do controlador) — F31_ALVO obrigatório:
+//  • "copia"    — QA da Task 10: app de teste DA WORKTREE (http://localhost:5187, variante do banco-local/app-teste)
+//                 sobre a CÓPIA LOCAL (Supabase http://127.0.0.1:54321). Guarda INVERTIDA: QUALQUER requisição a
+//                 *.supabase.co (GET inclusive) é violação e é barrada. Os 3 testes automáticos seguem com as escritas
+//                 SIMULADAS (cenários determinísticos); os testes manuais M1–M8 (fim do arquivo, F31_MANUAL=1) GRAVAM
+//                 de verdade — só na cópia, um por vez, com o OK do dono item a item.
+//  • "producao" — smoke SÓ-LEITURA pós-merge no :5173 do dono (Task 11 Step 6), com a guarda de sempre:
+//     – toda ESCRITA no Supabase é SIMULADA aqui (route.fulfill — nunca chega ao banco) ou BARRADA (violação ⇒ falha);
+//     – GETs passam; alguns são "patchados" no caminho p/ montar o cenário (card enviado à Explosão, Reprovado,
+//       chave ligada, permissões) — o banco não muda;
+//     – na ORIGEM DO APP (o vite), qualquer requisição NÃO-GET é barrada (server fns rodam com service role).
+// Nos dois: o robô NÃO troca de loja — toda leitura de tenant_config tem de ser da Loja Teste, senão falha. Único
+// efeito inerente dos automáticos: cada login grava last_sign_in_at/refresh token no Auth do alvo (4 logins).
+// Variáveis: E2E_BASE_URL + VITE_SUPABASE_URL + F31_ALVO (obrigatórias, SEM fallback) · F31_SELO=1 (selo/"Mover
+// para…", exige a F2 juntada) · F31_MANUAL=1 (M1–M8, só no alvo "copia") · F31_OUT.
+import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { Client as PgClient } from "pg";
 import { doLogin } from "./_helpers";
 
 const BASE = process.env.E2E_BASE_URL ?? "";
 if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(BASE)) {
   throw new Error(`E2E_BASE_URL local obrigatória (recebi "${BASE}"). O default do playwright.config é PRODUÇÃO.`);
 }
+const ALVO = process.env.F31_ALVO ?? "";
+if (ALVO !== "copia" && ALVO !== "producao") {
+  throw new Error(`F31_ALVO obrigatório: "copia" (Task 10 — app de teste da worktree :5187) ou "producao" (smoke só-leitura no :5173). Recebi "${ALVO}".`);
+}
+// NOTA do re-check do guardião: SEM fallback de host — sem VITE_SUPABASE_URL a guarda não saberia o que vigiar (fail-open).
+if (!process.env.VITE_SUPABASE_URL) {
+  throw new Error("VITE_SUPABASE_URL ausente: a guarda de rede não sabe o host do Supabase. PARE (nada foi testado).");
+}
+const SUPA_HOST = new URL(process.env.VITE_SUPABASE_URL).host;
+if (ALVO === "copia" && (SUPA_HOST !== "127.0.0.1:54321" || BASE !== "http://localhost:5187")) {
+  throw new Error(`F31_ALVO=copia exige VITE_SUPABASE_URL=http://127.0.0.1:54321 e E2E_BASE_URL=http://localhost:5187 (recebi ${SUPA_HOST} · ${BASE}).`);
+}
+if (ALVO === "producao" && (!/\.supabase\.co$/.test(SUPA_HOST) || BASE !== "http://localhost:5173")) {
+  throw new Error(`F31_ALVO=producao é o smoke no :5173 do dono (Supabase de produção) — recebi ${SUPA_HOST} · ${BASE}.`);
+}
+const ehSupabaseProducao = (u: URL) => /(^|\.)supabase\.co$/i.test(u.hostname);
 const SELO = process.env.F31_SELO === "1";
+const MANUAL = process.env.F31_MANUAL === "1";
 const OUT = path.resolve(process.env.F31_OUT ?? ".superpowers/f31/qa");
 const LOJA_TESTE = "37889b78-fffb-404b-8c75-18b7e50a1d9b";
-const SUPA_HOST = new URL(process.env.VITE_SUPABASE_URL ?? "https://sem-supabase.invalid").host;
 const FAKE_ID = "00000000-0000-4000-8000-00000000f310";
 const SECAO_DEV = "Desenvolvimento — equipe e cronograma";
 // RPCs de LEITURA liberadas (conferidas nas migrations: sem INSERT/UPDATE/DELETE; avaliar_condicoes_kanban é
@@ -3399,6 +3753,14 @@ function corpo(req: Request): unknown {
 
 async function novaPagina(browser: Browser, st: Estado, viewport = { width: 1366, height: 900 }): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ baseURL: BASE, viewport });
+  if (ALVO === "copia") {
+    // Guarda INVERTIDA (N2): no QA contra a cópia NADA vai a produção — qualquer requisição a *.supabase.co (GET
+    // inclusive) é violação e é barrada. A variante já nasce toda local (guarda do vite); isto é o 2º cinto.
+    await ctx.route((u) => ehSupabaseProducao(u), async (route) => {
+      st.violacoes.push(`PRODUÇÃO ${route.request().method()} ${route.request().url()}`);
+      return route.abort("blockedbyclient");
+    });
+  }
   await ctx.route((u) => u.host === SUPA_HOST, async (route) => {
     const req = route.request();
     const u = new URL(req.url());
@@ -3876,32 +4238,483 @@ test("mobile 390 — Sheet sem estouro (seção Desenvolvimento aberta; selo/men
   conferirLimpo(st, "mobile");
   await ctx.close();
 });
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// TESTES MANUAIS da §5 NA CÓPIA (R11 do G-plano conjunto + N2 do re-check + ruling do controlador) — M1…M8.
+// GRAVAM DE VERDADE, SÓ na cópia local (127.0.0.1:54321): F31_ALVO=copia + F31_MANUAL=1, UM item por vez (-g "M3 —"),
+// com o OK do dono ITEM A ITEM; o controlador roda e MOSTRA cada passo (PNG em F31_OUT/manual/<item>-<n>-<passo>.png).
+// Guarda INVERTIDA: escrita liberada SÓ para 127.0.0.1:54321; QUALQUER requisição que não seja local (ou às fontes do
+// Google) — *.supabase.co inclusive — reprova. Loja conferida pelo tenant_id. Cards escolhidos por SELECT só-leitura na
+// cópia (BEGIN READ ONLY). Cada item DESFAZ o que fez (card criado é excluído pela tela; campo editado volta ao valor
+// anterior). Ficam NA CÓPIA, por natureza: histórico do Leadtime dos movimentos, REF revelada ao chegar na etapa de
+// revelação, CAD criado por um Salvar do Desenvolvimento (M7). O item 2 da §5 (Ficha de Medida — Storage) NÃO roda aqui:
+// o Storage da cópia não funciona (APP-TESTE-LOCAL.md §4) — vai para o smoke em produção (Task 11 Step 6b).
+// Seletores fora do que a F3.1 criou (board do Desenvolvimento no M7) não foram conferidos linha a linha: se não casarem,
+// o controlador ajusta SÓ o seletor (nunca a guarda) e registra no relato.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+const TAG = `QA-F31 ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+const OUT_M = path.join(OUT, "manual");
+const LOCAL_PG = "postgresql://postgres:postgres@127.0.0.1:54422/postgres";
+const HOSTS_LOCAIS = new Set(["localhost", "127.0.0.1", "fonts.googleapis.com", "fonts.gstatic.com"]);
+const ENV_VARIANTE = "/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/f31/.env.local-copia";
+const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function exigeManual() {
+  test.skip(!MANUAL, "testes manuais: só com F31_MANUAL=1, um por vez, com o OK do dono");
+  if (ALVO !== "copia") throw new Error("testes manuais GRAVAM: só com F31_ALVO=copia (nunca em produção)");
+}
+
+/** SELECT só-leitura na CÓPIA (escolher cards / conferir o que foi gravado). Nunca escreve. */
+async function sqlCopia<T>(q: string, params: unknown[] = []): Promise<T[]> {
+  if (ALVO !== "copia") throw new Error("SQL só na cópia");
+  const c = new PgClient({ connectionString: LOCAL_PG, ssl: false });
+  await c.connect();
+  try {
+    await c.query("BEGIN READ ONLY");
+    return (await c.query(q, params)).rows as T[];
+  } finally {
+    await c.query("ROLLBACK").catch(() => undefined);
+    await c.end();
+  }
+}
+
+/** Contexto que GRAVA na cópia: o que não é local reprova; o Supabase LOCAL passa e as escritas ficam registradas. */
+async function novaPaginaEscrita(browser: Browser, st: Estado, viewport = { width: 1366, height: 900 }): Promise<{ ctx: BrowserContext; page: Page }> {
+  if (ALVO !== "copia" || !MANUAL) throw new Error("fluxo que GRAVA só com F31_ALVO=copia e F31_MANUAL=1");
+  const ctx = await browser.newContext({ baseURL: BASE, viewport });
+  await ctx.route((u) => !HOSTS_LOCAIS.has(u.hostname), async (route) => {
+    st.violacoes.push(`FORA DA CÓPIA ${route.request().method()} ${route.request().url()}`);
+    return route.abort("blockedbyclient");
+  });
+  await ctx.route((u) => u.host === SUPA_HOST, async (route) => {
+    const req = route.request();
+    const u = new URL(req.url());
+    if (u.pathname === "/rest/v1/tenant_config") {
+      const t = u.searchParams.get("tenant_id");
+      if (t) st.tenants.add(t.replace(/^eq\./, ""));
+    }
+    if (req.method() !== "GET" && req.method() !== "HEAD" && !u.pathname.startsWith("/auth/v1/")) {
+      st.gravadas.push({ metodo: req.method(), caminho: caminho(u), corpo: corpo(req) });
+    }
+    return route.continue();
+  });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => st.errosPagina.push(String(e?.message ?? e)));
+  await doLogin(page);
+  return { ctx, page };
+}
+
+async function passo(page: Page, item: string, n: number, nome: string) {
+  fs.mkdirSync(OUT_M, { recursive: true });
+  const arq = path.join(OUT_M, `${item}-${n}-${nome}.png`);
+  await page.screenshot({ path: arq, fullPage: true });
+  console.log(`[f31-manual] ${item} passo ${n} (${nome}) → ${arq}`);
+}
+
+/** Radix Select pelo RÓTULO (o <label> e o combobox são irmãos no mesmo wrapper — FieldSelect do Planejamento e do Dev).
+ *  `valor` = texto exato da opção; `null` = a 1ª opção que não é "— Nenhum —" nem `exceto`. Devolve o texto escolhido. */
+async function escolherNoSelect(page: Page, escopo: Locator, rotulo: string, valor: string | null, exceto?: string | null): Promise<string> {
+  await escopo.locator("label").filter({ hasText: new RegExp(`^\\s*${reEsc(rotulo)}\\s*$`) }).first()
+    .locator("xpath=..").getByRole("combobox").first().click();
+  let opcoes = page.getByRole("option");
+  if (valor !== null) {
+    opcoes = opcoes.filter({ hasText: new RegExp(`^\\s*${reEsc(valor)}\\s*$`) });
+  } else {
+    opcoes = opcoes.filter({ hasNotText: "— Nenhum —" });
+    if (exceto) opcoes = opcoes.filter({ hasNotText: new RegExp(`^\\s*${reEsc(exceto)}\\s*$`) });
+  }
+  const alvo = opcoes.first();
+  const txt = ((await alvo.textContent()) ?? "").trim();
+  await alvo.click();
+  return txt;
+}
+
+/** Chama uma RPC COMO O USUÁRIO LOGADO, pela rede da própria página (a guarda da rota vale): token da sessão local
+ *  (localStorage `sb-127-auth-token` — APP-TESTE-LOCAL.md §3) + a chave pública da variante (.env.local-copia). */
+async function rpcComoUsuario(page: Page, nome: string, args: Record<string, unknown>): Promise<unknown> {
+  const chave = fs.readFileSync(ENV_VARIANTE, "utf8").match(/^\s*VITE_SUPABASE_PUBLISHABLE_KEY\s*=\s*["']?([^"'\s]+)/m)?.[1];
+  if (!chave) throw new Error("VITE_SUPABASE_PUBLISHABLE_KEY não achada na variante f31");
+  return page.evaluate(async ({ url, chave, nome, args }) => {
+    const bruto = localStorage.getItem("sb-127-auth-token");
+    if (!bruto) throw new Error("sem sessão local (sb-127-auth-token)");
+    const token = JSON.parse(bruto).access_token as string;
+    const r = await fetch(`${url}/rest/v1/rpc/${nome}`, {
+      method: "POST",
+      headers: { apikey: chave, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    const txt = await r.text();
+    if (!r.ok) throw new Error(`${nome}: HTTP ${r.status} ${txt}`);
+    return txt ? JSON.parse(txt) : null;
+  }, { url: process.env.VITE_SUPABASE_URL!, chave, nome, args });
+}
+
+/** Exclui um card PELA TELA (Sheet → Excluir → confirmar) e confere na cópia que ele sumiu. */
+async function excluirPelaTela(page: Page, id: string) {
+  await reabrir(page, id);
+  await dlg(page).getByRole("button", { name: "Excluir", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: /Excluir/ }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 });
+  await expect.poll(async () => (await sqlCopia(`select 1 from modelos where id = $1`, [id])).length, { timeout: 20_000 }).toBe(0);
+}
+
+test("M1 — Descrição, Modelista, Data Piloto 1 e Obs. Técnicas gravam e voltam ao reabrir (item 1 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.setTimeout(6 * 60_000);
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  const id = await idInterno(page);
+  const [antes] = await sqlCopia<{ descricao_produto: string | null; observacoes_tecnicas: string | null; d1: string | null; modelista: string | null }>(
+    `select m.descricao_produto, m.observacoes_tecnicas, to_char(m.data_piloto1, 'DD/MM/YYYY') d1, c.nome modelista
+       from modelos m left join colaboradores c on c.id = m.modelista_id where m.id = $1`, [id]);
+  await abrirCard(page, id);
+  await passo(page, "M1", 1, "aberto");
+  const desc = dlg(page).locator('textarea[data-colab-path="descricao_produto"]');
+  const obs = dlg(page).locator('textarea[data-colab-path="observacoes_tecnicas"]');
+  const d1 = dlg(page).locator('input[data-colab-path="data_piloto1"]');
+  await desc.fill(`${TAG} — descrição (M1)`);
+  await abrirSecao(page, SECAO_DEV);
+  await obs.fill(`${TAG} — obs. técnicas (M1)`);
+  await d1.fill("12/09/2026");
+  const modelista = await escolherNoSelect(page, dlg(page), "Modelista", null, antes.modelista);
+  await passo(page, "M1", 2, "preenchido");
+  await salvar(page, st, id);
+  await reabrir(page, id);
+  await abrirSecao(page, SECAO_DEV);
+  await passo(page, "M1", 3, "reaberto");
+  await expect(desc).toHaveValue(`${TAG} — descrição (M1)`);
+  await expect(obs).toHaveValue(`${TAG} — obs. técnicas (M1)`);
+  await expect(d1).toHaveValue("12/09/2026");
+  const [gravado] = await sqlCopia<{ descricao_produto: string; observacoes_tecnicas: string; d1: string; modelista: string | null }>(
+    `select m.descricao_produto, m.observacoes_tecnicas, to_char(m.data_piloto1, 'YYYY-MM-DD') d1, c.nome modelista
+       from modelos m left join colaboradores c on c.id = m.modelista_id where m.id = $1`, [id]);
+  expect(gravado).toEqual({ descricao_produto: `${TAG} — descrição (M1)`, observacoes_tecnicas: `${TAG} — obs. técnicas (M1)`, d1: "2026-09-12", modelista });
+  // Desfaz: valores anteriores (Modelista vazia volta por "— Nenhum —").
+  await desc.fill(antes.descricao_produto ?? "");
+  await obs.fill(antes.observacoes_tecnicas ?? "");
+  await d1.fill(antes.d1 ?? "");
+  await escolherNoSelect(page, dlg(page), "Modelista", antes.modelista ?? "— Nenhum —");
+  await salvar(page, st, id);
+  await passo(page, "M1", 4, "desfeito");
+  await fechar(page);
+  conferirLimpo(st, "manual-M1");
+  await ctx.close();
+});
+
+test("M3 — Replicar card(s) do Plan. Tecido leva a Descrição (item 3 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.setTimeout(6 * 60_000);
+  const [orig] = await sqlCopia<{ id: string; colecao_id: string; descricao_produto: string | null }>(
+    `select id, colecao_id, descricao_produto from modelos
+      where tenant_id = $1 and coalesce(origem, 'interno') = 'interno' and colecao_id is not null
+      order by nome, id limit 1`, [LOJA_TESTE]);
+  test.skip(!orig, "Loja Teste (cópia) sem card interno com coleção — nada a replicar");
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  const texto = `${TAG} — descrição (M3)`;
+  await abrirCard(page, orig.id);
+  await dlg(page).locator('textarea[data-colab-path="descricao_produto"]').fill(texto);
+  await salvar(page, st, orig.id);
+  await passo(page, "M3", 1, "origem-com-descricao");
+  // O "Replicar card(s)" do Plan. Tecido chama ESTA RPC (PlanTecidoSheet.tsx:1311-1316) — a F3.1 não mexe no diálogo;
+  // aqui ela é chamada COMO O USUÁRIO, pela rede da página (a guarda vale); destino = a mesma coleção, sem subcoleção.
+  const r = (await rpcComoUsuario(page, "replicar_cards_plan_tecido", {
+    _destino_colecao_id: orig.colecao_id, _destino_subcolecao_id: null, _modelo_ids: [orig.id], _rev_base: null,
+  })) as { origem_modelo_id: string; novo_modelo_id: string }[];
+  expect(r).toHaveLength(1);
+  const novo = r[0].novo_modelo_id;
+  const [rep] = await sqlCopia<{ descricao_produto: string | null }>(`select descricao_produto from modelos where id = $1`, [novo]);
+  expect(rep.descricao_produto).toBe(texto);
+  await abrirCard(page, novo);
+  await expect(dlg(page).locator('textarea[data-colab-path="descricao_produto"]')).toHaveValue(texto);
+  await passo(page, "M3", 2, "replica-com-descricao");
+  // Desfaz: exclui a réplica pela tela (se a tela recusar, PARE: o controlador limpa com o dono) e devolve a descrição.
+  await excluirPelaTela(page, novo);
+  await abrirCard(page, orig.id);
+  await dlg(page).locator('textarea[data-colab-path="descricao_produto"]').fill(orig.descricao_produto ?? "");
+  await salvar(page, st, orig.id);
+  await passo(page, "M3", 3, "desfeito");
+  await fechar(page);
+  conferirLimpo(st, "manual-M3");
+  await ctx.close();
+});
+
+test("M4 — Card novo: o 1º Salvar abre o Sheet do card criado e o 2º Salvar NÃO cria outro (item 4 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.setTimeout(6 * 60_000);
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  const nome = `${TAG} — card novo (M4)`;
+  await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+  await page.locator("button:visible", { hasText: "Novo Modelo" }).first().click();
+  await expect(dlg(page)).toContainText("Novo Modelo");
+  await dlg(page).locator('input[data-colab-path="nome"]').fill(nome);
+  await dlg(page).locator('textarea[data-colab-path="descricao_produto"]').fill(`${TAG} — descrição do card novo (M4)`);
+  await passo(page, "M4", 1, "dialog-novo");
+  await dlg(page).getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect.poll(() => temSecao(page, SECAO_DEV), { timeout: 20_000 }).toBe(true); // o Dialog VIROU o Sheet do card
+  await expect(dlg(page).getByRole("button", { name: "Excluir", exact: true })).toBeVisible();
+  await passo(page, "M4", 2, "virou-sheet");
+  const criados = await sqlCopia<{ id: string }>(`select id from modelos where tenant_id = $1 and nome = $2`, [LOJA_TESTE, nome]);
+  expect(criados).toHaveLength(1);
+  const id = criados[0].id;
+  await dlg(page).locator('textarea[data-colab-path="descricao_produto"]').fill(`${TAG} — descrição editada (M4)`);
+  await salvar(page, st, id); // 2º Salvar = PATCH do MESMO id
+  expect(await sqlCopia(`select id from modelos where tenant_id = $1 and nome = $2`, [LOJA_TESTE, nome])).toHaveLength(1);
+  expect(st.gravadas.filter((g) => g.metodo === "POST" && g.caminho.startsWith("/rest/v1/modelos")).length).toBe(1);
+  await passo(page, "M4", 3, "segundo-salvar");
+  await excluirPelaTela(page, id); // desfaz
+  await passo(page, "M4", 4, "excluido");
+  conferirLimpo(st, "manual-M4");
+  await ctx.close();
+});
+
+test("M5 — Card enviado à Explosão: seções do Dev travadas → Editar → Obs. Técnicas → Salvar re-trava (item 5 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.setTimeout(6 * 60_000);
+  const [card] = await sqlCopia<{ id: string; observacoes_tecnicas: string | null }>(
+    `select id, observacoes_tecnicas from modelos
+      where tenant_id = $1 and coalesce(origem, 'interno') = 'interno' and enviado_cad
+      order by nome, id limit 1`, [LOJA_TESTE]);
+  test.skip(!card, "Loja Teste (cópia) sem card interno enviado à Explosão");
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  await abrirCard(page, card.id);
+  await abrirSecao(page, SECAO_DEV);
+  const obs = dlg(page).locator('textarea[data-colab-path="observacoes_tecnicas"]');
+  const editar = dlg(page).getByRole("button", { name: "Editar", exact: true });
+  await expect(obs).toBeDisabled();
+  await expect(dlg(page).getByTestId("aviso-campos-dev").first()).toContainText("Enviado à Explosão");
+  await passo(page, "M5", 1, "travado");
+  await editar.click();
+  await expect(obs).toBeEnabled();
+  await obs.fill(`${TAG} — ajuste pós-Explosão (M5)`);
+  await salvar(page, st, card.id);
+  await expect(obs).toBeDisabled(); // o Salvar re-trava
+  await expect(editar).toBeVisible();
+  await passo(page, "M5", 2, "retravado");
+  const [g] = await sqlCopia<{ o: string | null }>(`select observacoes_tecnicas o from modelos where id = $1`, [card.id]);
+  expect(g.o).toBe(`${TAG} — ajuste pós-Explosão (M5)`);
+  await editar.click(); // desfaz
+  await obs.fill(card.observacoes_tecnicas ?? "");
+  await salvar(page, st, card.id);
+  await passo(page, "M5", 3, "desfeito");
+  await fechar(page);
+  conferirLimpo(st, "manual-M5");
+  await ctx.close();
+});
+
+test("M6 — 'Mover para…' com a chave DESLIGADA: move pelas regras do board; o motivo de Reprovado fica ao sair (item 6 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.skip(!SELO, "exige a Task 8 (selo) — F31_SELO=1");
+  test.setTimeout(8 * 60_000);
+  const [f1] = await sqlCopia<{ tem: boolean }>(
+    `select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'kanban_automatico') tem`);
+  if (f1.tem) {
+    const [k] = await sqlCopia<{ ligada: boolean }>(`select coalesce(kanban_automatico, false) ligada from tenant_config where tenant_id = $1`, [LOJA_TESTE]);
+    test.skip(k.ligada, "a chave está LIGADA na Loja Teste da cópia — o M6 é da chave desligada (ver o M8)");
+  }
+  const [card] = await sqlCopia<{ id: string; status: string; motivo: string | null }>(
+    `select id, status_desenvolvimento status, motivo_cancelamento motivo from modelos
+      where tenant_id = $1 and coalesce(origem, 'interno') = 'interno' and ordem_criacao_enviada
+        and status_desenvolvimento is not null and status_desenvolvimento not in ('reprovado', 'aprovado')
+      order by nome, id limit 1`, [LOJA_TESTE]);
+  test.skip(!card, "Loja Teste (cópia) sem card interno com Ordem de Criação fora de Reprovado/Aprovado");
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  const statusNoBanco = async () => (await sqlCopia<{ s: string }>(`select status_desenvolvimento s from modelos where id = $1`, [card.id]))[0].s;
+  const mover = async (key: string) => {
+    await dlg(page).getByTestId("etapa-mover-gatilho").click();
+    await page.getByTestId("etapa-mover-menu").getByTestId(`etapa-mover-${key}`).click();
+    await expect.poll(statusNoBanco, { timeout: 20_000 }).toBe(key);
+  };
+  const mot = dlg(page).locator('textarea[data-colab-path="motivo_cancelamento"]');
+  await abrirCard(page, card.id);
+  await passo(page, "M6", 1, "aberto");
+  // (a) → Reprovado (se a loja exigir requisito p/ Reprovado, o menu mostra "falta …": PARE e escolha outro card com o dono)
+  await mover("reprovado");
+  await expect(mot).toBeVisible();
+  await mot.fill(`${TAG} — motivo (M6)`);
+  await salvar(page, st, card.id);
+  const [kb] = await sqlCopia<{ erro: unknown }>(`select revisao_pendente -> 'kanban' erro from modelos where id = $1`, [card.id]);
+  expect(kb.erro ?? null).toBeNull(); // o "Mover para…" limpa o #Erro do kanban (marcar_etapa_verificada)
+  await passo(page, "M6", 2, "reprovado-com-motivo");
+  // (b) sai de Reprovado: o motivo CONTINUA no banco (o Sheet unificado e o "Mover para…" nunca apagam)
+  await mover(card.status);
+  await expect(mot).toHaveCount(0);
+  const [m1] = await sqlCopia<{ m: string | null }>(`select motivo_cancelamento m from modelos where id = $1`, [card.id]);
+  expect(m1.m).toBe(`${TAG} — motivo (M6)`);
+  await passo(page, "M6", 3, "fora-de-reprovado-motivo-guardado");
+  // (c) volta a Reprovado: o texto aparece
+  await mover("reprovado");
+  await expect(mot).toHaveValue(`${TAG} — motivo (M6)`);
+  await passo(page, "M6", 4, "reprovado-de-novo");
+  await fechar(page);
+  await page.goto("/criacao/desenvolvimento", { waitUntil: "networkidle" });
+  await passo(page, "M6", 5, "board-do-desenvolvimento"); // o dono confere o card na coluna Reprovado
+  // Desfaz: motivo anterior + etapa original (a REF revelada e o histórico do Leadtime ficam NA CÓPIA).
+  await abrirCard(page, card.id);
+  await mot.fill(card.motivo ?? "");
+  await salvar(page, st, card.id);
+  await mover(card.status);
+  await passo(page, "M6", 6, "desfeito");
+  await fechar(page);
+  conferirLimpo(st, "manual-M6");
+  await ctx.close();
+});
+
+test("M7 — Colaboração: o mesmo card no Desenvolvimento e no Planejamento; Modelista nos dois ⇒ banner 'Modelista' (item 7 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.setTimeout(8 * 60_000);
+  const [card] = await sqlCopia<{ id: string; nome: string; modelista: string | null }>(
+    `select m.id, m.nome, c.nome modelista from modelos m left join colaboradores c on c.id = m.modelista_id
+      where m.tenant_id = $1 and coalesce(m.origem, 'interno') = 'interno' and m.ordem_criacao_enviada
+        and not coalesce(m.enviado_cad, false)
+      order by m.nome, m.id limit 1`, [LOJA_TESTE]);
+  test.skip(!card, "Loja Teste (cópia) sem card interno no Desenvolvimento e não enviado à Explosão");
+  const stA = novoEstado();
+  const stB = novoEstado();
+  const a = await novaPaginaEscrita(browser, stA); // aba A — Desenvolvimento (intocado)
+  const b = await novaPaginaEscrita(browser, stB); // aba B — Planejamento (F3.1)
+  // B: muda a Modelista no Planejamento SEM salvar.
+  await abrirCard(b.page, card.id);
+  await abrirSecao(b.page, SECAO_DEV);
+  const deB = await escolherNoSelect(b.page, dlg(b.page), "Modelista", null, card.modelista);
+  await passo(b.page, "M7", 1, "planejamento-modelista-nao-salva");
+  // A: abre o MESMO card no Desenvolvimento (board → busca → card) e SALVA outra Modelista.
+  await a.page.goto("/criacao/desenvolvimento", { waitUntil: "networkidle" });
+  const busca = a.page.getByPlaceholder(/buscar|pesquisar/i).first();
+  if ((await busca.count()) > 0) await busca.fill(card.nome);
+  await a.page.getByText(card.nome, { exact: true }).first().click();
+  await expect(dlg(a.page)).toBeVisible({ timeout: 30_000 });
+  const deA = await escolherNoSelect(a.page, dlg(a.page), "Modelista", null, deB);
+  const nA = stA.gravadas.length;
+  await dlg(a.page).getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect.poll(() => stA.gravadas.slice(nA).some((g) => g.metodo === "PATCH" && g.caminho.includes(`id=eq.${card.id}`)), { timeout: 20_000 }).toBe(true);
+  await passo(a.page, "M7", 2, "desenvolvimento-salvou");
+  // B recebe o UPDATE pelo Realtime (real, na cópia): conflito "Modelista" com "manter meu · usar o novo".
+  const aviso = b.page.locator("li").filter({ hasText: "Modelista" });
+  await expect(aviso).toBeVisible({ timeout: 30_000 });
+  await expect(aviso.getByRole("button", { name: "manter meu" })).toBeVisible();
+  await passo(b.page, "M7", 3, "planejamento-banner-modelista");
+  await aviso.getByRole("button", { name: "usar o novo" }).click();
+  const [g] = await sqlCopia<{ modelista: string | null }>(
+    `select c.nome modelista from modelos m left join colaboradores c on c.id = m.modelista_id where m.id = $1`, [card.id]);
+  expect(g.modelista).toBe(deA);
+  // Desfaz: a Modelista original, salva pelo Planejamento.
+  await escolherNoSelect(b.page, dlg(b.page), "Modelista", card.modelista ?? "— Nenhum —");
+  await salvar(b.page, stB, card.id);
+  await passo(b.page, "M7", 4, "desfeito");
+  await fechar(b.page);
+  conferirLimpo(stA, "manual-M7-desenvolvimento");
+  conferirLimpo(stB, "manual-M7-planejamento");
+  await a.ctx.close();
+  await b.ctx.close();
+});
+
+test("M8 — 'Mover para…' AUTOMÁTICO (chave LIGADA na Loja Teste da cópia): fixar em Stand By, soltar, tentar pular etapa (item 8 da §5)", async ({ browser }) => {
+  exigeManual();
+  test.skip(!SELO, "exige a Task 8 (selo) — F31_SELO=1");
+  test.setTimeout(8 * 60_000);
+  const [f1] = await sqlCopia<{ tem: boolean }>(`select to_regclass('public.kanban_snapshot') is not null tem`);
+  test.skip(!f1.tem, "a F1 NÃO está na cópia — só o controlador a aplica, na hora do teste do dono (APP-TESTE-LOCAL.md §8)");
+  const [k] = await sqlCopia<{ ligada: boolean }>(`select coalesce(kanban_automatico, false) ligada from tenant_config where tenant_id = $1`, [LOJA_TESTE]);
+  test.skip(!k.ligada, "a chave NÃO está ligada na Loja Teste da cópia (ligar é do teste da F1, com o dono)");
+  const [card] = await sqlCopia<{ id: string }>(
+    `select id from modelos
+      where tenant_id = $1 and coalesce(origem, 'interno') = 'interno' and ordem_criacao_enviada
+        and coalesce(status_desenvolvimento, '') not in ('stand_by', 'reprovado', 'aprovado')
+      order by nome, id limit 1`, [LOJA_TESTE]);
+  test.skip(!card, "Loja Teste (cópia) sem card interno com Ordem de Criação fora de Stand By/Reprovado/Aprovado");
+  const st = novoEstado();
+  const { ctx, page } = await novaPaginaEscrita(browser, st);
+  const selo = dlg(page).getByTestId("etapa-kanban-selo-header");
+  const menu = page.getByTestId("etapa-mover-menu");
+  const statusNoBanco = async () => (await sqlCopia<{ s: string }>(`select status_desenvolvimento s from modelos where id = $1`, [card.id]))[0].s;
+  await abrirCard(page, card.id);
+  await expect(selo).toContainText("automática");
+  await passo(page, "M8", 1, "automatico");
+  // (a) fixar em Stand By
+  await dlg(page).getByTestId("etapa-mover-gatilho").click();
+  await expect(menu.getByTestId("etapa-mover-stand_by")).toContainText("fixa aqui");
+  await menu.getByTestId("etapa-mover-stand_by").click();
+  await expect(page.getByText('Fixado em "Stand By"').first()).toBeVisible();
+  await expect.poll(statusNoBanco, { timeout: 20_000 }).toBe("stand_by");
+  await expect(selo).toContainText("fixado");
+  await passo(page, "M8", 2, "fixado-stand-by");
+  // (b) soltar: a opção anotada "solta o card"
+  await dlg(page).getByTestId("etapa-mover-gatilho").click();
+  await menu.locator('[data-testid^="etapa-mover-"]').filter({ hasText: "solta o card" }).first().click();
+  await expect.poll(statusNoBanco, { timeout: 20_000 }).not.toBe("stand_by");
+  await expect(selo).toContainText("automática");
+  await passo(page, "M8", 3, "solto");
+  // (c) tentar pular etapa: uma opção anotada "falta …" NÃO move
+  const antes = await statusNoBanco();
+  await dlg(page).getByTestId("etapa-mover-gatilho").click();
+  const bloqueada = menu.locator('[data-testid^="etapa-mover-"]').filter({ hasText: /falta/ }).first();
+  if ((await bloqueada.count()) === 0) {
+    console.log("[f31-manual] M8 (c): nenhuma etapa bloqueada p/ este card (loja sem requisitos à frente) — registrar");
+    await page.keyboard.press("Escape");
+  } else {
+    await bloqueada.click();
+    await page.waitForTimeout(2000);
+    expect(await statusNoBanco()).toBe(antes);
+    await passo(page, "M8", 4, "pular-bloqueado");
+  }
+  // Não desfaz a etapa: com a chave ligada o kanban decide; desligar/restaurar a chave é do teste da F1 (runbook 9.1).
+  await fechar(page);
+  conferirLimpo(st, "manual-M8");
+  await ctx.close();
+});
 ```
 
-- [ ] **Step 4: Rodar**
+- [ ] **Step 5: Rodar o QA automático na cópia**
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
-E2E_BASE_URL=http://localhost:5199 F31_SELO=<0 ou 1> npx playwright test tests/e2e/f31-qa.spec.ts --workers=1 --retries=0 2>&1 | tee .superpowers/f31/logs/qa.log | tail -15
+E2E_BASE_URL=http://localhost:5187 VITE_SUPABASE_URL=http://127.0.0.1:54321 F31_ALVO=copia F31_SELO=<0 ou 1> \
+  npx playwright test tests/e2e/f31-qa.spec.ts --workers=1 --retries=0 2>&1 | tee .superpowers/f31/logs/qa.log | tail -15
 ```
-`F31_SELO=1` só se a Task 8 foi feita (F2 juntada). Expected: a linha literal `3 passed`. `0 passed`/erro de `E2E_BASE_URL` = NÃO TESTADO. Falha de asserção: diagnosticar (screenshot/trace em `test-results/`); se for bug do código, voltar à task dona e refazer o QA; se for o spec, corrigir o spec e registrar o porquê. `violacoes`/`errosPagina`/loja ≠ Loja Teste = falha dura (nunca relaxar a guarda).
+`F31_SELO=1` só se a Task 8 foi feita (F2 juntada). Expected: `3 passed` e `7 skipped` (M1–M8 pulam sem `F31_MANUAL=1`). `0 passed`/erro de `E2E_BASE_URL`/`VITE_SUPABASE_URL`/`F31_ALVO` = NÃO TESTADO. Falha de asserção: diagnosticar (screenshot/trace em `test-results/`); se for bug do código, voltar à task dona e refazer o QA; se for o spec, corrigir o spec e registrar o porquê. `violacoes` (inclusive qualquer `PRODUÇÃO …` da guarda invertida)/`errosPagina`/loja ≠ Loja Teste = falha dura (nunca relaxar a guarda).
 
-- [ ] **Step 5: Encerrar o vite `:5199` (só o nosso)**
+- [ ] **Step 6: Testes manuais da §5 NA CÓPIA — o controlador faz e mostra cada passo ao dono, item a item**
+
+Mapa: item 1 → `M1`; item 2 (Ficha de Medida — Storage) → **Task 11 Step 6b (produção)**; item 3 → `M3`; item 4 → `M4`; item 5 → `M5`; item 6 → `M6` (`F31_SELO=1`); item 7 → `M7`; item 8 → `M8` (`F31_SELO=1` + a F1 aplicada na cópia pelo controlador para o teste do dono + a chave ligada na Loja Teste da cópia — senão pula com o motivo). Para CADA item: (1) pedir o OK do dono por chat, dizendo o que o item grava na cópia (§5); (2) rodar SÓ ele; (3) mostrar ao dono os PNGs do item, na ordem, e o JSON das escritas; (4) registrar no diário do guardião: item, card, horário, resultado. O OK de um item não vale para o outro.
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
-PID=$(cat .superpowers/f31/vite-5199.pid)
-lsof -nP -iTCP:5199 -sTCP:LISTEN -t | grep -qx "$PID" && lsof -a -p "$PID" -d cwd -Fn | grep -q "f31-planejamento-campos" && kill "$PID" && echo "vite 5199 (PID $PID) encerrado"
-lsof -nP -iTCP:5199 -sTCP:LISTEN; lsof -nP -iTCP:5173 -sTCP:LISTEN -t
+ITEM="M1"   # um por vez: M1 · M3 · M4 · M5 · M6 · M7 · M8
+E2E_BASE_URL=http://localhost:5187 VITE_SUPABASE_URL=http://127.0.0.1:54321 F31_ALVO=copia F31_MANUAL=1 F31_SELO=<0 ou 1> \
+  npx playwright test tests/e2e/f31-qa.spec.ts -g "$ITEM —" --workers=1 --retries=0 2>&1 | tee -a .superpowers/f31/logs/qa-manual.log | tail -8
+ls .superpowers/f31/qa/manual/ | grep "^$ITEM-"
 ```
-Expected: `encerrado`; nada em `:5199`; o PID do dono em `:5173` segue lá.
 
-- [ ] **Step 6: Evidência**
+Expected: `1 passed` (e os PNGs `M<n>-<passo>-….png` + `manual-M<n>.json`). `1 skipped` = pré-condição ausente (o motivo sai no log): registrar e decidir com o dono (o M8 roda na sessão de teste da F1 na cópia). Falha: diagnosticar como no Step 5; se o item deixou algo pela metade (card criado não excluído, campo não devolvido), o controlador desfaz PELA TELA da variante, com o dono avisado — nunca por SQL de escrita.
+
+- [ ] **Step 7: Derrubar SÓ a variante `:5187`**
 
 ```bash
+"/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/f31/descer.sh"
+lsof -nP -iTCP:5187 -sTCP:LISTEN; lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
+```
+Expected: `Variante f31 (:5187) derrubada (PID …)`; nada em `:5187`; o PID do `:5188` igual ao do Step 1.
+
+- [ ] **Step 8: Coluna FORA da cópia (antes do T11 Step 2 e de qualquer re-ensaio da F1)**
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
+bash .superpowers/f31/mig/copia-qa.sh volta 2>&1 | tee .superpowers/f31/logs/t10-copia-volta.log | tail -12
+bash .superpowers/f31/n3-copia.sh depois t10
+```
+Expected: `descrições da cópia exportadas: …` → o inverso aplicado → `OK (volta: coluna fora + função = corpo vivo): 0|e0393c79fb962a068fd7a3e4636acbe6` → `== COLUNA FORA DA CÓPIA` → estado `427|219|0`. Se a F3.1b ou a F3.2 forem fazer QA depois (antes do merge da F3.1), cada uma reaplica com `ida` e tira com `volta` no fim. Depois do merge, a coluna volta e FICA (Task 11 Step 5b).
+
+- [ ] **Step 9: Evidência**
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
 mkdir -p "/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-23-f31/qa"
 cp -R .superpowers/f31/qa/. "/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-23-f31/qa/"
-cp .superpowers/f31/logs/qa.log .superpowers/f31/logs/t1-*.txt .superpowers/f31/logs/t1-*.log "/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-23-f31/" 2>/dev/null; echo "evidência copiada"
+cp .superpowers/f31/logs/qa.log .superpowers/f31/logs/qa-manual.log .superpowers/f31/logs/t10-copia-*.log .superpowers/f31/logs/n3-copia.log .superpowers/f31/logs/t1-*.txt .superpowers/f31/logs/t1-*.log "/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-23-f31/" 2>/dev/null; echo "evidência copiada"
 ```
 O spec fica na worktree até o smoke da Task 11 (não commitar).
 
@@ -3911,9 +4724,11 @@ O spec fica na worktree até o smoke da Task 11 (não commitar).
 
 **Files:** nenhum código novo. Apaga `tests/e2e/f31-qa.spec.ts` no fim.
 
+**Ordem (N1/N4 do re-check do guardião):** Steps 1–3 logo depois da Task 10 (revisão, suíte inteira, G-commit) → Step 3b (a F3.2 pode nascer) → **Task 9** (só com a F1 em produção) → Steps 4–7 (pré-merge, merge, coluna de volta na cópia, smoke em produção, limpeza). Entre o Step 3 e o Step 4 pode passar tempo (a F1 espera o teste do dono): a worktree fica como está; um fix nesse intervalo = commit novo + gates + revisão da task dona + G-commit de novo (a F3.2 absorve pelo `rebase --onto` dela).
+
 **Interfaces:**
-- Consumes: Tasks 0–10 commitadas/revisadas; coluna em produção (Task 9); QA `3 passed` (Task 10).
-- Produces: `feature/plan-tecido-a1` com os commits da F3.1 (ff); evidência no diário.
+- Consumes: Tasks 0–8 e 10 commitadas/revisadas; QA na cópia `3 passed` + testes manuais M1–M8 registrados (Task 10); coluna em produção (Task 9) — só a partir do Step 4.
+- Produces: G-commit da F3.1 (ponta de `f31/planejamento-campos` = base da F3.2); `feature/plan-tecido-a1` com os commits da F3.1 (ff); a coluna de volta na cópia (o `:5188` do dono serve o principal); evidência no diário.
 
 - [ ] **Step 1: code-reviewer (Opus) no diff inteiro**
 
@@ -3921,12 +4736,15 @@ Diff: `git -C "$WT" diff "$(git -C "$WT" merge-base HEAD feature/plan-tecido-a1)
 
 - [ ] **Step 2: Suíte INTEIRA 1× na cópia local (R10 do G-plano conjunto)**
 
-Como a F3.1 tem SQL, o G-commit não fica só com `tests/unit` + o teste próprio. Só com NENHUM teste da F1 (ou de outra fase) rodando na cópia local — o controlador confere; se estiver ocupada, espera (não mata nada).
+Como a F3.1 tem SQL, o G-commit não fica só com `tests/unit` + o teste próprio. Só com NENHUM teste da F1 (ou de outra fase) rodando na cópia local — o controlador confere; se estiver ocupada, espera (não mata nada). **Pré-condições (N2/N3):** a coluna FORA da cópia (Task 10 Step 8 — o teste da F3.1 exige a coluna ausente); as variantes `:5186`/`:5187` fora do ar; o dono AVISADO (a suíte inclui o `kanban-auto.test.ts`, que faz `ALTER TABLE public.tenant_config` em transação e CONGELA o app de teste `:5188` enquanto roda — texto do aviso nas Global Constraints › Banco) e o `:5188` ocioso; estado da cópia nas duas pontas.
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
 ps -Ao pid,command | grep -E "[v]itest"; echo "vitest-checado"
+lsof -nP -iTCP:5186 -sTCP:LISTEN; lsof -nP -iTCP:5187 -sTCP:LISTEN; echo "variantes-checadas"
+bash .superpowers/f31/n3-copia.sh antes t11s2
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/unit tests/integration > .superpowers/f31/logs/suite-final.log 2>&1
+bash .superpowers/f31/n3-copia.sh depois t11s2
 grep -E "Test Files|Tests " .superpowers/f31/logs/suite-final.log | tail -2
 grep -E "^ *FAIL " .superpowers/f31/logs/suite-final.log | sed -E 's/ +[0-9]+ms$//' | sort -u > .superpowers/f31/logs/suite-fail-final.txt
 comm -13 .superpowers/f31/suite-fail-t0.txt .superpowers/f31/logs/suite-fail-final.txt > .superpowers/f31/logs/suite-fail-novas.txt
@@ -3935,13 +4753,23 @@ grep -c "modelo-descricao-produto.test.ts" .superpowers/f31/logs/suite-fail-fina
 PGCONNECT_TIMEOUT=5 psql "postgresql://postgres:postgres@127.0.0.1:54422/postgres" -X -Atc "select count(*) from information_schema.columns where table_schema='public' and table_name='modelos' and column_name='descricao_produto'; select md5(pg_get_functiondef('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)'::regprocedure))"
 ```
 
-Expected: só `vitest-checado`; `suíte inteira: nenhuma falha nova`; `0` (o teste da F3.1 passa); a cópia local intacta (`0` e `e0393c79fb962a068fd7a3e4636acbe6`). Falha nova num arquivo da F3.1 = BLOQUEIA (volta à task dona). Falha nova em arquivo de OUTRA fase trazido pelo rebase (ex.: testes novos da F1): classificar no relato (não é da F3.1). **Se não der para rodar** (cópia local fora do ar/ocupada, ou sem a linha de base do Task 0 Step 5): registrar o desvio em `.superpowers/f31/logs/r10-desvio.txt` e no relato do G-commit — o portão decide.
+Expected: só `vitest-checado`; só `variantes-checadas`; o estado da cópia `427|219|0` e IGUAL nas duas pontas (`458|263|0` se o controlador tiver aplicado a F1 na cópia para o teste do dono — aí as falhas dos testes da F1 são "de outra fase"); `suíte inteira: nenhuma falha nova`; `0` (o teste da F3.1 passa); a cópia local intacta (`0` e `e0393c79fb962a068fd7a3e4636acbe6`). Falha nova num arquivo da F3.1 = BLOQUEIA (volta à task dona). Falha nova em arquivo de OUTRA fase trazido pelo rebase (ex.: testes novos da F1): classificar no relato (não é da F3.1). **Se não der para rodar** (cópia local fora do ar/ocupada, dono sem ser avisado ou `:5188` em uso, ou sem a linha de base do Task 0 Step 5): registrar o desvio em `.superpowers/f31/logs/r10-desvio.txt` e no relato do G-commit — o portão decide.
 
 - [ ] **Step 3: Guardião — G-commit + G-fase F3.1**
 
-Pedir ao `guardiao-unificacao` (report-only) os portões G-commit e G-fase da F3.1 com: este plano, o diff, os logs (`gates`, `t1-*` — inclusive o `t1-ensaio-local.log` —, `prod-apply.log`, `suite-final.log` + `suite-fail-novas.txt` ou `r10-desvio.txt`, `qa.log`, JSONs do QA), e a lista de decisões técnicas da §7 (para registrar deriva de escopo: trava na F3.1, selos/numeração → F3.3, Origem Importado → F3.4, hook próprio de config, fix sem tocar a rota, aviso nas seções do Dev, query do modelo subiu, ordem do mockup, receita de travas). BLOQUEIA = parar e corrigir.
+Pedir ao `guardiao-unificacao` (report-only) os portões G-commit e G-fase da F3.1 com: este plano, o diff, os logs (`gates`, `t1-*` — inclusive o `t1-ensaio-local.log` —, `suite-final.log` + `suite-fail-novas.txt` ou `r10-desvio.txt`, `n3-copia.log`, `t10-copia-{ida,volta}.log`, `qa.log`, `qa-manual.log`, JSONs do QA e dos testes manuais), e a lista de decisões técnicas da §7 (para registrar deriva de escopo: trava na F3.1, selos/numeração → F3.3, Origem Importado → F3.4, hook próprio de config, fix sem tocar a rota, aviso nas seções do Dev, query do modelo subiu, ordem do mockup, receita de travas, QA na cópia, T9 depois da F1, F3.2 nascendo do G-commit). O `prod-apply.log` (Task 9) ainda NÃO existe aqui — vai no pré-merge (Step 4). BLOQUEIA = parar e corrigir.
 
-- [ ] **Step 4: Pré-merge**
+- [ ] **Step 3b: A F3.2 pode nascer (N4 do re-check do guardião)**
+
+Com o G-commit APROVADO, o controlador anota a ponta da branch e avisa o controlador da F3.2 (a F3.2 NÃO espera o merge — que espera a T9 e, com ela, a F1 em produção):
+
+```bash
+git -C "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" status --porcelain -- src supabase tests/unit tests/integration
+git -C "/Users/sunglee/PLM + Criação/plm-pcp" rev-parse f31/planejamento-campos
+```
+Expected: status vazio (nada fora de commit) e o sha da ponta — é o `BASE` da F3.2 (F32 Task 0 Step 1, que confere o G-commit no diário). Commits da F3.1 depois disso (fix, F3.1b) não travam a F3.2: ela os absorve no `rebase --onto` do merge dela.
+
+- [ ] **Step 4: Pré-merge** (só depois da Task 9 — a coluna em produção, que por sua vez exige a F1 em produção)
 
 ```bash
 MAIN="/Users/sunglee/PLM + Criação/plm-pcp"; WT="$MAIN/.claude/worktrees/f31-planejamento-campos"
@@ -3949,7 +4777,7 @@ git -C "$WT" rebase feature/plan-tecido-a1 && (cd "$WT" && .superpowers/f31/gate
 git -C "$MAIN" branch --show-current; git -C "$MAIN" status --porcelain -- src/components/planejamento
 ls "$MAIN/.git/index.lock" 2>/dev/null; echo "lock-check-fim"
 ```
-Expected: rebase limpo + `GATES OK`; `feature/plan-tecido-a1`; nada pendente em `src/components/planejamento` no principal; `lock-check-fim`. O controlador: (1) confirma a coluna em produção (`== IDA OK` e as conferências no `prod-apply.log` da Task 9); (2) AVISA o dono por chat para SALVAR e FECHAR os cards abertos do Planejamento (a ordem dos hooks muda → o Fast Refresh remonta o Sheet); (3) pausa os executores de F1/F2/F3.2 durante o ff.
+Expected: rebase limpo + `GATES OK`; `feature/plan-tecido-a1`; nada pendente em `src/components/planejamento` no principal; `lock-check-fim`. Se o rebase trouxe commits novos para a F3.1 (ex.: a F2), o QA automático da Task 10 Step 5 roda de novo na cópia (com `copia-qa.sh ida`/`volta` em volta) antes do ff. O controlador: (1) confirma a coluna em produção (`== IDA OK` e as conferências no `prod-apply.log` da Task 9 — que só rodou com a F1 em produção, N1); (2) AVISA o dono por chat para SALVAR e FECHAR os cards abertos do Planejamento no `:5173` E no app de teste `:5188` (a ordem dos hooks muda → o Fast Refresh remonta o Sheet; o `:5188` serve o mesmo checkout principal); (3) pausa os executores de F1/F2/F3.2 durante o ff.
 
 - [ ] **Step 5: Merge (fast-forward)**
 
@@ -3959,13 +4787,29 @@ git -C "/Users/sunglee/PLM + Criação/plm-pcp" log --oneline -12
 ```
 Expected: `Fast-forward`; os commits `F3.1 (1)…(8)` no topo. Sem push.
 
-- [ ] **Step 6: Smoke pós-merge no `:5173` do dono (só leitura)**
+- [ ] **Step 5b: A coluna VOLTA para a cópia e FICA (o `:5188` do dono agora grava `descricao_produto`)**
+
+Depois do ff, o app de teste do dono (`:5188`, checkout principal) passa a mandar `descricao_produto` no Salvar do Planejamento — sem a coluna na cópia, PGRST204. Logo depois do merge:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
-E2E_BASE_URL=http://localhost:5173 F31_SELO=<o mesmo da Task 10> npx playwright test tests/e2e/f31-qa.spec.ts -g "desktop" --workers=1 --retries=0 2>&1 | tail -6
+bash .superpowers/f31/mig/copia-qa.sh estado
+bash .superpowers/f31/mig/copia-qa.sh ida 2>&1 | tee .superpowers/f31/logs/t11-copia-ida.log | tail -8   # só se o estado mostrou coluna = 0
 ```
-Expected: `1 passed` (o `:5173` agora serve o código novo). Se o `:5173` estiver fora do ar, NÃO subir nada no lugar: reportar e o controlador decide.
+Expected: `… COLUNA NA CÓPIA` e estado `…|…|1` (se a coluna já estava lá — ex.: QA da F3.2 —, pular o `ida`). A partir daqui a cópia fica COM a coluna. Um re-ensaio futuro da F1 (ou regravar as referências dela) exige tirá-la antes — e o `:5188` dá PGRST204 no Salvar do Planejamento até ela voltar (dono avisado): enquanto a worktree existir, `bash .superpowers/f31/mig/copia-qa.sh volta --apos-merge`; depois que ela for removida, pelo bloco de apoio v2 do runbook da F1 (APP-TESTE-LOCAL.md §8, no `/bin/bash`, a partir do checkout principal): `export EXTRA_SQL="SET LOCAL app.confirmo_apagar_descricao_produto = 'sim';"; ativ_vazio "$LOCAL" && aplica_v2 "$LOCAL" supabase/rollback/20260930180000_modelo_descricao_produto_down.sql; unset EXTRA_SQL` (e a volta: `aplica_v2 "$LOCAL" supabase/migrations/20260930180000_modelo_descricao_produto.sql`), com backup `pg_dump -Fc` antes.
+
+- [ ] **Step 6: Smoke pós-merge no `:5173` do dono (SÓ LEITURA, produção, guarda de sempre)**
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos"
+env -u VITE_SUPABASE_URL E2E_BASE_URL=http://localhost:5173 F31_ALVO=producao F31_SELO=<o mesmo da Task 10> \
+  npx playwright test tests/e2e/f31-qa.spec.ts -g "desktop" --workers=1 --retries=0 2>&1 | tail -6
+```
+(`VITE_SUPABASE_URL` vem do `.env` da worktree = produção; o spec recusa se não for `*.supabase.co`.) Expected: `1 passed` (o `:5173` agora serve o código novo; escritas simuladas/barradas). Se o `:5173` estiver fora do ar, NÃO subir nada no lugar: reportar e o controlador decide.
+
+- [ ] **Step 6b: Item 2 da §5 (Ficha de Medida — Storage) EM PRODUÇÃO, só com o OK do dono**
+
+O Storage não funciona na cópia (APP-TESTE-LOCAL.md §4), então este é o ÚNICO teste manual que grava em produção. Com o OK explícito do dono (item 2 — o OK de outro item não vale), no `:5173`, na Loja Teste: enviar uma Ficha de Medida (PDF/imagem) na seção Anexos de um card de teste → Salvar → reabrir: a miniatura aparece; conferir que o Desenvolvimento mostra a mesma ficha. Efeito que fica: um ARQUIVO no Storage de produção (`<tenant>/fichas/<modeloId>/…` — remover da ficha não apaga o arquivo). Quem executa: o dono, ou o controlador com o usuário de teste (D3). Registrar no diário: card, horário, caminho do arquivo. Sem OK: "não executado".
 
 - [ ] **Step 7: Limpeza e relato**
 
@@ -3973,7 +4817,7 @@ Expected: `1 passed` (o `:5173` agora serve o código novo). Se o `:5173` estive
 rm "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos/tests/e2e/f31-qa.spec.ts"
 git -C "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" status --porcelain
 ```
-Expected: status vazio. Se a F3.1 foi em 2 partes, a worktree FICA para a F3.1b; senão o controlador a remove (`git worktree remove` + `git branch -d f31/planejamento-campos`). Relato ao dono: o que entrou, o que ficou para F3.2/F3.3/F3.4, que a F3.2 pode começar agora (R8), e a lista de testes manuais da §5 **com o aviso de que cada item grava em PRODUÇÃO e só roda com o OK dele, item a item** (R11). CLAUDE.md/memória = F4 (docs-keeper).
+Expected: status vazio. Se a F3.1 foi em 2 partes, a worktree FICA para a F3.1b; senão o controlador a remove (`git worktree remove` + `git branch -d f31/planejamento-campos` — a `f32/ficha-bom` tem os próprios commits e não depende da branch da F3.1; o `copia-qa.sh` some junto: a partir daí vale o caminho do Step 5b pelo runbook da F1). A variante `banco-local/app-teste-variantes/f31/` pode ficar (fora do repo; não sobe sozinha). Relato ao dono: o que entrou, o que ficou para F3.2/F3.3/F3.4, que a F3.2 já nasceu no G-commit (N4) e junta depois desta, os testes manuais M1–M8 feitos NA CÓPIA (item a item, com o OK dele) e o item 2 feito (ou não) em produção. CLAUDE.md/memória = F4 (docs-keeper).
 
 ---
 
@@ -4007,22 +4851,23 @@ Expected: status vazio. Se a F3.1 foi em 2 partes, a worktree FICA para a F3.1b;
 | Permissão | sem ver o Dev: seções somem; ver sem editar: só-leitura + aviso; payload sem campos do Dev | sim (T2, T5) | P1, P2 |
 | Mobile 390 | Sheet e menu "Mover para…" sem estouro horizontal | sim | teste mobile |
 
-**Testes manuais (R11 do G-plano conjunto) — ⚠️ GRAVAM EM PRODUÇÃO (Loja Teste).** Cada item só roda com o OK explícito do dono **ITEM A ITEM** (o OK de um não vale para o outro), depois da Task 9 e do merge; quem executa (o dono, ou o controlador com o usuário de teste) é a decisão D3. Registrar no diário do guardião o item, o card e o horário. Efeitos permanentes marcados em cada item.
-1. Digitar a Descrição num card → Salvar → reabrir: o texto volta. Idem Modelista/datas/Obs. Técnicas. *Grava no card (reversível à mão).*
-2. Enviar uma Ficha de Medida (PDF/imagem) na seção Anexos → Salvar → reabrir: miniatura aparece; conferir que o Dev mostra a mesma ficha. *Grava um ARQUIVO no Storage de produção (`<tenant>/fichas/<modeloId>/…`) — remover da ficha não apaga o arquivo.*
-3. Plan. Tecido → "Replicar card(s)" de um card com Descrição → a réplica tem a Descrição. *CRIA um card (a réplica) — apagar depois, com o OK do dono.*
-4. Card novo: 1º Salvar abre o Sheet; 2º Salvar não cria outro card (conferir a lista). *CRIA um card — apagar depois, com o OK do dono.*
-5. Card enviado à Explosão: seções do Dev travadas → "Editar" → mudar Obs. Técnicas → Salvar re-trava. *Grava no card.*
-6. "Mover para…" com a chave desligada: mover um card de teste para uma coluna sem requisito; conferir no board do Desenvolvimento e que o #Erro (se houver) sumiu; mover para Reprovado, escrever o motivo, Salvar, tirar de Reprovado → o motivo continua no banco (voltar para Reprovado mostra o texto). *IRREVERSÍVEL: chegar à etapa de revelação da REF (`ref_exibir_status`, padrão Aprovado) copia `ref_auto → ref` e a REF NÃO volta (invariante #11) — escolher um card e uma coluna ANTES dessa etapa, ou ter o OK do dono para revelar; cada movimento grava histórico do Leadtime (`modelo_kanban_historico`).* **Durante o item 6, NÃO salvar o card no Sheet do Desenvolvimento:** o Salvar do Dev apaga o motivo fora de Reprovado (`ModeloDetailPanel.tsx:1882`) e o teste passaria a medir o Dev, não a F3.1.
-7. Colaboração: o mesmo card aberto no Desenvolvimento (outra aba) e no Planejamento; mudar a Modelista nos dois e salvar → banner de conflito "Modelista" com "manter meu · usar o novo". *Grava no card pelos DOIS lados.*
-8. (Só depois da G-chave, com a chave ligada na Loja Teste) "Mover para…" automático: fixar em Stand By, soltar, tentar pular etapa. *Mesmos efeitos do item 6 (REF e histórico).*
+**Testes manuais (R11 do G-plano conjunto; N2 do re-check do guardião + ruling do controlador) — rodam NA CÓPIA, no app de teste da worktree (`:5187`), pelo CONTROLADOR, que mostra cada passo ao dono (Task 10 Step 6: `M1`…`M8` no `f31-qa.spec.ts`, `F31_ALVO=copia F31_MANUAL=1`, guarda invertida).** Cada item só roda com o OK explícito do dono **ITEM A ITEM** (o OK de um não vale para o outro). Registrar no diário do guardião o item, o card e o horário. Os efeitos ficam NA CÓPIA (que também é o app de teste do dono): cada item desfaz o que criou/editou; o que não se desfaz está marcado. Só o item 2 grava em PRODUÇÃO (o Storage da cópia não funciona) — Task 11 Step 6b, depois da Task 9 e do merge.
+1. (`M1`) Digitar a Descrição num card → Salvar → reabrir: o texto volta. Idem Modelista/datas/Obs. Técnicas. *Grava no card da cópia; o item devolve os valores anteriores.*
+2. (**produção**, Task 11 Step 6b) Enviar uma Ficha de Medida (PDF/imagem) na seção Anexos → Salvar → reabrir: miniatura aparece; conferir que o Dev mostra a mesma ficha. *Grava um ARQUIVO no Storage de produção (`<tenant>/fichas/<modeloId>/…`) — remover da ficha não apaga o arquivo.*
+3. (`M3`) "Replicar card(s)" de um card com Descrição → a réplica tem a Descrição (RPC do Plan. Tecido chamada como o usuário, pela rede da página). *CRIA um card na cópia — o item o exclui pela tela no fim (se a tela recusar, o controlador limpa com o dono); ficam as linhas de plano/slot que a RPC garante no destino.*
+4. (`M4`) Card novo: 1º Salvar abre o Sheet; 2º Salvar não cria outro card (conferido na cópia por SELECT). *CRIA um card na cópia — o item o exclui pela tela no fim.*
+5. (`M5`) Card enviado à Explosão: seções do Dev travadas → "Editar" → mudar Obs. Técnicas → Salvar re-trava. *Grava no card da cópia; o item devolve o texto.*
+6. (`M6`, com a Task 8) "Mover para…" com a chave desligada: mover para Reprovado, escrever o motivo, Salvar (o #Erro do kanban some), tirar de Reprovado → o motivo continua no banco (voltar para Reprovado mostra o texto); o board do Desenvolvimento mostra o card na coluna. *Na cópia: chegar à etapa de revelação da REF (`ref_exibir_status`, padrão Aprovado — e a ordem do board decide se Reprovado vem depois dela) copia `ref_auto → ref` e a REF NÃO volta (invariante #11); cada movimento grava histórico do Leadtime — ficam NA CÓPIA (por isso o item roda lá).* **Durante o item 6, NÃO salvar o card no Sheet do Desenvolvimento:** o Salvar do Dev apaga o motivo fora de Reprovado (`ModeloDetailPanel.tsx:1882`) e o teste passaria a medir o Dev, não a F3.1.
+7. (`M7`) Colaboração: o mesmo card aberto no Desenvolvimento (outra aba) e no Planejamento; mudar a Modelista nos dois e salvar → banner de conflito "Modelista" com "manter meu · usar o novo" (Realtime REAL, na cópia). *Grava no card pelos DOIS lados; o item devolve a Modelista; o Salvar do Dev pode criar o CAD do card na cópia (se ele tem tecido com variante — `ModeloDetailPanel.tsx:2062-2067`) e isso fica.*
+8. (`M8`, com a Task 8) "Mover para…" automático: fixar em Stand By, soltar, tentar pular etapa. *Só com a F1 aplicada NA CÓPIA pelo controlador (hora do teste do dono, APP-TESTE-LOCAL.md §8) e a chave ligada na Loja Teste DA CÓPIA — senão o item pula com o motivo. Não desfaz a etapa (com a chave ligada o kanban decide); desligar/restaurar a chave é do teste da F1 (runbook 9.1).*
 
 ## 6. Riscos (verificados) e cobertura
 
 | # | Risco | Evidência | Cobertura |
 |---|---|---|---|
 | R1 | Data vazia no payload → 22007 em TODO Salvar | Draft guarda datas como `""` (padrão do Dev, ModeloDetailPanel.tsx:114-118); payload = `...draft` (usePlanejamentoSave.ts:72-79) | `aplicarRegrasCamposDev` no MESMO commit que cria os campos (T2); teste unit; QA S1 confere datas `null`/ISO |
-| R2 | Coluna ausente em produção → PGRST204 em todo Salvar (o vite do dono grava em produção) | payload leva `descricao_produto` a partir da T2 | T9 antes do QA e do merge; pré-condição no T10 Step 1 (`== IDA OK`) e T11 Step 4 |
+| R2 | Coluna ausente em produção → PGRST204 em todo Salvar (o vite do dono grava em produção) | payload leva `descricao_produto` a partir da T2 | T9 antes do merge (pré-condição no T11 Step 4: `== IDA OK`); o QA não depende dela (roda na cópia — N2) |
+| R2b | Coluna ausente NA CÓPIA → PGRST204 no Salvar da variante `:5187` (QA) e, depois do merge, no `:5188` do dono (checkout principal) | mesma causa do R2, no Postgres da cópia | `copia-qa.sh ida` antes do QA (T10 Step 2) e depois do merge, para ficar (T11 Step 5b); o `volta` recusa com as variantes no ar e, com a F3.1 já no principal, só com `--apos-merge` |
 | R3 | O Sheet do Dev (intocado) ainda APAGA o motivo ao salvar fora de Reprovado | ModeloDetailPanel.tsx:1882 | aceito (decisão 8); o Sheet unificado e o "Mover para…" nunca apagam; registrado p/ a F5 |
 | R4 | Duplicar passaria a copiar equipe/datas do Dev | `...rest` (PlanejamentoDetail.tsx:702) | `camposParaDuplicar` (T2) + teste |
 | R5 | 2º Salvar do card novo duplica | usePlanejamentoSave.ts:163-168; rota sem `key` (criacao.planejamento.tsx:1134-1136) | wrapper com `key` + `criadoIdRef` + ramo de erro (T7); QA S7 |
@@ -4031,17 +4876,21 @@ Expected: status vazio. Se a F3.1 foi em 2 partes, a worktree FICA para a F3.1b;
 | R8 | Ordem dos hooks muda → Fast Refresh remonta o Sheet aberto do dono no merge | lição R18 da F3.0 | aviso "salvar e fechar" no T11 Step 4 (a query do modelo que subiu na T5 também muda a ordem) |
 | R9 | Conflito de merge com a F3.2 (mesmos 4 arquivos) | §3 | F3.1 (ou F3.1a) juntada primeiro; a F3.2 NASCE dela (R8) e escreve sobre o texto final; interfaces e âncoras finais declaradas (§3 itens 1-7); comentário-âncora no JSX |
 | R10 | F2 não juntada quando a T8 chega | F2 sem commit em `src/` (23/set) | F3.1 em 2 partes (§3); F3.1a não depende da F2 |
-| R11 | QA gravar em produção | app local → produção; `playwright.config.ts:26` default = produção | guarda 2 frentes, fakes, `E2E_BASE_URL` obrigatório (throw), trava de loja por `tenant_id`, `--retries=0` |
+| R11 | QA gravar em produção | `npm run dev` da worktree → produção (inclusive as server functions, com a service role — o `@cloudflare/vite-plugin` lê o `.env` da pasta do wrangler); `playwright.config.ts:26` default = produção | QA na CÓPIA pela variante do app de teste (`:5187`, guarda do vite "tudo local" + raiz; N2) + guarda de rede INVERTIDA no spec (`*.supabase.co` reprova); `E2E_BASE_URL`/`VITE_SUPABASE_URL`/`F31_ALVO` obrigatórios, sem fallback de host (throw); produção só no smoke só-leitura (guarda 2 frentes, fakes); trava de loja por `tenant_id`; `--retries=0` |
 | R12 | Integração, ensaio e suíte inteira da F3.1 disputarem a cópia local com a F1 (lock em `modelos`) | cópia local compartilhada; F1 com testes em andamento | controlador serializa (T0 Step 5, T1 Steps 3/6/8, T11 Step 2 — `ps … [v]itest` antes) |
+| R12b | A cópia é também o app de teste do dono: DDL em transação (suíte inteira — `kanban-auto.test.ts` faz `ALTER TABLE tenant_config`; teste e ensaio da F3.1 — `ALTER TABLE modelos`) CONGELA o `:5188` enquanto roda (N3) | re-check do guardião (diário, 23/set): `:5188` no ar sobre o mesmo Postgres `:54422` | procedimento N3 (Global Constraints › Banco): dono avisado antes, `:5188` ocioso, `n3-copia.sh antes/depois` nas pontas (`427\|219\|0`); sem isso, desvio do R10 registrado |
 | R13 | "Mover para…" (chave desligada) revela a REF ao chegar na etapa configurada — não volta | fn_modelo_ref_auto (inv. #11) | mesmo efeito do board de hoje; nada novo — citar no relato |
 | R14 | Dica do "Mover para…" velha (outro usuário mudou filhas do BOM) | `plan-kanban-cond` fora do realtime | invalidação no save/mover; com a chave ligada o servidor decide (toast pela resposta) |
 | R15 | Título "Observações" duplicado (Secao + Card do componente) | ModeloObservacoes.tsx:126-128 | aceito (componente compartilhado com o Dev; F5 limpa) |
-| R16 | Upload da Ficha grava no Storage de produção quando usado | uploadFile (modelo-shared.ts:36-43) | só em uso real; QA não faz upload |
+| R16 | Upload da Ficha grava no Storage de produção quando usado | uploadFile (modelo-shared.ts:36-43) | só em uso real; o QA não faz upload; o item 2 da §5 (Storage não funciona na cópia) roda em produção só com o OK do dono (T11 Step 6b) |
 | R17 | `modelos.rev` muda pelo "Mover para…" enquanto há rascunho | merge re-sincroniza rev sem mexer no Draft (PlanejamentoDetail.tsx:532-540) | `setQueryData` + invalidação; P0409 do Salvar segue tratado pelo retry |
 | R18 | Popover dentro do Sheet (foco/portal) | Radix | QA desktop + mobile abrem o menu |
 | R19 | Anti-drift | tests/unit/ui-padroes-antidrift.test.ts | sem hex/oklch/hsl/toFixed/size={N}/`text-[<11px]`; `gates.sh` confere |
 | R20 | O ALTER em `modelos` pede ACCESS EXCLUSIVE — com `psql -f` e lock_timeout de 3 s ele segurava a tabela mais usada do app por ~6 idas e voltas e podia esperar 3 s (G-plano conjunto R7) | G-migration da F1 R1 (diário 813-828) | ALTER POR ÚLTIMO no arquivo; `aplica_v2`: arquivo numa mensagem, lock_timeout 500 ms + transaction_timeout 3 s, retry só 55P03/40P01/25P04; teste da desistência em 55P03 (T1) + ensaio local (T1 Step 8) |
-| R21 | Testes manuais gravam em PRODUÇÃO (REF revelada não volta; cards criados; arquivo no Storage; o Salvar do Dev apaga o motivo) | §5; `ModeloDetailPanel.tsx:1882`; inv. #11 | OK do dono ITEM A ITEM + efeitos por item na §5 (R11 do G-plano conjunto); decisão D3 |
+| R21 | Testes manuais gravavam em PRODUÇÃO (REF revelada não volta; cards criados; arquivo no Storage; o Salvar do Dev apaga o motivo) | §5; `ModeloDetailPanel.tsx:1882`; inv. #11 | agora NA CÓPIA (M1–M8, T10 Step 6; N2): OK do dono ITEM A ITEM, o controlador mostra cada passo, cada item desfaz o que fez; REF/histórico/CAD que não voltam ficam só na cópia; só o item 2 (Storage) em produção, com OK (T11 Step 6b); decisão D3 |
+| R23 | A coluna em produção ANTES da F1 faz o pré-voo da F1 PARAR (fidelidade de colunas × `fidelidade_ref_local.txt`) (N1) | runbook v2 da F1 :383-384 | T9 só com a F1 em produção (Step 1: `N1 OK` + relatório pós-apply da F1 no diário); o `volta_prevoo` da F1 usa só `MD5F` (:518-527) e não quebra depois |
+| R24 | A coluna NA CÓPIA desalinha a referência da F1 (`fidelidade_ref_local.txt` é da cópia sem ela) e o teste "base" da F3.1 (coluna ausente) | runbook F1 §4 item 5; `modelo-descricao-produto.test.ts` ("base") | `copia-qa.sh volta` antes do T11 Step 2 e de qualquer re-ensaio da F1 (T10 Step 8; T11 Step 5b para depois do merge) |
+| R25 | A F3.2 nascer do merge esperaria a F1 em produção (o merge espera a T9) (N4) | re-check do guardião (diário, 23/set) | a F3.2 nasce da ponta de `f31/planejamento-campos` após o G-commit (T11 Step 3b); junta depois da F3.1 com `rebase --onto` (F32 Task 16 Step 5) |
 | R22 | `onCreated`/`aoSalvar` são opcionais/funções: se a F3.2 os perder, o `tsc` NÃO acusa (card duplicado volta; Salvar deixa de re-travar) | §3 item 7 | a F3.2 tem gate de grep "F3.1 preservada" em todo commit e o QA S6 dela prova Dialog → Sheet com 1 POST (R1 do G-plano conjunto) |
 
 ## 7. Decisões técnicas (o controlador decide; o guardião registra)
@@ -4060,22 +4909,25 @@ Expected: status vazio. Se a F3.1 foi em 2 partes, a worktree FICA para a F3.1b;
 - **T12 Obs. Gerais tratada como campo do Dev** (trava e omissão sem permissão), mas o Duplicar continua copiando (o de hoje — decisão 9).
 - **T13 Inverso com guarda de confirmação** (`SET LOCAL app.confirmo_apagar_descricao_produto = 'sim'` na MESMA transação — injetado pelo `EXTRA_SQL` do `aplica_v2`, `volta-producao.sh --confirmo-apagar-descricoes`) além do aviso no cabeçalho e do export automático antes.
 - **T14 Piloto 2/3 visíveis derivados do draft** (cópia adaptada; o original do Dev não vê piloto 2 que chega por merge).
-- **T15 Merge em 2 partes** se a F2 atrasar (§3). A F3.2 só nasce depois do merge da F3.1/F3.1a (R8); a F3.1b pode correr junto com a F3.2 (quem juntar por último faz rebase).
+- **T15 Merge em 2 partes** se a F2 atrasar (§3). A F3.2 nasce da ponta de `f31/planejamento-campos` depois do G-commit da F3.1/F3.1a (R8 + N4 — não espera o merge, que espera a F1 em produção); a F3.1b pode correr junto com a F3.2 (quem juntar por último faz rebase; a F3.2 sempre depois da F3.1, com `rebase --onto`).
 - **T16 A query `["modelo", modeloId]` e a trava (`enviadoCad`/`editandoDev`/`devBloqueado`/`motivoTravaDev`) sobem para logo depois das permissões (T5).** Mesma key e queryFn; só muda a ordem dos hooks (já coberta pelo aviso de "salvar e fechar" do merge). Motivo: a F3.2 deriva a trava do BOM desta (R2 — uma trava só) e chama o `useFichaTecnica` antes do cálculo de preço/"não salvo"; sem subir, `motivoTravaDev` seria usado antes de declarado.
 - **T17 Ordem do mockup (R9c):** o "Tecido Planejado" sobe para depois da Prova e antes do Preço/Mão de obra (T6). No Dialog fica Info → Coleção → Tecido(s) → Mão de obra → Anexos, como o `gen_novo.py`; no Sheet ocupa o lugar da seção 5, que a F3.2 troca pelo BOM. Sem impedimento técnico (só JSX; nenhum estado muda).
 - **T18 Rótulo "Obs. Mão de Obra" (R9b):** a F3.1 assume (T6) — pós-F3.0 o campo estava sem rótulo (`PlanejamentoDetail.tsx:909`); o componente compartilhado já tinha a prop `label` (não muda).
 - **T19 Receita de travas (R7):** o arquivo NÃO carrega timeout (igual à F1: o `aplica_v2` injeta os `SET LOCAL` depois do `BEGIN;`). No harness o teste usa só `lock_timeout = '500ms'` — o `transaction_timeout` derrubaria a conexão do teste; ele é exercido no ensaio da cópia local (T1 Step 8), o mesmo que a F1 fez no runbook. `aplica.sh` copia literalmente `espera`/`ativ_vazio`/`com_travas`/`aplica_v2` do runbook v2 da F1.
-- **T20 Suíte inteira (R10):** linha de base no T0 Step 5 e comparação no T11 Step 2 (falha nova em arquivo da F3.1 bloqueia; de outra fase, classifica); sem cópia local disponível, o desvio é registrado.
+- **T20 Suíte inteira (R10):** linha de base no T0 Step 5 e comparação no T11 Step 2 (falha nova em arquivo da F3.1 bloqueia; de outra fase, classifica); sem cópia local disponível, o desvio é registrado. Com o procedimento N3 (a cópia é o app de teste do dono).
+- **T21 QA contra a CÓPIA (N2 do re-check do guardião; ruling do controlador):** variante do `banco-local/app-teste` por worktree (`criar-variante.sh`: F3.1 `:5187`, F3.2 `:5186`; porta/PID/log/`cacheDir`/`envDir`/wrangler próprios; guarda "tudo local" + raiz = worktree), nunca o `:5188` do dono nem `npm run dev` + `VITE_*`; coluna na cópia por `aplica_v2 $LOCAL` com backup (`copia-qa.sh`); guarda de rede INVERTIDA no spec (`F31_ALVO=copia`); os 8 testes manuais na cópia pelo controlador (M1–M8), item a item; Storage (item 2) e o smoke só-leitura em produção. Por quê: os fluxos que gravam (card novo, Replicar, "Mover para…", Realtime/P0409) ficam provados de verdade sem tocar produção, e o QA deixa de esperar a F1.
+- **T22 Task 9 DEPOIS da F1 em produção (N1):** ordem do dono (23/set); tira o "antes ou depois" (a coluna antes pararia o pré-voo da F1). A T9 sai do caminho do QA e fica só antes do merge.
+- **T23 F3.2 nasce do G-commit da F3.1 (N4):** da ponta de `f31/planejamento-campos` (não do merge); junta DEPOIS da F3.1 com `git rebase --onto feature/plan-tecido-a1 <BASE> f32/ficha-bom`. Mantém o intuito do R8 (escrever sobre o texto FINAL da F3.1) sem prender a F3.2 à F1.
 
 ## 8. Decisões para o dono
 
-- **D1 (autorização obrigatória)** — OK para aplicar a migration da coluna `modelos.descricao_produto` em produção (Task 9), depois do G-migration do guardião e ANTES do QA/merge da F3.1. É aditiva (não mexe em dado); vai pela receita de travas da F1 (um comando só, desiste em meio segundo se a tabela estiver ocupada e tenta de novo). O inverso apaga as descrições digitadas e só roda com confirmação explícita.
+- **D1 (autorização obrigatória)** — OK para aplicar a migration da coluna `modelos.descricao_produto` em produção (Task 9), depois do G-migration do guardião, **DEPOIS da F1 em produção** (sua ordem de 23/set — N1) e ANTES do merge da F3.1. O QA não espera por ela: roda na cópia, com a coluna aplicada lá. É aditiva (não mexe em dado); vai pela receita de travas da F1 (um comando só, desiste em meio segundo se a tabela estiver ocupada e tenta de novo). O inverso apaga as descrições digitadas e só roda com confirmação explícita.
 - **D2** — "Replicar" do **Produto Acabado/Importado** também deve levar a Descrição? Hoje ele copia só a identidade do produto para o card (nome, categoria, coleção, REF). A decisão de 23/set cobriu o "Replicar card(s)" do Plan. Tecido. **Recomendo: não agora** (exigiria redefinir mais 2 funções; dá para fazer depois se fizer falta).
-- **D3** — Os 8 testes manuais da §5 gravam na Loja Teste em PRODUÇÃO: cada um só com o seu OK, item a item. Efeitos que ficam: o item 6 (e o 8) pode revelar a REF do card — ela não volta — e grava histórico do Leadtime; os itens 3 e 4 criam cards (apagamos depois, com o seu OK); o item 2 grava um arquivo no Storage. Durante o item 6 ninguém salva o card no Desenvolvimento (o Salvar de lá apaga o motivo). Você faz, ou autoriza o controlador com o usuário de teste?
+- **D3 (resolvida em 23/set; ajustada pelo re-check do guardião — N2)** — Os testes manuais da §5 rodam NA CÓPIA (app de teste da worktree, `:5187`), feitos pelo controlador, que mostra cada passo a você, e cada um só com o seu OK, item a item. Os efeitos ficam só na cópia (o seu app de teste): os itens 3 e 4 criam cards e os excluem no fim; o 6 (e o 8) pode revelar a REF do card e grava histórico do Leadtime, na cópia; o 7 pode criar o CAD do card, na cópia. O item 8 roda na sessão do seu teste da F1 (com a F1 aplicada na cópia pelo controlador e a chave ligada lá). **Só o item 2 (Ficha de Medida) grava em PRODUÇÃO** — o Storage não funciona na cópia —, depois do merge, com o seu OK (um arquivo no Storage da Loja Teste): você faz, ou autoriza o controlador com o usuário de teste?
 
 ## 9. Self-review (feito ao escrever)
 
-- **Cobertura do escopo F3.1:** `DevEquipeSection` (REF editável por `refCampoVisivel`/posição derivada, modelista, pilotos 1–3 + datas, desenho técnico, aprovação, obs. técnicas) → T5; motivo de cancelamento → T5 (topo); Anexos + Ficha de Medida + Obs. Gerais → T6; Prova e Observações por reuso direto → T6; `Draft`/`emptyDraft`/`draftFromModeloRow` + rótulos de conflito → T2; `data-colab-path` → T3/T5/T6; `canView`/`canEdit("criacao_desenvolvimento")` + `revendaCampoVisivel` → T5/T6; trava pós-Explosão + "Editar" → T5/T6 (§7-T1); selo no header + "Mover para…" (etapa fora do Salvar, chave desligada = hoje, motivo não apagado) → T4/T8; fix do card novo → T7; ordem do mockup + rótulo Obs. Mão de Obra → T6 (R9b/R9c); query do modelo + trava antes do preço → T5 (interface da F3.2, R2); receita de travas + ensaio → T1/T9 (R7); suíte inteira → T0/T11 (R10); testes manuais item a item → §5/§8 (R11); F3.2 só depois do merge → §3 (R8); Descrição (coluna, migration própria > 20260930150000, inverso avisando, Replicar com diff, teste na cópia local, Duplicar copia, Importar não, placeholder, Ficha não imprime, sem `types.ts`) → T1/T2/T3; ordem obrigatória → T9 antes de T10/T11; QA sem escrita + manual do dono → T10/§5; dependência da F2 e ordem de merge → §3; interfaces p/ a F3.2 → §3; lote × individual → §4; riscos → §6; decisões → §7/§8.
+- **Cobertura do escopo F3.1:** `DevEquipeSection` (REF editável por `refCampoVisivel`/posição derivada, modelista, pilotos 1–3 + datas, desenho técnico, aprovação, obs. técnicas) → T5; motivo de cancelamento → T5 (topo); Anexos + Ficha de Medida + Obs. Gerais → T6; Prova e Observações por reuso direto → T6; `Draft`/`emptyDraft`/`draftFromModeloRow` + rótulos de conflito → T2; `data-colab-path` → T3/T5/T6; `canView`/`canEdit("criacao_desenvolvimento")` + `revendaCampoVisivel` → T5/T6; trava pós-Explosão + "Editar" → T5/T6 (§7-T1); selo no header + "Mover para…" (etapa fora do Salvar, chave desligada = hoje, motivo não apagado) → T4/T8; fix do card novo → T7; ordem do mockup + rótulo Obs. Mão de Obra → T6 (R9b/R9c); query do modelo + trava antes do preço → T5 (interface da F3.2, R2); receita de travas + ensaio → T1/T9 (R7); suíte inteira → T0/T11 (R10); testes manuais item a item → §5/§8 (R11) — NA CÓPIA (M1–M8, T10 Step 6), item 2 em produção (T11 Step 6b); F3.2 nasce do G-commit da F3.1 → §3/T11 Step 3b (R8 + N4); Descrição (coluna, migration própria > 20260930150000, inverso avisando, Replicar com diff, teste na cópia local, Duplicar copia, Importar não, placeholder, Ficha não imprime, sem `types.ts`) → T1/T2/T3; ordem obrigatória → T9 DEPOIS da F1 em produção e ANTES do merge (N1; T9 Step 1 confere a F1); QA na CÓPIA (variante `:5187`, coluna por `aplica_v2 $LOCAL` com backup e volta, guarda invertida, sem fallback de host) → T10 (N2); N3 (a cópia é o app de teste do dono) → Global Constraints › Banco + T0 Step 5, T1 Steps 3/6/8, T10, T11 Step 2; coluna na cópia depois do merge → T11 Step 5b; dependência da F2 e ordem de merge → §3; interfaces p/ a F3.2 → §3; lote × individual → §4; riscos → §6; decisões → §7/§8.
 - **Placeholders:** nenhum "TBD/TODO/similar a". `refEditavel: false` na T2 é valor real daquele commit (a REF só fica editável quando a seção existir, T5), trocado por texto exato na T5. Código novo por extenso; código MOVIDO: a query `["modelo", modeloId]` (T5, texto idêntico, só a posição) e o bloco "Tecido Planejado" (T6, texto idêntico + 1 comentário); a função SQL é montada do corpo vivo por script com 2 trocas conferidas.
 - **Consistência de nomes:** `aplicarRegrasCamposDev`/`camposParaDuplicar`/`textoOuNull`/`CAMPOS_DEV_DRAFT` (T2, usados em T2/T10); `useFichaKanban`/`FichaKanban` (variável `kanbanCard` no orquestrador — `ficha` é da F3.2)/`statusEfetivoFicha`/`refVisivelFicha`/`podeEntrarHoje`/`opcoesMoverHoje`/`mensagemBloqueioHoje`/`OpcaoMover` (T4, usados em T5/T8); `devBloqueado`/`motivoTravaDev`/`MotivoTravaDev`/`campoVisivelDev`/`refEditavel`/`aoSalvar`/`editandoDev` (T5, usados em T6/T7/T8); `opcoesMoverAuto`/`proximaEtapa`/`useMoverEtapa`/`MoverEtapaVars`/`EtapaHeader` (T8); testids `aviso-campos-dev`, `motivo-cancelamento`, `etapa-header`, `etapa-kanban-selo-header`, `etapa-mover-gatilho`, `etapa-mover-menu`, `etapa-mover-<key>`, `etapa-proxima` = os usados no spec (T10). queryKeys: `tenant-plan-ficha-config`, `plan-kanban-cond`, `["colab", tipo]`, `modelo-composicao`.
-- **Execução recomendada:** superpowers:subagent-driven-development, tasks ESTRITAMENTE sequenciais na MESMA worktree (caminho absoluto no prompt), 1 subagente Sonnet por task; revisão conforme §4; a Task 9 é do controlador com o dono.
+- **Execução recomendada:** superpowers:subagent-driven-development, tasks ESTRITAMENTE sequenciais na MESMA worktree (caminho absoluto no prompt), 1 subagente Sonnet por task; revisão conforme §4; ordem das últimas: T10 → T11 Steps 1–3 → (F3.2 nasce) → T9 (controlador com o dono, depois da F1 em produção) → T11 Steps 4–7. Os testes manuais M1–M8 (T10 Step 6) e o item 2 (T11 Step 6b) são do controlador, com o OK do dono item a item.

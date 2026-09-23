@@ -13,8 +13,8 @@
 ## Global Constraints
 
 **Repositório, worktree e ordem das fases**
-- Worktree própria: `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom`, branch `f32/ficha-bom`, criada do HEAD de `feature/plan-tecido-a1` **depois** que a F3.0 e a F3.1 (ou a F3.1a, se a F3.1 for em 2 partes) foram juntadas (ff). **A F3.2 NASCE depois do merge da F3.1/F3.1a (R8 do G-plano conjunto): não corre em paralelo às Tasks 0–7 da F3.1 nem faz rebase sobre elas — escreve por cima do texto FINAL da F3.1** (âncoras na Task 0 Step 3). Caminhos relativos neste plano = raiz da worktree.
-- Ordem de merge da campanha: F3.0 → F2 (telas do kanban) e F3.1 (campos simples + selo no header; a F3.1 consome `EtapaKanbanBadge`/`kanban_mover` da F2) → **F3.2** → F3.3 → F3.4. A F3.2 NÃO consome nada da F2 nem da F1. Se a F3.1 for em 2 partes, a F3.1b (Task 8 dela, selo) pode juntar antes ou depois da F3.2 — as duas mexem em pontos diferentes do `PlanejamentoDetail.tsx`; quem juntar por ÚLTIMO faz rebase, roda os gates e o próprio QA.
+- Worktree própria: `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom`, branch `f32/ficha-bom`, **criada da PONTA do branch `f31/planejamento-campos` DEPOIS do G-commit da F3.1** (ou da F3.1a, se a F3.1 for em 2 partes) — N4 do re-check do guardião: NÃO do merge, que espera a Task 9 da F3.1 e, com ela, a F1 em produção. O sha de nascimento fica em `.superpowers/f32/BASE`. **A F3.2 continua escrevendo por cima do texto FINAL da F3.1 (R8 do G-plano conjunto — o intuito fica): não corre em paralelo às Tasks 0–8 da F3.1 nem faz rebase sobre elas** (âncoras na Task 0 Step 3). Caminhos relativos neste plano = raiz da worktree.
+- Ordem de merge da campanha: F3.0 → F2 (telas do kanban) e F3.1 (campos simples + selo no header; a F3.1 consome `EtapaKanbanBadge`/`kanban_mover` da F2) → **F3.2** → F3.3 → F3.4. A F3.2 NÃO consome nada da F2 nem da F1. **A F3.2 junta SEMPRE depois da F3.1** (carrega os commits da F3.1, que gravam `descricao_produto` — sem a coluna em produção, PGRST204 em todo Salvar), com `git rebase --onto feature/plan-tecido-a1 "$(cat .superpowers/f32/BASE)" f32/ficha-bom` (Task 16 Step 5): reaplica SÓ os commits da F3.2 — vale se a F3.1 juntou por ff puro, se foi rebaseada antes do merge, ou se ganhou commits depois do BASE (fix do smoke, F3.1b). Se a F3.1 for em 2 partes, a F3.1b (Task 8 dela, selo) pode juntar antes ou depois da F3.2 — as duas mexem em pontos diferentes do `PlanejamentoDetail.tsx`; quem juntar por ÚLTIMO faz rebase, roda os gates e o próprio QA.
 - Merge de volta só por fast-forward, com o dono avisado para salvar e fechar os cards do Planejamento/Desenvolvimento antes (o Fast Refresh remonta o Sheet aberto).
 - `git add -- <paths>` + `git commit --only -m "…" -- <paths>`; nunca `git add .`. Toda mensagem termina com `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`. Sem push.
 - `src/routeTree.gen.ts` é gerado pelo build/vite: nunca entra em commit (`git checkout -- src/routeTree.gen.ts` depois do build, se mudou).
@@ -22,7 +22,7 @@
 **Intocáveis (decisão travada 8 e escopo)**
 - NADA em `src/components/desenvolvimento/**` nem em `src/components/producao/cad/CadTecidosSection.tsx`. Importar deles (sem editar) é permitido.
 - NADA em `src/lib/kanban-condicoes.ts` (catálogo/`CondicaoSecao` — decisão 8), `src/lib/artigo-label.ts` (afeta Dev e OC Tecido), `supabase/**`, `tests/integration/**`, `tests/fixtures/**`.
-- Sem migration e sem DDL. Leitura de banco só: SELECT na cópia local `postgresql://postgres:postgres@127.0.0.1:54422/postgres` (já feita no planejamento) e o snapshot só-leitura da Task 14 (produção, `default_transaction_read_only=on`).
+- Sem migration e sem DDL próprios. Leitura de banco só: SELECT na cópia local `postgresql://postgres:postgres@127.0.0.1:54422/postgres` (planejamento + escolha/conferência de cards no QA, sempre `BEGIN READ ONLY`) e o snapshot só-leitura da Task 14 (produção, `default_transaction_read_only=on`). A ÚNICA DDL que o QA toca é a coluna da F3.1 NA CÓPIA, pelo `copia-qa.sh` da F3.1 (Task 15 Step 1).
 - Fora de escopo (NÃO fazer): campos simples do Dev, Descrição, selo da etapa (F3.1); CAD, sync BOM↔CAD, folhas automáticas, Enviar à Explosão, Ficha Técnica, botão/diálogo Importar, menu ⋯, remover "Ver no Desenvolvimento" (F3.3); revenda/importado com grade única e visibilidade por `revendaCampoVisivel` (F3.4).
 
 **Regras de gravação (o coração da F3.2)**
@@ -37,24 +37,21 @@
 - `npm run build` → ok (e `git checkout -- src/routeTree.gen.ts` se mudou).
 - `env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit` → tudo verde, exceto as falhas HERDADAS registradas na Task 0 (mesma lista, mesma contagem).
 - Dev intocado: `git diff --name-only savepoint-pre-unificacao-2026-09-22 -- src/components/desenvolvimento/ src/components/producao/cad/CadTecidosSection.tsx` → saída VAZIA.
-- **F3.1 preservada** (R1 do G-plano conjunto — `onCreated` e `aoSalvar` são opcionais/funções: se sumirem, o `tsc` NÃO acusa e voltam o card duplicado e a falta de re-trava):
-  ```bash
-  P=src/components/planejamento/PlanejamentoDetail.tsx; S=src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts
-  [ "$(grep -c 'qc, onSaved: aoSalvar, onCreated' $P)" = 1 ] && [ "$(grep -c 'onCreated?.(' $S)" = 2 ] \
-    && [ "$(grep -c 'criadoIdRef.current' $S)" -ge 4 ] && [ "$(grep -c 'aplicarRegrasCamposDev(' $S)" = 1 ] \
-    && [ "$(grep -c '"plan-kanban-cond", modeloId' $S)" = 1 ] && [ "$(grep -c '"modelo-composicao", modeloId' $S)" = 1 ] \
-    && echo "F3.1 preservada: ok" || echo "F3.1 QUEBRADA — PARE (onCreated/aoSalvar/criadoIdRef/regras do payload)"
-  ```
-  Esperado: `F3.1 preservada: ok` em TODO commit (5º gate).
+- **F3.1 preservada** (R1 do G-plano conjunto — `onCreated` e `aoSalvar` são opcionais/funções: se sumirem, o `tsc` NÃO acusa e voltam o card duplicado e a falta de re-trava): `bash .superpowers/f32/gate-f31.sh` (criado na Task 0 Step 4b). **Sai com código 1 quando falha** (NOTA do re-check do guardião: antes só imprimia) — gate falhou = PARE, não commitar.
+  Esperado: `F3.1 preservada: ok` e código 0 em TODO commit (5º gate).
 - `tests/integration/*` PROIBIDO aqui (cairia em `/tmp/dburl.txt` = PRODUÇÃO).
 
-**QA**
-- O app local aponta para PRODUÇÃO. O QA não grava dado de loja: toda escrita é simulada (`route.fulfill`) ou barrada (violação). Exceção inerente: metadado de sessão do login.
-- **Barradas esperadas (R4 do G-plano conjunto — as MESMAS da F3.1):** `POST /rest/v1/rpc/servicos_financeiro` (a Home chama no login; é DEFINER VOLATILE que sincroniza `parcelas_servico` — `funcoes.sql:16568`, `HomeLogado.tsx:135`) e o broadcast REST do Realtime (`POST /realtime/v1/api/broadcast`) seguem BARRADOS, mas não reprovam. `servicos_financeiro` é PROIBIDO em `READ_RPCS` (liberar = gravar em PRODUÇÃO — invariante #1); o spec lança erro se alguém o puser lá.
-- `E2E_BASE_URL` sempre explícito e local (`http://localhost:5199`); sem ele o spec FALHA (não "pula").
-- vite de QA na worktree em `:5199`: porta ocupada ⇒ `exit 1` (nunca matar nada); PID anotado em `.superpowers/f32/vite-5199.pid` só depois de conferir que ele escuta `:5199` com `cwd` = worktree; encerrar SÓ esse PID, conferindo porta e `cwd` de novo. NUNCA matar o vite do dono (`:5173`).
-- O robô NÃO troca de loja (trocar grava `users.tenant_id` em PRODUÇÃO): toda leitura de `tenant_config` tem de ser da Loja Teste — conferida pelo **tenant_id `37889b78-fffb-404b-8c75-18b7e50a1d9b`** (como a F3.1), não pelo rótulo da tela; senão o QA falha.
-- Nunca rodar o QA da F3.2 junto com o E2E da F2 (mesmo usuário, mesmo Realtime).
+**QA — CONTRA A CÓPIA (N2 do re-check do guardião + ruling do controlador; o MESMO modo da F3.1)**
+- O QA (Task 15) roda num **app de teste PRÓPRIO da worktree**: variante do `banco-local/app-teste` gerada pelo `criar-variante.sh` que a F3.1 criou (F3.1 Task 10 Step 3), em `http://localhost:5186`, sobre a CÓPIA LOCAL (Supabase `127.0.0.1:54321`), com porta, PID, log, `cacheDir`, `envDir` e wrangler próprios e a MESMA guarda que aborta a subida se qualquer URL não for local (+ raiz = a worktree). **NUNCA o `:5188`** (serve o checkout PRINCIPAL do dono). **NUNCA `npm run dev` + `VITE_*`**: o `@cloudflare/vite-plugin` lê o `.env` da pasta do wrangler (a worktree) e as server functions iriam a PRODUÇÃO com a service role.
+- **Guarda de rede INVERTIDA na cópia:** gravação liberada SÓ para `127.0.0.1:54321`; QUALQUER requisição a `*.supabase.co` (GET inclusive) reprova. O spec automático segue com as escritas simuladas (cenários determinísticos, inclusive o S5d do R5a); os fluxos que GRAVAM de verdade (BOM real por `salvar_modelo_bom`, P0409 real, Realtime "Tecidos & BOM" entre 2 abas, Dev ↔ Planejamento, card novo com Tecido 1..N, Duplicar) rodam na cópia, um por vez, pelo controlador, mostrando cada passo ao dono (dono avisado antes de cada um — a cópia é o app de teste dele).
+- **A coluna `descricao_produto` tem de estar NA CÓPIA** durante o QA (a F3.2 carrega a F3.1, cujo Salvar grava a coluna): entra/sai pelo `copia-qa.sh` da F3.1 (`aplica_v2 $LOCAL`, backup `pg_dump -Fc` antes; sai antes de qualquer re-ensaio da F1 — a referência de fidelidade da F1 é da cópia sem ela). Depois do merge da F3.1 ela fica na cópia (F3.1 Task 11 Step 5b). A F1 na cópia só é aplicada pelo controlador, na hora do teste do dono.
+- **Produção:** só o snapshot só-leitura (Task 14) e o smoke SÓ-LEITURA pós-merge no `:5173` (Task 16 Step 6), com a guarda de sempre: toda escrita simulada (`route.fulfill`) ou barrada (violação); exceção inerente: metadado de sessão do login.
+- **Barradas esperadas (R4 do G-plano conjunto — as MESMAS da F3.1):** `POST /rest/v1/rpc/servicos_financeiro` (a Home chama no login; é DEFINER VOLATILE que sincroniza `parcelas_servico` — `funcoes.sql:16568`, `HomeLogado.tsx:135`) e o broadcast REST do Realtime (`POST /realtime/v1/api/broadcast`) seguem BARRADOS no spec automático, mas não reprovam. `servicos_financeiro` é PROIBIDO em `READ_RPCS` (liberar = gravar em PRODUÇÃO — invariante #1); o spec lança erro se alguém o puser lá.
+- `E2E_BASE_URL`, `VITE_SUPABASE_URL` e `F32_ALVO` (`copia` → `http://localhost:5186` + `http://127.0.0.1:54321`; `producao` → `http://localhost:5173` + `*.supabase.co`) SEMPRE explícitos; sem eles o spec FALHA (não "pula") — sem fallback de host (NOTA do re-check: fallback = guarda aberta).
+- Portas: F3.2 = `:5186` (F3.1 = `:5187`); `:5188`, `:5173`, `:5198`/`:5199` nunca. Porta ocupada ⇒ PARAR (nunca matar nada); derrubar SÓ pelo `descer.sh` da variante (confere o PID). NUNCA matar o vite do dono (`:5173`) nem o app de teste dele (`:5188`).
+- Login na cópia: a senha do usuário de teste já confere (opção A de APP-TESTE-LOCAL.md §3, 23/set). Storage NÃO funciona na cópia (fotos quebradas) — a F3.2 não depende dele.
+- O robô NÃO troca de loja: toda leitura de `tenant_config` tem de ser da Loja Teste — conferida pelo **tenant_id `37889b78-fffb-404b-8c75-18b7e50a1d9b`** (como a F3.1), não pelo rótulo da tela; senão o QA falha.
+- Nunca rodar o QA da F3.2 junto com o E2E da F2 nem com o QA da F3.1/F3.1b (mesmo usuário; presença e Realtime agora REAIS na cópia).
 
 **UI (padrões §A/§G/§Q)**
 - Seções vindas do Dev: SEMPRE visíveis (independente da etapa) para `canView("criacao_desenvolvimento")`, recolhidas por padrão, editáveis com `canEdit("criacao_desenvolvimento")` (decisões 6 e F3 #8). Só produto interno na F3.2 (comprado = F3.4; decisão F3 #4).
@@ -111,7 +108,7 @@
 
 ## 2. Interfaces entre fases
 
-**Consumidas da F3.1 (juntada ANTES — R8; nomes e textos FINAIS exigidos, conferidos na Task 0 Step 3)**
+**Consumidas da F3.1 (a F3.2 nasce da ponta de `f31/planejamento-campos` depois do G-commit dela — R8 + N4; a F3.1 junta ANTES; nomes e textos FINAIS exigidos, conferidos na Task 0 Step 3)**
 - `Draft`/`emptyDraft`/`draftFromModeloRow` (`src/components/planejamento/modelo-shared.ts`) já com os campos simples do Dev (modelista, pilotos 1-3 + datas, desenho técnico, aprovação, obs. técnicas, motivo de cancelamento, ficha de medida) e a `descricao_produto`, nessa ordem, depois de `custo_simulado`. A F3.2 acrescenta `proporcoes`/`custos_adicionais` DEPOIS de `descricao_produto` (F3.1 §3 item 1). A F3.1 **NÃO** acrescenta essas 2 ao Draft; a Task 0 confere (se já existirem, a Task 1 pula o Step correspondente).
 - `helpers.ts`: **`CAMPOS_DEV_DRAFT` é a lista ÚNICA** de chaves do Draft que são do Dev (F3.1 §3 item 2 — "Unificar" do G-plano conjunto). A F3.2 acrescenta `"proporcoes", "custos_adicionais"` a ela (Task 1) e CONSOME `aplicarRegrasCamposDev` (sem permissão do Dev, as chaves saem do payload) e `camposParaDuplicar` (Duplicar não leva o Dev, decisão F3 #9) — não cria lista própria.
 - Card novo (F3.1 Task 7): depois do INSERT o detalhe REMONTA como o Sheet do id criado (`onCreated(id)` — fix da duplicação). Texto final em `usePlanejamentoSave.ts`: `if (criadoIdRef.current) { savedId = criadoIdRef.current; } else { … criadoIdRef.current = savedId; }` seguido de `if (savedId) await syncTecidosToDesenvolvimento(savedId, draft.tecidos_planejados);`. A F3.2 põe o `gravarTecidosIniciais` **DENTRO do `else`, logo depois de `criadoIdRef.current = savedId;`** (só com o id que ESTE INSERT criou) e apaga a linha do sync (Task 10 Step 7). `onCreated` (fim do `onSuccess` e ramo "card criado" no começo do `onError`) e `onSaved: aoSalvar` (re-trava) ficam — 5º gate "F3.1 preservada" + QA S6 (Dialog → Sheet com 1 POST).
@@ -152,7 +149,8 @@
 | `src/components/planejamento/planejamento-detail/sync-tecidos.ts` | APAGAR | substituído pelo BOM |
 | `tests/unit/ficha-calc.test.ts`, `ficha-selos-bom.test.ts`, `planejamento-save-ficha.test.ts`, `planejamento-custo-base.test.ts` | criar | testes puros |
 | `tests/unit/planejamento-detail-helpers.test.ts` | modificar | rótulos novos |
-| `tests/e2e/f32-qa.spec.ts` | criar (NÃO versionar) | QA com guarda de rede (barradas esperadas da F3.1, loja por tenant_id) — inclui save-em-voo com PATCH atrasado (R6), eco próprio × BOM alheio (R5), Dialog → Sheet com 1 POST (R1) e trava única (R2) |
+| `tests/e2e/f32-qa.spec.ts` | criar (NÃO versionar) | QA na CÓPIA (guarda invertida; escritas simuladas) + fluxos que GRAVAM na cópia (E1–E6) + smoke só-leitura em produção — inclui save-em-voo com PATCH atrasado (R6), eco próprio × BOM alheio (R5), toque antes do refetch (R5a, S5d), Dialog → Sheet com 1 POST (R1) e trava única (R2) |
+| `.superpowers/f32/gate-f31.sh` (fora do git) | criar | 5º gate "F3.1 preservada" — sai 1 se falhar |
 
 ## 4. Revisão (política SDD)
 
@@ -176,13 +174,17 @@ Cada revisão usa o checklist do `code-reviewer` + o do guardião (G-commit): te
 
 **Files:** nenhum (só leitura + worktree).
 
-- [ ] **Step 1: Criar a worktree a partir do HEAD com F3.0 e F3.1**
+- [ ] **Step 1: Criar a worktree da PONTA de `f31/planejamento-campos`, depois do G-commit da F3.1 (N4)**
+
+Pré-condição: o diário do guardião (`.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md`) tem o **G-commit da F3.1 (ou F3.1a) APROVADO** e o controlador da F3.1 passou o sha da ponta (F3.1 Task 11 Step 3b). Sem isso: PARE. A F3.2 NÃO espera o merge da F3.1 (que espera a Task 9 dela e, com ela, a F1 em produção).
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp"
-git fetch --all --quiet || true
-git log --oneline -15 feature/plan-tecido-a1
-git worktree add ".claude/worktrees/f32-ficha-bom" -b f32/ficha-bom feature/plan-tecido-a1
+PONTA="<sha passado pelo controlador da F3.1 no Step 3b dela>"
+git rev-parse --verify "$PONTA^{commit}" && git merge-base --is-ancestor "$PONTA" f31/planejamento-campos && echo "ponta da F3.1: ok"
+git -C .claude/worktrees/f31-planejamento-campos status --porcelain -- src supabase tests/unit tests/integration; echo "f31-limpa-checada"
+git log --oneline -12 "$PONTA"
+git worktree add ".claude/worktrees/f32-ficha-bom" -b f32/ficha-bom "$PONTA"
 cd ".claude/worktrees/f32-ficha-bom"
 mkdir -p .superpowers/f32
 git rev-parse HEAD > .superpowers/f32/BASE
@@ -190,7 +192,7 @@ cp "/Users/sunglee/PLM + Criação/plm-pcp/.env" .env
 npm ci --silent
 ```
 
-Expected: worktree criada; `.superpowers/f32/BASE` com o sha.
+Expected: `ponta da F3.1: ok`; só `f31-limpa-checada` (nada fora de commit na worktree da F3.1 — o que não foi commitado não vem); os commits `F3.1 (…)` no topo do log; worktree criada; `.superpowers/f32/BASE` = `$PONTA` (é a referência do `rebase --onto` da Task 16 Step 5 — não apagar). A worktree da F3.1 NÃO é tocada (só lida).
 
 - [ ] **Step 2: Conferir que a F3.0 e a F3.1 estão no HEAD**
 
@@ -200,10 +202,11 @@ test -f src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts &
 ls src/components/planejamento/planejamento-detail/ficha/ 2>/dev/null && echo "pasta ficha/ (F3.1) presente"
 grep -n "onCreated" src/components/planejamento/PlanejamentoDetail.tsx | head -3
 grep -n "proporcoes\|custos_adicionais" src/components/planejamento/modelo-shared.ts
+test -f supabase/migrations/20260930180000_modelo_descricao_produto.sql && echo "migration da F3.1 presente (a coluna vai para a cópia no QA — Task 15)"
 ```
 
-Expected: "F3.0 ok"; `onCreated` presente (F3.1 ou F3.1a); o último grep SEM saída (se tiver saída, anotar "F3.1 já trouxe proporcoes/custos_adicionais" e pular o Step 1 da Task 1).
-Se `usePlanejamentoSave.ts` não existir ou `onCreated` não aparecer: PARE — a F3.2 só nasce DEPOIS do merge da F3.1/F3.1a (R8).
+Expected: "F3.0 ok"; `onCreated` presente (F3.1 ou F3.1a); o último grep de `proporcoes` SEM saída (se tiver saída, anotar "F3.1 já trouxe proporcoes/custos_adicionais" e pular o Step 1 da Task 1); a migration presente.
+Se `usePlanejamentoSave.ts` não existir ou `onCreated` não aparecer: PARE — a F3.2 só nasce DEPOIS do G-commit da F3.1/F3.1a (R8 + N4).
 
 - [ ] **Step 3: Conferir as âncoras de texto (texto FINAL da F3.1) usadas nas Tasks 1, 10-13**
 
@@ -273,6 +276,35 @@ git diff --name-only savepoint-pre-unificacao-2026-09-22 -- src/components/desen
 ```
 
 Expected: tsc 0; build ok; unit com N passed e as falhas herdadas listadas (anotar em `.superpowers/f32/falhas-herdadas.txt` o nome de cada teste que falha); último comando SEM saída.
+
+- [ ] **Step 4b: Criar o 5º gate — `.superpowers/f32/gate-f31.sh` (sai 1 se falhar)**
+
+```bash
+#!/usr/bin/env bash
+# 5º gate da F3.2 — "F3.1 preservada" (R1 do G-plano conjunto). `onCreated` e `aoSalvar` são opcionais/funções: se a
+# F3.2 os perder, o tsc NÃO acusa (volta o card duplicado; o Salvar deixa de re-travar). NOTA do re-check do guardião:
+# SAI COM CÓDIGO 1 quando falha (antes só imprimia) — gate falhou = PARE, não commitar.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+P=src/components/planejamento/PlanejamentoDetail.tsx
+S=src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts
+if [ "$(grep -c 'qc, onSaved: aoSalvar, onCreated' "$P")" = 1 ] && [ "$(grep -c 'onCreated?.(' "$S")" = 2 ] \
+  && [ "$(grep -c 'criadoIdRef.current' "$S")" -ge 4 ] && [ "$(grep -c 'aplicarRegrasCamposDev(' "$S")" = 1 ] \
+  && [ "$(grep -c '"plan-kanban-cond", modeloId' "$S")" = 1 ] && [ "$(grep -c '"modelo-composicao", modeloId' "$S")" = 1 ]; then
+  echo "F3.1 preservada: ok"
+else
+  echo "F3.1 QUEBRADA — PARE (onCreated/aoSalvar/criadoIdRef/regras do payload)"
+  exit 1
+fi
+```
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
+chmod +x .superpowers/f32/gate-f31.sh
+bash .superpowers/f32/gate-f31.sh; echo "código=$?"
+```
+
+Expected: `F3.1 preservada: ok` e `código=0` (o texto é o FINAL da F3.1). `código=1` já aqui = a F3.2 nasceu de um ponto errado: PARE e reporte.
 
 ---
 
@@ -1900,7 +1932,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/com
 - Consumes: Task 2 (`hidratar*`, `herdarGrades`, `tecido1VarianteIds`, `relevantArtigoIds`, `EstadoBom`, `FlagsBom`); Task 5 (`FichaDados`); `Draft`; `recompute*`, `removerVarianteDoBloco`, `remapGradesAposRemocao`, `makeEmptyBlocks` (`modelo-detail/types`, sem modificar); `distribuiTotal`, `distribuiAncora`, `redistribuiPorEscala`, `somaGrade` (`@/lib/grade-proporcao`).
 - Produces:
   - `useFichaGuarda({ modeloId, snapshot, tocado, hidratado })` → `{ dirty: boolean; baselineRef: RefObject<string | null>; rebasear: (s: string) => void }`.
-  - `useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked })` → `{ blocks, aviamentosState, etiquetasState, grades, gradeAuto, hidratado, tocado, colecoesTouchadasRef, estadoRef, flagsRef, varianteArtigoMap, varianteArtigoMapRef, varianteArtigoMapPronto, tecido1VarianteIds, confirmGrade, setConfirmGrade, camposCopiados, onCampoEditado, marcarCopiados, limparCopiados, limparTocado, limparFlags, descartarEdicoes, handlers }` com `handlers = { updateBlock, updateBlockVariante, updateBlockOcLinks, updateAviamento, addAviamento, removeAviamento, updateEtiqueta, addEtiqueta, removeEtiqueta, updateGradeTotal, updateGradeCell, updateProporcao, toggleGradeAuto }` (mesmas assinaturas do Dev).
+  - `useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado? })` (`aoRecarregarComTocado?: (servidor: EstadoBom) => void` — R5a do re-check do guardião: chamado pela carga quando o BOM do servidor CHEGA com o BOM local já tocado) → `{ blocks, aviamentosState, etiquetasState, grades, gradeAuto, hidratado, tocado, colecoesTouchadasRef, estadoRef, flagsRef, varianteArtigoMap, varianteArtigoMapRef, varianteArtigoMapPronto, tecido1VarianteIds, confirmGrade, setConfirmGrade, camposCopiados, onCampoEditado, marcarCopiados, limparCopiados, limparTocado, limparFlags, descartarEdicoes, handlers }` com `handlers = { updateBlock, updateBlockVariante, updateBlockOcLinks, updateAviamento, addAviamento, removeAviamento, updateEtiqueta, addEtiqueta, removeEtiqueta, updateGradeTotal, updateGradeCell, updateProporcao, toggleGradeAuto }` (mesmas assinaturas do Dev).
 
 - [ ] **Step 1: Criar `useFichaGuarda.ts`**
 
@@ -1944,6 +1976,9 @@ export function useFichaGuarda({ modeloId, snapshot, tocado, hidratado }: {
 //    (no Dev não marca, e a redistribuição podia ser sobrescrita por uma recarga).
 //  • Confirmar "Apagar grade preenchida?" (troca do Tecido 1) marca o #Erro de grade (no Dev não marca).
 //  • Marcadores do #Erro em ref (só o Salvar lê).
+//  • R5a (re-check do guardião): com o BOM TOCADO a carga não sobrescreve (igual ao Dev), mas COMPARA o BOM que chegou
+//    com a referência do usuário (`aoRecarregarComTocado` → o orquestrador acende "Tecidos & BOM" se divergir). O Dev só
+//    retorna — tem o mesmo buraco, que fica lá (decisão travada 8; aviso ao dono no plano, §7 D5).
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -1955,7 +1990,7 @@ import {
 } from "@/components/desenvolvimento/modelo-detail/types";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import {
-  herdarGrades, hidratarAviamentos, hidratarBlocos, hidratarEtiquetas, hidratarGrades,
+  estadoBomDoServidor, herdarGrades, hidratarAviamentos, hidratarBlocos, hidratarEtiquetas, hidratarGrades,
   relevantArtigoIds, tecido1VarianteIds as calcTecido1VarianteIds,
   type EstadoBom, type FlagsBom,
 } from "./ficha-calc";
@@ -1966,14 +2001,19 @@ const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false }
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;
 
-export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked }: {
+export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado }: {
   modeloId: string | null;
   habilitada: boolean;
   dados: FichaDados;
   tecidosPlanejados: string[];
   proporcoes: Record<string, number>;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
+  /** R5a — a carga chegou com o BOM local JÁ tocado: recebe o BOM do SERVIDOR (montado pelas MESMAS funções da carga). */
+  aoRecarregarComTocado?: (servidor: EstadoBom) => void;
 }) {
+  // Sempre a versão atual do callback (o efeito da carga não o tem nas dependências).
+  const aoRecarregarRef = useRef(aoRecarregarComTocado);
+  aoRecarregarRef.current = aoRecarregarComTocado;
   const [blocks, setBlocks] = useState<TecidoBlock[]>(makeEmptyBlocks);
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
   const [etiquetasState, setEtiquetasState] = useState<ModeloEtiquetaRow[]>([]);
@@ -2046,8 +2086,19 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     if (!habilitada) return;
     const { tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData } = dados;
     if (!tecidosData || !ocLinksData || !aviamentosData || !etiquetasData || !gradesData) return;
-    // Colab: com alguma coleção tocada NÃO sobrescreve — o merge acende o conflito "Tecidos & BOM".
-    if (colecoesTouchadasRef.current) return;
+    // Colab: com alguma coleção tocada NÃO sobrescreve — mas COMPARA (R5a do re-check do guardião). O `aoMudarNoServidor`
+    // só confere quando o rev chega com o BOM JÁ tocado; se o rev chegou com o BOM INTOCADO (ele só invalidou) e o usuário
+    // tocou ANTES de o refetch chegar, é AQUI que o BOM alheio aparece — sem comparar, o Salvar passaria o `.eq("rev")`
+    // (o merge já avançou o rev) e `salvar_modelo_bom(_rev_base:null)` sobrescreveria o BOM de outra pessoa sem aviso.
+    // Cobre também o refetch de foco. O orquestrador compara a assinatura × referência e acende "Tecidos & BOM".
+    if (colecoesTouchadasRef.current) {
+      aoRecarregarRef.current?.(estadoBomDoServidor({
+        tecidos: tecidosData.tecidos, variantes: tecidosData.variantes, ocLinks: ocLinksData,
+        aviamentos: aviamentosData, etiquetas: etiquetasData, grades: gradesData,
+        planejados: JSON.parse(planejadosKey) as string[],
+      }));
+      return;
+    }
     setBlocks(hidratarBlocos({ tecidos: tecidosData.tecidos, variantes: tecidosData.variantes, ocLinks: ocLinksData, planejados: JSON.parse(planejadosKey) as string[] }));
     setAviamentosState(hidratarAviamentos(aviamentosData));
     setEtiquetasState(hidratarEtiquetas(etiquetasData));
@@ -2323,7 +2374,7 @@ git commit --only -m "feat(planejamento): F3.2 (6) — useFichaBom/useFichaGuard
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/components/planejamento/planejamento-detail/ficha/useFichaGuarda.ts src/components/planejamento/planejamento-detail/ficha/useFichaBom.ts
 ```
 
-**Revisão individual (Opus):** paridade handler a handler com o Dev (`:2435-2652`) — atenção a `marcarTocado` em TODO caminho que muda `blocks/aviamentos/etiquetas/grades`; carga só com as 5 queries e nada tocado; `hidratarTick` nos 4 efeitos; guarda: prove com 3 cenários mentais (abrir e não mexer ⇒ nunca "não salvo"; preço chegando depois ⇒ não suja; tocar e desfazer ⇒ limpa); o reset por `modeloId`.
+**Revisão individual (Opus):** paridade handler a handler com o Dev (`:2435-2652`) — atenção a `marcarTocado` em TODO caminho que muda `blocks/aviamentos/etiquetas/grades`; carga só com as 5 queries; nada tocado ⇒ hidrata; tocado ⇒ NÃO sobrescreve e chama `aoRecarregarComTocado` com o BOM do servidor montado por `estadoBomDoServidor` (R5a — mesma montagem do `bomMudouNoServidor`); `hidratarTick` nos 4 efeitos; guarda: prove com 3 cenários mentais (abrir e não mexer ⇒ nunca "não salvo"; preço chegando depois ⇒ não suja; tocar e desfazer ⇒ limpa); o reset por `modeloId`.
 
 ---
 
@@ -2339,7 +2390,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/com
   - `FichaSave = { podeGravarColunasDev: boolean; podeVerCustos: boolean; conflitoBomRef: RefObject<boolean>; verificandoBomRef: RefObject<boolean>; colecoesTouchadasRef: RefObject<boolean>; setConflitoBom: (v: boolean) => void; bomMudouNoServidor: () => Promise<boolean>; capturar: (custosAdicionais: unknown) => BomCapturado; aposSalvar: (a: { bomEnviado: BomCapturado }) => { bomMudouEmVoo: boolean }; etapas: { corte?: boolean; baixa_total?: number } }`.
   - `MotivoSomenteLeitura = "permissao" | "enviado" | "carregando" | "cad" | null` — trava ÚNICA (R2 do G-plano conjunto): deriva de `travaDev` (= `motivoTravaDev` da F3.1, que já considera o "Editar") + a trava interina "tem CAD".
   - `useFichaTecnica({ modeloId, isEdit, isComprado, tecidosPlanejados, proporcoes, custosAdicionais, setDraftTracked, maoObraVivo, travaDev })` → `FichaTecnica` (tipo = `ReturnType`) com `habilitada, carregado, podeEditar, podeVerCustos, motivoSomenteLeitura, dados, estado, handlers, gradeAuto, tecido1Info, totais, selos, confirmGrade, setConfirmGrade, camposCopiados, onCampoEditado, marcarCopiados, dirty, colab: { conflitoBom, verificandoBom, aoMudarNoServidor, resolverConflitoBom }, save: FichaSave`.
-  - Conflito "Tecidos & BOM" (R5 do G-plano conjunto): só quando o BOM do SERVIDOR mudou de verdade em relação à REFERÊNCIA (assinatura do BOM do servidor sobre o qual o usuário editou — acompanha o estado enquanto nada foi tocado; depois de um Salvar que gravou o BOM, vira o ENVIADO). Ações do próprio usuário que só sobem o `rev` (Mover para…, Ordem de Criação, Lançar, aprovar MO) e o eco do próprio save não acendem o aviso; enquanto confere, o Salvar espera (`verificandoBomRef`).
+  - Conflito "Tecidos & BOM" (R5 do G-plano conjunto): só quando o BOM do SERVIDOR mudou de verdade em relação à REFERÊNCIA (assinatura do BOM do servidor sobre o qual o usuário editou — acompanha o estado enquanto nada foi tocado; depois de um Salvar que gravou o BOM, vira o ENVIADO). Ações do próprio usuário que só sobem o `rev` (Mover para…, Ordem de Criação, Lançar, aprovar MO) e o eco do próprio save não acendem o aviso. Dois pontos comparam: (1) `aoMudarNoServidor` — rev novo com o BOM JÁ tocado: recarrega e confere; enquanto confere, o Salvar espera (`verificandoBomRef`); (2) **R5a do re-check do guardião** — a CARGA que chega com o BOM tocado (rev que veio com o BOM intocado e toque antes do refetch, ou refetch de foco) chama `aoRecarregarComTocado`, que compara com a mesma regra. `aposSalvar` invalida a conferência em voo (`geracaoRef += 1`, NOTA do re-check) para o eco do próprio save não deixar o aviso aceso.
   - `persistirBom(modeloId: string, bom: BomCapturado): Promise<void>`; `gravarTecidosIniciais(modeloIdRecemCriado: string, artigoIds: string[]): Promise<void>`.
 
 - [ ] **Step 1: Criar `persistir-bom.ts`**
@@ -2481,9 +2532,14 @@ export function useFichaTecnica(a: {
   const habilitada = a.isEdit && !!a.modeloId && !a.isComprado && podeVerFicha;
 
   const dados = useFichaDados({ modeloId: a.modeloId, habilitada });
+  // R5a (re-check do guardião): a carga do BOM chegou com o BOM JÁ tocado — ela não sobrescreve, mas passa o BOM do
+  // servidor para comparar com a referência. A função real é montada mais abaixo (usa a referência e o setter do
+  // conflito, declarados depois); a carga sempre chama a versão atual, pelo ref.
+  const aoRecarregarComTocadoRef = useRef<(servidor: EstadoBom) => void>(() => undefined);
   const bom = useFichaBom({
     modeloId: a.modeloId, habilitada, dados,
     tecidosPlanejados: a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
+    aoRecarregarComTocado: (servidor) => aoRecarregarComTocadoRef.current(servidor),
   });
 
   const estado: EstadoBom = useMemo(
@@ -2620,9 +2676,11 @@ export function useFichaTecnica(a: {
   /**
    * Chamar quando o `rev` do modelo mudou (save de outra pessoa, eco do meu save, ou ação MINHA que mexe em `modelos`
    * — Mover para…, Ordem de Criação, Lançar, aprovar MO). Sem BOM tocado: só recarrega (a carga reaplica e a referência
-   * acompanha). Com BOM tocado: CONFERE se o BOM do servidor mudou de verdade e só então acende "Tecidos & BOM" — o eco
-   * das ações do próprio usuário (que não mexem no BOM) é ignorado. Enquanto confere, o Salvar espera: fecha a janela em
-   * que um Salvar passaria o `.eq("rev")` e sobrescreveria um BOM alheio ainda não detectado.
+   * acompanha; se o usuário tocar ANTES de o refetch chegar, a CARGA compara — R5a, `aoRecarregarComTocadoRef`). Com BOM
+   * tocado: CONFERE se o BOM do servidor mudou de verdade e só então acende "Tecidos & BOM" — o eco das ações do próprio
+   * usuário (que não mexem no BOM) é ignorado. Enquanto ESTA conferência roda, o Salvar espera (`verificandoBomRef`).
+   * Sobra uma janela de ~1 ida e volta (tocar E salvar antes de o refetch do caminho "sem toque" chegar) — a mesma
+   * classe de janela do Dev, que nem compara (decisão 8; §5 R7/R20).
    */
   const aoMudarNoServidor = () => {
     if (!habilitada) return;
@@ -2645,6 +2703,12 @@ export function useFichaTecnica(a: {
     }
     bom.descartarEdicoes();
     invalidarBom();
+  };
+  // R5a — a carga chegou com o BOM tocado (ver a declaração do ref, acima): MESMA regra do `bomMudouNoServidor` —
+  // guarda a assinatura (p/ o "manter meu") e acende "Tecidos & BOM" se o BOM do servidor divergir da referência.
+  aoRecarregarComTocadoRef.current = (servidor) => {
+    ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
+    if (bom.colecoesTouchadasRef.current && bomDivergeDaReferencia(referenciaRef.current, servidor)) setConflitoBomBoth(true);
   };
 
   const { etapas } = useEtapasAfetadas(habilitada && a.modeloId ? a.modeloId : "");
@@ -2680,6 +2744,13 @@ export function useFichaTecnica(a: {
       else bom.limparTocado();
       // R5 — o servidor passa a ter o que foi ENVIADO: é a nova referência (o eco do meu save não acende conflito).
       if (bomEnviado.gravar) referenciaRef.current = assinaturaBom(bomEnviado.estado);
+      // NOTA do re-check do guardião — a conferência disparada pelo eco do 1º write (UPDATE) pode ter lido o BOM DEPOIS do
+      // salvar_modelo_bom e comparado com a referência VELHA; se o `.then` dela resolvesse depois daqui, com edição em
+      // voo, o aviso ficaria aceso. `geracaoRef += 1` a descarta; e como ela não chega a baixar o "conferindo", baixa-se
+      // aqui (senão o Salvar ficaria esperando). Um BOM alheio que tenha chegado nesse meio-tempo segue coberto: o
+      // `invalidarBom()` abaixo recarrega e a carga compara com a referência NOVA (R5a).
+      geracaoRef.current += 1;
+      setVerificandoBoth(false);
       bom.limparFlags();
       bom.limparCopiados();
       setConflitoBomBoth(false);
@@ -2717,7 +2788,7 @@ git commit --only -m "feat(planejamento): F3.2 (7) — useFichaTecnica (seções
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/components/planejamento/planejamento-detail/ficha/useFichaTecnica.ts src/components/planejamento/planejamento-detail/ficha/persistir-bom.ts
 ```
 
-**Revisão individual (Opus):** `habilitada`/`podeEditar`/`motivoSomenteLeitura` × decisões F3 #4/#8, a trava ÚNICA (R2: "permissao"/"enviado" vêm de `travaDev`; o "Editar" leva o motivo a "cad", nunca a `null` num card enviado) e a trava interina; R5: `aoMudarNoServidor` sem toque só invalida, com toque confere o BOM do servidor × referência (a referência acompanha o estado não tocado e vira o ENVIADO no `aposSalvar`; `verificandoBomRef` segura o Salvar; `geracaoRef` descarta conferência velha) — cenários mentais: eco de Mover para… (BOM igual) ⇒ sem aviso; outra pessoa muda o consumo ⇒ aviso; eco do meu save com BOM editado em voo ⇒ sem aviso; `capturar` só lê refs (vale no retry); `gravar` exige carregado E tocado E diferente do baseline; `totais` nulo quando não pode editar (sem custo derivado); `aoMudarNoServidor` × Dev `:838-843`; `gravarTecidosIniciais` só com modelo recém-criado (grep dos chamadores na Task 10/13).
+**Revisão individual (Opus):** `habilitada`/`podeEditar`/`motivoSomenteLeitura` × decisões F3 #4/#8, a trava ÚNICA (R2: "permissao"/"enviado" vêm de `travaDev`; o "Editar" leva o motivo a "cad", nunca a `null` num card enviado) e a trava interina; R5: `aoMudarNoServidor` sem toque só invalida, com toque confere o BOM do servidor × referência (a referência acompanha o estado não tocado e vira o ENVIADO no `aposSalvar`; `verificandoBomRef` segura o Salvar; `geracaoRef` descarta conferência velha — inclusive no `aposSalvar`, que também baixa o "conferindo"); R5a: a carga com o BOM tocado chama `aoRecarregarComTocadoRef` (mesma regra; guarda a assinatura p/ o "manter meu") — cenários mentais: eco de Mover para… (BOM igual) ⇒ sem aviso; outra pessoa muda o consumo ⇒ aviso; eco do meu save com BOM editado em voo ⇒ sem aviso; rev chega com o BOM intocado, usuário toca antes do refetch, refetch traz BOM alheio ⇒ aviso (R5a, QA S5d); refetch de foco com BOM alheio e BOM tocado ⇒ aviso; `capturar` só lê refs (vale no retry); `gravar` exige carregado E tocado E diferente do baseline; `totais` nulo quando não pode editar (sem custo derivado); `aoMudarNoServidor` × Dev `:838-843`; `gravarTecidosIniciais` só com modelo recém-criado (grep dos chamadores na Task 10/13).
 
 ---
 
@@ -3675,7 +3746,7 @@ grep -c "    qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBase
 grep -c "travaDev: motivoTravaDev," src/components/planejamento/PlanejamentoDetail.tsx         # 1
 ```
 
-E o 5º gate ("F3.1 preservada: ok").
+E o 5º gate (`bash .superpowers/f32/gate-f31.sh` → "F3.1 preservada: ok", código 0; código 1 = PARE).
 
 - [ ] **Step 14: Gates + commit**
 
@@ -4356,61 +4427,97 @@ Acrescentar 1 linha no diário do guardião (via o próprio guardião no G-fase)
 
 ---
 
-## Task 15: QA de navegador com guarda de rede  *(controlador; relatório ao guardião)*
+## Task 15: QA contra a CÓPIA — app de teste da worktree (`:5186`), guarda invertida, fluxos que gravam na cópia  *(controlador; relatório ao guardião)*
+
+> **Por que na cópia (N2 do re-check do guardião + ruling do controlador — o MESMO modo da F3.1):** o app de teste da worktree fala só com a CÓPIA LOCAL, então os caminhos de escrita da F3.2 (`salvar_modelo_bom` real, P0409 real, Realtime "Tecidos & BOM" entre abas, Dev ↔ Planejamento, card novo com Tecido 1..N, Duplicar) são provados de verdade sem tocar produção. Produção fica com o snapshot (Task 14) e o smoke só-leitura (Task 16 Step 6).
 
 **Files:**
-- Create (NÃO versionar): `tests/e2e/f32-qa.spec.ts`
+- Create (NÃO versionar): `tests/e2e/f32-qa.spec.ts`; evidência em `.superpowers/f32/qa/` (fluxos que gravam: `.superpowers/f32/qa/escrita/`).
+- Usa (fora do repo, criados pela F3.1 — Task 10 Steps 2/3 dela): `banco-local/app-teste-variantes/criar-variante.sh` (gera a variante `f32` em `:5186`) e o `copia-qa.sh` da worktree da F3.1 (coluna na cópia).
 
-Regras (R4 do G-plano conjunto — as MESMAS da F3.1): barradas esperadas (`rpc/servicos_financeiro` da Home e o broadcast REST do Realtime) continuam BARRADAS e não reprovam; `servicos_financeiro` NUNCA entra em `READ_RPCS` (o spec recusa); a loja é conferida pelo tenant_id `37889b78-fffb-404b-8c75-18b7e50a1d9b`; `:5199` ocupada ⇒ `exit 1`; o kill só vale para o PID que escuta `:5199` com `cwd` = worktree. Nunca junto com o E2E da F2 nem com o QA da F3.1b (mesmo usuário, mesmo Realtime).
+Regras (R4 do G-plano conjunto — as MESMAS da F3.1): no automático, barradas esperadas (`rpc/servicos_financeiro` da Home e o broadcast REST do Realtime) continuam BARRADAS e não reprovam; `servicos_financeiro` NUNCA entra em `READ_RPCS` (o spec recusa); a loja é conferida pelo tenant_id `37889b78-fffb-404b-8c75-18b7e50a1d9b`; na cópia, qualquer requisição a `*.supabase.co` reprova (guarda invertida); `:5186` ocupada ⇒ PARE; derrubar SÓ pelo `descer.sh` da variante. Nunca junto com o E2E da F2 nem com o QA da F3.1/F3.1b (mesmo usuário; Realtime REAL na cópia).
 
-- [ ] **Step 1: Subir o vite da worktree em :5199**
-
-```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
-if lsof -nP -iTCP:5199 -sTCP:LISTEN -t >/dev/null 2>&1; then lsof -nP -iTCP:5199 -sTCP:LISTEN; echo "PORTA 5199 OCUPADA — PARE (não matar nada; avisar o controlador)"; exit 1; fi
-ps -Ao pid,command | grep -E "playwright|kanban-auto.spec|f3[0-9]-qa" | grep -v grep; echo "e2e-checado"
-curl -s -o /dev/null -w 'dono :5173 http=%{http_code}\n' http://localhost:5173/
-```
-
-Expected: só `e2e-checado` (nenhum Playwright rodando) e a linha do `:5173` (só observado). Porta ocupada = o comando sai com código 1: PARE.
-
-Depois, em background (`run_in_background`):
-
-```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom" && node_modules/.bin/vite dev --port 5199 --strictPort > .superpowers/f32/vite-5199.log 2>&1
-```
-
-e:
+- [ ] **Step 1: Pré-condições, coluna na cópia e a variante `:5186`**
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
-curl -s -o /dev/null --retry 40 --retry-connrefused --retry-delay 2 -w 'F3.2(:5199) http=%{http_code}\n' http://localhost:5199/
-PID=$(lsof -nP -iTCP:5199 -sTCP:LISTEN -t | head -1)
-if lsof -a -p "$PID" -d cwd -Fn | grep -q "f32-ficha-bom"; then echo "$PID" > .superpowers/f32/vite-5199.pid; echo "PID $PID (cwd = worktree) anotado"; else echo "o PID de :5199 NÃO é da worktree — PARE"; exit 1; fi
+ps -Ao pid,command | grep -E "[v]itest|playwright|kanban-auto.spec|f3[0-9]-qa" | grep -v grep; echo "testes-checados"
+lsof -nP -iTCP:5186 -sTCP:LISTEN; lsof -nP -iTCP:5187 -sTCP:LISTEN; echo "portas-checadas"
+curl -s -o /dev/null -w 'Supabase local http=%{http_code}\n' http://127.0.0.1:54321/auth/v1/health
+curl -s -o /dev/null -w 'app de teste do dono :5188 http=%{http_code} (só observado)\n' http://localhost:5188/
+PGCONNECT_TIMEOUT=5 psql "postgresql://postgres:postgres@127.0.0.1:54422/postgres" -X -A -t \
+  -c "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name = 'descricao_produto'" \
+  | sed 's/^/coluna descricao_produto na cópia = /'
+git -C "/Users/sunglee/PLM + Criação/plm-pcp" cat-file -e feature/plan-tecido-a1:supabase/migrations/20260930180000_modelo_descricao_produto.sql 2>/dev/null && echo "F3.1 JÁ juntada" || echo "F3.1 ainda NÃO juntada"
 ```
 
-Expected: `http=200`; `PID … anotado`. Nunca tocar no `:5173`.
+Expected: só `testes-checados` (nenhum vitest/Playwright rodando); só `portas-checadas` (`:5186` e `:5187` livres); `Supabase local http=200` (senão: o dono sobe os serviços — APP-TESTE-LOCAL.md §1); o `:5188` só observado. Coluna:
+- `= 1` → segue.
+- `= 0` e **F3.1 ainda NÃO juntada** → pôr a coluna pelo script da F3.1 (backup `pg_dump -Fc` antes; mesma receita de travas; o script só LÊ a worktree da F3.1):
+  ```bash
+  cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" && bash .superpowers/f31/mig/copia-qa.sh ida 2>&1 | tail -8
+  ```
+  Expected: `== COLUNA NA CÓPIA` e `cópia (…): …|…|1`. (Ela sai de novo no Step 5.)
+- `= 0` e **F3.1 JÁ juntada** → a F3.1 deixou a coluna na cópia (Task 11 Step 5b dela): PARE e avise o controlador (não criar por conta própria).
+
+Depois, a variante (o `criar-variante.sh` é o da F3.1 — se não existir, PARE: a F3.2 nasce depois do QA da F3.1, então ele já devia existir):
+
+```bash
+VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
+test -x "$VAR/criar-variante.sh" && echo "criar-variante.sh ok" || echo "criar-variante.sh AUSENTE — PARE"
+bash "$VAR/criar-variante.sh" f32 "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom" 5186
+"$VAR/f32/subir.sh"
+lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
+```
+
+Expected: `criar-variante.sh ok`; `variante f32 pronta …`; `OK: variante f32 em http://localhost:5186 (PID …)` + `[guarda-copia-local] OK: variante f32 (:5186, raiz …/f32-ficha-bom) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o `:5188` com o mesmo PID. `RECUSADO`/`ABORTADO`/`ERRO`: PARE e reporte (nunca contornar a guarda; nunca `npm run dev` + `VITE_*`).
 
 - [ ] **Step 2: Escrever o spec**
 
 ```ts
 // tests/e2e/f32-qa.spec.ts — QA da F3.2 (BOM no Sheet do Planejamento). NÃO COMMITAR (apoio da worktree; apagado
-// na Task 16). SÓ LEITURA: o app local aponta para PRODUÇÃO — toda escrita no Supabase é SIMULADA aqui
-// (route.fulfill; nunca chega ao banco) ou BARRADA. Barradas ESPERADAS (seguem barradas, não reprovam — as MESMAS da
-// F3.1, R4 do G-plano conjunto): `rpc/servicos_financeiro` da Home (NUNCA liberar) e o broadcast REST do Realtime.
-// Qualquer outra barrada = violação e o teste falha. Passam: /auth/v1, URL assinada, GET/HEAD e as RPCs de READ_RPCS.
-// Na origem do app, todo NÃO-GET é barrado. O robô NÃO troca de loja: toda leitura de tenant_config tem de ser da Loja
-// Teste (pelo tenant_id), senão o teste falha.
-// Rodar: E2E_BASE_URL=http://localhost:5199 npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0
-import { test, expect, type BrowserContext, type Page, type Request, type Route } from "@playwright/test";
+// na Task 16).
+// DOIS ALVOS (re-check do guardião N2 + ruling do controlador) — F32_ALVO obrigatório:
+//  • "copia"    — Task 15: app de teste DA WORKTREE (http://localhost:5186, variante do banco-local/app-teste) sobre a
+//                 CÓPIA LOCAL (Supabase http://127.0.0.1:54321). Guarda INVERTIDA: QUALQUER requisição a *.supabase.co
+//                 (GET inclusive) é violação e é barrada. O teste automático segue com as escritas SIMULADAS; os fluxos
+//                 E1–E6 (fim do arquivo, F32_ESCRITA=1) GRAVAM de verdade — só na cópia, um por vez, dono avisado.
+//  • "producao" — smoke SÓ-LEITURA pós-merge no :5173 do dono (Task 16 Step 6): toda escrita no Supabase é SIMULADA
+//                 aqui (route.fulfill; nunca chega ao banco) ou BARRADA.
+// Barradas ESPERADAS do automático (seguem barradas, não reprovam — as MESMAS da F3.1, R4 do G-plano conjunto):
+// `rpc/servicos_financeiro` da Home (NUNCA liberar) e o broadcast REST do Realtime. Qualquer outra barrada = violação e
+// o teste falha. Passam: /auth/v1, URL assinada, GET/HEAD e as RPCs de READ_RPCS. Na origem do app, todo NÃO-GET é
+// barrado. O robô NÃO troca de loja: toda leitura de tenant_config tem de ser da Loja Teste (pelo tenant_id).
+// Rodar (cópia): E2E_BASE_URL=http://localhost:5186 VITE_SUPABASE_URL=http://127.0.0.1:54321 F32_ALVO=copia \
+//   npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0
+import { test, expect, type Browser, type BrowserContext, type Page, type Request, type Route } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { Client as PgClient } from "pg";
 import { doLogin } from "./_helpers";
 
 const BASE = process.env.E2E_BASE_URL ?? "";
 if (!/^http:\/\/localhost:\d+$/.test(BASE)) {
   throw new Error(`E2E_BASE_URL precisa ser o vite LOCAL (http://localhost:<porta>) — recebido "${BASE}". Sem isso o QA NÃO foi feito.`);
 }
+const ALVO = process.env.F32_ALVO ?? "";
+if (ALVO !== "copia" && ALVO !== "producao") {
+  throw new Error(`F32_ALVO obrigatório: "copia" (Task 15 — app de teste da worktree :5186) ou "producao" (smoke só-leitura no :5173). Recebi "${ALVO}".`);
+}
+// NOTA do re-check do guardião: SEM fallback de host — sem VITE_SUPABASE_URL a guarda não saberia o que vigiar (fail-open).
+if (!process.env.VITE_SUPABASE_URL) {
+  throw new Error("VITE_SUPABASE_URL ausente: a guarda de rede não sabe o host do Supabase. PARE (nada foi testado).");
+}
+const SUPA_HOST = new URL(process.env.VITE_SUPABASE_URL).host;
+if (ALVO === "copia" && (SUPA_HOST !== "127.0.0.1:54321" || BASE !== "http://localhost:5186")) {
+  throw new Error(`F32_ALVO=copia exige VITE_SUPABASE_URL=http://127.0.0.1:54321 e E2E_BASE_URL=http://localhost:5186 (recebi ${SUPA_HOST} · ${BASE}).`);
+}
+if (ALVO === "producao" && (!/\.supabase\.co$/.test(SUPA_HOST) || BASE !== "http://localhost:5173")) {
+  throw new Error(`F32_ALVO=producao é o smoke no :5173 do dono (Supabase de produção) — recebi ${SUPA_HOST} · ${BASE}.`);
+}
+const ehSupabaseProducao = (u: URL) => /(^|\.)supabase\.co$/i.test(u.hostname);
+const ESCRITA = process.env.F32_ESCRITA === "1";
 const LOJA_TESTE = "37889b78-fffb-404b-8c75-18b7e50a1d9b"; // "Loja Teste" — conferida pelo tenant_id (o rótulo pode mudar)
-const SUPA_HOST = new URL(process.env.VITE_SUPABASE_URL ?? "https://sem-supabase.invalid").host;
 const FAKE_NOVO = "00000000-0000-4000-8000-00000000f320";
 const FAKE_DUP = "00000000-0000-4000-8000-00000000f321";
 const OBS_OUTRO = "Alterado por outra pessoa (QA F3.2)";
@@ -4454,6 +4561,14 @@ const comRev = (row: any, delta: number, patch: Record<string, unknown> = {}) =>
 };
 
 async function guardar(ctx: BrowserContext) {
+  if (ALVO === "copia") {
+    // Guarda INVERTIDA (N2): no QA contra a cópia NADA vai a produção — qualquer requisição a *.supabase.co (GET
+    // inclusive) é violação e é barrada. A variante já nasce toda local (guarda do vite); isto é o 2º cinto.
+    await ctx.route((u) => ehSupabaseProducao(u), async (route) => {
+      g.violacoes.push(`PRODUÇÃO ${route.request().method()} ${route.request().url()}`);
+      return route.abort("blockedbyclient");
+    });
+  }
   await ctx.route((u) => u.host === SUPA_HOST, async (route) => {
     const req = route.request();
     const u = new URL(req.url());
@@ -4504,6 +4619,28 @@ function fakeBomAlterado(id: string, consumoT1: number): Fake {
       await r.fulfill({ response: resp, json: linhas.map((t) => (t.tipo === "tecido" && t.numero === 1 ? { ...t, consumo: consumoT1 } : t)) });
     },
   };
+}
+/** R5a — o MESMO BOM alterado, mas o GET fica SEGURO pela rota até `liberar()` (a janela "toque antes do refetch");
+ *  `chegou` resolve no 1º GET segurado. Pedido que o navegador já cancelou (o React Query aborta o refetch velho ao
+ *  invalidar) é ignorado. */
+function fakeBomAlteradoAtrasado(id: string, consumoT1: number): { fake: Fake; chegou: Promise<void>; liberar: () => void } {
+  let liberar!: () => void;
+  const portao = new Promise<void>((res) => { liberar = res; });
+  let avisar!: () => void;
+  const chegou = new Promise<void>((res) => { avisar = res; });
+  const fake: Fake = {
+    casa: (m, u) => m === "GET" && u.pathname === "/rest/v1/modelo_tecidos" && u.searchParams.get("select") === SEL_TECIDOS && u.searchParams.get("modelo_id") === `eq.${id}`,
+    responde: async (r) => {
+      avisar();
+      await portao;
+      try {
+        const resp = await r.fetch();
+        const linhas = (await resp.json()) as any[];
+        await r.fulfill({ response: resp, json: linhas.map((t) => (t.tipo === "tecido" && t.numero === 1 ? { ...t, consumo: consumoT1 } : t)) });
+      } catch { /* pedido cancelado pelo navegador — nada a responder */ }
+    },
+  };
+  return { fake, chegou, liberar };
 }
 /** PATCH em `modelos` responde OK; com `conflito`, o 1º responde 0 linhas (P0409 sintético) e passa a servir o GET do
  *  modelo com rev+1 e `observacoes_gerais` mudado "por outra pessoa" — e, com `bomOutro`, o BOM também mudado. */
@@ -4754,6 +4891,37 @@ test("F3.2 — BOM no Sheet do Planejamento (só leitura; escritas simuladas)", 
     await expect(avisoBom).toHaveCount(0);
   });
 
+  await test.step("S5d — R5a: rev chega com o BOM INTOCADO (só invalida); o usuário toca ANTES de o refetch chegar; o refetch traz o BOM de outra pessoa ⇒ a CARGA compara e acende 'Tecidos & BOM'; o Salvar não passa", async () => {
+    limpar();
+    const c = await abrirCard(page, semCad!.id);
+    await expandir(page, "tecidos");
+    await expect(labelTecido1(page)).toBeVisible();
+    const consumo = consumoT1(page);
+    const meu = bump(await consumo.inputValue());
+    const outro = 5.432;
+    // O BOM de OUTRA pessoa vem no refetch — SEGURO pela rota até liberar (é a janela do R5a).
+    const bomAtrasado = fakeBomAlteradoAtrasado(c.id, outro);
+    g.fakes.unshift(bomAtrasado.fake);
+    // rev+1 (outra pessoa salvou): o merge vê o rev novo com o BOM ainda INTOCADO ⇒ aoMudarNoServidor só invalida.
+    g.fakes.unshift(fakeModeloGet(c.id, comRev(c.modeloRow, 1)));
+    const pM = resposta(page, (u, r) => u.pathname === "/rest/v1/modelos" && r.request().method() === "GET" && u.searchParams.get("select") === "*" && u.searchParams.get("id") === `eq.${c.id}`);
+    await voltarParaAba(page);
+    await pM;
+    await bomAtrasado.chegou;          // o refetch do BOM saiu e está SEGURO
+    await page.waitForTimeout(500);    // o merge (rev novo, BOM intocado) roda ANTES do toque — senão o teste mediria o R5
+    await consumo.fill(meu);           // toque ANTES de o dado novo chegar
+    fakePatchModelos(); fakeRpc("salvar_modelo_bom");
+    bomAtrasado.liberar();             // chega o BOM alheio com o BOM já tocado ⇒ a carga COMPARA (R5a)
+    await expect(avisoBom).toBeVisible({ timeout: 20_000 });
+    await expect(consumo).toHaveValue(meu); // a carga não sobrescreve o que está tocado
+    await page.getByRole("button", { name: "Salvar" }).click();
+    await page.waitForTimeout(1500);
+    expect(patchesModelos()).toHaveLength(0); // "Resolva os conflitos…": nada gravado (antes do R5a: PATCH + salvar_modelo_bom)
+    expect(chamou("salvar_modelo_bom")).toBe(false);
+    await avisoBom.getByRole("button", { name: "usar o novo" }).click();
+    await expect.poll(async () => num(await consumo.inputValue()), { timeout: 20_000 }).toBeCloseTo(outro, 3);
+  });
+
   await test.step("S6 — Novo Modelo: 1 POST → Tecido 1..N no BOM (R3) → o Dialog VIRA o Sheet do card criado (F3.1 preservada, R1) → 2º Salvar = PATCH", async () => {
     limpar(); fakeRpc("salvar_modelo_bom"); fakePatchModelos();
     const linhaNova: Record<string, unknown> = {};
@@ -4876,31 +5044,386 @@ test("F3.2 — BOM no Sheet do Planejamento (só leitura; escritas simuladas)", 
   console.log(`[f32-qa] barradas esperadas (seguiram barradas, não reprovam): ${JSON.stringify(g.barradasEsperadas)}`);
   await ctx.close();
 });
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// FLUXOS QUE GRAVAM NA CÓPIA (N2 do re-check + ruling do controlador) — E1…E6. GRAVAM DE VERDADE, SÓ na cópia local
+// (127.0.0.1:54321): F32_ALVO=copia + F32_ESCRITA=1, UM por vez (-g "E3 —"), dono avisado antes de cada um (a cópia é o
+// app de teste dele); o controlador mostra cada passo (PNG em .superpowers/f32/qa/escrita/<fluxo>-<n>-<passo>.png).
+// Guarda INVERTIDA: escrita liberada SÓ para 127.0.0.1:54321; QUALQUER requisição que não seja local (ou às fontes do
+// Google) — *.supabase.co inclusive — reprova. Loja pelo tenant_id. Cards escolhidos/conferidos por SELECT só-leitura na
+// cópia (BEGIN READ ONLY). Cada fluxo DESFAZ o que fez (card criado/duplicado é excluído pela tela; consumo/nome
+// voltam). Ficam NA CÓPIA, por natureza: snapshots do BOM (`modelo_bom_snapshots`) e o CAD que o Salvar do
+// Desenvolvimento cria no E4. Seletores do Desenvolvimento (E4: board, busca, seção de Tecidos) não são da F3.2 e não
+// foram conferidos linha a linha: se não casarem, o controlador ajusta SÓ o seletor (nunca a guarda) e registra.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+const TAG = `QA-F32 ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+const OUT_E = path.resolve(".superpowers/f32/qa/escrita");
+const LOCAL_PG = "postgresql://postgres:postgres@127.0.0.1:54422/postgres";
+const HOSTS_LOCAIS = new Set(["localhost", "127.0.0.1", "fonts.googleapis.com", "fonts.gstatic.com"]);
+type EstadoEscrita = { gravadas: Gravada[]; violacoes: string[]; errosPagina: string[]; tenants: Set<string> };
+const estadoEscrita = (): EstadoEscrita => ({ gravadas: [], violacoes: [], errosPagina: [], tenants: new Set() });
+const consumoT1De = (p: Page) => p.locator('[data-secao="tecidos"] input[placeholder="0,000"]').first();
+const bomGravado = (st: EstadoEscrita) => st.gravadas.filter((x) => x.caminho.startsWith("/rest/v1/rpc/salvar_modelo_bom")).length;
+
+function exigeEscrita() {
+  test.skip(!ESCRITA, "fluxos que gravam: só com F32_ESCRITA=1, um por vez, dono avisado");
+  if (ALVO !== "copia") throw new Error("fluxos que GRAVAM: só com F32_ALVO=copia (nunca em produção)");
+}
+
+/** SELECT só-leitura na CÓPIA. Nunca escreve. */
+async function sqlCopia<T>(q: string, params: unknown[] = []): Promise<T[]> {
+  if (ALVO !== "copia") throw new Error("SQL só na cópia");
+  const c = new PgClient({ connectionString: LOCAL_PG, ssl: false });
+  await c.connect();
+  try {
+    await c.query("BEGIN READ ONLY");
+    return (await c.query(q, params)).rows as T[];
+  } finally {
+    await c.query("ROLLBACK").catch(() => undefined);
+    await c.end();
+  }
+}
+
+/** 1º card interno da Loja Teste (cópia) com BOM (tecido com artigo) e SEM CAD — editável no Planejamento. */
+async function cardSemCad(): Promise<{ id: string; nome: string }> {
+  const [c] = await sqlCopia<{ id: string; nome: string }>(
+    `select m.id, m.nome from modelos m
+      where m.tenant_id = $1 and coalesce(m.origem, 'interno') = 'interno'
+        and exists (select 1 from modelo_tecidos t where t.modelo_id = m.id and t.tipo = 'tecido' and t.artigo_id is not null)
+        and not exists (select 1 from cad where cad.modelo_id = m.id)
+      order by m.nome, m.id limit 1`, [LOJA_TESTE]);
+  if (!c) throw new Error("Loja Teste (cópia) sem card interno com BOM e sem CAD — nada a exercitar");
+  return c;
+}
+const consumoT1NoBanco = async (id: string) =>
+  Number((await sqlCopia<{ c: string }>(`select consumo::text c from modelo_tecidos where modelo_id = $1 and tipo = 'tecido' and numero = 1`, [id]))[0]?.c);
+
+/** Contexto que GRAVA na cópia: o que não é local reprova; o Supabase LOCAL passa e as escritas ficam registradas.
+ *  `semRealtime`: o websocket do Realtime é cortado (a aba fica com o rev VELHO — P0409 real no E3). */
+async function paginaEscrita(browser: Browser, st: EstadoEscrita, o: { semRealtime?: boolean } = {}): Promise<{ ctx: BrowserContext; page: Page }> {
+  if (ALVO !== "copia" || !ESCRITA) throw new Error("fluxo que GRAVA só com F32_ALVO=copia e F32_ESCRITA=1");
+  const ctx = await browser.newContext({ baseURL: BASE, viewport: { width: 1440, height: 900 } });
+  await ctx.route((u) => !HOSTS_LOCAIS.has(u.hostname), async (route) => {
+    st.violacoes.push(`FORA DA CÓPIA ${route.request().method()} ${route.request().url()}`);
+    return route.abort("blockedbyclient");
+  });
+  await ctx.route((u) => u.host === SUPA_HOST, async (route) => {
+    const req = route.request();
+    const u = new URL(req.url());
+    if (u.pathname === "/rest/v1/tenant_config") {
+      const t = u.searchParams.get("tenant_id");
+      if (t) st.tenants.add(t.replace(/^eq\./, ""));
+    }
+    if (req.method() !== "GET" && req.method() !== "HEAD" && !u.pathname.startsWith("/auth/v1/")) {
+      st.gravadas.push({ metodo: req.method(), caminho: `${u.pathname}${u.search}`, corpo: corpoDe(req) });
+    }
+    return route.continue();
+  });
+  if (o.semRealtime) await ctx.routeWebSocket(/\/realtime\/v1\/websocket/, (ws) => { ws.close(); });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => st.errosPagina.push(String(e?.message ?? e)));
+  await doLogin(page);
+  return { ctx, page };
+}
+
+async function passo(page: Page, fluxo: string, n: number, nome: string) {
+  fs.mkdirSync(OUT_E, { recursive: true });
+  const arq = path.join(OUT_E, `${fluxo}-${n}-${nome}.png`);
+  await page.screenshot({ path: arq, fullPage: true });
+  console.log(`[f32-escrita] ${fluxo} passo ${n} (${nome}) → ${arq}`);
+}
+
+function conferirEscrita(st: EstadoEscrita, nome: string) {
+  fs.mkdirSync(OUT_E, { recursive: true });
+  fs.writeFileSync(path.join(OUT_E, `${nome}.json`), JSON.stringify({ gravadas: st.gravadas, violacoes: st.violacoes, errosPagina: st.errosPagina, tenants: [...st.tenants] }, null, 2));
+  expect(st.violacoes, "requisição fora da cópia").toEqual([]);
+  expect(st.errosPagina, "erro de JS na página").toEqual([]);
+  expect(st.tenants.size > 0 && [...st.tenants].every((t) => t === LOJA_TESTE), `loja ≠ Loja Teste (${[...st.tenants].join(",")})`).toBe(true);
+}
+
+async function salvarReal(page: Page) {
+  await page.getByRole("dialog").getByRole("button", { name: "Salvar" }).click();
+  await expect(page.getByText("Modelo salvo").first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** Exclui um card PELA TELA (Sheet do Planejamento → Excluir → confirmar) e confere na cópia que ele sumiu. */
+async function excluirPelaTela(page: Page, id: string) {
+  await abrirCard(page, id);
+  await page.getByRole("dialog").getByRole("button", { name: "Excluir", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: /Excluir/ }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 });
+  await expect.poll(async () => (await sqlCopia(`select 1 from modelos where id = $1`, [id])).length, { timeout: 20_000 }).toBe(0);
+}
+
+test("E1 — BOM gravado DE VERDADE: salvar_modelo_bom grava o consumo, guarda o snapshot e não cria CAD; reabrir mostra", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(6 * 60_000);
+  const card = await cardSemCad();
+  const st = estadoEscrita();
+  const { ctx, page } = await paginaEscrita(browser, st);
+  const [t0] = await sqlCopia<{ agora: string }>(`select now()::text agora`);
+  await abrirCard(page, card.id);
+  await expandir(page, "tecidos");
+  await expect(labelTecido1(page)).toBeVisible();
+  const original = await consumoT1De(page).inputValue();
+  const novo = bump(original);
+  await consumoT1De(page).fill(novo);
+  await passo(page, "E1", 1, "consumo-editado");
+  await salvarReal(page);
+  await expect.poll(() => consumoT1NoBanco(card.id), { timeout: 20_000 }).toBeCloseTo(num(novo), 3);
+  const [snap] = await sqlCopia<{ n: string }>(`select count(*)::text n from modelo_bom_snapshots where modelo_id = $1 and created_at > $2::timestamptz`, [card.id, t0.agora]);
+  expect(Number(snap.n)).toBeGreaterThanOrEqual(1); // salvar_modelo_bom guardou o snapshot antes de apagar (funcoes.sql:7603)
+  expect(bomGravado(st)).toBe(1);
+  const [cad] = await sqlCopia<{ n: string }>(`select count(*)::text n from cad where modelo_id = $1`, [card.id]);
+  expect(cad.n).toBe("0"); // o Planejamento NÃO cria CAD (F3.3)
+  await abrirCard(page, card.id);
+  await expandir(page, "tecidos");
+  await expect.poll(async () => num(await consumoT1De(page).inputValue()), { timeout: 20_000 }).toBeCloseTo(num(novo), 3);
+  await passo(page, "E1", 2, "reaberto");
+  await consumoT1De(page).fill(original); // desfaz
+  await salvarReal(page);
+  await expect.poll(() => consumoT1NoBanco(card.id), { timeout: 20_000 }).toBeCloseTo(num(original), 3);
+  await passo(page, "E1", 3, "desfeito");
+  conferirEscrita(st, "E1");
+  await ctx.close();
+});
+
+test("E2 — Realtime REAL entre 2 abas do Planejamento: A grava o BOM; em B (BOM tocado, não salvo) acende 'Tecidos & BOM'; 'usar o novo' traz o de A", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(8 * 60_000);
+  const card = await cardSemCad();
+  const stA = estadoEscrita();
+  const stB = estadoEscrita();
+  const a = await paginaEscrita(browser, stA);
+  const b = await paginaEscrita(browser, stB);
+  await abrirCard(b.page, card.id);
+  await expandir(b.page, "tecidos");
+  await expect(labelTecido1(b.page)).toBeVisible();
+  const original = await consumoT1De(b.page).inputValue();
+  await consumoT1De(b.page).fill(bump(bump(original))); // B toca o BOM e NÃO salva
+  await abrirCard(a.page, card.id);
+  await expandir(a.page, "tecidos");
+  await expect(labelTecido1(a.page)).toBeVisible();
+  const deA = bump(original);
+  await consumoT1De(a.page).fill(deA);
+  await salvarReal(a.page);
+  await passo(a.page, "E2", 1, "A-salvou");
+  const avisoB = b.page.locator("li").filter({ hasText: "Tecidos & BOM" });
+  await expect(avisoB).toBeVisible({ timeout: 30_000 });
+  await passo(b.page, "E2", 2, "B-tecidos-e-bom");
+  await b.page.getByRole("dialog").getByRole("button", { name: "Salvar" }).click(); // com o aviso aberto, o Salvar NÃO passa
+  await b.page.waitForTimeout(1500);
+  expect(stB.gravadas.filter((x) => x.metodo === "PATCH" && x.caminho.includes(`id=eq.${card.id}`))).toHaveLength(0);
+  expect(bomGravado(stB)).toBe(0);
+  await avisoB.getByRole("button", { name: "usar o novo" }).click();
+  await expect.poll(async () => num(await consumoT1De(b.page).inputValue()), { timeout: 20_000 }).toBeCloseTo(num(deA), 3);
+  await passo(b.page, "E2", 3, "B-usou-o-novo");
+  await abrirCard(a.page, card.id); // desfaz (pela A)
+  await expandir(a.page, "tecidos");
+  await consumoT1De(a.page).fill(original);
+  await salvarReal(a.page);
+  await expect.poll(() => consumoT1NoBanco(card.id), { timeout: 20_000 }).toBeCloseTo(num(original), 3);
+  conferirEscrita(stA, "E2-A");
+  conferirEscrita(stB, "E2-B");
+  await a.ctx.close();
+  await b.ctx.close();
+});
+
+test("E3 — P0409 REAL: B (sem Realtime, rev velho) salva o BOM depois de A salvar o nome ⇒ o servidor recusa; BOM do servidor IGUAL ⇒ o retry leva o nome de A e grava o BOM de B", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(8 * 60_000);
+  const card = await cardSemCad();
+  const [antes] = await sqlCopia<{ nome: string }>(`select nome from modelos where id = $1`, [card.id]);
+  const consumoAntes = await consumoT1NoBanco(card.id);
+  const stA = estadoEscrita();
+  const stB = estadoEscrita();
+  const a = await paginaEscrita(browser, stA);
+  const b = await paginaEscrita(browser, stB, { semRealtime: true }); // B não recebe o UPDATE de A ⇒ fica com o rev velho
+  await abrirCard(b.page, card.id);
+  await expandir(b.page, "tecidos");
+  await expect(labelTecido1(b.page)).toBeVisible();
+  await abrirCard(a.page, card.id);
+  const nomeA = `${antes.nome} ·E3`;
+  await a.page.locator('[data-colab-path="nome"]').fill(nomeA);
+  await salvarReal(a.page);
+  await passo(a.page, "E3", 1, "A-salvou-o-nome");
+  const deB = bump(await consumoT1De(b.page).inputValue());
+  await consumoT1De(b.page).fill(deB);
+  await salvarReal(b.page); // 1º PATCH volta 0 linhas (P0409 REAL) → merge → retry
+  expect(stB.gravadas.filter((x) => x.metodo === "PATCH" && x.caminho.includes(`id=eq.${card.id}`))).toHaveLength(2);
+  expect(bomGravado(stB)).toBe(1);
+  const [depois] = await sqlCopia<{ nome: string }>(`select nome from modelos where id = $1`, [card.id]);
+  expect(depois.nome).toBe(nomeA); // o retry NÃO desfez o campo de A (fix 2419d0f)
+  expect(await consumoT1NoBanco(card.id)).toBeCloseTo(num(deB), 3); // e gravou o BOM de B (R5: BOM do servidor igual)
+  await passo(b.page, "E3", 2, "B-retry-gravou");
+  await abrirCard(a.page, card.id); // desfaz (pela A, que tem o Realtime)
+  await a.page.locator('[data-colab-path="nome"]').fill(antes.nome);
+  await expandir(a.page, "tecidos");
+  await consumoT1De(a.page).fill(String(consumoAntes).replace(".", ","));
+  await salvarReal(a.page);
+  await expect.poll(() => consumoT1NoBanco(card.id), { timeout: 20_000 }).toBeCloseTo(consumoAntes, 3);
+  conferirEscrita(stA, "E3-A");
+  conferirEscrita(stB, "E3-B");
+  await a.ctx.close();
+  await b.ctx.close();
+});
+
+test("E4 — Card novo REAL: 1 INSERT → Tecido 1 no BOM (salvar_modelo_bom) → o Dialog vira o Sheet → 2º Salvar = PATCH", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(6 * 60_000);
+  const st = estadoEscrita();
+  const { ctx, page } = await paginaEscrita(browser, st);
+  const nome = `${TAG} — novo (E4)`;
+  await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+  await page.locator("button:visible", { hasText: "Novo Modelo" }).first().click();
+  const dlg = page.getByRole("dialog");
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await dlg.locator('[data-colab-path="nome"]').fill(nome);
+  await dlg.getByRole("combobox").filter({ hasText: "Adicionar tecido…" }).click();
+  const opcao = page.getByRole("option").first();
+  await expect(opcao).toContainText("Preço/m:");
+  await opcao.click();
+  await passo(page, "E4", 1, "dialog-com-tecido");
+  await salvarReal(page);
+  await expect(page.locator('[data-secao="tecidos"]')).toBeVisible({ timeout: 20_000 }); // virou o Sheet (F3.1 preservada)
+  const criados = await sqlCopia<{ id: string; tp: string[] }>(`select id, tecidos_planejados tp from modelos where tenant_id = $1 and nome = $2`, [LOJA_TESTE, nome]);
+  expect(criados).toHaveLength(1);
+  const id = criados[0].id;
+  const tec = await sqlCopia<{ numero: number; tipo: string; artigo_id: string }>(`select numero, tipo, artigo_id from modelo_tecidos where modelo_id = $1 order by numero`, [id]);
+  expect(tec).toEqual([{ numero: 1, tipo: "tecido", artigo_id: criados[0].tp[0] }]);
+  await passo(page, "E4", 2, "virou-sheet-com-bom");
+  await dlg.locator('[data-colab-path="nome"]').fill(`${nome} 2`);
+  await salvarReal(page);
+  expect(st.gravadas.filter((x) => x.metodo === "POST" && x.caminho.startsWith("/rest/v1/modelos"))).toHaveLength(1);
+  expect(st.gravadas.filter((x) => x.metodo === "PATCH" && x.caminho.includes(`id=eq.${id}`)).length).toBeGreaterThanOrEqual(1);
+  expect(bomGravado(st)).toBe(1); // o 2º Salvar não regrava o BOM intocado
+  await excluirPelaTela(page, id); // desfaz
+  await passo(page, "E4", 3, "excluido");
+  conferirEscrita(st, "E4");
+  await ctx.close();
+});
+
+test("E5 — Duplicar REAL: a cópia leva o Planejamento + os tecidos (só o artigo) no BOM; o Dev nasce vazio (decisão #9)", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(6 * 60_000);
+  const card = await cardSemCad();
+  const st = estadoEscrita();
+  const { ctx, page } = await paginaEscrita(browser, st);
+  const [t0] = await sqlCopia<{ agora: string }>(`select now()::text agora`);
+  const principais = (await sqlCopia<{ a: string }>(
+    `select artigo_id a from modelo_tecidos where modelo_id = $1 and tipo = 'tecido' and artigo_id is not null order by numero`, [card.id])).map((r) => r.a);
+  await abrirCard(page, card.id);
+  await expandir(page, "tecidos");
+  await expect(labelTecido1(page)).toBeVisible();
+  await page.getByRole("button", { name: "Duplicar" }).click();
+  await expect.poll(() => bomGravado(st), { timeout: 20_000 }).toBe(1);
+  const [dup] = await sqlCopia<{ id: string; modelista_id: string | null; d1: string | null }>(
+    `select id, modelista_id, data_piloto1::text d1 from modelos
+      where tenant_id = $1 and id <> $2 and created_at > $3::timestamptz and nome = (select nome from modelos where id = $2)
+      order by created_at desc limit 1`, [LOJA_TESTE, card.id, t0.agora]);
+  expect(dup, "a cópia não apareceu na cópia do banco").toBeTruthy();
+  const tecDup = (await sqlCopia<{ a: string }>(`select artigo_id a from modelo_tecidos where modelo_id = $1 and tipo = 'tecido' order by numero`, [dup.id])).map((r) => r.a);
+  expect(tecDup).toEqual(principais.slice(0, 3));
+  expect(dup.modelista_id).toBeNull();
+  expect(dup.d1).toBeNull();
+  await passo(page, "E5", 1, "duplicado");
+  await excluirPelaTela(page, dup.id); // desfaz
+  await passo(page, "E5", 2, "excluido");
+  conferirEscrita(st, "E5");
+  await ctx.close();
+});
+
+test("E6 — Dev ↔ Planejamento: o Desenvolvimento (outra aba) grava o BOM; o Planejamento com o BOM tocado acende 'Tecidos & BOM'", async ({ browser }) => {
+  exigeEscrita();
+  test.setTimeout(8 * 60_000);
+  const card = await cardSemCad();
+  const stA = estadoEscrita();
+  const stB = estadoEscrita();
+  const a = await paginaEscrita(browser, stA); // A = Desenvolvimento (intocado)
+  const b = await paginaEscrita(browser, stB); // B = Planejamento
+  await abrirCard(b.page, card.id);
+  await expandir(b.page, "tecidos");
+  await expect(labelTecido1(b.page)).toBeVisible();
+  const original = await consumoT1De(b.page).inputValue();
+  await consumoT1De(b.page).fill(bump(bump(original))); // B toca e NÃO salva
+  // A: board do Desenvolvimento → busca → card → seção de Tecidos → consumo do Tecido 1 → Salvar.
+  // ⚠️ O Salvar do Dev CRIA o CAD do card quando há tecido com variante (ModeloDetailPanel.tsx:2062-2067): depois
+  // disso o BOM dele fica só-leitura no Planejamento até a F3.3 (esperado) — e o CAD fica NA CÓPIA. Por isso é o último.
+  await a.page.goto("/criacao/desenvolvimento", { waitUntil: "networkidle" });
+  const busca = a.page.getByPlaceholder(/buscar|pesquisar/i).first();
+  if ((await busca.count()) > 0) await busca.fill(card.nome);
+  await a.page.getByText(card.nome, { exact: true }).first().click();
+  const dlgA = a.page.getByRole("dialog").first();
+  await expect(dlgA).toBeVisible({ timeout: 30_000 });
+  const secTecidos = dlgA.getByRole("button", { name: /Tecidos/ }).first();
+  if ((await secTecidos.getAttribute("aria-expanded")) === "false") await secTecidos.click();
+  const cA = dlgA.locator('input[placeholder="0,000"]').first();
+  const deA = bump(original);
+  await cA.fill(deA);
+  await dlgA.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect.poll(() => bomGravado(stA), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
+  await passo(a.page, "E6", 1, "dev-salvou");
+  const avisoB = b.page.locator("li").filter({ hasText: "Tecidos & BOM" });
+  await expect(avisoB).toBeVisible({ timeout: 30_000 });
+  await passo(b.page, "E6", 2, "planejamento-tecidos-e-bom");
+  await avisoB.getByRole("button", { name: "usar o novo" }).click();
+  await expect.poll(async () => num(await consumoT1De(b.page).inputValue()), { timeout: 20_000 }).toBeCloseTo(num(deA), 3);
+  const [cad] = await sqlCopia<{ n: string }>(`select count(*)::text n from cad where modelo_id = $1`, [card.id]);
+  if (cad.n !== "0") {
+    // Trava interina "tem CAD" (R1/D2): o BOM passa a só-leitura no Planejamento.
+    await expect(b.page.locator('[data-secao="tecidos"]').getByTestId("aviso-bom-somente-leitura")).toBeVisible({ timeout: 20_000 });
+  }
+  await passo(b.page, "E6", 3, "planejamento-usou-o-novo");
+  await cA.fill(original); // desfaz o consumo pelo Dev (o CAD criado fica na cópia)
+  await dlgA.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect.poll(() => consumoT1NoBanco(card.id), { timeout: 20_000 }).toBeCloseTo(num(original), 3);
+  conferirEscrita(stA, "E6-dev");
+  conferirEscrita(stB, "E6-planejamento");
+  await a.ctx.close();
+  await b.ctx.close();
+});
 ```
 
-- [ ] **Step 3: Rodar**
+- [ ] **Step 3: Rodar o QA automático na cópia**
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
-E2E_BASE_URL=http://localhost:5199 npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0 2>&1 | tee .superpowers/f32/qa.txt | tail -15
+mkdir -p .superpowers/f32/qa
+E2E_BASE_URL=http://localhost:5186 VITE_SUPABASE_URL=http://127.0.0.1:54321 F32_ALVO=copia \
+  npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0 2>&1 | tee .superpowers/f32/qa.txt | tail -15
 ```
 
-Expected: a linha literal `1 passed` (e nenhuma "APP" nem violação; a linha `[f32-qa] barradas esperadas …` só com `servicos_financeiro`/broadcast). "0 passed"/erro = NÃO TESTADO. Se falhar por RPC de leitura nova (da F3.1/F2): confirmar que é `STABLE`/só-leitura na migration mais recente e acrescentar em `READ_RPCS` — **NUNCA `servicos_financeiro`** (o spec recusa); se for escrita, acrescentar um fake e anotar no relatório. Violação/erro de loja = falha dura (nunca relaxar a guarda). Se o S8 ficar "soft" (sem card com CAD na Loja Teste), registrar.
+Expected: `1 passed` e `6 skipped` (E1–E6 pulam sem `F32_ESCRITA=1`); nenhuma violação (inclusive nenhuma `PRODUÇÃO …` da guarda invertida) nem "APP"; a linha `[f32-qa] barradas esperadas …` só com `servicos_financeiro`/broadcast. "0 passed"/erro de `E2E_BASE_URL`/`VITE_SUPABASE_URL`/`F32_ALVO` = NÃO TESTADO. Se falhar por RPC de leitura nova (da F3.1/F2): confirmar que é `STABLE`/só-leitura na migration mais recente e acrescentar em `READ_RPCS` — **NUNCA `servicos_financeiro`** (o spec recusa); se for escrita, acrescentar um fake e anotar no relatório. Violação/erro de loja = falha dura (nunca relaxar a guarda). Se o S8 ficar "soft" (sem card com CAD na Loja Teste), registrar. O S5d (R5a) tem de passar: sem o R5a da Task 6/7, o Salvar do S5d gravaria (PATCH + `salvar_modelo_bom`).
 
-- [ ] **Step 4: Cenário manual (opcional, só com OK EXPLÍCITO do dono — grava na Loja Teste)**
+- [ ] **Step 4: Fluxos que GRAVAM na cópia (E1–E6), um por vez**
 
-"BOM editado no Planejamento com o Dev aberto em outra aba" de verdade (Realtime real exige escrita real, que o QA automático não faz): num card da Loja Teste SEM CAD, aba A = Desenvolvimento aberto no card; aba B = Planejamento, mudar o consumo do Tecido 1 SEM salvar; na aba A mudar a grade e Salvar; na aba B deve aparecer "Tecidos & BOM" no aviso; "usar o novo" traz a grade da aba A e descarta o consumo; repetir com "manter meu" + Salvar na B (a B sobrescreve o BOM — escolha explícita). ⚠️ Salvar o card no Desenvolvimento CRIA o CAD dele (`ModeloDetailPanel.tsx:2062-2067`) — depois disso o BOM desse card fica só-leitura no Planejamento até a F3.3 (esperado). Sem OK do dono, registrar como "não executado".
-
-- [ ] **Step 5: Encerrar SÓ o vite da worktree**
+Para CADA fluxo: (1) avisar o dono por chat do que ele grava na cópia (o app de teste dele — cabeçalho da seção no spec); (2) rodar SÓ ele; (3) mostrar os PNGs, na ordem, e o JSON das escritas; (4) registrar no relatório ao guardião. O E6 por ÚLTIMO (o Salvar do Desenvolvimento pode criar o CAD do card, que deixa de servir aos outros).
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
-PID=$(cat .superpowers/f32/vite-5199.pid)
-if lsof -nP -iTCP:5199 -sTCP:LISTEN -t | grep -qx "$PID" && lsof -a -p "$PID" -d cwd -Fn | grep -q "f32-ficha-bom"; then kill "$PID" && echo "vite 5199 (PID $PID) encerrado"; else echo "PID $PID não escuta :5199 com cwd na worktree — NÃO matar nada; avisar o controlador"; fi
-lsof -nP -iTCP:5199 -sTCP:LISTEN; lsof -nP -iTCP:5173 -sTCP:LISTEN -t
+FLUXO="E1"   # um por vez: E1 · E2 · E3 · E4 · E5 · E6 (por último)
+E2E_BASE_URL=http://localhost:5186 VITE_SUPABASE_URL=http://127.0.0.1:54321 F32_ALVO=copia F32_ESCRITA=1 \
+  npx playwright test tests/e2e/f32-qa.spec.ts -g "$FLUXO —" --workers=1 --retries=0 2>&1 | tee -a .superpowers/f32/qa-escrita.txt | tail -8
+ls .superpowers/f32/qa/escrita/ | grep "^$FLUXO"
 ```
 
-Expected: `encerrado`; nada em `:5199`; o PID do dono em `:5173` segue lá.
+Expected: `1 passed` por fluxo + os PNGs/JSON. Falha: diagnosticar (trace em `test-results/`); se o fluxo deixou algo pela metade (card criado/duplicado não excluído, consumo/nome não devolvido), o controlador desfaz PELA TELA da variante, com o dono avisado — nunca por SQL de escrita. Este passo substitui o antigo "cenário manual opcional em produção": nada da F3.2 grava em produção antes do merge.
+
+- [ ] **Step 5: Derrubar SÓ a variante `:5186` e tirar a coluna da cópia (se a F3.1 ainda não juntou)**
+
+```bash
+"/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/f32/descer.sh"
+lsof -nP -iTCP:5186 -sTCP:LISTEN; lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
+git -C "/Users/sunglee/PLM + Criação/plm-pcp" cat-file -e feature/plan-tecido-a1:supabase/migrations/20260930180000_modelo_descricao_produto.sql 2>/dev/null && echo "F3.1 JÁ juntada — a coluna FICA na cópia" || echo "F3.1 ainda NÃO juntada — tirar a coluna (abaixo)"
+```
+
+Se "ainda NÃO juntada" (a coluna na cópia desalinharia um re-ensaio da F1 — a referência de fidelidade é da cópia sem ela):
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f31-planejamento-campos" && bash .superpowers/f31/mig/copia-qa.sh volta 2>&1 | tail -8
+```
+
+Expected: `Variante f32 (:5186) derrubada (PID …)`; nada em `:5186`; o `:5188` com o mesmo PID; e, no 2º caso, `== COLUNA FORA DA CÓPIA` (estado `…|…|0`).
 
 ---
 
@@ -4920,15 +5443,38 @@ grep -rn '"plan-ficha-' src | cut -d: -f1 | sort -u   # só arquivos de planejam
 grep -rn "CAMPOS_DEV_NAO_HERDADOS_NO_DUPLICAR\|limparPayloadDuplicar" src tests   # vazio (lista ÚNICA = CAMPOS_DEV_DRAFT da F3.1)
 grep -n '"proporcoes", "custos_adicionais",' src/components/planejamento/planejamento-detail/helpers.ts   # 1 (dentro de CAMPOS_DEV_DRAFT)
 grep -n "travaDev: motivoTravaDev," src/components/planejamento/PlanejamentoDetail.tsx   # 1 (trava única, R2)
+grep -c "aoRecarregarComTocado" src/components/planejamento/planejamento-detail/ficha/useFichaBom.ts src/components/planejamento/planejamento-detail/ficha/useFichaTecnica.ts   # ≥ 2 e ≥ 2 (R5a: a carga compara com o BOM tocado)
+grep -c "geracaoRef.current += 1;" src/components/planejamento/planejamento-detail/ficha/useFichaTecnica.ts   # 2 (reset por card + aposSalvar — NOTA do re-check)
 ```
 
-E o 5º gate ("F3.1 preservada: ok" — `onCreated`, `onSaved: aoSalvar`, `criadoIdRef`, `aplicarRegrasCamposDev`, invalidações da F3.1).
+E o 5º gate (`bash .superpowers/f32/gate-f31.sh` → "F3.1 preservada: ok", código 0 — `onCreated`, `onSaved: aoSalvar`, `criadoIdRef`, `aplicarRegrasCamposDev`, invalidações da F3.1).
 
-- [ ] **Step 3: G-commit + G-fase F3.2 (guardião)** — anexar: saída dos 5 gates, `qa.txt` com "1 passed" (e a linha das barradas esperadas), os greps do Step 2, o `INDICE.tsv` do snapshot (Task 14), a lista de decisões do dono respondidas (§7) e as decisões técnicas da §6 (inclusive as do G-plano conjunto: trava única, conflito de BOM só com o servidor mudado, custos do BOM como linhas da tabela, Tecido 1..N dentro do INSERT real).
+- [ ] **Step 3: G-commit + G-fase F3.2 (guardião)** — anexar: saída dos 5 gates, `qa.txt` com "1 passed" (e a linha das barradas esperadas), `qa-escrita.txt` + os JSON/PNGs de `.superpowers/f32/qa/escrita/` (E1–E6), os greps do Step 2, o `INDICE.tsv` do snapshot (Task 14), a lista de decisões do dono respondidas (§7, com os INFORMADOS D4/D5) e as decisões técnicas da §6 (inclusive as do G-plano conjunto e do re-check: trava única, conflito de BOM só com o servidor mudado, R5a na carga, `geracaoRef` no `aposSalvar`, custos do BOM como linhas da tabela, Tecido 1..N dentro do INSERT real, QA na cópia, F3.2 nascida do G-commit da F3.1).
 
-- [ ] **Step 4: Snapshot (Task 14) feito HOJE e aviso ao dono** — pedir por chat para salvar e fechar os cards abertos do Planejamento/Desenvolvimento; pausar executores de outras fases durante o merge.
+- [ ] **Step 4: Pré-merge — a F3.1 JÁ juntada, snapshot (Task 14) feito HOJE e aviso ao dono**
 
-- [ ] **Step 5: Fast-forward**
+A F3.2 SEMPRE junta depois da F3.1 (ela carrega os commits da F3.1, que gravam `descricao_produto`; o merge da F3.1 espera a Task 9 dela, que espera a F1 em produção — N1/N4):
+
+```bash
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"
+git -C "$MAIN" cat-file -e feature/plan-tecido-a1:supabase/migrations/20260930180000_modelo_descricao_produto.sql && echo "F3.1 juntada: ok" || echo "F3.1 NÃO juntada — PARE (a F3.2 espera)"
+```
+
+Com `F3.1 juntada: ok`: pedir ao dono, por chat, para salvar e fechar os cards abertos do Planejamento/Desenvolvimento no `:5173` E no app de teste `:5188` (os dois servem o checkout principal; o Fast Refresh remonta o Sheet); pausar executores de outras fases durante o merge.
+
+- [ ] **Step 5: Rebase `--onto` sobre a branch principal e fast-forward (N4)**
+
+A F3.2 nasceu da ponta de `f31/planejamento-campos` (`.superpowers/f32/BASE`). Reaplicar SÓ os commits da F3.2 sobre a `feature/plan-tecido-a1` atual — correto se a F3.1 juntou por ff puro (mesmos shas), se foi rebaseada antes do merge (shas novos) ou se ganhou commits depois do BASE (fix do smoke, F3.1b):
+
+```bash
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"; WT="$MAIN/.claude/worktrees/f32-ficha-bom"
+BASE32="$(cat "$WT/.superpowers/f32/BASE")"
+git -C "$WT" log --oneline "$BASE32..HEAD" | tee "$WT/.superpowers/f32/commits-f32.txt" | wc -l   # os commits F3.2 (1)…(13)
+git -C "$WT" rebase --onto feature/plan-tecido-a1 "$BASE32" f32/ficha-bom
+git -C "$WT" log --oneline -3 && git -C "$WT" merge-base --is-ancestor feature/plan-tecido-a1 HEAD && echo "F3.2 sobre a branch principal: ok"
+```
+
+Conflito no rebase (a F3.1b ou um fix da F3.1 mexeram no mesmo trecho): resolver preservando o texto FINAL da F3.1 (é contrato) e registrar. Depois do rebase — mesmo sem conflito —, refazer: a Task 0 Step 3 (âncoras: TODAS = 1), os 5 gates (inclusive `bash .superpowers/f32/gate-f31.sh`, código 0), a Task 15 Step 3 (QA automático na cópia; com a F3.1 já juntada a coluna está lá) e o E1 da Task 15 Step 4. Então:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp"
@@ -4936,11 +5482,19 @@ git status --porcelain | grep -v '^??' && echo "HÁ ALTERAÇÃO NÃO COMMITADA N
 git merge --ff-only f32/ficha-bom
 ```
 
-Se não for ff (a branch principal andou): `git -C .claude/worktrees/f32-ficha-bom rebase feature/plan-tecido-a1`, refazer os 5 gates e a Task 15, e tentar de novo.
+Se não for ff (a branch principal andou de novo): repetir este Step (o `--onto` usa o MESMO `BASE`; depois do 1º rebase, use o sha da `feature/plan-tecido-a1` sobre o qual a F3.2 ficou — `git -C "$WT" merge-base HEAD feature/plan-tecido-a1` — como novo `BASE32`).
 
-- [ ] **Step 6: Smoke pós-merge** — rodar o mesmo spec contra o vite do dono SEM derrubá-lo: `E2E_BASE_URL=http://localhost:5173 npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0` a partir da worktree (o spec não é versionado). Esperado "1 passed".
+- [ ] **Step 6: Smoke pós-merge (SÓ LEITURA, produção, guarda de sempre)** — rodar o mesmo spec contra o vite do dono SEM derrubá-lo, a partir da worktree (o spec não é versionado; `VITE_SUPABASE_URL` vem do `.env` da worktree = produção; o spec recusa se não for `*.supabase.co`):
 
-- [ ] **Step 7: Limpeza** — `rm tests/e2e/f32-qa.spec.ts` na worktree (arquivo próprio, não versionado); a worktree fica até a F3.3 começar (ela parte do mesmo HEAD). Memória/docs: F4.
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/f32-ficha-bom"
+env -u VITE_SUPABASE_URL E2E_BASE_URL=http://localhost:5173 F32_ALVO=producao \
+  npx playwright test tests/e2e/f32-qa.spec.ts --workers=1 --retries=0 2>&1 | tail -8
+```
+
+Esperado "1 passed" e "6 skipped" (os fluxos que gravam NUNCA rodam em produção — o spec lança erro se tentarem).
+
+- [ ] **Step 7: Limpeza** — `rm tests/e2e/f32-qa.spec.ts` na worktree (arquivo próprio, não versionado); a worktree fica até a F3.3 começar (ela parte do mesmo HEAD); a variante `banco-local/app-teste-variantes/f32/` pode ficar (fora do repo; não sobe sozinha). A coluna `descricao_produto` fica na cópia (a F3.1 já está no principal — o `:5188` a usa). Memória/docs: F4.
 
 ---
 
@@ -4954,7 +5508,7 @@ Se não for ff (a branch principal andou): `git -C .claude/worktrees/f32-ficha-b
 | R4 | Tecido N fantasma (R5) | Dev `ModeloDetailPanel.tsx:935-944` sem guarda; 6 modelos na cópia local (5 Ave Rara + 1 Loja Teste) | Cópia com guarda (`hidratarBlocos`, teste). Dev intocado (decisão 8) — bug latente reportado |
 | R5 | Retry do P0409 sobrescrevia campos do outro usuário | `usePlanejamentoSave.ts:73` (`...draft` da closure) + `:341`/`:352` | Task 10 Steps 4 e 11 + teste puro (Task 4) + QA S4 |
 | R6 | Save-em-voo apagava o "não salvo" e o eco revertia teclas | `usePlanejamentoSave.ts:268-280` | Task 10 Step 10 (`resetDraftBaseline(enviado)`, `tocadosAposSalvar`, MO enviada) |
-| R7 | Duas telas no mesmo BOM (Dev + Planejamento) até a F5 | proteção = `.eq("rev")` no 1º write; BOM com `_rev_base:null` depois (`ModeloDetailPanel.tsx:1950-1959`) | Mesmo desenho do Dev + conflito de seção nos dois sentidos (merge + onError), mas só quando o BOM do SERVIDOR mudou de verdade (R5 — assinatura do que o banco guarda × referência). Enquanto confere, o Salvar espera (`verificandoBomRef`) — fecha a janela em que um Salvar passaria o `.eq("rev")` com um BOM alheio ainda não detectado. Janela estreita após o 1º write aceita (igual ao Dev). QA S5/S5b/S5c simulados + cenário manual opcional |
+| R7 | Duas telas no mesmo BOM (Dev + Planejamento) até a F5 | proteção = `.eq("rev")` no 1º write; BOM com `_rev_base:null` depois (`ModeloDetailPanel.tsx:1950-1959`) | Mesmo desenho do Dev + conflito de seção nos dois sentidos (merge + onError), mas só quando o BOM do SERVIDOR mudou de verdade (R5 — assinatura do que o banco guarda × referência). **Correção (re-check do guardião, R5a):** o `verificandoBomRef` NÃO "fecha a janela" sozinho — ele só segura o Salvar enquanto confere um rev que chegou com o BOM JÁ tocado. O rev que chega com o BOM INTOCADO só invalida; se o usuário toca antes de o refetch chegar, é a CARGA que compara (R5a, R20) — e isso cobre também o refetch de foco. Sobram, aceitas (a mesma classe de janela do Dev, que nem compara): tocar E salvar antes de o refetch chegar (~1 ida e volta) e a janela estreita depois do 1º write. QA S5/S5b/S5c/S5d simulados + E2/E3/E6 REAIS na cópia (Realtime, P0409, Dev ↔ Planejamento) |
 | R8 | `salvar_modelo_bom` apaga e re-insere o BOM inteiro | `funcoes.sql:7605-7609` | Grava só "carregado E sujo"; `gravarTecidosIniciais` só com id recém-inserido (grep na Task 16) |
 | R9 | 4º tecido do Dialog não aparece no Dev | `sync-tecidos.ts:26-43` × `modelo-detail/types.ts:73-93` | `MultiArtigosField max={3}`; `blocosTecidosIniciais` corta em 3 |
 | R10 | Etiquetas e CAD sem rede de segurança | G-inicial #7 | Task 14 (snapshot só-leitura antes do merge e do deploy) |
@@ -4966,9 +5520,13 @@ Se não for ff (a branch principal andou): `git -C .claude/worktrees/f32-ficha-b
 | R16 | Falso conflito "Tecidos & BOM" pelo eco das ações do PRÓPRIO usuário (Mover para…, Ordem, Lançar, aprovar MO sobem o `rev` fora do Salvar) — "usar o novo" descartaria a edição dele (G-plano conjunto R5) | merge F3.0 `PlanejamentoDetail.tsx:522`; F3.1 `useMoverEtapa` (UPDATE + invalidate) | `aoMudarNoServidor` confere o BOM do servidor × referência e ignora o eco (BOM igual); P0409 com BOM tocado idem (retry normal se o BOM do servidor está igual). Testes: ficha-calc (assinatura) + save-ficha (`bomConflito`) + QA S5b/S5c |
 | R17 | Duas travas no mesmo card (F3.1 × F3.2) com avisos contraditórios ("use Editar" × BOM travado) (G-plano conjunto R2) | F3.1 `AvisoCamposDev`; trava interina "cad" | Trava ÚNICA: `motivoSomenteLeitura` deriva de `motivoTravaDev` ("sem permissão"/"enviado", com o "Editar" já considerado) + "cad"; avisos com o texto da F3.1 (o "enviado" diz que o "Editar" não libera o BOM). QA S8 |
 | R18 | A F3.2 perder o `onCreated`/`onSaved: aoSalvar` da F3.1 sem o `tsc` acusar (opcional/função) → card duplicado volta, Salvar deixa de re-travar (G-plano conjunto R1) | F3.1 §3 item 7 | Âncoras do texto FINAL da F3.1 (Task 0 Step 3), 5º gate "F3.1 preservada" em TODO commit, `gravarTecidosIniciais` DENTRO do `else` do INSERT real, QA S6 (Dialog → Sheet com 1 POST; 2º Salvar = PATCH) |
-| R19 | QA reprovando por barrada inerente (Home chama `servicos_financeiro`; broadcast REST) e o remédio errado (liberar a RPC = gravar `parcelas_servico` em PRODUÇÃO) (G-plano conjunto R4) | `HomeLogado.tsx:135`; `funcoes.sql:16568` | Barradas esperadas da F3.1 (seguem barradas, não reprovam); `servicos_financeiro` proibida em `READ_RPCS` (o spec lança erro); loja pelo tenant_id; `:5199` ocupada ⇒ `exit 1`; kill confere porta e `cwd` |
+| R19 | QA reprovando por barrada inerente (Home chama `servicos_financeiro`; broadcast REST) e o remédio errado (liberar a RPC = gravar `parcelas_servico` em PRODUÇÃO) (G-plano conjunto R4) | `HomeLogado.tsx:135`; `funcoes.sql:16568` | Barradas esperadas da F3.1 (seguem barradas, não reprovam); `servicos_financeiro` proibida em `READ_RPCS` (o spec lança erro); loja pelo tenant_id; porta da variante ocupada ⇒ PARE; derrubar só pelo `descer.sh` (confere o PID) |
+| R20 | **Sobrescrita silenciosa do BOM (R5a do re-check do guardião):** (1) o rev chega com o BOM intocado ⇒ `aoMudarNoServidor` só invalida; (2) o usuário toca o BOM antes de o refetch chegar; (3) a carga com o BOM tocado só retornava ⇒ o BOM novo do servidor nunca era comparado; (4) o merge já avançou o rev ⇒ o Salvar passa o `.eq("rev")`; (5) `salvar_modelo_bom(_rev_base:null)` sobrescreve o BOM alheio sem aviso | carga `useFichaBom` (ramo "tocado"); `aoMudarNoServidor` (sem toque só invalida) | No ramo "tocado" da carga, `aoRecarregarComTocado` compara `assinaturaBom(estadoBomDoServidor(dado novo))` × referência e acende "Tecidos & BOM" (Tasks 6/7); cobre o refetch de foco. QA S5d (simulado, com o GET do BOM segurado pela rota). Paridade: o Dev tem o MESMO buraco e fica como está (decisão 8) — §7 D5 |
+| R21 | Eco do MEU save deixar o aviso "Tecidos & BOM" aceso: a conferência disparada pelo UPDATE (1º write) compara com a referência velha depois do `salvar_modelo_bom` e o `.then` resolve depois do `aposSalvar` (NOTA do re-check) | `aoMudarNoServidor` × `aposSalvar` | `aposSalvar` faz `geracaoRef.current += 1` (descarta a conferência em voo) e baixa o "conferindo"; um BOM alheio nesse meio-tempo segue coberto pela carga (R5a) após o `invalidarBom()` |
+| R22 | QA gravar em produção / QA esperar a F1 (N2) | app local da worktree → produção (server functions com a service role — o `@cloudflare/vite-plugin` lê o `.env` da pasta do wrangler); o merge da F3.1 espera a F1 | QA na CÓPIA pela variante `:5186` (guarda do vite + guarda de rede INVERTIDA no spec; `F32_ALVO`/`VITE_SUPABASE_URL` obrigatórios, sem fallback); fluxos que gravam só na cópia; produção só snapshot + smoke só-leitura |
+| R23 | F3.2 presa ao merge da F3.1 (que espera a T9 e a F1 em produção) (N4) | re-check do guardião | nasce da ponta de `f31/planejamento-campos` após o G-commit (Task 0 Step 1); junta depois da F3.1 com `rebase --onto` + âncoras + gates + QA de novo (Task 16 Steps 4–5) |
 
-Bugs LATENTES do Dev observados (report-only; decisão 8): R5 fantasma; `["modelo-precos-congelado"]` não é invalidado no pós-save; save alheio que muda SÓ o BOM pode acender "não salvo" falso (merge retorna antes de re-armar, `:853`); `toggleGradeAuto` não marca a coleção como tocada (`:2639-2652`).
+Bugs LATENTES do Dev observados (report-only; decisão 8): R5 fantasma; `["modelo-precos-congelado"]` não é invalidado no pós-save; save alheio que muda SÓ o BOM pode acender "não salvo" falso (merge retorna antes de re-armar, `:853`); `toggleGradeAuto` não marca a coleção como tocada (`:2639-2652`); **R5a — rev que chega com o BOM intocado + toque antes do refetch = BOM alheio sobrescrito sem aviso (a carga do Dev, com coleção tocada, só retorna — `:870-1038`; o merge `:808-868` só acende o conflito com coleção JÁ tocada)**: a F3.2 fecha no Planejamento (R20); no Dev fica — aviso ao dono em §7 D5, NÃO corrigir aqui.
 
 ## 6. Decisões técnicas (o controlador decide)
 
@@ -4977,8 +5535,8 @@ Bugs LATENTES do Dev observados (report-only; decisão 8): R5 fantasma; `["model
 3. No retry do P0409, as colunas derivadas do BOM só vão quando o retry GRAVA o BOM (os derivados saem do mesmo BOM gravado); sem gravar o BOM, NÃO vão (o BOM local, não tocado, pode estar velho).
 4. `tecidos_planejados` só vai no UPDATE quando o BOM grava (evita reverter a lista de outra tela).
 5. Dialog "Novo Modelo": no máximo 3 tecidos.
-6. **Conflito de seção "Tecidos & BOM" só quando o BOM do SERVIDOR mudou de verdade (R5 do G-plano conjunto; ruling do controlador: "ignorar o próprio eco").** A ficha compara a assinatura do BOM recarregado (o que `salvar_modelo_bom` + etiquetas gravariam, sem custos derivados, grade com chaves em ordem estável) com a REFERÊNCIA (o BOM do servidor sobre o qual o usuário editou; vira o ENVIADO depois de um Salvar que gravou o BOM). Assim o eco das ações do próprio usuário que só sobem o `rev` (Mover para…, Ordem, Lançar, aprovar MO) e o eco do próprio save com o BOM editado em voo NÃO acendem o aviso. Descartado "rastrear o rev das ações próprias": cada ação faz mais de uma escrita (`kanban_mover`/`marcar_etapa_verificada`, rollup da MO), o eco do Realtime pode chegar antes da resposta, e um rev marcado como "meu" pode englobar o save de OUTRA pessoa → BOM alheio sobrescrito sem aviso (falso negativo, o lado perigoso). O plano B do ruling (bloquear as ações com "Salve antes de …") não foi preciso. Falso positivo que sobra (seguro, sem perda): normalizações raras entre o estado local e o gravado (ex.: substituto sem variante) no eco do próprio save com edição em voo.
-7. QA 100% simulado; o Realtime real entre abas só no cenário manual com OK do dono.
+6. **Conflito de seção "Tecidos & BOM" só quando o BOM do SERVIDOR mudou de verdade (R5 do G-plano conjunto; ruling do controlador: "ignorar o próprio eco"; R5a do re-check — a carga também compara).** A ficha compara a assinatura do BOM recarregado (o que `salvar_modelo_bom` + etiquetas gravariam, sem custos derivados, grade com chaves em ordem estável) com a REFERÊNCIA (o BOM do servidor sobre o qual o usuário editou; vira o ENVIADO depois de um Salvar que gravou o BOM). Assim o eco das ações do próprio usuário que só sobem o `rev` (Mover para…, Ordem, Lançar, aprovar MO) e o eco do próprio save com o BOM editado em voo NÃO acendem o aviso. Descartado "rastrear o rev das ações próprias": cada ação faz mais de uma escrita (`kanban_mover`/`marcar_etapa_verificada`, rollup da MO), o eco do Realtime pode chegar antes da resposta, e um rev marcado como "meu" pode englobar o save de OUTRA pessoa → BOM alheio sobrescrito sem aviso (falso negativo, o lado perigoso). O plano B do ruling (bloquear as ações com "Salve antes de …") não foi preciso. Falso positivo que sobra (seguro, sem perda): normalizações raras entre o estado local e o gravado (ex.: substituto sem variante) no eco do próprio save com edição em voo.
+7. **QA contra a CÓPIA (N2 do re-check; ruling do controlador — o mesmo modo da F3.1):** variante do app de teste em `:5186` (o `criar-variante.sh` da F3.1), coluna da F3.1 na cópia pelo `copia-qa.sh` dela, guarda de rede INVERTIDA; o automático segue simulado (cenários determinísticos, inclusive S5d); os caminhos de escrita (E1–E6: BOM real, Realtime entre abas, P0409 real, card novo, Duplicar, Dev ↔ Planejamento) rodam de verdade NA CÓPIA, um por vez, dono avisado. Nada grava em produção antes do merge; depois, só o smoke só-leitura.
 8. Salvar do Planejamento invalida `["modelo-detail", id]` (Sheet do Dev na mesma aba) e, com BOM gravado, as chaves de BOM/estoque/downstream do Dev.
 9. `marcar_revisao_por_mudanca` roda no fim do `mutationFn` (depois da MO), com erro ignorado (paridade).
 10. BOM só para produto interno (F3.4 abre para comprado).
@@ -4989,14 +5547,20 @@ Bugs LATENTES do Dev observados (report-only; decisão 8): R5 fantasma; `["model
 15. **Custos do BOM como LINHAS da tabela de Preço e Custos (R9c — mockup `gen_anotado.py` seção 10):** Tecido/Forro/Entretela/Aviamento/Insumos + custos adicionais editáveis dentro da `PrecoTabela`; o `ModeloCustosSection` do Dev não é usado (só o tipo `CustoAdicional`). Sem impedimento técnico; a trava vai por `disabled` em cada input (`<fieldset>` não cabe dentro de `<tbody>`).
 16. **Tecido 1..N do Dialog DENTRO do `else` do INSERT real (R1):** só com o id que ESTE insert criou; o caminho do `criadoIdRef` já preenchido não regrava o BOM.
 17. **Lista ÚNICA `CAMPOS_DEV_DRAFT` ("Unificar" do G-plano conjunto):** `proporcoes`/`custos_adicionais` entram nela; saíram `CAMPOS_DEV_NAO_HERDADOS_NO_DUPLICAR`/`limparPayloadDuplicar` — o Duplicar usa o `camposParaDuplicar` da F3.1. O `aplicarColunasFicha` segue omitindo as 2 colunas nas travas que não são de permissão (ficha não carregada, "enviado", "tem CAD").
-18. **Salvar espera a conferência do BOM** (`verificandoBomRef`, mensagem "Conferindo se outra pessoa mudou o BOM deste card — salve de novo em instantes."): só acontece com o BOM tocado e um `rev` novo chegando; dura o refetch de 5 consultas.
-19. **QA:** barradas esperadas iguais às da F3.1 (R4); save-em-voo com PATCH atrasado pela rota (R6, S4b); eco próprio × BOM alheio por `visibilitychange` + GET simulado (R5, S5b); P0409 com BOM igual (S5c).
+18. **Salvar espera a conferência do BOM** (`verificandoBomRef`, mensagem "Conferindo se outra pessoa mudou o BOM deste card — salve de novo em instantes."): só acontece com o BOM tocado e um `rev` novo chegando; dura o refetch de 5 consultas. Não é ela que cobre o toque feito depois de um rev que chegou com o BOM intocado — isso é a carga (item 20).
+19. **QA:** barradas esperadas iguais às da F3.1 (R4); save-em-voo com PATCH atrasado pela rota (R6, S4b); eco próprio × BOM alheio por `visibilitychange` + GET simulado (R5, S5b); P0409 com BOM igual (S5c); toque antes do refetch com o GET do BOM segurado pela rota (R5a, S5d); na cópia, E1–E6 reais.
+20. **R5a (re-check do guardião) — a carga com o BOM tocado COMPARA:** `useFichaBom` ganha `aoRecarregarComTocado(servidor)`; no ramo "tocado" da carga ele monta o BOM do servidor com `estadoBomDoServidor` (as mesmas funções da carga) e o orquestrador compara `assinaturaBom` × referência (a mesma regra do `bomMudouNoServidor`), guardando a assinatura para o "manter meu". Não sobrescreve o que está tocado (igual ao Dev); só acende o aviso. Barato e sem estado novo; cobre o refetch de foco. Não se estende ao Dev (decisão 8).
+21. **`geracaoRef += 1` no `aposSalvar` (NOTA do re-check):** descarta a conferência em voo (o eco do próprio save não deixa o aviso aceso) e baixa o "conferindo" junto (senão o Salvar esperaria para sempre). O BOM alheio que chegar nesse meio-tempo é pego pela carga (item 20).
+22. **F3.2 nasce do G-commit da F3.1 (N4):** da ponta de `f31/planejamento-campos`, não do merge; junta depois da F3.1 com `git rebase --onto feature/plan-tecido-a1 <BASE> f32/ficha-bom` + âncoras (Task 0 Step 3) + 5 gates + QA na cópia de novo.
+23. **5º gate como script que sai 1 (NOTA do re-check):** `.superpowers/f32/gate-f31.sh` — antes só imprimia "QUEBRADA" e o commit podia seguir.
 
 ## 7. Decisões para o dono (poucas)
 
 - **D1 — Reserva de estoque antes da Ordem de Criação.** Com o BOM no Planejamento, cores + grade lançadas num card ainda sem Ordem de Criação já reservam tecido (hoje: 1 card de teste). (a) **Aceitar, com um aviso na seção Tecidos** — recomendado; (b) reservar só depois da Ordem enviada — mudança no banco (`_estoque_tecido_core`), entra como tarefa própria depois.
 - **D2 — Entre a F3.2 e a F3.3 (trava interina do BOM).** O CAD só é regravado pelo Sheet novo na F3.3. Números reais (cópia local, 23/set — R3 do G-plano conjunto): **193 dos 214 cards internos (90%) têm CAD; 136 deles ainda NÃO foram enviados à Explosão** — o CAD nasceu sozinho no Salvar do Desenvolvimento (que cria o CAD quando há tecido com variante) e hoje o Dev deixa editá-los. Com a F3.2, esses 193 mostram o BOM **só-leitura no Planejamento** (com "Abrir no Desenvolvimento"); editam aqui só os **cards novos e os 21 internos antigos sem CAD** — e um card novo passa a só-leitura aqui assim que alguém salvar o BOM dele no Desenvolvimento (o CAD nasce nesse Salvar). **Por que travar mesmo assim:** com CAD, um consumo editado aqui seria DESFEITO pelo próximo Salvar do Desenvolvimento (ele devolve o consumo do CAD para o BOM) e a Explosão ficaria desalinhada; sem CAD não há o que desfazer (o Dev semeia o CAD a partir do BOM). (a) **Juntar a F3.2 assim** — recomendado (seguro; na F3.3 o Salvar grava o CAD e a trava sai); (b) segurar o merge da F3.2 e juntar com a F3.3.
 - **D3 — Markup sem custo previsto.** Pela decisão #6, o Sheet passa a calcular markup/preço sugerido sobre a estimativa quando ainda não há previsto do BOM; o card da LISTA do Planejamento continua mostrando "—" nesse caso. (a) **Alinhar a lista numa etapa própria depois** — recomendado; (b) alinhar agora (mais uma tela na F3.2).
+- **D4 — INFORMADO (re-check do guardião; sem decisão pendente):** a trava interina "tem CAD" da D2 também deixa **só-leitura os custos adicionais** da tabela "Preço e Custos" (eles só são editáveis com a ficha destravada — `editavel: ficha.podeEditar`, Task 12). A D2 que você aprovou citava só "tecidos, aviamentos, insumos e grade". O CAD não mexe em custos adicionais (ele só devolve o consumo — `funcoes.sql:6878-6881`), então o motivo técnico da trava não se aplica a eles; o plano mantém a trava por ser UMA trava só (mais simples e sem contradição entre seções) e ela sai inteira na F3.3. Se quiser os custos adicionais livres já na F3.2 nesses cards, é um ajuste pequeno — basta dizer.
+- **D5 — INFORMADO, item para você (NÃO para corrigir no Desenvolvimento — decisão travada 8):** o re-check achou uma janela de **sobrescrita silenciosa do BOM** (R5a/R20): alguém salva o card, o seu Sheet recebe a atualização com o BOM ainda intocado, você mexe no BOM antes de a tela recarregar os tecidos e salva — o BOM da outra pessoa é substituído sem aviso. A F3.2 fecha isso no Planejamento (a tela passa a comparar o BOM que chega com o que você tinha e mostra "Tecidos & BOM"). **O Sheet do Desenvolvimento tem o MESMO buraco hoje** e continua com ele (a campanha não mexe no Dev); na prática exige duas pessoas no mesmo card com segundos de diferença. Fica registrado para quando o Dev for aposentado/unificado (F5).
 
 ## 8. Autorrevisão (cobertura do spec)
 
@@ -5020,14 +5584,18 @@ Bugs LATENTES do Dev observados (report-only; decisão 8): R5 fantasma; `["model
 | Decisão #7 (CAD no Salvar) | fora — F3.3; a F3.2 deixa o slot na cadeia e a trava interina (D2) |
 | Decisão #9 (Duplicar) | Tasks 4, 13; QA S7 |
 | Selos por mapa próprio (decisão 8) | Tasks 3, 9 |
-| Duas telas no mesmo BOM + QA com o Dev aberto | R7; QA S4/S5 + Step 4 manual |
+| Duas telas no mesmo BOM + QA com o Dev aberto | R7/R20; QA S4/S5/S5d + E2/E3/E6 reais na cópia (Task 15 Step 4) |
 | Riscos reserva e agrupamento (quantificados) | §1, R2, R3 |
 | Snapshot antes da produção (G-inicial #7) | Task 14 |
-| Interfaces consumidas da F3.1 (texto FINAL; F3.2 nasce depois do merge da F3.1/F3.1a — R8) | §2; Task 0 Step 3; 5º gate |
+| Interfaces consumidas da F3.1 (texto FINAL; F3.2 nasce da ponta de `f31/planejamento-campos` depois do G-commit da F3.1/F3.1a — R8 + N4) | §2; Task 0 Steps 1 e 3; 5º gate |
+| Re-check do guardião N4 — nascer do G-commit, não do merge; rebase final `--onto` | Global Constraints; Task 0 Step 1; Task 16 Steps 4–5; §6 item 22 |
+| Re-check do guardião R5a — carga com o BOM tocado compara × referência; S5d; afirmação do R7 corrigida; Dev com o mesmo buraco (aviso ao dono) | Tasks 6, 7; QA S5d (Task 15); §5 R7/R20; §6 item 20; §7 D5 |
+| NOTAs do re-check — `geracaoRef += 1` no `aposSalvar`; 5º gate sai 1; sem fallback de `SUPA_HOST`; custos adicionais na trava "cad" (INFORMADO) | Task 7; Task 0 Step 4b + Global Constraints; Task 15 (spec); §7 D4 |
+| N2 + ruling do controlador — QA contra a CÓPIA (variante `:5186`, coluna por `copia-qa.sh`, guarda invertida, fluxos que gravam na cópia; produção só snapshot + smoke) | Global Constraints (QA); Task 15; Task 16 Step 6; §6 item 7 |
 | G-plano conjunto R1 — âncoras finais da F3.1 (`qc, onSaved: aoSalvar, onCreated,`, `{ autoProduto, savedId }`), `gravarTecidosIniciais` dentro do `else`, `onCreated` provado | Task 0 Step 3; Task 10 Steps 2/7/9/12/13; 5º gate; QA S6 |
 | G-plano conjunto R2 — trava única + avisos alinhados à F3.1 | Tasks 7, 9, 10 Step 12; QA S8 |
 | G-plano conjunto R3 — D2 com 193/214, 136 não enviados, 21 sem CAD | §1, §5 R1, §7 D2 |
-| G-plano conjunto R4 — barradas esperadas, `servicos_financeiro` proibida, loja por tenant_id, `:5199` ocupada ⇒ exit 1 | Global Constraints (QA); Task 15 |
+| G-plano conjunto R4 — barradas esperadas, `servicos_financeiro` proibida, loja por tenant_id, porta de QA ocupada ⇒ PARE (agora a variante `:5186`) | Global Constraints (QA); Task 15 |
 | G-plano conjunto R5 — eco próprio ignorado (conflito só com o BOM do servidor mudado), código + testes | Tasks 2, 4, 7, 10, 11; QA S5b/S5c; §6 item 6 |
 | G-plano conjunto R6 — save-em-voo com PATCH atrasado e digitação no voo | QA S4b (+ `tocadosAposSalvar`, Task 4) |
 | G-plano conjunto R9c — custos do BOM como linhas da tabela; Dialog com Tecidos antes da Mão de obra | Task 12; Task 11 Step 7 (+ F3.1 Task 6); QA S6/S10 |
