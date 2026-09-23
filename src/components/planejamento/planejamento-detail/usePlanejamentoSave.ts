@@ -310,6 +310,9 @@ export function usePlanejamentoSave({
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
       qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
+      // F3.1: o save muda as condições do kanban (datas/pilotos/anexos…) — refresca o gate da REF com a chave
+      // ligada e a dica do "Mover para…".
+      qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
       // Salvar MANTÉM o Sheet aberto (decisão do dono set/2026 — antes fechava): `onSaved()`
       // atualiza os cards do container por baixo; o card fica aberto pra continuar conferindo
       // (ex.: o preço/custo recalculado). `markClean()` + `setMoLinhasBase` acima já apagaram o

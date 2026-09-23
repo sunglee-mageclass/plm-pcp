@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, ArrowLeft, Save } from "lucide-react";
+import { Trash2, Copy, ArrowLeft, Save, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -70,6 +70,11 @@ import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/I
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
+import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
+import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
+import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
+import { revendaCampoVisivel } from "@/lib/revenda-config";
 // API pública mantida: a rota `criacao.planejamento.tsx` importa FieldText/FieldSelect DAQUI.
 export { FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 
@@ -103,6 +108,32 @@ export function PlanejamentoDetail({
   // F3.1 — campos vindos do Desenvolvimento (decisão F3 #8): EDITAR exige canEdit da página do Dev; sem ela o
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
   const podeEditarDev = canEdit("criacao_desenvolvimento");
+  const podeVerDev = canView("criacao_desenvolvimento");
+
+  // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
+  // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
+  // F3.1: SUBIU para cá (antes vinha logo antes do merge) — a trava dos campos do Dev, logo abaixo, lê
+  // `enviado_cad`, e a F3.2 passa essa trava ao `useFichaTecnica`, chamado ANTES do cálculo de preço e do
+  // "não salvo". Mesma queryKey, mesmo queryFn; só a posição (e a ordem dos hooks) mudou.
+  const { data: modeloData } = useQuery({
+    queryKey: ["modelo", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      if (!modeloId) return null;
+      const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  // ── F3.1 — trava dos campos vindos do Desenvolvimento ──────────────────────────────────────────────
+  // Pós-Explosão (decisão F3 #1): SÓ nas seções vindas do Dev (Info Gerais/Coleção/Preço/MO/Lançamento seguem
+  // livres). "Editar" destrava; Salvar re-trava (paridade com o Dev, ModeloDetailPanel.tsx:1600, :2273,
+  // :3191-3194). Sem canEdit do Dev = sempre só-leitura (decisão F3 #8). É a trava ÚNICA da campanha: a F3.2
+  // deriva dela a trava do BOM (`motivoTravaDev` → `useFichaTecnica`).
+  const enviadoCad = !!(modeloData as any)?.enviado_cad;
+  const [editandoDev, setEditandoDev] = useState(false);
+  const devBloqueado = !podeEditarDev || (enviadoCad && !editandoDev);
+  const motivoTravaDev: MotivoTravaDev = !podeEditarDev ? "sem_permissao" : enviadoCad && !editandoDev ? "enviado" : null;
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
   // `draft` principal; persiste no Salvar da página via RPC `salvar_modelo_servico_mo`. O
@@ -483,18 +514,15 @@ export function PlanejamentoDetail({
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
   });
 
-  // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
-  // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect abaixo.
-  const { data: modeloData } = useQuery({
-    queryKey: ["modelo", modeloId],
-    enabled: !!modeloId,
-    queryFn: async () => {
-      if (!modeloId) return null;
-      const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
+  // ── F3.1 — etapa do kanban + campos vindos do Desenvolvimento ──────────────────────────────────────
+  // Etapa do kanban (estado SALVO) + config da loja: coluna efetiva, gate do campo REF (refCampoVisivel, com
+  // a posição DERIVADA quando a chave está ligada — decisão 10) e Reprovado (Motivo do Cancelamento).
+  const kanbanCard = useFichaKanban({ modeloId, modeloData, enviada, lancado });
+  // REF editável = a seção "Desenvolvimento" mostra o campo (etapa configurada) e os campos do Dev estão livres.
+  const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel;
+  // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
+  // ModeloDetailPanel.tsx:1574). Interno vê tudo.
+  const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -581,18 +609,21 @@ export function PlanejamentoDetail({
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
+  // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
+  // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo).
+  const aoSalvar = () => { setEditandoDev(false); onSaved(); };
+
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave } = usePlanejamentoSave({
     modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
-    // REF segue só-leitura até a seção "Desenvolvimento" existir (a Task 5 passa a calcular `refEditavel`).
-    refEditavel: false,
+    refEditavel,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
     setEnviada, setLancado, markClean,
     moLinhas, moLinhasRef, moBaseRef, setMoLinhasBase,
     gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
-    qc, onSaved,
+    qc, onSaved: aoSalvar,
   });
 
   // Resolve um conflito de campo escalar: "usar o novo" aplica `dele` no rascunho e tira o
@@ -772,6 +803,16 @@ export function PlanejamentoDetail({
               {isEdit && draft.ref && (
                 <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
               )}
+              {/* Motivo do Cancelamento (veio do Dev — F3.1): só com a etapa em Reprovado. Sair de Reprovado NÃO
+                  apaga o motivo (dono, 23/set) — ele só some da tela. Trava/permissão = fieldset. */}
+              {isEdit && podeVerDev && kanbanCard.isReprovado && (
+                <fieldset disabled={devBloqueado} className="contents">
+                  <MotivoCancelamento
+                    value={draft.motivo_cancelamento}
+                    onChange={(v) => setDraftTracked((d) => ({ ...d, motivo_cancelamento: v }))}
+                  />
+                </fieldset>
+              )}
             </div>
           </div>
           <ColabBanner
@@ -843,6 +884,23 @@ export function PlanejamentoDetail({
                   aparecia duas vezes no mesmo Sheet, editando o mesmo campo (laudo jul/2026). */}
             </div>
           </Secao>
+
+          {/* Desenvolvimento — equipe e cronograma (veio do Dev, F3.1). Sempre visível — independe da etapa —
+              p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no card existente. O
+              <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
+          {isEdit && podeVerDev && (
+            <Secao titulo="Desenvolvimento — equipe e cronograma" defaultOpen={false}>
+              <AvisoCamposDev motivo={motivoTravaDev} />
+              <fieldset disabled={devBloqueado} className="contents">
+                <DevEquipeSection
+                  draft={draft}
+                  setDraftTracked={setDraftTracked}
+                  refVisivel={kanbanCard.refVisivel}
+                  campoVisivel={campoVisivelDev}
+                />
+              </fieldset>
+            </Secao>
+          )}
 
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {isEdit && (
@@ -1078,6 +1136,19 @@ export function PlanejamentoDetail({
               </Tooltip>
             </TooltipProvider>
           ))}
+          {/* Trava pós-Explosão (decisão F3 #1): "Editar" destrava SÓ os campos vindos do Dev; o Salvar re-trava. */}
+          {isEdit && enviadoCad && !editandoDev && podeEditarDev && (
+            <Button
+              variant="secondary"
+              onClick={() => setEditandoDev(true)}
+              aria-label="Editar"
+              title="Enviado à Explosão — destrava os campos vindos do Desenvolvimento"
+              className="shrink-0 max-sm:aspect-square max-sm:px-0"
+            >
+              <Pencil className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">Editar</span>
+            </Button>
+          )}
           <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={save.isPending}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
