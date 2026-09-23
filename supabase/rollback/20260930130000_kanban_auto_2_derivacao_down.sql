@@ -3,8 +3,18 @@
 -- derrubar `_kanban_status_rows_raw`, e derruba as funções novas de derivação. Não toca dado.
 -- Pré-requisito: o inverso 3 já rodou (fn_modelo_ref_auto/_enviar_modelo_para_cad_core/
 -- _kanban_regredir_modelo do snapshot não chamam `_kanban_status_gate`/`_kanban_ligado`).
+-- GUARDA DE ORDEM (fix round final): se a migration 3 ainda existe, RECUSA antes de tocar em qualquer
+-- coisa (a txn aborta; nada é aplicado).
 
 BEGIN;
+
+DO $do$
+BEGIN
+  IF to_regprocedure('public._kanban_aplicar(uuid,uuid[],text,uuid)') IS NOT NULL THEN
+    RAISE EXCEPTION 'Rode antes o inverso da migration 3 (20260930140000_kanban_auto_3_motor_down.sql).';
+  END IF;
+END
+$do$;
 
 CREATE OR REPLACE FUNCTION public._kanban_status_rows(_tenant uuid)
  RETURNS TABLE(ord integer, key text, lbl text)

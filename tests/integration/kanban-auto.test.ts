@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Client } from "pg";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
 import { CASOS } from "../fixtures/kanban-auto-casos";
@@ -938,26 +938,21 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
   // ANTES do statement_timeout — daí o `SET lock_timeout TO '2s'` na própria função. SÓ na cópia local
   // (2ª conexão de verdade); sem KANBAN_AUTO_MIG_TXN não faz sentido (a trigger nova não existiria).
   //
-  // Nota de design: a trava do brief pedia literalmente `SELECT … FOR UPDATE` numa linha de `modelos`
-  // a partir de uma 2ª conexão. Isso é estruturalmente IMPOSSÍVEL de reproduzir aqui: `modelo_id` em
-  // `kanban_recalculo_fila` é FK p/ `modelos(id)`, e QUALQUER INSERT nessa fila (inclusive o que a
-  // própria `c` precisa fazer p/ enfileirar o modelo-alvo) exige um `FOR KEY SHARE` implícito na linha
-  // referenciada — que fica retido pela transação de `c` (a `withTx` sob teste) até o ROLLBACK final,
-  // não só durante o INSERT. Provado com 4 sondas isoladas (probe.mjs) fora deste arquivo: uma vez que
-  // `c` segura esse `FOR KEY SHARE`, NENHUMA outra conexão consegue `FOR UPDATE`/`FOR NO KEY UPDATE`
-  // na MESMA linha enquanto a txn de `c` seguir aberta — não importa a ORDEM das chamadas (a 2ª
-  // conexão simplesmente FICA PENDURADA até o ROLLBACK de `c`, que é exatamente o que aconteceu na
-  // 1ª tentativa desta prova: timeout de teste, não do banco). E a própria `c`, na MESMA sessão/txn,
-  // nunca fica presa no seu PRÓPRIO `FOR KEY SHARE` (escalonamento de lock intra-transação nunca
-  // bloqueia a si mesmo) — confirmado que o `UPDATE` de `c` sobre a MESMA linha, mesmo com uma 2ª
-  // conexão já enfileirada esperando `FOR UPDATE`, retorna em ~4 ms, sem jamais dar à 2ª conexão uma
-  // janela de contenção real.
+  // Nota de design (texto corrigido no fix round final da F1): a trava do brief pedia literalmente
+  // `SELECT … FOR UPDATE` numa linha de `modelos` a partir de uma 2ª conexão. Não dá para reproduzir
+  // aqui, e o motivo REAL é VISIBILIDADE, não conflito de lock: o modelo-alvo é criado DENTRO da txn de
+  // `c` (a `withTx` sob teste, que nunca comita) — para qualquer outra conexão essa linha não existe
+  // (MVCC), então o `SELECT … FOR UPDATE` da 2ª conexão simplesmente não a encontra e não trava nada;
+  // usar um modelo já comitado exigiria escrever numa loja real fora da txn revertida. (A versão
+  // anterior deste comentário culpava o `FOR KEY SHARE` implícito do FK `kanban_recalculo_fila.modelo_id`
+  // → `modelos(id)`: ERRADO — `FOR KEY SHARE` só conflita com `FOR UPDATE` e com UPDATE/DELETE que
+  // mexe na chave; NÃO bloqueia `FOR NO KEY UPDATE`.)
   //
-  // Substituto EQUIVALENTE, sem esse impasse: em vez de travar a LINHA de `modelos`, a 2ª conexão
+  // Substituto EQUIVALENTE: em vez de travar a LINHA de `modelos`, a 2ª conexão
   // prende um `pg_advisory_xact_lock` (mesmo mecanismo de espera, MESMO `lock_timeout`/`55P03` na
   // colisão — provado isoladamente: `pg_advisory_xact_lock` bloqueado por 2 s dá EXATAMENTE
-  // `lock_not_available`/`55P03`, idêntico a um lock de linha) — sem NENHUM vínculo de FK, então não
-  // há trava cruzada com o próprio `INSERT` de `c` na fila. `_kanban_aplicar` é sabotado (SÓ na cópia
+  // `lock_not_available`/`55P03`, idêntico a um lock de linha) — e não depende de a 2ª conexão
+  // enxergar uma linha criada na txn não comitada de `c`. `_kanban_aplicar` é sabotado (SÓ na cópia
   // local — mesmo padrão já usado no teste "erro na derivação vira WARNING" acima, `CREATE OR REPLACE
   // FUNCTION` dentro da txn revertida) p/ pedir esse MESMO advisory lock logo no início — reproduzindo
   // fielmente "uma espera de lock DENTRO do que `fn_kanban_processar_fila` chama" e provando que o
@@ -980,7 +975,7 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
 
           // Sabotagem SÓ nesta txn (revertida): `_kanban_aplicar` passa a pedir o MESMO advisory lock
           // que a 2ª conexão já segura, ANTES de fazer qualquer coisa — reproduz "uma espera de lock
-          // dentro do que a trigger chama", sem tocar `modelos` (sem o impasse de FK documentado acima).
+          // dentro do que a trigger chama", sem tocar `modelos` (linha invisível p/ a 2ª conexão — ver nota acima).
           await c.query(`CREATE OR REPLACE FUNCTION public._kanban_aplicar(_tenant uuid, _ids uuid[], _origem text, _lote uuid DEFAULT NULL)
                          RETURNS integer LANGUAGE plpgsql AS $f$
                          BEGIN
@@ -1210,11 +1205,45 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3E: enfileiradores (Task 12)
       expect(await historico(c, M)).toEqual(hist);
     });
   });
+
+  // Fix round final (minor da Task 12): DELETE do modelo com a chave LIGADA e fila pendente. O FK da
+  // fila é ON DELETE CASCADE e os enfileiradores das filhas (statement-level, disparados pela cascata)
+  // fazem JOIN com `modelos`, que já não tem M → nada re-enfileira M (senão o FK da fila falharia).
+  it("chave LIGADA + fila pendente: DELETE do modelo (com filhas) não lança erro, a fila fica sem ele e o COMMIT drena o resto", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      const N = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+      const vt = await um<{ vid: string; aid: string }>(c, `SELECT id AS vid, artigo_id AS aid FROM public.variantes_tecido WHERE tenant_id = $1 LIMIT 1`, [T]);
+      const av = await um<{ id: string }>(c, `SELECT id FROM public.aviamentos WHERE tenant_id = $1 LIMIT 1`, [T]);
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 AND ativo LIMIT 1`, [T]);
+      // filhas de M (escrita de fora do motor → cada uma enfileira M)
+      await c.query(`INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido')`, [M, vt.aid]);
+      await c.query(`INSERT INTO public.modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem)
+                     SELECT id, $2, 1 FROM public.modelo_tecidos WHERE modelo_id = $1`, [M, vt.vid]);
+      await c.query(`INSERT INTO public.modelo_grades (modelo_id, variante_numero, grades, grade_total) VALUES ($1, 1, '{"P": 2}', 2)`, [M]);
+      await c.query(`INSERT INTO public.modelo_aviamentos (modelo_id, aviamento_id, numero) VALUES ($1, $2, 1)`, [M, av.id]);
+      await c.query(`INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($3, $1, $2, 5)`, [M, cat.id, T]);
+      await setar(c, N, { data_piloto3: HOJE }); // N também pendente
+      expect((await filaIds(c)).sort()).toEqual([M, N].sort());
+      await c.query(`DELETE FROM public.modelos WHERE id = $1`, [M]); // não lança
+      expect(await filaIds(c)).toEqual([N]);
+      await imediato(c); // COMMIT simulado: drena o resto sem erro
+      expect(await tamanhoFila(c)).toBe(0);
+      expect((await lerModelo(c, N)).status).toBe("etapa_a");
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.modelos WHERE id = $1`, [M])).n).toBe("0");
+    });
+  });
 });
 
 // ─────────────── Migration 3F/3G — trava da chave, Config (snapshot no servidor) e guard (Task 13) ───────────────
 async function lotes(c: Client): Promise<{ lote_id: string; motivo: string; n: number }[]> {
-  // Na MESMA txn todos os lotes têm o mesmo criado_at (now()) → ordena por motivo (config < ligar).
+  // Ordena por motivo (config < ligar) + lote_id: comparação estável que não depende do relógio.
+  // (criado_at vem de clock_timestamp() em fn_kanban_config — lotes da MESMA txn têm criado_at
+  // DIFERENTES, na ordem em que nasceram; kanban_restaurar usa (criado_at, lote_id) como ordem.)
   const { rows } = await c.query(
     `SELECT lote_id, motivo, count(*)::int AS n
        FROM public.kanban_snapshot WHERE tenant_id = $1 GROUP BY lote_id, motivo ORDER BY motivo, lote_id`, [T]);
@@ -1474,6 +1503,61 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posi�
       expect((await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [M])).id).toBeTruthy();
       await chave(c, false);
       expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("reprovado");
+    });
+  });
+
+  // Fix round final (minor da Task 14; decisão G-inicial #6): card FIXADO ATRÁS da etapa de envio
+  // (stand_by, manual, antes de etapa_c no board) cuja posição DERIVADA já chegou nela → o gate da
+  // Explosão usa a posição derivada e LIBERA. Contraprova: com a chave desligada o gate volta a ser o
+  // status gravado (stand_by < etapa_c) e bloqueia.
+  it("G-inicial #6: fixado ATRÁS (stand_by) com posição derivada ≥ etapa de envio → Enviar à Explosão liberado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c);
+      await configurarBoard(c, { ref: "etapa_c", explosao: "etapa_c" });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE }));
+      await aplicar(c, [M]); // etapa_c
+      await setar(c, M, { status_desenvolvimento: "stand_by" }); // manual ATRÁS de etapa_c → fixa
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("stand_by"); // continua fixado
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'stand_by') AS g`, [T, M])).g).toBe("etapa_c");
+      await c.query("SAVEPOINT sp");
+      await chave(c, false);
+      await expect(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [M])).rejects.toMatchObject({ code: "P0001" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      expect((await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [M])).id).toBeTruthy();
+    });
+  });
+
+  // Fix round final (minor da Task 14 — "risco 4"). TESTE DE CARACTERIZAÇÃO: afirma o comportamento
+  // ATUAL, não o "conserta". Limitação conhecida — decisão do dono antes de ligar a chave.
+  // `_kanban_status_gate` deriva da linha GRAVADA (num BEFORE UPDATE = a linha PRÉ-UPDATE). Num ÚNICO
+  // UPDATE que fixa o card numa coluna manual ADIANTE da etapa de revelar a REF e, junto, limpa um campo
+  // exigido, fn_modelo_ref_auto vê a posição derivada ANTIGA (etapa_c) e revela a REF; depois do COMMIT
+  // (drenagem) a posição derivada recua (etapa_b) — e a REF revelada não volta.
+  it("risco 4 (limitação conhecida — decisão do dono antes de ligar a chave): 1 UPDATE que fixa adiante da etapa da REF E limpa um campo exigido revela a REF pela posição PRÉ-UPDATE; no COMMIT a posição derivada recua", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { ref: "etapa_c" });
+      await chave(c, true);
+      // condições até etapa_c gravadas SEM passar pelo motor (GUC do sistema) e REF ainda escondida
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE }));
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET ref = '' WHERE id = $1`, [M]));
+      let m = await lerModelo(c, M);
+      expect([m.status, m.ref ?? ""]).toEqual(["entrada", ""]);
+      expect(m.ref_auto ?? "").not.toBe("");
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_c");
+      // UM único UPDATE: fixa em 'reprovado' (manual, adiante de etapa_c) E limpa data_piloto2 (exigido em etapa_c)
+      await setar(c, M, { status_desenvolvimento: "reprovado", data_piloto2: null });
+      m = await lerModelo(c, M);
+      expect(m.status).toBe("reprovado");
+      expect(m.ref).toBe(m.ref_auto); // REF revelada pela posição derivada da linha PRÉ-UPDATE (etapa_c)
+      await imediato(c); // COMMIT/drenagem
+      m = await lerModelo(c, M);
+      expect(m.status).toBe("reprovado"); // continua fixado
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_b"); // recuou (< etapa_c)
+      expect(m.ref).toBe(m.ref_auto); // …e a REF revelada NÃO volta
     });
   });
 });
@@ -1851,7 +1935,7 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
     });
   });
 
-  // ─────────── Fix round 1: concorrência — trava tenant_config + lote (Minor) ───────────
+  // ─────────── Fix round 1: historico_apagado exato ───────────
   it("historico_apagado: número exato num cenário conhecido (M e N, só linhas auto/config do lote)", async () => {
     await withTx(async (c) => {
       const { lote } = await cenarioLigado(c);
@@ -1862,12 +1946,16 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
         `SELECT count(*) AS n FROM public.modelo_kanban_historico h
           JOIN public.kanban_snapshot s ON s.modelo_id = h.modelo_id AND s.lote_id = $1
           WHERE h.origem IN ('auto', 'config') AND h.created_at >= $2::timestamptz`, [lote, v_criado])).n);
+      expect(esperado).toBeGreaterThanOrEqual(2); // M e N têm ao menos 1 linha 'config' do lote cada
       const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [lote])).r;
       expect(r.historico_apagado).toBe(esperado);
     });
   });
 
-  it("concorrência: FOR UPDATE em tenant_config + lote serializa 2 restaurar simultâneos (2º dá P0001 'já foi restaurado')", async () => {
+  // ─────────── Fix round 1: concorrência — trava tenant_config + lote (Minor) ───────────
+  // O harness é 1 conexão/1 txn: este teste NÃO prova o bloqueio entre sessões (FOR UPDATE de
+  // tenant_config + lote); prova só que, com as travas no caminho, a 2ª chamada SEQUENCIAL dá P0001.
+  it("restaurar 2× em sequência na mesma txn: a 2ª chamada dá P0001 'Este lote já foi restaurado.' (as travas não mudam o fluxo sequencial)", async () => {
     await withTx(async (c) => {
       const { lote } = await cenarioLigado(c);
       await chave(c, false);
@@ -1877,6 +1965,40 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
         code: "P0001", message: "Este lote já foi restaurado.",
       });
       await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+
+  // ─────────── Fix round final (F): restaurar EM ORDEM — do lote mais novo para o mais antigo ───────────
+  // Ordem dos lotes = (criado_at, lote_id): criado_at é clock_timestamp() (lotes da mesma txn diferem);
+  // lote_id só desempata o caso teórico de criado_at igual (determinístico).
+  it("lote antigo com lote MAIS NOVO não restaurado: restaurar o antigo → P0001 (a prévia avisa); restaura o novo, depois o antigo", async () => {
+    await withTx(async (c) => {
+      const { M, N, lote: antigo } = await cenarioLigado(c);
+      // com a chave ligada, mudar a config grava um 2º lote ('config'), mais novo
+      await c.query(`UPDATE public.tenant_config SET kanban_requisitos_excecoes = '{"etapa_c": ["data_piloto1"]}' WHERE tenant_id = $1`, [T]);
+      const novo = (await um<{ l: string }>(c,
+        `SELECT lote_id AS l FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config' LIMIT 1`, [T])).l;
+      expect(novo).toBeTruthy();
+      await chave(c, false);
+      const AVISO = "Há um lote mais recente não restaurado; restaure-o primeiro.";
+      const previa = async (l: string | null) =>
+        (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao($1) AS p`, [l])).p;
+      expect((await previa(antigo)).avisos).toContain(AVISO);
+      const pNull = await previa(null); // NULL = o 'ligar' mais recente (= o antigo) → mesmo aviso
+      expect([pNull.lote_id, pNull.avisos.includes(AVISO)]).toEqual([antigo, true]);
+      expect((await previa(novo)).avisos).not.toContain(AVISO);
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [antigo])).rejects.toMatchObject({
+        code: "P0001", message: "Restaure primeiro o lote mais recente.",
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await um(c, `SELECT public.kanban_restaurar($1) AS r`, [novo]);
+      expect((await previa(antigo)).avisos).not.toContain(AVISO);
+      await um(c, `SELECT public.kanban_restaurar($1) AS r`, [antigo]);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+      expect((await lerModelo(c, N)).status).toBe("entrada");
+      expect((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND restaurado_at IS NULL`, [T])).n).toBe("0");
     });
   });
 });
@@ -1960,12 +2082,58 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — round-trip das 4 migrations
       expect(Number(depois.gatilhos) - Number(antes.gatilhos)).toBe(44);
       for (const n of [4, 3, 2, 1] as const) await aplicarArquivo(c, INVERSOS[n]);
       expect(await contagens(c)).toEqual(antes);
+      // Fix round final (L): sem o snapshot, AVISA em vez de pular em silêncio (a ida/volta acima continua valendo)
+      const temSnapshot = existsSync(SNAPSHOT_FUNCOES);
+      if (!temSnapshot) {
+        console.warn(`[kanban-auto] snapshot ausente — comparação com 22/set NÃO verificada (${SNAPSHOT_FUNCOES})`);
+      }
       for (const f of Object.keys(defs)) {
         expect(await defFuncao(c, f), f).toBe(defs[f]);
         const snap = blocoSnapshot(f.slice(0, f.indexOf("(")));
         if (snap !== null) expect(defs[f], `${f} = snapshot 22/set`).toBe(snap);
+        else if (temSnapshot) console.warn(`[kanban-auto] ${f} não achada no snapshot — comparação com 22/set NÃO verificada p/ ela`);
       }
       for (const n of [4, 3, 2, 1] as const) await aplicarArquivo(c, INVERSOS[n]); // inversos idempotentes
+      expect(await contagens(c)).toEqual(antes);
+    });
+  });
+});
+
+// ─────────── Fix round final (E): guardas de ordem nos inversos + cadeia 3→2→1 na txn ───────────
+/** Tenta um inverso FORA de ordem: a guarda (1º comando depois do BEGIN) recusa com a mensagem e nada
+ *  muda. Desfaz o erro no SAVEPOINT do harness (`aplicarSql`) p/ a txn seguir utilizável. */
+async function inversoRecusado(c: Client, n: 1 | 2 | 3, msg: RegExp): Promise<void> {
+  await expect(aplicarArquivo(c, INVERSOS[n]), `inverso ${n}`).rejects.toThrow(msg);
+  await c.query("ROLLBACK TO SAVEPOINT kanban_auto_prepara");
+  await c.query("RELEASE SAVEPOINT kanban_auto_prepara");
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inversos: guarda de ordem e cadeia 3→2→1 (fix round final)", () => {
+  it("fora de ordem RECUSA com a mensagem certa e não muda nada; a ordem certa 4→3→2→1 passa", async () => {
+    await withTx(async (c) => {
+      const antes = await contagens(c);
+      await prepara(c, 4);
+      const ida = await contagens(c);
+      await inversoRecusado(c, 2, /Rode antes o inverso da migration 3/);
+      await inversoRecusado(c, 1, /Rode antes o inverso da migration 3/);
+      await inversoRecusado(c, 3, /Rode antes o inverso da migration 4/);
+      expect(await contagens(c)).toEqual(ida);
+      await aplicarArquivo(c, INVERSOS[4]);
+      await inversoRecusado(c, 2, /Rode antes o inverso da migration 3/);
+      await aplicarArquivo(c, INVERSOS[3]);
+      await inversoRecusado(c, 1, /Rode antes o inverso da migration 2/);
+      await aplicarArquivo(c, INVERSOS[2]);
+      await aplicarArquivo(c, INVERSOS[1]);
+      expect(await contagens(c)).toEqual(antes);
+    });
+  });
+
+  it("cadeia 3→2→1 (a partir de 1→3 aplicadas) volta ao retrato de antes (contagens)", async () => {
+    await withTx(async (c) => {
+      const antes = await contagens(c);
+      await prepara(c, 3);
+      expect(await contagens(c)).not.toEqual(antes);
+      for (const n of [3, 2, 1] as const) await aplicarArquivo(c, INVERSOS[n]);
       expect(await contagens(c)).toEqual(antes);
     });
   });

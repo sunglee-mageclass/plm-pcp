@@ -54,10 +54,12 @@ BEGIN
     RAISE EXCEPTION 'Loja inativa ou sem tenant — operação não permitida.' USING ERRCODE = '42501';
   END IF;
 
+  -- FOR NO KEY UPDATE (fix round final): serializa 2 movers do mesmo card sem barrar o FOR KEY SHARE
+  -- dos INSERTs nas tabelas-filhas (FK → modelos) — o UPDATE abaixo não mexe na chave.
   SELECT m.status_desenvolvimento INTO v_status
     FROM public.modelos m
    WHERE m.id = _modelo_id AND m.tenant_id = v_tenant
-     FOR UPDATE;
+     FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0002';
   END IF;
@@ -305,6 +307,8 @@ GRANT EXECUTE ON FUNCTION public.kanban_definir_automatico(boolean) TO authentic
 --    (fn_kanban_config, migration 3); um modelo lançado depois carrega um status_anterior obsoleto
 --    que distorceria o Leadtime de modelo concluído se restaurado. Não entra em cards/total/voltam/
 --    movidos_depois; soma num aviso à parte.
+--    Fix round final (F): lote (explícito ou o resolvido pelo NULL) com lote MAIS NOVO não restaurado
+--    → aviso 'Há um lote mais recente não restaurado; restaure-o primeiro.' (kanban_restaurar recusa).
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_previa_restauracao(_lote_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -320,6 +324,7 @@ DECLARE
   v_restaur  timestamptz;
   v_ligada   boolean;
   v_lancados integer;
+  v_mais_novo boolean;
   v_out      jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -354,6 +359,15 @@ BEGIN
     RAISE EXCEPTION 'Lote de colunas não encontrado.' USING ERRCODE = 'P0002';
   END IF;
 
+  -- Fix round final (F): mesma regra de kanban_restaurar — há lote MAIS NOVO (criado_at, lote_id) não
+  -- restaurado da loja? Só avisa (a prévia não dá erro); lote já restaurado não recebe este aviso.
+  v_mais_novo := v_restaur IS NULL AND EXISTS (
+    SELECT 1 FROM public.kanban_snapshot s
+     WHERE s.tenant_id = v_tenant
+       AND s.restaurado_at IS NULL
+       AND s.lote_id <> v_lote
+       AND (s.criado_at, s.lote_id) > (v_criado, v_lote));
+
   SELECT count(*) INTO v_lancados
     FROM public.kanban_snapshot s
     JOIN public.modelos m ON m.id = s.modelo_id AND m.tenant_id = v_tenant
@@ -385,6 +399,7 @@ BEGIN
       'A REF revelada e o #Erro não voltam.',
       CASE WHEN v_ligada THEN 'Desligue o Kanban automático antes de restaurar (senão o próximo salvamento refaz as colunas).' END,
       CASE WHEN v_restaur IS NOT NULL THEN 'Este lote já foi restaurado.' END,
+      CASE WHEN v_mais_novo THEN 'Há um lote mais recente não restaurado; restaure-o primeiro.' END,
       CASE WHEN v_lancados > 0 THEN v_lancados || ' card(s) lançado(s) depois não voltam.' END
     ], NULL)))
   INTO v_out;
@@ -408,6 +423,9 @@ GRANT EXECUTE ON FUNCTION public.kanban_previa_restauracao(uuid) TO authenticate
 --    `kanban_snapshot` (FOR UPDATE) ANTES das checagens de chave/lote/já-restaurado — serializa 2
 --    `kanban_restaurar` simultâneos (o 2º vê `restaurado_at` já setado → P0001) e restaurar ×
 --    `kanban_definir_automatico(true)` (que também escreve `tenant_config`).
+--    Fix round final: (F) recusa lote antigo se há lote MAIS NOVO não restaurado da loja
+--    (P0001 'Restaure primeiro o lote mais recente.'; ordem = (criado_at, lote_id)); trava os
+--    modelos do lote (FOR NO KEY UPDATE) antes do DELETE — corrida com "lançar".
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_restaurar(_lote_id uuid)
  RETURNS jsonb
@@ -454,6 +472,29 @@ BEGIN
   IF v_restaur IS NOT NULL THEN
     RAISE EXCEPTION 'Este lote já foi restaurado.' USING ERRCODE = 'P0001';
   END IF;
+  -- Fix round final (F): restaurar EM ORDEM, do mais novo p/ o mais antigo. Lote antigo com lote mais
+  -- novo não restaurado da loja apagaria as linhas auto/config do período do novo e voltaria colunas
+  -- por cima dele. Ordem = (criado_at, lote_id): criado_at é clock_timestamp() (fn_kanban_config) e
+  -- lote_id só desempata o caso teórico de criado_at igual. Estável sob a trava de tenant_config
+  -- acima: lote novo só nasce num UPDATE de tenant_config (trg_kanban_config), que ela serializa.
+  IF EXISTS (
+    SELECT 1 FROM public.kanban_snapshot s
+     WHERE s.tenant_id = v_tenant
+       AND s.restaurado_at IS NULL
+       AND s.lote_id <> _lote_id
+       AND (s.criado_at, s.lote_id) > (v_criado, _lote_id)) THEN
+    RAISE EXCEPTION 'Restaure primeiro o lote mais recente.' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Fix round final: trava os modelos do lote ANTES do DELETE (ordem de travas tenant_config →
+  -- snapshot → modelos; ORDER BY p/ ordem fixa) — um "lançar" concorrente entre o DELETE e o UPDATE
+  -- deixaria o histórico apagado com o status não restaurado (os 2 filtram NOT lancado).
+  PERFORM 1
+     FROM public.modelos m
+     JOIN public.kanban_snapshot s ON s.modelo_id = m.id
+    WHERE s.lote_id = _lote_id AND m.tenant_id = v_tenant
+    ORDER BY m.id
+      FOR NO KEY UPDATE OF m;
 
   PERFORM set_config('app.kanban_sistema', 'restauracao', true);
   PERFORM set_config('app.kanban_lote', _lote_id::text, true);

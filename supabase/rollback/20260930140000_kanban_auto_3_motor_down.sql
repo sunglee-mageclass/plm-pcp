@@ -6,8 +6,18 @@
 --   fn_modelo_ref_auto (:12141-12195) · _enviar_modelo_para_cad_core (:2150-2267).
 -- Não toca dado de modelos. Se a chave foi ligada, restaurar ANTES as colunas
 -- (kanban_previa_restauracao / kanban_restaurar), enquanto a migration 4 existe.
+-- GUARDA DE ORDEM (fix round final): se a migration 4 ainda existe, RECUSA antes de tocar em qualquer
+-- coisa (a txn aborta; nada é aplicado).
 
 BEGIN;
+
+DO $do$
+BEGIN
+  IF to_regprocedure('public.kanban_mover(uuid,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'Rode antes o inverso da migration 4 (20260930150000_kanban_auto_4_rpcs_down.sql).';
+  END IF;
+END
+$do$;
 
 -- 1) Gatilhos novos
 DROP TRIGGER IF EXISTS trg_kanban_status_guard ON public.modelos;
