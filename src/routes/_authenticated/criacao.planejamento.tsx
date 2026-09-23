@@ -54,6 +54,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { EtapaKanbanBadge, EtapaKanbanLegenda } from "@/components/shared/EtapaKanbanBadge";
+import { useKanbanConfig } from "@/hooks/useKanbanConfig";
+import { etapaDoModelo, type EtapaSelo } from "@/lib/kanban-auto-ui";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 // Detalhe do card + campos compartilhados extraídos (refactor 2026-08-25).
@@ -107,6 +110,9 @@ type Modelo = {
   tecidos_planejados: string[] | null;
   mix_id: string | null;
   lancado: boolean | null;
+  // Selo da etapa do kanban (F2): a coluna do Dev só vale depois da Ordem de Criação.
+  status_desenvolvimento: string | null;
+  ordem_criacao_enviada: boolean | null;
 };
 
 const fmtDataBR = (s: string | null) => s ? s.split("-").reverse().join("/") : null;
@@ -328,6 +334,8 @@ function PlanejamentoPage() {
 
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
+  // Selo da etapa (F2): board/requisitos/chave da loja — `select("*")`, tolera banco sem a F1 (= chave desligada).
+  const { cfg: kanbanCfg, ligado: kanbanLigado } = useKanbanConfig();
   const { data: colecoesList = [] } = useQuery({
     queryKey: ["otb-colecoes-opts"],
     enabled: otbOn,
@@ -358,7 +366,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, markup_editado, origem, tecidos_planejados, mix_id, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra, status_desenvolvimento, ordem_criacao_enviada")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Modelo[];
@@ -706,6 +714,7 @@ function PlanejamentoPage() {
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         refModelo={(m as any).ref || (m as any).ref_auto || null}
+        etapa={etapaDoModelo(m, kanbanCfg)}
         precoVenda={(m as any).preco_venda ?? null}
         onPrecoVenda={(preco) => {
           if (ehOrigemComprada(m.origem)) {
@@ -1130,6 +1139,7 @@ function PlanejamentoPage() {
         <div className={GRID_COLS_CARROSSEL_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
+      {filtered.length > 0 && <EtapaKanbanLegenda ligado={kanbanLigado} />}
 
       {(openNew || openId) && (
         <PlanejamentoDetail
@@ -1241,8 +1251,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1320,7 +1330,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
       </div>
       {compact ? (
         // Compacto (mobile / desktop c/ muitas colunas): só o essencial — nome · REF · preço de
-        // venda · markup (decisão do dono set/2026). Toque abre o Sheet com o resto. Status por
+        // venda · markup (decisão do dono set/2026) · etapa (selo pequeno, B1 23/set). Toque abre o Sheet com o resto. Status por
         // badge (não só a cor da borda — acessibilidade/daltônicos).
         <div className="p-2 space-y-1">
           <div className="flex items-center gap-1">
@@ -1355,6 +1365,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
             <StatusBadge tone={meta.tone} className="rounded-full px-1.5 py-0.5">{meta.label}</StatusBadge>
             {refModelo && <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">{refModelo}</span>}
           </div>
+          {/* Selo da etapa no COMPACTO (B1, dono 23/set): linha própria abaixo do status/REF, só o rótulo (+ no máximo
+              o ícone Zap/Pin com a chave ligada); trunca em vez de alargar o card (360/390 px). */}
+          <div className="flex min-w-0"><EtapaKanbanBadge selo={etapa} compacto /></div>
           {podeVerCustos && (
             <div className="flex items-center justify-between gap-2 text-[11px]">
               <span className="font-medium tabular-nums">{preco != null ? brl(preco) : "—"}</span>
@@ -1399,6 +1412,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
           </div>
           {/* REF (mono, só quando há) */}
           {refModelo && <div className="px-2.5 pb-1 font-mono text-[11px] text-muted-foreground truncate">{refModelo}</div>}
+          {/* Selo da etapa do kanban (F2, decisão 5): Planejamento antes da Ordem de Criação; Lançado; senão a
+              coluna do Dev (+ automática/fixado com a chave ligada). O compacto tem a versão pequena (B1). */}
+          <div className="px-2.5 pb-1.5"><EtapaKanbanBadge selo={etapa} /></div>
           {/* tabela título · valor (layout fixo p/ não extrapolar o card) */}
           <table className="w-full table-fixed border-collapse [&_td]:border-t [&_td]:border-dashed [&_td]:border-border/70 [&_td]:px-2.5 [&_td]:py-[5px] [&_td]:overflow-hidden">
             <tbody className="align-middle">
