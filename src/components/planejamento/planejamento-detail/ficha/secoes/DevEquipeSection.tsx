@@ -7,9 +7,17 @@
 //    piloto 2 que chega depois por merge do colab — ModeloInfoSection.tsx:94-101);
 //  • o cluster "Cronograma & pilotos" some quando a config de revenda esconde todos os campos dele (no Dev
 //    vira caixa vazia — fast-follow conhecido) e o "Adicionar Piloto N" só aparece se os campos dele aparecem;
-//  • `data-colab-path` em todo input de texto/data (anel de presença + merge por campo).
+//  • `data-colab-path` em todo input de texto/data (anel de presença + merge por campo);
+//  • grid de 2 colunas e ordem Piloto 1 → bloco Piloto 2 → bloco Piloto 3 → Data Desenho Técnico → Data
+//    Aprovação (mockup `gen_anotado.py` §s3 e paridade com ModeloInfoSection.tsx:318-339 — as datas de
+//    desenho/aprovação vêm DEPOIS dos pilotos, não junto do Piloto 1).
 // O estado mora no orquestrador (`draft`/`setDraftTracked`); a trava (enviado à Explosão / sem permissão) é o
-// <fieldset disabled> em volta, no orquestrador.
+// <fieldset disabled> em volta, no orquestrador — MAS o Radix Select (usado pelo FieldSelect) abre no
+// `pointerdown` e só respeita a prop `disabled` do próprio componente, não o atributo HTML `disabled` herdado
+// do fieldset (ele não é um <select> nativo). Por isso TODO FieldSelect aqui recebe `disabled={bloqueado}`
+// explícito — o fieldset sozinho não trava a seleção com o mouse (fix round 1, revisão Opus). A F3.2 reusa
+// essa mesma trava no BOM: qualquer campo baseado em Radix Select/Popover dentro de um fieldset precisa do
+// `disabled` explícito, não só do fieldset.
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { Plus, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -50,13 +58,16 @@ const CAMPOS_CRONOGRAMA = [
   "data_desenho_tecnico", "data_aprovacao",
 ] as const;
 
-export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisivel }: {
+export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisivel, bloqueado }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
   /** Campo REF a partir da etapa configurada (refCampoVisivel; posição derivada c/ a chave ligada). */
   refVisivel: boolean;
   /** Interno: sempre true. Comprado: config "Fluxo de Revenda" (revendaCampoVisivel). */
   campoVisivel: (key: string) => boolean;
+  /** = `devBloqueado` do orquestrador. Repassado a TODO FieldSelect (Radix Select ignora o fieldset —
+   *  ver comentário de topo). DateField/Input/Textarea seguem travando só pelo fieldset (confirmado). */
+  bloqueado: boolean;
 }) {
   const fl = useFieldLabels();
   const { data: modelistas = [] } = useColaboradoresTipo("modelista");
@@ -89,7 +100,7 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
   return (
     <div className="space-y-3">
       {(refVisivel || verModelista) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {refVisivel && (
             <div className="grid gap-1">
               <Label>{fl("ref")}</Label>
@@ -103,6 +114,7 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
               onChange={(v) => set({ modelista_id: v })}
               onLimpar={() => set({ modelista_id: null })}
               options={modelistas}
+              disabled={bloqueado}
             />
           )}
         </div>
@@ -111,18 +123,12 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
       {verCronograma && (
         <div className="rounded-md border border-dashed p-3 space-y-3">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Cronograma &amp; pilotos</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {campoVisivel("piloteiro1_id") && (
-              <FieldSelect label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => set({ piloteiro1_id: v })} onLimpar={() => set({ piloteiro1_id: null })} options={piloteiros} />
+              <FieldSelect label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => set({ piloteiro1_id: v })} onLimpar={() => set({ piloteiro1_id: null })} options={piloteiros} disabled={bloqueado} />
             )}
             {campoVisivel("data_piloto1") && (
               <CampoData label="Data Piloto 1" value={draft.data_piloto1} onChange={(v) => set({ data_piloto1: v })} path="data_piloto1" />
-            )}
-            {campoVisivel("data_desenho_tecnico") && (
-              <CampoData label="Data Desenho Técnico" value={draft.data_desenho_tecnico} onChange={(v) => set({ data_desenho_tecnico: v })} path="data_desenho_tecnico" />
-            )}
-            {campoVisivel("data_aprovacao") && (
-              <CampoData label="Data Aprovação" value={draft.data_aprovacao} onChange={(v) => set({ data_aprovacao: v })} path="data_aprovacao" />
             )}
           </div>
 
@@ -134,9 +140,9 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {campoVisivel("piloteiro2_id") && (
-                  <FieldSelect label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => set({ piloteiro2_id: v })} onLimpar={() => set({ piloteiro2_id: null })} options={piloteiros} />
+                  <FieldSelect label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => set({ piloteiro2_id: v })} onLimpar={() => set({ piloteiro2_id: null })} options={piloteiros} disabled={bloqueado} />
                 )}
                 {campoVisivel("data_piloto2") && (
                   <CampoData label="Data Piloto 2" value={draft.data_piloto2} onChange={(v) => set({ data_piloto2: v })} path="data_piloto2" />
@@ -153,9 +159,9 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {campoVisivel("piloteiro3_id") && (
-                  <FieldSelect label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => set({ piloteiro3_id: v })} onLimpar={() => set({ piloteiro3_id: null })} options={piloteiros} />
+                  <FieldSelect label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => set({ piloteiro3_id: v })} onLimpar={() => set({ piloteiro3_id: null })} options={piloteiros} disabled={bloqueado} />
                 )}
                 {campoVisivel("data_piloto3") && (
                   <CampoData label="Data Piloto 3" value={draft.data_piloto3} onChange={(v) => set({ data_piloto3: v })} path="data_piloto3" />
@@ -175,6 +181,19 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
                 <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setAbertos((p) => new Set(p).add(3))}>
                   <Plus className="h-4 w-4 mr-1" /> Adicionar Piloto 3
                 </Button>
+              )}
+            </div>
+          )}
+
+          {/* Data Desenho Técnico / Data Aprovação vêm DEPOIS dos pilotos (mockup + paridade com o Dev,
+              ModeloInfoSection.tsx:318-339) — não junto do Piloto 1. */}
+          {(campoVisivel("data_desenho_tecnico") || campoVisivel("data_aprovacao")) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-dashed pt-2">
+              {campoVisivel("data_desenho_tecnico") && (
+                <CampoData label="Data Desenho Técnico" value={draft.data_desenho_tecnico} onChange={(v) => set({ data_desenho_tecnico: v })} path="data_desenho_tecnico" />
+              )}
+              {campoVisivel("data_aprovacao") && (
+                <CampoData label="Data Aprovação" value={draft.data_aprovacao} onChange={(v) => set({ data_aprovacao: v })} path="data_aprovacao" />
               )}
             </div>
           )}

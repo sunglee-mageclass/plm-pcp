@@ -897,6 +897,7 @@ export function PlanejamentoDetail({
                   setDraftTracked={setDraftTracked}
                   refVisivel={kanbanCard.refVisivel}
                   campoVisivel={campoVisivelDev}
+                  bloqueado={devBloqueado}
                 />
               </fieldset>
             </Secao>
