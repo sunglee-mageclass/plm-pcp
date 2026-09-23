@@ -11,8 +11,18 @@
 -- Todas: SECURITY DEFINER + search_path; tenant = get_user_tenant_id(); módulo `criacao`;
 -- permissão negada = 42501; regra de negócio = P0001; não encontrado = P0002 (mensagens PT-BR).
 -- ACL: REVOKE de PUBLIC/anon + GRANT authenticated (invariante #9).
+-- GUARDA DE ORDEM (Task 18, runbook v2): exige a migration 3 (`_kanban_aplicar`); faltando, RECUSA antes
+-- de tocar em qualquer coisa (a txn aborta; nada é aplicado). Reaplicar com tudo presente passa.
 
 BEGIN;
+
+DO $do$
+BEGIN
+  IF to_regprocedure('public._kanban_aplicar(uuid,uuid[],text,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'Rode antes a migration 3 (20260930140000_kanban_auto_3_motor.sql): falta _kanban_aplicar.';
+  END IF;
+END
+$do$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- A) kanban_mover — aplica a tabela ÚNICA de arraste (`_kanban_destino_drop_puro`) no servidor.

@@ -2173,3 +2173,85 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inversos: guarda de ordem e
     });
   });
 });
+
+// ─────────── Task 18 (runbook v2): guardas de ordem na IDA (3/4) e trava do inverso 1 destrutivo ───────────
+/** Tenta um arquivo (migration ou inverso) que a guarda do topo deve RECUSAR: o erro sai com a mensagem e a
+ *  txn volta ao SAVEPOINT do harness (`aplicarSql`) — nada do arquivo fica e a txn segue utilizável. */
+async function arquivoRecusado(c: Client, rel: string, msg: RegExp): Promise<void> {
+  await expect(aplicarArquivo(c, rel), rel).rejects.toThrow(msg);
+  await c.query("ROLLBACK TO SAVEPOINT kanban_auto_prepara");
+  await c.query("RELEASE SAVEPOINT kanban_auto_prepara");
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — guardas da Task 18: ida fora de ordem e inverso 1 destrutivo (runbook v2)", () => {
+  it("ida fora de ordem: a 3 sem a 1/sem a 2 e a 4 sem a 3 RECUSAM e não mudam nada; reaplicar 3 e 4 com tudo presente passa", async () => {
+    await withTx(async (c) => {
+      exigeBancoLocal();
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      const antes = await contagens(c);
+      await arquivoRecusado(c, MIGRACOES[2], /Rode antes a migration 1 .*kanban_recalculo_fila/);
+      await arquivoRecusado(c, MIGRACOES[3], /Rode antes a migration 3 .*_kanban_aplicar/);
+      expect(await contagens(c)).toEqual(antes);
+      await aplicarArquivo(c, MIGRACOES[0]);
+      const so1 = await contagens(c);
+      await arquivoRecusado(c, MIGRACOES[2], /Rode antes a migration 2 .*_kanban_ligado\/_kanban_status_gate/);
+      await arquivoRecusado(c, MIGRACOES[3], /Rode antes a migration 3/);
+      expect(await contagens(c)).toEqual(so1);
+      await aplicarArquivo(c, MIGRACOES[1]);
+      await arquivoRecusado(c, MIGRACOES[3], /Rode antes a migration 3/);
+      await aplicarArquivo(c, MIGRACOES[2]);
+      await aplicarArquivo(c, MIGRACOES[3]);
+      const ida = await contagens(c);
+      expect(Number(ida.funcoes) - Number(antes.funcoes)).toBe(FUNCOES_M2.length + FUNCOES_M3.length + RPCS_F1.length);
+      await aplicarArquivo(c, MIGRACOES[2]); // idempotente: a guarda passa com tudo presente
+      await aplicarArquivo(c, MIGRACOES[3]);
+      expect(await contagens(c)).toEqual(ida);
+    });
+  });
+
+  it("inverso 1 RECUSA com chave ligada ou lote de snapshot pendente (lote restaurado não trava); app.kanban_inverso_forcar='sim' força com WARNING", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (n: { message?: string }) => avisos.push(String(n.message));
+      c.on("notice", ouvir);
+      try {
+        const antes = await contagens(c);
+        await prepara(c, 4);
+        for (const n of [4, 3, 2] as const) await aplicarArquivo(c, INVERSOS[n]);
+        const soSchema = await contagens(c);
+        // (a) chave LIGADA numa loja (a trava da chave caiu com o inverso 3 → UPDATE direto, só nesta txn)
+        await c.query(`UPDATE public.tenant_config SET kanban_automatico = true WHERE tenant_id = $1`, [T]);
+        await arquivoRecusado(c, INVERSOS[1],
+          /Inverso 1 recusado: 1 loja\(s\) com o kanban automático LIGADO e 0 lote\(s\) de snapshot NÃO restaurado\(s\).*desligue a chave e restaure/);
+        await c.query(`UPDATE public.tenant_config SET kanban_automatico = false WHERE tenant_id = $1`, [T]);
+        // (b) lote de snapshot NÃO restaurado (2 modelos, 1 lote)
+        const ms = (await c.query(`SELECT id FROM public.modelos WHERE tenant_id = $1 ORDER BY id LIMIT 2`, [T])).rows.map((r) => r.id);
+        await c.query(
+          `INSERT INTO public.kanban_snapshot (lote_id, tenant_id, modelo_id, status_anterior, motivo)
+           SELECT '00000000-0000-4000-8000-000000000018'::uuid, $1, m, 'entrada', 'ligar' FROM unnest($2::uuid[]) m`, [T, ms]);
+        await arquivoRecusado(c, INVERSOS[1], /Inverso 1 recusado: 0 loja\(s\) com o kanban automático LIGADO e 1 lote\(s\)/);
+        expect(await contagens(c)).toEqual(soSchema);
+        // (c) o mesmo lote RESTAURADO não trava: o inverso 1 passa (desfeito no savepoint p/ seguir testando)
+        await c.query("SAVEPOINT restaurado");
+        await c.query(`UPDATE public.kanban_snapshot SET restaurado_at = now()`);
+        await aplicarArquivo(c, INVERSOS[1]);
+        expect(await contagens(c)).toEqual(antes);
+        await c.query("ROLLBACK TO SAVEPOINT restaurado");
+        expect(await contagens(c)).toEqual(soSchema);
+        // (d) override explícito: chave ligada + lote pendente + GUC 'sim' → passa com WARNING e apaga tudo
+        await c.query(`UPDATE public.tenant_config SET kanban_automatico = true WHERE tenant_id = $1`, [T]);
+        await arquivoRecusado(c, INVERSOS[1], /1 loja\(s\) com o kanban automático LIGADO e 1 lote/);
+        await c.query("SET LOCAL app.kanban_inverso_forcar = 'nao'"); // só 'sim' força
+        await arquivoRecusado(c, INVERSOS[1], /Inverso 1 recusado/);
+        await c.query("SET LOCAL app.kanban_inverso_forcar = 'sim'");
+        await aplicarArquivo(c, INVERSOS[1]);
+        expect(avisos.some((a) => /Inverso 1 FORÇADO .* 1 loja\(s\) com a chave ligada e 1 lote\(s\)/.test(a))).toBe(true);
+        expect(await contagens(c)).toEqual(antes);
+        await aplicarArquivo(c, INVERSOS[1]); // idempotente mesmo forçado: coluna e tabela já não existem
+        expect(await contagens(c)).toEqual(antes);
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  });
+});

@@ -14,8 +14,23 @@
 -- `app.kanban_lote` (uuid|''): marca quem está escrevendo o status. Enfileiradores NÃO
 -- enfileiram com GUC não vazio (trava de recursão); guard deixa passar; o histórico grava a origem.
 -- Quem seta o GUC SEMPRE restaura o valor anterior antes de sair.
+-- GUARDA DE ORDEM (Task 18, runbook v2): exige a migration 1 (fila `kanban_recalculo_fila`) e a 2
+-- (`_kanban_ligado`/`_kanban_status_gate`); faltando, RECUSA antes de tocar em qualquer coisa (a txn
+-- aborta; nada é aplicado). Reaplicar com tudo presente passa (idempotente).
 
 BEGIN;
+
+DO $do$
+BEGIN
+  IF to_regclass('public.kanban_recalculo_fila') IS NULL THEN
+    RAISE EXCEPTION 'Rode antes a migration 1 (20260930120000_kanban_auto_1_schema.sql): falta a tabela kanban_recalculo_fila.';
+  END IF;
+  IF to_regprocedure('public._kanban_ligado(uuid)') IS NULL
+     OR to_regprocedure('public._kanban_status_gate(uuid,uuid,text)') IS NULL THEN
+    RAISE EXCEPTION 'Rode antes a migration 2 (20260930130000_kanban_auto_2_derivacao.sql): faltam _kanban_ligado/_kanban_status_gate.';
+  END IF;
+END
+$do$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- A) Histórico: origem + lote + colapso por JANELA de 10 s (só escritas 'auto')
