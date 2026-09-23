@@ -10,22 +10,42 @@
  */
 import { requisitosEfetivos, requisitosOk, type Condicao } from "@/lib/kanban-condicoes";
 import { normalizeKanbanStatuses, refCampoVisivel } from "@/lib/kanban-status";
-import { boardDaLoja, normKey, statusParaGate, type Derivacao, type KanbanAutoConfig } from "@/lib/kanban-auto";
+import { boardDaLoja, statusParaGate, type Derivacao, type KanbanAutoConfig } from "@/lib/kanban-auto";
 import { ehOrigemComprada } from "@/lib/origem";
 import { revendaColunaPermitida, revendaRequisitos, type RevendaConfig } from "@/lib/revenda-config";
 
 export type OpcaoMover = { key: string; label: string; nota: string; bloqueada: boolean };
 
-/** Coluna onde o board mostra o card (null antes da Ordem de Criação). */
+/** I1 (fix round 1) — "condições prontas" pro card: precisa do card estar NO kanban
+ *  (`noKanban`) E das DUAS queries do hook terem chegado (condições do card E config da
+ *  loja). Antes só olhava as condições; se a config chegasse depois (ou falhasse), o hook
+ *  seguia com os defaults de `KanbanAutoConfig` (chave desligada, board vazio ⇒
+ *  DEFAULT_STATUSES, zero requisitos) — o "Mover para…" (Task 8) podia então oferecer uma
+ *  coluna que não existe no board real da loja, ou pular a cascata de requisitos. */
+export function condProntasFicha(o: { noKanban: boolean; condOk: boolean; cfgOk: boolean }): boolean {
+  return o.noKanban && o.condOk && o.cfgOk;
+}
+
+/** Coluna onde o board mostra o card (null antes da Ordem de Criação).
+ *  M1 (fix round 1): régua IGUAL ao board — trim, SEM lowercase (`criacao.desenvolvimento.tsx:480,
+ *  539-541`: `m.status_desenvolvimento && map.has(m.status_desenvolvimento)`, comparação EXATA).
+ *  `etapaDoModelo` da F2 também só faz trim; a Task 8 vai ter anti-drift contra ela — não trocar
+ *  para `normKey` (que faz lowercase) de novo sem atualizar esse anti-drift. */
 export function statusEfetivoFicha(statusSalvo: string | null | undefined, enviada: boolean, cfg: KanbanAutoConfig): string | null {
   if (!enviada) return null;
   const board = boardDaLoja(cfg);
-  const s = normKey(statusSalvo);
+  const s = String(statusSalvo ?? "").trim();
   return board.some((c) => c.key === s) ? s : (board[0]?.key ?? null);
 }
 
 /** Campo REF visível na seção "Desenvolvimento"? Mesma régua do Dev (`refCampoVisivel`), com a posição
- *  DERIVADA quando a chave está ligada (decisão 10). Sem etapa (antes da Ordem de Criação) = escondido. */
+ *  DERIVADA quando a chave está ligada (decisão 10). Sem etapa (antes da Ordem de Criação) = escondido.
+ *  M3 (fix round 1): `statusEfetivo` aqui é o **status CRU** do modelo (enviada ? statusSalvo : null),
+ *  NÃO a coluna EFETIVA do board (`statusEfetivoFicha`, que já cai na 1ª coluna se nulo/órfão) — mesma
+ *  fonte que o Dev usa (`ModeloDetailPanel.tsx curStatus`) e o SQL (`_ref_exibir_gate(…,
+ *  _kanban_status_gate(…, status_desenvolvimento))`, migration 20260930140000). O nome do parâmetro
+ *  ficou como estava (evita renomear a assinatura pública) — quem chama é quem decide QUAL status
+ *  passar; o `useFichaKanban` passa o cru. */
 export function refVisivelFicha(o: {
   cfg: KanbanAutoConfig;
   refExibirStatus: string | null | undefined;

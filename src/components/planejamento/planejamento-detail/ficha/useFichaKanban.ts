@@ -12,7 +12,7 @@ import {
   derivarModelo, lerKanbanAutoConfig, type Derivacao, type KanbanAutoConfig, type ModeloKanban,
 } from "@/lib/kanban-auto";
 import { lerRevendaConfig, type RevendaConfig } from "@/lib/revenda-config";
-import { refVisivelFicha, statusEfetivoFicha } from "./etapa-kanban";
+import { condProntasFicha, refVisivelFicha, statusEfetivoFicha } from "./etapa-kanban";
 
 export type FichaKanban = {
   kanbanCfg: KanbanAutoConfig;
@@ -20,7 +20,10 @@ export type FichaKanban = {
   refExibirStatus: string | null;
   /** Condições do card (RPC avaliar_condicoes_kanban) — {} enquanto não carregou ou fora do kanban. */
   cond: Record<string, boolean>;
-  /** Condições carregadas (e o card está no kanban). O "Mover para…" só abre com isto. */
+  /** Config da loja (`tenant_config`) carregada. */
+  cfgPronta: boolean;
+  /** Condições carregadas E config da loja carregada (e o card está no kanban). O "Mover
+   *  para…" só abre com isto — ver I1 do fix round 1. */
   condProntas: boolean;
   modeloKanban: ModeloKanban;
   statusSalvo: string | null;
@@ -38,7 +41,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   lancado: boolean;
 }): FichaKanban {
   const tenantId = useActiveTenantId();
-  const { data: cfgRow } = useQuery({
+  const { data: cfgRow, isSuccess: cfgOk } = useQuery({
     queryKey: ["tenant-plan-ficha-config", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -47,12 +50,14 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
       return (data ?? null) as Record<string, unknown> | null;
     },
   });
+  /** Config da loja carregada (mesma régua de "pronto" que `condOk`, mas p/ `tenant_config`). */
+  const cfgPronta = !!tenantId && cfgOk;
   const kanbanCfg = useMemo(() => lerKanbanAutoConfig(cfgRow ?? null), [cfgRow]);
   const revendaCfg = useMemo(() => lerRevendaConfig(cfgRow ?? null), [cfgRow]);
   const refExibirStatus = (cfgRow?.ref_exibir_status as string | null | undefined) ?? null;
 
   const noKanban = !!modeloId && enviada && !lancado;
-  const { data: condData, isSuccess } = useQuery({
+  const { data: condData, isSuccess: condOk } = useQuery({
     queryKey: ["plan-kanban-cond", modeloId],
     enabled: noKanban,
     queryFn: async () => {
@@ -62,16 +67,28 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
     },
   });
   const cond = condData ?? {};
-  const condProntas = noKanban && isSuccess;
+  // I1 (fix round 1): ver `condProntasFicha` (etapa-kanban.ts) — precisa das DUAS queries
+  // prontas (condições E config da loja), não só das condições.
+  const condProntas = condProntasFicha({ noKanban, condOk, cfgOk: cfgPronta });
 
   const row = (modeloData ?? null) as { origem?: string | null; status_desenvolvimento?: string | null } | null;
   const statusSalvo = row?.status_desenvolvimento ?? null;
   const modeloKanban: ModeloKanban = { origem: row?.origem ?? null, status_desenvolvimento: statusSalvo, ordem_criacao_enviada: enviada, lancado };
   const derivacao = kanbanCfg.kanban_automatico && condProntas ? derivarModelo(modeloKanban, kanbanCfg, cond) : null;
   const statusEfetivo = statusEfetivoFicha(statusSalvo, enviada, kanbanCfg);
+  // M3 (fix round 1): o gate da REF usa o status CRU (enviada ? statusSalvo : null), NÃO o
+  // status EFETIVO (que já cai na 1ª coluna se nulo/órfão) — mesma fonte do Dev
+  // (`ModeloDetailPanel.tsx` `curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase()`)
+  // e do SQL (`_ref_exibir_gate(tenant_id, _kanban_status_gate(tenant_id, id,
+  // NEW.status_desenvolvimento))`, migration 20260930140000). `statusParaGate` já lida com a
+  // posição DERIVADA quando a chave está ligada (decisão 10) — aqui só trocamos a ENTRADA dele.
+  const statusCru = enviada ? statusSalvo : null;
   return {
-    kanbanCfg, revendaCfg, refExibirStatus, cond, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
-    refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo, derivacao }),
-    isReprovado: statusEfetivo === "reprovado",
+    kanbanCfg, revendaCfg, refExibirStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
+    refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao }),
+    // M2 (fix round 1): modelo LANÇADO sai do fluxo normal (vai só pra coluna terminal
+    // "Lançado" no board, criacao.desenvolvimento.tsx:538) — nunca é "Reprovado" mesmo que o
+    // status salvo/efetivo tenha ficado nessa coluna antes de lançar.
+    isReprovado: !lancado && statusEfetivo === "reprovado",
   };
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Derivacao, KanbanAutoConfig } from "@/lib/kanban-auto";
 import {
-  mensagemBloqueioHoje, opcoesMoverHoje, podeEntrarHoje, refVisivelFicha, statusEfetivoFicha,
+  condProntasFicha, mensagemBloqueioHoje, opcoesMoverHoje, podeEntrarHoje, refVisivelFicha, statusEfetivoFicha,
 } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
 
 // F3.1 — etapa do card no Sheet unificado. `podeEntrarHoje` é o espelho do `podeEntrar` do board
@@ -15,11 +15,12 @@ describe("statusEfetivoFicha (≡ coluna onde o board mostra o card)", () => {
   it("antes da Ordem de Criação não há etapa", () => {
     expect(statusEfetivoFicha("em_pilotagem", false, cfg())).toBeNull();
   });
-  it("status nulo, órfão ou vazio cai na 1ª coluna; válido fica; normaliza caixa/espaço", () => {
+  it("status nulo, órfão ou vazio cai na 1ª coluna; válido fica; só normaliza ESPAÇO (≡ board — comparação EXATA de caixa, criacao.desenvolvimento.tsx:480,539-541)", () => {
     expect(statusEfetivoFicha(null, true, cfg())).toBe("em_modelagem");
     expect(statusEfetivoFicha("coluna_removida", true, cfg())).toBe("em_modelagem");
     expect(statusEfetivoFicha("stand_by", true, cfg())).toBe("stand_by");
-    expect(statusEfetivoFicha(" Stand_By ", true, cfg())).toBe("stand_by");
+    // Caixa errada (mesmo após trim) é uma key ÓRFÃ pro board — cai na 1ª coluna, não normaliza.
+    expect(statusEfetivoFicha(" Stand_By ", true, cfg())).toBe("em_modelagem");
   });
   it("board customizado (labels) → 1ª coluna dele", () => {
     expect(statusEfetivoFicha(null, true, cfg({ status_kanban: ["Cadastro", "Aprovado"] }))).toBe("cadastro");
@@ -42,6 +43,27 @@ describe("refVisivelFicha (campo REF da seção 'Desenvolvimento')", () => {
     const d: Derivacao = { derivavel: true, entrada: "em_modelagem", alvo: "aprovado", resultado: "stand_by", fixado: true, primeiraFalha: null, faltando: [] };
     expect(refVisivelFicha({ cfg: cfg({ kanban_automatico: true }), refExibirStatus: null, statusEfetivo: "stand_by", derivacao: d })).toBe(true);
     expect(refVisivelFicha({ cfg: cfg({ kanban_automatico: false }), refExibirStatus: null, statusEfetivo: "stand_by", derivacao: d })).toBe(false);
+  });
+  // M3 (fix round 1): quem chama (useFichaKanban) passa o status CRU, não a coluna EFETIVA do
+  // board — aqui provamos que a função em si é sensível a essa diferença: uma key ÓRFÃ/fora do
+  // board (que a coluna EFETIVA já teria "corrigido" pra 1ª coluna) NÃO libera a REF sozinha.
+  it("status órfão/fora do board (não normalizado pra 1ª coluna) não libera a REF sem chegar em 'aprovado'", () => {
+    expect(refVisivelFicha({ cfg: cfg(), refExibirStatus: null, statusEfetivo: "coluna_removida", derivacao: null })).toBe(false);
+  });
+});
+
+describe("condProntasFicha (I1, fix round 1 — 'Mover para…' só abre com as DUAS queries prontas)", () => {
+  it("precisa do card estar no kanban E das duas queries (condições + config) terem chegado", () => {
+    expect(condProntasFicha({ noKanban: true, condOk: true, cfgOk: true })).toBe(true);
+  });
+  it("condições prontas mas config ainda não — NÃO está pronto (o bug do I1)", () => {
+    expect(condProntasFicha({ noKanban: true, condOk: true, cfgOk: false })).toBe(false);
+  });
+  it("config pronta mas condições ainda não — NÃO está pronto", () => {
+    expect(condProntasFicha({ noKanban: true, condOk: false, cfgOk: true })).toBe(false);
+  });
+  it("card fora do kanban — NÃO está pronto mesmo com as duas queries ok", () => {
+    expect(condProntasFicha({ noKanban: false, condOk: true, cfgOk: true })).toBe(false);
   });
 });
 
