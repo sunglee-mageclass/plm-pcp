@@ -66,10 +66,17 @@ export type ExplosaoEnvioGate = { ok: boolean; reqKey: string; reqLabel: string 
  *
  *  ⚠️ ESPELHO EXATO de `_explosao_envio_gate` (SQL, migration 20260817120000). Ao mudar a
  *  regra aqui, atualizar o `_core` no banco (e vice-versa). */
+/** Opções dos gates por posição (Kanban automático, decisão 10): quando `statusGate` vem preenchido, a
+ *  régua usa ELE (posição DERIVADA do card) em vez de `statusDesenvolvimento` (coluna onde está gravado).
+ *  Calcule com `statusParaGate(cfg.kanban_automatico, derivacao, status)` de `kanban-auto.ts`
+ *  (≡ `_kanban_status_gate` no SQL). Ausente/vazio ⇒ comportamento histórico. */
+export type GateOpts = { statusGate?: string | null };
+
 export function podeEnviarExplosao(
   statusKanbanRaw: any,
   explosaoEnvioStatus: string | null | undefined,
   statusDesenvolvimento: string | null | undefined,
+  opts?: GateOpts,
 ): ExplosaoEnvioGate {
   const rows = normalizeKanbanStatuses(statusKanbanRaw); // {key,label}[] em ordem
   const keys = rows.map((r) => r.key);
@@ -85,7 +92,8 @@ export function podeEnviarExplosao(
     cfgIdx = keys.indexOf(APROVADO_KEY);
   }
   const reqLabel = labelOf(reqKey);
-  const status = String(statusDesenvolvimento ?? "").trim().toLowerCase();
+  const gate = String(opts?.statusGate ?? "").trim();
+  const status = (gate !== "" ? gate : String(statusDesenvolvimento ?? "").trim()).toLowerCase();
   const curIdx = keys.indexOf(status);
 
   let ok: boolean;
@@ -107,8 +115,9 @@ export function refCampoVisivel(
   statusKanbanRaw: any,
   refExibirStatus: string | null | undefined,
   statusDesenvolvimento: string | null | undefined,
+  opts?: GateOpts,
 ): boolean {
-  return podeEnviarExplosao(statusKanbanRaw, refExibirStatus, statusDesenvolvimento).ok;
+  return podeEnviarExplosao(statusKanbanRaw, refExibirStatus, statusDesenvolvimento, opts).ok;
 }
 
 /** Rótulo da coluna do kanban de Desenvolvimento onde a LOJA VÊ o modelo, dado o

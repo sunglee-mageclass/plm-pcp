@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   boardDaLoja, colunaManual, derivarModelo, destinoDrop, entradaParaDerivacao, faltandoPara, fluxoDoModelo,
-  lerKanbanAutoConfig, mensagemDrop, reqsDoModelo, statusDerivado,
+  lerKanbanAutoConfig, mensagemDrop, reqsDoModelo, statusDerivado, statusParaGate,
 } from "@/lib/kanban-auto";
 import { CASOS, FLUXO_A, REQS_A } from "../fixtures/kanban-auto-casos";
 
@@ -122,5 +122,16 @@ describe("kanban-auto — mensagemDrop (labels do catálogo, plural PT-BR)", () 
     expect(mensagemDrop({ acao: "fixar", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
     expect(mensagemDrop({ acao: "soltar", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
     expect(mensagemDrop({ acao: "nada", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
+  });
+});
+
+describe("kanban-auto — statusParaGate (≡ _kanban_status_gate)", () => {
+  const d = { derivavel: true, entrada: "a", alvo: "c", resultado: "stand_by", fixado: true, primeiraFalha: null, faltando: [] };
+  it("chave desligada → status gravado", () => expect(statusParaGate(false, d, "stand_by")).toBe("stand_by"));
+  it("chave ligada + derivável → alvo (posição derivada)", () => expect(statusParaGate(true, d, "stand_by")).toBe("c"));
+  it("não derivável / sem derivação → status gravado", () => {
+    expect(statusParaGate(true, { ...d, derivavel: false, alvo: null }, "stand_by")).toBe("stand_by");
+    expect(statusParaGate(true, null, "stand_by")).toBe("stand_by");
+    expect(statusParaGate(true, null, undefined)).toBeNull();
   });
 });

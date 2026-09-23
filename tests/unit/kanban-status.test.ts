@@ -147,3 +147,21 @@ describe("labelColunaKanban — coluna do kanban p/ o badge de fase (item 1)", (
     expect(labelColunaKanban("em_ajuste", [])).toBe("Em Ajuste"); // default resolve
   });
 });
+
+describe("podeEnviarExplosao/refCampoVisivel — opts.statusGate (decisão 10: posição DERIVADA com a chave ligada)", () => {
+  const board = ["Desenho Técnico", "Em Negociação", "Em Modelagem", "Stand By", "Aprovado"];
+  it("sem opts: régua pelo status gravado (comportamento de hoje)", () => {
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by").ok).toBe(true);
+    expect(refCampoVisivel(board, "em_modelagem", "stand_by")).toBe(true);
+  });
+  it("com statusGate: a régua usa a posição derivada, não a coluna manual onde o card está fixado", () => {
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: "em_negociacao" }).ok).toBe(false);
+    expect(refCampoVisivel(board, "em_modelagem", "stand_by", { statusGate: "em_negociacao" })).toBe(false);
+    expect(podeEnviarExplosao(board, "em_modelagem", "desenho_tecnico", { statusGate: "aprovado" }).ok).toBe(true);
+  });
+  it("statusGate nulo/vazio é ignorado", () => {
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: null }).ok).toBe(true);
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", { statusGate: "  " }).ok).toBe(true);
+    expect(podeEnviarExplosao(board, "em_modelagem", "stand_by", {}).ok).toBe(true);
+  });
+});
