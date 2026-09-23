@@ -252,3 +252,95 @@ describe("kanban-auto — harness: semTransacao (Task 4)", () => {
     }
   });
 });
+
+// ─────────────────────────── Migration 1 — schema (Task 5) ───────────────────────────
+const INDICES_NOVOS = [
+  "idx_cad_tecidos_cad",
+  "idx_cad_tecido_variantes_cad_tecido",
+  "idx_cad_aviamentos_cad",
+  "idx_cad_etiquetas_cad",
+  "idx_modelo_aviamentos_modelo",
+];
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 1: schema (Task 5)", () => {
+  it("tenant_config.kanban_automatico: boolean NOT NULL default false e DESLIGADA em todas as lojas", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      const col = await um<{ data_type: string; is_nullable: string; column_default: string }>(
+        c,
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'tenant_config' AND column_name = 'kanban_automatico'`,
+      );
+      expect(col).toEqual({ data_type: "boolean", is_nullable: "NO", column_default: "false" });
+      const n = await um<{ ligadas: string; total: string }>(
+        c,
+        `SELECT count(*) FILTER (WHERE kanban_automatico) AS ligadas, count(*) AS total FROM public.tenant_config`,
+      );
+      expect(Number(n.total)).toBeGreaterThanOrEqual(6);
+      if (MIG_TXN) expect(n.ligadas).toBe("0");
+    });
+  });
+
+  it("os 5 índices que faltavam existem", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      const { rows } = await c.query(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1::text[]) ORDER BY 1`,
+        [INDICES_NOVOS],
+      );
+      expect(rows.map((r) => r.indexname)).toEqual([...INDICES_NOVOS].sort());
+    });
+  });
+
+  it("histórico ganhou origem (linhas antigas = 'manual', CHECK nos 4 valores) e lote_id", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      const r = await um<{ fora: string; sem_lote: string; total: string }>(
+        c,
+        `SELECT count(*) FILTER (WHERE origem <> 'manual') AS fora,
+                count(*) FILTER (WHERE lote_id IS NULL) AS sem_lote, count(*) AS total
+           FROM public.modelo_kanban_historico`,
+      );
+      if (MIG_TXN) {
+        expect(r.fora).toBe("0");
+        expect(r.sem_lote).toBe(r.total);
+      }
+      await c.query("SAVEPOINT chk");
+      await expect(
+        c.query(`UPDATE public.modelo_kanban_historico SET origem = 'xyz' WHERE id = (SELECT id FROM public.modelo_kanban_historico LIMIT 1)`),
+      ).rejects.toMatchObject({ code: "23514" });
+      await c.query("ROLLBACK TO SAVEPOINT chk");
+    });
+  });
+
+  it("kanban_recalculo_fila e kanban_snapshot: RLS ligada, SEM policy, SEM grant p/ anon/authenticated", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      for (const t of ["kanban_recalculo_fila", "kanban_snapshot"]) {
+        const r = await um<{ rls: boolean; pols: string; anon: boolean; auth: boolean }>(
+          c,
+          `SELECT c.relrowsecurity AS rls,
+                  (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) AS pols,
+                  has_table_privilege('anon', c.oid, 'SELECT,INSERT,UPDATE,DELETE') AS anon,
+                  has_table_privilege('authenticated', c.oid, 'SELECT,INSERT,UPDATE,DELETE') AS auth
+             FROM pg_class c WHERE c.oid = ('public.' || $1)::regclass`,
+          [t],
+        );
+        expect(r, t).toEqual({ rls: true, pols: "0", anon: false, auth: false });
+      }
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("idempotente: aplicar a migration 1 de novo não falha nem duplica nada", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await aplicarArquivo(c, MIGRACOES[0]);
+      const r = await um<{ n: string }>(
+        c,
+        `SELECT count(*) AS n FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1::text[])`,
+        [INDICES_NOVOS],
+      );
+      expect(r.n).toBe("5");
+    });
+  });
+});
