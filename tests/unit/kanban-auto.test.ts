@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  boardDaLoja, colunaManual, derivarModelo, entradaParaDerivacao, fluxoDoModelo, lerKanbanAutoConfig,
-  reqsDoModelo, statusDerivado,
+  boardDaLoja, colunaManual, derivarModelo, destinoDrop, entradaParaDerivacao, faltandoPara, fluxoDoModelo,
+  lerKanbanAutoConfig, mensagemDrop, reqsDoModelo, statusDerivado,
 } from "@/lib/kanban-auto";
-import { CASOS } from "../fixtures/kanban-auto-casos";
+import { CASOS, FLUXO_A, REQS_A } from "../fixtures/kanban-auto-casos";
 
 describe("kanban-auto — statusDerivado (fixtures compartilhadas com o SQL)", () => {
   for (const c of CASOS) {
@@ -77,5 +77,50 @@ describe("kanban-auto — config e fluxo", () => {
     expect(derivarModelo(modelo, cfg, { data_aprovacao: true }).resultado).toBe("aprovado");
     expect(derivarModelo({ ...modelo, lancado: true }, cfg, {}).derivavel).toBe(false);
     expect(derivarModelo({ ...modelo, ordem_criacao_enviada: false }, cfg, {}).derivavel).toBe(false);
+  });
+});
+
+describe("kanban-auto — destinoDrop (tabela única de arraste, fixtures compartilhadas)", () => {
+  for (const c of CASOS) {
+    for (const a of c.arrastes) {
+      it(`${c.nome} → arrastar para "${a.para}" = ${a.acao}`, () => {
+        expect(destinoDrop(c.input, a.para)).toEqual({ acao: a.acao, status: a.status, faltando: a.faltando });
+      });
+    }
+  }
+
+  it("faltandoPara: com exceção, junta o que falta nas colunas anteriores (não pula etapa)", () => {
+    const input = { fluxo: ["a", "b", "c"], reqs: { a: ["x"], b: ["y"], c: ["z"] }, exc: { c: ["y"] }, cond: { x: true, z: true }, status: "a", derivavel: true };
+    expect(faltandoPara(input, "c")).toEqual(["y"]);
+    expect(faltandoPara(input, "a")).toEqual([]); // antes da 1ª falha
+    expect(faltandoPara({ ...input, cond: { x: true, y: true, z: true } }, "c")).toEqual([]); // nada falha
+  });
+
+  it("faltandoPara dedup e ordem de aparição", () => {
+    const input = { fluxo: FLUXO_A, reqs: { ...REQS_A, c: ["z", "x"] }, exc: {}, cond: {}, status: null, derivavel: true };
+    expect(faltandoPara(input, "c")).toEqual(["x", "y", "z"]);
+  });
+});
+
+describe("kanban-auto — mensagemDrop (labels do catálogo, plural PT-BR)", () => {
+  const fluxo = [{ key: "em_modelagem", label: "Em Modelagem" }, { key: "aprovado", label: "Aprovado" }];
+  it("1 dado → singular com o label do catálogo", () => {
+    expect(mensagemDrop({ acao: "bloquear_faltando", status: null, faltando: ["data_piloto1"] }, "aprovado", fluxo))
+      .toBe("Falta 1 dado para completar: Data de Piloto I preenchida");
+  });
+  it("N dados → plural, labels na ordem", () => {
+    expect(mensagemDrop({ acao: "bloquear_faltando", status: null, faltando: ["data_piloto1", "modelista_definido"] }, "aprovado", fluxo))
+      .toBe("Faltam 2 dados para completar: Data de Piloto I preenchida, Modelista definido");
+  });
+  it("key desconhecida cai na própria key", () => {
+    expect(mensagemDrop({ acao: "bloquear_faltando", status: null, faltando: ["xyz"] }, "aprovado", fluxo)).toBe("Falta 1 dado para completar: xyz");
+  });
+  it("já cumpre usa o label da coluna; fora do fluxo usa a key; demais ações → null", () => {
+    expect(mensagemDrop({ acao: "bloquear_ja_cumprida", status: "x", faltando: [] }, "em_modelagem", fluxo))
+      .toBe('O card já cumpre "Em Modelagem". Para segurá-lo numa etapa, use uma coluna manual.');
+    expect(mensagemDrop({ acao: "fora_do_fluxo", status: "x", faltando: [] }, "zzz", fluxo)).toBe('A etapa "zzz" não faz parte do fluxo deste modelo.');
+    expect(mensagemDrop({ acao: "fixar", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
+    expect(mensagemDrop({ acao: "soltar", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
+    expect(mensagemDrop({ acao: "nada", status: "x", faltando: [] }, "em_modelagem", fluxo)).toBeNull();
   });
 });
