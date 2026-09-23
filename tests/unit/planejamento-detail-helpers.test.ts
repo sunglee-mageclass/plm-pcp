@@ -7,6 +7,7 @@ import {
   textoOuNull,
   aplicarRegrasCamposDev,
   camposParaDuplicar,
+  draftParaSalvar,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -72,7 +73,7 @@ describe("rotuloConflitoPlan — campos da F3.1", () => {
     expect(rotuloConflitoPlan("data_aprovacao")).toBe("Data Aprovação");
     expect(rotuloConflitoPlan("observacoes_tecnicas")).toBe("Observações Técnicas");
     expect(rotuloConflitoPlan("motivo_cancelamento")).toBe("Motivo do cancelamento");
-    expect(rotuloConflitoPlan("ficha_medida_url")).toBe("Ficha de Medida");
+    expect(rotuloConflitoPlan("ficha_medida_url")).toBe("Ficha de Medidas");
     expect(rotuloConflitoPlan("descricao_produto")).toBe("Descrição do produto");
   });
 });
@@ -106,9 +107,13 @@ describe("aplicarRegrasCamposDev", () => {
     const p = aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: true, refEditavel: false });
     expect(p.modelista_id).toBe("m1");
     expect(p.piloteiro1_id).toBeNull();
+    expect(p.piloteiro2_id).toBeNull();
+    expect(p.piloteiro3_id).toBeNull();
     expect(p.data_piloto1).toBe("2026-09-12");
     expect(p.data_piloto2).toBeNull();
+    expect(p.data_piloto3).toBeNull();
     expect(p.data_desenho_tecnico).toBeNull();
+    expect(p.data_aprovacao).toBeNull();
     expect(p.observacoes_tecnicas).toBeNull();
     expect(p.observacoes_gerais).toBeNull();
     expect(p.ficha_medida_url).toBeNull();
@@ -128,13 +133,18 @@ describe("aplicarRegrasCamposDev", () => {
     const v = { ...d, ref: "   " };
     expect(aplicarRegrasCamposDev({ ...v }, v, { podeEditarDev: true, refEditavel: true }).ref).toBeNull();
   });
-  it("nunca põe a etapa no payload e não muta a entrada", () => {
+  // A garantia "a etapa nunca vai no payload" vem do TIPO, não desta função: `Draft` não tem
+  // `status_desenvolvimento` (Task 2, decisão de escopo — ver modelo-shared.ts) e o chamador
+  // (usePlanejamentoSave.ts) só espalha campos do Draft no payload. Simular uma entrada COM
+  // essa chave testaria um filtro que `aplicarRegrasCamposDev` não implementa (ela só toca
+  // `CAMPOS_DEV_DRAFT` + `ref`; qualquer outra chave do payload passa intocada) — seria um
+  // teste FALSO. O que resta a testar aqui é a pureza: não muta a entrada recebida.
+  it("é pura: não muta o objeto `payload` recebido", () => {
     const d = base();
     const entrada: Record<string, unknown> = { ...d };
-    const p = aplicarRegrasCamposDev(entrada, d, { podeEditarDev: false, refEditavel: false });
-    expect(p).not.toHaveProperty("status_desenvolvimento");
-    expect(entrada).toHaveProperty("modelista_id");
-    expect(entrada).toHaveProperty("ref");
+    const antes = { ...entrada };
+    aplicarRegrasCamposDev(entrada, d, { podeEditarDev: false, refEditavel: false });
+    expect(entrada).toEqual(antes);
   });
 });
 
@@ -158,5 +168,48 @@ describe("camposParaDuplicar (decisão F3 #9)", () => {
   });
   it("Descrição só-espaço vira NULL na cópia", () => {
     expect(camposParaDuplicar({ ...emptyDraft(), descricao_produto: "  " }).descricao_produto).toBeNull();
+  });
+});
+
+// Fix round 1 (T2) — retry do P0409 mandava um rascunho VELHO: `mutationFn` fechava sobre o
+// `draft` do render em que o hook foi criado; `save.mutate()` chamado de dentro do `onError`
+// (antes do próximo re-render) via o mesmo closure reenviava esse draft velho, sobrescrevendo
+// no banco os campos que o merge tinha acabado de adotar do outro usuário. `draftParaSalvar`
+// isola a semântica "prefira o ref vivo" que resolve isto (receita do Dev), sem precisar
+// montar o hook/mutation inteiro para testar.
+describe("draftParaSalvar (fix round 1 — retry do P0409 usa o rascunho vivo)", () => {
+  it("com o ref vivo preenchido, usa o ref (não o draft capturado)", () => {
+    const capturado: Draft = { ...emptyDraft(), nome: "capturado (velho)" };
+    const vivo: Draft = { ...emptyDraft(), nome: "vivo (pós-merge)" };
+    expect(draftParaSalvar(vivo, capturado)).toBe(vivo);
+    expect(draftParaSalvar(vivo, capturado).nome).toBe("vivo (pós-merge)");
+  });
+  it("sem ref (null/undefined), cai no draft capturado", () => {
+    const capturado: Draft = { ...emptyDraft(), nome: "capturado" };
+    expect(draftParaSalvar(null, capturado)).toBe(capturado);
+    expect(draftParaSalvar(undefined, capturado)).toBe(capturado);
+  });
+  it("fluxo simulado 'setDraft → mutate → mutationFn lê o ref': o mock de draftLiveRef.current\n" +
+     "   muda ENTRE a criação do closure e a chamada da mutationFn, como no retry real", () => {
+    // Simula o padrão real: um objeto ref mutável que o componente atualiza a cada render
+    // (`draftLiveRef.current = draft`) e que o onError atualiza de novo, SÍNCRONO, após o
+    // merge (`draftLiveRef.current = md.valor`) — ANTES de chamar save.mutate() de novo.
+    const ref: { current: Draft | null } = { current: null };
+    const draftDoRenderQueCriouOHook: Draft = { ...emptyDraft(), nome: "render 1 (velho)" };
+    ref.current = draftDoRenderQueCriouOHook; // 1º render: ref reflete o draft
+
+    // "mutationFn" é uma closure que fecha sobre `draftDoRenderQueCriouOHook` (o `draft` do
+    // primeiro render) mas lê `ref.current` na hora de montar o payload — exatamente como
+    // `usePlanejamentoSave`.
+    const mutationFn = () => draftParaSalvar(ref.current, draftDoRenderQueCriouOHook);
+
+    // setDraft(md.valor) do merge no onError + o espelho síncrono (draftLiveRef.current =
+    // md.valor) — SEM esperar o próximo render, como a correção exige.
+    const draftPosMerge: Draft = { ...emptyDraft(), nome: "pós-merge (adotado do outro usuário)" };
+    ref.current = draftPosMerge;
+
+    // O retry (save.mutate() dentro do onError) chama a MESMA mutationFn de novo, ainda
+    // fechada sobre o draft do 1º render — mas o payload tem que refletir o pós-merge.
+    expect(mutationFn().nome).toBe("pós-merge (adotado do outro usuário)");
   });
 });

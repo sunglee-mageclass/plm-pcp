@@ -13,7 +13,7 @@ import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
-import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar } from "@/components/planejamento/planejamento-detail/helpers";
 import { syncTecidosToDesenvolvimento } from "@/components/planejamento/planejamento-detail/sync-tecidos";
 
 export type UsePlanejamentoSaveArgs = {
@@ -73,19 +73,22 @@ export function usePlanejamentoSave({
       // versão da outra pessoa em silêncio).
       if (conflitosRef.current.length > 0)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix, receita do Dev — ver
+      // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica).
+      const d = draftParaSalvar(draftLiveRef.current, draft);
       // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
       // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
       // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
       const payload: any = aplicarRegrasCamposDev({
-        ...draft,
-        croqui_url: draft.croqui_url || null,
-        desenho_tecnico_url: draft.desenho_tecnico_url || null,
-        data_lancamento: draft.data_lancamento || null,
-        observacoes_mao_obra: draft.observacoes_mao_obra || null,
-        custo_simulado: limparCustoSim(draft.custo_simulado),
+        ...d,
+        croqui_url: d.croqui_url || null,
+        desenho_tecnico_url: d.desenho_tecnico_url || null,
+        data_lancamento: d.data_lancamento || null,
+        observacoes_mao_obra: d.observacoes_mao_obra || null,
+        custo_simulado: limparCustoSim(d.custo_simulado),
         // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
-        descricao_produto: textoOuNull(draft.descricao_produto),
-      }, draft, { podeEditarDev, refEditavel });
+        descricao_produto: textoOuNull(d.descricao_produto),
+      }, d, { podeEditarDev, refEditavel });
       // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
       // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
       // markup/OC (`_pa_recomputar_precos_modelo`), nunca mais digitados aqui. NÃO reenviar
@@ -103,11 +106,11 @@ export function usePlanejamentoSave({
         // por OUTRO campo não deve reenviar o valor herdado do `...draft` (o trigger
         // fn_modelo_preco_venda_gate barraria com 42501, quebrando o save inteiro).
         if (podeEditarPreco) {
-          payload.preco_venda = numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null;
+          payload.preco_venda = numOr0(d.preco_venda) > 0 ? numOr0(d.preco_venda) : null;
         } else {
           delete payload.preco_venda;
         }
-        payload.preco_atacado = numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null;
+        payload.preco_atacado = numOr0(d.preco_atacado) > 0 ? numOr0(d.preco_atacado) : null;
       }
       let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
@@ -164,13 +167,13 @@ export function usePlanejamentoSave({
           conflito.code = "P0409";
           throw conflito;
         }
-        await syncTecidosToDesenvolvimento(modeloId, draft.tecidos_planejados);
+        await syncTecidosToDesenvolvimento(modeloId, d.tecidos_planejados);
       } else {
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto.
         const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
         if (error) throw error;
         savedId = inserted?.id ?? null;
-        if (savedId) await syncTecidosToDesenvolvimento(savedId, draft.tecidos_planejados);
+        if (savedId) await syncTecidosToDesenvolvimento(savedId, d.tecidos_planejados);
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
         // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
         // uniformidade/robustez futura, mesma RPC. Linha nova = sem concorrência possível,
@@ -211,7 +214,7 @@ export function usePlanejamentoSave({
       // corrida de save duplo) é capturado e NUNCA quebra o save do card — o "Modelo salvo"
       // já é verdade nesse ponto (header + MO já persistiram).
       let autoProduto: { criou: boolean; semColecao: boolean } | null = null;
-      if (savedId && draft.origem === "revenda" && paOn) {
+      if (savedId && d.origem === "revenda" && paOn) {
         try {
           const { data: existente } = await supabase
             .from("produtos_acabados" as any)
@@ -219,20 +222,20 @@ export function usePlanejamentoSave({
             .eq("modelo_id", savedId)
             .maybeSingle();
           if (!existente) {
-            const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+            const cat = categorias.find((c) => c.id === d.categoria_principal_id);
             const grupoId = cat?.grupo_id ?? null;
-            if (grupoId && draft.categoria_principal_id) {
+            if (grupoId && d.categoria_principal_id) {
               const { data: novoProdutoId, error: paErr } = await supabase.rpc("salvar_produto_acabado" as any, {
                 _id: null,
                 _dados: {
-                  nome: draft.nome,
+                  nome: d.nome,
                   grupo_id: grupoId,
-                  categoria_id: draft.categoria_principal_id,
-                  subcategoria1_id: draft.subcategoria1_id,
-                  subcategoria2_id: draft.subcategoria2_id,
-                  colecao_id: draft.colecao_id,
-                  subcolecao: draft.subcolecao || null,
-                  semana: draft.semana || null,
+                  categoria_id: d.categoria_principal_id,
+                  subcategoria1_id: d.subcategoria1_id,
+                  subcategoria2_id: d.subcategoria2_id,
+                  colecao_id: d.colecao_id,
+                  subcolecao: d.subcolecao || null,
+                  semana: d.semana || null,
                 },
                 _variantes: [],
               });
@@ -240,14 +243,17 @@ export function usePlanejamentoSave({
               const { error: linkErr } = await (supabase.from("produtos_acabados" as any) as any)
                 .update({ modelo_id: savedId }).eq("id", novoProdutoId);
               if (linkErr) throw linkErr;
-              autoProduto = { criou: true, semColecao: !draft.colecao_id };
+              autoProduto = { criou: true, semColecao: !d.colecao_id };
             }
           }
         } catch (autoErr) {
           console.error("Auto-criação do produto acabado (revenda) falhou — save do card mantido:", autoErr);
         }
       }
-      return { autoProduto };
+      // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
+      // o `onSuccess` abaixo usa este (não o `draft` do closure do render que chamou
+      // `save.mutate`) pra fixar `baseRef`/decidir invalidations, mesma razão do `d` acima.
+      return { autoProduto, savedDraft: d };
     },
     onSuccess: (result) => {
       toast.success("Modelo salvo");
@@ -266,7 +272,11 @@ export function usePlanejamentoSave({
       // sem staleTime — default 0), mas isto fecha o buraco se o Sheet permanecer montado
       // durante o save (reabertura rápida) e mantém paridade com `invalidarVizinhos` do sentido
       // inverso (`ProdutoCard.tsx`, PA → Planejamento).
-      if (draft.origem === "revenda") {
+      // `savedDraft` = o rascunho REALMENTE enviado ao servidor (bug-fix acima) — usar o
+      // `draft` do closure aqui reabriria a mesma janela (onSuccess roda depois de um
+      // possível novo render durante o `await`, então `draft` já pode ter avançado de novo).
+      const savedDraft = result?.savedDraft ?? draft;
+      if (savedDraft.origem === "revenda") {
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
         qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
       }
@@ -274,8 +284,9 @@ export function usePlanejamentoSave({
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime (meu
       // próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev real
       // (bumpado no servidor) chega no próximo refetch — o merge effect processa em silêncio
-      // (base≈fresh, sem conflitos) e avança `revRef`.
-      baseRef.current = { draft };
+      // (base≈fresh, sem conflitos) e avança `revRef`. `savedDraft` (não o `draft` do closure,
+      // que pode ter avançado durante o `await`) é a verdade do que está no servidor agora.
+      baseRef.current = { draft: savedDraft };
       touchedRef.current = new Set();
       conflitosRef.current = [];
       setConflitos([]);
@@ -343,7 +354,14 @@ export function usePlanejamentoSave({
           const liveDraft = draftLiveRef.current;
           const base = baseRef.current ?? { draft: freshDraft };
           const md = mergeDraft({ base: base.draft, draft: liveDraft, fresh: freshDraft, touched: touchedRef.current });
-          if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
+          if (md.atualizados.length > 0 || md.conflitos.length > 0) {
+            setDraft(md.valor);
+            // Espelho SÍNCRONO (receita do Dev, ModeloDetailPanel.tsx:2295-2297): o retry
+            // (save.mutate logo abaixo) roda ANTES do próximo re-render — o mutationFn lê
+            // `draftLiveRef.current`, que precisa já conter os campos ADOTADOS do merge (o
+            // `setDraft` acima só reflete no ref no useEffect do PRÓXIMO commit).
+            draftLiveRef.current = md.valor;
+          }
           conflitosRef.current = md.conflitos;
           setConflitos(md.conflitos);
           setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });

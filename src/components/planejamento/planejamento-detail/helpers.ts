@@ -26,7 +26,7 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   data_piloto1: "Data Piloto 1", data_piloto2: "Data Piloto 2", data_piloto3: "Data Piloto 3",
   data_desenho_tecnico: "Data Desenho Técnico", data_aprovacao: "Data Aprovação",
   observacoes_tecnicas: "Observações Técnicas", motivo_cancelamento: "Motivo do cancelamento",
-  ficha_medida_url: "Ficha de Medida", descricao_produto: "Descrição do produto",
+  ficha_medida_url: "Ficha de Medidas", descricao_produto: "Descrição do produto",
 };
 export function rotuloConflitoPlan(path: string): string {
   return ROTULO_CONFLITO_PLAN[path] ?? path;
@@ -131,4 +131,19 @@ export function camposParaDuplicar(draft: Draft): Record<string, unknown> {
   for (const k of CAMPOS_DEV_DRAFT) if (k !== "observacoes_gerais") delete out[k];
   out.descricao_produto = textoOuNull(draft.descricao_produto);
   return out;
+}
+
+/**
+ * Fonte do payload do Salvar (fix round 1, T2): o ESPELHO ao vivo do draft, NÃO o draft
+ * capturado no closure do render (receita do Dev, ModeloDetailPanel.tsx:1849-1853). No
+ * retry pós-P0409, `save.mutate()` é chamado de dentro do `onError` — o React ainda não
+ * re-renderizou entre o `setDraft(md.valor)` do merge e essa chamada, então o `draft` do
+ * closure da mutation (fixado quando o hook foi criado) está ANTERIOR ao merge. Ler do ref
+ * (atualizado SINCRONAMENTE a cada render E, no onError, logo após o merge) garante que o
+ * retry envia os campos ADOTADOS do outro usuário — sem isto, o retry reverteria em
+ * silêncio o que o Dev acabou de salvar. Fora do retry, `draftLiveRef.current === draft`
+ * (mesmo valor, semântica idêntica a antes).
+ */
+export function draftParaSalvar(draftLiveRefCurrent: Draft | null | undefined, draft: Draft): Draft {
+  return draftLiveRefCurrent ?? draft;
 }
