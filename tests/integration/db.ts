@@ -26,11 +26,32 @@ export function dbUrl(): string | null {
 
 export const hasDb = !!dbUrl();
 
+/**
+ * true quando o banco em uso é a CÓPIA LOCAL (Docker em localhost/127.0.0.1 — ver
+ * `PLM + Criação/banco-local/`). Testes que aplicam DDL/migration SÓ podem rodar nela:
+ * DDL em transação contra produção trava o app de todas as lojas mesmo com ROLLBACK
+ * (incidente 23/set/2026 — AccessExclusive em tenant_config).
+ */
+export function ehBancoLocal(): boolean {
+  const url = dbUrl();
+  if (!url) return false;
+  try {
+    return ["localhost", "127.0.0.1", "::1"].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** A cópia local (Docker) não tem SSL; produção (pooler do Supabase) exige. */
+function sslDoBanco(): false | { rejectUnauthorized: boolean } {
+  return ehBancoLocal() ? false : { rejectUnauthorized: false };
+}
+
 type TxFn = (c: Client) => Promise<void>;
 
 /** Abre conexão, BEGIN, roda fn, e SEMPRE faz ROLLBACK + fecha. */
 export async function withTx(fn: TxFn): Promise<void> {
-  const client = new Client({ connectionString: dbUrl()!, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: dbUrl()!, ssl: sslDoBanco() });
   await client.connect();
   try {
     await client.query("BEGIN");
