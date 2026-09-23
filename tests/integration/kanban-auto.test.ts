@@ -441,3 +441,92 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 2A: _kanban_status_rows_raw 
     });
   });
 });
+
+// ─────────────── Migration 2B — derivação pura: ANTI-DRIFT TS × SQL (Task 8) ───────────────
+type Entrada = { fluxo: string[]; reqs: Record<string, string[]>; exc: Record<string, string[]>; cond: Record<string, boolean>; status: string | null; derivavel: boolean };
+const argsPuros = (i: Entrada) => [i.fluxo, JSON.stringify(i.reqs), JSON.stringify(i.exc), JSON.stringify(i.cond), i.status, i.derivavel];
+
+async function derivarSql(c: Client, i: Entrada) {
+  return (await um<{ d: unknown }>(c,
+    `SELECT public._kanban_derivar_puro($1::text[], $2::jsonb, $3::jsonb, $4::jsonb, $5, $6) AS d`, argsPuros(i))).d;
+}
+async function dropSql(c: Client, i: Entrada, para: string) {
+  return (await um<{ d: unknown }>(c,
+    `SELECT public._kanban_destino_drop_puro($1::text[], $2::jsonb, $3::jsonb, $4::jsonb, $5, $6, $7) AS d`, [...argsPuros(i), para])).d;
+}
+async function faltandoSql(c: Client, i: Entrada, para: string) {
+  return (await um<{ f: string[] }>(c,
+    `SELECT public._kanban_faltando_para($1::text[], $2::jsonb, $3::jsonb, $4::jsonb, $5, $6, $7) AS f`, [...argsPuros(i), para])).f;
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 2B: anti-drift TS×SQL com as fixtures (Task 8)", () => {
+  it("_kanban_derivar_puro ≡ fixture ≡ statusDerivado, e _kanban_destino_drop_puro ≡ fixture ≡ destinoDrop (TODOS os casos)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      for (const caso of CASOS) {
+        expect(await derivarSql(c, caso.input), caso.nome).toEqual(caso.esperado);
+        expect(statusDerivado(caso.input), `${caso.nome} (TS)`).toEqual(caso.esperado);
+        for (const a of caso.arrastes) {
+          const esperado = { acao: a.acao, status: a.status, faltando: a.faltando };
+          expect(await dropSql(c, caso.input, a.para), `${caso.nome} → ${a.para}`).toEqual(esperado);
+          expect(destinoDrop(caso.input, a.para), `${caso.nome} → ${a.para} (TS)`).toEqual(esperado);
+        }
+      }
+    });
+  });
+
+  it("_kanban_faltando_para ≡ faltandoPara (exceção, dedup/ordem, nada falha, antes da 1ª falha)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const exc: Entrada = { fluxo: ["a", "b", "c"], reqs: { a: ["x"], b: ["y"], c: ["z"] }, exc: { c: ["y"] }, cond: { x: true, z: true }, status: "a", derivavel: true };
+      const dedup: Entrada = {
+        fluxo: ["entrada", "a", "b", "stand_by", "c", "reprovado", "d"],
+        reqs: { a: ["x"], b: ["y"], c: ["z", "x"], d: ["w"] }, exc: {}, cond: {}, status: null, derivavel: true,
+      };
+      const casos: [Entrada, string][] = [
+        [exc, "c"], [exc, "a"], [{ ...exc, cond: { x: true, y: true, z: true } }, "c"], [dedup, "c"], [dedup, "d"], [dedup, "zzz"],
+      ];
+      for (const [i, para] of casos) {
+        expect(await faltandoSql(c, i, para), `${JSON.stringify(i.cond)} → ${para}`).toEqual(faltandoPara(i, para));
+      }
+      expect(await faltandoSql(c, exc, "c")).toEqual(["y"]);
+      expect(await faltandoSql(c, dedup, "c")).toEqual(["x", "y", "z"]);
+    });
+  });
+
+  it("_kanban_fluxo ≡ boardDaLoja/fluxoDoModelo (config sintética com lixo + configs REAIS das lojas)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const sintetica = {
+        status_kanban: ["Em Modelagem", "Stand By", "Em Modelagem", { key: "aprovado", label: "Aprovado" }, 42],
+        revenda_kanban_colunas: ["stand_by", "aprovado", 7],
+      };
+      const { rows: reais } = await c.query(`SELECT tenant_id, status_kanban, revenda_kanban_colunas FROM public.tenant_config`);
+      for (const cfgRaw of [sintetica, ...reais, { status_kanban: [] }, {}]) {
+        const cfg = lerKanbanAutoConfig(cfgRaw);
+        for (const origem of ["interno", "revenda", "importado"]) {
+          const sql = (await um<{ f: string[] }>(c, `SELECT public._kanban_fluxo($1::jsonb, $2) AS f`,
+            [JSON.stringify(cfgRaw), origem !== "interno"])).f;
+          expect(sql, `${JSON.stringify(cfgRaw).slice(0, 60)} ${origem}`).toEqual(fluxoDoModelo(origem, cfg).map((k) => k.key));
+        }
+        const board = (await um<{ f: string[] }>(c, `SELECT public._kanban_fluxo($1::jsonb, false) AS f`, [JSON.stringify(cfgRaw)])).f;
+        expect(board).toEqual(boardDaLoja(cfg).map((k) => k.key));
+      }
+    });
+  });
+
+  it("puras: _kanban_norm/_kanban_lista/_kanban_coluna_manual/_kanban_req_efetivos (reprovado sempre manual)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const r = await um<Record<string, unknown>>(c, `SELECT
+          public._kanban_norm('  Stand_By ') AS norm,
+          public._kanban_lista('["a", 1, null, "b", {"x":1}]'::jsonb) AS lista,
+          public._kanban_lista('{"a":1}'::jsonb) AS lista_obj,
+          public._kanban_coluna_manual('Reprovado', '{"reprovado":["x"]}'::jsonb) AS rep,
+          public._kanban_coluna_manual('a', '{"a":["x"]}'::jsonb) AS auto,
+          public._kanban_coluna_manual('a', '{"a":"nao-e-array"}'::jsonb) AS lixo,
+          public._kanban_req_efetivos('c', ARRAY['a','b','c'], '{"a":["x"],"b":["y"],"c":["z","x"]}'::jsonb, '{"c":["y"]}'::jsonb) AS efet`);
+      expect(r).toEqual({ norm: "stand_by", lista: ["a", "b"], lista_obj: [], rep: true, auto: false, lixo: true, efet: ["x", "z"] });
+    });
+  });
+});
