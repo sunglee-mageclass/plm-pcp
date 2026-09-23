@@ -36,6 +36,6 @@ export function useKanbanConfig(): {
   // que a RPC recusa, ou pior, um caminho que ela aceita sem as travas visuais da chave ligada).
   return {
     cfg, ligado: cfg.kanban_automatico, motorDisponivel: motorKanbanDisponivel(q.data),
-    carregando: q.isLoading, isError: q.isError,
+    carregando: q.isPending, isError: q.isError, // isPending: cobre também a janela com a query desabilitada (tenantId ainda "")
   };
 }

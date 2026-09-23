@@ -200,7 +200,7 @@ function ConfiguracoesLojaPage() {
   // do que o usuário mexeu); `servidor` = valor CRU lido do banco (p/ detectar outra aba/admin que mudou depois).
   const [kanbanBase, setKanbanBase] = useState<{ cfg: KanbanColsValor; servidor: KanbanColsValor }>(() => ({
     cfg: pickKanban(DEFAULTS),
-    servidor: pickKanban(null),
+    servidor: pickKanban(DEFAULTS), // mesmo espaço normalizado do conflito (re-revisão: loja sem linha)
   }));
   const kanbanBaseRef = useRef(kanbanBase);
   kanbanBaseRef.current = kanbanBase;
@@ -352,21 +352,16 @@ function ConfiguracoesLojaPage() {
       // O eco do Realtime do `upsert(geral)` abaixo chega em ~0,4-0,8s; com a chave ligada, o
       // `update(diff)` pode demorar MAIS que isso (trigger recalcula a loja inteira na mesma txn),
       // então uma flag ligada só depois do erro perderia a corrida e o eco apagaria a edição antes.
+      // Médio 1 (revisão final Opus, garantia D19) + re-revisão: confere ANTES de ligar a proteção e FORA do
+      // `if (temKanban)` — um eco do Realtime com a prévia aberta pode zerar o diff (a prévia mostrou N cards e
+      // o salvar gravaria 0). Qualquer diferença entre o diff da prévia e o de agora ⇒ falha TOTAL (nada gravado);
+      // sem prévia (chave desligada, sem mudança de kanban) os dois são {} e nada aborta.
+      if (diffMudouDesdeAPrevia(diffEsperadoRef.current, diff)) {
+        throw Object.assign(new Error(MENSAGEM_PREVIA_KANBAN_MUDOU), { fecharDialogoKanban: true });
+      }
       if (temKanban) kanbanProtegidoRef.current = true;
       try {
         if (temKanban) {
-          // Médio 1 (revisão final Opus, garantia D19): a tela ficou editável durante o `await` da
-          // prévia — se o diff mudou desde então, a prévia mostrada (nº de cards, "de → para") já não
-          // bate com o que seria gravado agora. Aborta ANTES de qualquer leitura/escrita (falha TOTAL:
-          // nada foi gravado, sem proteção a manter). Vale para os dois caminhos (KanbanSalvarDialog e
-          // o AlertDialog comum) — os dois passam por aqui.
-          if (diffMudouDesdeAPrevia(diffEsperadoRef.current, diff)) {
-            kanbanProtegidoRef.current = false;
-            // Baixo 7: os 3 erros de falha TOTAL fecham o KanbanSalvarDialog/AlertDialog (o usuário não
-            // fica preso a um diálogo que já não reflete o que seria salvo) — `onError` os fecha por
-            // esta marca.
-            throw Object.assign(new Error(MENSAGEM_PREVIA_KANBAN_MUDOU), { fecharDialogoKanban: true });
-          }
           const rowAgora = await lerConfigServidor(data.tenantId);
           // Baixo 4 (revisão final Opus): compara os dois lados NORMALIZADOS (mesmo fallback de
           // DEFAULTS que a tela aplica ao ler) — `kanbanBase.servidor` já é normalizado (vem de `next`),
