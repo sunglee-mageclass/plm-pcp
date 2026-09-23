@@ -110,6 +110,7 @@ BEGIN
    WHERE m.id = ANY (_ids)
      AND coalesce(m.ordem_criacao_enviada, false)
      AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
   ON CONFLICT (modelo_id) DO NOTHING;
 END;
 $function$;
@@ -130,6 +131,7 @@ BEGIN
    WHERE m.tenant_id = _tenant
      AND coalesce(m.ordem_criacao_enviada, false)
      AND NOT coalesce(m.lancado, false)
+   ORDER BY m.id
   ON CONFLICT (modelo_id) DO NOTHING;
 END;
 $function$;
@@ -209,6 +211,7 @@ CREATE OR REPLACE FUNCTION public.fn_kanban_processar_fila()
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
+ SET lock_timeout TO '2s'
 AS $function$
 DECLARE
   v_ids uuid[];

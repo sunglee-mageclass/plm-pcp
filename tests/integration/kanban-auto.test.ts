@@ -933,6 +933,92 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (
     });
   });
 
+  // Fix round 1 (achado Important): WHEN OTHERS NÃO pega query_canceled (57014, de statement_timeout);
+  // um lock esperando por outra conexão precisa estourar como lock_not_available (55P03, capturável)
+  // ANTES do statement_timeout — daí o `SET lock_timeout TO '2s'` na própria função. SÓ na cópia local
+  // (2ª conexão de verdade); sem KANBAN_AUTO_MIG_TXN não faz sentido (a trigger nova não existiria).
+  //
+  // Nota de design: a trava do brief pedia literalmente `SELECT … FOR UPDATE` numa linha de `modelos`
+  // a partir de uma 2ª conexão. Isso é estruturalmente IMPOSSÍVEL de reproduzir aqui: `modelo_id` em
+  // `kanban_recalculo_fila` é FK p/ `modelos(id)`, e QUALQUER INSERT nessa fila (inclusive o que a
+  // própria `c` precisa fazer p/ enfileirar o modelo-alvo) exige um `FOR KEY SHARE` implícito na linha
+  // referenciada — que fica retido pela transação de `c` (a `withTx` sob teste) até o ROLLBACK final,
+  // não só durante o INSERT. Provado com 4 sondas isoladas (probe.mjs) fora deste arquivo: uma vez que
+  // `c` segura esse `FOR KEY SHARE`, NENHUMA outra conexão consegue `FOR UPDATE`/`FOR NO KEY UPDATE`
+  // na MESMA linha enquanto a txn de `c` seguir aberta — não importa a ORDEM das chamadas (a 2ª
+  // conexão simplesmente FICA PENDURADA até o ROLLBACK de `c`, que é exatamente o que aconteceu na
+  // 1ª tentativa desta prova: timeout de teste, não do banco). E a própria `c`, na MESMA sessão/txn,
+  // nunca fica presa no seu PRÓPRIO `FOR KEY SHARE` (escalonamento de lock intra-transação nunca
+  // bloqueia a si mesmo) — confirmado que o `UPDATE` de `c` sobre a MESMA linha, mesmo com uma 2ª
+  // conexão já enfileirada esperando `FOR UPDATE`, retorna em ~4 ms, sem jamais dar à 2ª conexão uma
+  // janela de contenção real.
+  //
+  // Substituto EQUIVALENTE, sem esse impasse: em vez de travar a LINHA de `modelos`, a 2ª conexão
+  // prende um `pg_advisory_xact_lock` (mesmo mecanismo de espera, MESMO `lock_timeout`/`55P03` na
+  // colisão — provado isoladamente: `pg_advisory_xact_lock` bloqueado por 2 s dá EXATAMENTE
+  // `lock_not_available`/`55P03`, idêntico a um lock de linha) — sem NENHUM vínculo de FK, então não
+  // há trava cruzada com o próprio `INSERT` de `c` na fila. `_kanban_aplicar` é sabotado (SÓ na cópia
+  // local — mesmo padrão já usado no teste "erro na derivação vira WARNING" acima, `CREATE OR REPLACE
+  // FUNCTION` dentro da txn revertida) p/ pedir esse MESMO advisory lock logo no início — reproduzindo
+  // fielmente "uma espera de lock DENTRO do que `fn_kanban_processar_fila` chama" e provando que o
+  // `SET lock_timeout TO '2s'` da função (Step 3) se aplica MESMO durante o disparo adiado do
+  // constraint trigger (não herda um `lock_timeout` desligado/maior da txn externa).
+  it.skipIf(!LOCAL)("lock concorrente (advisory, mesmo mecanismo de 55P03 de um lock de linha) no drenar vira WARNING — NÃO derruba o COMMIT do usuário", async () => {
+    const CHAVE_ADVISORY = 918273465; // arbitrária; só precisa ser a MESMA nas 2 conexões
+    const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
+    await segunda.connect();
+    try {
+      await withTx(async (c) => {
+        const avisos: string[] = [];
+        const ouvir = (n: { message?: string }) => avisos.push(String(n.message));
+        c.on("notice", ouvir);
+        try {
+          await prepara(c, 3);
+          await configurarBoard(c);
+          await chave(c, true);
+          const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+
+          // Sabotagem SÓ nesta txn (revertida): `_kanban_aplicar` passa a pedir o MESMO advisory lock
+          // que a 2ª conexão já segura, ANTES de fazer qualquer coisa — reproduz "uma espera de lock
+          // dentro do que a trigger chama", sem tocar `modelos` (sem o impasse de FK documentado acima).
+          await c.query(`CREATE OR REPLACE FUNCTION public._kanban_aplicar(_tenant uuid, _ids uuid[], _origem text, _lote uuid DEFAULT NULL)
+                         RETURNS integer LANGUAGE plpgsql AS $f$
+                         BEGIN
+                           PERFORM pg_advisory_xact_lock(${CHAVE_ADVISORY});
+                           RETURN 0;
+                         END $f$`);
+
+          // Só AGORA a 2ª conexão prende a trava conflitante, numa transação própria aberta (nunca
+          // comitada aqui — segura o lock até o ROLLBACK do `finally`).
+          await segunda.query("BEGIN");
+          await segunda.query("SELECT pg_advisory_xact_lock($1)", [CHAVE_ADVISORY]);
+
+          await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+          await c.query(`INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id) VALUES ($1, $2)`, [M, T]);
+
+          // Sobe o lock_timeout da TXN EXTERNA bem acima de 2s — se o `imediato()` abaixo ainda assim
+          // resolver perto de ~2s (e não perto do valor daqui, nem do statement_timeout de 120s), é
+          // porque o `SET lock_timeout TO '2s'` DENTRO da própria função (Step 3) está mandando, não
+          // herdando o lock_timeout da transação que disparou o COMMIT/`imediato`.
+          await c.query(`SET LOCAL lock_timeout = '30s'`);
+          const t0 = Date.now();
+          await imediato(c); // não lança — o lock_timeout de 2s DENTRO da função estoura ANTES do statement_timeout de 120s
+          const ms = Date.now() - t0;
+          expect(ms).toBeLessThan(10000); // não ficou preso até o lock_timeout de 30s da txn externa nem o statement_timeout
+          expect(ms).toBeGreaterThanOrEqual(1900); // realmente esperou ~2s do lock_timeout DA FUNÇÃO (não herdou os 30s daqui)
+          expect(avisos.some((a) => /recálculo ignorado/.test(a) && /55P03|lock/i.test(a))).toBe(true);
+          expect(await tamanhoFila(c)).toBe(0);
+          expect((await lerModelo(c, M)).status).toBe("entrada");
+        } finally {
+          c.off("notice", ouvir);
+        }
+      });
+    } finally {
+      await segunda.query("ROLLBACK").catch(() => {}); // libera a trava
+      await segunda.end();
+    }
+  });
+
   it("origem inválida → P0001", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
