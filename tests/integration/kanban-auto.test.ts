@@ -631,3 +631,161 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 2 (Tas
     });
   });
 });
+
+// ─────────────────── Helpers do motor (Tasks 10–16) ───────────────────
+const T = TENANT_TESTE;
+const HOJE = "2026-09-01";
+// Board sintético da Loja Teste (reescrito DENTRO da txn): entrada(manual) · etapa_a{ddt} · etapa_b{p1} ·
+// stand_by(manual) · etapa_c{p2} · reprovado(manual) · aprovado{dap}. Keys: normalizeKanbanStatuses.
+const BOARD = ["Entrada", "Etapa A", "Etapa B", "Stand By", "Etapa C", "Reprovado", "Aprovado"];
+const REQS: Record<string, string[]> = {
+  etapa_a: ["data_desenho_tecnico"], etapa_b: ["data_piloto1"], etapa_c: ["data_piloto2"], aprovado: ["data_aprovacao"],
+};
+
+/** Desliga a chave e reescreve a config da Loja Teste NA TXN (ligar é sempre explícito: `chave`). */
+async function configurarBoard(c: Client, opts: { reqs?: Record<string, string[]>; exc?: Record<string, string[]>; ref?: string; explosao?: string } = {}) {
+  await chave(c, false); // antes do board: com a chave ligada, mudar o board gravaria um lote 'config'
+  await c.query(
+    `UPDATE public.tenant_config
+        SET status_kanban = $2::jsonb, kanban_requisitos = $3::jsonb, kanban_requisitos_excecoes = $4::jsonb,
+            revenda_kanban_colunas = '[]'::jsonb, revenda_kanban_requisitos = '{}'::jsonb,
+            ref_exibir_status = $5, explosao_envio_status = $6
+      WHERE tenant_id = $1`,
+    [T, JSON.stringify(BOARD), JSON.stringify(opts.reqs ?? REQS), JSON.stringify(opts.exc ?? {}), opts.ref ?? "etapa_c", opts.explosao ?? "etapa_c"],
+  );
+}
+/** Liga/desliga a chave da Loja Teste como a RPC `kanban_definir_automatico` faz: GUC transação-local
+ *  `app.kanban_chave='rpc'` (sem ele, `trg_kanban_chave_protegida` mantém o valor — decisão 16). */
+async function chave(c: Client, ligada: boolean) {
+  await c.query(`SELECT set_config('app.kanban_chave', 'rpc', true)`);
+  try {
+    await c.query(`UPDATE public.tenant_config SET kanban_automatico = $2 WHERE tenant_id = $1`, [T, ligada]);
+  } finally {
+    await c.query(`SELECT set_config('app.kanban_chave', '', true)`);
+  }
+}
+/** Escritas de PREPARAÇÃO do teste que não devem acionar enfileirador/guard (GUC não vazio). */
+async function comoSistema<R>(c: Client, fn: () => Promise<R>): Promise<R> {
+  await c.query(`SELECT set_config('app.kanban_sistema', 'teste', true)`);
+  try {
+    return await fn();
+  } finally {
+    await c.query(`SELECT set_config('app.kanban_sistema', '', true)`);
+  }
+}
+async function novoModelo(c: Client, campos: Record<string, unknown> = {}): Promise<string> {
+  const base = await um<{ c: string | null; s: string | null }>(c,
+    `SELECT categoria_principal_id AS c, subcategoria1_id AS s FROM public.modelos
+      WHERE tenant_id = $1 AND categoria_principal_id IS NOT NULL AND subcategoria1_id IS NOT NULL LIMIT 1`, [T]);
+  const cols: Record<string, unknown> = {
+    tenant_id: T, nome: "KA teste", ordem_criacao_enviada: true, status_desenvolvimento: "entrada",
+    categoria_principal_id: base?.c ?? null, subcategoria1_id: base?.s ?? null, ...campos,
+  };
+  const nomes = Object.keys(cols);
+  const r = await um<{ id: string }>(c,
+    `INSERT INTO public.modelos (${nomes.join(", ")}) VALUES (${nomes.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`,
+    Object.values(cols));
+  return r.id;
+}
+async function setar(c: Client, id: string, campos: Record<string, unknown>) {
+  const nomes = Object.keys(campos);
+  await c.query(`UPDATE public.modelos SET ${nomes.map((n, i) => `${n} = $${i + 2}`).join(", ")} WHERE id = $1`,
+    [id, ...Object.values(campos)]);
+}
+async function lerModelo(c: Client, id: string) {
+  const r = await um<{ status: string | null; rp: Record<string, unknown>; ref: string | null; ref_auto: string | null; rev: number; motivo: string | null }>(c,
+    `SELECT status_desenvolvimento AS status, revisao_pendente AS rp, ref, ref_auto, rev, motivo_cancelamento AS motivo
+       FROM public.modelos WHERE id = $1`, [id]);
+  return { ...r, erro: r.rp?.kanban === true };
+}
+async function historico(c: Client, id: string): Promise<string[]> {
+  const { rows } = await c.query(
+    `SELECT status, origem FROM public.modelo_kanban_historico WHERE modelo_id = $1 ORDER BY entrou_at, created_at`, [id]);
+  return rows.map((r) => `${r.status}:${r.origem}`);
+}
+async function tamanhoFila(c: Client): Promise<number> {
+  return Number((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.kanban_recalculo_fila`)).n);
+}
+async function envelhecerHistorico(c: Client, id: string) {
+  await c.query(`UPDATE public.modelo_kanban_historico SET entrou_at = entrou_at - interval '1 minute' WHERE modelo_id = $1`, [id]);
+}
+/** Simula o COMMIT p/ o constraint trigger adiado e volta ao modo adiado. */
+async function imediato(c: Client) {
+  await c.query("SET CONSTRAINTS ALL IMMEDIATE");
+  await c.query("SET CONSTRAINTS ALL DEFERRED");
+}
+async function comoSemPermissao(c: Client, uid = "00000000-0000-4000-8000-00000000ab01") {
+  await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [uid, `${uid}@teste`]);
+  await c.query(`INSERT INTO public.users (id, tenant_id, email, nome) VALUES ($1, $2, $3, 'KA Sem Perm')
+                 ON CONFLICT (id) DO UPDATE SET tenant_id = excluded.tenant_id`, [uid, T, `${uid}@teste`]);
+  await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+}
+async function guc(c: Client, valor: string) {
+  await c.query(`SELECT set_config('app.kanban_sistema', $1, true)`, [valor]);
+}
+
+// ─────────────────── Migration 3A — histórico com origem e janela (Task 10) ───────────────────
+describe.skipIf(!PRONTO)("kanban-auto — migration 3A: fn_kanban_historico (Task 10)", () => {
+  it("escrita de fora do motor SEMPRE insere, com origem 'manual' (inclusive o INSERT do modelo)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await novoModelo(c);
+      await setar(c, M, { status_desenvolvimento: "stand_by" });
+      await setar(c, M, { status_desenvolvimento: "entrada" });
+      expect(await historico(c, M)).toEqual(["entrada:manual", "stand_by:manual", "entrada:manual"]);
+    });
+  });
+
+  it("'auto' na janela de 10 s: ATUALIZA a última; voltar à penúltima APAGA; fora da janela INSERE", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await novoModelo(c);
+      await guc(c, "auto");
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_a:auto"]); // última não era auto → insere
+      await setar(c, M, { status_desenvolvimento: "etapa_c" });
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_c:auto"]); // colapsa (atualiza)
+      await setar(c, M, { status_desenvolvimento: "entrada" });
+      expect(await historico(c, M)).toEqual(["entrada:manual"]); // voltou à penúltima → o transitório nunca existiu
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      await envelhecerHistorico(c, M);
+      await setar(c, M, { status_desenvolvimento: "etapa_b" });
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_a:auto", "etapa_b:auto"]); // fora da janela → insere
+      await guc(c, "");
+    });
+  });
+
+  it("'config'/'restauracao'/'manual' nunca colapsam e gravam o lote do GUC app.kanban_lote", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await novoModelo(c);
+      const lote = "11111111-2222-4333-8444-555555555555";
+      await c.query(`SELECT set_config('app.kanban_lote', $1, true)`, [lote]);
+      await guc(c, "config");
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      await setar(c, M, { status_desenvolvimento: "etapa_b" });
+      await guc(c, "restauracao");
+      await setar(c, M, { status_desenvolvimento: "entrada" });
+      await guc(c, "");
+      await c.query(`SELECT set_config('app.kanban_lote', '', true)`);
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_a:config", "etapa_b:config", "entrada:restauracao"]);
+      const { rows } = await c.query(
+        `SELECT lote_id FROM public.modelo_kanban_historico WHERE modelo_id = $1 AND origem <> 'manual'`, [M]);
+      expect(rows.every((r) => r.lote_id === lote)).toBe(true);
+      // D14 (dono, 23/set): 'restauracao' p/ o status que a ÚLTIMA linha restante já tem NÃO insere
+      // (kanban_restaurar apaga antes as linhas auto/config do lote — simulado aqui apagando a última)
+      await guc(c, "config");
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      await c.query(
+        `DELETE FROM public.modelo_kanban_historico WHERE id = (SELECT id FROM public.modelo_kanban_historico
+          WHERE modelo_id = $1 ORDER BY entrou_at DESC, created_at DESC LIMIT 1)`, [M]);
+      await guc(c, "restauracao");
+      await setar(c, M, { status_desenvolvimento: "entrada" });
+      await guc(c, "");
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_a:config", "etapa_b:config", "entrada:restauracao"]);
+    });
+  });
+});
