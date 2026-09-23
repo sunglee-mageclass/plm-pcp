@@ -189,6 +189,10 @@ function PlanejamentoDetailConteudo({
   const retryRef = useRef(false);
   // Guarda anti-duplo-clique do save — ref SÍNCRONO (isPending só atualiza no re-render).
   const savingRef = useRef(false);
+  // Ajuste (set/2026): mesma guarda pro Duplicar — `duplicate.isPending` só atualiza no
+  // próximo render, então um clique duplo rápido dispara 2 `mutate()` antes do 1º re-render
+  // marcar `isPending=true` e cria 2 cópias.
+  const duplicandoRef = useRef(false);
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   // Espelho síncrono de `conflitos` p/ o retry do save (roda fora do ciclo de render).
   const conflitosRef = useRef<Conflito[]>([]);
@@ -781,6 +785,12 @@ function PlanejamentoDetailConteudo({
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
+  const handleDuplicate = () => {
+    if (duplicandoRef.current || duplicate.isPending) return;
+    duplicandoRef.current = true;
+    duplicate.mutate(undefined, { onSettled: () => { duplicandoRef.current = false; } });
+  };
+
   const del = useMutation({
     mutationFn: async () => {
       if (!modeloId) return;
@@ -1177,7 +1187,7 @@ function PlanejamentoDetailConteudo({
           )}
           {/* Grupo direito: ml-auto empurra para a direita. */}
           {isEdit && (
-            <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending} aria-label="Duplicar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
               <Copy className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Duplicar</span>
             </Button>

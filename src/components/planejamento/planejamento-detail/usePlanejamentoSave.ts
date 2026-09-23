@@ -183,7 +183,17 @@ export function usePlanejamentoSave({
           savedId = inserted?.id ?? null;
           criadoIdRef.current = savedId;
         }
-        if (savedId) await syncTecidosToDesenvolvimento(savedId, d.tecidos_planejados);
+        // Ajuste (set/2026): marca a etapa que falhou (tecidos) — ver comentário no bloco de
+        // grade/MO abaixo. `syncTecidosToDesenvolvimento` é compartilhada com o ramo de edição,
+        // então a marcação fica aqui (não dentro da função) pra não mexer no ramo isEdit.
+        if (savedId) {
+          try {
+            await syncTecidosToDesenvolvimento(savedId, d.tecidos_planejados);
+          } catch (eTecidos) {
+            (eTecidos as any).etapaFalha = "tecidos";
+            throw eTecidos;
+          }
+        }
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
         // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
         // uniformidade/robustez futura, mesma RPC. Linha nova = sem concorrência possível,
@@ -194,7 +204,9 @@ export function usePlanejamentoSave({
             _grades: buildLinhasGradeRevenda(),
             _rev_base: null,
           });
-          if (gradeErr) throw gradeErr;
+          // Ajuste (set/2026): marca a etapa que falhou — o onError do card NOVO usa isto pra
+          // avisar especificamente que a grade/tecido não foi salvo (o card em si já foi criado).
+          if (gradeErr) { (gradeErr as any).etapaFalha = "grade"; throw gradeErr; }
         }
       }
       // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
@@ -213,7 +225,8 @@ export function usePlanejamentoSave({
             observacoes: null,
           })),
         });
-        if (moErr) throw moErr;
+        // Ajuste (set/2026): marca a etapa que falhou (mão de obra) — ver comentário acima.
+        if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
       }
       // FIX WAVE (B3-fix): card criado (ou editado pra) origem='revenda' sem produto
       // vinculado ganha o espelho AUTOMATICAMENTE — reusa exatamente a lógica do botão
@@ -338,9 +351,35 @@ export function usePlanejamentoSave({
       // F3.1 — card NOVO já INSERIDO que falhou numa gravação seguinte (tecidos/grade/MO): mostra o erro, atualiza
       // a lista e abre o Sheet do card criado — o usuário confere e salva de lá (UPDATE). Nunca um 2º INSERT.
       if (!isEdit && criadoIdRef.current) {
-        toast.error(`O card foi criado, mas algo não foi salvo: ${mensagemErro(e, "erro desconhecido")}`);
+        // Ajuste (set/2026): mensagem específica por etapa quando dá pra identificar (marcada em
+        // `e.etapaFalha` no mutationFn acima) — a mão de obra digitada some na remontagem do Sheet
+        // (o MaoObraEditor reseta com o baseline do servidor), então o aviso precisa dizer isso.
+        const idCriado = criadoIdRef.current;
+        if (e?.etapaFalha === "mo") {
+          toast.error("O card foi criado, mas a mão de obra NÃO foi salva — confira e salve de novo.");
+        } else if (e?.etapaFalha === "tecidos") {
+          toast.error("O card foi criado, mas os tecidos NÃO foram salvos — confira e salve de novo.");
+        } else if (e?.etapaFalha === "grade") {
+          toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
+        } else {
+          toast.error(`O card foi criado, mas algo não foi salvo: ${mensagemErro(e, "erro desconhecido")}`);
+        }
+        // Mesmas invalidações do onSuccess (o card existe no servidor desde o INSERT — sem isto a
+        // lista do Planejamento e o orçamento do OTB ficavam com o card fantasma até um refetch manual).
+        qc.invalidateQueries({ queryKey: ["modelo"] });
+        qc.invalidateQueries({ queryKey: ["modelo-tecidos"] });
+        qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+        qc.invalidateQueries({ queryKey: ["mo-resumo", idCriado] });
+        qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+        qc.invalidateQueries({ queryKey: ["plan-custo-unit", idCriado] });
+        qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+        qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+        qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
+        qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", idCriado] });
+        qc.invalidateQueries({ queryKey: ["plan-kanban-cond", idCriado] });
+        qc.invalidateQueries({ queryKey: ["modelo-composicao", idCriado] });
         onSaved();
-        onCreated?.(criadoIdRef.current);
+        onCreated?.(idCriado);
         return;
       }
       // Grade cor×tamanho (revenda, fast-follow): conflito tratado por RECARGA, NÃO por merge
