@@ -1381,3 +1381,165 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3G: guard do status (Task 13
     });
   });
 });
+
+// ─────────── Migration 3H — funções redefinidas (diff mínimo) e gates por posição (Task 14) ───────────
+const TROCAS_M3: { assinatura: string; de: string; para: string }[] = [
+  {
+    assinatura: "_kanban_regredir_modelo(uuid)",
+    de: "  IF v_tenant IS NULL THEN RETURN; END IF;                 -- modelo sumiu (cascade delete)\n",
+    para: "  IF v_tenant IS NULL THEN RETURN; END IF;                 -- modelo sumiu (cascade delete)\n" +
+      "  IF public._kanban_ligado(v_tenant) THEN RETURN; END IF;  -- Kanban automático LIGADO: o motor (fila) recalcula\n",
+  },
+  {
+    assinatura: "fn_modelo_ref_auto()",
+    de: "  v_revelar := public._ref_exibir_gate(NEW.tenant_id, NEW.status_desenvolvimento);\n",
+    para: "  v_revelar := public._ref_exibir_gate(NEW.tenant_id, public._kanban_status_gate(NEW.tenant_id, NEW.id, NEW.status_desenvolvimento));\n",
+  },
+  {
+    assinatura: "_enviar_modelo_para_cad_core(uuid,text,text)",
+    de: "    FROM public._explosao_envio_gate(v_tenant, (SELECT status_desenvolvimento FROM public.modelos WHERE id = _modelo_id)) AS g;\n",
+    para: "    FROM public._explosao_envio_gate(v_tenant, public._kanban_status_gate(v_tenant, _modelo_id, (SELECT status_desenvolvimento FROM public.modelos WHERE id = _modelo_id))) AS g;\n",
+  },
+];
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — migration 3H: diff mínimo das redefinidas (Task 14)", () => {
+  it("pg_get_functiondef depois = antes com UMA linha trocada/acrescentada (3 funções); fn_kanban_historico mudou", async () => {
+    await withTx(async (c) => {
+      const antes: Record<string, string | null> = {};
+      for (const t of TROCAS_M3) antes[t.assinatura] = await defFuncao(c, t.assinatura);
+      const histAntes = await defFuncao(c, "fn_kanban_historico()");
+      await prepara(c, 3);
+      for (const t of TROCAS_M3) {
+        expect(antes[t.assinatura]!.split(t.de).length - 1, t.assinatura).toBe(1);
+        expect(await defFuncao(c, t.assinatura), t.assinatura).toBe(antes[t.assinatura]!.replace(t.de, t.para));
+      }
+      expect(await defFuncao(c, "fn_kanban_historico()")).not.toBe(histAntes);
+    });
+  });
+});
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3H: legado e gates por posição (Task 14)", () => {
+  const REQS_MO = { etapa_a: ["data_desenho_tecnico"], etapa_c: ["servico_aprovado"], aprovado: ["data_aprovacao"] };
+
+  it("chave DESLIGADA: _kanban_regredir_modelo legado intacto (MO reprovada → volta p/ a coluna que FALHA + #Erro)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { reqs: REQS_MO });
+      const M = await comoSistema(c, () => novoModelo(c, { status_desenvolvimento: "aprovado", data_desenho_tecnico: HOJE, data_aprovacao: HOJE }));
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 AND ativo LIMIT 1`, [T]);
+      await c.query(`INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($1, $2, $3, 5)`, [T, M, cat.id]);
+      await imediato(c);
+      const m = await lerModelo(c, M);
+      expect([m.status, m.erro]).toEqual(["etapa_c", true]);
+    });
+  });
+
+  it("chave LIGADA: o legado sai cedo e o MOTOR regride p/ a última automática satisfeita ANTES da que falha (sem #Erro)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { reqs: REQS_MO });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { status_desenvolvimento: "aprovado", data_desenho_tecnico: HOJE, data_aprovacao: HOJE }));
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 AND ativo LIMIT 1`, [T]);
+      await c.query(`INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($1, $2, $3, 5)`, [T, M, cat.id]);
+      expect((await lerModelo(c, M)).status).toBe("aprovado"); // o legado NÃO agiu no statement
+      await imediato(c);
+      const m = await lerModelo(c, M);
+      // etapa_b/stand_by são manuais (sem requisito); decisão 14: o recuo automático NÃO acende #Erro
+      expect([m.status, m.erro]).toEqual(["etapa_a", false]);
+    });
+  });
+
+  it("decisão 10: fixado ADIANTE da etapa não revela REF nem libera Explosão; quando a posição derivada chega, libera", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c);
+      await configurarBoard(c, { ref: "etapa_c", explosao: "etapa_c" });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      await aplicar(c, [M]); // etapa_a
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET ref = '' WHERE id = $1`, [M]));
+      await setar(c, M, { status_desenvolvimento: "reprovado" }); // manual ADIANTE de etapa_c no board
+      let m = await lerModelo(c, M);
+      expect([m.status, m.ref ?? ""]).toEqual(["reprovado", ""]); // sem a decisão 10 a REF abriria aqui
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("etapa_a");
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.enviar_modelo_para_cad($1)`, [M])).rejects.toMatchObject({ code: "P0001" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await setar(c, M, { data_piloto1: HOJE, data_piloto2: HOJE });
+      await imediato(c);
+      m = await lerModelo(c, M);
+      expect(m.status).toBe("reprovado"); // continua fixado
+      expect(m.ref).toBe(m.ref_auto); // REF revelada pelo motor (posição derivada = etapa_c)
+      expect((await um<{ id: string }>(c, `SELECT public.enviar_modelo_para_cad($1) AS id`, [M])).id).toBeTruthy();
+      await chave(c, false);
+      expect((await um<{ g: string }>(c, `SELECT public._kanban_status_gate($1, $2, 'reprovado') AS g`, [T, M])).g).toBe("reprovado");
+    });
+  });
+});
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — chave DESLIGADA = idêntico a hoje (Task 14)", () => {
+  async function eventos(c: Client) {
+    const ms = (await c.query(
+      `SELECT id FROM public.modelos WHERE tenant_id = $1 AND ordem_criacao_enviada AND NOT lancado ORDER BY id`, [T])).rows.map((r) => r.id);
+    const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 AND ativo LIMIT 1`, [T]);
+    await c.query(`UPDATE public.modelos SET data_piloto1 = coalesce(data_piloto1, DATE '2026-01-01') + 1, linha_id = NULL WHERE id = $1`, [ms[0]]);
+    await c.query(`UPDATE public.modelos SET status_desenvolvimento = 'aprovado' WHERE id = $1`, [ms[1]]);
+    await c.query(`INSERT INTO public.modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) VALUES ($1, $2, $3, 10)`, [T, ms[2], cat.id]);
+    await c.query(`UPDATE public.controle_qualidade SET status = 'pendente' WHERE cad_id IN (SELECT id FROM public.cad WHERE modelo_id = ANY($1::uuid[]))`, [ms]);
+    await c.query(`UPDATE public.categorias_terceirizado SET ativo = NOT ativo WHERE id = $1`, [cat.id]);
+    await c.query(`UPDATE public.cad SET enviado_corte = NOT coalesce(enviado_corte, false) WHERE modelo_id = $1`, [ms[3]]);
+    await c.query(`UPDATE public.tenant_config SET kanban_requisitos = kanban_requisitos || '{"em_modelagem": ["modelista_definido"]}' WHERE tenant_id = $1`, [T]);
+    await imediato(c);
+    const st = (await c.query(`SELECT id, status_desenvolvimento, revisao_pendente, ref FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows;
+    const h = (await c.query(`SELECT modelo_id, status FROM public.modelo_kanban_historico WHERE tenant_id = $1 ORDER BY modelo_id, status, entrou_at`, [T])).rows;
+    return { st, h };
+  }
+
+  it("os MESMOS eventos com e sem as migrations 1–3 dão os mesmos status, #Erro, REF e histórico; fila vazia", async () => {
+    await withTx(async (c) => {
+      exigeBancoLocal(); // só roda com KANBAN_AUTO_MIG_TXN=1; recusa ANTES até dos eventos (DML) fora da cópia local
+      await comoUsuario(c);
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await c.query("SAVEPOINT sem_migracoes");
+      const hoje = await eventos(c);
+      await c.query("ROLLBACK TO SAVEPOINT sem_migracoes");
+      await prepara(c, 3);
+      const comF1 = await eventos(c);
+      expect(comF1.st).toEqual(hoje.st);
+      expect(comF1.h).toEqual(hoje.h);
+      expect(await tamanhoFila(c)).toBe(0);
+    });
+  });
+});
+
+// ─────────────────────────── Inverso 3 (Task 14) ───────────────────────────
+const REDEFINIDAS_M3 = ["fn_kanban_historico()", "_kanban_regredir_modelo(uuid)", "fn_modelo_ref_auto()", "_enviar_modelo_para_cad_core(uuid,text,text)"];
+const FUNCOES_M3 = [
+  "_kanban_enfileirar(uuid[])", "_kanban_enfileirar_tenant(uuid)", "_kanban_aplicar(uuid,uuid[],text,uuid)",
+  "fn_kanban_processar_fila()", "fn_kanban_fila_modelo()", "fn_kanban_fila_por_modelo()", "fn_kanban_fila_por_cad()",
+  "fn_kanban_fila_por_modelo_tecido()", "fn_kanban_fila_por_cad_tecido()", "fn_kanban_fila_categoria()",
+  "fn_kanban_config()", "fn_kanban_status_guard()", "fn_kanban_chave_protegida()",
+];
+async function gatilhosNovos(c: Client): Promise<number> {
+  return Number((await um<{ n: string }>(c,
+    `SELECT count(*) AS n FROM pg_trigger
+      WHERE NOT tgisinternal AND (tgname LIKE 'trg\\_kanban\\_fila\\_%'
+         OR tgname IN ('trg_kanban_processar_fila', 'trg_kanban_config', 'trg_kanban_status_guard', 'trg_kanban_chave_protegida'))`)).n);
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 3 (Task 14)", () => {
+  it("desfaz 3: as 4 redefinidas voltam BYTE-A-BYTE; os 44 gatilhos novos e as 13 funções novas somem", async () => {
+    await withTx(async (c) => {
+      const antes: Record<string, string | null> = {};
+      for (const f of REDEFINIDAS_M3) antes[f] = await defFuncao(c, f);
+      await prepara(c, 3);
+      expect(await gatilhosNovos(c)).toBe(44); // 12 tabelas × 3 + modelos 2 + categorias 2 + fila 1 + config 1 + guard 1 + trava da chave 1
+      await aplicarArquivo(c, INVERSOS[3]);
+      for (const f of REDEFINIDAS_M3) expect(await defFuncao(c, f), f).toBe(antes[f]);
+      for (const f of FUNCOES_M3) expect(await defFuncao(c, f), f).toBeNull();
+      expect(await gatilhosNovos(c)).toBe(0);
+      expect(await defFuncao(c, "_kanban_derivar_puro(text[],jsonb,jsonb,jsonb,text,boolean)")).not.toBeNull(); // a 2 fica
+    });
+  });
+});
