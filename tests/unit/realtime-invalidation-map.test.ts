@@ -157,6 +157,7 @@ describe("realtime-invalidation-map: comportamento do predicate", () => {
       ["tenant_config", "timezone", "t1"],
       ["tenant-status-kanban", "t1"],
       ["tenant-kanban-requisitos", "t1"],
+      ["tenant-kanban-auto", "t1"],
       ["tenant-config-grade", "t1"],
       ["tenant-config-tamanhos-planejamento", "t1"],
       ["cad-tenant-config-grade", "t1"],

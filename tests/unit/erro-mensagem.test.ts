@@ -24,3 +24,31 @@ describe("mensagemErro", () => {
       .toBe("Um dos valores informados é inválido.");
   });
 });
+
+describe("mensagemErro — Kanban automático (RPCs da F1)", () => {
+  const PROPRIAS_42501 = [
+    "Apenas o administrador da loja pode ver a prévia do Kanban automático.",
+    "Apenas o administrador da loja pode ligar ou desligar o Kanban automático.",
+    "Apenas o administrador da loja pode restaurar as colunas do Kanban.",
+    "Sem permissão para mover cards do Desenvolvimento.",
+  ];
+  it("42501 com mensagem PRÓPRIA do kanban passa direto (não vira a genérica)", () => {
+    for (const m of PROPRIAS_42501) expect(mensagemErro({ code: "42501", message: m }, "fb")).toBe(m);
+  });
+  it("42501 de outra origem continua genérico", () => {
+    expect(mensagemErro({ code: "42501", message: "permission denied for table modelos" }, "fb"))
+      .toBe("Você não tem permissão para esta ação.");
+    expect(mensagemErro({ code: "42501", message: "Loja inativa ou sem tenant — operação não permitida." }, "fb"))
+      .toBe("Você não tem permissão para esta ação.");
+  });
+  it("P0001 e P0002 do kanban passam direto", () => {
+    for (const m of [
+      "O Kanban automático está desligado nesta loja.",
+      "Desligue o Kanban automático antes de restaurar as colunas.",
+      "Este lote já foi restaurado.",
+      'A etapa "zzz" não faz parte do fluxo deste modelo.',
+    ]) expect(mensagemErro({ code: "P0001", message: m }, "fb")).toBe(m);
+    for (const m of ["Modelo não encontrado.", "Lote de colunas não encontrado.", "Configuração da loja não encontrada."])
+      expect(mensagemErro({ code: "P0002", message: m }, "fb")).toBe(m);
+  });
+});

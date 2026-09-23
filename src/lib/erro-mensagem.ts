@@ -25,6 +25,16 @@ const POR_CODIGO: Record<string, string> = {
   PGRST116: "Registro não encontrado.",
 };
 
+// 42501 com mensagem PRÓPRIA em PT (RAISE das RPCs do Kanban automático — F1): a genérica "Você não
+// tem permissão" esconderia o motivo real (ex.: só o ADMIN da loja liga a chave). Lista FECHADA — não
+// abrir para todo 42501 (policies/RLS mandam texto técnico em inglês).
+const MENSAGENS_42501_PROPRIAS = new Set([
+  "Apenas o administrador da loja pode ver a prévia do Kanban automático.",
+  "Apenas o administrador da loja pode ligar ou desligar o Kanban automático.",
+  "Apenas o administrador da loja pode restaurar as colunas do Kanban.",
+  "Sem permissão para mover cards do Desenvolvimento.",
+]);
+
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
 }
@@ -68,6 +78,9 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;
+
+  // 42501 do Kanban automático com texto próprio → mostra o motivo real.
+  if (code === "42501" && MENSAGENS_42501_PROPRIAS.has(msg)) return msg;
 
   // Código SQLSTATE/PostgREST conhecido.
   if (code && POR_CODIGO[code]) return POR_CODIGO[code];
