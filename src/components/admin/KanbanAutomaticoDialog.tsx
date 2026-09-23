@@ -34,6 +34,11 @@ const RODAPE = "border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-
 // depois pela própria tela.
 const AVISO_SO_AGORA = "Se não marcar agora, as colunas de antes não poderão ser restauradas depois por esta tela (só pelo suporte).";
 
+// Nits pré-Task 8 (F2): a versão do aviso usada nos TOASTS (depois da ação já ter acontecido) precisa
+// estar no PASSADO — "se não marcar agora" ficava estranho quando a chance já passou. O texto do
+// diálogo (ANTES da ação, linhas ~169/284) mantém `AVISO_SO_AGORA` como está.
+const AVISO_SO_AGORA_TOAST = "As colunas de antes não foram restauradas e não poderão ser restauradas depois por esta tela (só pelo suporte).";
+
 // Minor 4 (fix round 1): `colsDe` rotula a coluna de ORIGEM ("De") e `colsPara` a de DESTINO ("Para"
 // e tudo o resto — fixados, REFs reveladas, que são posições ATUAIS/futuras, não "antes"). No caso
 // comum (Ligar/Desligar, sem mudança de colunas pendente) os dois boards são o mesmo; só o
@@ -232,9 +237,14 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
       // Important (fix round 1): a chave FOI desligada nos 3 casos (o `kanbanDefinirAutomatico(false)`
       // já rodou antes de tentar restaurar) — a mensagem de erro precisa deixar isso explícito, e não
       // deixar o usuário achar que ainda dá pra restaurar depois por esta tela (decisão 8: só agora).
-      if (r.erroRestaurar) toast.error(`O Kanban automático foi desligado, mas as colunas NÃO foram restauradas: ${r.erroRestaurar} ${AVISO_SO_AGORA}`);
+      // Nit pré-Task 8: o aviso "só agora" só faz sentido quando HAVIA um lote pra restaurar e o
+      // usuário optou por não marcar — sem lote nenhum, não há nada a restaurar, então o aviso mentia
+      // ("Não há colunas guardadas" também dispararia o aviso antes desta correção).
+      const haviaLotePraRestaurar = (prevDesligar.data?.lote_id ?? null) != null;
+      if (r.erroRestaurar) toast.error(`O Kanban automático foi desligado, mas as colunas NÃO foram restauradas: ${r.erroRestaurar} ${AVISO_SO_AGORA_TOAST}`);
       else if (r.restaurados != null) toast.success(`Kanban automático desligado. ${nCards(r.restaurados)} ${r.restaurados === 1 ? "voltou" : "voltaram"} às colunas de antes.`);
-      else toast.success(`Kanban automático desligado. Os cards ficaram onde estavam. ${AVISO_SO_AGORA}`);
+      else if (haviaLotePraRestaurar) toast.success(`Kanban automático desligado. Os cards ficaram onde estavam. ${AVISO_SO_AGORA_TOAST}`);
+      else toast.success("Kanban automático desligado. Os cards ficaram onde estavam.");
       onMudou();
       onClose();
     },

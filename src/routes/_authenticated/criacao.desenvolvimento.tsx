@@ -301,7 +301,9 @@ function DesenvolvimentoPage() {
   }, [modeloTecidos]);
 
   const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
-  const { data: condicoesMap = {}, isSuccess: condicoesProntas } = useQuery({
+  const {
+    data: condicoesMap = {}, isSuccess: condicoesProntas, isFetched: condicoesFetched, isPending: condicoesPending, isError: condicoesErro,
+  } = useQuery({
     queryKey: ["desenv-condicoes", modeloIdsAll],
     enabled: modeloIdsAll.length > 0,
     queryFn: async () => {
@@ -310,6 +312,12 @@ function DesenvolvimentoPage() {
       return (data ?? {}) as Record<string, Record<string, boolean>>;
     },
   });
+  // Com a chave ligada, se `avaliar_condicoes_kanban` der erro, `isSuccess` fica false PARA SEMPRE
+  // (React Query não marca sucesso numa tentativa com erro) — sem isso, o board ficaria só-leitura
+  // silenciosamente. `condicoesResolvida` = a busca terminou (sucesso ou erro, via isFetched+!isPending),
+  // usada só p/ decidir quando mostrar o aviso de erro; `condicoesProntas` (isSuccess) segue sendo o
+  // sinal de "dados confiáveis" p/ M1 (próxima falta) e para liberar mover.
+  const condicoesResolvida = condicoesFetched && !condicoesPending;
   // Estado da MO por serviço (badge do card) — derivado de `modelo_mo_resumo.estado`
   // (aprovada|pendente|reprovada|sem_servico). O flag cru custo_terceirizados_aprovado virou
   // boolean DERIVADO: false = pendente OU reprovada, então o badge antigo pintava PENDENTE de
@@ -361,7 +369,11 @@ function DesenvolvimentoPage() {
   const infoAutoDoCard = (m: Modelo) => {
     if (!kanbanAuto) return undefined;
     const d = derivacaoAuto(m);
-    return { fixado: d.fixado, proxima: proximaFalta(d) };
+    // Antes das condições carregarem (ou ao entrar/sair um card, quando a queryKey muda e não
+    // mantém dados anteriores), `condicoesMap` fica temporariamente {} — toda condição pareceria
+    // "false" e a "próx.: falta X" mentiria por um instante. Só mostra a próxima falta depois que
+    // as condições resolveram; `fixado` não depende delas (é sobre status manual).
+    return { fixado: d.fixado, proxima: condicoesProntas ? proximaFalta(d) : null };
   };
   // Com a chave ligada, arrastar/"Mover para…" só depois das condições carregarem (senão a dica mentiria).
   const podeMover = editable && (!kanbanAuto || condicoesProntas);
@@ -647,9 +659,10 @@ function DesenvolvimentoPage() {
       if (ctx?.prev) qc.setQueryData(["modelos-desenvolvimento"], ctx.prev);
       toast.error(mensagemErro(e, "Erro ao mover o card"));
     },
-    onSettled: () => {
+    onSettled: (_r, _e, { id }) => {
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+      qc.invalidateQueries({ queryKey: ["modelo-detail", id] });
     },
   });
   const moverAuto = (m: Modelo, para: string) => {
@@ -857,9 +870,19 @@ function DesenvolvimentoPage() {
         >
           <Zap className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            <span className="font-semibold">Kanban automático ligado.</span> Colunas <Zap className="inline h-3 w-3 align-baseline" /> andam
-            sozinhas pelos campos salvos. Colunas <Hand className="inline h-3 w-3 align-baseline" /> são manuais: o card entra e sai delas arrastado.
+            <span className="font-semibold">Kanban automático ligado.</span> Colunas <Zap role="img" aria-label="automática" className="inline h-3 w-3 align-baseline" /> andam
+            sozinhas pelos campos salvos. Colunas <Hand role="img" aria-label="manual" className="inline h-3 w-3 align-baseline" /> são manuais: o card entra e sai delas arrastado.
           </span>
+        </div>
+      )}
+
+      {kanbanAuto && condicoesResolvida && condicoesErro && (
+        <div
+          data-testid="kanban-auto-erro-condicoes"
+          className="flex items-start gap-2 rounded-md bg-[var(--tone-warning-bg)] px-3 py-2 text-sm text-[var(--tone-warning-fg)]"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Não foi possível conferir as condições; o quadro está só para leitura. Recarregue a página.</span>
         </div>
       )}
 
@@ -1144,7 +1167,7 @@ function ModoColunaIcone({ modo, testId = "kanban-col-modo" }: { modo: ModoColun
   const manual = modo === "manual" || modo === "manual_sempre";
   const Icon = manual ? Hand : Zap;
   return (
-    <span data-testid={testId} title={rotuloModoColuna(modo)} aria-label={rotuloModoColuna(modo)} className="inline-flex shrink-0 text-muted-foreground">
+    <span data-testid={testId} role="img" title={rotuloModoColuna(modo)} aria-label={rotuloModoColuna(modo)} className="inline-flex shrink-0 text-muted-foreground">
       <Icon className="h-3.5 w-3.5" />
     </span>
   );
@@ -1220,7 +1243,7 @@ function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, mo
               <SelectItem key={o.key} value={o.key} className={o.faltando.length || o.bloqueada ? "text-muted-foreground" : ""}>
                 {o.label}
                 {o.modo && (
-                  <span className="ml-1 inline-flex align-middle text-muted-foreground">
+                  <span className="ml-1 inline-flex align-middle text-muted-foreground" role="img" aria-label={rotuloModoColuna(o.modo)}>
                     {o.modo === "manual" || o.modo === "manual_sempre" ? <Hand className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
                   </span>
                 )}
