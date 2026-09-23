@@ -62,6 +62,27 @@ export function separarPayloadKanban(payload: Record<string, unknown>): { geral:
   return { geral, kanban };
 }
 
+/**
+ * Fix round 1 (revisão Opus): o `upsert(geral)` do RP3 pode ter sucesso e o `update(diff)` do
+ * kanban falhar LOGO DEPOIS (rede caiu no meio, RLS, etc.) — falha PARCIAL. O `upsert` sozinho já
+ * dispara o eco do Realtime global (`useRealtimeInvalidation`) e refaz a leitura de
+ * `tenant_config`, que normalmente sobrescreveria as 5 colunas de kanban na tela com o valor do
+ * SERVIDOR (sem o diff que falhou) — apagando em silêncio a edição do usuário que ele ainda não
+ * conseguiu salvar.
+ *
+ * Esta função decide, nesse eco, o que a tela deve mostrar: com uma falha parcial PENDENTE,
+ * mantém o kanban LOCAL (as colunas como o usuário as deixou, sujas) em vez de adotar o do
+ * servidor — para ele poder tentar salvar de novo sem perder o que digitou. Sem falha pendente,
+ * comportamento de sempre: adota o servidor.
+ */
+export function mesclarKanbanNoEco(
+  pendente: boolean,
+  localCfg: KanbanColsValor,
+  servidorCfg: KanbanColsValor,
+): KanbanColsValor {
+  return pendente ? localCfg : servidorCfg;
+}
+
 const DESCRICAO_COL: Record<KanbanCol, string> = {
   status_kanban: "as colunas do kanban (nomes ou ordem)",
   kanban_requisitos: "os requisitos",

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, conflitoKanban, descreverMudancasKanban, diffKanban,
-  formatarDataHora, jsonCanonico, juntarLista, mensagemConflitoKanban, nCards, pickKanban, resumirFixados,
-  separarPayloadKanban,
+  formatarDataHora, jsonCanonico, juntarLista, mensagemConflitoKanban, mesclarKanbanNoEco, nCards, pickKanban,
+  resumirFixados, separarPayloadKanban,
 } from "@/lib/kanban-auto-config";
 import type { PreviaCard, PreviaFixado } from "@/lib/kanban-auto-ui";
 
@@ -43,6 +43,22 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
     });
     expect(geral).toEqual({ tenant_id: "t", timezone: "America/Sao_Paulo" });
     expect(kanban).toEqual({ status_kanban: ["A"], kanban_requisitos: {}, revenda_kanban_colunas: [] });
+  });
+  it("mesclarKanbanNoEco: sem falha pendente, adota o servidor (comportamento de sempre)", () => {
+    const local = pickKanban({ status_kanban: ["A", "B"] });
+    const servidor = pickKanban({ status_kanban: ["A"] });
+    expect(mesclarKanbanNoEco(false, local, servidor)).toEqual(servidor);
+  });
+  it("mesclarKanbanNoEco: falha parcial pendente, PRESERVA o kanban local (não apaga a edição do usuário)", () => {
+    const local = pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { a: ["x"] } });
+    const servidor = pickKanban({ status_kanban: ["A"] });
+    expect(mesclarKanbanNoEco(true, local, servidor)).toEqual(local);
+    expect(mesclarKanbanNoEco(true, local, servidor)).not.toEqual(servidor);
+  });
+  it("mesclarKanbanNoEco: sem falha pendente e local===servidor, resultado idêntico (idempotente)", () => {
+    const v = pickKanban({ status_kanban: ["A"] });
+    expect(mesclarKanbanNoEco(false, v, v)).toEqual(v);
+    expect(mesclarKanbanNoEco(true, v, v)).toEqual(v);
   });
 });
 

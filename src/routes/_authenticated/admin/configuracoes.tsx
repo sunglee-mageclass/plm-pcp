@@ -61,7 +61,8 @@ import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { modoColuna, MOTIVO_REPROVADO_MANUAL } from "@/lib/kanban-auto-ui";
 import {
-  conflitoKanban, diffKanban, mensagemConflitoKanban, pickKanban, separarPayloadKanban, type KanbanColsValor,
+  conflitoKanban, diffKanban, mensagemConflitoKanban, mesclarKanbanNoEco, pickKanban, separarPayloadKanban,
+  type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
@@ -195,6 +196,10 @@ function ConfiguracoesLojaPage() {
     servidor: pickKanban(null),
   }));
   const [preparandoSalvar, setPreparandoSalvar] = useState(false);
+  // Fix round 1 (revisão Opus): geral gravou, kanban NÃO (update falhou depois do upsert). Enquanto
+  // pendente, o eco do Realtime do próprio upsert (useEffect abaixo) NÃO pode sobrescrever as colunas
+  // de kanban na tela com o valor do servidor — senão apaga a edição do usuário em silêncio.
+  const [kanbanFalhaPendente, setKanbanFalhaPendente] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -271,10 +276,19 @@ function ConfiguracoesLojaPage() {
           ? ((r as any).ref_config as RefConfig)
           : DEFAULTS.ref_config,
     };
-    setCfg(next);
+    // Fix round 1: com falha parcial pendente (geral gravou, kanban não), este eco — inclusive o do
+    // Realtime disparado pelo PRÓPRIO upsert que acabou de ter sucesso — NÃO pode trocar o kanban da
+    // tela pelo do servidor (apagaria a edição que o usuário ainda não conseguiu salvar). `cfg` (não
+    // `next`) é o "local": pega o valor JÁ na tela no instante do eco, via updater funcional.
+    setCfg((prevCfg) => {
+      const kanbanParaTela = mesclarKanbanNoEco(kanbanFalhaPendente, pickKanban(prevCfg), pickKanban(next));
+      return { ...next, ...kanbanParaTela } as ConfigState;
+    });
     resetCfgBaseline(next);
+    // `kanbanBase.servidor` sempre reflete o BANCO (mesmo com falha pendente — é o que uma nova
+    // tentativa de salvar vai comparar/gravar); só o que aparece NA TELA (`cfg`, acima) fica preservado.
     setKanbanBase({ cfg: pickKanban(next), servidor: pickKanban(r) });
-  }, [data?.cfg]);
+  }, [data?.cfg, kanbanFalhaPendente]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -318,9 +332,17 @@ function ConfiguracoesLojaPage() {
           .update(diff as any)
           .eq("tenant_id", data.tenantId)
           .select("tenant_id");
-        if (errKanban) throw errKanban;
+        // Fix round 1 (revisão Opus): o geral JÁ gravou aqui — falha PARCIAL, não total. Marcamos o
+        // erro com `geralOk` para o onError dar a mensagem específica e manter a edição na tela (em
+        // vez do "Erro ao salvar" genérico, que sugere que nada foi gravado).
+        if (errKanban) {
+          throw Object.assign(new Error(mensagemErro(errKanban, "Erro ao gravar as colunas do kanban")), { geralOk: true });
+        }
         if (!gravadas || gravadas.length === 0) {
-          throw new Error("As colunas do kanban não foram gravadas (configuração da loja não encontrada). Recarregue a página e tente de novo.");
+          throw Object.assign(
+            new Error("configuração da loja não encontrada. Recarregue a página e tente de novo."),
+            { geralOk: true },
+          );
         }
       }
       return diff;
@@ -328,6 +350,7 @@ function ConfiguracoesLojaPage() {
     onSuccess: (diff) => {
       toast.success("Configurações salvas");
       markClean();
+      setKanbanFalhaPendente(false);
       // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
       // é a ÚLTIMA escrita do mutationFn (R3): chegar aqui = geral E kanban gravados.
       setKanbanBase((b) => ({ cfg: pickKanban(cfg), servidor: { ...b.servidor, ...diff } }));
@@ -338,7 +361,19 @@ function ConfiguracoesLojaPage() {
       // useRealtimeInvalidation), p/ o save local e o eco Realtime baterem 1:1.
       qc.invalidateQueries({ predicate: (q) => matchesTable("tenant_config", q.queryKey) });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: (e: any) => {
+      // Fix round 1: falha PARCIAL (geral gravou, kanban não) tem mensagem PRÓPRIA — "as demais
+      // configurações foram salvas" evita o usuário achar que nada foi e tentar de novo do zero
+      // (o que reenviaria o mesmo `payload` geral inócuo + o diff do kanban, agora contra um
+      // `kanbanBase.servidor` que ainda bate com o banco real → sem falso conflito). Mantém a
+      // edição do kanban NA TELA via `kanbanFalhaPendente` (consumido pelo useEffect do eco acima).
+      if (e?.geralOk) {
+        setKanbanFalhaPendente(true);
+        toast.error(`As demais configurações foram salvas; as colunas do kanban NÃO foram salvas: ${e.message}`);
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   // Salvar: com mudança nas colunas de kanban, confere o conflito ANTES de pedir a confirmação.
@@ -1315,6 +1350,24 @@ function FluxoRevendaCard({
             {statusKanban.map((label, idx) => {
               const key = resolveStatusKey(label);
               const on = colunasSet.has(key);
+              // Revisão Opus (fix round 1): a 360/390px, Switch + rótulo + badge + botão Requisitos
+              // não cabem numa linha só (o rótulo ia a quase zero). Mesmo padrão 2-linhas do
+              // SortableItem (Status do Kanban acima) — badge/texto/botão descem p/ 2ª linha no mobile.
+              const extra = (
+                <>
+                  {(on || semTrava) && <ModoColunaBadge modo={modoColuna(key, fluxoKeys, requisitos)} />}
+                  {!on && !semTrava && <span className="shrink-0 text-xs text-muted-foreground">revenda não passa</span>}
+                  {on && (
+                    <RequisitosStatusButton
+                      label={label}
+                      requisitos={requisitos[key] ?? []}
+                      onChange={(next) => setRequisitos(key, next)}
+                      condsIndisponiveis={REVENDA_COND_NA}
+                      bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
+                    />
+                  )}
+                </>
+              );
               return (
                 <li key={`${idx}::${key}`} className="rounded-md border bg-card p-2">
                   <div className="flex items-center gap-3">
@@ -1329,18 +1382,9 @@ function FluxoRevendaCard({
                     >
                       {label}
                     </span>
-                    {(on || semTrava) && <ModoColunaBadge modo={modoColuna(key, fluxoKeys, requisitos)} />}
-                    {!on && !semTrava && <span className="shrink-0 text-xs text-muted-foreground">revenda não passa</span>}
-                    {on && (
-                      <RequisitosStatusButton
-                        label={label}
-                        requisitos={requisitos[key] ?? []}
-                        onChange={(next) => setRequisitos(key, next)}
-                        condsIndisponiveis={REVENDA_COND_NA}
-                        bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
-                      />
-                    )}
+                    <div className="hidden shrink-0 items-center gap-2 md:flex">{extra}</div>
                   </div>
+                  <div className="mt-2 flex items-center justify-end gap-2 md:hidden">{extra}</div>
                 </li>
               );
             })}
