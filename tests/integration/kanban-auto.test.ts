@@ -789,3 +789,154 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3A: fn_kanban_historico (Tas
     });
   });
 });
+
+// ─────────────── Migration 3B — fila adiada, _kanban_aplicar e #Erro (Task 11) ───────────────
+async function aplicar(c: Client, ids: string[] | null, origem = "auto"): Promise<number> {
+  return (await um<{ n: number }>(c, `SELECT public._kanban_aplicar($1, $2::uuid[], $3) AS n`, [T, ids, origem])).n;
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3B: fila + _kanban_aplicar (Task 11)", () => {
+  it("chave DESLIGADA: _kanban_aplicar devolve 0 e não muda nada; _kanban_enfileirar não insere", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE }));
+      expect(await aplicar(c, [M])).toBe(0);
+      expect(await aplicar(c, null, "config")).toBe(0);
+      await c.query(`SELECT public._kanban_enfileirar(ARRAY[$1]::uuid[])`, [M]);
+      expect(await tamanhoFila(c)).toBe(0);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+    });
+  });
+
+  it("fila ADIADA: entrar na fila não muda nada até o COMMIT; no COMMIT deriva o lote e esvazia", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+      await c.query(`INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id) VALUES ($1, $2)`, [M, T]);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      expect(await tamanhoFila(c)).toBe(0);
+      expect(await historico(c, M)).toEqual(["entrada:manual", "etapa_a:auto"]);
+    });
+  });
+
+  it("cascata: avança só até a última automática satisfeita ANTES da 1ª que falha (não pula); GUC volta ao anterior", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto2: HOJE }));
+      expect(await aplicar(c, [M])).toBe(1);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // c satisfeita, b não → preso antes de b
+      await comoSistema(c, () => setar(c, M, { data_piloto1: HOJE }));
+      await aplicar(c, [M]);
+      expect((await lerModelo(c, M)).status).toBe("etapa_c"); // stand_by (manual) é pulada
+      expect(await aplicar(c, [M])).toBe(0); // nada muda → não grava
+      const g = await um<{ s: string; l: string }>(c,
+        `SELECT current_setting('app.kanban_sistema', true) AS s, current_setting('app.kanban_lote', true) AS l`);
+      expect(g).toEqual({ s: "", l: "" });
+    });
+  });
+
+  it("exceção configurada NÃO pula coluna no motor (G-inicial #3): etapa_c ignora data_piloto1, mas etapa_b ainda exige", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { exc: { etapa_c: ["data_piloto1"] } });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto2: HOJE }));
+      await aplicar(c, [M]);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // etapa_c estaria "satisfeita", mas etapa_b falha antes
+      await comoSistema(c, () => setar(c, M, { data_piloto1: HOJE }));
+      await aplicar(c, [M]);
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+    });
+  });
+
+  it("#Erro (decisão 14): com a chave ligada o motor NUNCA acende nem apaga — recuo só devolve o card à coluna devida", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE }));
+      await aplicar(c, [M]); // → etapa_c
+      await envelhecerHistorico(c, M); // fora da janela de 10 s: recuo "real"
+      await comoSistema(c, () => setar(c, M, { data_piloto1: null }));
+      await aplicar(c, [M]);
+      let m = await lerModelo(c, M);
+      expect([m.status, m.erro]).toEqual(["etapa_a", false]); // volta p/ a coluna devida, SEM #Erro
+      await comoSistema(c, () => setar(c, M, { data_piloto1: HOJE }));
+      await aplicar(c, [M]); // → etapa_c
+      await comoSistema(c, () => setar(c, M, { data_desenho_tecnico: null }));
+      await aplicar(c, [M]); // recuo dentro da janela: idem
+      m = await lerModelo(c, M);
+      expect([m.status, m.erro]).toEqual(["entrada", false]);
+      // #Erro LEGADO (aceso quando a chave estava desligada) o motor não apaga: só o kanban_mover (Task 15) — D20
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET revisao_pendente = '{"kanban": true}' WHERE id = $1`, [M]));
+      await comoSistema(c, () => setar(c, M, { data_desenho_tecnico: HOJE }));
+      await aplicar(c, [M]); // avanço 'auto'
+      m = await lerModelo(c, M);
+      expect([m.status, m.erro]).toEqual(["etapa_c", true]);
+      await comoSistema(c, () => setar(c, M, { data_piloto1: null }));
+      await aplicar(c, [M], "config"); // recuo por 'config': também não mexe
+      m = await lerModelo(c, M);
+      expect([m.status, m.erro]).toEqual(["etapa_a", true]);
+      expect((await historico(c, M)).at(-1)).toBe("etapa_a:config");
+    });
+  });
+
+  it("fixado não anda; a REF dele é revelada quando a POSIÇÃO DERIVADA atinge ref_exibir_status", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c, { ref: "etapa_c" });
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { status_desenvolvimento: "stand_by", data_desenho_tecnico: HOJE }));
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET ref = '' WHERE id = $1`, [M]));
+      await aplicar(c, [M]);
+      let m = await lerModelo(c, M);
+      expect([m.status, m.ref ?? ""]).toEqual(["stand_by", ""]); // derivada = etapa_a < etapa_c
+      expect(m.ref_auto ?? "").not.toBe("");
+      await comoSistema(c, () => setar(c, M, { data_piloto1: HOJE, data_piloto2: HOJE }));
+      expect(await aplicar(c, [M])).toBe(0); // status não muda…
+      m = await lerModelo(c, M);
+      expect(m.status).toBe("stand_by");
+      expect(m.ref).toBe(m.ref_auto); // …mas a REF é revelada
+    });
+  });
+
+  // DDL próprio (sabotagem com CREATE OR REPLACE FUNCTION) → SÓ na cópia local (decisão 17), mesmo sem KANBAN_AUTO_MIG_TXN
+  it.skipIf(!LOCAL)("erro na derivação vira WARNING: NÃO derruba o COMMIT e a fila esvazia", async () => {
+    await withTx(async (c) => {
+      const avisos: string[] = [];
+      const ouvir = (n: { message?: string }) => avisos.push(String(n.message));
+      c.on("notice", ouvir);
+      try {
+        await prepara(c, 3);
+        await configurarBoard(c);
+        await chave(c, true);
+        const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+        // sabotagem SÓ nesta txn (revertida): o motor passa a lançar erro
+        await c.query(`CREATE OR REPLACE FUNCTION public._kanban_aplicar(_tenant uuid, _ids uuid[], _origem text, _lote uuid DEFAULT NULL)
+                       RETURNS integer LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'sabotagem de teste'; END $f$`);
+        await c.query(`INSERT INTO public.kanban_recalculo_fila (modelo_id, tenant_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [M, T]);
+        await imediato(c); // não lança
+        expect(avisos.some((a) => /recálculo ignorado/.test(a) && /sabotagem de teste/.test(a))).toBe(true);
+        expect(await tamanhoFila(c)).toBe(0);
+        expect((await lerModelo(c, M)).status).toBe("entrada");
+      } finally {
+        c.off("notice", ouvir);
+      }
+    });
+  });
+
+  it("origem inválida → P0001", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await expect(c.query(`SELECT public._kanban_aplicar($1, NULL, 'manual')`, [T])).rejects.toMatchObject({ code: "P0001" });
+    });
+  });
+});
