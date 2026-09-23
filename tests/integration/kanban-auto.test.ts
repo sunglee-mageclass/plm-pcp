@@ -1211,3 +1211,173 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 3E: enfileiradores (Task 12)
     });
   });
 });
+
+// ─────────────── Migration 3F/3G — trava da chave, Config (snapshot no servidor) e guard (Task 13) ───────────────
+async function lotes(c: Client): Promise<{ lote_id: string; motivo: string; n: number }[]> {
+  // Na MESMA txn todos os lotes têm o mesmo criado_at (now()) → ordena por motivo (config < ligar).
+  const { rows } = await c.query(
+    `SELECT lote_id, motivo, count(*)::int AS n
+       FROM public.kanban_snapshot WHERE tenant_id = $1 GROUP BY lote_id, motivo ORDER BY motivo, lote_id`, [T]);
+  return rows.map((r) => ({ lote_id: r.lote_id, motivo: r.motivo, n: r.n }));
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3F: gatilho da Config grava o snapshot (Task 13)", () => {
+  it("LIGAR: 1 lote 'ligar' com TODOS os deriváveis (status de antes) + recálculo 'config' com o lote no histórico", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      const elegiveis = Number((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.modelos WHERE tenant_id = $1 AND ordem_criacao_enviada AND NOT lancado`, [T])).n);
+      await chave(c, true);
+      const ls = await lotes(c);
+      expect(ls.map((l) => [l.motivo, l.n])).toEqual([["ligar", elegiveis]]);
+      const snapM = await um<{ s: string }>(c, `SELECT status_anterior AS s FROM public.kanban_snapshot WHERE modelo_id = $1`, [M]);
+      expect(snapM.s).toBe("entrada");
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // recalculado NA MESMA txn do save
+      const h = await um<{ origem: string; lote_id: string }>(c,
+        `SELECT origem, lote_id FROM public.modelo_kanban_historico WHERE modelo_id = $1 ORDER BY entrou_at DESC, created_at DESC LIMIT 1`, [M]);
+      expect(h).toEqual({ origem: "config", lote_id: ls[0].lote_id });
+    });
+  });
+
+  it("com a chave ligada: board/requisitos/exceções/fluxo de revenda → lote 'config'; confeccao_prioridade só recalcula; upsert sem mudança e DESLIGAR não gravam nada", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      await chave(c, true);
+      expect((await lotes(c)).length).toBe(1);
+      await c.query(`UPDATE public.tenant_config SET kanban_requisitos_excecoes = '{"etapa_c": ["data_piloto1"]}' WHERE tenant_id = $1`, [T]);
+      await c.query(`UPDATE public.tenant_config SET revenda_kanban_colunas = '["entrada", "aprovado"]' WHERE tenant_id = $1`, [T]);
+      expect((await lotes(c)).map((l) => l.motivo)).toEqual(["config", "config", "ligar"]);
+      const cat = await um<{ id: string }>(c, `SELECT id FROM public.categorias_terceirizado WHERE tenant_id = $1 LIMIT 1`, [T]);
+      await c.query(`UPDATE public.tenant_config SET confeccao_prioridade = jsonb_build_array($2::text) WHERE tenant_id = $1`, [T, cat.id]);
+      // "upsert da linha inteira" como a tela de Config faz: mesmas colunas de kanban + outra coluna mudando
+      await c.query(
+        `UPDATE public.tenant_config SET status_kanban = status_kanban, kanban_requisitos = kanban_requisitos,
+                kanban_automatico = kanban_automatico, estoque_critico_threshold = estoque_critico_threshold + 1
+          WHERE tenant_id = $1`, [T]);
+      expect((await lotes(c)).length).toBe(3);
+      const antes = (await c.query(`SELECT id, status_desenvolvimento FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows;
+      await chave(c, false);
+      expect((await lotes(c)).length).toBe(3);
+      expect((await c.query(`SELECT id, status_desenvolvimento FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows).toEqual(antes);
+    });
+  });
+});
+
+async function lerChave(c: Client) {
+  return um<{ k: boolean; e: string }>(c,
+    `SELECT kanban_automatico AS k, estoque_critico_threshold::text AS e FROM public.tenant_config WHERE tenant_id = $1`, [T]);
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3F: a chave só muda pela RPC (decisão 16, Task 13)", () => {
+  it("UPDATE/upsert de aba VELHA não liga nem desliga a chave (e não grava lote nem recalcula)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      // aba velha tentando LIGAR: UPDATE direto e upsert da linha inteira (como a Config faz)
+      await c.query(`UPDATE public.tenant_config SET kanban_automatico = true WHERE tenant_id = $1`, [T]);
+      await c.query(
+        `INSERT INTO public.tenant_config (tenant_id, kanban_automatico, estoque_critico_threshold) VALUES ($1, true, 7)
+         ON CONFLICT (tenant_id) DO UPDATE SET kanban_automatico = EXCLUDED.kanban_automatico,
+                                              estoque_critico_threshold = EXCLUDED.estoque_critico_threshold`, [T]);
+      expect(await lerChave(c)).toEqual({ k: false, e: "7" }); // o resto do upsert grava; a chave não
+      expect(await lotes(c)).toEqual([]);
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+      // ligada pelo caminho certo (GUC da RPC); aba velha tentando DESLIGAR calada
+      await chave(c, true);
+      await c.query(`UPDATE public.tenant_config SET kanban_automatico = false, estoque_critico_threshold = 8 WHERE tenant_id = $1`, [T]);
+      expect(await lerChave(c)).toEqual({ k: true, e: "8" });
+      expect((await lotes(c)).map((l) => l.motivo)).toEqual(["ligar"]);
+      expect((await um<{ g: string }>(c, `SELECT current_setting('app.kanban_chave', true) AS g`)).g).toBe("");
+    });
+  });
+
+  it("INSERT de loja nova nasce com a chave DESLIGADA mesmo pedindo true", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      const L = await um<{ id: string }>(c, `INSERT INTO public.tenants (nome) VALUES ('KA loja nova') RETURNING id`);
+      // o seed da loja (trg_criar_tenant_config) já criou a linha; recria pedindo a chave LIGADA
+      await c.query(`DELETE FROM public.tenant_config WHERE tenant_id = $1`, [L.id]);
+      await c.query(`INSERT INTO public.tenant_config (tenant_id, kanban_automatico) VALUES ($1, true)`, [L.id]);
+      const r = await um<{ k: boolean }>(c, `SELECT kanban_automatico AS k FROM public.tenant_config WHERE tenant_id = $1`, [L.id]);
+      expect(r.k).toBe(false);
+    });
+  });
+});
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 3G: guard do status (Task 13)", () => {
+  async function cenario(c: Client) {
+    await prepara(c, 3);
+    await configurarBoard(c);
+    await chave(c, true);
+    const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE }));
+    await aplicar(c, [M]);
+    expect((await lerModelo(c, M)).status).toBe("etapa_c");
+    return M;
+  }
+
+  it("draft VELHO do Sheet do Dev (coluna automática) é ignorado; ''/NULL mantêm o atual", async () => {
+    await withTx(async (c) => {
+      const M = await cenario(c);
+      await setar(c, M, { status_desenvolvimento: "etapa_a", observacoes_gerais: "salvar do Sheet do Dev" });
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+      await setar(c, M, { status_desenvolvimento: "" });
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+      await setar(c, M, { status_desenvolvimento: null });
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+    });
+  });
+
+  it("coluna MANUAL fixa (e fica no COMMIT); tirar de manual p/ automática SOLTA na posição derivada", async () => {
+    await withTx(async (c) => {
+      const M = await cenario(c);
+      await setar(c, M, { status_desenvolvimento: "stand_by" });
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("stand_by");
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+    });
+  });
+
+  it("ENTRADA é aceita e o COMMIT re-deriva (entrada nunca fixa)", async () => {
+    await withTx(async (c) => {
+      const M = await cenario(c);
+      await c.query(`DELETE FROM public.kanban_recalculo_fila`);
+      await setar(c, M, { status_desenvolvimento: "entrada" });
+      expect((await lerModelo(c, M)).status).toBe("entrada");
+      expect(await filaIds(c)).toContain(M);
+      await imediato(c);
+      expect((await lerModelo(c, M)).status).toBe("etapa_c");
+    });
+  });
+
+  it("destino FORA do fluxo → P0001 com a mensagem do §3", async () => {
+    await withTx(async (c) => {
+      const M = await cenario(c);
+      await c.query("SAVEPOINT sp");
+      await expect(setar(c, M, { status_desenvolvimento: "zzz" })).rejects.toMatchObject({
+        code: "P0001", message: 'A etapa "zzz" não faz parte do fluxo deste modelo.',
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+
+  it("passa direto (gravação livre como hoje): chave desligada, card não derivável, escrita do sistema", async () => {
+    await withTx(async (c) => {
+      const M = await cenario(c);
+      const N = await comoSistema(c, () => novoModelo(c, { ordem_criacao_enviada: false }));
+      await setar(c, N, { status_desenvolvimento: "aprovado" });
+      expect((await lerModelo(c, N)).status).toBe("aprovado");
+      await guc(c, "manual");
+      await setar(c, M, { status_desenvolvimento: "etapa_a" });
+      await guc(c, "");
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      await chave(c, false);
+      await setar(c, M, { status_desenvolvimento: "zzz" });
+      expect((await lerModelo(c, M)).status).toBe("zzz");
+    });
+  });
+});

@@ -475,6 +475,166 @@ CREATE TRIGGER trg_kanban_fila_del
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_kanban_fila_categoria();
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- F.1) Trava da chave (decisão 16 do dono, 23/set; G-plano R3). `kanban_automatico` só muda pela
+--      RPC `kanban_definir_automatico` (migration 4), que seta `app.kanban_chave='rpc'` (transação-
+--      local) e restaura depois. Sem esse GUC: UPDATE mantém o valor antigo — a Config faz upsert da
+--      linha INTEIRA, e uma aba aberta antes de alguém ligar/desligar regravaria o valor velho
+--      (ligaria a loja SEM prévia ou desligaria calada) — e INSERT nasce DESLIGADO. BEFORE INSERT
+--      OR UPDATE sem WHEN (gatilho que também é de INSERT não pode citar OLD no WHEN); ordena depois
+--      de set_tenant_id_trg. O snapshot/recálculo ao ligar continua no AFTER trg_kanban_config.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_kanban_chave_protegida()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF coalesce(current_setting('app.kanban_chave', true), '') = 'rpc' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.kanban_automatico := false;
+  ELSE
+    NEW.kanban_automatico := OLD.kanban_automatico;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_kanban_chave_protegida ON public.tenant_config;
+CREATE TRIGGER trg_kanban_chave_protegida
+  BEFORE INSERT OR UPDATE ON public.tenant_config
+  FOR EACH ROW EXECUTE FUNCTION public.fn_kanban_chave_protegida();
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- F) Config da Loja: snapshot NO SERVIDOR + recálculo, na MESMA txn do save (G-fase R2).
+--    WHEN com IS DISTINCT FROM (a Config faz upsert da linha INTEIRA — G-inicial #4): só as 5
+--    colunas de kanban + a chave + confeccao_prioridade disparam. Desligar não grava nada. A chave
+--    em si só chega aqui mudada pela RPC kanban_definir_automatico (trava F.1).
+--    Snapshot: ao LIGAR (motivo 'ligar') e a cada mudança de board/requisitos/exceções/fluxo de
+--    revenda com a chave ligada (motivo 'config'); `confeccao_prioridade` só recalcula.
+--    Erro aqui PROPAGA (o admin vê a mensagem e nada muda) — não é engolido como na fila.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_kanban_config()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ligou     boolean := coalesce(NEW.kanban_automatico, false) AND NOT coalesce(OLD.kanban_automatico, false);
+  v_cfg_mudou boolean;
+  v_lote      uuid;
+  v_agora     timestamptz := clock_timestamp();  -- relógio (não now()): separa, na MESMA txn, o antes/depois do lote
+BEGIN
+  IF NEW.tenant_id IS NULL OR NOT coalesce(NEW.kanban_automatico, false) THEN
+    RETURN NULL;
+  END IF;
+  v_cfg_mudou := OLD.status_kanban IS DISTINCT FROM NEW.status_kanban
+    OR OLD.kanban_requisitos IS DISTINCT FROM NEW.kanban_requisitos
+    OR OLD.kanban_requisitos_excecoes IS DISTINCT FROM NEW.kanban_requisitos_excecoes
+    OR OLD.revenda_kanban_colunas IS DISTINCT FROM NEW.revenda_kanban_colunas
+    OR OLD.revenda_kanban_requisitos IS DISTINCT FROM NEW.revenda_kanban_requisitos;
+  IF v_ligou OR v_cfg_mudou THEN
+    v_lote := gen_random_uuid();
+    INSERT INTO public.kanban_snapshot (lote_id, tenant_id, modelo_id, status_anterior, motivo, criado_at)
+    SELECT v_lote, NEW.tenant_id, m.id, m.status_desenvolvimento,
+           CASE WHEN v_ligou THEN 'ligar' ELSE 'config' END, v_agora
+      FROM public.modelos m
+     WHERE m.tenant_id = NEW.tenant_id
+       AND coalesce(m.ordem_criacao_enviada, false)
+       AND NOT coalesce(m.lancado, false);
+  END IF;
+  PERFORM public._kanban_aplicar(NEW.tenant_id, NULL, 'config', v_lote);
+  RETURN NULL;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_kanban_config ON public.tenant_config;
+CREATE TRIGGER trg_kanban_config
+  AFTER UPDATE ON public.tenant_config
+  FOR EACH ROW
+  WHEN (OLD.kanban_automatico IS DISTINCT FROM NEW.kanban_automatico
+     OR OLD.status_kanban IS DISTINCT FROM NEW.status_kanban
+     OR OLD.kanban_requisitos IS DISTINCT FROM NEW.kanban_requisitos
+     OR OLD.kanban_requisitos_excecoes IS DISTINCT FROM NEW.kanban_requisitos_excecoes
+     OR OLD.revenda_kanban_colunas IS DISTINCT FROM NEW.revenda_kanban_colunas
+     OR OLD.revenda_kanban_requisitos IS DISTINCT FROM NEW.revenda_kanban_requisitos
+     OR OLD.confeccao_prioridade IS DISTINCT FROM NEW.confeccao_prioridade)
+  EXECUTE FUNCTION public.fn_kanban_config();
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- G) Guard do status (BEFORE UPDATE OF status_desenvolvimento). Dispara em ordem alfabética
+--    entre trg_colab_rev e trg_modelo_markup_congela (ANTES de trg_modelo_ref_auto).
+--    Passa: chave desligada, GUC não vazio, card não derivável, status igual.
+--    Senão (e sempre re-enfileira — o COMMIT re-deriva com o estado final):
+--      ''/NULL → mantém o atual · fora do fluxo → P0001 · entrada ou manual → passa (fixa) ·
+--      AUTOMÁTICA de fora do motor → estava FIXADO: vai p/ a posição DERIVADA ("tirar de manual
+--      solta"); senão mantém o atual (draft velho do Sheet do Dev é ignorado).
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_kanban_status_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_cfg      jsonb;
+  v_comprado boolean;
+  v_fluxo    text[];
+  v_reqs     jsonb;
+  v_exc      jsonb;
+  v_para     text;
+  v_atual    text;
+  v_cond     jsonb;
+BEGIN
+  IF NEW.status_desenvolvimento IS NOT DISTINCT FROM OLD.status_desenvolvimento THEN RETURN NEW; END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') <> '' THEN RETURN NEW; END IF;
+  IF NOT public._kanban_ligado(NEW.tenant_id) THEN RETURN NEW; END IF;
+  IF NOT (coalesce(NEW.ordem_criacao_enviada, false) AND NOT coalesce(NEW.lancado, false)) THEN RETURN NEW; END IF;
+
+  v_cfg      := coalesce(public._kanban_cfg(NEW.tenant_id), '{}'::jsonb);
+  v_comprado := coalesce(NEW.origem, 'interno') IN ('revenda', 'importado');
+  v_fluxo    := public._kanban_fluxo(v_cfg, v_comprado);
+  IF cardinality(v_fluxo) = 0 THEN RETURN NEW; END IF;
+  v_reqs := CASE WHEN v_comprado THEN v_cfg -> 'revenda_kanban_requisitos' ELSE v_cfg -> 'kanban_requisitos' END;
+  v_exc  := CASE WHEN v_comprado THEN '{}'::jsonb ELSE v_cfg -> 'kanban_requisitos_excecoes' END;
+
+  PERFORM public._kanban_enfileirar(ARRAY[NEW.id]);
+
+  v_para := public._kanban_norm(NEW.status_desenvolvimento);
+  IF v_para = '' THEN
+    NEW.status_desenvolvimento := OLD.status_desenvolvimento;
+    RETURN NEW;
+  END IF;
+  IF NOT (v_para = ANY (v_fluxo)) THEN
+    RAISE EXCEPTION 'A etapa "%" não faz parte do fluxo deste modelo.', NEW.status_desenvolvimento
+      USING ERRCODE = 'P0001';
+  END IF;
+  IF v_para = v_fluxo[1] OR public._kanban_coluna_manual(v_para, v_reqs) THEN
+    RETURN NEW;
+  END IF;
+
+  v_atual := public._kanban_norm(OLD.status_desenvolvimento);
+  IF v_atual <> '' AND v_atual = ANY (v_fluxo) AND v_atual <> v_fluxo[1]
+     AND public._kanban_coluna_manual(v_atual, v_reqs) THEN
+    v_cond := coalesce(public._avaliar_condicoes_kanban_core(NEW.tenant_id, ARRAY[NEW.id]) -> NEW.id::text, '{}'::jsonb);
+    NEW.status_desenvolvimento :=
+      public._kanban_derivar_puro(v_fluxo, v_reqs, v_exc, v_cond, OLD.status_desenvolvimento, true) ->> 'alvo';
+  ELSE
+    NEW.status_desenvolvimento := OLD.status_desenvolvimento;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_kanban_status_guard ON public.modelos;
+CREATE TRIGGER trg_kanban_status_guard
+  BEFORE UPDATE OF status_desenvolvimento ON public.modelos
+  FOR EACH ROW EXECUTE FUNCTION public.fn_kanban_status_guard();
+
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');
