@@ -344,3 +344,36 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 1: schema (Task 5)", () => {
     });
   });
 });
+
+// ─────────────────────────── Inverso 1 (Task 6) ───────────────────────────
+async function retratoSchema1(c: Client) {
+  const cols = await c.query(
+    `SELECT table_name, column_name, data_type, is_nullable, column_default
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name IN ('tenant_config', 'modelo_kanban_historico')
+      ORDER BY table_name, column_name`,
+  );
+  const idx = await c.query(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
+        AND tablename IN ('cad_tecidos','cad_tecido_variantes','cad_aviamentos','cad_etiquetas','modelo_aviamentos')
+      ORDER BY 1`,
+  );
+  const tabs = await um<{ fila: string | null; snap: string | null }>(
+    c,
+    `SELECT to_regclass('public.kanban_recalculo_fila')::text AS fila, to_regclass('public.kanban_snapshot')::text AS snap`,
+  );
+  return { cols: cols.rows, idx: idx.rows, tabs };
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 1 (Task 6)", () => {
+  it("aplica 1 e desfaz com o inverso: colunas, índices e tabelas voltam ao retrato de antes", async () => {
+    await withTx(async (c) => {
+      const antes = await retratoSchema1(c);
+      await prepara(c, 1);
+      expect((await retratoSchema1(c)).tabs.fila).toBe("kanban_recalculo_fila");
+      await aplicarArquivo(c, INVERSOS[1]);
+      expect(await retratoSchema1(c)).toEqual(antes);
+      await aplicarArquivo(c, INVERSOS[1]); // idempotente
+    });
+  });
+});
