@@ -313,6 +313,8 @@ export function usePlanejamentoSave({
       // F3.1: o save muda as condições do kanban (datas/pilotos/anexos…) — refresca o gate da REF com a chave
       // ligada e a dica do "Mover para…".
       qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
+      // F3.1: a "Composição" das Observações lê `modelo_tecidos`, que o Salvar grava.
+      qc.invalidateQueries({ queryKey: ["modelo-composicao", modeloId] });
       // Salvar MANTÉM o Sheet aberto (decisão do dono set/2026 — antes fechava): `onSaved()`
       // atualiza os cards do container por baixo; o card fica aberto pra continuar conferindo
       // (ex.: o preço/custo recalculado). `markClean()` + `setMoLinhasBase` acima já apagaram o

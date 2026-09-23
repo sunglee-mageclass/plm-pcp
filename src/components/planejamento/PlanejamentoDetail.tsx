@@ -75,6 +75,10 @@ import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
+import { AnexosDevCampos } from "@/components/planejamento/planejamento-detail/ficha/secoes/AnexosDevCampos";
+// Reuso DIRETO (sem modificar — decisão travada 8): fio de comentários da Prova e bloco de Observações do Dev.
+import { ModeloAjustesProvaSection } from "@/components/desenvolvimento/modelo-detail/ModeloAjustesProvaSection";
+import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 // API pública mantida: a rota `criacao.planejamento.tsx` importa FieldText/FieldSelect DAQUI.
 export { FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 
@@ -609,6 +613,14 @@ export function PlanejamentoDetail({
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
+  // Ficha de Medida (veio do Dev — F3.1): MESMO caminho do Dev, `<tenant>/fichas/<modeloId>/<uuid>-<nome>`
+  // (ModeloDetailPanel.tsx:2654-2659). Só no card existente (a seção só aparece com isEdit).
+  const uploadFicha = useMutation({
+    mutationFn: async (file: File) => uploadFile(file, `fichas/${modeloId}`),
+    onSuccess: (path) => { setDraftTracked((d) => ({ ...d, ficha_medida_url: path })); toast.success("Ficha enviada"); },
+    onError: (e: any) => toast.error(mensagemErro(e)),
+  });
+
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
   // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo).
   const aoSalvar = () => { setEditandoDev(false); onSaved(); };
@@ -903,6 +915,35 @@ export function PlanejamentoDetail({
             </Secao>
           )}
 
+          {/* Ajustes na Prova (veio do Dev — F3.1): fio de comentários que grava NA HORA (fora do Salvar). Comprado
+              segue a seção "prova" do Fluxo de Revenda (default: escondida). Trava = fieldset, como no Dev. */}
+          {isEdit && modeloId && podeVerDev && campoVisivelDev("prova") && (
+            <Secao titulo="Ajustes na Prova" defaultOpen={false}>
+              <AvisoCamposDev motivo={motivoTravaDev} />
+              <fieldset disabled={devBloqueado} className="contents">
+                <ModeloAjustesProvaSection modeloId={modeloId} />
+              </fieldset>
+            </Secao>
+          )}
+
+          {/* ↓ F3.2: as seções do BOM (Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade) entram AQUI,
+              entre "Ajustes na Prova" e "Preço" (ordem do mockup aprovado). */}
+
+          {/* F3.1 — "Tecido Planejado" SUBIU para cá (mockup aprovado): no Dialog "Novo Modelo" fica ANTES da Mão de
+              obra (gen_novo.py) e no Sheet no lugar da seção 5 "Tecidos" (gen_anotado.py), que a F3.2 troca pelo BOM. */}
+          {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
+          {!isComprado && (
+          <Secao titulo="Tecido Planejado" defaultOpen={false}>
+            <MultiArtigosField
+              label=""
+              value={draft.tecidos_planejados}
+              onChange={(v) => setDraftTracked((d) => ({ ...d, tecidos_planejados: v }))}
+              artigos={artigos}
+              estoque={estoqueMap}
+            />
+          </Secao>
+          )}
+
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {isEdit && (
           <Secao titulo="Preço" defaultOpen={false}>
@@ -970,7 +1011,9 @@ export function PlanejamentoDetail({
               />
               {podeVerCustos && (
                 <div className="mt-3">
+                  {/* F3.1 (mockup aprovado): rótulo "Obs. Mão de Obra", igual ao do Dev (ModeloDetailPanel.tsx:3051-3055). */}
                   <ObsMaoObraField
+                    label="Obs. Mão de Obra"
                     value={draft.observacoes_mao_obra}
                     onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
                   />
@@ -989,19 +1032,6 @@ export function PlanejamentoDetail({
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {isEdit && isRevenda && paOn && produtoRevenda && (
             <GradeRevendaSecao rv={revenda} />
-          )}
-
-          {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
-          {!isComprado && (
-          <Secao titulo="Tecido Planejado" defaultOpen={false}>
-            <MultiArtigosField
-              label=""
-              value={draft.tecidos_planejados}
-              onChange={(v) => setDraftTracked((d) => ({ ...d, tecidos_planejados: v }))}
-              artigos={artigos}
-              estoque={estoqueMap}
-            />
-          </Secao>
           )}
 
           {/* SETOR 5 — Anexos */}
@@ -1028,7 +1058,35 @@ export function PlanejamentoDetail({
                 onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_referencia" })}
                 onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
             </div>
+            {/* Ficha de Medida + Observações Gerais (vieram do Dev — F3.1): card existente, quem vê o Dev e (comprado)
+                seção "s6" ligada no Fluxo de Revenda. Travam com as seções do Dev; o resto de Anexos segue livre. */}
+            {isEdit && modeloId && podeVerDev && campoVisivelDev("s6") && (
+              <>
+                <AvisoCamposDev motivo={motivoTravaDev} />
+                <fieldset disabled={devBloqueado} className="contents">
+                  <AnexosDevCampos
+                    fichaMedidaUrl={draft.ficha_medida_url}
+                    onUploadFicha={(f) => uploadFicha.mutate(f)}
+                    onRemoverFicha={() => setDraftTracked((d) => ({ ...d, ficha_medida_url: "" }))}
+                    observacoesGerais={draft.observacoes_gerais}
+                    onObservacoesGerais={(v) => setDraftTracked((d) => ({ ...d, observacoes_gerais: v }))}
+                  />
+                </fieldset>
+              </>
+            )}
           </Secao>
+
+          {/* Observações (veio do Dev — F3.1): blocos com a Composição automática, gravam NA HORA (fora do Salvar).
+              Reuso DIRETO de `ModeloObservacoes` (o card dele tem título próprio "Observações" — aceito: o
+              componente é compartilhado com o Sheet do Dev e não muda até a F5). */}
+          {isEdit && modeloId && podeVerDev && (
+            <Secao titulo="Observações" defaultOpen={false}>
+              <AvisoCamposDev motivo={motivoTravaDev} />
+              <fieldset disabled={devBloqueado} className="contents">
+                <ModeloObservacoes modeloId={modeloId} readOnly={devBloqueado} />
+              </fieldset>
+            </Secao>
+          )}
 
           {/* SETOR 6 — Lançamento (gate: CAD + CQ liberado + valor de serviços aprovado) */}
           {isEdit && (
