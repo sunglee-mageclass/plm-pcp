@@ -70,17 +70,39 @@ export function separarPayloadKanban(payload: Record<string, unknown>): { geral:
  * SERVIDOR (sem o diff que falhou) — apagando em silêncio a edição do usuário que ele ainda não
  * conseguiu salvar.
  *
- * Esta função decide, nesse eco, o que a tela deve mostrar: com uma falha parcial PENDENTE,
- * mantém o kanban LOCAL (as colunas como o usuário as deixou, sujas) em vez de adotar o do
- * servidor — para ele poder tentar salvar de novo sem perder o que digitou. Sem falha pendente,
- * comportamento de sempre: adota o servidor.
+ * Fix round 2 (revisão Opus): a flag do round 1 só ligava no `onError` — mas o eco do PRÓPRIO
+ * `upsert(geral)` chega antes (WAL + debounce 250ms + 2 SELECTs, ~0,4-0,8s) do `update(diff)`
+ * FALHAR (mais lento ainda com a chave ligada: `trg_kanban_config` recalcula a loja inteira na
+ * mesma txn). Corrida real: o eco vencia e apagava a edição ANTES da flag ligar. Por isso
+ * `protegido` cobre a janela INTEIRA (liga no INÍCIO do `mutationFn`, não só no erro) — ver
+ * `kanbanProtegidoRef` no componente.
+ *
+ * Esta função decide, nesse eco, DUAS coisas:
+ * 1) o que a tela deve mostrar (`cfgKanban`) — protegido: mantém o LOCAL (o que já estava na
+ *    tela); não-protegido: adota o do SERVIDOR (comportamento de sempre).
+ * 2) o que `kanbanBase` deve virar — protegido: **intocado** (fica exatamente como estava).
+ *    Round 1 tinha uma REGRESSÃO aqui: sempre fazia `kanbanBase = {cfg: servidor, servidor:
+ *    servidor}`, mesmo protegido. Se OUTRA aba mudou o kanban nesse meio-tempo, isso adotava o
+ *    valor da outra aba como se fosse a base "confere-se antes de salvar" — um retry então
+ *    comparava `kanbanBase.servidor` (já igual ao valor da outra aba) contra o banco (a mesma
+ *    coisa) e não achava conflito, regravando por cima da mudança alheia (lost update). Mantendo
+ *    `kanbanBase` intocado enquanto protegido: (a) se foi o PRÓPRIO upsert que ecoou, o servidor
+ *    nunca mudou o kanban (só o `update(diff)` falhou) — `kanbanBase.servidor` já bate com o
+ *    banco, retry sem conflito falso; (b) se foi OUTRA aba, `kanbanBase.servidor` continua
+ *    apontando pro valor de ANTES dela mudar — retry compara contra o banco AGORA e acusa o
+ *    conflito real. Sem `protegido`: comportamento de sempre, `kanbanBase` também adota o
+ *    servidor (novo baseline após o save/refetch).
  */
-export function mesclarKanbanNoEco(
-  pendente: boolean,
-  localCfg: KanbanColsValor,
-  servidorCfg: KanbanColsValor,
-): KanbanColsValor {
-  return pendente ? localCfg : servidorCfg;
+export function resolverEcoKanban(
+  protegido: boolean,
+  local: KanbanColsValor,
+  servidorNovo: KanbanColsValor,
+  baseAtual: { cfg: KanbanColsValor; servidor: KanbanColsValor },
+): { cfgKanban: KanbanColsValor; kanbanBase: { cfg: KanbanColsValor; servidor: KanbanColsValor } } {
+  if (protegido) {
+    return { cfgKanban: local, kanbanBase: baseAtual };
+  }
+  return { cfgKanban: servidorNovo, kanbanBase: { cfg: servidorNovo, servidor: servidorNovo } };
 }
 
 const DESCRICAO_COL: Record<KanbanCol, string> = {

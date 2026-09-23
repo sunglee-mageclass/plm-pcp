@@ -1,5 +1,5 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -61,7 +61,7 @@ import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { modoColuna, MOTIVO_REPROVADO_MANUAL } from "@/lib/kanban-auto-ui";
 import {
-  conflitoKanban, diffKanban, mensagemConflitoKanban, mesclarKanbanNoEco, pickKanban, separarPayloadKanban,
+  conflitoKanban, diffKanban, mensagemConflitoKanban, pickKanban, resolverEcoKanban, separarPayloadKanban,
   type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
@@ -182,6 +182,10 @@ function ConfiguracoesLojaPage() {
   const qc = useQueryClient();
   const { modules, isStockOnly } = useTenantModules();
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
+  // Espelha `cfg` p/ o useEffect do eco (fix round 2) ler o valor JÁ na tela sem depender do
+  // closure do render que agendou o efeito (evita staleness entre múltiplos setState no meio).
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
   // Salvar configurações afeta dados de toda a loja (modo OC/Rolo, grade, kanban,
   // acabamento, baixa) — confirma antes de gravar.
   const [confirmSalvar, setConfirmSalvar] = useState(false);
@@ -195,11 +199,20 @@ function ConfiguracoesLojaPage() {
     cfg: pickKanban(DEFAULTS),
     servidor: pickKanban(null),
   }));
+  const kanbanBaseRef = useRef(kanbanBase);
+  kanbanBaseRef.current = kanbanBase;
   const [preparandoSalvar, setPreparandoSalvar] = useState(false);
-  // Fix round 1 (revisão Opus): geral gravou, kanban NÃO (update falhou depois do upsert). Enquanto
-  // pendente, o eco do Realtime do próprio upsert (useEffect abaixo) NÃO pode sobrescrever as colunas
-  // de kanban na tela com o valor do servidor — senão apaga a edição do usuário em silêncio.
-  const [kanbanFalhaPendente, setKanbanFalhaPendente] = useState(false);
+  // Fix round 2 (revisão Opus): PROTEGE o kanban local (na tela) enquanto (a) o save com diff de
+  // kanban está EM VOO ou (b) o `update(diff)` falhou depois do `upsert(geral)` ter sucesso (falha
+  // parcial — ver round 1). É um REF, não estado: precisa estar TRUE já no início do `mutationFn`,
+  // ANTES de qualquer await — o eco do Realtime do próprio `upsert(geral)` chega em ~0,4-0,8s (WAL +
+  // debounce 250ms + 2 SELECTs em useRealtimeInvalidation.ts) e o `update(diff)` pode demorar MAIS
+  // que isso (com a chave ligada, `trg_kanban_config` recalcula a loja inteira na mesma txn antes do
+  // erro propagar) — uma flag de estado ligada só no `onError` perderia essa corrida. Lido pelo
+  // useEffect do eco FORA das deps (não dispara o efeito de novo sozinho — round 1 tinha essa
+  // regressão: a flag nas deps refazia o efeito no sucesso com `data?.cfg` ainda desatualizado e
+  // sobrescrevia o `kanbanBase` que o `onSuccess` tinha acabado de setar).
+  const kanbanProtegidoRef = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -276,19 +289,18 @@ function ConfiguracoesLojaPage() {
           ? ((r as any).ref_config as RefConfig)
           : DEFAULTS.ref_config,
     };
-    // Fix round 1: com falha parcial pendente (geral gravou, kanban não), este eco — inclusive o do
-    // Realtime disparado pelo PRÓPRIO upsert que acabou de ter sucesso — NÃO pode trocar o kanban da
-    // tela pelo do servidor (apagaria a edição que o usuário ainda não conseguiu salvar). `cfg` (não
-    // `next`) é o "local": pega o valor JÁ na tela no instante do eco, via updater funcional.
-    setCfg((prevCfg) => {
-      const kanbanParaTela = mesclarKanbanNoEco(kanbanFalhaPendente, pickKanban(prevCfg), pickKanban(next));
-      return { ...next, ...kanbanParaTela } as ConfigState;
-    });
+    // Fix round 2: enquanto PROTEGIDO (save em voo OU falha parcial pendente — `kanbanProtegidoRef`,
+    // lido aqui FORA das deps do efeito), este eco — inclusive o do Realtime disparado pelo PRÓPRIO
+    // upsert — NÃO pode trocar o kanban da tela pelo do servidor (apagaria a edição do usuário) NEM
+    // atualizar `kanbanBase` (senão um retry perderia o conflito real de outra aba que mudou o
+    // servidor nesse meio-tempo — round 1 tinha essa regressão). `resolverEcoKanban` (puro, testado)
+    // decide as duas coisas de uma vez, a partir do MESMO instante: `cfgRef`/`kanbanBaseRef` espelham
+    // o estado JÁ na tela (evitam closure obsoleto entre múltiplos setState no meio).
+    const r2 = resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current);
+    setCfg({ ...next, ...r2.cfgKanban } as ConfigState);
+    setKanbanBase(r2.kanbanBase);
     resetCfgBaseline(next);
-    // `kanbanBase.servidor` sempre reflete o BANCO (mesmo com falha pendente — é o que uma nova
-    // tentativa de salvar vai comparar/gravar); só o que aparece NA TELA (`cfg`, acima) fica preservado.
-    setKanbanBase({ cfg: pickKanban(next), servidor: pickKanban(r) });
-  }, [data?.cfg, kanbanFalhaPendente]);
+  }, [data?.cfg]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -318,39 +330,57 @@ function ConfiguracoesLojaPage() {
       const { geral } = separarPayloadKanban(payload);
       const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
       const temKanban = Object.keys(diff).length > 0;
-      if (temKanban) {
-        const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
-        if (conflito.length > 0) throw new Error(mensagemConflitoKanban(conflito));
-      }
-      const { error } = await supabase
-        .from("tenant_config")
-        .upsert(geral as any, { onConflict: "tenant_id" });
-      if (error) throw error;
-      if (temKanban) {
-        const { data: gravadas, error: errKanban } = await supabase
+      // Fix round 2 (revisão Opus): liga a PROTEÇÃO aqui, ANTES do 1º `await` — não no `onError`.
+      // O eco do Realtime do `upsert(geral)` abaixo chega em ~0,4-0,8s; com a chave ligada, o
+      // `update(diff)` pode demorar MAIS que isso (trigger recalcula a loja inteira na mesma txn),
+      // então uma flag ligada só depois do erro perderia a corrida e o eco apagaria a edição antes.
+      if (temKanban) kanbanProtegidoRef.current = true;
+      try {
+        if (temKanban) {
+          const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
+          if (conflito.length > 0) {
+            kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
+            throw new Error(mensagemConflitoKanban(conflito));
+          }
+        }
+        const { error } = await supabase
           .from("tenant_config")
-          .update(diff as any)
-          .eq("tenant_id", data.tenantId)
-          .select("tenant_id");
-        // Fix round 1 (revisão Opus): o geral JÁ gravou aqui — falha PARCIAL, não total. Marcamos o
-        // erro com `geralOk` para o onError dar a mensagem específica e manter a edição na tela (em
-        // vez do "Erro ao salvar" genérico, que sugere que nada foi gravado).
-        if (errKanban) {
-          throw Object.assign(new Error(mensagemErro(errKanban, "Erro ao gravar as colunas do kanban")), { geralOk: true });
+          .upsert(geral as any, { onConflict: "tenant_id" });
+        if (error) {
+          kanbanProtegidoRef.current = false; // falha TOTAL: geral não gravou, kanban também não
+          throw error;
         }
-        if (!gravadas || gravadas.length === 0) {
-          throw Object.assign(
-            new Error("configuração da loja não encontrada. Recarregue a página e tente de novo."),
-            { geralOk: true },
-          );
+        if (temKanban) {
+          const { data: gravadas, error: errKanban } = await supabase
+            .from("tenant_config")
+            .update(diff as any)
+            .eq("tenant_id", data.tenantId)
+            .select("tenant_id");
+          // Fix round 1 (revisão Opus): o geral JÁ gravou aqui — falha PARCIAL, não total. Marcamos o
+          // erro com `geralOk` para o onError dar a mensagem específica; `kanbanProtegidoRef` CONTINUA
+          // true (não desliga) — é exatamente a falha parcial que a proteção existe para cobrir.
+          if (errKanban) {
+            throw Object.assign(new Error(mensagemErro(errKanban, "Erro ao gravar as colunas do kanban")), { geralOk: true });
+          }
+          if (!gravadas || gravadas.length === 0) {
+            throw Object.assign(
+              new Error("configuração da loja não encontrada. Recarregue a página e tente de novo."),
+              { geralOk: true },
+            );
+          }
         }
+        return diff;
+      } catch (e) {
+        // Volta a desligar em QUALQUER falha que não seja a parcial marcada acima (ex.: erro
+        // inesperado no meio) — evita ficar protegido para sempre por engano.
+        if (!(e as any)?.geralOk) kanbanProtegidoRef.current = false;
+        throw e;
       }
-      return diff;
     },
     onSuccess: (diff) => {
       toast.success("Configurações salvas");
       markClean();
-      setKanbanFalhaPendente(false);
+      kanbanProtegidoRef.current = false;
       // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
       // é a ÚLTIMA escrita do mutationFn (R3): chegar aqui = geral E kanban gravados.
       setKanbanBase((b) => ({ cfg: pickKanban(cfg), servidor: { ...b.servidor, ...diff } }));
@@ -365,10 +395,10 @@ function ConfiguracoesLojaPage() {
       // Fix round 1: falha PARCIAL (geral gravou, kanban não) tem mensagem PRÓPRIA — "as demais
       // configurações foram salvas" evita o usuário achar que nada foi e tentar de novo do zero
       // (o que reenviaria o mesmo `payload` geral inócuo + o diff do kanban, agora contra um
-      // `kanbanBase.servidor` que ainda bate com o banco real → sem falso conflito). Mantém a
-      // edição do kanban NA TELA via `kanbanFalhaPendente` (consumido pelo useEffect do eco acima).
+      // `kanbanBase.servidor` que ainda bate com o banco real → sem falso conflito). A edição do
+      // kanban fica NA TELA porque `kanbanProtegidoRef` já ligou no início do `mutationFn` (fix
+      // round 2) — aqui só decide a MENSAGEM (o ref já cuidou de proteger o eco).
       if (e?.geralOk) {
-        setKanbanFalhaPendente(true);
         toast.error(`As demais configurações foram salvas; as colunas do kanban NÃO foram salvas: ${e.message}`);
         return;
       }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, conflitoKanban, descreverMudancasKanban, diffKanban,
-  formatarDataHora, jsonCanonico, juntarLista, mensagemConflitoKanban, mesclarKanbanNoEco, nCards, pickKanban,
+  formatarDataHora, jsonCanonico, juntarLista, mensagemConflitoKanban, nCards, pickKanban, resolverEcoKanban,
   resumirFixados, separarPayloadKanban,
 } from "@/lib/kanban-auto-config";
 import type { PreviaCard, PreviaFixado } from "@/lib/kanban-auto-ui";
@@ -44,21 +44,51 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
     expect(geral).toEqual({ tenant_id: "t", timezone: "America/Sao_Paulo" });
     expect(kanban).toEqual({ status_kanban: ["A"], kanban_requisitos: {}, revenda_kanban_colunas: [] });
   });
-  it("mesclarKanbanNoEco: sem falha pendente, adota o servidor (comportamento de sempre)", () => {
-    const local = pickKanban({ status_kanban: ["A", "B"] });
-    const servidor = pickKanban({ status_kanban: ["A"] });
-    expect(mesclarKanbanNoEco(false, local, servidor)).toEqual(servidor);
-  });
-  it("mesclarKanbanNoEco: falha parcial pendente, PRESERVA o kanban local (não apaga a edição do usuário)", () => {
-    const local = pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { a: ["x"] } });
-    const servidor = pickKanban({ status_kanban: ["A"] });
-    expect(mesclarKanbanNoEco(true, local, servidor)).toEqual(local);
-    expect(mesclarKanbanNoEco(true, local, servidor)).not.toEqual(servidor);
-  });
-  it("mesclarKanbanNoEco: sem falha pendente e local===servidor, resultado idêntico (idempotente)", () => {
-    const v = pickKanban({ status_kanban: ["A"] });
-    expect(mesclarKanbanNoEco(false, v, v)).toEqual(v);
-    expect(mesclarKanbanNoEco(true, v, v)).toEqual(v);
+  describe("resolverEcoKanban (fix round 2 — protege o kanban local durante o salvamento)", () => {
+    it("(i) eco DURANTE o salvamento (protegido=true) preserva o local; kanbanBase intocado", () => {
+      const local = pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { a: ["x"] } });
+      const servidorNovo = pickKanban({ status_kanban: ["A"] });
+      const baseAtual = { cfg: pickKanban({ status_kanban: ["A"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
+      const r = resolverEcoKanban(true, local, servidorNovo, baseAtual);
+      expect(r.cfgKanban).toEqual(local);
+      expect(r.cfgKanban).not.toEqual(servidorNovo);
+      expect(r.kanbanBase).toBe(baseAtual); // MESMA referência: intocado, não uma cópia igual
+    });
+    it("(ii) protegido + eco de OUTRA ABA (servidor mudou por fora): retry acusa o conflito real", () => {
+      // A tela abriu com status_kanban:["A"]. kanbanBase reflete isso (nem local nem servidorNovo
+      // do eco mexem nele, pois está protegido). Outra aba muda o servidor para ["A","C"] nesse
+      // meio-tempo — o eco chega com esse valor, mas resolverEcoKanban NÃO deixa isso contaminar
+      // kanbanBase.servidor.
+      const baseAtual = { cfg: pickKanban({ status_kanban: ["A"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
+      const local = pickKanban({ status_kanban: ["A", "B"] }); // usuário editou localmente
+      const servidorNovoOutraAba = pickKanban({ status_kanban: ["A", "C"] }); // outra aba mudou o banco
+      const r = resolverEcoKanban(true, local, servidorNovoOutraAba, baseAtual);
+      expect(r.kanbanBase).toBe(baseAtual); // não adotou o valor da outra aba
+      // Retry: conflitoKanban compara kanbanBase.servidor (ainda ["A"]) contra o banco REAL agora
+      // (["A","C"], o que a outra aba gravou) — acusa o conflito de verdade.
+      const conflito = conflitoKanban(r.kanbanBase.servidor, { status_kanban: ["A", "C"] });
+      expect(conflito).toEqual(["status_kanban"]);
+    });
+    it("(iii) protegido + eco do PRÓPRIO upsert (servidor não mudou o kanban): sem conflito falso no retry", () => {
+      // upsert(geral) não toca nas 5 colunas de kanban — o servidor real continua ["A"] (mesmo
+      // valor de antes da tentativa). O eco desse upsert chega com o kanban intacto.
+      const baseAtual = { cfg: pickKanban({ status_kanban: ["A"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
+      const local = pickKanban({ status_kanban: ["A", "B"] });
+      const servidorNovoDoProprioEco = pickKanban({ status_kanban: ["A"] }); // kanban do banco intocado
+      const r = resolverEcoKanban(true, local, servidorNovoDoProprioEco, baseAtual);
+      expect(r.kanbanBase).toBe(baseAtual);
+      // Retry: kanbanBase.servidor (["A"]) contra o banco real AGORA (["A"], ninguém mudou) — sem conflito.
+      const conflito = conflitoKanban(r.kanbanBase.servidor, { status_kanban: ["A"] });
+      expect(conflito).toEqual([]);
+    });
+    it("(iv) sucesso (protegido=false) ⇒ volta ao normal: cfgKanban e kanbanBase adotam o servidor", () => {
+      const local = pickKanban({ status_kanban: ["A", "B"] }); // o que ficou na tela durante a falha
+      const servidorNovo = pickKanban({ status_kanban: ["A", "B"] }); // agora já gravado no banco
+      const baseAtual = { cfg: pickKanban({ status_kanban: ["A"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
+      const r = resolverEcoKanban(false, local, servidorNovo, baseAtual);
+      expect(r.cfgKanban).toEqual(servidorNovo);
+      expect(r.kanbanBase).toEqual({ cfg: servidorNovo, servidor: servidorNovo });
+    });
   });
 });
 
