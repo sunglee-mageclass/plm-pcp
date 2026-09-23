@@ -11,18 +11,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, Upload, ArrowLeft, Save, ChevronDown, ChevronRight, ExternalLink, PackagePlus } from "lucide-react";
+import { Trash2, Copy, ArrowLeft, Save, ExternalLink, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { AnexoThumbZoom } from "@/components/shared/ImagePreview";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -67,11 +64,17 @@ import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPane
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
-  uploadFile, useSignedUrlBucket,
+  uploadFile,
   numOr0, STATUS_OPTS,
   emptyDraft, draftFromModeloRow,
-  type Opt, type ArtigoOpt, type SubOpt, type Draft,
+  type ArtigoOpt, type SubOpt, type Draft,
 } from "@/components/planejamento/modelo-shared";
+import {
+  Secao, CampoRO, MultiArtigosField, FieldText, FieldSelect, PhotoList, SingleFileField,
+  type EstoqueArtigo,
+} from "@/components/planejamento/planejamento-detail/campos";
+// API pública mantida: a rota `criacao.planejamento.tsx` importa FieldText/FieldSelect DAQUI.
+export { FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 
 /**
  * Sincroniza tecidos_planejados (Planejamento) com modelo_tecidos tipo "tecido" (Desenvolvimento).
@@ -152,39 +155,6 @@ function limparCustoSim(s: CustoSimInput | null | undefined): CustoSimInput | nu
     mao_obra: n(s?.mao_obra),
   };
   return Object.values(out).some((v) => v != null) ? out : null;
-}
-
-// Seção colapsável do detalhe do card — expandida por default; estado local por seção
-// (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
-// (O que abre COLAPSADO por default são os GRUPOS da lista — pedido do dono, ago/2026.)
-function Secao({ titulo, children, defaultOpen = true }: { titulo: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  // Sheet abre com as seções RECOLHIDAS por padrão (exceto "Informações Gerais do Produto",
-  // que passa defaultOpen); reduz o scroll inicial. O usuário expande o que precisa.
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-1.5 text-sm font-semibold text-foreground border-b pb-1.5 text-left"
-      >
-        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <span>{titulo}</span>
-      </button>
-      {open && children}
-    </section>
-  );
-}
-
-/** Campo somente-leitura (label + valor) no mesmo estilo dos inputs do form. */
-function CampoRO({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid gap-1">
-      <Label>{label}</Label>
-      <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">{value}</div>
-    </div>
-  );
 }
 
 // Seção Preço tabulada (reformulada): Descrição · Markup · Valores · Obs, em 3 partes. A coluna
@@ -375,154 +345,6 @@ function PrecoTabela(props: {
           })()}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-type EstoqueArtigo = { fisico_m: number; reservado_m: number; disponivel_m: number };
-const fmtMetros = (n: number) => `${fmtNum(n)} m`;
-
-function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
-  label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];
-  estoque: Record<string, EstoqueArtigo>;
-}) {
-  const available = artigos.filter((a) => !value.includes(a.id));
-  const byId = Object.fromEntries(artigos.map((a) => [a.id, a]));
-  return (
-    <div className="grid gap-1">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1 mb-1">
-        {value.length === 0 && <span className="text-xs text-muted-foreground">Nenhum tecido selecionado</span>}
-        {value.map((id) => {
-          const a = byId[id];
-          const e = estoque[id];
-          return (
-            <Badge key={id} variant="secondary" className="gap-1">
-              {a ? (a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome) : id}
-              {a?.preco_por_metro != null && (
-                <span className="text-[10px] opacity-70">· {brl(a.preco_por_metro)}/m</span>
-              )}
-              {e && (
-                <span className={`text-[10px] ${e.disponivel_m <= 0 ? "text-destructive font-medium" : "opacity-70"}`}>
-                  · disp. {fmtMetros(e.disponivel_m)}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => onChange(value.filter((x) => x !== id))}
-                className="ml-1 hover:text-destructive"
-                aria-label="Remover"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </Badge>
-          );
-        })}
-      </div>
-      {available.length > 0 && (
-        <Select value="" onValueChange={(v) => v && onChange([...value, v])}>
-          <SelectTrigger><SelectValue placeholder="Adicionar tecido…" /></SelectTrigger>
-          <SelectContent>
-            {available.map((a) => {
-              const e = estoque[a.id];
-              return (
-                <SelectItem key={a.id} value={a.id}>
-                  <span className="flex flex-col">
-                    <span>{a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}</span>
-                    <span className="text-xs text-muted-foreground">Preço/m: {a.preco_por_metro != null ? brl(a.preco_por_metro) : "—"}</span>
-                    {e && (
-                      <span className={`text-xs ${e.disponivel_m <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                        Estoque: {fmtMetros(e.fisico_m)} · disp.: {fmtMetros(e.disponivel_m)}
-                      </span>
-                    )}
-                  </span>
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
-      )}
-    </div>
-  );
-}
-
-
-export function FieldText({ label, value, onChange, colabPath }: {
-  label: string; value: string; onChange: (v: string) => void;
-  // Colab: presença por campo — `data-colab-path` trackea o foco; o realce visual (anel+nome+cor
-  // do colega) vem do wrapper <FieldPresence> ao redor (set/2026), não mais de um ring fixo aqui.
-  colabPath?: string;
-}) {
-  return (
-    <div className="grid gap-1">
-      <Label>{label}</Label>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        data-colab-path={colabPath}
-      />
-    </div>
-  );
-}
-export function FieldSelect({ label, value, onChange, options }: {
-  label: string; value: string | null; onChange: (v: string) => void; options: Opt[];
-}) {
-  return (
-    <div className="grid gap-1">
-      <Label>{label}</Label>
-      <Select value={value ?? ""} onValueChange={onChange}>
-        <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-function PhotoList({ label, paths, onAdd, onRemove }: {
-  label: string; paths: string[]; onAdd: (f: File) => void; onRemove: (i: number) => void;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap items-center gap-2">
-        {paths.map((p, i) => (
-          <FileThumb key={i} path={p} onRemove={() => onRemove(i)} />
-        ))}
-        <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
-          <Upload className="h-4 w-4" /> Adicionar
-          <input type="file" accept="image/*,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0])} />
-        </label>
-      </div>
-    </div>
-  );
-}
-/* Miniatura de anexo (imagem OU PDF) com preview + zoom ao clicar (abre grande). */
-function FileThumb({ path, onRemove }: { path: string; onRemove?: () => void }) {
-  const isPdf = /\.pdf$/i.test(path);
-  const url = useSignedUrlBucket(path);
-  return <AnexoThumbZoom url={url} isPdf={isPdf} onRemove={onRemove} />;
-}
-
-/* Anexo único (imagem ou PDF) com preview + zoom — Croqui / Desenho Técnico. */
-function SingleFileField({ label, path, onUpload, onRemove }: {
-  label: string; path: string; onUpload: (f: File) => void; onRemove: () => void;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap items-center gap-2">
-        {path && <FileThumb path={path} onRemove={onRemove} />}
-        <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
-          <Upload className="h-4 w-4" /> {path ? "Trocar arquivo" : "Enviar arquivo"}
-          <input
-            type="file"
-            accept="image/*,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.pdf"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])}
-          />
-        </label>
-      </div>
     </div>
   );
 }
