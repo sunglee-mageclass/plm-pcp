@@ -263,7 +263,7 @@ function DesenvolvimentoPage() {
   // abaixo é o de hoje (podeEntrar + updateStatus). LIGADA = a tabela única de arraste (`destinoDrop`, espelho
   // do SQL) dá a DICA e a RPC `kanban_mover` DECIDE (o servidor é a autoridade: as condições aqui podem
   // estar velhas). Sem a F1 aplicada o hook devolve ligado=false.
-  const { cfg: kanbanCfg, ligado: kanbanAuto } = useKanbanConfig();
+  const { cfg: kanbanCfg, ligado: kanbanAuto, carregando: kanbanCfgCarregando, isError: kanbanCfgErro } = useKanbanConfig();
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-desenvolvimento"],
@@ -375,8 +375,17 @@ function DesenvolvimentoPage() {
     // as condições resolveram; `fixado` não depende delas (é sobre status manual).
     return { fixado: d.fixado, proxima: condicoesProntas ? proximaFalta(d) : null };
   };
+  // Médio 2 (revisão final Opus): enquanto a CHAVE não foi lida com sucesso (carregando OU erro), o
+  // quadro trata como se estivesse desligada (`kanbanAuto=false`, config vazia) — mas ela pode estar
+  // LIGADA de verdade no servidor. Sem travar aqui, um arraste nessa janela cairia no caminho de HOJE
+  // (`podeEntrar`/`updateStatus`), que a RPC do servidor nem sempre aceita (ou aceita sem as travas
+  // visuais da chave ligada) — trava tudo até a leitura confirmar (sucesso ou erro). Com a chave
+  // DESLIGADA e JÁ LIDA, o comportamento é IDÊNTICO ao de hoje (`kanbanCfgCarregando`/`kanbanCfgErro`
+  // ficam false depois do 1º fetch bem-sucedido, então esta condição não muda nada pra quem nunca
+  // ligou a chave).
+  const kanbanChaveIndeterminada = kanbanCfgCarregando || kanbanCfgErro;
   // Com a chave ligada, arrastar/"Mover para…" só depois das condições carregarem (senão a dica mentiria).
-  const podeMover = editable && (!kanbanAuto || condicoesProntas);
+  const podeMover = editable && !kanbanChaveIndeterminada && (!kanbanAuto || condicoesProntas);
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();
@@ -657,6 +666,14 @@ function DesenvolvimentoPage() {
     },
     onError: (e: any, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["modelos-desenvolvimento"], ctx.prev);
+      // Baixo 6 (revisão final Opus): a RPC `kanban_mover` recusou com "O Kanban automático está
+      // desligado nesta loja" (P0001) — a chave que o QUADRO tinha lido (`useKanbanConfig`) estava
+      // desatualizada (outra aba/admin desligou depois da leitura). Invalida a queryKey da chave para
+      // o quadro reler e voltar ao caminho de hoje (`podeEntrar`/`updateStatus`) na próxima interação,
+      // em vez de continuar oferecendo arraste pelo caminho automático que o servidor já recusou.
+      if (e?.code === "P0001" && String(e?.message ?? "").includes("Kanban automático está desligado")) {
+        qc.invalidateQueries({ queryKey: ["tenant-kanban-auto"] });
+      }
       toast.error(mensagemErro(e, "Erro ao mover o card"));
     },
     onSettled: (_r, _e, { id }) => {
@@ -862,6 +879,20 @@ function DesenvolvimentoPage() {
           </div>
         </div>
       </header>
+
+      {/* Médio 2: a leitura da chave (kanban_automatico) falhou — trata como indeterminada (não
+          "desligada"), então `podeMover` já travou o arraste acima. Aviso discreto explica por quê
+          (senão pareceria um bug: quadro travado sem nenhuma faixa "Kanban automático ligado" à
+          vista, já que `kanbanAuto` também cai em false quando a leitura falha). */}
+      {kanbanCfgErro && (
+        <div
+          data-testid="kanban-auto-erro-chave"
+          className="flex items-start gap-2 rounded-md bg-[var(--tone-warning-bg)] px-3 py-2 text-sm text-[var(--tone-warning-fg)]"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Não foi possível conferir se o Kanban automático está ligado; o quadro está só para leitura. Recarregue a página.</span>
+        </div>
+      )}
 
       {kanbanAuto && (
         <div

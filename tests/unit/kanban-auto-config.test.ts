@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, chaveKanbanMudou, conflitoKanban, descreverMudancasKanban,
-  diffKanban, formatarDataHora, jsonCanonico, juntarLista, MENSAGEM_CHAVE_KANBAN_MUDOU, mensagemConflitoKanban, nCards,
+  diffKanban, diffMudouDesdeAPrevia, formatarDataHora, jsonCanonico, juntarLista, MENSAGEM_CHAVE_KANBAN_MUDOU,
+  MENSAGEM_PREVIA_KANBAN_MUDOU, mensagemConflitoKanban, nCards, normalizarKanbanDefaults,
   pickKanban, resolverEcoKanban, resumirFixados, separarPayloadKanban,
 } from "@/lib/kanban-auto-config";
 import type { PreviaCard, PreviaFixado } from "@/lib/kanban-auto-ui";
@@ -43,6 +44,48 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
     });
     expect(geral).toEqual({ tenant_id: "t", timezone: "America/Sao_Paulo" });
     expect(kanban).toEqual({ status_kanban: ["A"], kanban_requisitos: {}, revenda_kanban_colunas: [] });
+  });
+  // Baixo 4 (revisão final Opus): `kanbanBase.servidor` guarda o valor NORMALIZADO (com DEFAULTS), mas
+  // `conflitoKanban` compara contra a releitura CRUA do banco — uma loja com `status_kanban` NULL
+  // acusaria conflito PARA SEMPRE (DEFAULTS != null) sem normalizar os dois lados do mesmo jeito.
+  describe("normalizarKanbanDefaults (Baixo 4 — conflito com NULL no banco)", () => {
+    const defaults = pickKanban({
+      status_kanban: ["Padrão A", "Padrão B"],
+      kanban_requisitos: { padrao: ["x"] },
+      kanban_requisitos_excecoes: {},
+      revenda_kanban_colunas: [],
+      revenda_kanban_requisitos: {},
+    });
+    it("coluna NULL/ausente vira o DEFAULT (arrays e objetos)", () => {
+      const cru = pickKanban({ status_kanban: null, kanban_requisitos: null });
+      expect(normalizarKanbanDefaults(cru, defaults)).toEqual(defaults);
+    });
+    it("coluna PREENCHIDA no banco não é trocada pelo default", () => {
+      const cru = pickKanban({ status_kanban: ["C"], kanban_requisitos: { c: ["y"] } });
+      const r = normalizarKanbanDefaults(cru, defaults);
+      expect(r.status_kanban).toEqual(["C"]);
+      expect(r.kanban_requisitos).toEqual({ c: ["y"] });
+      // as colunas não tocadas no cru continuam caindo no default:
+      expect(r.revenda_kanban_colunas).toEqual([]);
+    });
+    it("loja com status_kanban NULL no banco: conflito compara igual (sem falso conflito eterno)", () => {
+      // kanbanBase.servidor guardado já normalizado (o que a tela mostrou ao abrir).
+      const baseServidorNormalizado = defaults;
+      // Releitura crua do banco — só `status_kanban` nunca foi preenchida (segue NULL); as outras 4
+      // colunas já batem com o default (mesmo valor que a tela carregou).
+      const rowAgoraCrua = {
+        status_kanban: null,
+        kanban_requisitos: { padrao: ["x"] },
+        kanban_requisitos_excecoes: {},
+        revenda_kanban_colunas: [],
+        revenda_kanban_requisitos: {},
+      };
+      // SEM normalizar os dois lados: falso conflito eterno (o bug relatado) — só na coluna NULL.
+      expect(conflitoKanban(baseServidorNormalizado, rowAgoraCrua)).toEqual(["status_kanban"]);
+      // Normalizando a releitura crua com o MESMO default: sem conflito (ninguém mudou nada de verdade).
+      const rowAgoraNormalizada = normalizarKanbanDefaults(pickKanban(rowAgoraCrua), defaults);
+      expect(conflitoKanban(baseServidorNormalizado, rowAgoraNormalizada)).toEqual([]);
+    });
   });
   describe("resolverEcoKanban (fix round 2 — protege o kanban local durante o salvamento)", () => {
     it("(i) eco DURANTE o salvamento (protegido=true) preserva o local; kanbanBase intocado", () => {
@@ -124,6 +167,36 @@ describe("kanban-auto-config — textos", () => {
   });
   it("mensagem fixa da chave mudada", () => {
     expect(MENSAGEM_CHAVE_KANBAN_MUDOU).toBe("A chave Kanban automático mudou em outra aba; recarregue antes de salvar.");
+  });
+  // Médio 1 (revisão final Opus, garantia D19): a tela segue editável durante o `await` da prévia
+  // (`kanban_previa_recalculo`); `diffMudouDesdeAPrevia` compara o diff que embasou a prévia mostrada
+  // com o diff recalculado no momento do Salvar — o `mutationFn` aborta quando divergem.
+  describe("diffMudouDesdeAPrevia (Médio 1 — D19: prévia ≠ salvo)", () => {
+    it("mesmo diff (nada mudou durante o await): false", () => {
+      const esperado = pickKanban({ status_kanban: ["A", "B"] });
+      const atual = pickKanban({ status_kanban: ["A", "B"] });
+      expect(diffMudouDesdeAPrevia(esperado, atual)).toBe(false);
+    });
+    it("usuário editou mais uma coluna durante o await: true", () => {
+      const esperado = diffKanban(pickKanban({ status_kanban: ["A"] }), pickKanban({ status_kanban: ["A", "B"] }));
+      const atual = diffKanban(
+        pickKanban({ status_kanban: ["A"] }),
+        pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { b: ["x"] } }),
+      );
+      expect(diffMudouDesdeAPrevia(esperado, atual)).toBe(true);
+    });
+    it("usuário desfez a edição durante o await (voltou ao que a prévia tinha visto): false", () => {
+      const esperado = pickKanban({ status_kanban: ["A", "B"] });
+      const atual = pickKanban({ status_kanban: ["A", "B"] }); // mesmo valor, instância nova
+      expect(diffMudouDesdeAPrevia(esperado, atual)).toBe(false);
+    });
+    it("null/undefined tratados como equivalentes (mesma base do jsonCanonico)", () => {
+      expect(diffMudouDesdeAPrevia({}, {})).toBe(false);
+      expect(diffMudouDesdeAPrevia({ status_kanban: undefined }, { status_kanban: null })).toBe(false);
+    });
+  });
+  it("mensagem fixa da prévia mudada", () => {
+    expect(MENSAGEM_PREVIA_KANBAN_MUDOU).toBe("A configuração mudou depois da prévia; clique em Salvar de novo.");
   });
 });
 

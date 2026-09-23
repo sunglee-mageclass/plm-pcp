@@ -52,6 +52,28 @@ export function conflitoKanban(baseServidor: KanbanColsValor, servidorAgora: unk
   return KANBAN_COLS.filter((c) => jsonCanonico(baseServidor[c]) !== jsonCanonico(agora[c]));
 }
 
+/**
+ * Baixo 4 (revisão final Opus): `pickKanban` devolve o valor CRU (NULL vira `null`) — correto para
+ * comparar duas leituras cruas entre si, mas a tela normaliza `null` com `DEFAULTS` antes de mostrar
+ * a config (`status_kanban` NULL vira as colunas-padrão, `kanban_requisitos` NULL vira `{}`, etc.).
+ * Guardar `kanbanBase.servidor` já NORMALIZADO e comparar contra uma releitura CRUA (`conflitoKanban`)
+ * faz uma loja com `status_kanban` NULL nunca bater (`DEFAULTS.status_kanban !== null` para sempre) —
+ * falso conflito eterno. Os dois lados da comparação têm que estar no MESMO espaço: esta função aplica
+ * o mesmo fallback por coluna que a tela já usa ao construir `next` a partir da leitura crua.
+ */
+export function normalizarKanbanDefaults(valor: KanbanColsValor, defaults: Record<KanbanCol, unknown>): KanbanColsValor {
+  const out: KanbanColsValor = {};
+  for (const c of KANBAN_COLS) {
+    const v = valor[c];
+    if (c === "status_kanban" || c === "revenda_kanban_colunas") {
+      out[c] = Array.isArray(v) ? v : defaults[c];
+    } else {
+      out[c] = v && typeof v === "object" && !Array.isArray(v) ? v : defaults[c];
+    }
+  }
+  return out;
+}
+
 export function separarPayloadKanban(payload: Record<string, unknown>): { geral: Record<string, unknown>; kanban: KanbanColsValor } {
   const geral: Record<string, unknown> = {};
   const kanban: KanbanColsValor = {};
@@ -140,6 +162,22 @@ export function chaveKanbanMudou(esperada: boolean, atual: unknown): boolean {
 }
 
 export const MENSAGEM_CHAVE_KANBAN_MUDOU = "A chave Kanban automático mudou em outra aba; recarregue antes de salvar.";
+
+/**
+ * Médio 1 (revisão final Opus — garantia D19): `prepararSalvar` calcula o diff e pede a prévia
+ * (`kanban_previa_recalculo`) ANTES de mostrar o `KanbanSalvarDialog`/AlertDialog — mas a tela segue
+ * EDITÁVEL enquanto o `await` da prévia está em voo, e o `mutationFn` recalcula o diff de NOVO na
+ * hora de salvar (contra o `kanbanBase.cfg`/`cfg` JÁ NA TELA nesse instante). Se o usuário mexeu em
+ * qualquer uma das 5 colunas nessa janela, o diff que a prévia descreveu (nº de cards, "de → para")
+ * já não é o que vai ser gravado — a prévia mostrada mentiria. Comparação PURA por JSON canônico
+ * (mesma base de `diffKanban`/`conflitoKanban`): `esperado` = o diff que `prepararSalvar` guardou ao
+ * pedir a prévia; `atual` = o diff recalculado no `mutationFn` no momento do Salvar.
+ */
+export function diffMudouDesdeAPrevia(esperado: KanbanColsValor, atual: KanbanColsValor): boolean {
+  return KANBAN_COLS.some((c) => jsonCanonico(esperado[c] ?? null) !== jsonCanonico(atual[c] ?? null));
+}
+
+export const MENSAGEM_PREVIA_KANBAN_MUDOU = "A configuração mudou depois da prévia; clique em Salvar de novo.";
 
 export function nCards(n: number): string {
   return n === 1 ? "1 card" : `${n} cards`;

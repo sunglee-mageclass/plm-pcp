@@ -63,8 +63,8 @@ import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { modoColuna, motorKanbanDisponivel, MOTIVO_REPROVADO_MANUAL, type PreviaRecalculo } from "@/lib/kanban-auto-ui";
 import {
-  chaveKanbanMudou, conflitoKanban, descreverMudancasKanban, diffKanban, mensagemConflitoKanban,
-  MENSAGEM_CHAVE_KANBAN_MUDOU, pickKanban, resolverEcoKanban, separarPayloadKanban,
+  chaveKanbanMudou, conflitoKanban, descreverMudancasKanban, diffKanban, diffMudouDesdeAPrevia, mensagemConflitoKanban,
+  MENSAGEM_CHAVE_KANBAN_MUDOU, MENSAGEM_PREVIA_KANBAN_MUDOU, normalizarKanbanDefaults, pickKanban, resolverEcoKanban, separarPayloadKanban,
   type KanbanCol, type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
@@ -224,6 +224,13 @@ function ConfiguracoesLojaPage() {
   // e aborta se ela mudou nesse meio-tempo — sem isso, outra aba ligando a chave enquanto o diálogo
   // de confirmação está aberto faria o Salvar mover cards em cascata sem prévia nenhuma.
   const chaveEsperadaRef = useRef(false);
+  // Médio 1 (revisão final Opus, garantia D19): o diff (canônico) que `prepararSalvar` calculou ao
+  // pedir a prévia "Salvar e mover N cards" — a tela segue editável enquanto o `await` da prévia está
+  // em voo. O `mutationFn` recalcula o diff de novo (contra o `cfg` JÁ NA TELA) e aborta se ele mudou
+  // desde então: sem isso, a prévia mostrada (nº de cards, "de → para") já não bateria com o que seria
+  // gravado. Vale tanto para o caminho do `KanbanSalvarDialog` quanto para o AlertDialog comum (D19 —
+  // a F1 não confere isso sozinha).
+  const diffEsperadoRef = useRef<KanbanColsValor>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -348,11 +355,28 @@ function ConfiguracoesLojaPage() {
       if (temKanban) kanbanProtegidoRef.current = true;
       try {
         if (temKanban) {
+          // Médio 1 (revisão final Opus, garantia D19): a tela ficou editável durante o `await` da
+          // prévia — se o diff mudou desde então, a prévia mostrada (nº de cards, "de → para") já não
+          // bate com o que seria gravado agora. Aborta ANTES de qualquer leitura/escrita (falha TOTAL:
+          // nada foi gravado, sem proteção a manter). Vale para os dois caminhos (KanbanSalvarDialog e
+          // o AlertDialog comum) — os dois passam por aqui.
+          if (diffMudouDesdeAPrevia(diffEsperadoRef.current, diff)) {
+            kanbanProtegidoRef.current = false;
+            // Baixo 7: os 3 erros de falha TOTAL fecham o KanbanSalvarDialog/AlertDialog (o usuário não
+            // fica preso a um diálogo que já não reflete o que seria salvo) — `onError` os fecha por
+            // esta marca.
+            throw Object.assign(new Error(MENSAGEM_PREVIA_KANBAN_MUDOU), { fecharDialogoKanban: true });
+          }
           const rowAgora = await lerConfigServidor(data.tenantId);
-          const conflito = conflitoKanban(kanbanBase.servidor, rowAgora);
+          // Baixo 4 (revisão final Opus): compara os dois lados NORMALIZADOS (mesmo fallback de
+          // DEFAULTS que a tela aplica ao ler) — `kanbanBase.servidor` já é normalizado (vem de `next`),
+          // então `rowAgora` (leitura CRUA) tem que passar pelo mesmo normalizador aqui, senão uma loja
+          // com `status_kanban` NULL no banco (nunca teve a coluna preenchida) acusaria conflito para
+          // sempre contra o `DEFAULTS.status_kanban` guardado em `kanbanBase.servidor`.
+          const conflito = conflitoKanban(kanbanBase.servidor, normalizarKanbanDefaults(pickKanban(rowAgora), pickKanban(DEFAULTS)));
           if (conflito.length > 0) {
             kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
-            throw new Error(mensagemConflitoKanban(conflito));
+            throw Object.assign(new Error(mensagemConflitoKanban(conflito)), { fecharDialogoKanban: true });
           }
           // Minor 1 (fix round 1, garantia D19): a MESMA leitura confere se a chave `kanban_automatico`
           // ainda é a que `prepararSalvar` viu ao decidir mostrar a prévia (ou o AlertDialog comum).
@@ -360,7 +384,7 @@ function ConfiguracoesLojaPage() {
           // salvar com a premissa errada (cards se movendo em cascata sem prévia, ou vice-versa).
           if (chaveKanbanMudou(chaveEsperadaRef.current, rowAgora?.kanban_automatico)) {
             kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
-            throw new Error(MENSAGEM_CHAVE_KANBAN_MUDOU);
+            throw Object.assign(new Error(MENSAGEM_CHAVE_KANBAN_MUDOU), { fecharDialogoKanban: true });
           }
         }
         const { error } = await supabase
@@ -423,6 +447,14 @@ function ConfiguracoesLojaPage() {
         toast.error(`As demais configurações foram salvas; as colunas do kanban NÃO foram salvas: ${e.message}`);
         return;
       }
+      // Baixo 7: conflito, chave mudou ou a config mudou depois da prévia (D19) — nenhum dos 3 gravou
+      // nada. Fecha o diálogo de Salvar (KanbanSalvarDialog ou o AlertDialog comum) para o usuário não
+      // ficar preso a uma prévia/confirmação que já não reflete a tela; o toast explica o motivo e ele
+      // clica em Salvar de novo.
+      if (e?.fecharDialogoKanban) {
+        setPreviaSalvar(null);
+        setConfirmSalvar(false);
+      }
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
   });
@@ -432,11 +464,19 @@ function ConfiguracoesLojaPage() {
   // → o AlertDialog de sempre. A F1 não confere se a prévia foi vista (D19) — a garantia é esta função.
   const prepararSalvar = async () => {
     const diff = diffKanban(kanbanBase.cfg, pickKanban(cfg));
+    // Médio 1 (garantia D19): guarda o diff que embasa a decisão desta chamada — tanto o caminho sem
+    // prévia (AlertDialog comum) quanto o com prévia (KanbanSalvarDialog). O `mutationFn` recalcula o
+    // diff na hora de salvar e aborta se divergir deste (a tela seguiu editável durante os `await`s
+    // abaixo).
+    diffEsperadoRef.current = diff;
     if (!data?.tenantId || Object.keys(diff).length === 0) { setConfirmSalvar(true); return; }
     setPreparandoSalvar(true);
     try {
       const row = await lerConfigServidor(data.tenantId);
-      const conflito = conflitoKanban(kanbanBase.servidor, row);
+      // Baixo 4: mesmo normalizador do `mutationFn` — os dois lados da comparação no mesmo espaço
+      // (normalizado), senão `status_kanban` NULL no banco nunca bate contra o DEFAULTS guardado em
+      // `kanbanBase.servidor`.
+      const conflito = conflitoKanban(kanbanBase.servidor, normalizarKanbanDefaults(pickKanban(row), pickKanban(DEFAULTS)));
       if (conflito.length > 0) { toast.error(mensagemConflitoKanban(conflito)); return; }
       // Guarda a chave que embasou esta decisão (prévia ou AlertDialog comum) — o `mutationFn` relê
       // e aborta se mudou nesse meio-tempo (Minor 1, garantia D19: sem isso, outra aba ligando a
@@ -475,6 +515,15 @@ function ConfiguracoesLojaPage() {
   const kanbanCfgTela = lerKanbanAutoConfig(cfg);
   const boardKeysTela = boardDaLoja(kanbanCfgTela).map((c) => c.key);
   const fluxoRevendaTela = fluxoDoModelo("revenda", kanbanCfgTela).map((c) => c.key);
+  // Baixo 3 (revisão final Opus): a chave LIGADA no banco (não a edição não-salva da tela) — é o que
+  // faz o quadro de Desenvolvimento andar sozinho de verdade. Com a chave DESLIGADA, "Automática: entra
+  // sozinho" seria um texto FALSO (nenhuma coluna anda sozinha ainda). Ruling (registrado): ESCONDE as
+  // etiquetas por coluna (`ModoColunaBadge`, nas duas telas — Status do Kanban e Fluxo de Revenda) e o
+  // Reprovado só fica travado (`bloqueadoMotivo`) com a chave ligada — menos intrusivo que enfiar
+  // "(quando ligado)" em CADA linha da lista de colunas. O rodapé (1 linha só, não repetida por coluna)
+  // usa texto condicional em vez de sumir, porque é a única explicação geral de "o que é manual" e some
+  // junto com o contexto que a explica.
+  const kanbanChaveLigada = (data?.cfg as any)?.kanban_automatico === true;
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
@@ -571,10 +620,10 @@ function ConfiguracoesLojaPage() {
           const nomeDaEtapa = (sk: string) => cfg.status_kanban.find((l) => resolveStatusKey(l) === sk) ?? sk;
           return (
             <>
-              <ModoColunaBadge modo={modoColuna(key, boardKeysTela, cfg.kanban_requisitos ?? {})} />
+              {kanbanChaveLigada && <ModoColunaBadge modo={modoColuna(key, boardKeysTela, cfg.kanban_requisitos ?? {})} />}
               <RequisitosStatusButton
                 label={label}
-                bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
+                bloqueadoMotivo={kanbanChaveLigada && key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                 requisitos={cfg.kanban_requisitos?.[key] ?? []}
                 onChange={(next) =>
                   setCfg((c) => {
@@ -664,7 +713,9 @@ function ConfiguracoesLojaPage() {
             )}
             <p className="text-xs text-foreground">
               <Hand className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
-              Coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual.
+              {kanbanChaveLigada
+                ? "Coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual."
+                : "Com o Kanban automático ligado, coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual."}
             </p>
           </div>
         }
@@ -682,6 +733,7 @@ function ConfiguracoesLojaPage() {
           colunas={cfg.revenda_kanban_colunas}
           requisitos={cfg.revenda_kanban_requisitos}
           campos={cfg.revenda_campos}
+          chaveLigada={kanbanChaveLigada}
           onColunasChange={(revenda_kanban_colunas) => setCfg((c) => ({ ...c, revenda_kanban_colunas }))}
           onRequisitosChange={(revenda_kanban_requisitos) => setCfg((c) => ({ ...c, revenda_kanban_requisitos }))}
           onCamposChange={(revenda_campos) => setCfg((c) => ({ ...c, revenda_campos }))}
@@ -1375,6 +1427,7 @@ function FluxoRevendaCard({
   colunas,
   requisitos,
   campos,
+  chaveLigada,
   onColunasChange,
   onRequisitosChange,
   onCamposChange,
@@ -1385,6 +1438,9 @@ function FluxoRevendaCard({
   colunas: string[];
   requisitos: Record<string, string[]>;
   campos: Record<string, boolean>;
+  // Baixo 3: chave `kanban_automatico` LIGADA no banco — sem ela as etiquetas Entrada/Automática/Manual
+  // e o Reprovado travado mentiriam (nenhuma coluna anda sozinha de verdade).
+  chaveLigada: boolean;
   onColunasChange: (next: string[]) => void;
   onRequisitosChange: (next: Record<string, string[]>) => void;
   onCamposChange: (next: Record<string, boolean>) => void;
@@ -1449,7 +1505,7 @@ function FluxoRevendaCard({
               // SortableItem (Status do Kanban acima) — badge/texto/botão descem p/ 2ª linha no mobile.
               const extra = (
                 <>
-                  {(on || semTrava) && <ModoColunaBadge modo={modoColuna(key, fluxoKeys, requisitos)} />}
+                  {chaveLigada && (on || semTrava) && <ModoColunaBadge modo={modoColuna(key, fluxoKeys, requisitos)} />}
                   {!on && !semTrava && <span className="shrink-0 text-xs text-muted-foreground">revenda não passa</span>}
                   {on && (
                     <RequisitosStatusButton
@@ -1457,7 +1513,7 @@ function FluxoRevendaCard({
                       requisitos={requisitos[key] ?? []}
                       onChange={(next) => setRequisitos(key, next)}
                       condsIndisponiveis={REVENDA_COND_NA}
-                      bloqueadoMotivo={key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
+                      bloqueadoMotivo={chaveLigada && key === "reprovado" ? MOTIVO_REPROVADO_MANUAL : undefined}
                     />
                   )}
                 </>

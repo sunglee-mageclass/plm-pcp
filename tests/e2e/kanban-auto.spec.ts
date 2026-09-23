@@ -188,13 +188,16 @@ test.describe("Kanban automático — chave DESLIGADA (padrão): telas como hoje
     }
   });
 
-  test("Config da Loja: chave desligada, etiquetas por coluna, Requisitos de Reprovado travado", async () => {
+  test("Config da Loja: chave desligada — SEM etiquetas por coluna nem Reprovado travado (Baixo 3, fix final)", async () => {
+    // Fix final F2 (revisão final Opus, Baixo 3): com a chave DESLIGADA as etiquetas Entrada/
+    // Automática/Manual e o Reprovado travado mentiam ("entra sozinho" sem nenhuma coluna andando
+    // sozinha de verdade) — ambos ficam ESCONDIDOS enquanto a chave está desligada.
     await page.goto("/admin/configuracoes", { waitUntil: "networkidle" });
     const sw = page.getByTestId("kanban-auto-switch");
     await expect(sw).toBeVisible();
     await expect(sw).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByTestId("modo-coluna-entrada").first()).toBeVisible();
-    await expect(page.getByTestId("requisitos-bloqueado").first()).toBeVisible();
+    await expect(page.getByTestId("modo-coluna-entrada")).toHaveCount(0);
+    await expect(page.getByTestId("requisitos-bloqueado")).toHaveCount(0);
   });
 
   for (const largura of [360, 390]) {
