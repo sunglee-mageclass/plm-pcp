@@ -4,8 +4,9 @@
 -- GUARDA: se existir QUALQUER descrição preenchida, o script ABORTA — a menos que a MESMA TRANSAÇÃO tenha
 --   SET LOCAL app.confirmo_apagar_descricao_produto = 'sim'
 -- (no aplica_v2: EXTRA_SQL; o volta-producao.sh do plano F3.1, Task 9 Step 4, faz o export e injeta a linha).
--- Antes, EXPORTE o que foi digitado (fora do repo — contém dado de loja):
---   psql "$(cat /tmp/dburl.txt)" -X -c "\copy (SELECT id, tenant_id, nome, ref, descricao_produto FROM public.modelos WHERE length(btrim(descricao_produto)) > 0 ORDER BY tenant_id, nome) TO '/Users/sunglee/PLM + Criação/savepoints/pre-apply-f31-descricao/descricao_produto_backup.csv' CSV HEADER"
+-- Antes, EXPORTE o que foi digitado (fora do repo — contém dado de loja; nome com carimbo de data/hora —
+-- rodar a volta de novo NÃO trunca um backup anterior, o volta-producao.sh já faz isso sozinho):
+--   psql "$(cat /tmp/dburl.txt)" -X -c "\copy (SELECT id, tenant_id, nome, ref, descricao_produto FROM public.modelos WHERE length(btrim(descricao_produto)) > 0 ORDER BY tenant_id, nome) TO '/Users/sunglee/PLM + Criação/savepoints/pre-apply-f31-descricao/descricao_produto_backup_<data-hora>.csv' CSV HEADER"
 -- TRAVAS (receita do G-migration da F1): o arquivo NÃO traz timeout; só vai a um banco pelo `aplica_v2`
 -- (arquivo inteiro numa mensagem; lock_timeout de 500 ms e transaction_timeout de 3 s injetados após o BEGIN;
 -- nova tentativa só em 55P03/40P01/25P04).
