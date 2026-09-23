@@ -307,8 +307,10 @@ GRANT EXECUTE ON FUNCTION public.kanban_definir_automatico(boolean) TO authentic
 --    (fn_kanban_config, migration 3); um modelo lançado depois carrega um status_anterior obsoleto
 --    que distorceria o Leadtime de modelo concluído se restaurado. Não entra em cards/total/voltam/
 --    movidos_depois; soma num aviso à parte.
---    Fix round final (F): lote (explícito ou o resolvido pelo NULL) com lote MAIS NOVO não restaurado
---    → aviso 'Há um lote mais recente não restaurado; restaure-o primeiro.' (kanban_restaurar recusa).
+--    Fix round final, rodada 2 (F): restaurar este lote SUPERA os lotes MAIS NOVOS não restaurados da
+--    loja (ordem (criado_at, lote_id); kanban_restaurar marca restaurado_at neles) → `lotes_superados`
+--    + aviso 'N ajuste(s) de configuração feitos depois de ligar serão desfeitos junto.'. NULL resolve o
+--    último 'ligar' não restaurado com desempate (criado_at DESC, lote_id DESC).
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_previa_restauracao(_lote_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -324,7 +326,7 @@ DECLARE
   v_restaur  timestamptz;
   v_ligada   boolean;
   v_lancados integer;
-  v_mais_novo boolean;
+  v_superados integer := 0;
   v_out      jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -344,11 +346,11 @@ BEGIN
   v_lote := coalesce(_lote_id, (
     SELECT s.lote_id FROM public.kanban_snapshot s
      WHERE s.tenant_id = v_tenant AND s.motivo = 'ligar' AND s.restaurado_at IS NULL
-     ORDER BY s.criado_at DESC LIMIT 1));
+     ORDER BY s.criado_at DESC, s.lote_id DESC LIMIT 1));
   v_ligada := public._kanban_ligado(v_tenant);
   IF v_lote IS NULL THEN
     RETURN jsonb_build_object('lote_id', NULL, 'chave_ligada', v_ligada, 'total', 0, 'voltam', 0,
-      'movidos_depois', 0, 'cards', '[]'::jsonb,
+      'movidos_depois', 0, 'lotes_superados', 0, 'cards', '[]'::jsonb,
       'avisos', jsonb_build_array('Não há colunas guardadas para restaurar.'));
   END IF;
 
@@ -359,14 +361,16 @@ BEGIN
     RAISE EXCEPTION 'Lote de colunas não encontrado.' USING ERRCODE = 'P0002';
   END IF;
 
-  -- Fix round final (F): mesma regra de kanban_restaurar — há lote MAIS NOVO (criado_at, lote_id) não
-  -- restaurado da loja? Só avisa (a prévia não dá erro); lote já restaurado não recebe este aviso.
-  v_mais_novo := v_restaur IS NULL AND EXISTS (
-    SELECT 1 FROM public.kanban_snapshot s
+  -- Rodada 2 (F): lotes MAIS NOVOS (criado_at, lote_id) não restaurados da loja — restaurar este os
+  -- SUPERA (mesma regra de kanban_restaurar). Lote já restaurado: 0 (o restaurar recusa antes).
+  IF v_restaur IS NULL THEN
+    SELECT count(DISTINCT s.lote_id) INTO v_superados
+      FROM public.kanban_snapshot s
      WHERE s.tenant_id = v_tenant
        AND s.restaurado_at IS NULL
        AND s.lote_id <> v_lote
-       AND (s.criado_at, s.lote_id) > (v_criado, v_lote));
+       AND (s.criado_at, s.lote_id) > (v_criado, v_lote);
+  END IF;
 
   SELECT count(*) INTO v_lancados
     FROM public.kanban_snapshot s
@@ -385,7 +389,7 @@ BEGIN
   )
   SELECT jsonb_build_object(
     'lote_id', v_lote, 'motivo', v_motivo, 'criado_at', v_criado, 'restaurado_at', v_restaur,
-    'chave_ligada', v_ligada,
+    'chave_ligada', v_ligada, 'lotes_superados', v_superados,
     'total', (SELECT count(*) FROM s),
     'voltam', (SELECT count(*) FROM s WHERE s.status_atual IS DISTINCT FROM s.status_anterior),
     'movidos_depois', (SELECT count(*) FROM s WHERE s.manual_depois AND s.status_atual IS DISTINCT FROM s.status_anterior),
@@ -399,7 +403,7 @@ BEGIN
       'A REF revelada e o #Erro não voltam.',
       CASE WHEN v_ligada THEN 'Desligue o Kanban automático antes de restaurar (senão o próximo salvamento refaz as colunas).' END,
       CASE WHEN v_restaur IS NOT NULL THEN 'Este lote já foi restaurado.' END,
-      CASE WHEN v_mais_novo THEN 'Há um lote mais recente não restaurado; restaure-o primeiro.' END,
+      CASE WHEN v_superados > 0 THEN v_superados || ' ajuste(s) de configuração feitos depois de ligar serão desfeitos junto.' END,
       CASE WHEN v_lancados > 0 THEN v_lancados || ' card(s) lançado(s) depois não voltam.' END
     ], NULL)))
   INTO v_out;
@@ -423,9 +427,11 @@ GRANT EXECUTE ON FUNCTION public.kanban_previa_restauracao(uuid) TO authenticate
 --    `kanban_snapshot` (FOR UPDATE) ANTES das checagens de chave/lote/já-restaurado — serializa 2
 --    `kanban_restaurar` simultâneos (o 2º vê `restaurado_at` já setado → P0001) e restaurar ×
 --    `kanban_definir_automatico(true)` (que também escreve `tenant_config`).
---    Fix round final: (F) recusa lote antigo se há lote MAIS NOVO não restaurado da loja
---    (P0001 'Restaure primeiro o lote mais recente.'; ordem = (criado_at, lote_id)); trava os
---    modelos do lote (FOR NO KEY UPDATE) antes do DELETE — corrida com "lançar".
+--    Fix round final: trava os modelos do lote (FOR NO KEY UPDATE) antes do DELETE — corrida com
+--    "lançar". Rodada 2 (F): restaurar o lote L SUPERA os lotes MAIS NOVOS não restaurados da loja
+--    (ordem (criado_at, lote_id)): marca restaurado_at neles na mesma txn — o histórico auto/config
+--    do período deles já sai pelo filtro created_at >= criado_at de L. Retorno ganha
+--    `lotes_superados`.
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.kanban_restaurar(_lote_id uuid)
  RETURNS jsonb
@@ -441,6 +447,7 @@ DECLARE
   v_restaur  timestamptz;
   v_hist     integer := 0;
   v_n        integer := 0;
+  v_superados integer := 0;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Não autenticado.' USING ERRCODE = '42501';
@@ -472,19 +479,22 @@ BEGIN
   IF v_restaur IS NOT NULL THEN
     RAISE EXCEPTION 'Este lote já foi restaurado.' USING ERRCODE = 'P0001';
   END IF;
-  -- Fix round final (F): restaurar EM ORDEM, do mais novo p/ o mais antigo. Lote antigo com lote mais
-  -- novo não restaurado da loja apagaria as linhas auto/config do período do novo e voltaria colunas
-  -- por cima dele. Ordem = (criado_at, lote_id): criado_at é clock_timestamp() (fn_kanban_config) e
-  -- lote_id só desempata o caso teórico de criado_at igual. Estável sob a trava de tenant_config
-  -- acima: lote novo só nasce num UPDATE de tenant_config (trg_kanban_config), que ela serializa.
-  IF EXISTS (
-    SELECT 1 FROM public.kanban_snapshot s
+  -- Rodada 2 (F): restaurar L SUPERA os lotes MAIS NOVOS não restaurados da loja (ex.: o lote
+  -- 'config' de um ajuste de configuração feito com a chave ligada) — ficam marcados como restaurados.
+  -- Ordem = (criado_at, lote_id): criado_at é clock_timestamp() (fn_kanban_config) e lote_id só
+  -- desempata o caso teórico de criado_at igual. Estável sob a trava de tenant_config acima: lote novo
+  -- só nasce num UPDATE de tenant_config (trg_kanban_config), que ela serializa. Fica ANTES da trava dos
+  -- modelos p/ manter a ordem tenant_config → snapshot → modelos.
+  WITH sup AS (
+    UPDATE public.kanban_snapshot s
+       SET restaurado_at = now()
      WHERE s.tenant_id = v_tenant
        AND s.restaurado_at IS NULL
        AND s.lote_id <> _lote_id
-       AND (s.criado_at, s.lote_id) > (v_criado, _lote_id)) THEN
-    RAISE EXCEPTION 'Restaure primeiro o lote mais recente.' USING ERRCODE = 'P0001';
-  END IF;
+       AND (s.criado_at, s.lote_id) > (v_criado, _lote_id)
+    RETURNING s.lote_id
+  )
+  SELECT count(DISTINCT sup.lote_id) INTO v_superados FROM sup;
 
   -- Fix round final: trava os modelos do lote ANTES do DELETE (ordem de travas tenant_config →
   -- snapshot → modelos; ORDER BY p/ ordem fixa) — um "lançar" concorrente entre o DELETE e o UPDATE
@@ -525,7 +535,8 @@ BEGIN
 
   PERFORM set_config('app.kanban_sistema', v_sis_ant, true);
   PERFORM set_config('app.kanban_lote', v_lote_ant, true);
-  RETURN jsonb_build_object('lote_id', _lote_id, 'restaurados', v_n, 'historico_apagado', v_hist);
+  RETURN jsonb_build_object('lote_id', _lote_id, 'restaurados', v_n, 'historico_apagado', v_hist,
+                            'lotes_superados', v_superados);
 END;
 $function$;
 

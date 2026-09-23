@@ -1968,10 +1968,11 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
     });
   });
 
-  // ─────────── Fix round final (F): restaurar EM ORDEM — do lote mais novo para o mais antigo ───────────
+  // ─────────── Fix round final, rodada 2 (F): restaurar SUPERA os lotes mais novos (em vez de recusar) ───────────
   // Ordem dos lotes = (criado_at, lote_id): criado_at é clock_timestamp() (lotes da mesma txn diferem);
-  // lote_id só desempata o caso teórico de criado_at igual (determinístico).
-  it("lote antigo com lote MAIS NOVO não restaurado: restaurar o antigo → P0001 (a prévia avisa); restaura o novo, depois o antigo", async () => {
+  // lote_id só desempata o caso teórico de criado_at igual (determinístico). Restaurar o lote L volta os
+  // cards de L e marca restaurado_at nos lotes MAIS NOVOS não restaurados da loja (ficam superados).
+  it("lote antigo com lote MAIS NOVO não restaurado: restaurar o antigo SUPERA o novo (a prévia avisa); restaurar o novo depois → 'já foi restaurado'", async () => {
     await withTx(async (c) => {
       const { M, N, lote: antigo } = await cenarioLigado(c);
       // com a chave ligada, mudar a config grava um 2º lote ('config'), mais novo
@@ -1980,25 +1981,59 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 4B: restauração (Task 16)"
         `SELECT lote_id AS l FROM public.kanban_snapshot WHERE tenant_id = $1 AND motivo = 'config' LIMIT 1`, [T])).l;
       expect(novo).toBeTruthy();
       await chave(c, false);
-      const AVISO = "Há um lote mais recente não restaurado; restaure-o primeiro.";
+      const AVISO = "1 ajuste(s) de configuração feitos depois de ligar serão desfeitos junto.";
       const previa = async (l: string | null) =>
         (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao($1) AS p`, [l])).p;
-      expect((await previa(antigo)).avisos).toContain(AVISO);
-      const pNull = await previa(null); // NULL = o 'ligar' mais recente (= o antigo) → mesmo aviso
-      expect([pNull.lote_id, pNull.avisos.includes(AVISO)]).toEqual([antigo, true]);
-      expect((await previa(novo)).avisos).not.toContain(AVISO);
-      await c.query("SAVEPOINT sp");
-      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [antigo])).rejects.toMatchObject({
-        code: "P0001", message: "Restaure primeiro o lote mais recente.",
-      });
-      await c.query("ROLLBACK TO SAVEPOINT sp");
-      await um(c, `SELECT public.kanban_restaurar($1) AS r`, [novo]);
-      expect((await previa(antigo)).avisos).not.toContain(AVISO);
-      await um(c, `SELECT public.kanban_restaurar($1) AS r`, [antigo]);
+      const pAntigo = await previa(antigo);
+      expect([pAntigo.lotes_superados, pAntigo.avisos.includes(AVISO)]).toEqual([1, true]);
+      const pNull = await previa(null); // NULL = o 'ligar' mais recente não restaurado (= o antigo)
+      expect([pNull.lote_id, pNull.lotes_superados, pNull.avisos.includes(AVISO)]).toEqual([antigo, 1, true]);
+      const pNovo = await previa(novo);
+      expect([pNovo.lotes_superados, pNovo.avisos.some((a: string) => /ajuste\(s\) de configuração/.test(a))]).toEqual([0, false]);
+      const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [antigo])).r;
+      expect(r.lotes_superados).toBe(1);
       expect((await lerModelo(c, M)).status).toBe("entrada");
       expect((await lerModelo(c, N)).status).toBe("entrada");
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_restaurar($1)`, [novo])).rejects.toMatchObject({
+        code: "P0001", message: "Este lote já foi restaurado.",
+      });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      expect((await previa(novo)).avisos).toContain("Este lote já foi restaurado.");
       expect((await um<{ n: string }>(c,
         `SELECT count(*) AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND restaurado_at IS NULL`, [T])).n).toBe("0");
+    });
+  });
+
+  // Rodada 2: o fluxo SÓ por RPC — o front/runbook não enxerga kanban_snapshot (REVOKE ALL), então nenhum
+  // id de lote é lido da tabela: a prévia(NULL) entrega o lote_id que o restaurar consome.
+  it("SÓ por RPC: ligar → ajuste de config (lote 'config') → desligar → prévia(NULL) avisa os superados → restaurar volta ao pré-ligar e supera o 'config'", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      const N = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE }));
+      expect((await definir(c, true)).mudou).toBe(true); // lote 'ligar': M → etapa_a, N → etapa_b
+      expect([(await lerModelo(c, M)).status, (await lerModelo(c, N)).status]).toEqual(["etapa_a", "etapa_b"]);
+      // ajuste de config com a chave ligada (o save da Config): etapa_b passa a exigir só o desenho → lote 'config'
+      await c.query(`UPDATE public.tenant_config SET kanban_requisitos = $2::jsonb WHERE tenant_id = $1`,
+        [T, JSON.stringify({ ...REQS, etapa_b: ["data_desenho_tecnico"] })]);
+      expect((await lerModelo(c, M)).status).toBe("etapa_b");
+      expect((await definir(c, false)).mudou).toBe(true);
+      const p = (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao(NULL) AS p`)).p;
+      expect(p.motivo).toBe("ligar");
+      expect(p.lotes_superados).toBeGreaterThanOrEqual(1);
+      expect(p.avisos).toContain(`${p.lotes_superados} ajuste(s) de configuração feitos depois de ligar serão desfeitos junto.`);
+      const r = (await um<{ r: any }>(c, `SELECT public.kanban_restaurar($1) AS r`, [p.lote_id])).r;
+      expect(r.lotes_superados).toBe(p.lotes_superados);
+      expect([(await lerModelo(c, M)).status, (await lerModelo(c, N)).status]).toEqual(["entrada", "entrada"]);
+      expect(await historico(c, M)).toEqual(["entrada:manual"]); // as linhas 'config' dos 2 lotes sumiram
+      // conferência (não obtém id): o lote 'config' ficou marcado como restaurado — nenhum pendente na loja
+      expect((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.kanban_snapshot WHERE tenant_id = $1 AND restaurado_at IS NULL`, [T])).n).toBe("0");
+      const p2 = (await um<{ p: any }>(c, `SELECT public.kanban_previa_restauracao(NULL) AS p`)).p;
+      expect([p2.lote_id, p2.avisos]).toEqual([null, ["Não há colunas guardadas para restaurar."]]);
     });
   });
 });
