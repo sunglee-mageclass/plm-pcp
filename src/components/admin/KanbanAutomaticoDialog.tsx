@@ -28,11 +28,23 @@ import { kanbanDefinirAutomatico, kanbanPreviaRecalculo, kanbanPreviaRestauracao
 
 const RODAPE = "border-t bg-background -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 flex-row flex-wrap items-center gap-2";
 
-function PreviaMovimentos({ previa, cols }: { previa: PreviaRecalculo; cols: KanbanStatus[] }) {
-  const ordem = cols.map((c) => c.key);
+// Important (fix round 1, revisão Opus): decisão 8 do dono, já aprovada — restaurar só é oferecido
+// no momento do Desligar; depois disso, só por psql (suporte). O texto do diálogo e o toast de
+// "desligado sem restaurar" precisam deixar isso claro, senão o usuário acha que pode voltar
+// depois pela própria tela.
+const AVISO_SO_AGORA = "Se não marcar agora, as colunas de antes não poderão ser restauradas depois por esta tela (só pelo suporte).";
+
+// Minor 4 (fix round 1): `colsDe` rotula a coluna de ORIGEM ("De") e `colsPara` a de DESTINO ("Para"
+// e tudo o resto — fixados, REFs reveladas, que são posições ATUAIS/futuras, não "antes"). No caso
+// comum (Ligar/Desligar, sem mudança de colunas pendente) os dois boards são o mesmo; só o
+// `KanbanSalvarDialog` (colunas renomeadas/reordenadas ainda não salvas) passa `colsDe` diferente —
+// senão uma coluna renomeada/excluída no rascunho aparece com a key crua em vez do rótulo antigo.
+function PreviaMovimentos({ previa, colsDe, colsPara }: { previa: PreviaRecalculo; colsDe: KanbanStatus[]; colsPara: KanbanStatus[] }) {
+  const ordem = colsPara.map((c) => c.key);
   const grupos = agruparMovimentos(previa.cards, ordem);
   const fixados = resumirFixados(previa.cards_fixados, ordem);
-  const lbl = (k: string | null) => labelDaColuna(k, cols);
+  const lblDe = (k: string | null) => labelDaColuna(k, colsDe);
+  const lbl = (k: string | null) => labelDaColuna(k, colsPara);
   return (
     <div className="space-y-3">
       {grupos.length > 0 && (
@@ -51,7 +63,7 @@ function PreviaMovimentos({ previa, cols }: { previa: PreviaRecalculo; cols: Kan
               {grupos.map((g) => (
                 <Fragment key={`${g.de ?? ""}→${g.para ?? ""}`}>
                   <tr className="border-t">
-                    <td className="px-3 py-2">{lbl(g.de)}</td>
+                    <td className="px-3 py-2">{lblDe(g.de)}</td>
                     <td className="px-1 py-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
                     <td className="px-3 py-2">{lbl(g.para)}</td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">{g.cards.length}</td>
@@ -154,6 +166,11 @@ function RestaurarOpcao({ previa, cols, timezone, restaurar, onRestaurar }: {
               : "."}
           </p>
         )}
+        {!restaurar && (
+          <p className="flex items-center gap-1 text-xs text-[var(--tone-warning-fg)]">
+            <AlertTriangle className="h-3 w-3 shrink-0" />{AVISO_SO_AGORA}
+          </p>
+        )}
         {verLista && (
           <ul className="max-h-40 space-y-0.5 overflow-y-auto text-xs" data-testid="kanban-restaurar-lista">
             {previa.cards.map((c) => (
@@ -212,9 +229,12 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
       }
     },
     onSuccess: (r) => {
-      if (r.erroRestaurar) toast.error(`O Kanban automático foi desligado, mas as colunas não foram restauradas: ${r.erroRestaurar}`);
+      // Important (fix round 1): a chave FOI desligada nos 3 casos (o `kanbanDefinirAutomatico(false)`
+      // já rodou antes de tentar restaurar) — a mensagem de erro precisa deixar isso explícito, e não
+      // deixar o usuário achar que ainda dá pra restaurar depois por esta tela (decisão 8: só agora).
+      if (r.erroRestaurar) toast.error(`O Kanban automático foi desligado, mas as colunas NÃO foram restauradas: ${r.erroRestaurar} ${AVISO_SO_AGORA}`);
       else if (r.restaurados != null) toast.success(`Kanban automático desligado. ${nCards(r.restaurados)} ${r.restaurados === 1 ? "voltou" : "voltaram"} às colunas de antes.`);
-      else toast.success("Kanban automático desligado. Os cards ficaram onde estavam.");
+      else toast.success(`Kanban automático desligado. Os cards ficaram onde estavam. ${AVISO_SO_AGORA}`);
       onMudou();
       onClose();
     },
@@ -244,10 +264,12 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
           {q.isLoading && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Calculando a prévia…</p>
           )}
-          {q.isError && <p className="text-sm text-destructive">{mensagemErro(q.error, "Erro ao calcular a prévia.")}</p>}
+          {q.isError && modo === "ligar" && (
+            <p className="text-sm text-destructive">{mensagemErro(q.error, "Erro ao calcular a prévia.")}</p>
+          )}
           {modo === "ligar" && prevLigar.data && (
             <>
-              <PreviaMovimentos previa={prevLigar.data} cols={cols} />
+              <PreviaMovimentos previa={prevLigar.data} colsDe={cols} colsPara={cols} />
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Undo2 className="h-3.5 w-3.5 shrink-0" />As colunas de hoje ficam guardadas: ao desligar, dá para voltar a elas.
               </p>
@@ -256,13 +278,28 @@ function KanbanChaveDialog({ modo, cols, timezone, onClose, onMudou }: {
           {modo === "desligar" && prevDesligar.data && (
             <RestaurarOpcao previa={prevDesligar.data} cols={cols} timezone={timezone} restaurar={restaurar} onRestaurar={setRestaurar} />
           )}
+          {/* Minor 2 (fix round 1): a prévia de restauração indisponível NÃO deve travar o Desligar —
+              só a opção de restaurar. Checkbox desabilitado (nada pra oferecer sem a prévia) + o
+              aviso "só agora" (Important), já que sem ela é impossível marcar "Restaurar" mesmo. */}
+          {modo === "desligar" && prevDesligar.isError && (
+            <div className="flex items-start gap-3 rounded-md border p-3">
+              <Checkbox checked={false} disabled className="mt-0.5" aria-label="Restaurar as colunas de antes (indisponível)" />
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Restaurar as colunas de antes de ligar</p>
+                <p className="text-xs text-destructive">{mensagemErro(prevDesligar.error, "Erro ao calcular a prévia de restauração.")}</p>
+                <p className="flex items-center gap-1 text-xs text-[var(--tone-warning-fg)]">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />{AVISO_SO_AGORA}
+                </p>
+              </div>
+            </div>
+          )}
         </DialogBody>
         <DialogFooter className={RODAPE}>
           <Button variant="outline" onClick={onClose} disabled={pendente}><ArrowLeft className="mr-1 h-4 w-4" />Voltar</Button>
           <Button
             className="ml-auto"
             data-testid="kanban-dialogo-confirmar"
-            disabled={pendente || !q.isSuccess}
+            disabled={pendente || (modo === "ligar" ? !q.isSuccess : !(q.isSuccess || q.isError))}
             onClick={() => (modo === "ligar" ? ligar.mutate() : desligar.mutate())}
           >
             {pendente ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : modo === "ligar" ? <Zap className="mr-1 h-4 w-4" /> : null}
@@ -319,21 +356,31 @@ export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols,
 }
 
 /** "Salvar e mover N cards?" — salvar requisitos/ordem com a chave ligada (mockup "Prévia", 3º diálogo). */
-export function KanbanSalvarDialog({ previa, cols, mudancas, salvando, onConfirmar, onClose }: {
-  previa: PreviaRecalculo; cols: KanbanStatus[]; mudancas: string; salvando: boolean; onConfirmar: () => void; onClose: () => void;
+export function KanbanSalvarDialog({ previa, colsDe, colsPara, mudancas, salvando, onConfirmar, onClose }: {
+  previa: PreviaRecalculo;
+  // Minor 4 (fix round 1): board de ANTES da edição pendente ("De") e o board ATUAL/rascunho ("Para" +
+  // fixados/REFs). Quando idênticos (chamador sem essa distinção), passe o mesmo array nos dois.
+  colsDe: KanbanStatus[]; colsPara: KanbanStatus[];
+  mudancas: string; salvando: boolean; onConfirmar: () => void; onClose: () => void;
 }) {
   const titulo = previa.mudam > 0 ? `Salvar e mover ${nCards(previa.mudam)}?` : "Salvar as alterações do kanban?";
+  // Minor 3 (fix round 1): este diálogo só abre com `mudam===0` quando há REF revelada (`prepararSalvar`
+  // só o abre se `mudam>0 || revelam_ref>0`) — "os cards abaixo mudam de coluna" ficava incoerente
+  // sem nenhum card na tabela de movimentos.
+  const descricaoMovimento = previa.mudam > 0
+    ? "os cards abaixo mudam de coluna ao salvar."
+    : "nenhum card muda de coluna ao salvar.";
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !salvando) onClose(); }}>
       <DialogContent fixedFooter mobileFull className="max-w-2xl" data-testid="kanban-dialogo-salvar">
         <DialogHeader>
           <DialogTitle>{titulo}</DialogTitle>
           <DialogDescription>
-            Você mudou {mudancas}. Com o kanban automático ligado, os cards abaixo mudam de coluna ao salvar.
+            Você mudou {mudancas}. Com o kanban automático ligado, {descricaoMovimento}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
-          <PreviaMovimentos previa={previa} cols={cols} />
+          <PreviaMovimentos previa={previa} colsDe={colsDe} colsPara={colsPara} />
         </DialogBody>
         <DialogFooter className={RODAPE}>
           <Button variant="outline" onClick={onClose} disabled={salvando}><ArrowLeft className="mr-1 h-4 w-4" />Voltar</Button>

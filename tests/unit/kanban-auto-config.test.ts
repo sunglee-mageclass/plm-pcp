@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, conflitoKanban, descreverMudancasKanban, diffKanban,
-  formatarDataHora, jsonCanonico, juntarLista, mensagemConflitoKanban, nCards, pickKanban, resolverEcoKanban,
-  resumirFixados, separarPayloadKanban,
+  KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, chaveKanbanMudou, conflitoKanban, descreverMudancasKanban,
+  diffKanban, formatarDataHora, jsonCanonico, juntarLista, MENSAGEM_CHAVE_KANBAN_MUDOU, mensagemConflitoKanban, nCards,
+  pickKanban, resolverEcoKanban, resumirFixados, separarPayloadKanban,
 } from "@/lib/kanban-auto-config";
 import type { PreviaCard, PreviaFixado } from "@/lib/kanban-auto-ui";
 
@@ -109,6 +109,21 @@ describe("kanban-auto-config — textos", () => {
   });
   it("nCards", () => {
     expect([nCards(0), nCards(1), nCards(3)]).toEqual(["0 cards", "1 card", "3 cards"]);
+  });
+  // Minor 1 (fix round 1, garantia D19): `prepararSalvar` guarda a chave que viu; o `mutationFn` relê
+  // e compara com esta função pura antes de confirmar o save. `atual` chega como `unknown` porque vem
+  // direto do `Record<string, unknown>` de `lerConfigServidor` — nunca assumir que já é boolean.
+  it("chaveKanbanMudou compara a chave esperada com o valor RELIDO do servidor", () => {
+    expect(chaveKanbanMudou(true, true)).toBe(false);
+    expect(chaveKanbanMudou(false, false)).toBe(false);
+    expect(chaveKanbanMudou(false, null)).toBe(false); // ausência de coluna (sem F1) ≡ desligada dos dois lados
+    expect(chaveKanbanMudou(true, false)).toBe(true);
+    expect(chaveKanbanMudou(false, true)).toBe(true);
+    expect(chaveKanbanMudou(true, null)).toBe(true); // era true, sumiu/virou null no reread — mudou
+    expect(chaveKanbanMudou(true, "true")).toBe(true); // só `=== true` conta como ligado, string não
+  });
+  it("mensagem fixa da chave mudada", () => {
+    expect(MENSAGEM_CHAVE_KANBAN_MUDOU).toBe("A chave Kanban automático mudou em outra aba; recarregue antes de salvar.");
   });
 });
 

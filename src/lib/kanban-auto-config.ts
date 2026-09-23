@@ -126,6 +126,21 @@ export function mensagemConflitoKanban(cols: readonly KanbanCol[]): string {
   return `Outra pessoa mudou ${descreverMudancasKanban(cols)} depois que você abriu esta tela. Recarregue a página e refaça a sua alteração antes de salvar.`;
 }
 
+/**
+ * Minor 1 (fix round 1, revisão Opus — garantia D19): `prepararSalvar` lê `kanban_automatico` do
+ * servidor pra decidir se mostra a prévia "Salvar e mover N cards". O `mutationFn` só confere as 5
+ * colunas de kanban (`conflitoKanban`) — NÃO a chave. Se outra aba ligar a chave enquanto o
+ * AlertDialog de confirmação está aberto (prévia deu 0 mudanças com a chave desligada), o Salvar
+ * gravaria o diff sem prévia, e a F1 recalcularia a loja escondida do usuário. Comparação PURA:
+ * `esperada` = o que `prepararSalvar` leu antes de decidir qual caminho seguir; `atual` = o que o
+ * `mutationFn` relê no mesmo `lerConfigServidor` que já faz para o conflito das 5 colunas.
+ */
+export function chaveKanbanMudou(esperada: boolean, atual: unknown): boolean {
+  return esperada !== (atual === true);
+}
+
+export const MENSAGEM_CHAVE_KANBAN_MUDOU = "A chave Kanban automático mudou em outra aba; recarregue antes de salvar.";
+
 export function nCards(n: number): string {
   return n === 1 ? "1 card" : `${n} cards`;
 }

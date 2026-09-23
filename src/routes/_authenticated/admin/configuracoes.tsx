@@ -63,8 +63,9 @@ import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
 import { boardDaLoja, fluxoDoModelo, lerKanbanAutoConfig } from "@/lib/kanban-auto";
 import { modoColuna, motorKanbanDisponivel, MOTIVO_REPROVADO_MANUAL, type PreviaRecalculo } from "@/lib/kanban-auto-ui";
 import {
-  conflitoKanban, descreverMudancasKanban, diffKanban, mensagemConflitoKanban, pickKanban, resolverEcoKanban,
-  separarPayloadKanban, type KanbanCol, type KanbanColsValor,
+  chaveKanbanMudou, conflitoKanban, descreverMudancasKanban, diffKanban, mensagemConflitoKanban,
+  MENSAGEM_CHAVE_KANBAN_MUDOU, pickKanban, resolverEcoKanban, separarPayloadKanban,
+  type KanbanCol, type KanbanColsValor,
 } from "@/lib/kanban-auto-config";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
@@ -217,6 +218,12 @@ function ConfiguracoesLojaPage() {
   // regressão: a flag nas deps refazia o efeito no sucesso com `data?.cfg` ainda desatualizado e
   // sobrescrevia o `kanbanBase` que o `onSuccess` tinha acabado de setar).
   const kanbanProtegidoRef = useRef(false);
+  // Minor 1 (fix round 1, garantia D19): o valor de `kanban_automatico` que `prepararSalvar` leu do
+  // servidor ao decidir se mostrava a prévia "Salvar e mover N cards" (ou o AlertDialog de sempre).
+  // O `mutationFn` relê a chave no MESMO `lerConfigServidor` que já usa pro conflito das 5 colunas
+  // e aborta se ela mudou nesse meio-tempo — sem isso, outra aba ligando a chave enquanto o diálogo
+  // de confirmação está aberto faria o Salvar mover cards em cascata sem prévia nenhuma.
+  const chaveEsperadaRef = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -341,10 +348,19 @@ function ConfiguracoesLojaPage() {
       if (temKanban) kanbanProtegidoRef.current = true;
       try {
         if (temKanban) {
-          const conflito = conflitoKanban(kanbanBase.servidor, await lerConfigServidor(data.tenantId));
+          const rowAgora = await lerConfigServidor(data.tenantId);
+          const conflito = conflitoKanban(kanbanBase.servidor, rowAgora);
           if (conflito.length > 0) {
             kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
             throw new Error(mensagemConflitoKanban(conflito));
+          }
+          // Minor 1 (fix round 1, garantia D19): a MESMA leitura confere se a chave `kanban_automatico`
+          // ainda é a que `prepararSalvar` viu ao decidir mostrar a prévia (ou o AlertDialog comum).
+          // Outra aba ligando/desligando a chave entre a prévia e o clique de confirmar significaria
+          // salvar com a premissa errada (cards se movendo em cascata sem prévia, ou vice-versa).
+          if (chaveKanbanMudou(chaveEsperadaRef.current, rowAgora?.kanban_automatico)) {
+            kanbanProtegidoRef.current = false; // falha TOTAL: nada foi gravado, sem proteção a manter
+            throw new Error(MENSAGEM_CHAVE_KANBAN_MUDOU);
           }
         }
         const { error } = await supabase
@@ -422,6 +438,10 @@ function ConfiguracoesLojaPage() {
       const row = await lerConfigServidor(data.tenantId);
       const conflito = conflitoKanban(kanbanBase.servidor, row);
       if (conflito.length > 0) { toast.error(mensagemConflitoKanban(conflito)); return; }
+      // Guarda a chave que embasou esta decisão (prévia ou AlertDialog comum) — o `mutationFn` relê
+      // e aborta se mudou nesse meio-tempo (Minor 1, garantia D19: sem isso, outra aba ligando a
+      // chave com o diálogo aberto faria o Salvar mover cards em cascata sem prévia nenhuma).
+      chaveEsperadaRef.current = row?.kanban_automatico === true;
       if (row?.kanban_automatico !== true) { setConfirmSalvar(true); return; }
       const previa = await kanbanPreviaRecalculo(diff as Record<string, unknown>);
       if (previa.mudam === 0 && previa.revelam_ref === 0) { setConfirmSalvar(true); return; }
@@ -822,7 +842,12 @@ function ConfiguracoesLojaPage() {
       {previaSalvar && (
         <KanbanSalvarDialog
           previa={previaSalvar.previa}
-          cols={boardDaLoja(kanbanCfgTela)}
+          // Minor 4 (fix round 1): a prévia mostra "De → Para" de uma mudança AINDA NÃO salva — "De"
+          // tem que vir do board de ANTES da edição (`kanbanBase.cfg`, o snapshot com que a tela
+          // abriu), senão coluna renomeada/excluída aparece com a key crua (o board NOVO não a tem
+          // mais). "Para" segue correto com o board novo (é pra onde os cards vão DEPOIS de salvar).
+          colsDe={boardDaLoja(lerKanbanAutoConfig(kanbanBase.cfg))}
+          colsPara={boardDaLoja(kanbanCfgTela)}
           mudancas={previaSalvar.mudancas}
           salvando={save.isPending}
           onConfirmar={() => save.mutate()}
