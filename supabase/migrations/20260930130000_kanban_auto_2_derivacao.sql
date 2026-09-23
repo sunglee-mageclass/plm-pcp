@@ -352,6 +352,135 @@ REVOKE EXECUTE ON FUNCTION public._kanban_derivar_puro(text[], jsonb, jsonb, jso
 REVOKE EXECUTE ON FUNCTION public._kanban_faltando_para(text[], jsonb, jsonb, jsonb, text, boolean, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._kanban_destino_drop_puro(text[], jsonb, jsonb, jsonb, text, boolean, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public._kanban_fluxo(jsonb, boolean) FROM PUBLIC, anon, authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- C) Leitura (SECURITY DEFINER): config, chave, derivação em LOTE, gate por posição
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public._kanban_cfg(_tenant uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+    'kanban_automatico',          coalesce(tc.kanban_automatico, false),
+    'status_kanban',              tc.status_kanban,
+    'kanban_requisitos',          coalesce(tc.kanban_requisitos, '{}'::jsonb),
+    'kanban_requisitos_excecoes', coalesce(tc.kanban_requisitos_excecoes, '{}'::jsonb),
+    'revenda_kanban_colunas',     coalesce(tc.revenda_kanban_colunas, '[]'::jsonb),
+    'revenda_kanban_requisitos',  coalesce(tc.revenda_kanban_requisitos, '{}'::jsonb),
+    'ref_exibir_status',          tc.ref_exibir_status,
+    'explosao_envio_status',      tc.explosao_envio_status)
+    FROM public.tenant_config tc
+   WHERE tc.tenant_id = _tenant
+   LIMIT 1;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._kanban_ligado(_tenant uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(
+    (SELECT tc.kanban_automatico FROM public.tenant_config tc WHERE tc.tenant_id = _tenant LIMIT 1),
+    false);
+$function$;
+
+-- Derivação de N modelos com UMA chamada ao core de condições. `_ids` NULL = a loja inteira.
+-- `_cfg` NULL = config gravada; a prévia passa a config PROPOSTA. Linha p/ CADA modelo pedido
+-- (não derivável → derivavel=false, resultado=status). `reqs/exc/cond/fluxo/elegivel` = o input
+-- usado (kanban_mover reusa p/ `_kanban_destino_drop_puro`).
+CREATE OR REPLACE FUNCTION public._kanban_derivar_lote(_tenant uuid, _ids uuid[], _cfg jsonb DEFAULT NULL::jsonb)
+ RETURNS TABLE(modelo_id uuid, origem text, status_atual text, elegivel boolean, fluxo text[],
+               reqs jsonb, exc jsonb, cond jsonb, derivavel boolean, entrada text, alvo text,
+               resultado text, fixado boolean, primeira_falha text, faltando text[])
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_cfg       jsonb := coalesce(_cfg, public._kanban_cfg(_tenant), '{}'::jsonb);
+  v_fluxo_int text[];
+  v_fluxo_cmp text[];
+  v_ids       uuid[];
+  v_cond      jsonb;
+BEGIN
+  v_fluxo_int := public._kanban_fluxo(v_cfg, false);
+  v_fluxo_cmp := public._kanban_fluxo(v_cfg, true);
+
+  SELECT array_agg(m.id) INTO v_ids
+    FROM public.modelos m
+   WHERE m.tenant_id = _tenant
+     AND (_ids IS NULL OR m.id = ANY (_ids))
+     AND coalesce(m.ordem_criacao_enviada, false)
+     AND NOT coalesce(m.lancado, false);
+  v_cond := CASE WHEN v_ids IS NULL THEN '{}'::jsonb
+                 ELSE coalesce(public._avaliar_condicoes_kanban_core(_tenant, v_ids), '{}'::jsonb) END;
+
+  RETURN QUERY
+  WITH base AS (
+    SELECT m.id AS mid,
+           coalesce(m.origem, 'interno') AS org,
+           m.status_desenvolvimento::text AS st,
+           (coalesce(m.ordem_criacao_enviada, false) AND NOT coalesce(m.lancado, false)) AS eleg,
+           (coalesce(m.origem, 'interno') IN ('revenda', 'importado')) AS cmp
+      FROM public.modelos m
+     WHERE m.tenant_id = _tenant
+       AND (_ids IS NULL OR m.id = ANY (_ids))
+  ), ent AS (
+    SELECT b.*,
+           CASE WHEN b.cmp THEN v_fluxo_cmp ELSE v_fluxo_int END AS fl,
+           CASE WHEN b.cmp THEN coalesce(v_cfg -> 'revenda_kanban_requisitos', '{}'::jsonb)
+                ELSE coalesce(v_cfg -> 'kanban_requisitos', '{}'::jsonb) END AS rq,
+           CASE WHEN b.cmp THEN '{}'::jsonb
+                ELSE coalesce(v_cfg -> 'kanban_requisitos_excecoes', '{}'::jsonb) END AS ex,
+           coalesce(v_cond -> b.mid::text, '{}'::jsonb) AS cd
+      FROM base b
+  )
+  SELECT e.mid, e.org, e.st, e.eleg, e.fl, e.rq, e.ex, e.cd,
+         (x.d ->> 'derivavel')::boolean, x.d ->> 'entrada', x.d ->> 'alvo', x.d ->> 'resultado',
+         (x.d ->> 'fixado')::boolean, x.d ->> 'primeiraFalha',
+         ARRAY(SELECT f.v FROM jsonb_array_elements_text(x.d -> 'faltando') WITH ORDINALITY AS f(v, o) ORDER BY f.o)
+    FROM ent e
+    CROSS JOIN LATERAL (SELECT public._kanban_derivar_puro(e.fl, e.rq, e.ex, e.cd, e.st, e.eleg) AS d OFFSET 0) x;  -- OFFSET 0: avalia 1× por modelo (sem isso o planner replica a chamada em cada coluna)
+END;
+$function$;
+
+-- ≡ statusParaGate (TS) — decisão 10: status a usar nos gates por POSIÇÃO (Enviar à Explosão,
+-- revelar REF). Chave desligada, GUC do motor (o motor já grava a derivada) ou card não
+-- derivável → o status gravado; senão a posição DERIVADA (`alvo`).
+CREATE OR REPLACE FUNCTION public._kanban_status_gate(_tenant uuid, _modelo_id uuid, _status_atual text)
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_derivavel boolean;
+  v_alvo      text;
+BEGIN
+  IF _tenant IS NULL OR _modelo_id IS NULL OR NOT public._kanban_ligado(_tenant) THEN
+    RETURN _status_atual;
+  END IF;
+  IF coalesce(current_setting('app.kanban_sistema', true), '') IN ('auto', 'config', 'restauracao') THEN
+    RETURN _status_atual;
+  END IF;
+  SELECT d.derivavel, d.alvo INTO v_derivavel, v_alvo
+    FROM public._kanban_derivar_lote(_tenant, ARRAY[_modelo_id]) d
+   LIMIT 1;
+  IF NOT FOUND OR NOT coalesce(v_derivavel, false) OR v_alvo IS NULL THEN
+    RETURN _status_atual;
+  END IF;
+  RETURN v_alvo;
+END;
+$function$;
+
+-- Invariante #9 — internas sem EXECUTE p/ PUBLIC/anon/authenticated.
+REVOKE EXECUTE ON FUNCTION public._kanban_cfg(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._kanban_ligado(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._kanban_derivar_lote(uuid, uuid[], jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public._kanban_status_gate(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 COMMIT;
 
 select pg_notify('pgrst', 'reload schema');

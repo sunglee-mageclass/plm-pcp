@@ -530,3 +530,104 @@ describe.skipIf(!PRONTO)("kanban-auto — migration 2B: anti-drift TS×SQL com a
     });
   });
 });
+
+// ──────────── Migration 2C — config, chave, derivação em LOTE e gate (Task 9) ────────────
+const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979";
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 2C: _kanban_derivar_lote / _kanban_status_gate (Task 9)", () => {
+  it("_kanban_cfg espelha tenant_config; _kanban_ligado = false e _kanban_status_gate = status gravado (chave desligada)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const { rows: lojas } = await c.query(
+        `SELECT tenant_id, kanban_automatico, status_kanban, kanban_requisitos, kanban_requisitos_excecoes,
+                revenda_kanban_colunas, revenda_kanban_requisitos FROM public.tenant_config ORDER BY tenant_id`,
+      );
+      for (const l of lojas) {
+        const cfg = (await um<{ c: any }>(c, `SELECT public._kanban_cfg($1) AS c`, [l.tenant_id])).c;
+        expect(cfg.status_kanban, l.tenant_id).toEqual(l.status_kanban);
+        expect(cfg.kanban_requisitos).toEqual(l.kanban_requisitos);
+        expect(cfg.kanban_requisitos_excecoes).toEqual(l.kanban_requisitos_excecoes);
+        expect(cfg.revenda_kanban_colunas).toEqual(l.revenda_kanban_colunas);
+        expect(cfg.revenda_kanban_requisitos).toEqual(l.revenda_kanban_requisitos);
+        expect((await um<{ v: boolean }>(c, `SELECT public._kanban_ligado($1) AS v`, [l.tenant_id])).v).toBe(l.kanban_automatico);
+      }
+      const { rows: ms } = await c.query(
+        `SELECT m.id, m.tenant_id, m.status_desenvolvimento FROM public.modelos m
+           JOIN public.tenant_config tc ON tc.tenant_id = m.tenant_id AND NOT tc.kanban_automatico LIMIT 50`,
+      );
+      for (const m of ms) {
+        const g = await um<{ g: string | null }>(c, `SELECT public._kanban_status_gate($1, $2, $3) AS g`, [m.tenant_id, m.id, m.status_desenvolvimento]);
+        expect(g.g).toBe(m.status_desenvolvimento);
+      }
+      expect((await um<{ c: unknown }>(c, `SELECT public._kanban_cfg('00000000-0000-0000-0000-000000000000') AS c`)).c).toBeNull();
+    });
+  });
+
+  it("anti-drift em DADO REAL: _kanban_derivar_lote ≡ derivarModelo (TS) em TODOS os modelos de TODAS as lojas", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const { rows: lojas } = await c.query(`SELECT * FROM public.tenant_config ORDER BY tenant_id`);
+      for (const l of lojas) {
+        const cfg = lerKanbanAutoConfig(l);
+        const { rows: mods } = await c.query(
+          `SELECT id, origem, status_desenvolvimento, ordem_criacao_enviada, lancado FROM public.modelos WHERE tenant_id = $1`,
+          [l.tenant_id],
+        );
+        const elegiveis = mods.filter((m) => m.ordem_criacao_enviada && !m.lancado).map((m) => m.id);
+        const cond = elegiveis.length
+          ? (await um<{ c: Record<string, Record<string, boolean>> }>(c,
+              `SELECT public._avaliar_condicoes_kanban_core($1, $2::uuid[]) AS c`, [l.tenant_id, elegiveis])).c
+          : {};
+        const { rows: lote } = await c.query(`SELECT * FROM public._kanban_derivar_lote($1, NULL)`, [l.tenant_id]);
+        expect(lote.length, l.tenant_id).toBe(mods.length);
+        for (const m of mods) {
+          const s = lote.find((x) => x.modelo_id === m.id);
+          const sql = {
+            derivavel: s.derivavel, entrada: s.entrada, alvo: s.alvo, resultado: s.resultado,
+            fixado: s.fixado, primeiraFalha: s.primeira_falha, faltando: s.faltando,
+          };
+          expect(sql, `${l.tenant_id} ${m.id}`).toEqual(derivarModelo(m, cfg, cond[m.id] ?? {}));
+        }
+      }
+    });
+  });
+
+  it("desempenho: derivação da maior loja (Ave Rara, ~250 modelos) em < 3 s — 1 chamada ao core por lote", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const t0 = Date.now();
+      const r = await um<{ n: string }>(c, `SELECT count(*) AS n FROM public._kanban_derivar_lote($1, NULL) WHERE derivavel`, [AVE_RARA]);
+      const ms = Date.now() - t0;
+      console.info(`[kanban-auto] _kanban_derivar_lote Ave Rara: ${r.n} deriváveis em ${ms} ms`);
+      expect(ms).toBeLessThan(3000);
+    });
+  });
+});
+
+// ─────────────────────────── Inverso 2 (Task 9) ───────────────────────────
+const FUNCOES_M2 = [
+  "_kanban_status_rows_raw(jsonb)", "_kanban_norm(text)", "_kanban_lista(jsonb)", "_kanban_coluna_manual(text,jsonb)",
+  "_kanban_req_efetivos(text,text[],jsonb,jsonb)", "_kanban_derivar_puro(text[],jsonb,jsonb,jsonb,text,boolean)",
+  "_kanban_faltando_para(text[],jsonb,jsonb,jsonb,text,boolean,text)",
+  "_kanban_destino_drop_puro(text[],jsonb,jsonb,jsonb,text,boolean,text)", "_kanban_fluxo(jsonb,boolean)",
+  "_kanban_cfg(uuid)", "_kanban_ligado(uuid)", "_kanban_derivar_lote(uuid,uuid[],jsonb)", "_kanban_status_gate(uuid,uuid,text)",
+];
+async function defFuncao(c: Client, assinatura: string): Promise<string | null> {
+  return (await um<{ d: string | null }>(c,
+    `SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE pg_get_functiondef(to_regprocedure($1)) END AS d`,
+    ["public." + assinatura])).d;
+}
+
+describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 2 (Task 9)", () => {
+  it("desfaz 2: _kanban_status_rows volta BYTE-A-BYTE e as 13 funções novas somem", async () => {
+    await withTx(async (c) => {
+      const antes = await defFuncao(c, "_kanban_status_rows(uuid)");
+      await prepara(c, 2);
+      expect(await defFuncao(c, "_kanban_status_rows(uuid)")).not.toBe(antes);
+      await aplicarArquivo(c, INVERSOS[2]);
+      expect(await defFuncao(c, "_kanban_status_rows(uuid)")).toBe(antes);
+      for (const f of FUNCOES_M2) expect(await defFuncao(c, f), f).toBeNull();
+      await aplicarArquivo(c, INVERSOS[1]);
+    });
+  });
+});
