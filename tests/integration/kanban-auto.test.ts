@@ -1543,3 +1543,216 @@ describe.skipIf(!hasDb || !MIG_TXN)("kanban-auto — inverso da migration 3 (Tas
     });
   });
 });
+
+// ─────────────── Migration 4A — kanban_mover e prévia de recálculo (Task 15) ───────────────
+async function mover(c: Client, id: string, para: string) {
+  return (await um<{ r: { acao: string; status: string | null; faltando: string[]; rev: number } }>(c,
+    `SELECT public.kanban_mover($1, $2) AS r`, [id, para])).r;
+}
+async function definir(c: Client, ligar: boolean) {
+  return (await um<{ r: { ligado: boolean; mudou: boolean; lote_id: string | null; snapshot: number; cards_movidos: number } }>(c,
+    `SELECT public.kanban_definir_automatico($1) AS r`, [ligar])).r;
+}
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 4A: kanban_mover (Task 15)", () => {
+  it("aplica a tabela ÚNICA de arraste no servidor: fixar/soltar/nada/bloqueios; limpa #Erro; devolve rev", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE }));
+      await aplicar(c, [M]); // etapa_c
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET revisao_pendente = '{"kanban": true}' WHERE id = $1`, [M]));
+
+      let r = await mover(c, M, "stand_by");
+      expect([r.acao, r.status, r.faltando]).toEqual(["fixar", "stand_by", []]);
+      let m = await lerModelo(c, M);
+      expect([m.status, m.erro, m.rev]).toEqual(["stand_by", false, r.rev]);
+      expect((await historico(c, M)).at(-1)).toBe("stand_by:manual");
+
+      r = await mover(c, M, "etapa_a"); // aquém da derivada com card FIXADO → solta p/ a derivada
+      expect([r.acao, r.status]).toEqual(["soltar", "etapa_c"]);
+      const revAntes = (await lerModelo(c, M)).rev;
+      r = await mover(c, M, "etapa_a"); // aquém com card AUTOMÁTICO → bloqueia, não grava
+      expect([r.acao, r.status, r.rev]).toEqual(["bloquear_ja_cumprida", "etapa_c", revAntes]);
+      r = await mover(c, M, "aprovado"); // além da derivada → faltando (labels vêm do catálogo no TS)
+      expect([r.acao, r.status, r.faltando]).toEqual(["bloquear_faltando", "etapa_c", ["data_aprovacao"]]);
+      r = await mover(c, M, "zzz");
+      expect([r.acao, r.status]).toEqual(["fora_do_fluxo", "etapa_c"]);
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET revisao_pendente = '{"kanban": true}' WHERE id = $1`, [M]));
+      r = await mover(c, M, "etapa_c"); // mesma coluna → nada, mas o usuário revisou: apaga o #Erro
+      expect(r.acao).toBe("nada");
+      expect((await lerModelo(c, M)).erro).toBe(false);
+    });
+  });
+
+  it("sair de Reprovado NÃO apaga motivo_cancelamento (decisão 15 do dono — o motivo fica guardado)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      await chave(c, true);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      await aplicar(c, [M]);
+      expect((await mover(c, M, "reprovado")).acao).toBe("fixar");
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET motivo_cancelamento = 'caro demais' WHERE id = $1`, [M]));
+      expect((await mover(c, M, "stand_by")).acao).toBe("fixar"); // sai de Reprovado fixando outra manual
+      expect((await lerModelo(c, M)).motivo).toBe("caro demais");
+      expect((await mover(c, M, "reprovado")).acao).toBe("fixar");
+      expect((await mover(c, M, "etapa_a")).acao).toBe("soltar"); // sai de Reprovado soltando p/ a derivada
+      expect((await lerModelo(c, M)).motivo).toBe("caro demais");
+    });
+  });
+
+  it("recusas: chave desligada (P0001), modelo de outra loja (P0002), sem permissão (42501)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c));
+      await c.query("SAVEPOINT sp");
+      await expect(mover(c, M, "stand_by")).rejects.toMatchObject({ code: "P0001", message: "O Kanban automático está desligado nesta loja." });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await chave(c, true);
+      const alheio = await um<{ id: string }>(c, `SELECT id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T]);
+      await c.query("SAVEPOINT sp");
+      await expect(mover(c, alheio.id, "stand_by")).rejects.toMatchObject({ code: "P0002" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await comoSemPermissao(c);
+      await c.query("SAVEPOINT sp");
+      await expect(mover(c, M, "stand_by")).rejects.toMatchObject({ code: "42501" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+});
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 4A: kanban_previa_recalculo (Task 15)", () => {
+  it("NÃO grava; conta pela coluna EFETIVA; lista os fixados; usa a config PROPOSTA", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      const A = await comoSistema(c, () => novoModelo(c, { nome: "KA A", data_desenho_tecnico: HOJE }));
+      const B = await comoSistema(c, () => novoModelo(c, { nome: "KA B", status_desenvolvimento: "stand_by", data_desenho_tecnico: HOJE }));
+      const O = await comoSistema(c, () => novoModelo(c, { nome: "KA O", status_desenvolvimento: "coluna_velha" }));
+      const retrato = async () => ({
+        m: (await c.query(`SELECT id, status_desenvolvimento, revisao_pendente, rev, ref FROM public.modelos WHERE tenant_id = $1 ORDER BY id`, [T])).rows,
+        s: (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.kanban_snapshot WHERE tenant_id = $1`, [T])).n,
+        k: (await um<{ k: boolean }>(c, `SELECT kanban_automatico AS k FROM public.tenant_config WHERE tenant_id = $1`, [T])).k,
+        h: (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.modelo_kanban_historico WHERE tenant_id = $1`, [T])).n,
+      });
+      const antes = await retrato();
+      const p = (await um<{ p: any }>(c, `SELECT public.kanban_previa_recalculo($1::jsonb) AS p`, [JSON.stringify({ kanban_automatico: true })])).p;
+      expect(await retrato()).toEqual(antes); // não grava NADA
+      const card = (id: string) => p.cards.find((x: any) => x.modelo_id === id);
+      expect(card(A)).toMatchObject({ de: "entrada", para: "etapa_a", fixado: false, recua: false });
+      expect(card(B)).toBeUndefined(); // fixado: não muda de coluna…
+      expect(p.cards_fixados.find((x: any) => x.modelo_id === B)).toMatchObject({ coluna: "stand_by", posicao_derivada: "etapa_a" });
+      expect(card(O)).toBeUndefined(); // órfão sem dado: quadro já o mostra na 1ª coluna (efetiva) → não conta
+      expect(p.mudam).toBe(p.cards.length);
+      expect(p.fixados).toBe(p.cards_fixados.length);
+      expect(p.chave_proposta).toBe(true);
+      expect([p.revelam_ref, p.refs_reveladas, p.avisos]).toEqual([0, [], []]); // ninguém chega a etapa_c (ref_exibir_status)
+      // config PROPOSTA sem requisito nenhum → tudo manual → A fica na entrada
+      const p2 = (await um<{ p: any }>(c, `SELECT public.kanban_previa_recalculo($1::jsonb) AS p`, [JSON.stringify({ kanban_requisitos: {} })])).p;
+      expect(p2.cards.find((x: any) => x.modelo_id === A)).toBeUndefined();
+    });
+  });
+
+  it("R4 — lista as REFs que o LIGAR revela (= exatamente as que o LIGAR de verdade revela) + aviso", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c, { ref: "etapa_c" });
+      const cheio = { data_desenho_tecnico: HOJE, data_piloto1: HOJE, data_piloto2: HOJE };
+      const F = await comoSistema(c, () => novoModelo(c, { nome: "KA F", status_desenvolvimento: "stand_by", ...cheio })); // fixado; derivada = etapa_c
+      const A = await comoSistema(c, () => novoModelo(c, { nome: "KA A", ...cheio })); // anda até etapa_c
+      const B = await comoSistema(c, () => novoModelo(c, { nome: "KA B", data_desenho_tecnico: HOJE })); // anda só até etapa_a
+      await comoSistema(c, () => c.query(`UPDATE public.modelos SET ref = '' WHERE id = ANY($1::uuid[])`, [[F, A, B]]));
+      const semRef = async () => (await c.query(
+        `SELECT id FROM public.modelos WHERE tenant_id = $1 AND coalesce(ref, '') = ''`, [T])).rows.map((r) => r.id as string);
+      const antes = await semRef();
+      const p = (await um<{ p: any }>(c, `SELECT public.kanban_previa_recalculo($1::jsonb) AS p`, [JSON.stringify({ kanban_automatico: true })])).p;
+      const ids = p.refs_reveladas.map((x: any) => x.modelo_id as string).sort();
+      expect(ids).toEqual(expect.arrayContaining([F, A]));
+      expect(ids).not.toContain(B);
+      expect(p.revelam_ref).toBe(p.refs_reveladas.length);
+      expect(p.refs_reveladas.find((x: any) => x.modelo_id === F)).toMatchObject({ posicao_derivada: "etapa_c" });
+      expect(p.refs_reveladas.every((x: any) => typeof x.ref_auto === "string" && x.ref_auto !== "")).toBe(true);
+      expect(p.avisos).toEqual(["A REF revelada não volta ao desligar nem ao restaurar as colunas."]);
+      // a prova: LIGAR de verdade (pela RPC) revela EXATAMENTE essas
+      expect((await definir(c, true)).ligado).toBe(true);
+      await imediato(c);
+      const depois = await semRef();
+      expect(antes.filter((id) => !depois.includes(id)).sort()).toEqual(ids);
+    });
+  });
+
+  it("só admin da loja (ou super): usuário comum → 42501", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoSemPermissao(c);
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_previa_recalculo('{}'::jsonb)`)).rejects.toMatchObject({ code: "42501" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+    });
+  });
+});
+
+describe.skipIf(!PRONTO)("kanban-auto — migration 4A: kanban_definir_automatico, o botão da chave (decisão 16, Task 15)", () => {
+  it("admin LIGA (lote 'ligar' + recálculo na mesma txn), repetir não grava, DESLIGA sem lote; GUC restaurado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await configurarBoard(c);
+      const M = await comoSistema(c, () => novoModelo(c, { data_desenho_tecnico: HOJE }));
+      const r1 = await definir(c, true);
+      expect(r1).toMatchObject({ ligado: true, mudou: true });
+      expect(r1.lote_id).toBeTruthy();
+      expect(r1.snapshot).toBe(Number((await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.kanban_snapshot WHERE lote_id = $1`, [r1.lote_id])).n));
+      expect(r1.cards_movidos).toBeGreaterThanOrEqual(1);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a");
+      expect((await lotes(c)).map((l) => [l.lote_id, l.motivo])).toEqual([[r1.lote_id, "ligar"]]);
+      expect(await definir(c, true)).toEqual({ ligado: true, mudou: false, lote_id: null, snapshot: 0, cards_movidos: 0 });
+      expect(await definir(c, false)).toEqual({ ligado: false, mudou: true, lote_id: null, snapshot: 0, cards_movidos: 0 });
+      expect((await lotes(c)).length).toBe(1);
+      expect((await lerModelo(c, M)).status).toBe("etapa_a"); // desligar não mexe em status
+      expect((await um<{ g: string }>(c, `SELECT current_setting('app.kanban_chave', true) AS g`)).g).toBe("");
+    });
+  });
+
+  it("recusas: valor nulo → P0001; usuário comum → 42501 (e a chave não muda)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`SELECT public.kanban_definir_automatico(NULL)`)).rejects.toMatchObject({ code: "P0001" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      await comoSemPermissao(c);
+      await c.query("SAVEPOINT sp");
+      await expect(definir(c, true)).rejects.toMatchObject({ code: "42501" });
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      expect((await lerChave(c)).k).toBe(false);
+    });
+  });
+
+  // Escreve numa loja REAL (UPDATE de ~100 cards da Ave Rara, ainda que revertido) → SÓ na cópia local (decisão 17)
+  it.skipIf(!LOCAL)("R7 — LIGAR a maior loja (Ave Rara) pela RPC: snapshot + recálculo + gatilhos em < 5 s", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c);
+      await c.query(`UPDATE public.users SET tenant_id = $1 WHERE id = $2`, [AVE_RARA, USER_TESTE]); // super_admin "entra" na Ave Rara (txn)
+      const t0 = Date.now();
+      const r = await definir(c, true);
+      await imediato(c); // a fila fica vazia: as escritas do motor não re-enfileiram
+      const ms = Date.now() - t0;
+      console.info(`[kanban-auto] R7 LIGAR Ave Rara: snapshot ${r.snapshot}, ${r.cards_movidos} card(s) mudaram de coluna, ${ms} ms`);
+      expect(r).toMatchObject({ ligado: true, mudou: true });
+      expect(r.snapshot).toBeGreaterThan(200);
+      expect(await tamanhoFila(c)).toBe(0);
+      expect(ms).toBeLessThan(5000);
+    });
+  });
+});
