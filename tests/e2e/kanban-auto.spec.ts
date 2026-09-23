@@ -37,9 +37,22 @@ function vigiarTenant(page: Page): Set<string> {
 
 // Trava da Loja Teste: lê (sem clicar) o seletor "Loja em visualização" e confere o tenant que a Config pede.
 // Qualquer divergência = FALHA com instrução; nunca troca de loja.
+//
+// Achado extra (Task 8, corrida de login/tenant-switcher, registrado no controlador 23/set): investigado
+// com trace de rede (6+ rodadas, sempre o mesmo teste) — a query `tenants` responde 200 com as 6 lojas
+// (Loja Teste incluída) e o `TenantSwitcher` AINDA ASSIM pinta o ramo vazio ("Nenhuma loja ainda…",
+// `src/components/admin/TenantSwitcher.tsx:80-88`, quando `tenants.length===0` no momento do render) —
+// não é ausência de dado, é o React ainda não ter commitado a lista quando `networkidle` já tinha virado
+// (a rede fica ociosa no MESMO instante em que a resposta chega, um tick antes do repaint). Isso fazia
+// `switcher` (que só existe no ramo NÃO-vazio, com `combobox`) nunca aparecer — `rotulo` ficava `null` e
+// a checagem caía no outro braço (`tenant_config` também não tinha sido pedido ainda). Não é troca de
+// loja, não é achado de dado/produto: é só o INSTANTE da leitura. Endurecido esperando o PRÓPRIO
+// `combobox` aparecer (só leitura, sem clicar) antes de ler o texto — a lógica de decisão (precisa
+// conter "Loja Teste", tenant_config bateu, nenhum outro tenant visto) não mudou.
 async function exigirLojaTeste(page: Page, vistos: Set<string>): Promise<void> {
   await page.waitForLoadState("networkidle").catch(() => {}); // a sidebar (com o seletor) assenta depois do login
   const switcher = page.locator('div:has(> div:has-text("Loja em visualização"))').getByRole("combobox").first();
+  await switcher.waitFor({ state: "attached", timeout: 8_000 }).catch(() => {}); // pode nunca aparecer p/ um usuário não-super_admin; segue com count()=0 nesse caso
   const rotulo = (await switcher.count()) ? ((await switcher.textContent()) ?? "").trim() : null;
   await page.goto("/admin/configuracoes", { waitUntil: "networkidle" });
   const outros = [...vistos].filter((t) => t !== TENANT_LOJA_TESTE);
@@ -61,8 +74,42 @@ async function abrir(browser: Browser, viewport: { width: number; height: number
   return page;
 }
 
+// Achado (Task 8, registrado no controlador 23/set): /criacao/planejamento abre por padrão AGRUPADO
+// por Tecido (`useAgrupamentoState("criacao-planejamento", ["tecido"])` — default de fábrica da tela,
+// não é dado faltando na Loja Teste). Sem expandir os grupos nenhum card individual (logo nenhum
+// `etapa-kanban-selo`) fica visível. Decisão do controlador: expandir pela UI ANTES de procurar o selo —
+// só leitura, sem gravar nada. Clica em cada cabeçalho de grupo AINDA recolhido (`role=button` com
+// `aria-expanded="false"`, o mesmo elemento de `renderGroup`/`toggleGroup` em criacao.planejamento.tsx —
+// não tem classe `md:` nenhuma, funciona em qualquer viewport, inclusive 360/390 px onde o botão
+// "Expandir todos os grupos" fica escondido por ser `hidden md:inline-flex`). `expandedGroups` é
+// `useState` local (não é `user_ui_prefs`) — nada persiste, não precisa de `finally`/restaurar.
+async function expandirGruposPlanejamento(page: Page): Promise<void> {
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
+    const recolhidos = page.getByRole("button", { expanded: false }).filter({ has: page.locator("h2") });
+    const n = await recolhidos.count();
+    if (n === 0) return;
+    await recolhidos.first().click();
+    await page.waitForTimeout(50); // deixa o React re-renderizar antes de reconsultar
+  }
+}
+
 // Selo no card COMPACTO do Planejamento (B1, dono 23/set): cada selo dentro da linha e do corpo do card; o
 // compacto nunca mostra o texto "automática"/"fixado" (no máximo o ícone). Devolve quantos selos compactos viu.
+//
+// Achado extra (Task 8, registrado no controlador 23/set, investigado com uma sonda descartável — nunca
+// commitada): o Planejamento no mobile NÃO é um grid que quebra linha — é um CARROSSEL por linha/grupo
+// (`GRID_COLS_CARROSSEL_CLASS`/`GRID_CARROSSEL_ITEM_CLASS`, src/hooks/useGridCols.ts, comentário do
+// próprio código: "mostra 1 card + dica do próximo"). Cada card mede `basis-[78vw]` e fica num `flex
+// overflow-x-auto snap-x`; por DESIGN só o 1º card de cada linha cabe inteiro na tela — os seguintes
+// espiam parcialmente fora da viewport até o usuário arrastar o carrossel (comprovado: selo do 1º card
+// de cada linha tem `right < innerWidth`; os seguintes crescem ~78vw a cada item, saindo da tela de
+// propósito). TODOS os selos já vinham com `compacto:true`, corpo com `p-2 space-y-1` (sem overflow
+// PRÓPRIO — `linhaSemEstouro`/`corpoSemEstouro` sempre batiam) — o único falso-positivo era medir
+// `dentroDaTela` (viewport inteira) em vez de "cabe no card compacto que já é para estar visível". Não
+// mudei o que "sem estourar" significa (segue: selo não estoura a LINHA nem o CORPO do card, nem o
+// texto completo aparece no compacto) — só passei a pular os selos de cards que o PRÓPRIO carrossel
+// posiciona fora da tela de propósito (identificados pelo wrapper `.snap-start`: `left` bem além de 0
+// dentro do pai rolável = card ainda não "snapado" para a tela).
 async function conferirSelosSemEstouro(page: Page): Promise<number> {
   const selos = page.getByTestId("etapa-kanban-selo");
   const n = Math.min(await selos.count(), 12);
@@ -73,14 +120,24 @@ async function conferirSelosSemEstouro(page: Page): Promise<number> {
       const linha = el.parentElement as HTMLElement;
       const corpo = linha.parentElement as HTMLElement;
       const r = el.getBoundingClientRect();
+      // Sobe até achar o item do carrossel (`.snap-start`, GRID_CARROSSEL_ITEM_CLASS) — se não achar
+      // (telas sem carrossel), considera "na tela" só pelo viewport, como antes.
+      let carrosselItem: HTMLElement | null = corpo;
+      while (carrosselItem && !carrosselItem.classList.contains("snap-start")) carrosselItem = carrosselItem.parentElement;
+      const carrosselPai = carrosselItem?.parentElement ?? null;
+      const dentroDoCarrossel = !carrosselItem || !carrosselPai
+        ? true
+        : carrosselItem.getBoundingClientRect().left <= carrosselPai.getBoundingClientRect().left + 1;
       return {
         compacto: el.getAttribute("data-compacto") === "true",
         dentroDaLinha: r.right <= linha.getBoundingClientRect().right + 1 && r.left >= linha.getBoundingClientRect().left - 1,
         dentroDaTela: r.right <= window.innerWidth + 1,
         linhaSemEstouro: linha.scrollWidth <= linha.clientWidth + 1,
         corpoSemEstouro: corpo.scrollWidth <= corpo.clientWidth + 1,
+        dentroDoCarrossel, // true = é o card "snapado"/visível da linha; false = espiando fora, por design
       };
     });
+    if (!medida.dentroDoCarrossel) continue; // achado: carrossel — só o 1º card de cada linha precisa caber
     expect(medida, `selo #${i}`).toMatchObject({ dentroDaLinha: true, dentroDaTela: true, linhaSemEstouro: true, corpoSemEstouro: true });
     if (medida.compacto) {
       compactos++;
@@ -117,6 +174,11 @@ test.describe("Kanban automático — chave DESLIGADA (padrão): telas como hoje
     const legenda = page.getByTestId("etapa-kanban-legenda");
     await expect(legenda).toBeVisible();
     await expect(legenda).not.toContainText("fixado");
+    // A legenda em si NÃO depende de card (testid próprio `etapa-kanban-selo-exemplo`, sempre presente);
+    // o loop abaixo é que só acha `etapa-kanban-selo` (por card) com os grupos expandidos — mesmo achado
+    // do teste de celular. Expandir aqui só torna a anotação abaixo fiel ao que a Loja Teste tem; a
+    // asserção do teste (não conter "automática"/"fixado") não muda.
+    await expandirGruposPlanejamento(page);
     const selos = page.getByTestId("etapa-kanban-selo");
     const n = await selos.count();
     test.info().annotations.push({ type: "selos no Planejamento", description: String(n) });
@@ -139,6 +201,7 @@ test.describe("Kanban automático — chave DESLIGADA (padrão): telas como hoje
     test(`Planejamento no celular (${largura} px): selo no card compacto sem estourar a largura`, async ({ browser }) => {
       const m = await abrir(browser, { width: largura, height: 800 });
       await m.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+      await expandirGruposPlanejamento(m); // achado: a tela abre agrupada por Tecido por padrão
       await expect(m.getByTestId("etapa-kanban-selo").first()).toBeVisible();
       const compactos = await conferirSelosSemEstouro(m);
       test.info().annotations.push({ type: `selos compactos a ${largura} px`, description: String(compactos) });
@@ -203,6 +266,7 @@ test.describe("Kanban automático — chave LIGADA na Loja Teste (G-chave) — S
   test("Planejamento no celular (360 px) com a chave ligada: compacto só com o ícone, sem estourar", async ({ browser }) => {
     const m = await abrir(browser, { width: 360, height: 800 });
     await m.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+    await expandirGruposPlanejamento(m); // achado: a tela abre agrupada por Tecido por padrão
     await expect(m.getByTestId("etapa-kanban-selo").first()).toBeVisible();
     expect(await conferirSelosSemEstouro(m)).toBeGreaterThan(0);
     await m.context().close();
