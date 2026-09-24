@@ -1429,10 +1429,15 @@ function PlanejamentoDetailConteudo({
               dos artigos reais do BOM. Sem `canView` do Dev (`!ficha.habilitada`) o fallback segue igual a hoje
               (a ficha nunca carrega nesse caso, então bloquear pra sempre seria pior). `title` num `<span>`
               (não no `<button disabled>`) — mesmo padrão do tooltip "Enviar Ordem de Criação" acima: botão
-              desabilitado não dispara `title` nativo em todo navegador. */}
+              desabilitado não dispara `title` nativo em todo navegador.
+              F3.2 micro-fix M1 — cache FRIO (`modeloData` ainda `undefined` no 1º render) faz `isCompradoParaFicha`
+              (~:254) ficar true por precaução, o que desabilita a ficha (`ficha.habilitada=false`) e destrava este
+              botão ANTES do draft ser semeado — clicar nesse instante copiaria o `emptyDraft()` em vez do BOM real.
+              `|| (isEdit && !modeloData)` cobre essa janela (mesma condição da `isCompradoParaFicha`, sem repetir o
+              cálculo); o `title` some assim que `modeloData` chega, igual ao caso `!ficha.carregado`. */}
           {isEdit && (
-            <span title={ficha.habilitada && !ficha.carregado ? "Carregando a ficha…" : undefined} className="ml-auto shrink-0" style={{ display: "inline-flex" }}>
-              <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending || (ficha.habilitada && !ficha.carregado)} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <span title={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined} className="ml-auto shrink-0" style={{ display: "inline-flex" }}>
+              <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
                 <Copy className="h-4 w-4 sm:mr-1" />
                 <span className="max-sm:sr-only">Duplicar</span>
               </Button>

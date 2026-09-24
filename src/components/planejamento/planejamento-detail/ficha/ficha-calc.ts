@@ -46,6 +46,17 @@ export function snapshotBom(e: EstadoBom): string {
   }
 }
 
+/**
+ * F3.2 micro-fix M2 — helper PURO extraído da expressão inline de `useFichaTecnica.capturar`
+ * ("tocado E sujo NA CAPTURA", ver `BomCapturado.sujoNaCaptura` abaixo): tocou E (não há baseline
+ * ainda OU o snapshot atual difere do baseline). Sem baseline (`base === null`) conta como sujo
+ * (mesmo critério de `bomDivergeDaReferencia`, "sem referência = diverge") — cobre a 1ª carga,
+ * antes de `guarda.baselineRef` ser semeado.
+ */
+export function bomSujoNaCaptura(tocado: boolean, snap: string, base: string | null): boolean {
+  return tocado && (base === null || snap !== base);
+}
+
 // ── Decisão da carga (F3.2, fix round 1 — I1/I2) ─────────────────────────────────────────────
 /**
  * "Hidrata agora?" — extraída de `useFichaBom` (o efeito único de carga) p/ ser testável sem

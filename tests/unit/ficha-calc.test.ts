@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeEmptyBlocks, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import {
-  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, deveHidratarCarga, estadoBomDoServidor,
+  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, bomSujoNaCaptura, deveHidratarCarga, estadoBomDoServidor,
   herdarGrades, hidratarBlocos, hidratarGrades,
   montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
   relevantArtigoIds, resumoBom, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
@@ -588,5 +588,21 @@ describe("deveHidratarCarga — só com as 5 queries prontas, ESTÁVEIS e a Fich
   });
   it("array vazio (BOM sem nada salvo ainda) NÃO é 'undefined' ⇒ hidrata", () => {
     expect(deveHidratarCarga({ habilitada: true, bomFetching: false, tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] })).toBe(true);
+  });
+});
+
+// F3.2 micro-fix M2 — helper puro extraído da expressão inline de `useFichaTecnica.capturar`.
+describe("bomSujoNaCaptura — tocado E (sem baseline OU snapshot difere do baseline)", () => {
+  it("tocado com snap === base ⇒ false (tocou e não sujou de verdade)", () => {
+    expect(bomSujoNaCaptura(true, "x", "x")).toBe(false);
+  });
+  it("tocado com snap !== base ⇒ true", () => {
+    expect(bomSujoNaCaptura(true, "y", "x")).toBe(true);
+  });
+  it("tocado com base null (sem baseline ainda) ⇒ true", () => {
+    expect(bomSujoNaCaptura(true, "x", null)).toBe(true);
+  });
+  it("não tocado ⇒ false, mesmo com snap !== base", () => {
+    expect(bomSujoNaCaptura(false, "y", "x")).toBe(false);
   });
 });

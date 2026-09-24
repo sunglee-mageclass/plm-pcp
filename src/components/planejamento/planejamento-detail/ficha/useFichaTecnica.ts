@@ -20,7 +20,7 @@ import { useFichaBom } from "./useFichaBom";
 import { useFichaGuarda } from "./useFichaGuarda";
 import { contadorVoo, deveLimparTocadoAposSalvar } from "../save-ficha";
 import {
-  assinaturaBom, bomDivergeDaReferencia, estadoBomDoServidor,
+  assinaturaBom, bomDivergeDaReferencia, bomSujoNaCaptura, estadoBomDoServidor,
   paresComplementares, resumoBom, snapshotBom, tecido1VariantesInfo, tecidosPlanejadosDerivados, totaisBom,
   type AviamentoRowDb, type BomCapturado, type EstadoBom, type EtiquetaRowDb, type GradeRowDb, type OcLinkRowDb,
   type TecidoRowDb, type VarianteRowDb,
@@ -444,7 +444,7 @@ export function useFichaTecnica(a: {
       // ESTA captura vai GRAVAR, não se a ficha ESTÁ suja): tocar e desfazer (`snap===base`) ou uma
       // proporção/toggle de grade automática com `oldSum=0`/`grade_total=0` (marca tocado, mas o snapshot da
       // GRADE não muda — só `proporcoes`, fora do snapshot do BOM) saem `false` aqui.
-      const sujoNaCaptura = bom.colecoesTouchadasRef.current && (base === null || snap !== base);
+      const sujoNaCaptura = bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snap, base);
       const gravar = podeEditarRef.current && (sujoNaCaptura || bom.prefillPendenteRef.current);
       return {
         estado: e,
