@@ -370,6 +370,11 @@ export type BomCapturado = {
   tecidosPlanejados: string[];
   /** Totais SEM mão de obra (a MO entra no Salvar). null = ficha não carregada / sem permissão / somente leitura. */
   totais: TotaisBom | null;
+  /** Item C (fix round 2) — `travaDev === "enviado"` no INSTANTE da captura (fechado sobre a closure do
+   *  `capturar()`), não o estado atual do servidor. O retry do P0409 usa isto contra o `fresh` relido: se o
+   *  card foi enviado à Explosão por outra pessoa DURANTE este save, o retry automático não pode gravar o
+   *  BOM/colunas do Dev (`retryBloqueadoPorEnvio`, save-ficha.ts). */
+  enviadoNaCaptura: boolean;
 };
 
 // ── R5 (G-plano conjunto) — o BOM do SERVIDOR mudou de verdade? ─────────────────────────────────────
@@ -401,10 +406,21 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
  * NÃO o binário do float puro. Sem isso, a assinatura local (JS) e o eco relido do servidor (que já
  * passou pelo `numeric` do Postgres) podem arredondar o MESMO valor de formas diferentes na borda
  * .5 e acender um "Tecidos & BOM" falso.
+ *
+ * Re-review A (fix round 2): `Math.round(abs*10**n)/10**n` erra empates decimais por causa da
+ * representação binária do float (ex.: `1.005*100` não é exatamente `100.5` — é um pouco menos —,
+ * então `Math.round` arredonda pra BAIXO, 1.00, enquanto o `numeric` do Postgres, que é decimal
+ * exato, dá 1.01). Trocado pelo arredondamento via string com expoente (`Number(x + "e" + n)`):
+ * o parser decimal do JS lê o valor na base 10 sem o erro de multiplicação binária, e
+ * `Math.round` aplicado a ELE cai exatamente na borda .5 certa. Testado nos empates: 1.005→1.01,
+ * 1.255→1.26, 0.145→0.15, 0.00015→0.0002 (4 casas), e o caso negativo −1.005→−1.01.
  */
 function roundNumeric(x: number, casas: number): number {
-  const f = 10 ** casas;
-  return (Math.sign(x) || 1) * Math.round(Math.abs(x) * f) / f;
+  const n = Number(x) || 0;
+  if (n === 0) return 0;
+  const abs = Math.abs(n);
+  const arredondado = Number(Math.round(Number(abs + "e" + casas)) + "e-" + casas);
+  return Math.sign(n) * arredondado;
 }
 
 /** `modelo_tecidos`/`modelo_aviamentos`.consumo e `modelo_etiquetas`.consumo — NUMERIC(10,4). */

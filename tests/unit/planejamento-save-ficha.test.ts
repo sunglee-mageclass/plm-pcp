@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo,
+  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 // F3.2 — regras do Salvar unificado do Planejamento (payload do UPDATE `modelos`, rebase pós-save e
 // o retry do P0409). Fixes: receita 2419d0f do Desenvolvimento.
@@ -99,5 +100,36 @@ describe("prepararRetryP0409 — fix do retry", () => {
   it("nada mudou → devolve o MESMO objeto ao vivo", () => {
     const live = { ...b };
     expect(prepararRetryP0409({ base: b, live, fresh: { ...b }, touched: new Set(), bomConflito: false }).proximoDraft).toBe(live);
+  });
+});
+
+// Item F (fix round 2) — a mensagem do ramo "BOM ainda conferindo" (usePlanejamentoSave.ts, guard de
+// `verificandoBomRef`) precisa ter acento/palavra da lista `PARECE_PT` (erro-mensagem.ts), senão o
+// `mensagemErro` a troca pelo fallback genérico "Erro" em vez de mostrar o texto real ao usuário.
+describe("mensagemErro — a mensagem de 'BOM conferindo' do usePlanejamentoSave passa como PT (item F)", () => {
+  it("é reconhecida como PT (não cai no fallback genérico)", () => {
+    const msg = "O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.";
+    expect(mensagemErro(new Error(msg), "Erro")).toBe(msg);
+  });
+});
+
+// Item C (re-review fix T7+T9, item 3) — o retry AUTOMÁTICO do P0409 não pode gravar o BOM/colunas do Dev
+// num card que foi enviado à Explosão por outra pessoa NO MEIO do save (`_salvar_modelo_bom_core` não tem
+// guarda própria no servidor). Bloqueia quando o `fresh` relido já tem `enviado_cad=true` E o rascunho foi
+// capturado com o card AINDA não enviado (a mudança aconteceu DURANTE este save).
+describe("retryBloqueadoPorEnvio — item C: envio à Explosão em voo trava o retry automático", () => {
+  it("fresh.enviado_cad=true E capturado NÃO enviado ⇒ bloqueia (o cenário do bug)", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, false)).toBe(true);
+  });
+  it("fresh.enviado_cad=true MAS já estava enviado na captura ⇒ NÃO bloqueia (payload já saiu sem as colunas do Dev; não é este bug)", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, true)).toBe(false);
+  });
+  it("fresh.enviado_cad=false ⇒ nunca bloqueia, independente da captura", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: false }, false)).toBe(false);
+    expect(retryBloqueadoPorEnvio({ enviado_cad: false }, true)).toBe(false);
+  });
+  it("fresh.enviado_cad ausente (null/undefined) ⇒ trata como não-enviado, não bloqueia", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: null }, false)).toBe(false);
+    expect(retryBloqueadoPorEnvio({}, false)).toBe(false);
   });
 });

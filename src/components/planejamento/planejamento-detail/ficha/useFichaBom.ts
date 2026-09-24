@@ -64,6 +64,13 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   const [camposCopiados, setCamposCopiados] = useState<Set<string>>(() => new Set());
   const [tocado, setTocado] = useState(false);
   const colecoesTouchadasRef = useRef(false);
+  // Re-review E (fix round 2, RULING do controlador) — paridade com o Dev, que regrava o BOM a todo
+  // Salvar: quando o BOM do SERVIDOR está VAZIO, a carga pré-preenche Tecido 1..N a partir de
+  // `tecidos_planejados` (hidratarBlocos, ficha-calc :120-128) SEM marcar como tocado — sem isto,
+  // `capturar.gravar=false` e o Salvar nunca grava o que o usuário está vendo na tela. Esta ref
+  // sinaliza "há um pré-preenchimento pendente de gravação" p/ o `capturar` do useFichaTecnica somar
+  // à condição de `gravar`, sem acender o "não salvo" (o usuário não tocou em nada).
+  const prefillPendenteRef = useRef(false);
   const flagsRef = useRef<FlagsBom>(FLAGS_ZERO);
   const estadoRef = useRef<EstadoBom>({ blocks, aviamentos: aviamentosState, etiquetas: etiquetasState, grades });
   estadoRef.current = { blocks, aviamentos: aviamentosState, etiquetas: etiquetasState, grades };
@@ -73,7 +80,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     colecoesTouchadasRef.current = true;
     setTocado(true);
   };
-  const limparTocado = () => { colecoesTouchadasRef.current = false; setTocado(false); };
+  const limparTocado = () => { colecoesTouchadasRef.current = false; setTocado(false); prefillPendenteRef.current = false; };
   const marcarFlag = (k: keyof FlagsBom) => { flagsRef.current = { ...flagsRef.current, [k]: true }; };
   const limparFlags = () => { flagsRef.current = FLAGS_ZERO; };
 
@@ -88,6 +95,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     setCamposCopiados(new Set());
     colecoesTouchadasRef.current = false;
     setTocado(false);
+    prefillPendenteRef.current = false;
     flagsRef.current = FLAGS_ZERO;
     setCargaSeq(0);
   }, [modeloId]);
@@ -157,12 +165,20 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       }));
       return;
     }
-    setBlocks(hidratarBlocos({ tecidos: tecidosData.tecidos, variantes: tecidosData.variantes, ocLinks: ocLinksData, planejados: JSON.parse(planejadosKey) as string[] }));
+    const planejadosAgora = JSON.parse(planejadosKey) as string[];
+    setBlocks(hidratarBlocos({ tecidos: tecidosData.tecidos, variantes: tecidosData.variantes, ocLinks: ocLinksData, planejados: planejadosAgora }));
     setAviamentosState(hidratarAviamentos(aviamentosData));
     setEtiquetasState(hidratarEtiquetas(etiquetasData));
     setGrades(hidratarGrades(gradesData));
     setHidratado(true);
     setCargaSeq((n) => n + 1);
+    // Item E (fix round 2) — MESMA condição de `hidratarBlocos` (ficha-calc :123): BOM do servidor
+    // vazio E há algo em `tecidos_planejados` p/ pré-preencher. Marca pendência SEM tocar (o
+    // pré-preenchimento não é edição do usuário) — o `capturar` do useFichaTecnica soma isto à
+    // condição de `gravar`, senão o Salvar nunca grava o Tecido 1..N que a tela está mostrando.
+    if (tecidosData.tecidos.length === 0 && planejadosAgora.some((a) => !!a)) {
+      prefillPendenteRef.current = true;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habilitada, dados.bomFetching, dados.tecidosData, dados.ocLinksData, dados.aviamentosData, dados.etiquetasData, dados.gradesData, planejadosKey, hidratarTick]);
 
@@ -410,7 +426,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
 
   return {
     blocks, aviamentosState, etiquetasState, grades, gradeAuto, hidratado, tocado,
-    colecoesTouchadasRef, estadoRef, flagsRef,
+    colecoesTouchadasRef, estadoRef, flagsRef, prefillPendenteRef,
     varianteArtigoMap, varianteArtigoMapRef, varianteArtigoMapPronto, tecido1VarianteIds,
     confirmGrade, setConfirmGrade,
     camposCopiados, onCampoEditado, marcarCopiados, limparCopiados,

@@ -63,6 +63,12 @@ export type FichaSave = {
   verificandoBomRef: RefObject<boolean>;
   colecoesTouchadasRef: RefObject<boolean>;
   setConflitoBom: (v: boolean) => void;
+  /**
+   * Item G (T11, I1) — chamar `true` no início do `mutationFn` e `false` no fim (onSettled, ou no fim de
+   * onSuccess/onError). Enquanto `true`, o `aoMudarNoServidor` com o BOM tocado NÃO confere/acende "Tecidos &
+   * BOM" contra o eco do PRÓPRIO save — só invalida.
+   */
+  marcarSaveEmVoo: (v: boolean) => void;
   /** R5 — recarrega o BOM e diz se ele mudou em relação à referência (true em erro — conservador). */
   bomMudouNoServidor: () => Promise<boolean>;
   /** Congela o BOM no início do Salvar (lê refs — vale mesmo no retry, fora do ciclo de render). */
@@ -77,6 +83,13 @@ export type FichaSave = {
    * a referência vira o ENVIADO assim que o servidor o tem, mesmo que um passo seguinte falhe.
    */
   bomGravado: (bomEnviado: BomCapturado) => void;
+  /**
+   * Item H (T11, m2) — no ramo do P0409 do `onError` que avança `revRef` SEM retry (`r.podeRetentar===false`
+   * ou o bloqueio do item C), o BOM local pode ter ficado desatualizado frente ao servidor (que já bumpou o
+   * `rev` — outra pessoa salvou o consumo). Sem invalidar aqui, um Salvar seguinte com o BOM ainda tocado
+   * sobrescreveria o BOM alheio sem passar pela conferência R5 (que só roda quando o `rev` muda DE NOVO).
+   */
+  invalidarBom: () => void;
   etapas: { corte?: boolean; baixa_total?: number };
 };
 
@@ -123,6 +136,17 @@ export function useFichaTecnica(a: {
   const [verificandoBom, setVerificandoBom] = useState(false);
   const verificandoBomRef = useRef(false);
   const setVerificandoBoth = (v: boolean) => { verificandoBomRef.current = v; setVerificandoBom(v); };
+  // Item G (T11, I1) — "Tecidos & BOM" pisca durante o PRÓPRIO save: a conferência nasce do eco do UPDATE do
+  // header (bump de `rev`) e resolve ANTES do `bomGravado`/`aposSalvar` (que só rodam depois de
+  // `persistirBom`) — nessa janela, `bomMudouNoServidor` relê o BOM ainda VELHO no servidor E compara contra
+  // a referência ainda VELHA, então não deveria divergir; mas com o BOM local editado (tocado) o efeito visual
+  // de "conferir e talvez acender" no meio do PRÓPRIO save é indesejado. `marcarSaveEmVoo(true)` no início do
+  // `mutationFn` e `(false)` no fim (onSettled/onSuccess/onError) — enquanto true, `aoMudarNoServidor` com BOM
+  // tocado só invalida (não confere/não acende); o `aposSalvar` já invalida de novo ao fim, e a R5a do
+  // guardião (outra pessoa salvando o CONSUMO com o meu tocado, fora do meu save) continua funcionando —
+  // ela só entra pela CARGA (`aoRecarregarComTocado`), não por este caminho.
+  const saveEmVooRef = useRef(false);
+  const marcarSaveEmVoo = (v: boolean) => { saveEmVooRef.current = v; };
   const geracaoRef = useRef(0);
   // REFERÊNCIA = assinatura do BOM do SERVIDOR sobre o qual o usuário está editando. Enquanto nada foi tocado ela
   // ACOMPANHA o estado (que é o do servidor recém-carregado); depois de um Salvar que gravou o BOM, vira o ENVIADO (o
@@ -184,6 +208,10 @@ export function useFichaTecnica(a: {
   // o BOM com o `podeEditar` velho (true) num card que, agora, está só-leitura.
   const podeEditarRef = useRef(false);
   podeEditarRef.current = podeEditar;
+  // Item C (fix round 2) — mesmo padrão/motivo do `podeEditarRef` acima: `capturar()` (chamado dentro do
+  // retry do P0409, fora do ciclo normal de render) precisa ler o motivo de AGORA, não o closure velho.
+  const motivoSomenteLeituraRef = useRef<MotivoSomenteLeitura>(null);
+  motivoSomenteLeituraRef.current = motivoSomenteLeitura;
   // T9 I1(a) — sem permissão/enviado/cad ⇒ handlers NO-OP (identidade estável de módulo); com permissão ⇒ os
   // handlers de verdade do `useFichaBom`. `bom.handlers` é recriado a cada render de `useFichaBom` (objeto
   // literal no return, sem `useMemo` próprio) — o `useMemo` aqui não evita recriação nesse ramo (a dependência
@@ -294,13 +322,21 @@ export function useFichaTecnica(a: {
   /**
    * Chamar quando o `rev` do modelo mudou (save de outra pessoa, eco do meu save, ou ação MINHA que mexe em `modelos`
    * — Mover para…, Ordem de Criação, Lançar, aprovar MO). Sem BOM tocado: só recarrega (a carga reaplica e a referência
-   * acompanha). Com BOM tocado: CONFERE se o BOM do servidor mudou de verdade e só então acende "Tecidos & BOM" — o eco
-   * das ações do próprio usuário (que não mexem no BOM) é ignorado. Enquanto confere, o Salvar espera: fecha a janela em
-   * que um Salvar passaria o `.eq("rev")` e sobrescreveria um BOM alheio ainda não detectado.
+   * acompanha; se o usuário tocar ANTES de o refetch chegar, a CARGA compara — R5a, `aoRecarregarComTocadoRef`). Com BOM
+   * tocado: CONFERE se o BOM do servidor mudou de verdade e só então acende "Tecidos & BOM" — o eco das ações do próprio
+   * usuário (que não mexem no BOM) é ignorado. Enquanto ESTA conferência roda, o Salvar espera (`verificandoBomRef`).
+   * Sobra uma janela de ~1 ida e volta (tocar E salvar antes de o refetch do caminho "sem toque" chegar) — a mesma
+   * classe de janela do Dev, que nem compara (decisão 8; §5 R7/R20).
    */
   const aoMudarNoServidor = () => {
     if (!habilitada) return;
     if (!bom.colecoesTouchadasRef.current) { invalidarBom(); return; }
+    // Item G — save em voo: o eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não confere nem acende
+    // "Tecidos & BOM" — só marca que deve invalidar (o `aposSalvar` já invalida ao fim; a R5a do guardião, que
+    // cobre "outra pessoa salva o consumo com o meu tocado", continua ativa — ela entra pela CARGA, não por
+    // aqui). Sem isto, a conferência (que compara o BOM ainda velho do servidor com a referência ainda velha)
+    // roda e resolve visivelmente ANTES do `bomGravado`/`aposSalvar`, piscando o aviso à toa.
+    if (saveEmVooRef.current) { invalidarBom(); return; }
     const geracao = ++geracaoRef.current;
     setVerificandoBoth(true);
     void bomMudouNoServidor().then((mudou) => {
@@ -328,6 +364,8 @@ export function useFichaTecnica(a: {
     podeVerCustos,
     conflitoBomRef,
     verificandoBomRef,
+    invalidarBom,
+    marcarSaveEmVoo,
     colecoesTouchadasRef: bom.colecoesTouchadasRef,
     setConflitoBom: setConflitoBomBoth,
     bomMudouNoServidor,
@@ -336,7 +374,12 @@ export function useFichaTecnica(a: {
       const snap = snapshotBom(e);
       const base = guarda.baselineRef.current;
       // "BOM só grava quando carregado E sujo" — `podeEditar` já exige carregado (e sem trava).
-      const gravar = podeEditarRef.current && bom.colecoesTouchadasRef.current && (base === null || snap !== base);
+      // Item E (fix round 2, RULING do controlador): OU há um pré-preenchimento pendente (BOM do
+      // servidor chegou vazio e a carga preencheu Tecido 1..N a partir de `tecidos_planejados` sem
+      // marcar tocado — ficha-calc :123, useFichaBom prefillPendenteRef) — paridade com o Dev, que
+      // regrava o BOM a todo Salvar.
+      const gravar = podeEditarRef.current
+        && ((bom.colecoesTouchadasRef.current && (base === null || snap !== base)) || bom.prefillPendenteRef.current);
       return {
         estado: e,
         snapshot: snap,
@@ -345,11 +388,19 @@ export function useFichaTecnica(a: {
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
         totais: podeEditarRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
+        // Item C — `true` só quando a captura viu o card JÁ enviado (a trava ÚNICA em "enviado"). Os outros
+        // motivos ("permissao"/"carregando"/"cad"/null) não são o cenário do bug (envio à Explosão em voo).
+        enviadoNaCaptura: motivoSomenteLeituraRef.current === "enviado",
       };
     },
-    // m1 da revisão T10: a referência vira o ENVIADO assim que o servidor o tem, mesmo que um passo seguinte falhe.
+    // m1 da revisão T10: a referência vira o ENVIADO assim que o servidor o tem, mesmo que um passo seguinte falhe
+    // (o `persistirBom` já grava tecidos/aviamentos/grades E etiquetas — etiquetas não têm passo próprio, estão
+    // dentro dele). Re-review D (fix round 2): depois de mover a referência, invalida o BOM também — sem isso, o
+    // eco do UPDATE (que adota `tecidos_planejados`) muda o `planejadosKey`, e a R5a comparava o cache VELHO do
+    // BOM (ainda com o `planejadosKey` antigo) com a referência = ENVIADO, acendendo "Tecidos & BOM" falso.
     bomGravado: (bomEnviado) => {
       referenciaRef.current = assinaturaBom(bomEnviado.estado);
+      invalidarBom();
     },
     aposSalvar: ({ bomEnviado }) => {
       const vivo = snapshotBom(bom.estadoRef.current);

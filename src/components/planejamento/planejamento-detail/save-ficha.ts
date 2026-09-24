@@ -82,3 +82,20 @@ export function prepararRetryP0409<T extends Record<string, any>>(o: { base: T; 
     podeRetentar: md.conflitos.length === 0 && !o.bomConflito,
   };
 }
+
+/**
+ * Item C (re-review fix T7+T9, item 3) — o retry AUTOMÁTICO do P0409 lê `podeEditar`/`podeGravarColunasDev`
+ * do momento em que o rascunho foi CAPTURADO (fechado sobre a closure do `capturar()`), não do estado atual
+ * do servidor: se o card foi enviado à Explosão por outra pessoa NO MEIO do meu Salvar, o `fresh` relido já
+ * tem `enviado_cad=true`, mas o retry ainda vê os campos do Dev como editáveis (o próximo re-render, que
+ * recalcularia `motivoSomenteLeitura`, ainda não rodou) — `_salvar_modelo_bom_core` não tem guarda própria no
+ * servidor, então o retry gravaria o BOM/colunas do Dev num card já enviado.
+ *
+ * Bloqueia o retry quando o `fresh` relido tem `enviado_cad === true` E o rascunho foi capturado com o card
+ * NÃO enviado (a mudança de "não enviado" → "enviado" aconteceu DURANTE este save — se já estava enviado
+ * ANTES, `podeGravarColunasDev` já era `false` na captura e o payload já saiu sem as colunas do Dev; nesse
+ * caso não é este bug, o retry normal decide).
+ */
+export function retryBloqueadoPorEnvio(fresh: { enviado_cad?: boolean | null }, capturadoEnviado: boolean): boolean {
+  return !!fresh.enviado_cad && !capturadoEnviado;
+}

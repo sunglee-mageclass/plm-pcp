@@ -13,12 +13,13 @@ import { type Conflito } from "@/lib/colab/merge";
 import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
+import { ehOrigemComprada } from "@/lib/origem";
 import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
-import { aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo } from "@/components/planejamento/planejamento-detail/save-ficha";
+import { aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio } from "@/components/planejamento/planejamento-detail/save-ficha";
 
 export type UsePlanejamentoSaveArgs = {
   modeloId: string | null;
@@ -87,6 +88,12 @@ export function usePlanejamentoSave({
   const enviadoRef = useRef<{ draft: Draft; moLinhas: MaoObraEditorLinha[]; bom: BomCapturado } | null>(null);
   const save = useMutation({
     mutationFn: async () => {
+      // Item G (T11, I1) — marca "save em voo" já no início (inclusive no retry do P0409, que chama
+      // `mutationFn` de novo): enquanto true, o eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não
+      // confere/acende "Tecidos & BOM" contra o BOM tocado. `onSettled` (nível da mutation, abaixo) desmarca
+      // ao fim de QUALQUER ciclo (sucesso ou erro) — inclusive o ciclo intermediário que termina em P0409
+      // antes do retry, que remarca `true` de novo ao reentrar aqui.
+      fichaRef.current.marcarSaveEmVoo(true);
       // Colab (Task 2): com conflitos pendentes na tela, o save NÃO pode passar — mesmo que
       // o rev já bata, o usuário precisa resolver ("manter meu"/"usar o novo") primeiro. Mesmo
       // guard do piloto OC Tecido/Desenvolvimento (sem isto, um 2º clique sobrescreveria a
@@ -95,8 +102,11 @@ export function usePlanejamentoSave({
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       // R5 — rev novo com o BOM tocado: a ficha está conferindo se o BOM do SERVIDOR mudou. Salvar agora poderia passar
       // o `.eq("rev")` e sobrescrever um BOM alheio ainda não detectado.
+      // Item F (fix round 2): a mensagem original ("Conferindo se outra pessoa mudou o BOM deste card — salve
+      // de novo em instantes.") não tinha acento nem palavra da lista `PARECE_PT` (erro-mensagem.ts) — o
+      // `mensagemErro` a trocava pelo fallback genérico "Erro". Reescrita em PT com acento.
       if (fichaRef.current.verificandoBomRef.current)
-        throw new Error("Conferindo se outra pessoa mudou o BOM deste card — salve de novo em instantes.");
+        throw new Error("O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.");
       // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix, receita do Dev — ver
       // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica). A F3.2 usa este MESMO `d`
       // (rascunho vivo) pra capturar o BOM/MO — não reimplementa o fix do retry (ruling do controlador).
@@ -236,7 +246,10 @@ export function usePlanejamentoSave({
           // Fix T10 I2 — marca a etapa que falhou (mesmo padrão de "grade"/"mo" abaixo): o card JÁ foi criado
           // (INSERT acima teve sucesso) mesmo que este passo falhe; o onError usa `etapaFalha` pra avisar
           // especificamente que os tecidos não foram para a Ficha (BOM), não que o card inteiro falhou.
-          if (savedId) {
+          // Item I (T11, m3) — card comprado (revenda/importado) nunca tem a seção "Tecidos" no Dialog
+          // (`PlanejamentoDetail.tsx`, `!isEdit && !isComprado`) e não usa o BOM manufaturado (F3.2, decisão
+          // F3 #4) — gravar aqui criaria um Tecido 1..N fantasma que a Ficha do comprado nunca mostra/edita.
+          if (savedId && !ehOrigemComprada(d.origem)) {
             try {
               await gravarTecidosIniciais(savedId, d.tecidos_planejados);
             } catch (eT) {
@@ -476,11 +489,12 @@ export function usePlanejamentoSave({
         if (e?.etapaFalha === "mo") {
           toast.error("O card foi criado, mas a mão de obra NÃO foi salva — confira e salve de novo.");
         } else if (e?.etapaFalha === "tecidos") {
-          // Fix T10 I2 — mensagem antes órfã (nada mais marcava esta etapa) reescrita pra refletir o
-          // comportamento real: o 2º Salvar NÃO regrava sozinho, porque o BOM não fica "tocado" com a lista
-          // do Dialog (ela só populou o Tecido 1..N no servidor, não os blocos do BOM em memória) — o
-          // usuário precisa abrir a seção Tecidos pra tocar o BOM antes do próximo Salvar valer.
-          toast.error("O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Abra a seção Tecidos, confira e salve de novo.");
+          // Item E (fix round 2) — `gravarTecidosIniciais` falhou: o BOM do servidor segue VAZIO. Ao reabrir
+          // o Sheet do card criado, a carga (useFichaBom) vê o BOM vazio e pré-preenche Tecido 1..N a partir
+          // de `tecidos_planejados` (a mesma lista que o Dialog gravou no draft) — SEM tocar, mas marcando
+          // `prefillPendenteRef` (item E). O `capturar` do useFichaTecnica soma essa pendência à condição de
+          // `gravar`: o PRÓXIMO Salvar regrava o BOM sozinho, mesmo sem o usuário tocar em nada.
+          toast.error("O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Eles aparecem na seção Tecidos — salve o card de novo para gravá-los.");
         } else if (e?.etapaFalha === "grade") {
           toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
         } else {
@@ -541,6 +555,19 @@ export function usePlanejamentoSave({
         await qc.refetchQueries({ queryKey: ["modelo", modeloId] });
         const fresh = qc.getQueryData<any>(["modelo", modeloId]);
         if (fresh) {
+          // Item C (re-review fix T7+T9, item 3) — outra pessoa enviou o card à Explosão (`enviado_cad=true`)
+          // NO MEIO deste Salvar: o retry automático abaixo ainda leria `podeEditar`/`podeGravarColunasDev` do
+          // MOMENTO da captura (antes do envio) — `_salvar_modelo_bom_core` não tem guarda própria no servidor,
+          // então gravaria o BOM/colunas do Dev num card já enviado. Bloqueia ANTES de decidir `podeRetentar`.
+          const bloqueadoPorEnvio = retryBloqueadoPorEnvio(fresh, enviadoRef.current?.bom.enviadoNaCaptura ?? false);
+          if (bloqueadoPorEnvio) {
+            savingRef.current = false;
+            retryRef.current = false;
+            toast.error("Este card foi enviado à Explosão por outra pessoa enquanto você salvava. Os campos do Desenvolvimento ficaram travados — suas alterações neles não foram salvas.");
+            qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+            fichaRef.current.invalidarBom();
+            return;
+          }
           const freshDraft = draftFromModeloRow(fresh);
           const liveDraft = draftLiveRef.current;
           const base = baseRef.current ?? { draft: freshDraft };
@@ -565,6 +592,12 @@ export function usePlanejamentoSave({
             save.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
             return;
           }
+          // Item H (T11, m2) — SEM retry (conflito de campo escalar do draft, não do BOM): o `rev` já avançou
+          // aqui, mas o BOM local pode ter ficado desatualizado frente ao servidor. Sem invalidar, um Salvar
+          // seguinte com o BOM ainda tocado sobrescreveria um BOM alheio sem passar pela conferência R5 (que só
+          // roda quando o `rev` muda DE NOVO). `bomConflito` já cobre o próprio caso do BOM via o banner de
+          // seção (o usuário resolve e a invalidação vem de lá); aqui cobre o caso GERAL.
+          if (!bomConflito) fichaRef.current.invalidarBom();
         }
         savingRef.current = false;
         retryRef.current = false;
@@ -573,6 +606,9 @@ export function usePlanejamentoSave({
       }
       toast.error(mensagemErro(e, "Erro"));
     },
+    // Item G — desmarca "save em voo" ao fim de QUALQUER ciclo (sucesso, erro, ou o ciclo intermediário do
+    // P0409 antes de um retry — que remarca `true` de novo ao reentrar no `mutationFn`).
+    onSettled: () => { fichaRef.current.marcarSaveEmVoo(false); },
   });
 
   const handleSave = () => {

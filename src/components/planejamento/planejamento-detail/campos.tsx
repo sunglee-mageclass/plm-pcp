@@ -111,6 +111,10 @@ export function MultiArtigosField({ label, value, onChange, artigos, estoque, ma
           </SelectContent>
         </Select>
       )}
+      {/* Item J (fix round 2): limite atingido era silencioso (o Select some sem explicação). */}
+      {available.length > 0 && !podeAdicionar && (
+        <span className="text-xs text-muted-foreground">Máximo de {max} tecidos.</span>
+      )}
     </div>
   );
 }

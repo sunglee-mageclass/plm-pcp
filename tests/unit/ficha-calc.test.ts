@@ -435,6 +435,62 @@ describe("assinaturaBom — arredonda consumo/loss na escala do banco (T2/T7 m3)
   });
 });
 
+// Re-review A (fix round 2) — `roundNumeric` via expoente decimal (half-away-from-zero EXATO, sem o
+// erro de `Math.round(abs*10**n)/10**n` na borda .5 causado pela representação binária do float).
+// `loss_percent` do tecido usa NUMERIC(5,2) (r2, 2 casas) — os casos de empate em 2 casas passam por
+// ele; `consumo` usa NUMERIC(10,4) (r4, 4 casas) — o caso de 4 casas passa por ele. Aviamento e
+// etiqueta entram via `EstadoBom` direto p/ cobrir as MESMAS bordas (r2), como pede o item A do brief.
+describe("assinaturaBom — arredondamento por expoente decimal, sem erro de empate (fix round 2, item A)", () => {
+  const t1ComLoss = (loss_percent: number): TecidoBlock => bloco("tecido", 1, { artigo_id: A, consumo: 1, loss_percent });
+  const t1ComConsumo = (consumo: number): TecidoBlock => bloco("tecido", 1, { artigo_id: A, consumo });
+
+  it("1.005 → 1.01 (2 casas, loss_percent) — Math.round ingênuo daria 1.00", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(1.005)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComLoss(1.01)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("1.255 → 1.26 (2 casas, loss_percent)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(1.255)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComLoss(1.26)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("0.145 → 0.15 (2 casas, loss_percent)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(0.145)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComLoss(0.15)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("0.00015 → 0.0002 (4 casas, consumo, escala NUMERIC(10,4))", () => {
+    const local: EstadoBom = { blocks: [t1ComConsumo(0.00015)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComConsumo(0.0002)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("negativo: −1.005 → −1.01 (2 casas, loss_percent — sinal preservado no empate)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(-1.005)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComLoss(-1.01)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("loss_percent de AVIAMENTO na borda .5 (2 casas, NUMERIC(5,2)) — 1.005 × 1.01 ⇒ NÃO diverge", () => {
+    const av = (loss: number): EstadoBom => ({
+      blocks: [], grades: [], etiquetas: [],
+      aviamentos: [{ aviamento_id: "av", variante_aviamento_id: null, consumo: 1, loss_percent: loss, custo_previsto: 0 }],
+    });
+    expect(bomDivergeDaReferencia(assinaturaBom(av(1.005)), av(1.01))).toBe(false);
+  });
+
+  it("loss_percent de ETIQUETA na borda .5 (2 casas) — 1.255 × 1.26 ⇒ NÃO diverge", () => {
+    const et = (loss: number): EstadoBom => ({
+      blocks: [], grades: [], aviamentos: [],
+      etiquetas: [{ etiqueta_id: "et", cor_id: null, consumo: 1, loss_percent: loss, custo_previsto: 0 }],
+    });
+    expect(bomDivergeDaReferencia(assinaturaBom(et(1.255)), et(1.26))).toBe(false);
+  });
+});
+
 // I1/I2 (fix round 1) — "hidrata agora?" extraída de useFichaBom p/ ser testável sem montar hooks.
 describe("deveHidratarCarga — só com as 5 queries prontas, ESTÁVEIS e a Ficha habilitada", () => {
   const prontas = { tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] };
