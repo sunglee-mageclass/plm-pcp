@@ -2,7 +2,7 @@
 // Supabase — tests/unit/planejamento-comprado.test.ts. Fontes: decisões F3 #3 (Origem "Importado"), #4 (a grade
 // cor × tamanho é a fonte única do comprado), #8 (seções do Dev seguem o "Fluxo de Revenda"); invariante #13; D1 do
 // plano F3.4 (troca de Origem). A visibilidade vem do SSOT `src/lib/revenda-config.ts` — aqui só chega o `campoVisivel`.
-import { fmtNum } from "@/lib/format";
+import { fmtInt } from "@/lib/format";
 import { REVENDA_COND_NA } from "@/lib/kanban-condicoes";
 import { normalizarOrigem, type Origem } from "@/lib/origem";
 import type { GradeRow } from "@/components/desenvolvimento/modelo-detail/types";
@@ -145,7 +145,7 @@ export function seloGradeComprado(i: {
   const req = i.satisfeitas ? seloPorChaves(["grade_preenchida"], i.requeridas, i.satisfeitas) : null;
   if (req) return req;
   if (i.nVariantes === 0) return { tone: "muted", texto: "sem variantes" };
-  if (i.totalGeral > 0) return { tone: "ok", texto: `${fmtNum(i.totalGeral)} ${i.totalGeral === 1 ? "peça" : "peças"}` };
+  if (i.totalGeral > 0) return { tone: "ok", texto: `${fmtInt(i.totalGeral)} ${i.totalGeral === 1 ? "peça" : "peças"}` };
   return { tone: "warn", texto: "falta preencher" };
 }
 
