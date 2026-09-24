@@ -104,7 +104,7 @@ Um `DO` no fim da migration confere RLS, policies e permissões na mesma transa�
 | Toque perdido (rede, aba em segundo plano) | Busca refeita no SUBSCRIBED/reconexão, na volta da aba, no online e no foco. A validade é conferida no cliente. |
 | Relógio do aparelho errado | A contagem usa o relógio local (desvio típico < 1 s com NTP). A RLS usa o `now()` do servidor para o que é ativo. Aceito. |
 | Clique no cartão fechar o Sheet | 3 proteções (§5), um teste estático que as trava e o QA na cópia com o Sheet aberto, o foco num campo e o "Entendi". |
-| Toque forjado no canal público | Sem dado nenhum: causa só uma busca a mais (juntada em 500 ms). |
+| Toque forjado no canal público | Sem dado nenhum: causa no máximo 1 busca a cada 5 s por cliente, com trailing (R6 — `esperaParaBuscar`/`INTERVALO_BUSCA_MS`). |
 | Com Sheet/Dialog aberto, a faixa fica sob o escurecido | O cartão fica por cima. Depois do "Entendi", a contagem só aparece de novo ao fechar o Sheet. Levado ao dono (plano §8 D2). |
 | Pré-voo da F1 | A migration só vai depois da F1 em produção; o pré-voo do aviso **exige** a F1 no banco. |
 | Volta de emergência da F1 depois do aviso | A comparação final da volta da F1 (fidelidade de todo o `public`) acusaria a tabela nova. Logo depois do aviso, grava-se uma referência nova (retrato pré-F1 + as linhas do aviso) e a comparação que a substitui (plano Task 7 Step 3, R2). |
