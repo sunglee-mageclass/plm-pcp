@@ -80,6 +80,8 @@ import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
 import { baseCustoPlanejamento, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
+import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
@@ -378,6 +380,13 @@ function PlanejamentoDetailConteudo({
     maoObraVivo: maoObraDevLive,
     travaDev: motivoTravaDev,
   });
+  // F3.2 (Task 13) — espelho SÍNCRONO de `ficha` p/ o Duplicar: a `mutationFn` faz um `await` (busca da
+  // versão máxima) ANTES de ler `ficha.carregado`/`ficha.estado` — mesma classe de risco que o `fichaRef`
+  // do `usePlanejamentoSave.ts` documenta (closure de um render que pode ficar velho durante o `await`,
+  // se o componente renderizar de novo nesse meio-tempo). `ficha` some render; a ref garante que o
+  // `mutationFn` sempre leia o estado do BOM mais recente na hora de montar a cópia.
+  const fichaRef = useRef(ficha);
+  fichaRef.current = ficha;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
   const linhaFaixas = linhaSetor
@@ -833,11 +842,42 @@ function PlanejamentoDetailConteudo({
         versao: maxV + 1,
         modelo_base_id: root,
       };
-      const { error } = await supabase.from("modelos").insert(payload);
+      // F3.2 — decisão F3 #9: a nova versão herda o Planejamento + os TECIDOS (só o artigo); o resto do
+      // Desenvolvimento (equipe, datas, proporções, custos adicionais…) nasce vazio — já saiu no `camposParaDuplicar`
+      // da F3.1 (lista ÚNICA `CAMPOS_DEV_DRAFT`). O BOM da cópia é gravado como Tecido 1..N logo após o insert (uma
+      // fonte só; a lista segue derivada): com a ficha carregada, os artigos PRINCIPAIS dos blocos Tecido (sem
+      // substitutos); sem ela, a lista salva (comportamento de hoje). Comprado (revenda/importado) nunca tem BOM
+      // manufaturado (F3.2, decisão F3 #4) — `gravarTecidosIniciais` só roda para origem NÃO comprada.
+      const tecidosDaCopia = fichaRef.current.carregado
+        ? artigosTecidoPrincipais(fichaRef.current.estado.blocks)
+        : draft.tecidos_planejados.slice(0, 3);
+      payload.tecidos_planejados = tecidosDaCopia;
+      const { data: novo, error } = await supabase.from("modelos").insert(payload).select("id").single();
       if (error) throw error;
+      if (novo?.id && !ehOrigemComprada(payload.origem ?? draft.origem)) {
+        try {
+          await gravarTecidosIniciais(novo.id, tecidosDaCopia);
+        } catch (eT) {
+          (eT as any).etapaFalha = "tecidos";
+          throw eT;
+        }
+      }
     },
     onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved(); onClose(); },
-    onError: (e: any) => toast.error(mensagemErro(e)),
+    onError: (e: any) => {
+      // Acréscimo do controlador (item b) — o INSERT já criou a cópia mesmo quando `gravarTecidosIniciais`
+      // falha depois dele: não desfazer. Mesmo padrão do card NOVO no Salvar (usePlanejamentoSave.ts,
+      // `etapaFalha === "tecidos"`) — o `prefillPendenteRef` (useFichaBom.ts) faz o PRÓXIMO Salvar, já na
+      // nova versão, regravar o BOM sozinho a partir de `tecidos_planejados` (gravado no INSERT acima).
+      if (e?.etapaFalha === "tecidos") {
+        toast.error("A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Abra a nova versão e salve de novo para gravá-los.");
+        qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+        onSaved();
+        onClose();
+        return;
+      }
+      toast.error(mensagemErro(e));
+    },
   });
 
   const handleDuplicate = () => {
