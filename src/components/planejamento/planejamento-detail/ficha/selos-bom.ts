@@ -35,8 +35,10 @@ export function requisitosUniao(req: unknown): Set<string> {
   return s;
 }
 
-function seloPorRequisito(secao: SecaoBomKey, requeridas: ReadonlySet<string>, satisfeitas: Record<string, boolean>): SeloSecao | null {
-  const conds = CONDICOES_SECAO_BOM[secao]
+/** F3.3 — a regra do `reqBadge` do Dev (ModeloDetailPanel.tsx:1658-1677) para QUALQUER lista de chaves: sem requisito da
+ *  loja nas chaves ⇒ null (cai no informativo); todos satisfeitos ⇒ "ok"; senão "falta x"/"faltam N" com a condição. */
+export function seloPorChaves(chaves: readonly string[], requeridas: ReadonlySet<string>, satisfeitas: Record<string, boolean>): SeloSecao | null {
+  const conds = chaves
     .map((k) => CONDICAO_BY_KEY.get(k))
     .filter((c): c is Condicao => !!c && requeridas.has(c.key));
   if (conds.length === 0) return null;
@@ -49,6 +51,10 @@ function seloPorRequisito(secao: SecaoBomKey, requeridas: ReadonlySet<string>, s
     title: `Falta: ${labels.join(", ")}`,
     condicaoUnica: faltam.length === 1 ? faltam[0] : undefined,
   };
+}
+
+function seloPorRequisito(secao: SecaoBomKey, requeridas: ReadonlySet<string>, satisfeitas: Record<string, boolean>): SeloSecao | null {
+  return seloPorChaves(CONDICOES_SECAO_BOM[secao], requeridas, satisfeitas);
 }
 
 function seloInformativo(secao: SecaoBomKey, r: ResumoBom): SeloSecao {
