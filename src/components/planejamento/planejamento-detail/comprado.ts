@@ -2,6 +2,7 @@
 // Supabase — tests/unit/planejamento-comprado.test.ts. Fontes: decisões F3 #3 (Origem "Importado"), #4 (a grade
 // cor × tamanho é a fonte única do comprado), #8 (seções do Dev seguem o "Fluxo de Revenda"); invariante #13; D1 do
 // plano F3.4 (troca de Origem). A visibilidade vem do SSOT `src/lib/revenda-config.ts` — aqui só chega o `campoVisivel`.
+import { fmtNum } from "@/lib/format";
 import { REVENDA_COND_NA } from "@/lib/kanban-condicoes";
 import { normalizarOrigem, type Origem } from "@/lib/origem";
 import type { GradeRow } from "@/components/desenvolvimento/modelo-detail/types";
@@ -65,7 +66,7 @@ export function motivoTrocaOrigem(i: {
   }
   const meu = i.de === "revenda" ? acabado : importado;
   if (meu === null) return "O módulo Produto Importado está desligado nesta loja — sem conferir o produto vinculado, a Origem não muda.";
-  // D1 (i) — recomendação: com pedido (OC) o comprado não volta a Interno (Revenda↔Importado já trava pelo espelho).
+  // D1 (i) — DECIDIDO pelo dono em 24/set: comprado com OC não volta a Interno (Revenda↔Importado já trava pelo espelho).
   if (meu.temPedido) return "O produto deste card já tem pedido (OC) — a Origem não muda mais.";
   return null;
 }
@@ -108,7 +109,10 @@ export type SecoesFicha = {
   /** Grade cor × tamanho do produto comprado (GradeRevendaSecao) — a fonte única do comprado. */
   gradeComprado: boolean;
   /** F3.4 (acréscimo do controlador, comparação Dev × Planejamento) — seção 3 "Desenvolvimento — equipe e cronograma"
-   *  (DevEquipeSection); no Dev, `s1` esconde "Informações Básicas" inteira (ModeloDetailPanel.tsx:1621). */
+   *  (DevEquipeSection); no Dev, `s1` esconde "Informações Básicas" inteira (ModeloDetailPanel.tsx:1621).
+   *  Fix Lote A (revisão) — `revendaCampoVisivel` devolve SEMPRE `true` para `"s1"` (revenda-config.ts:69; a Config
+   *  mostra `s1` como "sempre ativa"), então na prática este campo é sempre `true` hoje — existe só por paridade
+   *  com o Dev (a chave `s1` existe no SSOT e pode um dia deixar de ser sempre-ativa) e não tem efeito hoje. */
   equipe: boolean;
 };
 export const SECOES_FICHA_INTERNO: SecoesFicha = {
@@ -141,7 +145,7 @@ export function seloGradeComprado(i: {
   const req = i.satisfeitas ? seloPorChaves(["grade_preenchida"], i.requeridas, i.satisfeitas) : null;
   if (req) return req;
   if (i.nVariantes === 0) return { tone: "muted", texto: "sem variantes" };
-  if (i.totalGeral > 0) return { tone: "ok", texto: `${i.totalGeral} ${i.totalGeral === 1 ? "peça" : "peças"}` };
+  if (i.totalGeral > 0) return { tone: "ok", texto: `${fmtNum(i.totalGeral)} ${i.totalGeral === 1 ? "peça" : "peças"}` };
   return { tone: "warn", texto: "falta preencher" };
 }
 
@@ -186,11 +190,16 @@ export function gradeCompradoDoServidor(rows: GradeRowDb[]): Record<number, Reco
   return out;
 }
 
-/** A grade do SERVIDOR mudou em relação ao baseline semeado (`gradeRevendaBaseRef`)? JSON inválido ⇒ sim (na dúvida, não grava). */
+/** A grade do SERVIDOR mudou em relação ao baseline semeado (`gradeRevendaBaseRef`)? JSON inválido ⇒ sim (na dúvida, não grava).
+ *  Fix Lote A (revisão) — o JSON pode ser SINTATICAMENTE válido mas não um objeto (ex.: `JSON.parse("null")`,
+ *  `JSON.parse("42")`, `JSON.parse('"x"')`): `Object.entries` sobre um valor não-objeto lança ou devolve algo que não
+ *  representa a grade — conservador também aqui, devolve `true` (na dúvida, trata como mudança). */
 export function gradeCompradoMudouNoServidor(baseJson: string, servidor: GradeRowDb[]): boolean {
   let base: Record<number, Record<string, number>>;
   try {
-    base = JSON.parse(baseJson || "{}") as Record<number, Record<string, number>>;
+    const parsed = JSON.parse(baseJson || "{}") as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return true;
+    base = parsed as Record<number, Record<string, number>>;
   } catch {
     return true;
   }

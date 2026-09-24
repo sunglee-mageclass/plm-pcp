@@ -111,13 +111,15 @@ describe("seloGradeComprado", () => {
   it("requisito grade_preenchida vence; sem requisito ⇒ informativo", () => {
     expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: true }, totalGeral: 0, nVariantes: 2 })).toEqual({ tone: "ok", texto: "ok" });
     expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: false }, totalGeral: 0, nVariantes: 2 }).tone).toBe("warn");
-    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 150, nVariantes: 2 })).toEqual({ tone: "ok", texto: "150 peças" });
-    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 1, nVariantes: 1 })).toEqual({ tone: "ok", texto: "1 peça" });
+    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 150, nVariantes: 2 })).toEqual({ tone: "ok", texto: "150,00 peças" });
+    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 1, nVariantes: 1 })).toEqual({ tone: "ok", texto: "1,00 peça" });
+    // F3.4 acréscimo (fix Lote A) — milhar formatado (o motivo do fix: "1.500 peças", não "1500 peças").
+    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 1500, nVariantes: 2 })).toEqual({ tone: "ok", texto: "1.500,00 peças" });
     expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 2 })).toEqual({ tone: "warn", texto: "falta preencher" });
     expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 0 })).toEqual({ tone: "muted", texto: "sem variantes" });
   });
   it("condições ainda não carregadas ⇒ só o informativo (nunca 'falta' no escuro)", () => {
-    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: null, totalGeral: 10, nVariantes: 1 })).toEqual({ tone: "ok", texto: "10 peças" });
+    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: null, totalGeral: 10, nVariantes: 1 })).toEqual({ tone: "ok", texto: "10,00 peças" });
   });
 });
 
@@ -146,6 +148,12 @@ describe("grade cor × tamanho do comprado — o que o salvar_modelo_bom recebe 
     expect(gradeCompradoMudouNoServidor(baseJson, servidor)).toBe(false);
     expect(gradeCompradoMudouNoServidor(baseJson, [{ variante_numero: 1, grades: { "38|P": 35, "40|M": 33 }, grade_total: 68 }])).toBe(true);
     expect(gradeCompradoMudouNoServidor("não é json", servidor)).toBe(true);
+  });
+  it("F3.4 acréscimo (fix Lote A) — baseline SINTATICAMENTE válido mas não-objeto ⇒ mudou (conservador)", () => {
+    expect(gradeCompradoMudouNoServidor("null", servidor)).toBe(true);
+    expect(gradeCompradoMudouNoServidor("42", servidor)).toBe(true);
+    expect(gradeCompradoMudouNoServidor('"texto"', servidor)).toBe(true);
+    expect(gradeCompradoMudouNoServidor("[1,2,3]", servidor)).toBe(true);
   });
   it("linhas: total = soma das células (mesma conta do antigo buildLinhasGradeRevenda)", () => {
     expect(linhasGradeComprado({ 1: { "38|P": 2, "40|M": 3 } })).toEqual([{ variante_numero: 1, grades: { "38|P": 2, "40|M": 3 }, grade_total: 5 }]);
