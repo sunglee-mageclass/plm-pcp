@@ -1172,7 +1172,6 @@ function PlanejamentoDetailConteudo({
               estoque={estoqueMap}
               ordemEnviada={enviada}
               proporcoes={draft.proporcoes ?? {}}
-              onAbrirDev={() => setVerDevModeloId(modeloId)}
             />
           )}
 

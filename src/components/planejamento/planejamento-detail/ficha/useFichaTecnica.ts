@@ -123,11 +123,11 @@ export type FichaSave = {
 };
 
 /**
- * Por que o BOM está só-leitura. Trava ÚNICA (R2): "permissao" e "enviado" vêm da trava da F3.1 (`motivoTravaDev`, com o
- * "Editar" já considerado); "cad" = trava INTERINA da F3.2 (a F3.3 tira: grava o CAD no Salvar e o "Editar" passa a
- * destravar o BOM também).
+ * Por que a ficha (BOM + CAD) está só-leitura. Trava ÚNICA (R2): "permissao" e "enviado" vêm da trava da F3.1
+ * (`motivoTravaDev`, com o "Editar" já considerado). A trava interina "cad" da F3.2 saiu na F3.3 (o Salvar grava o CAD —
+ * plano F3.3 §3).
  */
-export type MotivoSomenteLeitura = "permissao" | "enviado" | "carregando" | "cad" | null;
+export type MotivoSomenteLeitura = "permissao" | "enviado" | "carregando" | null;
 
 export function useFichaTecnica(a: {
   modeloId: string | null;

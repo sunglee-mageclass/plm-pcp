@@ -1,88 +1,45 @@
-// F3.2 — seções 5-8 do Sheet unificado (Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade), na ordem
-// do mockup aprovado. Reusa os componentes só-props do Dev SEM modificá-los; Tecidos é a cópia local
-// (TecidosBomSecao, decisão F3 #10). Somente-leitura pela trava ÚNICA (R2 do G-plano conjunto): sem permissão ou
-// enviado à Explosão (vêm da F3.1) e a trava interina "tem CAD" (até a F3.3). Os avisos seguem os da F3.1
-// (`AvisoCamposDev`). "Apagar grade preenchida?" portado do Dev (:3221-3237).
+// F3.2/F3.3 — seções vindas do Desenvolvimento no Sheet unificado (Tecidos/Forros/Entretelas · Aviamentos · Insumos ·
+// Grade · CAD), na ordem do mockup aprovado. Reusa os componentes só-props do Dev SEM modificá-los (Tecidos = cópia local
+// TecidosBomSecao, decisão F3 #10; CAD = CadTecidosSection da Produção). Somente-leitura pela trava ÚNICA (R2): sem
+// permissão ou enviado à Explosão (F3.1 — o "Editar" destrava BOM e CAD). Avisos = os da F3.1 (`AvisoCamposDev`).
+// "Apagar grade preenchida?" portado do Dev (:3221-3237).
 import type { ReactNode } from "react";
-import { AlertTriangle, Check, ExternalLink, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
-import { CondicaoInfo } from "@/components/shared/CondicaoInfo";
 import { ModeloAviamentosSection } from "@/components/desenvolvimento/modelo-detail/ModeloAviamentosSection";
 import { ModeloEtiquetasSection } from "@/components/desenvolvimento/modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "@/components/desenvolvimento/modelo-detail/ModeloGradeSection";
+import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import type { EstoqueArtigo } from "@/components/planejamento/planejamento-detail/campos";
 import { AvisoCamposDev } from "./AvisoCamposDev";
 import { TecidosBomSecao } from "../TecidosBomSecao";
 import type { FichaTecnica } from "../useFichaTecnica";
-import type { SeloSecao } from "../selos-bom";
 import { SecaoBom } from "./SecaoBom";
+import { SeloBadge } from "./SeloBadge";
 
-const TOM: Record<SeloSecao["tone"], StatusTone> = { ok: "success", info: "info", warn: "warning", muted: "neutral" };
-
-function SeloBadge({ selo }: { selo: SeloSecao }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <StatusBadge tone={TOM[selo.tone]} title={selo.title} className="gap-1 rounded-full px-2 py-0.5 text-[11px] normal-case tracking-normal">
-        {selo.tone === "ok" ? <Check className="h-3 w-3" /> : selo.tone === "warn" ? <AlertTriangle className="h-3 w-3" /> : null}
-        {selo.texto}
-      </StatusBadge>
-      {selo.condicaoUnica && <CondicaoInfo descricao={selo.condicaoUnica.descricao} aviso={selo.condicaoUnica.aviso} />}
-    </span>
-  );
-}
-
-// Avisos da trava ÚNICA (R2 do G-plano conjunto), alinhados aos da F3.1 (`AvisoCamposDev`): "permissao" usa o MESMO
-// componente/texto; "enviado" começa pela MESMA frase da F3.1, mas diz que o "Editar" não libera o BOM (a trava interina
-// "tem CAD" segue até a F3.3 — card enviado sempre tem CAD); "cad" explica a trava interina. Mesmo estilo visual.
-const TEXTO_AVISO_BOM: Record<"enviado" | "cad", string> = {
-  enviado: "Enviado à Explosão: os campos vindos do Desenvolvimento ficam travados. Tecidos, aviamentos, insumos e grade seguem só-leitura aqui mesmo com “Editar” — altere-os no Desenvolvimento.",
-  cad: "Este modelo já tem CAD: para não desalinhar o CAD e a Explosão, tecidos, aviamentos, insumos e grade ficam só-leitura aqui — altere-os no Desenvolvimento.",
-};
-
-// T9 m3 — trava "carregando" (a query de CAD, que decide a trava única, ainda não resolveu). Linha curta e
-// discreta, MESMO estilo dos outros avisos (`Info`/`text-muted-foreground`, sem cor solta). Se a query der
-// erro, a trava não pode ficar muda pra sempre — troca pro aviso de erro (`AlertTriangle`, mesma família de
-// primitivo já usada pelos selos §Q, sem hex/hsl solto).
-function AvisoSomenteLeitura({ motivo, cadErro, onAbrirDev }: {
-  motivo: FichaTecnica["motivoSomenteLeitura"];
-  cadErro?: boolean;
-  onAbrirDev?: () => void;
-}) {
+// Avisos da trava ÚNICA (R2), IGUAIS aos da F3.1 (`AvisoCamposDev`): sem a trava interina "tem CAD", o "Editar" destrava
+// BOM e CAD como os demais campos do Dev (F3.3) — "enviado" usa a MESMA frase.
+function AvisoSomenteLeitura({ motivo }: { motivo: FichaTecnica["motivoSomenteLeitura"] }) {
   if (motivo === "permissao") return <AvisoCamposDev motivo="sem_permissao" />;
-  if (motivo === "carregando") {
-    if (cadErro) {
-      return (
-        <p className="flex items-center gap-1.5 py-1 text-xs text-destructive">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />Não foi possível verificar o CAD — recarregue o card.
-        </p>
-      );
-    }
-    return (
-      <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />Carregando…
-      </p>
-    );
-  }
-  if (motivo !== "enviado" && motivo !== "cad") return null;
-  return (
-    <div data-testid="aviso-bom-somente-leitura" className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-      <Info className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 flex-1">{TEXTO_AVISO_BOM[motivo]}</span>
-      {onAbrirDev && (
-        <Button type="button" variant="outline" size="sm" onClick={onAbrirDev}>
-          <ExternalLink className="h-3.5 w-3.5 mr-1" />Abrir no Desenvolvimento
-        </Button>
-      )}
-    </div>
+  if (motivo === "enviado") return <AvisoCamposDev motivo="enviado" />;
+  return null;
+}
+
+// Ficha ainda não carregada; se a query do CAD falhou, diz (a carga espera o CAD — Task 4 — e não pode ficar muda).
+function Carregando({ erro }: { erro: boolean }) {
+  return erro ? (
+    <p className="flex items-center gap-1.5 py-2 text-xs text-destructive">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />Não foi possível carregar o CAD — recarregue o card.
+    </p>
+  ) : (
+    <p className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando…</p>
   );
 }
 
-export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, onAbrirDev }: {
+export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }: {
   ficha: FichaTecnica;
   modeloId: string;
   estoque: Record<string, EstoqueArtigo>;
@@ -96,16 +53,13 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
    * à mão (o `Draft` do Planejamento) sem precisar que o orquestrador o devolva. Ver task-9-report.md.
    */
   proporcoes: Record<string, number>;
-  onAbrirDev?: () => void;
 }) {
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
   const carregando = !ficha.carregado;
-  const corpo = (node: ReactNode) => (carregando ? (
-    <p className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando…</p>
-  ) : (
+  const corpo = (node: ReactNode) => (carregando ? <Carregando erro={dados.cadErro} /> : (
     <>
-      <AvisoSomenteLeitura motivo={ficha.motivoSomenteLeitura} cadErro={dados.cadErro} onAbrirDev={onAbrirDev} />
+      <AvisoSomenteLeitura motivo={ficha.motivoSomenteLeitura} />
       <fieldset disabled={!ficha.podeEditar} className="contents">{node}</fieldset>
     </>
   ));
@@ -182,6 +136,35 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             camposCopiados={ficha.camposCopiados}
             onCampoEditado={ficha.onCampoEditado}
           />,
+        )}
+      </SecaoBom>
+
+      {/* F3.3 — seção CAD (Dev :2881-2912): o MESMO `CadTecidosSection` (reusado SEM modificar — decisão 8), sem a coluna
+          "a Separar/Enviar" (é da Explosão). Grava no MESMO Salvar do BOM (decisão F3 #7). Antes da Ordem de Criação e
+          sem CAD fica só-leitura (D2 — o Planejamento não cria o CAD antes da Ordem). */}
+      <SecaoBom id="cad" titulo="CAD" selo={<SeloBadge selo={ficha.seloCad} />}>
+        {corpo(
+          ficha.cad.linhas.length === 0 ? (
+            <p className="py-2 text-sm text-muted-foreground">Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção Tecidos / Forros / Entretelas.</p>
+          ) : (
+            <>
+              {ficha.cadAntesDaOrdem && (
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  O CAD é criado depois da Ordem de Criação — até lá esta seção só mostra o que os tecidos vão levar.
+                </p>
+              )}
+              <CadTecidosSection
+                tecidos={ficha.cad.linhas}
+                updateTec={ficha.cad.handlers.updateTec}
+                updateVar={ficha.cad.handlers.updateVar}
+                autoFolhas={ficha.cad.autoFolhas}
+                onToggleAutoFolhas={ficha.cad.handlers.setAutoFolhas}
+                readOnly={!ficha.cadGravavel}
+                hideSeparar
+              />
+            </>
+          ),
         )}
       </SecaoBom>
 

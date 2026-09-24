@@ -2,7 +2,8 @@
 // (set/2026) de `PlanejamentoDetail.tsx` SEM mudança de comportamento: o texto abaixo foi MOVIDO
 // como estava (só ganhou `export`). `FieldText`/`FieldSelect` seguem re-exportados por
 // `PlanejamentoDetail.tsx` — é de lá que a rota `criacao.planejamento.tsx` os importa.
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { usePedidoAbertura } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 import { Trash2, Upload, ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,21 +16,39 @@ import { useSignedUrlBucket, type Opt, type ArtigoOpt } from "@/components/plane
 // Seção colapsável do detalhe do card — expandida por default; estado local por seção
 // (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
 // (O que abre COLAPSADO por default são os GRUPOS da lista — pedido do dono, ago/2026.)
-export function Secao({ titulo, children, defaultOpen = true }: { titulo: string; children: React.ReactNode; defaultOpen?: boolean }) {
+export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = true }: {
+  /** F3.3 — chave da seção (`data-secao` + abertura por pedido — links "Para enviar, falta…"). */
+  id?: string;
+  titulo: string;
+  /** F3.3 — numeração dinâmica "N." (selos-secoes.ts `numerarSecoes`). */
+  numero?: number;
+  /** F3.3 — selo de completude à direita (IRMÃO do botão: o "i" do selo é um <button>). */
+  selo?: React.ReactNode;
+  /** F3.3 — chip "do Desenvolvimento" (mockup) nas seções vindas do Dev. */
+  chip?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
   // Sheet abre com as seções RECOLHIDAS por padrão (exceto "Informações Gerais do Produto",
   // que passa defaultOpen); reduz o scroll inicial. O usuário expande o que precisa.
   const [open, setOpen] = useState(defaultOpen);
+  const ref = useRef<HTMLElement>(null);
+  usePedidoAbertura(id, () => setOpen(true), ref);
   return (
-    <section className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-1.5 text-sm font-semibold text-foreground border-b pb-1.5 text-left"
-      >
-        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <span>{titulo}</span>
-      </button>
+    <section ref={ref} className="space-y-3" data-secao={id}>
+      <div className="flex items-center gap-2 border-b pb-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-semibold text-foreground"
+        >
+          {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          <span className="truncate">{numero ? `${numero}. ` : ""}{titulo}</span>
+          {chip && <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground max-sm:hidden">{chip}</span>}
+        </button>
+        {selo && <span className="ml-auto inline-flex shrink-0 items-center gap-1">{selo}</span>}
+      </div>
       {open && children}
     </section>
   );
