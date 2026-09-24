@@ -28,15 +28,22 @@ const SEM_PRECOS: Record<string, number> = {};
 const SEM_CONDICOES: Record<string, boolean> = {};
 const TAMANHOS_PADRAO = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 
-/** Chaves do BOM deste modelo — invalidadas no pós-save e quando outra pessoa salva. */
-export function chavesFichaBom(modeloId: string | null): QueryKey[] {
+/** As 5 keys EXATAS do BOM do servidor (T5 m1) — fonte única p/ `bomMudouNoServidor`/`chavesFichaBom`. */
+export function chavesBomServidor(modeloId: string | null): QueryKey[] {
   return [
     ["plan-ficha-tecidos", modeloId],
     ["plan-ficha-oc-links", modeloId],
-    ["plan-ficha-precos-congelado", modeloId],
     ["plan-ficha-aviamentos", modeloId],
     ["plan-ficha-etiquetas", modeloId],
     ["plan-ficha-grades", modeloId],
+  ];
+}
+
+/** Chaves do BOM deste modelo — invalidadas no pós-save e quando outra pessoa salva. */
+export function chavesFichaBom(modeloId: string | null): QueryKey[] {
+  return [
+    ...chavesBomServidor(modeloId),
+    ["plan-ficha-precos-congelado", modeloId],
     ["plan-ficha-condicoes", modeloId],
     ["plan-ficha-cad", modeloId],
   ];
@@ -208,6 +215,10 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     },
   });
   // I2 — em refetch (foco/invalidação) TODAS as 5 precisam assentar antes da carga mexer no estado.
+  // T5 m1 — NÃO derivável de `chavesBomServidor` sem mudar a ordem dos hooks: cada `.isFetching` vem do
+  // objeto de retorno de um `useQuery` individual (qTecidos/qOcLinks/…), não das keys (que são só arrays
+  // de identidade); trocar para `useQueries([...chavesBomServidor(...)])` mudaria a estrutura dos hooks
+  // acima. Documentado conforme o brief (T5 m1) — deixado como está.
   const bomFetching = qTecidos.isFetching || qOcLinks.isFetching || qAviamentosModelo.isFetching
     || qEtiquetasModelo.isFetching || qGrades.isFetching;
   // Condições do kanban no estado SALVO (selos por requisito — Dev :283-291).
@@ -285,6 +296,8 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     condicoes: qCondicoes.data ?? SEM_CONDICOES,
     cadExiste: !!qCad.data?.id,
     cadFetched: qCad.isSuccess,
+    /** T9 m3 — a trava "carregando" não pode ficar muda pra sempre se a query de CAD der erro. */
+    cadErro: qCad.isError,
     catalogosProntos: qArtigos.isSuccess && qCatTecido.isSuccess && qArtigoCats.isSuccess && qAviamentos.isSuccess
       && qEtiquetas.isSuccess && qFrozen.isSuccess && qTenant.isSuccess,
   };

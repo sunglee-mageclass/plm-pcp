@@ -15,7 +15,7 @@ import { useEtapasAfetadas } from "@/components/desenvolvimento/DownstreamImpact
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
 import type { MotivoTravaDev } from "./secoes/AvisoCamposDev";
-import { chavesFichaBom, useFichaDados } from "./useFichaDados";
+import { chavesBomServidor, chavesFichaBom, useFichaDados } from "./useFichaDados";
 import { useFichaBom } from "./useFichaBom";
 import { useFichaGuarda } from "./useFichaGuarda";
 import {
@@ -27,6 +27,31 @@ import {
 import { requisitosUniao, seloSecaoBom, type SecaoBomKey, type SeloSecao } from "./selos-bom";
 
 const SEM_LABELS: Record<string, string> = {};
+
+/**
+ * T9 I1(a) — BOM só-leitura não pode ser editado com o MOUSE. O Radix Select ignora `<fieldset disabled>`
+ * (documentado na F3.1, `DevEquipeSection.tsx:15-20`): o `<fieldset disabled>` em `BomSecoes` trava inputs
+ * nativos, mas um clique no Select do Dev (`FieldSelectOpt`, que não pode mudar) ainda dispararia o
+ * `onChange`. Camada (a) = handlers NO-OP com as MESMAS chaves/assinaturas do `useFichaBom` real — mesma
+ * identidade sempre (módulo-level), então `useMemo([podeEditar, bom.handlers])` não recria à toa quando
+ * `podeEditar` não mudou. Cenário: card enviado → trocar o aviamento com o mouse ⇒ nada muda, sem selo
+ * "não salvo" (o handler não escreve no estado, então `colecoesTouchadasRef`/`onCampoEditado` não disparam).
+ */
+const HANDLERS_NOOP: ReturnType<typeof useFichaBom>["handlers"] = {
+  updateBlock: () => undefined,
+  updateBlockVariante: () => undefined,
+  updateBlockOcLinks: () => undefined,
+  updateAviamento: () => undefined,
+  addAviamento: () => undefined,
+  removeAviamento: () => undefined,
+  updateEtiqueta: () => undefined,
+  addEtiqueta: () => undefined,
+  removeEtiqueta: () => undefined,
+  updateGradeTotal: () => undefined,
+  updateGradeCell: () => undefined,
+  updateProporcao: () => undefined,
+  toggleGradeAuto: () => undefined,
+};
 
 export type FichaSave = {
   /** habilitada E carregada E sem trava (permissão / enviado / tem CAD) ⇒ colunas do Dev vão no UPDATE. */
@@ -99,36 +124,32 @@ export function useFichaTecnica(a: {
   const ultimaAssinaturaServidorRef = useRef<string | null>(null);
   const tecidosPlanejadosRef = useRef(a.tecidosPlanejados);
   tecidosPlanejadosRef.current = a.tecidosPlanejados;
-  // Espelho de `bom.colecoesTouchadasRef` (só existe DEPOIS da chamada abaixo). `aoRecarregarComTocado` só
-  // dispara de dentro de um efeito de `useFichaBom` — ou seja, depois que ESTE componente já renderizou e
-  // atualizou `touchadasRef.current` na linha logo após a chamada; ler por aqui em vez de fechar sobre
-  // `bom.colecoesTouchadasRef` direto evita depender da ordem de inicialização (a função abaixo é criada
-  // antes de `bom` existir).
-  const touchadasRef = useRef(false);
+  // T7 m1 — `aoRecarregarComTocado` (R5a) precisa existir na hora da chamada de `useFichaBom`, mas a função
+  // REAL (abaixo) lê `bom.colecoesTouchadasRef` — que só existe DEPOIS dessa chamada. A ref indireciona: a
+  // carga sempre invoca a versão ATUAL via `aoRecarregarComTocadoRef.current(...)`, montada logo após `bom`
+  // existir, lendo a ref VIVA (`bom.colecoesTouchadasRef`) em vez de um espelho por render.
+  const aoRecarregarComTocadoRef = useRef<(servidor: EstadoBom) => void>(() => undefined);
 
+  const bom = useFichaBom({
+    modeloId: a.modeloId, habilitada, dados,
+    tecidosPlanejados: a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
+    aoRecarregarComTocado: (servidor) => aoRecarregarComTocadoRef.current(servidor),
+  });
   /**
    * R5a (re-check do guardião) — a CARGA (useFichaBom) chegou com o BOM local JÁ tocado: ela não sobrescreve
    * (mesma regra do Dev), mas monta o estado do SERVIDOR com as MESMAS funções da carga e entrega aqui. Só
    * ACENDE "Tecidos & BOM" — nunca apaga (quem apaga é só `resolverConflitoBom`/`aposSalvar`). Sem isto, uma
    * mudança alheia que chega enquanto o usuário já está editando o BOM (recarga automática/foco, ANTES de
    * qualquer `aoMudarNoServidor` via `rev`) passaria batido — o próximo Salvar sobrescreveria o BOM de outra
-   * pessoa sem aviso (buraco descrito em ficha-calc :147-159).
+   * pessoa sem aviso (buraco descrito em ficha-calc :147-159). Lê `bom.colecoesTouchadasRef.current` DIRETO
+   * (a ref viva) — não um espelho por render, que ficaria um render atrasado.
    */
-  const aoRecarregarComTocado = (servidor: EstadoBom) => {
+  aoRecarregarComTocadoRef.current = (servidor) => {
     ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
-    if (touchadasRef.current && bomDivergeDaReferencia(referenciaRef.current, servidor)) {
+    if (bom.colecoesTouchadasRef.current && bomDivergeDaReferencia(referenciaRef.current, servidor)) {
       setConflitoBomBoth(true);
     }
   };
-
-  const bom = useFichaBom({
-    modeloId: a.modeloId, habilitada, dados,
-    tecidosPlanejados: a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
-    aoRecarregarComTocado,
-  });
-  // Atualiza o espelho a CADA render (síncrono, antes de qualquer efeito rodar) — `aoRecarregarComTocado`
-  // só é chamado de dentro de um efeito do `bom`, que corre depois deste corpo de função.
-  touchadasRef.current = bom.colecoesTouchadasRef.current;
 
   const estado: EstadoBom = useMemo(
     () => ({ blocks: bom.blocks, aviamentos: bom.aviamentosState, etiquetas: bom.etiquetasState, grades: bom.grades }),
@@ -149,6 +170,21 @@ export function useFichaTecnica(a: {
           : dados.cadExiste ? "cad"
             : null;
   const podeEditar = carregado && motivoSomenteLeitura === null;
+  // T7 m2 — `capturar` (chamado no início do Salvar, inclusive num RETRY) precisa ler o `podeEditar` de
+  // AGORA, não o do closure em que `save.capturar` foi criado no render anterior. Cenário: P0409 porque
+  // outra pessoa enviou o card à Explosão ENTRE o clique em Salvar e o retry — sem a ref, o retry gravaria
+  // o BOM com o `podeEditar` velho (true) num card que, agora, está só-leitura.
+  const podeEditarRef = useRef(false);
+  podeEditarRef.current = podeEditar;
+  // T9 I1(a) — sem permissão/enviado/cad ⇒ handlers NO-OP (identidade estável de módulo); com permissão ⇒ os
+  // handlers de verdade do `useFichaBom`. `bom.handlers` é recriado a cada render de `useFichaBom` (objeto
+  // literal no return, sem `useMemo` próprio) — o `useMemo` aqui não evita recriação nesse ramo (a dependência
+  // `bom.handlers` já muda todo render), mas evita alocar objeto NOVO no ramo `podeEditar` (HANDLERS_NOOP é
+  // sempre a MESMA referência) e mantém a superfície pedida pelo brief.
+  const handlers = useMemo(
+    () => (podeEditar ? bom.handlers : HANDLERS_NOOP),
+    [podeEditar, bom.handlers],
+  );
 
   // Rótulos das variantes do Tecido 1 e dos pares casados (Dev :1470-1529) — só p/ o texto da Grade.
   const t1Ids = bom.tecido1VarianteIds;
@@ -228,7 +264,7 @@ export function useFichaTecnica(a: {
   const bomMudouNoServidor = async (): Promise<boolean> => {
     const id = a.modeloId;
     try {
-      const chaves = [["plan-ficha-tecidos", id], ["plan-ficha-oc-links", id], ["plan-ficha-aviamentos", id], ["plan-ficha-etiquetas", id], ["plan-ficha-grades", id]];
+      const chaves = chavesBomServidor(id);
       await Promise.all(chaves.map((k) => qc.refetchQueries({ queryKey: k, exact: true })));
       const tec = qc.getQueryData<{ tecidos: TecidoRowDb[]; variantes: VarianteRowDb[] }>(["plan-ficha-tecidos", id]);
       const oc = qc.getQueryData<OcLinkRowDb[]>(["plan-ficha-oc-links", id]);
@@ -292,7 +328,7 @@ export function useFichaTecnica(a: {
       const snap = snapshotBom(e);
       const base = guarda.baselineRef.current;
       // "BOM só grava quando carregado E sujo" — `podeEditar` já exige carregado (e sem trava).
-      const gravar = podeEditar && bom.colecoesTouchadasRef.current && (base === null || snap !== base);
+      const gravar = podeEditarRef.current && bom.colecoesTouchadasRef.current && (base === null || snap !== base);
       return {
         estado: e,
         snapshot: snap,
@@ -300,7 +336,7 @@ export function useFichaTecnica(a: {
         flags: { ...bom.flagsRef.current },
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
-        totais: podeEditar ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
+        totais: podeEditarRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
       };
     },
     aposSalvar: ({ bomEnviado }) => {
@@ -310,6 +346,13 @@ export function useFichaTecnica(a: {
       else bom.limparTocado();
       // R5 — o servidor passa a ter o que foi ENVIADO: é a nova referência (o eco do meu save não acende conflito).
       if (bomEnviado.gravar) referenciaRef.current = assinaturaBom(bomEnviado.estado);
+      // NOTA do re-check do guardião — a conferência disparada pelo eco do 1º write (UPDATE) pode ter lido o BOM DEPOIS do
+      // salvar_modelo_bom e comparado com a referência VELHA; se o `.then` dela resolvesse depois daqui, com edição em
+      // voo, o aviso ficaria aceso. `geracaoRef += 1` a descarta; e como ela não chega a baixar o "conferindo", baixa-se
+      // aqui (senão o Salvar ficaria esperando). Um BOM alheio que tenha chegado nesse meio-tempo segue coberto: o
+      // `invalidarBom()` abaixo recarrega e a carga compara com a referência NOVA (R5a).
+      geracaoRef.current += 1;
+      setVerificandoBoth(false);
       bom.limparFlags();
       bom.limparCopiados();
       setConflitoBomBoth(false);
@@ -321,7 +364,7 @@ export function useFichaTecnica(a: {
 
   return {
     habilitada, carregado, podeEditar, podeVerCustos, motivoSomenteLeitura,
-    dados, estado, handlers: bom.handlers, gradeAuto: bom.gradeAuto,
+    dados, estado, handlers, gradeAuto: bom.gradeAuto,
     tecido1Info, totais, selos,
     confirmGrade: bom.confirmGrade, setConfirmGrade: bom.setConfirmGrade,
     camposCopiados: bom.camposCopiados, onCampoEditado: bom.onCampoEditado, marcarCopiados: bom.marcarCopiados,

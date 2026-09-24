@@ -7,6 +7,7 @@ import {
   relevantArtigoIds, resumoBom, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
   tecidosPlanejadosDerivados, totaisBom, type EstadoBom,
 } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
+import { chavesBomServidor, chavesFichaBom } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
 
 // F3.2 — trava as contas PORTADAS do Desenvolvimento (ModeloDetailPanel.tsx) + a guarda R5.
 const A = "art-a", B = "art-b", S = "art-sub", F = "art-forro";
@@ -387,6 +388,50 @@ describe("M1 — falso positivo pós-Salvar (referência = ENVIADO × eco normal
     expect(bomDivergeDaReferencia(referencia, ecoDoServidor(enviado))).toBe(false);
     const outro: EstadoBom = { ...enviado, blocks: [enviado.blocks[0], { ...fo, complementas: slots<string[] | null>([[V2]], null) }] };
     expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+});
+
+// T5 m1 (fix round) — as 5 keys do BOM numa fonte única: `chavesBomServidor` alimenta `bomFetching`
+// (documentado, não derivável sem mudar a ordem dos hooks), `chavesFichaBom` (+3 extras) e
+// `bomMudouNoServidor` do `useFichaTecnica`.
+describe("chavesBomServidor — fonte única das 5 keys do BOM (T5 m1)", () => {
+  it("tem exatamente as 5 keys (tecidos, oc-links, aviamentos, etiquetas, grades)", () => {
+    const ks = chavesBomServidor("m1");
+    expect(ks).toEqual([
+      ["plan-ficha-tecidos", "m1"],
+      ["plan-ficha-oc-links", "m1"],
+      ["plan-ficha-aviamentos", "m1"],
+      ["plan-ficha-etiquetas", "m1"],
+      ["plan-ficha-grades", "m1"],
+    ]);
+  });
+  it("as 5 keys de chavesBomServidor estão CONTIDAS em chavesFichaBom (+3 extras)", () => {
+    const servidor = chavesBomServidor("m1");
+    const ficha = chavesFichaBom("m1");
+    servidor.forEach((k) => {
+      expect(ficha).toContainEqual(k);
+    });
+    expect(ficha.length).toBe(servidor.length + 3);
+  });
+});
+
+// T2/T7 m3 (fix round) — a assinatura arredonda consumo/loss_percent como o BANCO guarda (NUMERIC(10,4)/
+// NUMERIC(5,2) — `modelo_tecidos`/`modelo_aviamentos`: supabase/migrations/20260611163739_…:112-113,131-132;
+// `modelo_etiquetas`: supabase/migrations/20260719160000_etiquetas_material_fase1.sql:75-76, mesma escala de
+// 2 casas). Half-away-from-zero, igual ao `numeric` do Postgres.
+describe("assinaturaBom — arredonda consumo/loss na escala do banco (T2/T7 m3)", () => {
+  const t1ComConsumo = (consumo: number): TecidoBlock => bloco("tecido", 1, { artigo_id: A, consumo });
+
+  it("consumo local 0.12345 × eco do servidor 0.1235 (mesmo valor NUMERIC(10,4)) ⇒ NÃO diverge", () => {
+    const local: EstadoBom = { blocks: [t1ComConsumo(0.12345)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComConsumo(0.1235)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("CONTROLE: 0.1235 × 0.1236 (valores REALMENTE diferentes na escala do banco) ⇒ diverge", () => {
+    const local: EstadoBom = { blocks: [t1ComConsumo(0.1235)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComConsumo(0.1236)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(true);
   });
 });
 

@@ -53,6 +53,7 @@ export function TecidosBomSecao({
   camposCopiados = new Set(),
   onCampoEditado,
   estoque = SEM_ESTOQUE,
+  disabled = false,
 }: {
   modeloId: string;
   blocks: TecidoBlock[];
@@ -67,6 +68,12 @@ export function TecidosBomSecao({
   onCampoEditado?: (k: string) => void;
   /** F3.2 — estoque por artigo (`estoque_tecido_por_artigo`) p/ o seletor (decisão F3 #10). */
   estoque?: Record<string, EstoqueArtigo>;
+  /**
+   * T9 I1(b) — o Radix Select ignora `<fieldset disabled>` (F3.1, `DevEquipeSection.tsx:15-20`): o
+   * `<fieldset>` do `BomSecoes` trava inputs nativos, mas não os Selects/botão desta cópia. Camada (b):
+   * `disabled` explícito nos Selects de tecido/variante e no botão "+ adicionar tecido" (substituto).
+   */
+  disabled?: boolean;
 }) {
   const artigoNomeById = new Map(artigos.map((a) => [a.id, a.nome] as const));
   // Peças por posição de variante (grade_total por variante_numero), p/ a
@@ -208,6 +215,7 @@ export function TecidosBomSecao({
                     gradePorVarianteTecido1={gradePorVarianteTecido1}
                     camposCopiados={camposCopiados}
                     onCampoEditado={onCampoEditado}
+                    disabled={disabled}
                   />
                 );
               })}
@@ -251,6 +259,7 @@ function TecidoBlockEditor({
   camposCopiados = new Set(),
   onCampoEditado,
   estoque,
+  disabled = false,
 }: {
   modeloId: string;
   estoque: Record<string, EstoqueArtigo>;
@@ -268,6 +277,7 @@ function TecidoBlockEditor({
   gradePorVarianteTecido1: Map<string, number>;
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  disabled?: boolean;
 }) {
   const keyArtigo = `tecido:${block.tipo}:${block.numero}:artigo`;
   const keyConsumo = `tecido:${block.tipo}:${block.numero}:consumo`;
@@ -376,6 +386,7 @@ function TecidoBlockEditor({
             onChange={(v) => { onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) }); onCampoEditado?.(keyArtigo); }}
             artigos={artigos}
             estoque={estoque}
+            disabled={disabled}
           />
         </div>
         <Field label="Consumo">
@@ -409,7 +420,7 @@ function TecidoBlockEditor({
               </Badge>
             ))}
             {substitutoOptions.length > 0 && (
-              <Select value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
+              <Select disabled={disabled} value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
                 <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs"><SelectValue placeholder="+ adicionar tecido" /></SelectTrigger>
                 <SelectContent>
                   {substitutoOptions.map((a) => <SelectItem key={a.id} value={a.id}>{substitutoLabel(a)}</SelectItem>)}
@@ -455,6 +466,7 @@ function TecidoBlockEditor({
                 return (
                   <div key={i} className={`space-y-1 ${classeCopiado(camposCopiados, keyVariantes)}`}>
                     <Select
+                      disabled={disabled}
                       value={current ?? ""}
                       onValueChange={(v) => { onChangeVariante(i, v === "__none__" ? null : v); onCampoEditado?.(keyVariantes); }}
                     >
@@ -752,18 +764,19 @@ function OcLinksField({
  * formato do antigo "Tecido Planejado" (MultiArtigosField). O TRIGGER mostra só o nome (children do
  * SelectValue); as 2 linhas extras aparecem na lista e numa legenda abaixo do campo (mockup Anotado).
  */
-function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque }: {
+function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disabled = false }: {
   label: string;
   value: string | null;
   onChange: (v: string | null) => void;
   artigos: ArtigoOpt[];
   estoque: Record<string, EstoqueArtigo>;
+  disabled?: boolean;
 }) {
   const sel = value ? artigos.find((a) => a.id === value) : undefined;
   const eSel = value ? estoque[value] : undefined;
   return (
     <Field label={label}>
-      <Select value={value ?? ""} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
+      <Select disabled={disabled} value={value ?? ""} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
         <SelectTrigger>
           <SelectValue placeholder="Selecione…">{sel ? artigoLabel(sel) : undefined}</SelectValue>
         </SelectTrigger>

@@ -394,6 +394,24 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
   return Object.fromEntries(Object.entries(g ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
+// ── T2/T7 m3 — a assinatura arredonda como o BANCO guarda ──────────────────────────────────────
+/**
+ * Arredondamento determinístico idêntico ao `numeric` do Postgres (`round(x, n)`): meio para longe
+ * do zero (half-away-from-zero) — NÃO o "half to even"/round-to-even do `Math.round` de negativos e
+ * NÃO o binário do float puro. Sem isso, a assinatura local (JS) e o eco relido do servidor (que já
+ * passou pelo `numeric` do Postgres) podem arredondar o MESMO valor de formas diferentes na borda
+ * .5 e acender um "Tecidos & BOM" falso.
+ */
+function roundNumeric(x: number, casas: number): number {
+  const f = 10 ** casas;
+  return (Math.sign(x) || 1) * Math.round(Math.abs(x) * f) / f;
+}
+
+/** `modelo_tecidos`/`modelo_aviamentos`.consumo e `modelo_etiquetas`.consumo — NUMERIC(10,4). */
+const r4 = (x: number) => roundNumeric(Number(x) || 0, 4);
+/** `modelo_tecidos`/`modelo_aviamentos`.loss_percent — NUMERIC(5,2); `modelo_etiquetas`.loss_percent — NUMERIC(10,2) (mesma escala de 2 casas). */
+const r2 = (x: number) => roundNumeric(Number(x) || 0, 2);
+
 /** A grade "tem valor" pelo MESMO critério do RPC (`_salvar_modelo_bom_core`, funcoes.sql:7695-7717):
  *  `grade_total > 0` OU alguma célula > 0. Linha sem valor é DESCARTADA pelo INSERT — não pode entrar
  *  na assinatura (senão a herança que a recria no eco, ou a ausência dela no enviado, vira falso conflito). */
@@ -432,13 +450,15 @@ export function assinaturaBom(e: EstadoBom): string {
   return JSON.stringify({
     tecidos: montarTecidosPayload(e.blocks).map((t) => ({
       artigo_id: t.artigo_id, numero: t.numero, tipo: t.tipo,
-      consumo: t.consumo, loss_percent: t.loss_percent,
+      consumo: r4(t.consumo), loss_percent: r2(t.loss_percent),
       slots: slotsDoBloco(t),
       oc_links: t.oc_links,
     })),
-    aviamentos: montarAviamentosPayload(e.aviamentos).map(({ custo_previsto: _c, ...a }) => a),
+    aviamentos: montarAviamentosPayload(e.aviamentos).map(({ custo_previsto: _c, consumo, loss_percent, ...a }) => ({
+      ...a, consumo: r4(consumo), loss_percent: r2(loss_percent),
+    })),
     etiquetas: e.etiquetas.filter((r) => r.etiqueta_id).map((r) => ({
-      etiqueta_id: r.etiqueta_id, cor_id: r.cor_id || null, consumo: r.consumo || 0, loss_percent: r.loss_percent || 0,
+      etiqueta_id: r.etiqueta_id, cor_id: r.cor_id || null, consumo: r4(r.consumo || 0), loss_percent: r2(r.loss_percent || 0),
     })),
     grades: montarGradesPayload(gradesComValor)
       .map((g) => ({ variante_numero: g.variante_numero, grades: gradeOrdenada(g.grades), grade_total: g.grade_total }))

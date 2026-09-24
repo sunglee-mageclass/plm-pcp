@@ -44,8 +44,30 @@ const TEXTO_AVISO_BOM: Record<"enviado" | "cad", string> = {
   cad: "Este modelo já tem CAD: para não desalinhar o CAD e a Explosão, tecidos, aviamentos, insumos e grade ficam só-leitura aqui — altere-os no Desenvolvimento.",
 };
 
-function AvisoSomenteLeitura({ motivo, onAbrirDev }: { motivo: FichaTecnica["motivoSomenteLeitura"]; onAbrirDev?: () => void }) {
+// T9 m3 — trava "carregando" (a query de CAD, que decide a trava única, ainda não resolveu). Linha curta e
+// discreta, MESMO estilo dos outros avisos (`Info`/`text-muted-foreground`, sem cor solta). Se a query der
+// erro, a trava não pode ficar muda pra sempre — troca pro aviso de erro (`AlertTriangle`, mesma família de
+// primitivo já usada pelos selos §Q, sem hex/hsl solto).
+function AvisoSomenteLeitura({ motivo, cadErro, onAbrirDev }: {
+  motivo: FichaTecnica["motivoSomenteLeitura"];
+  cadErro?: boolean;
+  onAbrirDev?: () => void;
+}) {
   if (motivo === "permissao") return <AvisoCamposDev motivo="sem_permissao" />;
+  if (motivo === "carregando") {
+    if (cadErro) {
+      return (
+        <p className="flex items-center gap-1.5 py-1 text-xs text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />Não foi possível verificar o CAD — recarregue o card.
+        </p>
+      );
+    }
+    return (
+      <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />Carregando…
+      </p>
+    );
+  }
   if (motivo !== "enviado" && motivo !== "cad") return null;
   return (
     <div data-testid="aviso-bom-somente-leitura" className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -77,16 +99,16 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
   onAbrirDev?: () => void;
 }) {
   if (!ficha.habilitada) return null;
+  const { estado, handlers, dados } = ficha;
   const carregando = !ficha.carregado;
   const corpo = (node: ReactNode) => (carregando ? (
     <p className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando…</p>
   ) : (
     <>
-      <AvisoSomenteLeitura motivo={ficha.motivoSomenteLeitura} onAbrirDev={onAbrirDev} />
+      <AvisoSomenteLeitura motivo={ficha.motivoSomenteLeitura} cadErro={dados.cadErro} onAbrirDev={onAbrirDev} />
       <fieldset disabled={!ficha.podeEditar} className="contents">{node}</fieldset>
     </>
   ));
-  const { estado, handlers, dados } = ficha;
 
   return (
     <>
@@ -111,6 +133,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
             camposCopiados={ficha.camposCopiados}
             onCampoEditado={ficha.onCampoEditado}
             estoque={estoque}
+            disabled={!ficha.podeEditar}
           />,
         )}
       </SecaoBom>
