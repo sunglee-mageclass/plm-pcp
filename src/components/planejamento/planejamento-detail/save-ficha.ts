@@ -158,6 +158,25 @@ export function bomRecarregando(isFetchingPorKey: number[]): boolean {
 }
 
 /**
+ * Fix final ROUND 2, item 2 — o guard I1 acima (`bomRecarregando` sozinho) tinha falso positivo: barrava
+ * QUALQUER Salvar com as 5 queries do BOM em refetch, mesmo um que NUNCA gravaria o BOM (refetch de foco da
+ * aba, abertura do card que dispara o `enabled` das queries, ou um Salvar que só toca preço/MO com o BOM
+ * intocado). Dois efeitos colaterais: (a) trava um Salvar legítimo sem motivo — o BOM local não seria
+ * regravado de qualquer forma; (b) no retry do P0409 (`fichaRef.current.bomPendenteDeGravar()` também é
+ * conferido no `onError`, mas o `mutationFn` do retry reentra por AQUI primeiro), o retry que devia
+ * simplesmente tentar de novo cai num `throw new Error(...)` que o `mensagemErro` traduz e o `onError`
+ * mostra como `toast.error` — o P0409 nunca chega a retentar.
+ * Fix: o guard só faz sentido quando ESTE save IA gravar o BOM (`bomPendenteDeGravar()` — tocado OU prefill
+ * pendente, mesma condição de `capturar().gravar`, sem depender de `podeEditar`/carga). Continua cobrindo o
+ * cenário do I1: `gravar=true` (o `.eq("rev")` prestes a passar com o esqueleto Tecido 1..N) só é possível
+ * quando `bomPendenteDeGravar()` também é `true` (`capturar().gravar` exige a MESMA condição — ver
+ * `useFichaTecnica.capturar`), então barrar SÓ nesse caso não abre a janela do bug original.
+ */
+export function deveBarrarPorBomRecarregando(bomPendenteDeGravar: boolean, bomRecarregandoAgora: boolean): boolean {
+  return bomPendenteDeGravar && bomRecarregandoAgora;
+}
+
+/**
  * Item G (menor, fix round 3) — "save em voo" como CONTADOR, não booleano. Extraído p/ ser testável sem
  * montar hooks (mesmo espírito de `retryBloqueadoPorEnvio`). No TanStack Query 5.x, o `mutationFn` do RETRY
  * de um P0409 roda ANTES do `onSettled` do 1º ciclo — com um booleano simples (`marcarSaveEmVoo(true/false)`

@@ -365,6 +365,15 @@ export type BomCapturado = {
   snapshot: string;
   /** Vai gravar o BOM? = pode editar E tocou E difere do baseline ("carregado E sujo"). */
   gravar: boolean;
+  /**
+   * Fix final ROUND 2, item 1 (M1) — "tocado E sujo NA CAPTURA" (tocou E o snapshot difere do baseline no
+   * INSTANTE do `capturar()`), SEM exigir `podeEditarRef.current` (diferente de `gravar` acima). Cenários que
+   * tocam sem sujar de verdade — tocar e desfazer, ou `updateProporcao`/`toggleGradeAuto` com grade
+   * zerada/`oldSum=0` (marcam tocado mas não mudam o snapshot, porque a grade não tinha nada a redistribuir)
+   * — saem `false` aqui mesmo com `colecoesTouchadasRef.current=true`; usado por `deveLimparTocadoAposSalvar`
+   * em vez do `tocado` cru (ver `useFichaTecnica.aposSalvar`).
+   */
+  sujoNaCaptura: boolean;
   flags: FlagsBom;
   idsEtiquetasServidor: string[];
   tecidosPlanejados: string[];

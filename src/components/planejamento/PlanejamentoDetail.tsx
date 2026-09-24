@@ -249,6 +249,15 @@ function PlanejamentoDetailConteudo({
   // seed, `draft.origem` já É o do servidor e os dois caminhos coincidem.
   const isRevenda = draft.origem === "revenda";
   const isComprado = ehOrigemComprada(baseRef.current ? draft.origem : ((modeloData as any)?.origem ?? draft.origem));
+  // Fix final ROUND 2, item 4 — M4 sobrou pra quando o cache de `["modelo", id]` está FRIO: com
+  // `!baseRef.current` E `modeloData` ainda `undefined` (query em voo, sem dado nenhum no cache),
+  // o fallback acima cai em `draft.origem` = `"interno"` (o `emptyDraft()`) — `isComprado=false` por
+  // engano, mesmo sendo um card de revenda/importado. `isComprado` (acima) continua servindo o resto
+  // do componente (JSX/gate do Duplicar) sem mudar; SÓ o valor que vai para `useFichaTecnica` fica
+  // mais estrito: "comprado OU indefinido (1ª carga, cache frio) ⇒ NÃO habilita" — a ficha só liga
+  // quando já dá pra confirmar que o modelo é interno (draft semeado OU `modeloData` já chegado).
+  // Card novo (Dialog, sem `modeloId`) não quebra: `useFichaTecnica.habilitada` já exige `isEdit`.
+  const isCompradoParaFicha = isComprado || (isEdit && !baseRef.current && !modeloData);
   const navigate = useNavigate();
   const orc = useOrcamento();
   const { data: colecoes = [] } = useQuery({
@@ -380,7 +389,7 @@ function PlanejamentoDetailConteudo({
   // Trava ÚNICA (R2 do G-plano conjunto): `motivoTravaDev` vem da F3.1 (declarado logo depois das permissões, antes
   // daqui — por isso a query do modelo subiu lá) e já considera o "Editar".
   const ficha = useFichaTecnica({
-    modeloId, isEdit, isComprado,
+    modeloId, isEdit, isComprado: isCompradoParaFicha,
     tecidosPlanejados: draft.tecidos_planejados,
     proporcoes: draft.proporcoes,
     custosAdicionais: draft.custos_adicionais,

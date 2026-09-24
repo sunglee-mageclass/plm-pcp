@@ -22,7 +22,7 @@ import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamen
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import {
   aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, draftEnviadoComColunasDev,
-  retryBloqueadoPorEnvio, bomRecarregando,
+  retryBloqueadoPorEnvio, bomRecarregando, deveBarrarPorBomRecarregando,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 
 export type UsePlanejamentoSaveArgs = {
@@ -135,7 +135,17 @@ export function usePlanejamentoSave({
       // cima do BOM que outra pessoa completou nesse meio-tempo. Mesma mensagem PT do guard acima (já passa
       // no `mensagemErro`) — as queries só rodam quando a ficha está habilitada (`enabled`), então checar as
       // keys sozinho já cobre "habilitada e em refetch" sem precisar de um sinal extra.
-      if (modeloId && bomRecarregando(chavesBomServidor(modeloId).map((k) => qc.isFetching({ queryKey: k }))))
+      // Fix final ROUND 2, item 2 — o guard barrava TAMBÉM um Salvar que nunca gravaria o BOM (refetch de
+      // foco/abertura do card) e transformava em `toast.error` o retry do P0409 que devia retentar. Agora só
+      // barra quando ESTE save IA GRAVAR o BOM (`bomPendenteDeGravar()` — mesma condição de `capturar().gravar`)
+      // E as queries do BOM estão em refetch (`deveBarrarPorBomRecarregando`, save-ficha.ts).
+      if (
+        modeloId
+        && deveBarrarPorBomRecarregando(
+          fichaRef.current.bomPendenteDeGravar(),
+          bomRecarregando(chavesBomServidor(modeloId).map((k) => qc.isFetching({ queryKey: k }))),
+        )
+      )
         throw new Error("O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.");
       // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix, receita do Dev — ver
       // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica). A F3.2 usa este MESMO `d`
@@ -701,6 +711,14 @@ export function usePlanejamentoSave({
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
       }
+      // Fix final ROUND 2, item 3 (M2) — ramo GENÉRICO (não-P0409: erro de rede, RLS, validação do
+      // servidor…). Um BOM alheio que chegou em voo (outra pessoa salvou o consumo enquanto ESTE save
+      // rodava e falhou) pode ter deixado o cache do BOM desatualizado frente ao servidor — sem invalidar,
+      // o PRÓXIMO Salvar (com o BOM local ainda tocado) sobrescreveria esse BOM alheio sem passar pela
+      // conferência R5 (que só roda quando o `rev` muda DE NOVO — e aqui o UPDATE do header nem chegou a
+      // avançar o `rev`, então nada dispara essa conferência sozinho). Mesmo padrão do item H (m2) acima,
+      // que já cobre o ramo do P0409 sem retry.
+      fichaRef.current.invalidarBom();
       toast.error(mensagemErro(e, "Erro"));
     },
     // Item G (CONTADOR — fix round 3) — desmarca "save em voo" (−1) ao fim de QUALQUER ciclo (sucesso, erro,

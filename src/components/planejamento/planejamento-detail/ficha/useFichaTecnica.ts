@@ -440,12 +440,17 @@ export function useFichaTecnica(a: {
       // servidor chegou vazio e a carga preencheu Tecido 1..N a partir de `tecidos_planejados` sem
       // marcar tocado — ficha-calc :123, useFichaBom prefillPendenteRef) — paridade com o Dev, que
       // regrava o BOM a todo Salvar.
-      const gravar = podeEditarRef.current
-        && ((bom.colecoesTouchadasRef.current && (base === null || snap !== base)) || bom.prefillPendenteRef.current);
+      // Fix final ROUND 2, item 1 (M1) — "tocado E sujo" (sem o `podeEditarRef.current`, que decide só se
+      // ESTA captura vai GRAVAR, não se a ficha ESTÁ suja): tocar e desfazer (`snap===base`) ou uma
+      // proporção/toggle de grade automática com `oldSum=0`/`grade_total=0` (marca tocado, mas o snapshot da
+      // GRADE não muda — só `proporcoes`, fora do snapshot do BOM) saem `false` aqui.
+      const sujoNaCaptura = bom.colecoesTouchadasRef.current && (base === null || snap !== base);
+      const gravar = podeEditarRef.current && (sujoNaCaptura || bom.prefillPendenteRef.current);
       return {
         estado: e,
         snapshot: snap,
         gravar,
+        sujoNaCaptura,
         flags: { ...bom.flagsRef.current },
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
@@ -477,7 +482,14 @@ export function useFichaTecnica(a: {
       // ponto (a mesma captura é reusada aqui — `enviadoRef.current.bom` no orquestrador). Só limpa o
       // "tocado"/rebaseia quando o toque de fato FOI gravado (ou nunca houve toque) — senão a edição do
       // usuário sumiria sem aviso e sem chance de tentar de novo (`deveLimparTocadoAposSalvar`).
-      const podeLimpar = deveLimparTocadoAposSalvar({ tocado: bom.colecoesTouchadasRef.current, bomGravou: bomEnviado.gravar });
+      // Fix final ROUND 2, item 1 — o `tocado` cru (`bom.colecoesTouchadasRef.current`, lido de AGORA) dava
+      // aviso falso a cada Salvar: `gravar` exige `snap!==base`, então qualquer toque SEM mudança real no
+      // snapshot (tocar e desfazer; `updateProporcao`/`toggleGradeAuto` com grade zerada) tinha `tocado=true`
+      // e `gravar=false`, e `deveLimparTocadoAposSalvar` nunca limpava. Troca por `bomEnviado.sujoNaCaptura`
+      // — "tocado E sujo" capturado no MESMO instante que `gravar` (não o `tocado` de agora, que pode já ter
+      // mudado durante o `await` do save) — para distinguir "tocou sem sujar" (limpa normalmente) de "sujou
+      // de verdade mas a trava chegou depois e impediu a gravação" (NÃO limpa; ver cenário (c) no relatório).
+      const podeLimpar = deveLimparTocadoAposSalvar({ tocado: bomEnviado.sujoNaCaptura, bomGravou: bomEnviado.gravar });
       const edicoesPerdidas = !podeLimpar;
       if (podeLimpar) {
         if (bomMudouEmVoo) guarda.rebasear(bomEnviado.snapshot);
