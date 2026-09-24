@@ -396,6 +396,23 @@ export function relevantArtigoIds(i: { planejados: string[]; extras: string[]; b
 }
 
 // ── Captura do Salvar ────────────────────────────────────────────────────────────────────────
+/** F3.4 — o que o Salvar passa à captura sobre a grade cor × tamanho do COMPRADO (fonte única — decisão F3 #4). */
+export type GradeExternaCaptura = {
+  /** Linhas do rascunho da grade (`linhasGradeComprado`). */
+  rascunho: GradeRow[];
+  /** O rascunho difere do semeado (`gradeRevendaDirty`). */
+  editada: boolean;
+  /** JSON do rascunho neste instante (vira o baseline se a grade gravar pelo BOM). */
+  estadoJson: string;
+  /** JSON do baseline semeado (`gradeRevendaBaseRef.current`) — p/ conferir se o servidor mudou (importado). */
+  baseJson: string;
+  /** Importado: a grade grava PELO BOM (a revenda grava por `salvar_grade_revenda`, que recusa origem ≠ revenda). */
+  gravaPeloBom: boolean;
+  /** R1 do G-plano F3.4 — a grade do SERVIDOR lida no PRÓPRIO Salvar (`lerGradeServidorComprado`: `rev` + grade num SELECT
+   *  só). NUNCA o cache `plan-ficha-grades`. null = não lida (card novo) — num comprado que grava o BOM, a captura LANÇA. */
+  servidor: GradeRowDb[] | null;
+};
+
 export type BomCapturado = {
   estado: EstadoBom;
   snapshot: string;
@@ -421,6 +438,12 @@ export type BomCapturado = {
   totais: TotaisBom | null;
   /** F3.3 — o CAD que este Salvar grava (`deveGravarCad`; decisão F3 #7 "todo Salvar regrava", com guardas). */
   cad: CadCapturado;
+  /** F3.4 — comprado: o `_grades` do `salvar_modelo_bom` (a grade cor × tamanho — ele APAGA todas). null = interno (`estado.grades`). */
+  gradesPayload: GradeRow[] | null;
+  /** F3.4 — importado: a grade cor × tamanho grava por ESTE BOM; o JSON do rascunho enviado vira o baseline dela. */
+  gradeExterna: { estadoJson: string } | null;
+  /** F3.4 — importado: a grade do SERVIDOR mudou desde a abertura (outra pessoa) ⇒ o Salvar não grava (P0409 + recarga). */
+  gradeConflito: boolean;
   /**
    * Item C (fix round 2; SUBSTITUÍDO como fonte no fix round 3) — `motivoSomenteLeitura === "enviado"` no
    * INSTANTE da captura. Mantido por compatibilidade (a interface só GANHA campos) mas não é mais a fonte de

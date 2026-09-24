@@ -762,13 +762,15 @@ function PlanejamentoDetailConteudo({
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
-    modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
+    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
     refEditavel,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
     setEnviada, setLancado,
     moLinhasRef, moBaseRef, setMoLinhasBase,
     gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
+    // F3.4 — a grade do IMPORTADO grava pelo BOM (a da revenda por `salvar_grade_revenda`). Origem SALVA (a da grade).
+    gradeCompradoPeloBom: origemComprado === "importado",
     qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBaseline,
   });
   // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.

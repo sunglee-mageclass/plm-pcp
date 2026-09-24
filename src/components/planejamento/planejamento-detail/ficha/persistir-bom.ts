@@ -6,7 +6,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   blocosTecidosIniciais, montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, planoEtiquetas,
-  type BomCapturado,
+  type BomCapturado, type GradeRowDb,
 } from "./ficha-calc";
 import type { CadCapturado } from "./ficha-cad";
 import { chavesFichaBom } from "./useFichaDados";
@@ -17,7 +17,9 @@ export async function persistirBom(modeloId: string, bom: BomCapturado): Promise
     _modelo_id: modeloId,
     _tecidos: montarTecidosPayload(bom.estado.blocks) as any,
     _aviamentos: montarAviamentosPayload(bom.estado.aviamentos) as any,
-    _grades: montarGradesPayload(bom.estado.grades) as any,
+    // F3.4 — comprado: a grade cor × tamanho (a RPC apaga TODAS as grades — nunca mandar a da ficha, que é projetada fora).
+    // `gradesPayload` null num comprado só existe quando o BOM NÃO grava (a captura LANÇA antes — R1 do G-plano F3.4).
+    _grades: (bom.gradesPayload ?? montarGradesPayload(bom.estado.grades)) as any,
     _rev_base: null,
   });
   if (eBom) throw eBom;
@@ -118,4 +120,31 @@ export async function substituirObservacoesDoBloco(
   if (rows.length === 0) return;
   const { error: eIns } = await supabase.from("modelo_observacoes" as any).insert(rows);
   if (eIns) throw eIns;
+}
+
+/**
+ * F3.4 — R1 do G-plano F3.4. A grade do SERVIDOR que o `salvar_modelo_bom` de um card COMPRADO recebe (ele APAGA todas as
+ * grades) é LIDA NO PRÓPRIO Salvar — nunca o cache `plan-ficha-grades`: uma mudança alheia sem toque só INVALIDA o cache
+ * (useFichaTecnica `aoMudarNoServidor`) e o merge já avançou o `revRef`; um Salvar nessa janela passaria no `.eq("rev")` do
+ * header e regravaria a grade VELHA por cima da nova. `rev` e grade vêm num SELECT só (embed `modelo_grades`, o mesmo de
+ * PlanTecidoSheet.tsx:457) ⇒ do mesmo instante. `rev` lido ≠ o do card AGORA (`revDoCard()` DEPOIS do await — é o valor que
+ * o header confere logo em seguida, sem outro `await` no meio: `let revParaHeader = revRef.current`) ⇒ P0409: o retry que já
+ * existe relê o modelo e o BOM e tenta 1×. Erro ⇒ lança: falha FECHADA (nunca devolve [] como "o servidor não tem grade").
+ */
+export async function lerGradeServidorComprado(modeloId: string, revDoCard: () => number | null): Promise<GradeRowDb[]> {
+  const { data, error } = await (supabase.from("modelos") as any)
+    .select("rev, grades:modelo_grades(variante_numero, grades, grade_total)")
+    .eq("id", modeloId)
+    .single();
+  if (error) throw error;
+  if (!data || !Array.isArray(data.grades)) {
+    throw new Error("Não deu para conferir a grade deste card no servidor — nada foi salvo. Tente de novo.");
+  }
+  const rev = revDoCard();
+  if (rev === null || data.rev !== rev) {
+    const conflito: any = new Error("conflito_versao: o registro foi salvo por outra pessoa");
+    conflito.code = "P0409";
+    throw conflito;
+  }
+  return data.grades as GradeRowDb[];
 }

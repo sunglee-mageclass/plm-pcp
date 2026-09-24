@@ -38,7 +38,7 @@ const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false }
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;
 
-export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado, aoMudarBloco }: {
+export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado, aoMudarBloco, gradeExterna = false }: {
   modeloId: string | null;
   habilitada: boolean;
   dados: FichaDados;
@@ -49,6 +49,8 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   aoRecarregarComTocado?: (servidor: EstadoBom) => void;
   /** F3.3 — consumo/%loss/artigo de um bloco mudaram por AÇÃO do usuário: leva à linha do CAD (useFichaCad). */
   aoMudarBloco?: (tipo: string, numero: number, patch: PatchBlocoCad) => void;
+  /** F3.4 — comprado: a grade é a cor × tamanho do produto (fora da ficha) — Tecido 1 e grade não se tocam. */
+  gradeExterna?: boolean;
 }) {
   // Sempre a versão atual do callback (o efeito da carga não o tem nas dependências).
   const aoRecarregarRef = useRef(aoRecarregarComTocado);
@@ -234,9 +236,9 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   // Herança de grade (Dev :1441-1468): variante nova do Tecido 1 herda a grade da 1ª. Monotônica.
   const tecido1VarianteIds = useMemo(() => calcTecido1VarianteIds(blocks), [blocks]);
   useEffect(() => {
-    if (!hidratado || tecido1VarianteIds.length === 0) return;
+    if (gradeExterna || !hidratado || tecido1VarianteIds.length === 0) return;
     setGrades((prev) => herdarGrades(prev, tecido1VarianteIds.length));
-  }, [tecido1VarianteIds, hidratado, grades]);
+  }, [tecido1VarianteIds, hidratado, grades, gradeExterna]);
 
   const tamanhos = dados.tamanhos;
   const frozen = dados.frozenPrecos;
@@ -268,7 +270,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       }
     };
     // Trocar o artigo do Tecido 1 zera as variantes; a grade é indexada por elas → confirma e limpa.
-    if (isTecido1 && patch.artigo_id !== undefined && patch.artigo_id !== target.artigo_id) {
+    if (!gradeExterna && isTecido1 && patch.artigo_id !== undefined && patch.artigo_id !== target.artigo_id) {
       const hasGrade = grades.some((g) => g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0));
       if (hasGrade) {
         setConfirmGrade({
@@ -308,7 +310,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
         return recomputeBlock({ ...b, variantes, oc_links, complementas }, dados.artigoMap, varianteArtigoMap, frozen);
       }));
     };
-    if (isTecido1 && !value) {
+    if (!gradeExterna && isTecido1 && !value) {
       // Remover variante do Tecido 1 renumera as cores: a grade SEGUE a variante (v3 vira v2).
       const numeroRemovido = vIdx + 1;
       const remapEAplicar = () => {

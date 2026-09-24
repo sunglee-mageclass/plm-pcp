@@ -14,6 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
+import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
@@ -30,6 +31,8 @@ export type UsePlanejamentoSaveArgs = {
   isEdit: boolean;
   isRevenda: boolean;
   paOn: boolean;
+  /** F3.4 — módulo `produto_importado` ligado (auto-criação do Produto Importado ao salvar — D1). */
+  piOn: boolean;
   podeEditarPreco: boolean;
   podeVerCustos: boolean;
   /** F3.1: pode editar o Desenvolvimento? Sem isso os campos do Dev saem do payload (decisão F3 #8). */
@@ -59,6 +62,9 @@ export type UsePlanejamentoSaveArgs = {
   gradeRevendaBaseRef: RefObject<string>;
   gradeRevendaRevRef: RefObject<number | null>;
   buildLinhasGradeRevenda: () => { variante_numero: number; grades: Record<string, number>; grade_total: number }[];
+  /** F3.4 — a grade cor × tamanho deste card grava pelo BOM (`salvar_modelo_bom`)? = card IMPORTADO salvo (a revenda grava
+   *  por `salvar_grade_revenda`, que recusa origem ≠ revenda — plano F3.4 §3). */
+  gradeCompradoPeloBom: boolean;
   qc: QueryClient;
   onSaved: () => void;
   /** F3.1 — card NOVO: chamado com o id depois do INSERT (o `PlanejamentoDetail` remonta como Sheet dele). */
@@ -70,12 +76,12 @@ export type UsePlanejamentoSaveArgs = {
 };
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, refEditavel, categorias,
+  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, refEditavel, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado,
   moLinhasRef, moBaseRef, setMoLinhasBase,
-  gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
+  gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda, gradeCompradoPeloBom,
   qc, onSaved, onCreated, ficha, resetDraftBaseline,
 }: UsePlanejamentoSaveArgs) {
   // F3.1 — card NOVO: id do INSERT já feito neste detalhe. Um 2º Salvar (ou o retry depois de um erro nas
@@ -153,7 +159,38 @@ export function usePlanejamentoSave({
       const d = draftParaSalvar(draftLiveRef.current, draft);
       // F3.3 — a captura do CAD precisa saber se é o retry do P0409 (sem toque, o CAD local pode estar velho) e das
       // proporções ENVIADAS (o `salvar_cad_completo` grava `modelos.proporcoes`).
-      const bom = fichaRef.current.capturar(d.custos_adicionais, { retry: retryRef.current, proporcoes: d.proporcoes });
+      // F3.4 — R1 do G-plano F3.4: num comprado, a grade do SERVIDOR que vai no BOM é LIDA AGORA, com o `rev`, numa
+      // requisição só (`lerGradeServidorComprado`) — nunca o cache `plan-ficha-grades`: uma mudança alheia sem toque só
+      // INVALIDA o cache e o merge já avançou o `revRef`; um Salvar nessa janela passaria no `.eq("rev")` e o
+      // `salvar_modelo_bom` (APAGA todas as grades) regravaria a grade VELHA. `rev` lido ≠ o do card ⇒ P0409 (o retry que já
+      // existe, abaixo no onError, relê o modelo e o BOM); erro ⇒ lança (nada grava). O `rev` é conferido DEPOIS do await
+      // (`() => revRef.current`) e daqui até o `let revParaHeader = revRef.current;` não há outro `await` — o header confere
+      // o MESMO rev da leitura. Origem do RASCUNHO = a que a ficha usa p/ projetar (com a trava R7, só difere da salva com a
+      // ficha intocada). `d` foi congelado antes do await: edição feita durante a leitura fica "não salva" (paridade F3.2).
+      const gradeServidor = isEdit && modeloId && ehOrigemComprada(d.origem)
+        ? await lerGradeServidorComprado(modeloId, () => revRef.current)
+        : null;
+      const bom = fichaRef.current.capturar(d.custos_adicionais, {
+        retry: retryRef.current, proporcoes: d.proporcoes,
+        // F3.4 — comprado: a grade cor × tamanho entra no BOM (fonte única — decisão F3 #4). A ficha só a usa num comprado.
+        gradeExterna: {
+          rascunho: buildLinhasGradeRevenda(),
+          editada: gradeRevendaDirty,
+          estadoJson: JSON.stringify(gradeRevenda),
+          baseJson: gradeRevendaBaseRef.current,
+          gravaPeloBom: gradeCompradoPeloBom,
+          servidor: gradeServidor,
+        },
+      });
+      // F3.4 — importado: a grade editada grava pelo BOM; se a grade do SERVIDOR mudou desde que este card abriu (outra
+      // pessoa), NÃO sobrescreve — mesmo tratamento da revenda (P0409 + recarga da grade: ramo `gradeConflict` do onError).
+      // Lançado ANTES de qualquer escrita.
+      if (bom.gradeConflito) {
+        const conflito: any = new Error("conflito_versao: a grade foi salva por outra pessoa");
+        conflito.code = "P0409";
+        conflito.gradeConflict = true;
+        throw conflito;
+      }
       // Colunas DERIVADAS do BOM: na 1ª tentativa sempre; no retry do P0409 só quando ESTE save grava o BOM (os derivados
       // saem do MESMO BOM gravado — R5). Retry sem gravar o BOM: o BOM local (não tocado) pode estar velho.
       const incluirDerivados = !retryRef.current || bom.gravar;
@@ -287,6 +324,9 @@ export function usePlanejamentoSave({
           // custo_peca falharem DEPOIS deste ponto). `aposSalvar` chama de novo no sucesso completo, mas é
           // idempotente (mesma assinatura).
           fichaRef.current.bomGravado(bom);
+          // F3.4 — importado: a grade cor × tamanho gravou junto com o BOM ⇒ o enviado vira o baseline do rascunho da grade
+          // (mesmo cuidado do caminho da revenda acima: um retry não a regrava como "editada").
+          if (bom.gradeExterna) gradeRevendaBaseRef.current = bom.gradeExterna.estadoJson;
         }
       } else {
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto, UMA vez só (F3.1).
@@ -400,7 +440,7 @@ export function usePlanejamentoSave({
       // Best-effort: qualquer erro aqui (inclusive a trava 1:1 `enforce_unique_fk` numa
       // corrida de save duplo) é capturado e NUNCA quebra o save do card — o "Modelo salvo"
       // já é verdade nesse ponto (header + MO já persistiram).
-      let autoProduto: { criou: boolean; semColecao: boolean } | null = null;
+      let autoProduto: { criou: boolean; semColecao: boolean; tela?: string } | null = null;
       if (savedId && d.origem === "revenda" && paOn) {
         try {
           const { data: existente } = await supabase
@@ -408,7 +448,20 @@ export function usePlanejamentoSave({
             .select("id")
             .eq("modelo_id", savedId)
             .maybeSingle();
-          if (!existente) {
+          // F3.4 — R3 do G-plano F3.4 (invariante #13): nunca o 2º espelho. Com o módulo Produto Importado ligado, um produto
+          // importado vinculado a este card (card que já foi importado e voltou) barra a criação — leitura com erro ⇒ lança
+          // (o catch abaixo mantém o save do card e NÃO cria). Módulo desligado: a RLS esconde a tabela — resíduo na §6 R14.
+          let outroImp: unknown = null;
+          if (!existente && piOn) {
+            const { data: impVinculado, error: outroImpErr } = await supabase
+              .from("produtos_importados" as any)
+              .select("id")
+              .eq("modelo_id", savedId)
+              .maybeSingle();
+            if (outroImpErr) throw outroImpErr;
+            outroImp = impVinculado;
+          }
+          if (!existente && !outroImp) {
             const cat = categorias.find((c) => c.id === d.categoria_principal_id);
             const grupoId = cat?.grupo_id ?? null;
             if (grupoId && d.categoria_principal_id) {
@@ -437,6 +490,58 @@ export function usePlanejamentoSave({
           console.error("Auto-criação do produto acabado (revenda) falhou — save do card mantido:", autoErr);
         }
       }
+      // F3.4 — decisão F3 #3 + D1 (ii): card criado (ou editado pra) origem='importado' sem produto vinculado ganha o espelho no
+      // Produto Importado AUTOMATICAMENTE — mesma receita da revenda acima (`salvar_produto_importado` com variantes e etapas
+      // vazias + vínculo `modelo_id`; câmbio/etapas/variantes se completam na tela do Produto Importado). Best-effort: erro
+      // aqui NUNCA quebra o save do card. `_rev_base: null` = a assinatura de 5 argumentos (há sobrecarga de 4 e 5 — mesma
+      // chamada da tela do Produto Importado, ProdutoImportadoSheet.tsx:641-647).
+      // R3 do G-plano F3.4 (invariante #13): confere os DOIS espelhos NA HORA — leitura com erro ⇒ lança ⇒ o catch mantém o
+      // save do card e NÃO cria; produto acabado vinculado (card que já foi revenda) ⇒ não cria o 2º espelho.
+      if (savedId && d.origem === "importado" && piOn) {
+        try {
+          const { data: existenteImp, error: existenteImpErr } = await supabase
+            .from("produtos_importados" as any)
+            .select("id")
+            .eq("modelo_id", savedId)
+            .maybeSingle();
+          if (existenteImpErr) throw existenteImpErr;
+          const { data: outroPa, error: outroPaErr } = await supabase
+            .from("produtos_acabados" as any)
+            .select("id")
+            .eq("modelo_id", savedId)
+            .maybeSingle();
+          if (outroPaErr) throw outroPaErr;
+          if (!existenteImp && !outroPa) {
+            const catImp = categorias.find((c) => c.id === d.categoria_principal_id);
+            const grupoImp = catImp?.grupo_id ?? null;
+            if (grupoImp && d.categoria_principal_id && d.nome.trim()) {
+              const { data: novoImpId, error: piErr } = await supabase.rpc("salvar_produto_importado" as any, {
+                _id: null,
+                _dados: {
+                  nome: d.nome,
+                  grupo_id: grupoImp,
+                  categoria_id: d.categoria_principal_id,
+                  subcategoria1_id: d.subcategoria1_id,
+                  subcategoria2_id: d.subcategoria2_id,
+                  colecao_id: d.colecao_id,
+                  subcolecao: d.subcolecao || null,
+                  semana: d.semana || null,
+                },
+                _variantes: [],
+                _etapas: [],
+                _rev_base: null,
+              });
+              if (piErr) throw piErr;
+              const { error: linkImpErr } = await (supabase.from("produtos_importados" as any) as any)
+                .update({ modelo_id: savedId }).eq("id", novoImpId);
+              if (linkImpErr) throw linkImpErr;
+              autoProduto = { criou: true, semColecao: !d.colecao_id, tela: "Produto Importado" };
+            }
+          }
+        } catch (autoErr) {
+          console.error("Auto-criação do produto importado falhou — save do card mantido:", autoErr);
+        }
+      }
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
       // o `onSuccess` abaixo usa este (não o `draft` do closure do render que chamou
       // `save.mutate`) pra fixar `baseRef`/decidir invalidations, mesma razão do `d` acima.
@@ -463,10 +568,11 @@ export function usePlanejamentoSave({
         toast.success("Modelo salvo");
       }
       if (result?.autoProduto?.criou) {
+        const tela = result.autoProduto.tela ?? "Produto Acabado";
         if (result.autoProduto.semColecao) {
-          toast.success('Produto criado no Produto Acabado — defina a coleção do modelo pra ele aparecer no canvas.');
+          toast.success(`Produto criado no ${tela} — defina a coleção do modelo pra ele aparecer no canvas.`);
         } else {
-          toast.success("Produto criado no Produto Acabado.");
+          toast.success(`Produto criado no ${tela}.`);
         }
       }
       // Item 3 (bônus, refino ago/2026): QUALQUER save de um card revenda invalida o cache do
@@ -484,6 +590,15 @@ export function usePlanejamentoSave({
       if (savedDraft.origem === "revenda") {
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
         qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+      }
+      // F3.4 — o comprado lê o produto (vínculo, variantes) e a troca de Origem olha os tecidos e os DOIS espelhos (R3) do
+      // servidor (`plan-origem-espelhos` tem `piOn` na key — prefixo).
+      qc.invalidateQueries({ queryKey: ["plan-comprado-produto", modeloId] });
+      qc.invalidateQueries({ queryKey: ["plan-origem-tem-tecidos", modeloId] });
+      qc.invalidateQueries({ queryKey: ["plan-origem-espelhos", modeloId] });
+      if (savedDraft.origem === "importado") {
+        qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string"
+          && ((q.queryKey[0] as string).startsWith("produtos-importados") || q.queryKey[0] === "produto-importado-contagem-por-colecao") });
       }
       // Fix T10 I1 — o UPDATE do header manda `tecidos_planejados` DERIVADO do BOM quando `bom.gravar`
       // (aplicarColunasFicha), mas `savedDraft` (congelado ANTES do payload ser montado) ainda carrega o

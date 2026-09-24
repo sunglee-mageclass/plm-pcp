@@ -22,10 +22,11 @@ import { contadorVoo, deveLimparTocadoAposSalvar } from "../save-ficha";
 import {
   assinaturaBom, bomDivergeDaReferencia, bomSujoNaCaptura, cadSujoNaCaptura, estadoBomDoServidor,
   paresComplementares, resumoBom, snapshotBom, tecido1VariantesInfo, tecidosPlanejadosDerivados, totaisBom,
-  type AviamentoRowDb, type BomCapturado, type EstadoBom, type EtiquetaRowDb, type GradeRowDb, type OcLinkRowDb,
+  type AviamentoRowDb, type BomCapturado, type EstadoBom, type EtiquetaRowDb, type GradeExternaCaptura, type GradeRowDb, type OcLinkRowDb,
   type TecidoRowDb, type VarianteRowDb,
 } from "./ficha-calc";
 import { requisitosUniao, seloSecaoBom, type SecaoBomKey, type SeloSecao } from "./selos-bom";
+import { gradeCompradoMudouNoServidor, gradesParaBomComprado, requeridasPorOrigem } from "../comprado";
 import { useFichaCad } from "./useFichaCad";
 import {
   assinaturaCad, assinaturaCadServidor, cadDivergeDaReferencia, deveGravarCad, linhasParaGravar, montarCadPayload,
@@ -35,6 +36,9 @@ import { seloCadSecao } from "./selos-secoes";
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 
 const SEM_LABELS: Record<string, string> = {};
+// F3.4 — identidades ESTÁVEIS p/ o comprado (sem grade da ficha; sem pré-preenchimento de Tecido 1..N).
+const SEM_GRADES: EstadoBom["grades"] = [];
+const SEM_PLANEJADOS: string[] = [];
 
 /**
  * T9 I1(a) — BOM só-leitura não pode ser editado com o MOUSE. O Radix Select ignora `<fieldset disabled>`
@@ -86,7 +90,7 @@ export type FichaSave = {
   /** R5 — recarrega o BOM e diz se ele mudou em relação à referência (true em erro — conservador). */
   bomMudouNoServidor: () => Promise<boolean>;
   /** Congela o BOM no início do Salvar (lê refs — vale mesmo no retry, fora do ciclo de render). */
-  capturar: (custosAdicionais: unknown, opts?: { retry?: boolean; proporcoes?: Record<string, number> }) => BomCapturado;
+  capturar: (custosAdicionais: unknown, opts?: { retry?: boolean; proporcoes?: Record<string, number>; gradeExterna?: GradeExternaCaptura }) => BomCapturado;
   /** F3.3 — o CAD foi gravado: a referência do CAD vira o ENVIADO já (mesma ideia do `bomGravado`). */
   cadGravado: (cad: CadCapturado) => void;
   /**
@@ -151,8 +155,17 @@ export function useFichaTecnica(a: {
   const podeVerFicha = canView("criacao_desenvolvimento");
   const podeEditarFicha = canEdit("criacao_desenvolvimento");
   const podeVerCustos = canView("criacao_planejamento:custos") || canView("criacao_desenvolvimento:custos");
-  // Só produto interno na F3.2 (decisão F3 #4; comprado = F3.4).
-  const habilitada = a.isEdit && !!a.modeloId && !a.isComprado && podeVerFicha;
+  // F3.4 — comprado também (decisões F3 #4/#8): QUAIS seções aparecem é do orquestrador (`vis`, pelo "Fluxo de Revenda");
+  // a ficha carrega p/ quem vê o Desenvolvimento porque o Salvar do comprado também grava o BOM (aviamentos/insumos e, no
+  // importado, a grade cor × tamanho — plano F3.4 §3).
+  const habilitada = a.isEdit && !!a.modeloId && podeVerFicha;
+  // F3.4 — comprado: a grade é EXTERNA à ficha (a cor × tamanho do produto, `useGradeComprado`) e o CAD nunca grava.
+  // Espelho SÍNCRONO p/ os callbacks e a captura (rodam fora do render — mesma razão do `podeEditarRef`).
+  const compradoRef = useRef(a.isComprado);
+  compradoRef.current = a.isComprado;
+  /** A ficha do comprado não carrega/compara/grava a grade dela: projeta `grades: []` nos DOIS lados de toda comparação
+   *  (snapshot do "não salvo", assinatura/referência R5/R5a, captura) — a grade do comprado tem dono próprio. */
+  const projetar = (e: EstadoBom): EstadoBom => (compradoRef.current ? { ...e, grades: SEM_GRADES } : e);
 
   const dados = useFichaDados({ modeloId: a.modeloId, habilitada });
 
@@ -201,7 +214,7 @@ export function useFichaTecnica(a: {
   const referenciaRef = useRef<string | null>(null);
   const ultimaAssinaturaServidorRef = useRef<string | null>(null);
   const tecidosPlanejadosRef = useRef(a.tecidosPlanejados);
-  tecidosPlanejadosRef.current = a.tecidosPlanejados;
+  tecidosPlanejadosRef.current = a.isComprado ? SEM_PLANEJADOS : a.tecidosPlanejados;
   // T7 m1 — `aoRecarregarComTocado` (R5a) precisa existir na hora da chamada de `useFichaBom`, mas a função
   // REAL (abaixo) lê `bom.colecoesTouchadasRef` — que só existe DEPOIS dessa chamada. A ref indireciona: a
   // carga sempre invoca a versão ATUAL via `aoRecarregarComTocadoRef.current(...)`, montada logo após `bom`
@@ -226,7 +239,9 @@ export function useFichaTecnica(a: {
 
   const bom = useFichaBom({
     modeloId: a.modeloId, habilitada, dados,
-    tecidosPlanejados: a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
+    // F3.4 — comprado não pré-preenche Tecido 1..N (não fabrica) e a grade da ficha fica de fora (a do produto manda).
+    tecidosPlanejados: a.isComprado ? SEM_PLANEJADOS : a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
+    gradeExterna: a.isComprado,
     aoRecarregarComTocado: (servidor) => aoRecarregarComTocadoRef.current(servidor),
     aoMudarBloco: (tipo, numero, patch) => aoMudarBlocoRef.current(tipo, numero, patch),
   });
@@ -249,7 +264,9 @@ export function useFichaTecnica(a: {
    * acender — `aposSalvar` cobre o resto (move a referência e invalida; a recarga seguinte compara com a
    * referência NOVA).
    */
-  aoRecarregarComTocadoRef.current = (servidor) => {
+  aoRecarregarComTocadoRef.current = (servidorBruto) => {
+    // F3.4 — comprado: a grade não é da ficha (projetada fora dos DOIS lados da comparação).
+    const servidor = projetar(servidorBruto);
     ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
     // F3.3 — o CAD do servidor chega junto (a carga espera as 6 queries estáveis — `bomFetching` inclui o CAD).
     const cadServidor = dados.cadData ?? null;
@@ -275,8 +292,8 @@ export function useFichaTecnica(a: {
   aoMudarBlocoRef.current = cad.propagarDoBloco;
 
   const estado: EstadoBom = useMemo(
-    () => ({ blocks: bom.blocks, aviamentos: bom.aviamentosState, etiquetas: bom.etiquetasState, grades: bom.grades }),
-    [bom.blocks, bom.aviamentosState, bom.etiquetasState, bom.grades],
+    () => ({ blocks: bom.blocks, aviamentos: bom.aviamentosState, etiquetas: bom.etiquetasState, grades: a.isComprado ? SEM_GRADES : bom.grades }),
+    [bom.blocks, bom.aviamentosState, bom.etiquetasState, bom.grades, a.isComprado],
   );
   const snapshot = useMemo(() => snapshotBom(estado), [estado]);
   const guarda = useFichaGuarda({ modeloId: a.modeloId, snapshot, tocado: bom.tocado, hidratado: bom.hidratado });
@@ -322,7 +339,13 @@ export function useFichaTecnica(a: {
   );
   // F3.3 — D2: antes da Ordem de Criação o Planejamento NÃO cria o CAD (FK `cad.modelo_id` NO ACTION: o card não se
   // excluiria mais). Sem CAD e sem Ordem, a seção CAD é só-leitura (o que se digitasse não seria gravado).
-  const cadGravavel = podeEditar && (dados.cadExiste || a.ordemEnviada);
+  // F3.4 — comprado: o Planejamento NUNCA grava o CAD (o da revenda nasce no recebimento da OC, com as etiquetas "a
+  // enviar" = consumo × peças REAIS — `_receber_oc_p_acabado_core`; o `salvar_cad_completo` as apagaria e regravaria pelo
+  // planejado). Seção CAD só-leitura p/ comprado.
+  // Rebase-cadeia F3.1 FINAL — `cadGravavelRef` NÃO volta aqui: o "Fix pós-rebase I1" da F3.3 (abaixo, em `cadSujo`)
+  // removeu esse ref de propósito (o gate de "CAD sujo" não pode depender de `podeEditar`/`cadGravavel` — ver
+  // `cadSujoNaCaptura` em ficha-calc.ts). `cadGravavel` aqui só decide os HANDLERS de edição (`cadHandlers` abaixo).
+  const cadGravavel = !a.isComprado && podeEditar && (dados.cadExiste || a.ordemEnviada);
   const cadHandlers = cadGravavel ? { updateTec: cad.updateTec, updateVar: cad.updateVar, setAutoFolhas: cad.setAutoFolhas } : CAD_NOOP;
   // Espelho SÍNCRONO do que a captura do CAD precisa (mesma razão do `podeEditarRef`: o retry do P0409 roda fora do
   // ciclo de render).
@@ -386,7 +409,7 @@ export function useFichaTecnica(a: {
   // Selos por seção (mapa próprio — decisão 8). Requisitos por ORIGEM (Dev :1652-1657).
   const resumo = useMemo(() => resumoBom(estado), [estado]);
   const requeridas = useMemo(
-    () => requisitosUniao(a.isComprado ? dados.revendaCfg.requisitos : (dados.tenantCfg as any)?.kanban_requisitos),
+    () => requeridasPorOrigem(a.isComprado, requisitosUniao(a.isComprado ? dados.revendaCfg.requisitos : (dados.tenantCfg as any)?.kanban_requisitos)),
     [a.isComprado, dados.revendaCfg, dados.tenantCfg],
   );
   const selos: Record<SecaoBomKey, SeloSecao> = {
@@ -432,10 +455,10 @@ export function useFichaTecnica(a: {
       const gr = qc.getQueryData<GradeRowDb[]>(["plan-ficha-grades", id]);
       const cadSrv = qc.getQueryData<CadRowDb | null>(["plan-ficha-cad", id]);
       if (!tec || !oc || !av || !et || !gr || cadSrv === undefined) return true;
-      const servidor = estadoBomDoServidor({
+      const servidor = projetar(estadoBomDoServidor({
         tecidos: tec.tecidos, variantes: tec.variantes, ocLinks: oc, aviamentos: av, etiquetas: et, grades: gr,
         planejados: tecidosPlanejadosRef.current,
-      });
+      }));
       ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
       ultimaAssinaturaCadServidorRef.current = assinaturaCadServidor(cadSrv);
       return bomDivergeDaReferencia(referenciaRef.current, servidor) || cadDivergeDaReferencia(referenciaCadRef.current, cadSrv);
@@ -510,7 +533,7 @@ export function useFichaTecnica(a: {
     // §3 P2 — se o BOM grava, o CAD grava junto. `recarregando` = recarga em curso (`bomFetching`, espelho do render)
     // OU pedida e ainda não aplicada ao CAD (`cadVelhoRef`, SÍNCRONO — R1 do G-plano F3.3): sem toque, não grava o CAD.
     const gravar = deveGravarCad({
-      podeEditar: podeEditarRef.current, cadHidratado: c.hidratado, cadExiste: c.existe, ordemEnviada: c.ordemEnviada,
+      podeEditar: podeEditarRef.current && !compradoRef.current, cadHidratado: c.hidratado, cadExiste: c.existe, ordemEnviada: c.ordemEnviada,
       linhas: linhas.length, tocado: bom.colecoesTouchadasRef.current || bomGravado, retry,
       recarregando: c.recarregando || cadVelhoRef.current,
     });
@@ -518,6 +541,12 @@ export function useFichaTecnica(a: {
       estado: estadoCad, linhas, snapshot: snapshotCad(estadoCad), gravar,
       payload: gravar ? montarCadPayload({ cad: linhas, grades: e.grades, aviamentos: e.aviamentos, etiquetas: e.etiquetas, proporcoes }) : null,
     };
+  };
+
+  /** F3.4 — importado: célula da grade cor × tamanho editada. A grade grava POR ESTE BOM (plano F3.4 §3), então a ficha fica
+   *  "tocada" p/ a conferência com o servidor (R5/R5a) proteger o Salvar — o "não salvo" dela vem da própria grade. */
+  const marcarGradeExternaEditada = () => {
+    if (compradoRef.current && podeEditarRef.current) bom.marcarTocado();
   };
 
   const save: FichaSave = {
@@ -542,7 +571,7 @@ export function useFichaTecnica(a: {
     // antes travava à toa; agora não, porque `podeEditarRef.current` é `false` para ele.
     bomPendenteDeGravar: () => podeEditarRef.current && (bom.colecoesTouchadasRef.current || bom.prefillPendenteRef.current),
     capturar: (custosAdicionais, opts) => {
-      const e = bom.estadoRef.current;
+      const e = projetar(bom.estadoRef.current);
       const snap = snapshotBom(e);
       const base = guarda.baselineRef.current;
       // "BOM só grava quando carregado E sujo" — `podeEditar` já exige carregado (e sem trava).
@@ -555,7 +584,23 @@ export function useFichaTecnica(a: {
       // proporção/toggle de grade automática com `oldSum=0`/`grade_total=0` (marca tocado, mas o snapshot da
       // GRADE não muda — só `proporcoes`, fora do snapshot do BOM) saem `false` aqui.
       const bomSujo = bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snap, base);
-      const gravar = podeEditarRef.current && (bomSujo || bom.prefillPendenteRef.current);
+      // F3.4 — comprado: a grade cor × tamanho é a fonte (decisão F3 #4). `salvar_modelo_bom` APAGA todas as grades, então o
+      // BOM do comprado leva a grade dela (`gradesPayload`: editada ⇒ o rascunho; senão a do SERVIDOR LIDA NO PRÓPRIO SALVAR
+      // — `ge.servidor`, R1 do G-plano F3.4: nunca o cache `plan-ficha-grades`, que fica VELHO na janela entre uma mudança
+      // alheia sem toque e o refetch). No IMPORTADO a grade grava POR AQUI (não há `salvar_grade_revenda` p/ importado),
+      // então a grade editada também faz o BOM gravar; se a do servidor mudou desde a abertura ⇒ conflito.
+      const ge = compradoRef.current ? opts?.gradeExterna ?? null : null;
+      const servidorGrades = ge?.servidor ?? null;
+      const gravaPelaGrade = ge !== null && ge.gravaPeloBom && ge.editada;
+      const gravar = podeEditarRef.current
+        && ((bomSujo || bom.prefillPendenteRef.current) || gravaPelaGrade);
+      // R1 — falha FECHADA: comprado que grava o BOM sem a grade do servidor lida AGORA não grava nada (sem `?? []`: lista
+      // vazia apagaria a grade inteira; o cache poderia regravar uma grade velha por cima da de outra pessoa).
+      if (compradoRef.current && gravar && servidorGrades === null) {
+        throw new Error("Não deu para conferir a grade deste card no servidor — nada foi salvo. Tente de novo.");
+      }
+      const gradeConflito = gravar && gravaPelaGrade && ge !== null && servidorGrades !== null
+        && gradeCompradoMudouNoServidor(ge.baseJson, servidorGrades);
       // Fix T9 I2 da F3.3 (rebase F3.3→3adfbd3: UM campo só, `sujoNaCaptura` = BOM sujo OU CAD sujo) — o CAD usa o
       // MESMO helper puro da F3.2 (`bomSujoNaCaptura(tocado, snap, base)` — a fórmula é genérica), lido DIRETO das refs
       // (`cad.linhasRef`/`guardaCad.baselineRef`), não de `guardaCad.dirty` (STATE, só atualiza no próximo render).
@@ -572,7 +617,7 @@ export function useFichaTecnica(a: {
         snapshot: snap,
         gravar,
         sujoNaCaptura: bomSujo || cadSujo,
-        flags: { ...bom.flagsRef.current },
+        flags: { ...bom.flagsRef.current, grade: bom.flagsRef.current.grade || gravaPelaGrade },
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
         // Fix round 4 (item 3) — antes só vinha com `podeEditarRef` (ficha destravada); agora vem sempre que
@@ -583,6 +628,12 @@ export function useFichaTecnica(a: {
         // em `aplicarColunasFicha` (save-ficha.ts) — não mudou.
         totais: carregadoRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
         cad: capturarCad(e, gravar, !!opts?.retry, opts?.proporcoes ?? a.proporcoes),
+        // null num comprado só quando NÃO grava (acima, gravar sem a leitura fresca lança) — persistirBom nem roda.
+        gradesPayload: compradoRef.current && servidorGrades !== null
+          ? gradesParaBomComprado({ editada: !!ge?.editada, rascunho: ge?.rascunho ?? [], servidor: servidorGrades })
+          : null,
+        gradeExterna: gravaPelaGrade && ge !== null ? { estadoJson: ge.estadoJson } : null,
+        gradeConflito,
         // Item C — `true` só quando a captura viu o card JÁ enviado (a trava ÚNICA em "enviado"). Os outros
         // motivos ("permissao"/"carregando"/null) não são o cenário do bug (envio à Explosão em voo).
         enviadoNaCaptura: motivoSomenteLeituraRef.current === "enviado",
@@ -600,7 +651,7 @@ export function useFichaTecnica(a: {
     // F3.3 — a referência do CAD vira o ENVIADO assim que o servidor o tem (mesmo que um passo seguinte falhe).
     cadGravado: (c) => { referenciaCadRef.current = assinaturaCad(c.linhas); },
     aposSalvar: ({ bomEnviado }) => {
-      const vivo = snapshotBom(bom.estadoRef.current);
+      const vivo = snapshotBom(projetar(bom.estadoRef.current));
       // F3.3 — o CAD entra na MESMA regra: edição em voo no CAD também segue "não salva" (as DUAS guardas re-baseiam no
       // ENVIADO; sem edição em voo, o "tocado" da ficha inteira solta).
       const cadMudouEmVoo = snapshotCad(cad.linhasRef.current) !== bomEnviado.cad.snapshot;
@@ -676,6 +727,11 @@ export function useFichaTecnica(a: {
     // F3.3 — seção CAD (render em BomSecoes) e as regras dela.
     cad: { linhas: cad.linhas, autoFolhas: cad.autoFolhas, faltas: cad.faltas, handlers: cadHandlers },
     cadGravavel, cadAntesDaOrdem: !dados.cadExiste && !a.ordemEnviada,
+    // F3.4 — comprado: a grade é a cor × tamanho do produto (fora da ficha); a célula editada no importado marca a ficha.
+    gradeExterna: a.isComprado, marcarGradeExternaEditada,
+    // R7 do G-plano F3.4 — a ficha foi tocada (a Origem não muda com edição pendente: a referência do BOM foi calculada com a
+    // projeção desta origem). `tocado`, não `dirty`: editar e desfazer mantém a referência presa à projeção de agora.
+    tocado: bom.tocado,
     // F3.3 — Importar dados: só com a ficha editável (o item do menu nem aparece sem isso).
     aplicarImportacaoBom: podeEditar ? bom.aplicarImportacao : (_p: PatchCopia, _c: Set<string>) => undefined,
     /**
