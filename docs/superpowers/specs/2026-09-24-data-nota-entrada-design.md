@@ -4,6 +4,9 @@
 `.superpowers/sdd/2026-09-24-nota-entrada/desenho-aprovado.md` (checkout principal, não versionado).
 **Plano de implementação:** `docs/superpowers/plans/2026-09-24-data-nota-entrada.md`.
 **Frente:** paralela e independente da campanha do Planejamento; worktree própria. **Produção:** depois da F1 e do Aviso Global.
+**Revisão:** G-plano (guardião) APROVOU `05561ae` COM RESSALVAS R1–R8, aplicadas nesta versão (§4.6, §7, §8, §10); R9 =
+ponto do coordenador (travas no arquivo e hook `supautils.policy_grants`, lição do Aviso Global — §4.6 e §7). D6 e D7 (§10)
+estão **pendentes do dono**; o plano implementa a recomendação.
 
 ---
 
@@ -220,6 +223,18 @@ recebida congela valores" do P. Acabado/Importado.
   `base_nova + dias[i]` (ou `+ i×30`); **Σ parcelas = total da OC**; OC não recebida (Tecido/Aviamento/Insumo) não ganha
   parcela; Importado idêntico antes/depois de gravar a data.
 
+### 4.4b Validar a data no servidor (D7 — pendente do dono; o plano implementa a recomendação)
+
+Função `fn_oc_nota_entrada_valida()` (SECURITY DEFINER, EXECUTE revogado dos 3 — #9) e gatilho `trg_nota_entrada_valida`
+BEFORE INSERT OR UPDATE OF `data_nota_entrada` nas **5** OCs. Só age quando a data é informada e mudou (re-salvar sem mudar
+não revalida — OCs antigas não travam). Recusa com `P0001` em PT, textos iguais aos do front:
+- data **futura** (> hoje no fuso da loja — `tenant_config.timezone`, padrão `America/Sao_Paulo`): "A Data da Nota de
+  Entrada (dd/mm/aaaa) não pode ser no futuro.";
+- data **anterior à data do pedido** da OC: "A Data da Nota de Entrada (dd/mm/aaaa) não pode ser anterior à data do pedido
+  (dd/mm/aaaa)."
+Vale para a RPC e para UPDATE direto. A recusa desfaz o comando inteiro (inclusive o que um gatilho de parcelas tenha feito
+antes dela), então data recusada não move vencimento. Contagem da migration: **+2 funções | +8 gatilhos** (sem a D7 seria +1 | +3).
+
 ### 4.5 Sinal "provisório"
 
 Não há coluna nova para isso: o Financeiro já lê as OCs das parcelas; passa a trazer `status, data_nota_entrada` e deriva, pela
@@ -234,17 +249,34 @@ A parcela PAGA nunca fica amarela (o vencimento dela não muda mais). O Importad
 
 ### 4.6 Migration e inverso
 
-UMA migration: `supabase/migrations/20261002100000_oc_data_nota_entrada.sql` (`BEGIN/COMMIT`, `SET LOCAL lock_timeout = '5s'`,
-idempotente). Guarda inicial: cada uma das 10 funções redefinidas tem de estar com o md5 da §3.1 (ou já conter
-`data_nota_entrada` = reaplicação) — senão `RAISE` e nada é aplicado (protege contra reverter em silêncio uma mudança feita
-em produção depois de 24/set). Pós-condição em `DO` (5 colunas, 3 gatilhos novos, gatilho do Acabado com a coluna, ACL #9,
-10 funções com a coluna). `pg_notify('pgrst','reload schema')`. Diff `pg_get_functiondef` antes/depois de TODA função
-redefinida registrado (§4.7).
+UMA migration: `supabase/migrations/20261002100000_oc_data_nota_entrada.sql` (`BEGIN;`/`COMMIT;` em linha própria,
+idempotente, GERADA a partir do texto vivo das funções — nunca editada à mão).
+
+- **Travas no arquivo (R9):** logo depois do `BEGIN;`, `SET LOCAL lock_timeout = '500ms';` e `SET LOCAL transaction_timeout =
+  '3s';` — valem mesmo no `psql -f`, que é o caminho padrão do CLAUDE.md. O harness de teste exige as 2 linhas e as tira da
+  transação do teste (senão os 3 s derrubariam a suíte).
+- **Aplicação (R3):** fora do harness, SÓ pelo `aplica_v2` do runbook v2 da F1 (igual ao Aviso e à F3.1): arquivo inteiro numa
+  mensagem, as mesmas 2 travas reinjetadas depois do `BEGIN;` (repetidas, inofensivas), nova tentativa só em 55P03/40P01/25P04
+  com o ATIV antes; qualquer outro erro PARA. Nada de `psql -1 -f`. Horário calmo.
+- **Sem DDL de policy (R9):** nenhum `CREATE`/`DROP`/`ALTER POLICY` (coluna nova não obriga a recriar policy). O hook
+  `supautils.policy_grants` do Supabase — que, a cada DDL de policy feita como `postgres`, pega AccessExclusive em 24 tabelas
+  de auth/storage/realtime até o COMMIT (`show supautils.policy_grants` na cópia, 24/set) — NÃO dispara. O harness e o
+  pré-voo recusam o arquivo se entrar uma. Se um dia for preciso: DDL de policy no FIM do arquivo, e esta spec deixa de
+  dizer que a migration não trava auth/storage.
+- **Guarda de md5 EXATA (R2):** cada uma das 10 funções tem de estar com o md5 EXATO de 24/set (§3.1) ou com o md5 EXATO
+  que esta migration instala (reaplicação); as 2 funções novas, ausentes ou com o md5 desta migration. Qualquer outro texto —
+  inclusive um que ainda contenha `data_nota_entrada` — `RAISE` e nada é aplicado (protege contra reverter em silêncio uma
+  mudança feita por outra frente depois de 24/set). Teste de recusa na integração.
+- **Pós-condição** em `DO`: 5 colunas, 3 gatilhos de recálculo + 5 de validação (D7), gatilho do Acabado com a coluna, ACL #9,
+  e as 12 funções com o md5 EXATO esperado. `pg_notify('pgrst','reload schema')`. Diff `pg_get_functiondef` antes/depois de
+  TODA função redefinida registrado (§4.7).
+- **Contagens:** +2 funções | +8 gatilhos. A cópia vai de 458 | 263 para **460 | 271** (sem a D7: 459 | 266).
 
 Inverso: `supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql` — **DESTRUTIVO: apaga as datas digitadas**; exige
-`SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'`; derruba os gatilhos novos, recria o do Acabado como era, restaura
-as 10 funções com o texto de 24/set (md5 da §3.1), **recalcula as não pagas das OCs que tinham data** (voltam à base antiga)
-e só então dropa as colunas.
+`SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'` (pelo `EXTRA_SQL` do `aplica_v2`, na mesma transação); mesmas 2
+travas no arquivo e a mesma guarda de md5 exata (as funções têm de estar no texto desta migration ou já no de 24/set); derruba
+os gatilhos novos, recria o do Acabado como era, restaura as 10 funções com o texto de 24/set (md5 conferido no fim),
+**recalcula as não pagas das OCs que tinham data** (voltam à base antiga) e só então dropa as colunas.
 
 ### 4.7 Diff mínimo esperado das 10 funções (antes → depois)
 
@@ -273,7 +305,14 @@ Só estas linhas mudam (o resto é byte a byte o texto de 24/set):
   no Tecido).
 - **Aviso na OC** (4 famílias, OC recebida e campo vazio no rascunho): faixa em tom warning no topo do formulário, com ícone,
   texto exato **"Falta a Data da Nota de Entrada — os vencimentos estão provisórios"**. Some assim que o campo é preenchido (o
-  selo de "alterações não salvas" lembra de salvar).
+  selo de "alterações não salvas" lembra de salvar). **D6 (pendente do dono — recomendação implementada):** OC recebida SEM
+  parcela a pagar (toda paga ou valor 0) também acende a bolinha e o aviso, mas o aviso diz só **"Falta a Data da Nota de
+  Entrada"** (sem "provisórios" — não há vencimento provisório). O aviso conta as parcelas não pagas da OC (mesma régua do
+  banco: `status ≠ 'pago'` e `data_pagamento` vazia); enquanto carrega, mostra o texto curto (nunca afirma algo falso).
+- **Validação da data (D7 — pendente do dono, recomendação implementada):** o calendário do `<DateField>` não oferece dia
+  futuro (`max` = hoje no fuso da loja, `todayISOInStoreTZ(useStoreTimezone())`); no Salvar, `validarDataNota` recusa data
+  futura ou anterior à data do pedido com o MESMO texto do banco (§4.4b), mostrado por `mensagemErro`. O banco valida de novo
+  (a regra vale mesmo sem o front).
 - **Bolinha amarela** nas listas (4 famílias): ponto `bg-warning` ao lado do nº da OC, com `title`/`aria-label` "Falta a Data
   da Nota de Entrada", no celular e na tabela, nas abas Encomendadas e Recebidas (a regra acende só OC recebida — ver D3).
 - **Financeiro** (parcela provisória): Lista — linha com fundo `--tone-warning-bg` e, sob o vencimento, o texto **"vencimento
@@ -281,53 +320,83 @@ Só estas linhas mudam (o resto é byte a byte o texto de 24/set):
   `title` com o texto (D5); agenda do celular, popover do dia, "Próximas parcelas" e Detalhes da Parcela — o texto em tom
   warning.
 - **Prévia do "Marcar recebido"** (Tecido): a base passa a ser a data da nota, se preenchida (espelho do servidor).
-- **Erros** sempre por `mensagemErro(e, "…")`. Nenhuma mensagem nova de banco para o usuário (a guarda da migration só roda na
-  aplicação).
-- **Invalidação:** ao salvar/receber qualquer das 5 OCs, invalidar `["parcelas"]`, `["dash-financeiro"]` e `["oc-view"]` (helper
-  único `invalidarVencimentos`).
+- **Erros** sempre por `mensagemErro(e, "…")`. Única mensagem nova de banco para o usuário: as 2 da D7 (`P0001` em PT, que o
+  `mensagemErro` já repassa). A guarda da migration só roda na aplicação.
+- **Invalidação:** ao salvar/receber qualquer das 5 OCs, invalidar `["parcelas"]`, `["dash-financeiro"]`, `["oc-view"]` e
+  `["nota-parcelas-a-pagar"]` (a contagem do aviso — D6) (helper único `invalidarVencimentos`).
 
 ## 6. Permissões
 
 Sem permissão nova. Quem edita a OC (páginas `entrada_oc_*`, `canEdit`) edita a data — mesma régua do Prazo de Pagamento, que
 também move vencimentos. Quem vê o Financeiro vê o destaque. No banco: as RPCs de save seguem com os gates de hoje
-(`tenant_module_enabled`, tenant, `auth.uid()`); a nova função de gatilho e os `_core` ficam com EXECUTE revogado de PUBLIC,
-anon e authenticated (invariante #9), conferido com `has_function_privilege`.
+(`tenant_module_enabled`, tenant, `auth.uid()`); as 2 funções novas de gatilho (`fn_oc_nota_entrada_recalc`,
+`fn_oc_nota_entrada_valida`) e os `_core` ficam com EXECUTE revogado de PUBLIC, anon e authenticated (invariante #9),
+conferido com `has_function_privilege`. A validação da data (D7) é do SERVIDOR (gatilho nas 5 OCs), não só do front: um
+UPDATE direto também é recusado.
 
 ## 7. Riscos
 
 1. **Dinheiro / vencimento errado:** mitigado por testes de integração por família (data + prazo, só não pagas mudam, paga
    intacta, Σ = total, sem data = hoje byte a byte, Importado idêntico) e pela guarda de md5 da migration.
-2. **Reverter em silêncio uma função mudada em produção depois de 24/set:** a guarda de md5 recusa a migration; o runbook
-   confere de novo antes do apply.
+2. **Reverter em silêncio uma função mudada em produção depois de 24/set (R2):** a guarda aceita SÓ o md5 EXATO de 24/set ou
+   o desta migration — qualquer outro texto, mesmo contendo `data_nota_entrada`, é recusado (teste de recusa); o pré-voo
+   confere os md5 de novo antes do apply.
 3. **Ordem de deploy:** o front novo pede `data_nota_entrada` nas listas/Financeiro; sem a coluna o PostgREST devolve erro e o
    Financeiro esvazia. Por isso o merge do front só acontece DEPOIS da migration em produção (o `:5173` do dono lê produção
    assim que o código chega à branch). O front antigo convive com o banco novo (chave ausente = mantém).
-4. **Cópia compartilhada:** a migration na cópia muda as contagens (459|266) usadas por outras frentes (ex.: re-ensaio da F1);
-   o QA aplica com backup e DESFAZ ao terminar; só um QA por vez.
-5. **Locks:** `ALTER TABLE … ADD COLUMN`/`DROP TRIGGER` pegam AccessExclusive nas 5 tabelas de OC (não em `tenant_config`);
-   `lock_timeout 5s` e checagem de `pg_stat_activity` antes; aplicar fora do horário de uso.
-6. **Ruído no dia 1:** 48 OCs antigas acendem (D1).
-7. **Vencimento editado à mão** numa parcela não paga é sobrescrito ao mudar a data (já é hoje a cada save — D4).
-8. **Data digitada errada** (ex.: ano trocado) move todos os vencimentos não pagos; sem validação nova (fora do desenho) — a
-   prévia/Financeiro mostram na hora.
+4. **Deploy leva fase sem banco (R7):** `npm run deploy` publica a branch inteira. Mesmo portão do Aviso: `git status
+   --porcelain -- src` limpo (inclusive não rastreados); PARA se houver commit de front fora da lista aprovada; PARA se houver
+   na branch fase com pré-requisito de banco não aplicado (ex.: a F3.1 grava `modelos.descricao_produto`).
+5. **Cópia compartilhada (R4/R8):** a migration na cópia muda as contagens usadas por outras frentes. Antes de toda rodada com
+   DDL na cópia: nenhum vitest/playwright rodando, nenhuma sessão ativa, e o dono avisado de que o `:5188` congela enquanto
+   roda. O ensaio e o QA aplicam com backup e DESFAZEM; no fim, a ida na cópia é feita JUNTO com o merge (sem janela em que o
+   `:5188` peça uma coluna que a cópia não tem) e fica PERMANENTE: a cópia passa a **460 | 271** (sem a D7: 459 | 266), e as
+   contagens esperadas das outras frentes mudam (ex.: `n3-copia.sh` da F3.1) — o controlador avisa cada frente no chat.
+6. **Regressão fora do desenho (R5):** os 7 arquivos de integração que já tocam parcelas/OCs (invariantes, oc-p-acabado,
+   rpc-oc-tecido, rpc-oc-aviamento, rpc-negocio, rpc-alerta-guards, batch2-guardas) rodam na cópia ANTES e DEPOIS da ida,
+   sempre com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres`; o conjunto de falhas depois tem de
+   ser igual ou menor (nenhuma falha nova).
+7. **Volta de emergência da F1 deixa de fechar (R1):** o runbook v2 da F1 espera 427 | 219 e o retrato pré-F1; com a Nota
+   no banco a volta da F1 dá **429 | 227** (sem a D7: 428 | 222), com 5 colunas a mais e 10 funções com md5 diferente. Logo depois da Nota em
+   produção grava-se uma referência nova da volta da F1 (mesmo padrão do `ref-volta-f1.sh` do Aviso), com o Aviso detectado
+   por `to_regclass('public.avisos_globais')`; a referência do Aviso fica SUPERADA e tem de ser regravada depois da Nota.
+8. **Locks (R3/R9):** `ALTER TABLE … ADD COLUMN`/`DROP TRIGGER` pegam AccessExclusive nas 5 tabelas de OC até o COMMIT (não
+   em `tenant_config`). As policies de OUTRAS tabelas que dependem delas ficam bloqueadas durante a transação — na cópia,
+   5: `enderecamento_tecido` (endtec_ins, endtec_upd), `ocs_tecido_itens`, `ocs_aviamento_itens`, `ocs_etiqueta_itens`
+   (Estoque, Plan. Tecido, OCs e Financeiro ficam na fila). Não há DDL de policy, então o hook `supautils.policy_grants` NÃO
+   trava auth/storage/realtime (login, renovação de token, URL assinada e Realtime não esperam). Mitigação: travas no arquivo
+   (500 ms / 3 s), `aplica_v2` com nova tentativa e ATIV antes, tempo medido no ensaio, horário calmo.
+9. **Ruído no dia 1:** 48 OCs antigas acendem (D1); com a D6, as recebidas sem parcela a pagar também.
+10. **Vencimento editado à mão** numa parcela não paga é sobrescrito ao mudar a data (já é hoje a cada save — D4).
+11. **Data digitada errada** (ex.: ano trocado) move todos os vencimentos não pagos. Com a D7: futura ou anterior ao pedido é
+    recusada no banco e no front; um erro dentro da faixa plausível segue possível — a prévia/Financeiro mostram na hora.
 
 ## 8. Verificação
 
-- Unit: `tests/unit/nota-entrada.test.ts` (regra do alerta, provisória, base, payload).
-- Integração (SÓ na cópia, `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres`):
-  `tests/integration/nota-entrada.test.ts` — por família, ACL, round-trip do inverso, idempotência, "sem data = hoje" (modo
-  `NOTA_MIG_TXN=1`, migration aplicada dentro da transação revertida, nunca `\i`).
+- Unit: `tests/unit/nota-entrada.test.ts` (regra do alerta, provisória, base, payload, texto do aviso — D6, validação — D7).
+- Integração (SÓ na cópia, `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` sempre explícito):
+  `tests/integration/nota-entrada.test.ts` — por família, ACL, D7 (RPC e UPDATE direto), recusa da guarda de md5 (R2),
+  round-trip do inverso, idempotência, "sem data = hoje" (modo `NOTA_MIG_TXN=1`, migration aplicada dentro da transação
+  revertida, nunca `\i`; o harness exige as 2 travas logo depois do `BEGIN;`, tira-as da transação do teste e recusa DDL de
+  policy — R9).
+- Pré-voo da cópia (R4) antes de TODA rodada com DDL nela (`NOTA_MIG_TXN=1`, `copia.sh`): nenhum vitest/playwright rodando,
+  nenhuma sessão ativa, dono avisado de que o `:5188` congela.
+- Ensaio na cópia pelo `aplica_v2` (R3): ida → conferências (5 colunas, +2 | +8, ACL #9, 12 md5) → os 7 arquivos de integração
+  antes/depois comparados por conjunto de falhas (R5) → volta com confirmação → cópia igual ao antes.
 - Gates: `tsc --noEmit`, `npm run build`, unit (sem falha nova), anti-drift de UI, arquivos só da lista permitida.
 - QA na cópia: variante do app de teste na porta **5181** (já reservada pelo controlador na linha `case "$PORTA"` do
   `criar-variante.sh` — esta frente só CONFERE, nunca edita essa linha), guarda de rede invertida (qualquer `*.supabase.co`
   reprova), escritas simuladas + 1 fluxo real opcional com OK do dono.
-- Produção: snapshot só-leitura antes; `pg_dump` completo pelo dono; migration aplicada pelo dono no Terminal; conferência
-  só-leitura depois.
+- Produção: snapshot só-leitura antes; `pg_dump` completo pelo dono; migration aplicada pelo dono no Terminal pelo `aplica_v2`
+  (pré-voo: arquivos com as travas e sem policy, PG ≥ 17, F1 e Aviso no banco, a Nota ausente, md5 de 24/set, ATIV vazio);
+  conferência só-leitura depois; referência nova da volta da F1 (R1); ida na cópia junto com o merge (R8); portão do deploy
+  (R7).
 
 ## 9. Fora de escopo
 
 - Mudar o gerador/etapas do Importado; qualquer efeito da data no Importado além de registrar.
-- Validar a data (futura, anterior ao pedido) ou exigi-la para receber.
+- Exigir a data para receber. (Validar a data futura/anterior ao pedido saiu daqui: é a D7, pendente do dono, e o plano
+  implementa a recomendação.)
 - Backfill de datas das OCs antigas (D1).
 - Unificar o parser de prazo do P. Acabado (`/`) com o do core (regex) — divergência pré-existente.
 - Recalcular para Insumo pelo botão do Financeiro (segue desabilitado, como hoje).
@@ -353,3 +422,14 @@ anon e authenticated (invariante #9), conferido com `has_function_privilege`.
   aceitar** (é o "recalcula as não pagas").
 - **D5 — Amarelo no calendário.** No calendário do Financeiro o amarelo já quer dizer "vence em ≤ 3 dias". **Recomendo:** na
   lista, fundo amarelo + texto; no calendário, contorno tracejado amarelo + texto no toque/tooltip, sem trocar a cor do chip.
+- **D6 — OC recebida toda paga ou de valor 0 acende a bolinha e o aviso? (pendente do dono)** Uma OC dessas não tem vencimento
+  provisório, mas continua sem a data da nota. **Recomendo: acende**, com o texto **"Falta a Data da Nota de Entrada"** SEM
+  "provisórios" (o aviso completo fica para a OC com parcela a pagar). O plano implementa isso (`textoAvisoFaltaNota` +
+  `AvisoFaltaNota`, que conta as parcelas não pagas da OC). Alternativa: não acender — mas a lista não tem o dado de parcelas,
+  então exigiria uma consulta por OC na lista ou um campo derivado no banco (task nova).
+- **D7 — Data implausível (futura ou antes do pedido): validar? (pendente do dono)** Um ano trocado move todos os vencimentos
+  não pagos. **Recomendo: validar** — não pode ser futura (> hoje no fuso da loja) nem anterior à data do pedido da OC; erro em
+  PT; validada no SERVIDOR (gatilho `trg_nota_entrada_valida` nas 5 OCs, vale para RPC e UPDATE direto) E no front (calendário
+  sem dia futuro + checagem no Salvar), com os mesmos textos (§4.4b). O plano implementa isso. Alternativa: não validar — sai a
+  função/os 5 gatilhos (a migration volta a +1 | +3, a cópia a 459 | 266 e a volta da F1 a 428 | 222), o teste da D7 e as
+  checagens do front.
