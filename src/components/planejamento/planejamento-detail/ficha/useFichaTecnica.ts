@@ -680,6 +680,14 @@ export function useFichaTecnica(a: {
     cadGravavel, cadAntesDaOrdem: !dados.cadExiste && !a.ordemEnviada,
     // F3.3 — Importar dados: só com a ficha editável (o item do menu nem aparece sem isso).
     aplicarImportacaoBom: podeEditar ? bom.aplicarImportacao : (_p: PatchCopia, _c: Set<string>) => undefined,
+    /**
+     * Acréscimo pós-T10 (M2, aprovado) — a execução de "Importar dados" pode rodar bem depois deste render (o
+     * usuário passa por um AlertDialog de confirmação de sobrescrita antes). `useImportarDados.aplicar` fecha
+     * sobre este `ficha` do momento do CLIQUE (`onCopiar`), não do momento da confirmação — sem uma ref viva,
+     * ele leria `podeEditar` desatualizado (a ficha pode ter travado nesse meio-tempo: recarga alheia, "outra
+     * pessoa enviou à Explosão"). Mesmo padrão de `podeEditarRef` interno, exposto pra fora do hook.
+     */
+    podeEditarRef,
     confirmGrade: bom.confirmGrade, setConfirmGrade: bom.setConfirmGrade,
     camposCopiados: bom.camposCopiados, onCampoEditado: bom.onCampoEditado, marcarCopiados: bom.marcarCopiados,
     dirty: guarda.dirty || guardaCad.dirty,

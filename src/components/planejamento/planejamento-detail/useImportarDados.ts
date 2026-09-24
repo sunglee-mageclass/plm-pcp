@@ -24,16 +24,31 @@ export function useImportarDados({ modeloId, ficha, draft, setDraftTracked, qc }
 
   const onCopiar = (r: ResultadoCopia, origem?: ModeloParaCopia, sel?: Selecao) => {
     const aplicar = async () => {
+      // Acréscimo pós-T10 (M2, aprovado) — `aplicar` pode rodar bem depois do clique em "Substituir" (o
+      // AlertDialog de confirmação de sobrescrita fica aberto até o usuário decidir): lê `podeEditar` por REF,
+      // com o valor ATUAL, não o do clique que abriu o diálogo (`ficha` aqui é o do fechamento de `onCopiar`,
+      // que pode já estar obsoleto). Se a ficha travou nesse meio-tempo (recarga alheia, card enviado à
+      // Explosão por outra pessoa), não aplica nada — nem o BOM/CAD em staging, nem as Observações do bloco
+      // (que gravam DE VERDADE, fora do Salvar).
+      if (!ficha.podeEditarRef.current) {
+        toast.error("A ficha foi travada enquanto você confirmava — nada foi importado.");
+        return;
+      }
       const campos = camposDoPatchNoDraft(r.patch);
       if (Object.keys(campos).length > 0) setDraftTracked((d) => ({ ...d, ...campos }));
       ficha.aplicarImportacaoBom(r.patch, r.campos);
       if (sel?.obsBloco && origem && modeloId) {
         try {
           await substituirObservacoesDoBloco(modeloId, origem.obsBlocoLinhas ?? []);
-          qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
           toast.info("Observações copiadas.");
         } catch (e) {
           toast.error(mensagemErro(e, "Erro ao copiar as observações"));
+        } finally {
+          // Acréscimo pós-T10 (M3, aprovado) — invalida num `finally` (não só no caminho de sucesso):
+          // `substituirObservacoesDoBloco` faz DELETE e depois INSERT; se o delete funcionar e o insert
+          // falhar, o servidor já ficou SEM as linhas antigas — sem invalidar aqui, o cache ficava mostrando
+          // as observações originais (que já não existem mais no banco), um estado fantasma na tela.
+          qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
         }
       }
     };

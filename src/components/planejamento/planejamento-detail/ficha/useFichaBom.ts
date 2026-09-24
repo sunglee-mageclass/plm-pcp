@@ -455,8 +455,22 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     if (patch.blocks || patch.aviamentos || patch.etiquetas || patch.grades) marcarTocado();
     if (patch.blocks !== undefined) {
       const novos = patch.blocks.map((b) => recomputeBlock(b, dados.artigoMap, varianteArtigoMap, frozen));
-      setBlocks(novos);
-      for (const b of novos) aoMudarBlocoRef.current?.(b.tipo, b.numero, { consumo: b.consumo, loss_percent: b.loss_percent, artigo_id: b.artigo_id });
+      // Acréscimo pós-T10 (M2, aprovado) — `setBlocks` funcional (era `setBlocks(novos)` direto), mesmo padrão
+      // do resto do arquivo: `patch.blocks` já é o estado COMPLETO a substituir (não depende do anterior),
+      // mas a forma funcional evita qualquer risco de stale closure se outro `setBlocks` estiver em voo no
+      // mesmo batch (ex.: a carga do servidor resolvendo no mesmo tick da confirmação do import).
+      setBlocks(() => novos);
+      // Acréscimo pós-T10 (M1, aprovado) — `patch.blocks` traz SEMPRE a lista COMPLETA de `_destinoBlocks`
+      // (construirCopia.ts ~:60), não só os blocos que o import de fato tocou; a granularidade real está em
+      // `campos` (`tecido:${tipo}:${numero}:artigo|consumo|variantes` — importar-copia.ts ~:67-73). Propagar
+      // ao CAD para TODOS os `novos` (como antes) sobrescrevia o CAD de blocos que o usuário NÃO marcou pra
+      // importar — numa ficha legada com BOM≠CAD, isso apagava em silêncio uma divergência intencional.
+      for (const b of novos) {
+        const tocouEsteBloco = campos.has(`tecido:${b.tipo}:${b.numero}:artigo`)
+          || campos.has(`tecido:${b.tipo}:${b.numero}:consumo`)
+          || campos.has(`tecido:${b.tipo}:${b.numero}:variantes`);
+        if (tocouEsteBloco) aoMudarBlocoRef.current?.(b.tipo, b.numero, { consumo: b.consumo, loss_percent: b.loss_percent, artigo_id: b.artigo_id });
+      }
       marcarFlag("consumo");
     }
     if (patch.aviamentos !== undefined) {
