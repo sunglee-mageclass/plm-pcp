@@ -71,6 +71,7 @@ import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/I
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { useFichaTecnica } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { opcoesMoverHoje } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
 import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
@@ -180,7 +181,7 @@ function PlanejamentoDetailConteudo({
     () => new Set(moLinhasBase.map((l) => l.id).filter((x): x is string => !!x)),
     [moLinhasBase],
   );
-  const { dirty: draftDirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
+  const { dirty: draftDirty, reset: resetDraftBaseline } = useDirtySnapshot(draft);
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
 
@@ -362,6 +363,20 @@ function PlanejamentoDetailConteudo({
     ? moLinhas.reduce((s, l) => s + (Number(l.valor) || 0), 0)
     : Number((custoData as any)?.mao_obra_previsto) || 0;
   const maoObraPlanejada = maoObraDevLive;
+
+  // F3.2 — BOM do Desenvolvimento no Sheet (Tecidos/Aviamentos/Insumos/Grade + custos do BOM). Hook SEMPRE
+  // chamado (regra dos hooks); inerte no card novo, no comprado e sem `canView("criacao_desenvolvimento")`.
+  // Trava ÚNICA (R2 do G-plano conjunto): `motivoTravaDev` vem da F3.1 (declarado logo depois das permissões, antes
+  // daqui — por isso a query do modelo subiu lá) e já considera o "Editar".
+  const ficha = useFichaTecnica({
+    modeloId, isEdit, isComprado,
+    tecidosPlanejados: draft.tecidos_planejados,
+    proporcoes: draft.proporcoes,
+    custosAdicionais: draft.custos_adicionais,
+    setDraftTracked,
+    maoObraVivo: maoObraDevLive,
+    travaDev: motivoTravaDev,
+  });
   const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
@@ -663,10 +678,10 @@ function PlanejamentoDetailConteudo({
     refEditavel,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
-    setEnviada, setLancado, markClean,
-    moLinhas, moLinhasRef, moBaseRef, setMoLinhasBase,
+    setEnviada, setLancado,
+    moLinhasRef, moBaseRef, setMoLinhasBase,
     gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
-    qc, onSaved: aoSalvar, onCreated,
+    qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBaseline,
   });
 
   // Fix final (F3.1, item 3) — card NOVO: entre o clique em Salvar e o Sheet remontar com o id
