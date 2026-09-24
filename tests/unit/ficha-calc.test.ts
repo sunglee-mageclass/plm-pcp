@@ -3,7 +3,7 @@ import { makeEmptyBlocks, type TecidoBlock } from "@/components/desenvolvimento/
 import {
   artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, estadoBomDoServidor,
   herdarGrades, hidratarBlocos, hidratarGrades,
-  montarAviamentosPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
+  montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
   relevantArtigoIds, resumoBom, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
   tecidosPlanejadosDerivados, totaisBom, type EstadoBom,
 } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
@@ -272,5 +272,88 @@ describe("R5 — o BOM do servidor mudou de verdade?", () => {
   });
   it("sem referência ⇒ diverge (conservador: na dúvida, avisa)", () => {
     expect(bomDivergeDaReferencia(null, servidor)).toBe(true);
+  });
+});
+
+// M1 (fix round 1) — falso positivo do R5 DEPOIS de um Salvar: a referência passa a ser o estado
+// ENVIADO, mas o RPC NORMALIZA o que grava (`_salvar_modelo_bom_core`, funcoes.sql:7605-7719) — o
+// eco relido nunca é byte-a-byte igual ao enviado mesmo sem ninguém mais ter mexido. `ecoDoServidor`
+// simula exatamente essa normalização: monta o payload do Salvar (`montarTecidosPayload`/
+// `montarGradesPayload`, as MESMAS funções do Salvar de verdade) e relê pela carga
+// (`estadoBomDoServidor`), com ids novos (o RPC apaga e re-insere) e a grade filtrada por "tem
+// valor" (funcoes.sql:7695-7717) como o INSERT realmente faz.
+describe("M1 — falso positivo pós-Salvar (referência = ENVIADO × eco normalizado pelo RPC)", () => {
+  function ecoDoServidor(e: EstadoBom): EstadoBom {
+    const tp = montarTecidosPayload(e.blocks);
+    const tecidos: any[] = []; const variantes: any[] = []; const ocLinks: any[] = [];
+    tp.forEach((t, k) => {
+      const id = "novo-" + k;
+      tecidos.push({ id, tipo: t.tipo, numero: t.numero, artigo_id: t.artigo_id, consumo: t.consumo, loss_percent: t.loss_percent, custo_previsto: 0 });
+      t.variantes.forEach((v, i) => {
+        if (!v) return;
+        variantes.push({
+          modelo_tecido_id: id, variante_tecido_id: v, ordem: i + 1,
+          multiplicador: t.multiplicadores[i] ?? 1,
+          complementa_variante_ids: t.complementas[i] && t.complementas[i]!.length ? t.complementas[i] : null,
+          variantes_tecido: { artigo_id: t.artigo_id },
+        });
+      });
+      t.oc_links.forEach((o) => ocLinks.push({ tipo: t.tipo, numero: t.numero, ...o }));
+    });
+    // Mesmo filtro "tem valor" do INSERT (funcoes.sql:7700-7708): grade_total>0 OU alguma célula>0.
+    const grades = montarGradesPayload(e.grades).filter(
+      (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => Number(v) > 0),
+    );
+    return estadoBomDoServidor({ tecidos, variantes, ocLinks, aviamentos: [], etiquetas: [], grades, planejados: [] });
+  }
+  const blocoT1 = (vs: (string | null)[]): TecidoBlock => ({ ...makeEmptyBlocks()[0], artigo_id: A, variantes: slots(vs, null) });
+
+  it("caso limpo: enviado × eco não diverge", () => {
+    const enviado: EstadoBom = {
+      blocks: [blocoT1([V1, V2])], aviamentos: [], etiquetas: [],
+      grades: [{ variante_numero: 1, grades: { P: 4 }, grade_total: 4 }, { variante_numero: 2, grades: { P: 4 }, grade_total: 4 }],
+    };
+    expect(bomDivergeDaReferencia(assinaturaBom(enviado), ecoDoServidor(enviado))).toBe(false);
+  });
+
+  it("(a) grade de uma variante ZERADA: o RPC descarta a linha e a herança a recria copiando a 1ª ⇒ NÃO diverge", () => {
+    const enviado: EstadoBom = {
+      blocks: [blocoT1([V1, V2])], aviamentos: [], etiquetas: [],
+      grades: [{ variante_numero: 1, grades: { P: 4 }, grade_total: 4 }, { variante_numero: 2, grades: { P: 0 }, grade_total: 0 }],
+    };
+    expect(bomDivergeDaReferencia(assinaturaBom(enviado), ecoDoServidor(enviado))).toBe(false);
+  });
+
+  it("(b) forro trocou de artigo sem escolher variante: multiplicador velho num slot sem variante ⇒ NÃO diverge", () => {
+    const fo: TecidoBlock = { ...makeEmptyBlocks().find((b) => b.tipo === "forro" && b.numero === 1)!, artigo_id: F, multiplicadores: slots([2], 1) };
+    const enviado: EstadoBom = { blocks: [blocoT1([V1]), fo], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(enviado), ecoDoServidor(enviado))).toBe(false);
+  });
+
+  it("mudança REAL de consumo (outra pessoa) continua divergindo", () => {
+    const enviado: EstadoBom = {
+      blocks: [blocoT1([V1, V2])], aviamentos: [], etiquetas: [],
+      grades: [{ variante_numero: 1, grades: { P: 4 }, grade_total: 4 }, { variante_numero: 2, grades: { P: 4 }, grade_total: 4 }],
+    };
+    const referencia = assinaturaBom(enviado);
+    const outro: EstadoBom = { ...enviado, blocks: [{ ...enviado.blocks[0], consumo: 9.99 }] };
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+
+  it("mudança REAL de variante (outra pessoa) continua divergindo", () => {
+    const enviado: EstadoBom = { blocks: [blocoT1([V1, V2])], aviamentos: [], etiquetas: [], grades: [] };
+    const referencia = assinaturaBom(enviado);
+    const outro: EstadoBom = { ...enviado, blocks: [blocoT1([V1, VB])] };
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+
+  it("mudança REAL de grade — não é zerar, é outro valor — continua divergindo", () => {
+    const enviado: EstadoBom = {
+      blocks: [blocoT1([V1, V2])], aviamentos: [], etiquetas: [],
+      grades: [{ variante_numero: 1, grades: { P: 4 }, grade_total: 4 }, { variante_numero: 2, grades: { P: 4 }, grade_total: 4 }],
+    };
+    const referencia = assinaturaBom(enviado);
+    const outro: EstadoBom = { ...enviado, grades: [{ variante_numero: 1, grades: { P: 10 }, grade_total: 10 }, { variante_numero: 2, grades: { P: 4 }, grade_total: 4 }] };
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
   });
 });

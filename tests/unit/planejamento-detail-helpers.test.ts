@@ -269,11 +269,23 @@ describe("CAMPOS_DEV_DRAFT — F3.2 (lista ÚNICA com a F3.1)", () => {
     expect(p).not.toHaveProperty("custos_adicionais");
     expect(p.nome).toBe("M");
   });
-  it("com permissão: vão como estão (objeto/array — sem normalização)", () => {
+  it("com permissão: vão como estão (objeto/array — sem normalização, sem reescrita do draft)", () => {
+    // Fix round 1, minor: o payload de entrada NÃO tem as 2 chaves (ao contrário do teste
+    // original, que só provava passthrough de `{...x}` para `{...x}`) e o draft tem valores
+    // DIFERENTES dos que já estavam no payload — prova que a função nem apaga (como faz sem
+    // permissão) nem reescreve a partir do draft (ao contrário dos escalares acima, que SÃO
+    // reescritos): fica exatamente o que veio no payload.
     const x = d();
-    const p = aplicarRegrasCamposDev({ ...x }, x, { podeEditarDev: true, refEditavel: false });
-    expect(p.proporcoes).toEqual({ P: 1, M: 2 });
-    expect(p.custos_adicionais).toEqual([{ descricao: "Bordado", valor: 3.5 }]);
+    const payloadSemAsChaves = { nome: x.nome }; // sem proporcoes/custos_adicionais
+    const p1 = aplicarRegrasCamposDev(payloadSemAsChaves, x, { podeEditarDev: true, refEditavel: false });
+    expect(p1).not.toHaveProperty("proporcoes");
+    expect(p1).not.toHaveProperty("custos_adicionais");
+
+    const payloadComOutrosValores = { nome: x.nome, proporcoes: { G: 9 }, custos_adicionais: [] as { descricao: string; valor: number }[] };
+    const draftComOutrosValores: Draft = { ...x, proporcoes: { P: 1, M: 2 }, custos_adicionais: [{ descricao: "Bordado", valor: 3.5 }] };
+    const p2 = aplicarRegrasCamposDev(payloadComOutrosValores, draftComOutrosValores, { podeEditarDev: true, refEditavel: false });
+    expect(p2.proporcoes).toEqual({ G: 9 }); // do PAYLOAD, não do draft — sem reescrita
+    expect(p2.custos_adicionais).toEqual([]);
   });
   it("Duplicar (decisão F3 #9): a cópia NÃO leva proporções nem custos adicionais", () => {
     const p = camposParaDuplicar(d());

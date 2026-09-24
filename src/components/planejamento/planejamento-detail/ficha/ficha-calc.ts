@@ -369,19 +369,53 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
   return Object.fromEntries(Object.entries(g ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
+/** A grade "tem valor" pelo MESMO critério do RPC (`_salvar_modelo_bom_core`, funcoes.sql:7695-7717):
+ *  `grade_total > 0` OU alguma célula > 0. Linha sem valor é DESCARTADA pelo INSERT — não pode entrar
+ *  na assinatura (senão a herança que a recria no eco, ou a ausência dela no enviado, vira falso conflito). */
+function gradeTemValor(g: GradeRow): boolean {
+  if ((g.grade_total || 0) > 0) return true;
+  return Object.values(g.grades ?? {}).some((v) => Number(v) > 0);
+}
+
+/** Slot NÃO-nulo do bloco (M1, fix round 1): ordem + variante + multiplicador + casamento. Um slot SEM
+ *  variante nunca é lido pelo RPC (que só grava `modelo_tecido_variantes` para índices com variante —
+ *  `_salvar_modelo_bom_core`), então multiplicador/casamento "velhos" sobrando num slot vazio (troca de
+ *  artigo do bloco só zera `variantes`, `ModeloTecidosSection.tsx:360`; ou substituto removido) não podem
+ *  entrar na assinatura — o próprio banco os ignora. */
+function slotsDoBloco(t: TecidoPayload): { ordem: number; variante: string; multiplicador: number; complemento: string[] | null }[] {
+  return t.variantes
+    .map((v, i) => (v ? { ordem: i + 1, variante: v, multiplicador: t.multiplicadores[i] ?? 1, complemento: t.complementas[i] ?? null } : null))
+    .filter((s): s is { ordem: number; variante: string; multiplicador: number; complemento: string[] | null } => s !== null);
+}
+
 /**
  * "Assinatura" do BOM = o que `salvar_modelo_bom` + etiquetas GRAVARIAM (as MESMAS funções do Salvar), sem os custos
  * derivados e com as chaves da grade em ordem estável (o jsonb do servidor reordena). Linha vazia, casamento vazio e
  * alocação de OC sem OC somem dos dois lados — só acusa diferença que o banco de fato guarda.
+ *
+ * M1 (fix round 1, R5 falso-positivo pós-Salvar): a referência aqui é o estado ENVIADO, mas o RPC NORMALIZA o
+ * que grava — o eco relido nunca é byte-a-byte igual ao payload enviado, mesmo sem ninguém mais ter mexido.
+ * Dois casos concretos: (a) grade de uma variante zerada é DESCARTADA pelo INSERT (`gradeTemValor`) e a
+ * herança de grade (`estadoBomDoServidor`) a RECRIA copiando a 1ª — filtramos pelo MESMO critério do RPC
+ * ANTES de reaplicar a herança dos dois lados, então a linha "some" nos dois. (b) multiplicador/casamento
+ * ficam num slot SEM variante (troca de artigo zera só `variantes`; substituto removido) — o RPC nunca lê
+ * esse slot, então a assinatura só considera slots com variante (`slotsDoBloco`).
  */
 export function assinaturaBom(e: EstadoBom): string {
+  const nVariantesT1 = tecido1VarianteIds(e.blocks).length;
+  const gradesComValor = herdarGrades(e.grades.filter(gradeTemValor), nVariantesT1);
   return JSON.stringify({
-    tecidos: montarTecidosPayload(e.blocks).map(({ custo_previsto: _c, ...t }) => t),
+    tecidos: montarTecidosPayload(e.blocks).map((t) => ({
+      artigo_id: t.artigo_id, numero: t.numero, tipo: t.tipo,
+      consumo: t.consumo, loss_percent: t.loss_percent,
+      slots: slotsDoBloco(t),
+      oc_links: t.oc_links,
+    })),
     aviamentos: montarAviamentosPayload(e.aviamentos).map(({ custo_previsto: _c, ...a }) => a),
     etiquetas: e.etiquetas.filter((r) => r.etiqueta_id).map((r) => ({
       etiqueta_id: r.etiqueta_id, cor_id: r.cor_id || null, consumo: r.consumo || 0, loss_percent: r.loss_percent || 0,
     })),
-    grades: montarGradesPayload(e.grades)
+    grades: montarGradesPayload(gradesComValor)
       .map((g) => ({ variante_numero: g.variante_numero, grades: gradeOrdenada(g.grades), grade_total: g.grade_total }))
       .sort((a, b) => a.variante_numero - b.variante_numero),
   });

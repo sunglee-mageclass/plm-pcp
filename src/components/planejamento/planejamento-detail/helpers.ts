@@ -76,9 +76,10 @@ export const CAMPOS_DEV_DRAFT = [
   "modelista_id", "piloteiro1_id", "piloteiro2_id", "piloteiro3_id",
   "data_piloto1", "data_piloto2", "data_piloto3", "data_desenho_tecnico", "data_aprovacao",
   "observacoes_tecnicas", "motivo_cancelamento", "ficha_medida_url", "observacoes_gerais",
-  // F3.2 — escalares do Dev que o Sheet passa a gravar (Grade e Preço e Custos). Lista ÚNICA da campanha: sem
-  // permissão do Dev saem do payload (aplicarRegrasCamposDev) e o Duplicar não os leva (camposParaDuplicar, decisão
-  // F3 #9). Objeto/array: vão como estão (vazio = {} / [] é valor válido — sem normalização em aplicarRegrasCamposDev).
+  // F3.2 — colunas do Dev (objeto/array, não escalar) que o Sheet passa a gravar (Grade e Preço e
+  // Custos). Lista ÚNICA da campanha: sem permissão do Dev saem do payload (aplicarRegrasCamposDev) e
+  // o Duplicar não os leva (camposParaDuplicar, decisão F3 #9). Vão como estão (vazio = {} / [] é
+  // valor válido — sem normalização em aplicarRegrasCamposDev, ao contrário dos escalares acima).
   "proporcoes", "custos_adicionais",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
