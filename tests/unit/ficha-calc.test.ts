@@ -368,6 +368,9 @@ describe("M1 — falso positivo pós-Salvar (referência = ENVIADO × eco normal
     };
     const enviado: EstadoBom = { blocks: [blocoT1([V1]), fo], aviamentos: [], etiquetas: [], grades: [] };
     const referencia = assinaturaBom(enviado);
+    // CONTROLE (T7): no MESMO slot, o eco do que foi de fato enviado não diverge — prova que é a
+    // mudança de multiplicador (e não outra coisa do slot) que acende a divergência abaixo.
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(enviado))).toBe(false);
     const outro: EstadoBom = { ...enviado, blocks: [enviado.blocks[0], { ...fo, multiplicadores: slots([5], 1) }] };
     expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
   });
@@ -379,6 +382,9 @@ describe("M1 — falso positivo pós-Salvar (referência = ENVIADO × eco normal
     };
     const enviado: EstadoBom = { blocks: [blocoT1([V1, V2]), fo], aviamentos: [], etiquetas: [], grades: [] };
     const referencia = assinaturaBom(enviado);
+    // CONTROLE (T7): no MESMO slot, o eco do que foi de fato enviado não diverge — prova que é a
+    // mudança de casamento (e não outra coisa do slot) que acende a divergência abaixo.
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(enviado))).toBe(false);
     const outro: EstadoBom = { ...enviado, blocks: [enviado.blocks[0], { ...fo, complementas: slots<string[] | null>([[V2]], null) }] };
     expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
   });
