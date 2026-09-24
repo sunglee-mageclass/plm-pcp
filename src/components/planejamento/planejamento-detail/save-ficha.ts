@@ -84,18 +84,45 @@ export function prepararRetryP0409<T extends Record<string, any>>(o: { base: T; 
 }
 
 /**
- * Item C (re-review fix T7+T9, item 3) — o retry AUTOMÁTICO do P0409 lê `podeEditar`/`podeGravarColunasDev`
- * do momento em que o rascunho foi CAPTURADO (fechado sobre a closure do `capturar()`), não do estado atual
- * do servidor: se o card foi enviado à Explosão por outra pessoa NO MEIO do meu Salvar, o `fresh` relido já
- * tem `enviado_cad=true`, mas o retry ainda vê os campos do Dev como editáveis (o próximo re-render, que
- * recalcularia `motivoSomenteLeitura`, ainda não rodou) — `_salvar_modelo_bom_core` não tem guarda própria no
- * servidor, então o retry gravaria o BOM/colunas do Dev num card já enviado.
+ * Item C (fix round 3 — IMPORTANTE) — a versão anterior usava `enviadoNaCaptura = motivoSomenteLeitura ===
+ * "enviado"` como proxy de "o card JÁ estava enviado na captura". Bug: "permissao" tem PRECEDÊNCIA sobre
+ * "enviado" na trava ÚNICA (`motivoSomenteLeitura`, useFichaTecnica.ts), e o "Editar" (`editandoDev=true` no
+ * PD) transforma o motivo em "cad"/null mesmo com o card enviado — nos dois casos `motivoSomenteLeitura` NUNCA
+ * é `"enviado"`, então `enviadoNaCaptura` saía sempre `false`, mesmo com o card JÁ enviado ANTES do save.
+ * Cenário que dava errado: card JÁ enviado, usuário sem edição do Dev (ou em "Editar") — o payload já não
+ * tinha colunas do Dev (era exatamente o comportamento certo), mas QUALQUER P0409 nesse save (ex.: Lançar e
+ * logo em seguida Salvar) caía no bloqueio (`fresh.enviado_cad=true` e `capturadoEnviado` sempre `false`),
+ * mostrava o toast falso de "enviado por outra pessoa" e não fazia o retry — mesmo o retry sendo seguro (o
+ * payload não grava nada do Dev de qualquer forma).
  *
- * Bloqueia o retry quando o `fresh` relido tem `enviado_cad === true` E o rascunho foi capturado com o card
- * NÃO enviado (a mudança de "não enviado" → "enviado" aconteceu DURANTE este save — se já estava enviado
- * ANTES, `podeGravarColunasDev` já era `false` na captura e o payload já saiu sem as colunas do Dev; nesse
- * caso não é este bug, o retry normal decide).
+ * Fix (a): `enviadoCadNaCaptura` agora vem do valor REAL de `modelos.enviado_cad` no início do Salvar (lido
+ * do cache já populado pela query `["modelo", modeloId]` do orquestrador — `usePlanejamentoSave.ts`, sem
+ * query nova), não mais da trava derivada.
+ * Fix (b): o bloqueio exige as DUAS condições — (1) não estava enviado na captura e o `fresh` já está
+ * enviado (a mudança aconteceu DURANTE este save) E (2) esta captura IA gravar algo do Dev
+ * (`bom.gravar || podeGravarColunasDev`, também capturados no início do save). Sem (2), o payload nunca teve
+ * colunas do Dev — o retry é seguro e não deve ser bloqueado.
  */
-export function retryBloqueadoPorEnvio(fresh: { enviado_cad?: boolean | null }, capturadoEnviado: boolean): boolean {
-  return !!fresh.enviado_cad && !capturadoEnviado;
+export function retryBloqueadoPorEnvio(
+  fresh: { enviado_cad?: boolean | null },
+  capturado: { enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean },
+): boolean {
+  const passouAEnviado = !!fresh.enviado_cad && !capturado.enviadoCadNaCaptura;
+  const iaGravarDoDev = capturado.gravaBom || capturado.podeGravarColunasDev;
+  return passouAEnviado && iaGravarDoDev;
+}
+
+/**
+ * Item G (menor, fix round 3) — "save em voo" como CONTADOR, não booleano. Extraído p/ ser testável sem
+ * montar hooks (mesmo espírito de `retryBloqueadoPorEnvio`). No TanStack Query 5.x, o `mutationFn` do RETRY
+ * de um P0409 roda ANTES do `onSettled` do 1º ciclo — com um booleano simples (`marcarSaveEmVoo(true/false)`
+ * setando direto), a sequência real (+true no 1º mutationFn, +true de novo no mutationFn do retry, SÓ DEPOIS
+ * o onSettled do 1º ciclo chamando false) fazia esse `onSettled` desligar a flag NO MEIO do retry, que ainda
+ * estava rodando (`persistirBom`, MO, `marcar_revisao_por_mudanca`). Contador com PISO 0: `true` soma 1,
+ * `false` subtrai 1 sem nunca ir negativo (um `onSettled` "sobrando" — ex.: erro antes do 1º
+ * `marcarSaveEmVoo(true)` chegar a rodar — não deixa dívida que exigiria 2 `true`s pra sair de "em voo").
+ * "Em voo" = contador > 0 (ver `useFichaTecnica.ts`, `saveEmVooContadorRef`).
+ */
+export function contadorVoo(atual: number, marcar: boolean): number {
+  return Math.max(0, atual + (marcar ? 1 : -1));
 }

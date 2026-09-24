@@ -18,6 +18,7 @@ import type { MotivoTravaDev } from "./secoes/AvisoCamposDev";
 import { chavesBomServidor, chavesFichaBom, useFichaDados } from "./useFichaDados";
 import { useFichaBom } from "./useFichaBom";
 import { useFichaGuarda } from "./useFichaGuarda";
+import { contadorVoo } from "../save-ficha";
 import {
   assinaturaBom, bomDivergeDaReferencia, estadoBomDoServidor,
   paresComplementares, resumoBom, snapshotBom, tecido1VariantesInfo, tecidosPlanejadosDerivados, totaisBom,
@@ -90,6 +91,15 @@ export type FichaSave = {
    * sobrescreveria o BOM alheio sem passar pela conferência R5 (que só roda quando o `rev` muda DE NOVO).
    */
   invalidarBom: () => void;
+  /**
+   * Item E (fix round 3, (a)) — "este save IA gravar o BOM?" = BOM tocado OU pré-preenchimento pendente
+   * (mesma condição de `gravar` em `capturar()`, sem depender de `podeEditar`/carga — lida direto das refs,
+   * vale fora do ciclo de render). Usada no `onError` do P0409 (`usePlanejamentoSave.ts`) para decidir se
+   * confere o BOM do servidor: com prefill pendente e `colecoesTouchadasRef=false`, o `bomConflito` de hoje
+   * ficava sempre `false` (só olhava `colecoesTouchadasRef`) — um P0409 nesse instante fazia o retry gravar o
+   * esqueleto Tecido 1..N por cima do BOM que outra pessoa completou nesse meio-tempo (cenário do bug).
+   */
+  bomPendenteDeGravar: () => boolean;
   etapas: { corte?: boolean; baixa_total?: number };
 };
 
@@ -136,17 +146,31 @@ export function useFichaTecnica(a: {
   const [verificandoBom, setVerificandoBom] = useState(false);
   const verificandoBomRef = useRef(false);
   const setVerificandoBoth = (v: boolean) => { verificandoBomRef.current = v; setVerificandoBom(v); };
-  // Item G (T11, I1) — "Tecidos & BOM" pisca durante o PRÓPRIO save: a conferência nasce do eco do UPDATE do
-  // header (bump de `rev`) e resolve ANTES do `bomGravado`/`aposSalvar` (que só rodam depois de
-  // `persistirBom`) — nessa janela, `bomMudouNoServidor` relê o BOM ainda VELHO no servidor E compara contra
-  // a referência ainda VELHA, então não deveria divergir; mas com o BOM local editado (tocado) o efeito visual
-  // de "conferir e talvez acender" no meio do PRÓPRIO save é indesejado. `marcarSaveEmVoo(true)` no início do
-  // `mutationFn` e `(false)` no fim (onSettled/onSuccess/onError) — enquanto true, `aoMudarNoServidor` com BOM
-  // tocado só invalida (não confere/não acende); o `aposSalvar` já invalida de novo ao fim, e a R5a do
-  // guardião (outra pessoa salvando o CONSUMO com o meu tocado, fora do meu save) continua funcionando —
-  // ela só entra pela CARGA (`aoRecarregarComTocado`), não por este caminho.
-  const saveEmVooRef = useRef(false);
-  const marcarSaveEmVoo = (v: boolean) => { saveEmVooRef.current = v; };
+  // Item G (T11, I1; CONTADOR — fix round 3) — "Tecidos & BOM" pisca durante o PRÓPRIO save: a conferência
+  // nasce do eco do UPDATE do header (bump de `rev`) e resolve ANTES do `bomGravado`/`aposSalvar` (que só
+  // rodam depois de `persistirBom`) — nessa janela, `bomMudouNoServidor` relê o BOM ainda VELHO no servidor E
+  // compara contra a referência ainda VELHA, então não deveria divergir; mas com o BOM local editado (tocado)
+  // o efeito visual de "conferir e talvez acender" no meio do PRÓPRIO save é indesejado.
+  // `marcarSaveEmVoo(true)` no início do `mutationFn` e `(false)` no fim (onSettled/onSuccess/onError) —
+  // enquanto "em voo", `aoMudarNoServidor` com BOM tocado só invalida (não confere/não acende); o
+  // `aposSalvar` já invalida de novo ao fim, e a R5a do guardião (outra pessoa salvando o CONSUMO com o meu
+  // tocado, fora do meu save) continua funcionando — ela só entra pela CARGA (`aoRecarregarComTocado`), não
+  // por este caminho.
+  //
+  // Fix round 3 (item G, menor) — booleano→CONTADOR. No TanStack Query 5.x, o `mutationFn` do RETRY roda
+  // ANTES do `onSettled` do 1º ciclo (a promise do `save.mutate(...)` dentro do `onError` já reentra no
+  // `mutationFn`, que chama `marcarSaveEmVoo(true)` de novo, ANTES de o microtask do `onSettled` do ciclo
+  // anterior — que ainda ia chamar `marcarSaveEmVoo(false)` — rodar). Com um booleano simples, essa ordem
+  // fazia o `onSettled` do 1º ciclo desligar a flag NO MEIO do retry (que segue rodando `persistirBom`/MO/
+  // etapas), zerando a proteção deste item durante o resto do retry inteiro. Com CONTADOR: `true` = `+1`,
+  // `false` = `-1` com PISO 0 (nunca negativo — um `onSettled` "sobrando" não deixa dívida); "em voo" =
+  // contador > 0. Sequência do retry: mutationFn 1ª tentativa (+1 ⇒ 1) → P0409 → onError chama
+  // `save.mutate()` → mutationFn do retry roda de novo (+1 ⇒ 2) → SÓ DEPOIS o onSettled do 1º ciclo dispara
+  // (-1 ⇒ 1, ainda > 0 — o retry segue protegido) → retry termina → onSettled do retry (-1 ⇒ 0).
+  const saveEmVooContadorRef = useRef(0);
+  const marcarSaveEmVoo = (v: boolean) => {
+    saveEmVooContadorRef.current = contadorVoo(saveEmVooContadorRef.current, v);
+  };
   const geracaoRef = useRef(0);
   // REFERÊNCIA = assinatura do BOM do SERVIDOR sobre o qual o usuário está editando. Enquanto nada foi tocado ela
   // ACOMPANHA o estado (que é o do servidor recém-carregado); depois de um Salvar que gravou o BOM, vira o ENVIADO (o
@@ -330,13 +354,18 @@ export function useFichaTecnica(a: {
    */
   const aoMudarNoServidor = () => {
     if (!habilitada) return;
+    // Item E (fix round 3, (c)) — ramo SEM toque: invalida INCONDICIONALMENTE, com ou sem prefill pendente
+    // (a condição já era só `!colecoesTouchadasRef`, sem olhar `prefillPendenteRef` — nada muda aqui). O
+    // refetch disparado por esta invalidação passa pelo efeito de carga do `useFichaBom`, que resolve a
+    // pendência pelo item (b): se o BOM do servidor chegou NÃO-vazio, `prefillPendenteRef` é zerado lá.
     if (!bom.colecoesTouchadasRef.current) { invalidarBom(); return; }
-    // Item G — save em voo: o eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não confere nem acende
-    // "Tecidos & BOM" — só marca que deve invalidar (o `aposSalvar` já invalida ao fim; a R5a do guardião, que
-    // cobre "outra pessoa salva o consumo com o meu tocado", continua ativa — ela entra pela CARGA, não por
-    // aqui). Sem isto, a conferência (que compara o BOM ainda velho do servidor com a referência ainda velha)
-    // roda e resolve visivelmente ANTES do `bomGravado`/`aposSalvar`, piscando o aviso à toa.
-    if (saveEmVooRef.current) { invalidarBom(); return; }
+    // Item G — save em voo (contador > 0, fix round 3): o eco do UPDATE do header (bump de `rev`) do PRÓPRIO
+    // save não confere nem acende "Tecidos & BOM" — só marca que deve invalidar (o `aposSalvar` já invalida
+    // ao fim; a R5a do guardião, que cobre "outra pessoa salva o consumo com o meu tocado", continua ativa —
+    // ela entra pela CARGA, não por aqui). Sem isto, a conferência (que compara o BOM ainda velho do servidor
+    // com a referência ainda velha) roda e resolve visivelmente ANTES do `bomGravado`/`aposSalvar`, piscando
+    // o aviso à toa.
+    if (saveEmVooContadorRef.current > 0) { invalidarBom(); return; }
     const geracao = ++geracaoRef.current;
     setVerificandoBoth(true);
     void bomMudouNoServidor().then((mudou) => {
@@ -369,6 +398,9 @@ export function useFichaTecnica(a: {
     colecoesTouchadasRef: bom.colecoesTouchadasRef,
     setConflitoBom: setConflitoBomBoth,
     bomMudouNoServidor,
+    // Item E (fix round 3, (a)) — mesma condição de `gravar` em `capturar()` abaixo, sem o `podeEditarRef`
+    // (aqui é só "este save VAI TENTAR gravar", não "pode"): tocado OU prefill pendente.
+    bomPendenteDeGravar: () => bom.colecoesTouchadasRef.current || bom.prefillPendenteRef.current,
     capturar: (custosAdicionais) => {
       const e = bom.estadoRef.current;
       const snap = snapshotBom(e);

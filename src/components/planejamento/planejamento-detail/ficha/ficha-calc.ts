@@ -370,10 +370,15 @@ export type BomCapturado = {
   tecidosPlanejados: string[];
   /** Totais SEM mão de obra (a MO entra no Salvar). null = ficha não carregada / sem permissão / somente leitura. */
   totais: TotaisBom | null;
-  /** Item C (fix round 2) — `travaDev === "enviado"` no INSTANTE da captura (fechado sobre a closure do
-   *  `capturar()`), não o estado atual do servidor. O retry do P0409 usa isto contra o `fresh` relido: se o
-   *  card foi enviado à Explosão por outra pessoa DURANTE este save, o retry automático não pode gravar o
-   *  BOM/colunas do Dev (`retryBloqueadoPorEnvio`, save-ficha.ts). */
+  /**
+   * Item C (fix round 2; SUBSTITUÍDO como fonte no fix round 3) — `motivoSomenteLeitura === "enviado"` no
+   * INSTANTE da captura. Mantido por compatibilidade (a interface só GANHA campos) mas não é mais a fonte de
+   * `retryBloqueadoPorEnvio`: "permissao" tem precedência sobre "enviado" na trava ÚNICA, e o "Editar"
+   * (`editandoDev=true` no PD) zera o motivo mesmo com o card enviado — nos dois casos este campo fica
+   * `false` mesmo com `modelos.enviado_cad=true`. A fonte real (round 3) é `enviado_cad` bruto, lido do cache
+   * de `["modelo", modeloId]` dentro do `usePlanejamentoSave.ts` — ver `retryBloqueadoPorEnvio`
+   * (save-ficha.ts) e o campo `enviadoCadNaCaptura` do `enviadoRef` lá.
+   */
   enviadoNaCaptura: boolean;
 };
 
@@ -414,13 +419,31 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
  * o parser decimal do JS lê o valor na base 10 sem o erro de multiplicação binária, e
  * `Math.round` aplicado a ELE cai exatamente na borda .5 certa. Testado nos empates: 1.005→1.01,
  * 1.255→1.26, 0.145→0.15, 0.00015→0.0002 (4 casas), e o caso negativo −1.005→−1.01.
+ *
+ * Item A (fix round 3, menor — bordas do arredondamento): a concatenação `abs + "e" + casas` (round 2)
+ * pressupõe que `String(abs)` é decimal simples ("1.005"), mas o JS imprime números MUITO pequenos já em
+ * notação científica (`String(1e-7) === "1e-7"`), e concatenar mais um `"e" + casas` produz uma string
+ * inválida (`"1e-7e2"` → `Number(...)` = `NaN`). O mesmo vale pra resíduos de ponto flutuante de contas
+ * anteriores (ex.: `5.55e-17`, sobra de subtrações) e pra `±Infinity` (`String(Infinity) === "Infinity"`,
+ * concatenado vira `"Infinitye2"` → `NaN`). Um `NaN` na assinatura vira `null` no `JSON.stringify` — e o
+ * servidor, que nunca vê um valor tão extremo sobreviver ao `numeric` da coluna, daria 0 — divergência
+ * (conflito "Tecidos & BOM" falso) exatamente pela função de arredondamento que deveria EVITAR isso.
+ * Fix: decompõe `abs` em mantissa/expoente via `toExponential()` ANTES de concatenar — a mantissa de
+ * `toExponential()` é SEMPRE "D" ou "D.DDDD" (nunca outra notação científica aninhada), e soma-se `casas`
+ * ao PRÓPRIO expoente (em vez de concatenar direto no valor) para deslocar a vírgula corretamente
+ * independente de quão grande/pequeno `abs` seja. Não-finito (`Infinity`/`NaN`) e `-0` viram `0` (mesmo
+ * valor que o `numeric` do Postgres armazenaria nesses casos — não há coluna que guarde infinito).
  */
 function roundNumeric(x: number, casas: number): number {
-  const n = Number(x) || 0;
-  if (n === 0) return 0;
+  const n = Number(x);
+  if (!Number.isFinite(n) || n === 0) return 0;
   const abs = Math.abs(n);
-  const arredondado = Number(Math.round(Number(abs + "e" + casas)) + "e-" + casas);
-  return Math.sign(n) * arredondado;
+  // "D" ou "D.DDDD" + "e" + expoente inteiro (com sinal) — nunca notação científica ANINHADA, ao contrário
+  // de `String(abs)` pra valores muito pequenos/grandes.
+  const [mantissa, expoenteStr] = abs.toExponential().split("e");
+  const arredondado = Number(Math.round(Number(mantissa + "e" + (Number(expoenteStr) + casas))) + "e-" + casas);
+  const resultado = Math.sign(n) * arredondado;
+  return resultado === 0 ? 0 : resultado; // −0 (n negativo arredondando a 0) ⇒ 0, igual ao numeric do banco.
 }
 
 /** `modelo_tecidos`/`modelo_aviamentos`.consumo e `modelo_etiquetas`.consumo — NUMERIC(10,4). */

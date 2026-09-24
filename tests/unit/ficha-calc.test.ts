@@ -491,6 +491,81 @@ describe("assinaturaBom — arredondamento por expoente decimal, sem erro de emp
   });
 });
 
+// Item A (fix round 3, menor) — bordas do arredondamento: `1e-7`, `5e-7`, resíduos de ponto flutuante
+// (`5.55e-17`) e `±Infinity` viravam `NaN` (a concatenação `abs + "e" + n` do round 2 pressupõe
+// `String(abs)` decimal simples — falha quando o JS já imprime em notação científica) → `null` no JSON →
+// divergia do servidor (que dá 0 pra esses casos) → conflito "Tecidos & BOM" falso. Fix: decompõe
+// mantissa/expoente via `toExponential()` antes de concatenar; não-finito e -0 tratados como 0.
+//
+// Prova pedida no brief: comentado abaixo (não commitado) o "sabotage test" — trocar `roundNumeric` por
+// `() => NaN` faz TODOS os testes deste describe (inclusive os `it("CONTROLE…")`) FALHAR, porque a
+// assinatura de 1e-7/Infinity/NaN passaria a divergir de 0 (esperado NÃO-divergir) e os controles de
+// valores REAIS diferentes passariam a "não divergir" quando deveriam divergir (NaN !== NaN é sempre
+// true em JS, mas a comparação aqui é de STRING JSON — "NaN" vira "null" nos dois lados, então os
+// controles de loss/aviamento/etiqueta que hoje divergem por VALOR REAL diferente passariam a bater como
+// iguais, escondendo o sabotage). Confirmado rodando localmente com `roundNumeric` trocada por `() => NaN`
+// antes deste commit: os 4 casos de borda E os 3 controles falham.
+describe("assinaturaBom — bordas do arredondamento: não-finito e notação científica não quebram (fix round 3, item A)", () => {
+  const t1ComLoss = (loss_percent: number): TecidoBlock => bloco("tecido", 1, { artigo_id: A, consumo: 1, loss_percent });
+  const t1ComConsumo = (consumo: number): TecidoBlock => bloco("tecido", 1, { artigo_id: A, consumo });
+  const av = (loss: number): EstadoBom => ({
+    blocks: [], grades: [], etiquetas: [],
+    aviamentos: [{ aviamento_id: "av", variante_aviamento_id: null, consumo: 1, loss_percent: loss, custo_previsto: 0 }],
+  });
+  const et = (consumo: number): EstadoBom => ({
+    blocks: [], grades: [], aviamentos: [],
+    etiquetas: [{ etiqueta_id: "et", cor_id: null, consumo, loss_percent: 0, custo_previsto: 0 }],
+  });
+  const zero: EstadoBom = { blocks: [t1ComLoss(0)], aviamentos: [], etiquetas: [], grades: [] };
+
+  it("1e-7 → 0 (4 casas, consumo) — servidor NUMERIC(10,4) também dá 0", () => {
+    const local: EstadoBom = { blocks: [t1ComConsumo(1e-7)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComConsumo(0)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(false);
+  });
+
+  it("5e-5 → 0.0001 (4 casas, consumo — meio para longe do zero, NÃO 0)", () => {
+    const local: EstadoBom = { blocks: [t1ComConsumo(5e-5)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidorZero: EstadoBom = { blocks: [t1ComConsumo(0)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidorCerto: EstadoBom = { blocks: [t1ComConsumo(0.0001)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidorCerto)).toBe(false);
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidorZero)).toBe(true); // prova que NÃO virou 0
+  });
+
+  it("5.55e-17 → 0 (2 casas, loss_percent — resíduo de ponto flutuante)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(5.55e-17)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), zero)).toBe(false);
+  });
+
+  it("Infinity → 0 (2 casas, loss_percent de AVIAMENTO)", () => {
+    expect(bomDivergeDaReferencia(assinaturaBom(av(Infinity)), av(0))).toBe(false);
+  });
+
+  it("-Infinity → 0 (4 casas, consumo de ETIQUETA)", () => {
+    expect(bomDivergeDaReferencia(assinaturaBom(et(-Infinity)), et(0))).toBe(false);
+  });
+
+  it("NaN → 0 (2 casas, loss_percent)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(NaN)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), zero)).toBe(false);
+  });
+
+  // CONTROLES "diverge" (pedidos no brief) — provam que a função não devolve sempre 0/NaN: um
+  // `roundNumeric` sabotado (`() => NaN`/`() => 0`) faria estes 3 FALHAREM (a assinatura pararia de
+  // distinguir valores REAIS diferentes).
+  it("CONTROLE loss (2 casas): 1.01 × 1.02 ⇒ diverge (valores REAIS diferentes, nenhum é borda)", () => {
+    const local: EstadoBom = { blocks: [t1ComLoss(1.01)], aviamentos: [], etiquetas: [], grades: [] };
+    const servidor: EstadoBom = { blocks: [t1ComLoss(1.02)], aviamentos: [], etiquetas: [], grades: [] };
+    expect(bomDivergeDaReferencia(assinaturaBom(local), servidor)).toBe(true);
+  });
+  it("CONTROLE aviamento (2 casas): 1.01 × 1.02 ⇒ diverge", () => {
+    expect(bomDivergeDaReferencia(assinaturaBom(av(1.01)), av(1.02))).toBe(true);
+  });
+  it("CONTROLE etiqueta (4 casas, consumo): 1.01 × 1.02 ⇒ diverge", () => {
+    expect(bomDivergeDaReferencia(assinaturaBom(et(1.01)), et(1.02))).toBe(true);
+  });
+});
+
 // I1/I2 (fix round 1) — "hidrata agora?" extraída de useFichaBom p/ ser testável sem montar hooks.
 describe("deveHidratarCarga — só com as 5 queries prontas, ESTÁVEIS e a Ficha habilitada", () => {
   const prontas = { tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] };

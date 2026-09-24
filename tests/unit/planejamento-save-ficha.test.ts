@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio,
+  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio, contadorVoo,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -113,23 +113,59 @@ describe("mensagemErro — a mensagem de 'BOM conferindo' do usePlanejamentoSave
   });
 });
 
-// Item C (re-review fix T7+T9, item 3) — o retry AUTOMÁTICO do P0409 não pode gravar o BOM/colunas do Dev
-// num card que foi enviado à Explosão por outra pessoa NO MEIO do save (`_salvar_modelo_bom_core` não tem
-// guarda própria no servidor). Bloqueia quando o `fresh` relido já tem `enviado_cad=true` E o rascunho foi
-// capturado com o card AINDA não enviado (a mudança aconteceu DURANTE este save).
-describe("retryBloqueadoPorEnvio — item C: envio à Explosão em voo trava o retry automático", () => {
-  it("fresh.enviado_cad=true E capturado NÃO enviado ⇒ bloqueia (o cenário do bug)", () => {
-    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, false)).toBe(true);
+// Item C (fix round 3 — IMPORTANTE) — o retry AUTOMÁTICO do P0409 não pode gravar o BOM/colunas do Dev num
+// card que foi enviado à Explosão por outra pessoa NO MEIO do save (`_salvar_modelo_bom_core` não tem
+// guarda própria no servidor). round 2 usava `motivoSomenteLeitura === "enviado"` como proxy de "já estava
+// enviado" — bug: "permissao" tem precedência sobre "enviado" e o "Editar" zera o motivo mesmo com o card
+// enviado, então o proxy saía sempre `false` mesmo com o card JÁ enviado ANTES do save, bloqueando retries
+// seguros (o payload nunca tinha colunas do Dev de qualquer forma). round 3: a captura usa o `enviado_cad`
+// REAL (não a trava derivada) E só bloqueia quando esta captura IA gravar algo do Dev.
+const cap = (p: Partial<{ enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean }> = {}) => ({
+  enviadoCadNaCaptura: false, gravaBom: false, podeGravarColunasDev: false, ...p,
+});
+describe("retryBloqueadoPorEnvio — item C: envio à Explosão em voo trava o retry automático SÓ com escrita do Dev", () => {
+  it("não-enviado → enviado, COM escrita do Dev (bom.gravar) ⇒ bloqueia (o cenário do bug)", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, cap({ gravaBom: true }))).toBe(true);
   });
-  it("fresh.enviado_cad=true MAS já estava enviado na captura ⇒ NÃO bloqueia (payload já saiu sem as colunas do Dev; não é este bug)", () => {
-    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, true)).toBe(false);
+  it("não-enviado → enviado, COM escrita do Dev (podeGravarColunasDev, sem BOM tocado) ⇒ bloqueia", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, cap({ podeGravarColunasDev: true }))).toBe(true);
   });
-  it("fresh.enviado_cad=false ⇒ nunca bloqueia, independente da captura", () => {
-    expect(retryBloqueadoPorEnvio({ enviado_cad: false }, false)).toBe(false);
-    expect(retryBloqueadoPorEnvio({ enviado_cad: false }, true)).toBe(false);
+  it("não-enviado → enviado, SEM escrita do Dev (nem BOM nem colunas) ⇒ NÃO bloqueia — payload já não levava nada do Dev", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, cap())).toBe(false);
+  });
+  it("enviado → enviado (já estava enviado na captura) ⇒ NÃO bloqueia, mesmo com escrita do Dev pendente", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, cap({ enviadoCadNaCaptura: true, gravaBom: true, podeGravarColunasDev: true }))).toBe(false);
+  });
+  it("não-enviado → não-enviado ⇒ NÃO bloqueia, independente da escrita do Dev", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: false }, cap({ gravaBom: true, podeGravarColunasDev: true }))).toBe(false);
   });
   it("fresh.enviado_cad ausente (null/undefined) ⇒ trata como não-enviado, não bloqueia", () => {
-    expect(retryBloqueadoPorEnvio({ enviado_cad: null }, false)).toBe(false);
-    expect(retryBloqueadoPorEnvio({}, false)).toBe(false);
+    expect(retryBloqueadoPorEnvio({ enviado_cad: null }, cap({ gravaBom: true }))).toBe(false);
+    expect(retryBloqueadoPorEnvio({}, cap({ podeGravarColunasDev: true }))).toBe(false);
+  });
+});
+
+// Item G (menor, fix round 3) — "save em voo" como CONTADOR (não booleano): no TanStack Query 5.x, o
+// mutationFn do RETRY de um P0409 roda ANTES do onSettled do 1º ciclo. Reproduz a sequência real do
+// usePlanejamentoSave: mutationFn(1ª tentativa)=+1, P0409, onError chama save.mutate() que reentra no
+// mutationFn do retry=+1 (ANTES do onSettled do 1º ciclo rodar), onSettled do 1º ciclo=-1 (sobra 1, ainda
+// "em voo"), retry termina, onSettled do retry=-1 (chega a 0).
+describe("contadorVoo — item G: contador com piso 0, sobrevive ao retry do P0409", () => {
+  it("+1 ⇒ 1 (marcarSaveEmVoo(true) na 1ª tentativa)", () => {
+    expect(contadorVoo(0, true)).toBe(1);
+  });
+  it("sequência do retry: +1, +1, -1, -1 ⇒ termina em 0, nunca fica negativo no meio", () => {
+    let c = 0;
+    c = contadorVoo(c, true); // mutationFn 1ª tentativa
+    expect(c).toBe(1);
+    c = contadorVoo(c, true); // mutationFn do retry (reentra ANTES do onSettled de baixo)
+    expect(c).toBe(2);
+    c = contadorVoo(c, false); // onSettled do 1º ciclo (P0409, ANTES do retry terminar)
+    expect(c).toBe(1); // > 0 ⇒ AINDA "em voo" — o retry segue protegido (era o bug do booleano: virava 0 aqui)
+    c = contadorVoo(c, false); // onSettled do retry
+    expect(c).toBe(0);
+  });
+  it("piso 0: um -1 sem +1 correspondente não fica negativo", () => {
+    expect(contadorVoo(0, false)).toBe(0);
   });
 });

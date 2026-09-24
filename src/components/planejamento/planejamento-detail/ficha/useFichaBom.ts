@@ -152,6 +152,16 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     if (!deveHidratarCarga({ habilitada, bomFetching: dados.bomFetching, tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData })) return;
     // Narrowing local p/ o TS (deveHidratarCarga já garante isto em runtime — ela é a fonte da decisão).
     if (!tecidosData || !ocLinksData || !aviamentosData || !etiquetasData || !gradesData) return;
+    // Item E (fix round 3, (b)) — o BOM do SERVIDOR chegou NÃO-vazio (alguém — ex.: outro usuário pelo Dev
+    // — gravou tecidos de verdade): zera o prefill pendente ANTES dos dois ramos abaixo. Vale nos DOIS: (i)
+    // ramo COM toque (R5a) — outra pessoa completou o BOM enquanto eu tinha só o prefill (BOM do servidor
+    // vazio na MINHA carga) e nesse meio-tempo toquei outra coisa do BOM; sem zerar aqui, minha próxima
+    // captura ainda somaria `prefillPendenteRef` a `gravar`, arriscando escrever por cima; (ii) ramo SEM
+    // toque (hidrata) — o cenário do bug do topo do item E: sem isto, a carga que confirma "o BOM mudou de
+    // verdade" (disparada por `bomMudouNoServidor`/refetch após o P0409) hidrataria de novo com os dados
+    // NOVOS do servidor mas manteria `prefillPendenteRef=true` de antes, e o PRÓXIMO Salvar voltaria a somar
+    // a pendência a `gravar` — mesmo já não fazendo sentido (o servidor não está mais vazio).
+    if (tecidosData.tecidos.length > 0) prefillPendenteRef.current = false;
     // Colab: com alguma coleção tocada NÃO sobrescreve — mas COMPARA (R5a do re-check do guardião). O `aoMudarNoServidor`
     // só confere quando o rev chega com o BOM JÁ tocado; se o rev chegou com o BOM INTOCADO (ele só invalidou) e o usuário
     // tocou ANTES de o refetch chegar, é AQUI que o BOM alheio aparece — sem comparar, o Salvar passaria o `.eq("rev")`

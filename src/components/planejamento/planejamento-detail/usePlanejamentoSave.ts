@@ -85,14 +85,26 @@ export function usePlanejamentoSave({
   fichaRef.current = ficha;
   // F3.2 — o que ESTE save enviou (draft + MO + BOM), congelado no início do mutationFn. O onSuccess re-baseia
   // NISTO, nunca no estado ao vivo: tecla digitada durante o voo segue "não salva" (receita 2419d0f do Dev).
-  const enviadoRef = useRef<{ draft: Draft; moLinhas: MaoObraEditorLinha[]; bom: BomCapturado } | null>(null);
+  // Item C (fix round 3) — `enviadoCadNaCaptura`/`podeGravarColunasDevNaCaptura`: o valor REAL de
+  // `modelos.enviado_cad` (lido do cache já populado pelo orquestrador, sem query nova) e a permissão de
+  // gravar colunas do Dev, ambos no INSTANTE da captura (antes de qualquer `await` — vale também no retry,
+  // que reentra no `mutationFn` do zero). Usados por `retryBloqueadoPorEnvio` no onError do P0409.
+  const enviadoRef = useRef<{
+    draft: Draft; moLinhas: MaoObraEditorLinha[]; bom: BomCapturado;
+    enviadoCadNaCaptura: boolean; podeGravarColunasDevNaCaptura: boolean;
+  } | null>(null);
   const save = useMutation({
     mutationFn: async () => {
-      // Item G (T11, I1) — marca "save em voo" já no início (inclusive no retry do P0409, que chama
-      // `mutationFn` de novo): enquanto true, o eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não
-      // confere/acende "Tecidos & BOM" contra o BOM tocado. `onSettled` (nível da mutation, abaixo) desmarca
-      // ao fim de QUALQUER ciclo (sucesso ou erro) — inclusive o ciclo intermediário que termina em P0409
-      // antes do retry, que remarca `true` de novo ao reentrar aqui.
+      // Item G (T11, I1; CONTADOR — fix round 3) — marca "save em voo" já no início (inclusive no retry do
+      // P0409, que chama `mutationFn` de novo): enquanto em voo (contador > 0 — ver useFichaTecnica.ts), o
+      // eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não confere/acende "Tecidos & BOM" contra o
+      // BOM tocado. `onSettled` (nível da mutation, abaixo) desmarca (−1) ao fim de QUALQUER ciclo (sucesso
+      // ou erro) — inclusive o ciclo intermediário que termina em P0409 ANTES do retry, que remarca (+1) de
+      // novo ao reentrar aqui. Com CONTADOR (não mais um booleano): no TanStack Query 5.x, o `mutationFn` do
+      // retry roda ANTES do `onSettled` do 1º ciclo, então a sequência real é +1 (1ª tentativa) → +1 (retry,
+      // reentra aqui ANTES do onSettled de baixo rodar) → −1 (onSettled do 1º ciclo, sobra 1 — ainda em voo,
+      // o retry segue protegido) → −1 (onSettled do retry, chega a 0). Um booleano simples zerava no meio do
+      // retry (o `onSettled` do 1º ciclo desligava a flag enquanto o retry ainda rodava `persistirBom`/MO).
       fichaRef.current.marcarSaveEmVoo(true);
       // Colab (Task 2): com conflitos pendentes na tela, o save NÃO pode passar — mesmo que
       // o rev já bata, o usuário precisa resolver ("manter meu"/"usar o novo") primeiro. Mesmo
@@ -116,7 +128,15 @@ export function usePlanejamentoSave({
       // saem do MESMO BOM gravado — R5). Retry sem gravar o BOM: o BOM local (não tocado) pode estar velho.
       const incluirDerivados = !retryRef.current || bom.gravar;
       const moLinhasEnviadas = moLinhasRef.current;
-      enviadoRef.current = { draft: d, moLinhas: moLinhasEnviadas, bom };
+      // Item C (fix round 3, (a)) — `enviado_cad` REAL lido do cache da query `["modelo", modeloId]` (a
+      // MESMA que o PD já mantém populada — `PlanejamentoDetail.tsx:145-152`, `select("*")`), não da trava
+      // DERIVADA (`motivoSomenteLeitura`/`travaDev`), que colapsa "permissao"/"cad"/"enviado" e perde se o
+      // card JÁ estava enviado quando "permissao" tem precedência ou o usuário está em "Editar". Sem query
+      // nova: `qc` já é o QueryClient do orquestrador, e a key já é lida do mesmo jeito no retry (linha ~551
+      // abaixo, `getQueryData<any>(["modelo", modeloId])`).
+      const enviadoCadNaCaptura = !!qc.getQueryData<any>(["modelo", modeloId])?.enviado_cad;
+      const podeGravarColunasDevNaCaptura = fichaRef.current.podeGravarColunasDev;
+      enviadoRef.current = { draft: d, moLinhas: moLinhasEnviadas, bom, enviadoCadNaCaptura, podeGravarColunasDevNaCaptura };
       // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
       // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
       // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
@@ -551,19 +571,33 @@ export function usePlanejamentoSave({
         // F3.2 / R5 — BOM tocado: só é conflito de SEÇÃO se o BOM do SERVIDOR mudou de verdade (o P0409 pode ter vindo de
         // uma ação MINHA que só subiu o `rev` — Mover para…, Ordem de Criação, Lançar, aprovar MO). Confere ANTES do
         // refetch do modelo: o trecho abaixo (merge + avanço de base/rev) continua síncrono, como antes.
-        const bomConflito = fichaRef.current.colecoesTouchadasRef.current ? await fichaRef.current.bomMudouNoServidor() : false;
+        // Item E (fix round 3, (a)) — antes só conferia com `colecoesTouchadasRef` (BOM tocado pelo usuário).
+        // Cenário do bug: B salva o BOM completo pelo Dev; A tem PREFILL pendente (BOM do servidor chegou
+        // vazio na carga de A, pré-preencheu Tecido 1..N sem marcar tocado) e salva o preço antes do eco
+        // chegar; dá P0409. `colecoesTouchadasRef=false` ⇒ `bomConflito` ficava sempre `false` ⇒ o retry
+        // gravava o esqueleto Tecido 1..N por cima do BOM que B acabou de completar. `bomPendenteDeGravar()`
+        // soma o prefill à condição de conferir (mesma fonte usada por `capturar().gravar`).
+        const bomConflito = fichaRef.current.bomPendenteDeGravar() ? await fichaRef.current.bomMudouNoServidor() : false;
         await qc.refetchQueries({ queryKey: ["modelo", modeloId] });
         const fresh = qc.getQueryData<any>(["modelo", modeloId]);
         if (fresh) {
-          // Item C (re-review fix T7+T9, item 3) — outra pessoa enviou o card à Explosão (`enviado_cad=true`)
-          // NO MEIO deste Salvar: o retry automático abaixo ainda leria `podeEditar`/`podeGravarColunasDev` do
+          // Item C (fix round 3, (b)) — outra pessoa enviou o card à Explosão (`enviado_cad=true`) NO MEIO
+          // deste Salvar: o retry automático abaixo ainda leria `podeEditar`/`podeGravarColunasDev` do
           // MOMENTO da captura (antes do envio) — `_salvar_modelo_bom_core` não tem guarda própria no servidor,
-          // então gravaria o BOM/colunas do Dev num card já enviado. Bloqueia ANTES de decidir `podeRetentar`.
-          const bloqueadoPorEnvio = retryBloqueadoPorEnvio(fresh, enviadoRef.current?.bom.enviadoNaCaptura ?? false);
+          // então gravaria o BOM/colunas do Dev num card já enviado. Bloqueia ANTES de decidir `podeRetentar`,
+          // e SÓ quando esta captura IA gravar algo do Dev (`bom.gravar || podeGravarColunasDev`) — senão o
+          // payload já saiu sem as colunas do Dev e o retry é seguro (não é este bug).
+          const bloqueadoPorEnvio = retryBloqueadoPorEnvio(fresh, {
+            enviadoCadNaCaptura: enviadoRef.current?.enviadoCadNaCaptura ?? false,
+            gravaBom: enviadoRef.current?.bom.gravar ?? false,
+            podeGravarColunasDev: enviadoRef.current?.podeGravarColunasDevNaCaptura ?? false,
+          });
           if (bloqueadoPorEnvio) {
             savingRef.current = false;
             retryRef.current = false;
-            toast.error("Este card foi enviado à Explosão por outra pessoa enquanto você salvava. Os campos do Desenvolvimento ficaram travados — suas alterações neles não foram salvas.");
+            // Item C (fix round 3, (c)) — toast honesto: NADA foi salvo (nem o retry, nem a 1ª tentativa
+            // deste ciclo — o UPDATE do header já tinha falhado com P0409 antes de chegar aqui).
+            toast.error("Este card foi enviado à Explosão por outra pessoa enquanto você salvava — nada foi salvo. Os campos do Desenvolvimento agora estão travados; confira o card e salve de novo o que for do Planejamento.");
             qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
             fichaRef.current.invalidarBom();
             return;
@@ -606,8 +640,9 @@ export function usePlanejamentoSave({
       }
       toast.error(mensagemErro(e, "Erro"));
     },
-    // Item G — desmarca "save em voo" ao fim de QUALQUER ciclo (sucesso, erro, ou o ciclo intermediário do
-    // P0409 antes de um retry — que remarca `true` de novo ao reentrar no `mutationFn`).
+    // Item G (CONTADOR — fix round 3) — desmarca "save em voo" (−1) ao fim de QUALQUER ciclo (sucesso, erro,
+    // ou o ciclo intermediário do P0409 antes de um retry — que remarca +1 de novo ao reentrar no
+    // `mutationFn`, ANTES deste onSettled do ciclo anterior rodar — daí o contador, não mais um booleano).
     onSettled: () => { fichaRef.current.marcarSaveEmVoo(false); },
   });
 
