@@ -27,8 +27,12 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   data_desenho_tecnico: "Data Desenho Técnico", data_aprovacao: "Data Aprovação",
   observacoes_tecnicas: "Observações Técnicas", motivo_cancelamento: "Motivo do cancelamento",
   ficha_medida_url: "Ficha de Medidas", descricao_produto: "Descrição do produto",
+  // F3.2 — colunas do Dev editadas nas seções Grade e Preço e Custos.
+  proporcoes: "Proporções da grade", custos_adicionais: "Custos adicionais",
 };
 export function rotuloConflitoPlan(path: string): string {
+  // F3.2 — conflito de SEÇÃO do BOM: mesmo path e rótulo do Desenvolvimento (ModeloDetailPanel.tsx:160-163).
+  if (path === "secao:bom") return "Tecidos & BOM";
   return ROTULO_CONFLITO_PLAN[path] ?? path;
 }
 
@@ -72,6 +76,10 @@ export const CAMPOS_DEV_DRAFT = [
   "modelista_id", "piloteiro1_id", "piloteiro2_id", "piloteiro3_id",
   "data_piloto1", "data_piloto2", "data_piloto3", "data_desenho_tecnico", "data_aprovacao",
   "observacoes_tecnicas", "motivo_cancelamento", "ficha_medida_url", "observacoes_gerais",
+  // F3.2 — escalares do Dev que o Sheet passa a gravar (Grade e Preço e Custos). Lista ÚNICA da campanha: sem
+  // permissão do Dev saem do payload (aplicarRegrasCamposDev) e o Duplicar não os leva (camposParaDuplicar, decisão
+  // F3 #9). Objeto/array: vão como estão (vazio = {} / [] é valor válido — sem normalização em aplicarRegrasCamposDev).
+  "proporcoes", "custos_adicionais",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
 

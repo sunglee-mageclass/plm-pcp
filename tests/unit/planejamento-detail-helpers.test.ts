@@ -245,3 +245,40 @@ describe("normalizarDraftSalvo (fix final — base do merge sem eco do próprio 
     expect(d).toEqual(antes);
   });
 });
+
+describe("rotuloConflitoPlan — F3.2 (BOM no Sheet do Planejamento)", () => {
+  it("rotula a seção do BOM com o MESMO texto do Desenvolvimento", () => {
+    expect(rotuloConflitoPlan("secao:bom")).toBe("Tecidos & BOM");
+  });
+  it("rotula as 2 colunas novas do Draft", () => {
+    expect(rotuloConflitoPlan("proporcoes")).toBe("Proporções da grade");
+    expect(rotuloConflitoPlan("custos_adicionais")).toBe("Custos adicionais");
+  });
+});
+
+describe("CAMPOS_DEV_DRAFT — F3.2 (lista ÚNICA com a F3.1)", () => {
+  const d = (): Draft => ({ ...emptyDraft(), nome: "M", proporcoes: { P: 1, M: 2 }, custos_adicionais: [{ descricao: "Bordado", valor: 3.5 }] });
+  it("inclui proporcoes e custos_adicionais", () => {
+    expect(CAMPOS_DEV_DRAFT).toContain("proporcoes");
+    expect(CAMPOS_DEV_DRAFT).toContain("custos_adicionais");
+  });
+  it("sem permissão do Dev: saem do payload (aplicarRegrasCamposDev)", () => {
+    const x = d();
+    const p = aplicarRegrasCamposDev({ ...x }, x, { podeEditarDev: false, refEditavel: false });
+    expect(p).not.toHaveProperty("proporcoes");
+    expect(p).not.toHaveProperty("custos_adicionais");
+    expect(p.nome).toBe("M");
+  });
+  it("com permissão: vão como estão (objeto/array — sem normalização)", () => {
+    const x = d();
+    const p = aplicarRegrasCamposDev({ ...x }, x, { podeEditarDev: true, refEditavel: false });
+    expect(p.proporcoes).toEqual({ P: 1, M: 2 });
+    expect(p.custos_adicionais).toEqual([{ descricao: "Bordado", valor: 3.5 }]);
+  });
+  it("Duplicar (decisão F3 #9): a cópia NÃO leva proporções nem custos adicionais", () => {
+    const p = camposParaDuplicar(d());
+    expect(p).not.toHaveProperty("proporcoes");
+    expect(p).not.toHaveProperty("custos_adicionais");
+    expect(p.nome).toBe("M");
+  });
+});

@@ -122,6 +122,12 @@ export type Draft = {
   // Campo NOVO (dono, 22/set): texto longo no fim da seção 1. Coluna `modelos.descricao_produto`
   // (migration 20260930180000) — fora do types.ts até regenerar; o Draft é tipo próprio.
   descricao_produto: string;
+  // F3.2 (BOM no Sheet unificado): colunas do Desenvolvimento editadas nas seções Grade
+  // (proporções por tamanho) e Preço e Custos (custos adicionais por peça). Mesmas colunas que o
+  // Dev grava (ModeloDetailPanel.tsx:1909-1931) — o merge 3-vias passa a cobri-las. Estão na lista
+  // ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts).
+  proporcoes: Record<string, number>;
+  custos_adicionais: { descricao: string; valor: number }[];
 };
 export const emptyDraft = (): Draft => ({
   nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -137,6 +143,8 @@ export const emptyDraft = (): Draft => ({
   data_piloto1: "", data_piloto2: "", data_piloto3: "", data_desenho_tecnico: "", data_aprovacao: "",
   observacoes_tecnicas: "", motivo_cancelamento: "", ficha_medida_url: "",
   descricao_produto: "",
+  proporcoes: {},
+  custos_adicionais: [],
 });
 
 // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto). Extraída como função PURA (era
@@ -188,5 +196,7 @@ export function draftFromModeloRow(data: any): Draft {
     motivo_cancelamento: data.motivo_cancelamento ?? "",
     ficha_medida_url: data.ficha_medida_url ?? "",
     descricao_produto: data.descricao_produto ?? "",
+    proporcoes: (data.proporcoes ?? {}) as Record<string, number>,
+    custos_adicionais: (data.custos_adicionais ?? []) as { descricao: string; valor: number }[],
   };
 }
