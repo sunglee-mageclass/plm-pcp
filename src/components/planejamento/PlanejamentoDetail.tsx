@@ -69,7 +69,7 @@ import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
-import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
+import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao, ProdutoImportadoSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { useFichaTecnica } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
@@ -98,7 +98,9 @@ import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
-import { espelhosDoCard, opcoesOrigem, type EspelhosCard } from "@/components/planejamento/planejamento-detail/comprado";
+import {
+  desenvolvimentoCompleto, espelhosDoCard, opcoesOrigem, requeridasPorOrigem, secoesFicha, seloGradeComprado, type EspelhosCard,
+} from "@/components/planejamento/planejamento-detail/comprado";
 import { AnexosDevCampos } from "@/components/planejamento/planejamento-detail/ficha/secoes/AnexosDevCampos";
 // Reuso DIRETO (sem modificar — decisão travada 8): fio de comentários da Prova e bloco de Observações do Dev.
 import { ModeloAjustesProvaSection } from "@/components/desenvolvimento/modelo-detail/ModeloAjustesProvaSection";
@@ -471,7 +473,9 @@ function PlanejamentoDetailConteudo({
   // CLIENTE a partir do BOM/rascunho — sem gate, vazavam sugerido/markup/faixas mesmo sem `veCustos`. Sem
   // `veCustos`: previsto e estimativa caem a 0 ⇒ `custoBase.valor` = 0 (real já vem mascarado do servidor) ⇒
   // `precoInfo` devolve custo/sugerido/markup = 0 ⇒ a tabela mostra "—" em tudo, exatamente como antes da T12.
-  const previstoBase = !veCustos ? 0 : ficha.carregado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
+  // F3.4 — comprado: o previsto é o do SERVIDOR (revenda = unit real + insumos; importado = landed —
+  // `_custo_unitario_modelos_core`), nunca o total do BOM da ficha (que agora carrega também p/ comprado).
+  const previstoBase = !veCustos ? 0 : ficha.carregado && !isComprado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
   // Fix pós-rebase (item 7 — paridade com o Dev): a estimativa SOMA os custos adicionais (`estimativaComCustosAdicionais`,
   // custo-base.ts — `preco.ts`/`custoSimulado` intocados, invariante #8). A tabela mostra as linhas "Custos adicionais"
   // no estimado, então o Custo total fecha.
@@ -561,6 +565,8 @@ function PlanejamentoDetailConteudo({
   const gradeComprado = useGradeComprado({
     modeloId, isEdit, origem: origemComprado, moduloOn: origemComprado === "importado" ? piOn : paOn,
     grupos, tenantIdAtivo, revRef,
+    // Importado: a célula editada marca a ficha (a grade grava pelo BOM — conferência R5/R5a protege o Salvar).
+    aoEditar: origemComprado === "importado" ? () => ficha.marcarGradeExternaEditada() : undefined,
   });
   const {
     gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty, buildLinhasGradeRevenda,
@@ -1092,12 +1098,27 @@ function PlanejamentoDetailConteudo({
   // `vis` é a fonte ÚNICA de "a seção aparece?": o JSX abaixo usa ESTES booleanos, então a numeração nunca descola do
   // que está na tela. Ordem/numeração: selos-secoes.ts (mockup gen_main.py:31-106; Dialog "Novo Modelo": gen_novo.py).
   const fichaVisivel = isEdit && !!modeloId && ficha.habilitada;
+  // ── F3.4 — seções da ficha por ORIGEM (decisões F3 #4/#8): comprado pelo "Fluxo de Revenda"; grade do Tecido 1 só interno.
+  const secFicha = secoesFicha(isComprado, campoVisivelDev);
+  // Grade cor × tamanho: a da origem SALVA. Só-leitura com a troca de Origem ainda não salva, ou no importado sem a ficha
+  // editável (a grade dele grava pelo BOM — D3 (A)). Revenda: editável como hoje.
+  const motivoGradeSomenteLeitura: string | null = draft.origem !== origemComprado
+    ? "Salve a troca de Origem antes de editar a grade."
+    : origemComprado === "importado" && !ficha.podeEditar
+      ? ficha.motivoSomenteLeitura === "enviado"
+        // D3 (informado ao dono): depois de enviado à Explosão, a grade do importado trava JUNTO com a ficha.
+        ? "Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."
+        : "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera aqui (com a ficha carregada)."
+      : null;
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
-    desenvolvimento: isEdit && podeVerDev,
+    // F3.4 (acréscimo do controlador, comparação Dev × Planejamento) — paridade com `s1` (esconde "Informações
+    // Básicas" no Dev): hoje sempre true (`revendaCampoVisivel("s1")` sempre devolve true), sem efeito visível.
+    desenvolvimento: isEdit && podeVerDev && secFicha.equipe,
     prova: isEdit && !!modeloId && podeVerDev && campoVisivelDev("prova"),
-    tecidos: fichaVisivel, aviamentos: fichaVisivel, insumos: fichaVisivel, grade: fichaVisivel, cad: fichaVisivel,
+    tecidos: fichaVisivel && secFicha.tecidos, aviamentos: fichaVisivel && secFicha.aviamentos,
+    insumos: fichaVisivel && secFicha.insumos, grade: fichaVisivel && secFicha.gradeTecido, cad: fichaVisivel && secFicha.cad,
     tecidos_novo: !isEdit && !isComprado,
     preco: isEdit,
     // Lote B (revisão do commit 6fac668, I2) — `veCustos` (união das 2 permissões, decisão F3 #2), não
@@ -1105,8 +1126,10 @@ function PlanejamentoDetailConteudo({
     // precisa ver a seção Mão de obra igual às demais seções gated por custo (linhas 1174/1216/1224 já usam
     // `veCustos`) — a exibição da SEÇÃO não pode ficar mais restrita que o conteúdo dela.
     mao_obra: (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)),
-    produto_acabado: isEdit && isRevenda && paOn,
-    grade_revenda: isEdit && isRevenda && paOn && !!produtoRevenda,
+    // F3.4 — a mesma chave serve à seção do produto do IMPORTADO ("Produto Importado").
+    produto_acabado: isEdit && ((isRevenda && paOn) || (draft.origem === "importado" && piOn)),
+    // F3.4 — decisão F3 #4: a grade cor × tamanho é A grade do comprado (revenda E importado), pela seção "s4".
+    grade_revenda: isEdit && !!modeloId && isComprado && (isRevenda ? paOn : piOn) && secFicha.gradeComprado,
     anexos: true,
     observacoes: isEdit && !!modeloId && podeVerDev,
     lancamento: isEdit,
@@ -1114,8 +1137,13 @@ function PlanejamentoDetailConteudo({
   };
   // R7 do G-plano F3.3 — segue o mockup: no Dialog "Novo Modelo" só "1. Informações" e "2. Coleção" (gen_novo.py:13-20).
   const numeros = numerarSecoes(new Set((Object.keys(vis) as SecaoSheetKey[]).filter((k) => vis[k])), { dialogNovo: !isEdit });
+  // F3.4 — requisitos POR ORIGEM nos selos (comprado = `revenda_kanban_requisitos`, sem os impossíveis p/ comprado).
+  const requeridasCard = requeridasPorOrigem(
+    isComprado,
+    requisitosUniao(isComprado ? kanbanCard.revendaCfg.requisitos : kanbanCard.kanbanCfg.kanban_requisitos),
+  );
   const selos = selosSecoesSheet({
-    requeridas: requisitosUniao(isComprado ? kanbanCard.revendaCfg.requisitos : kanbanCard.kanbanCfg.kanban_requisitos),
+    requeridas: requeridasCard,
     satisfeitas: ficha.habilitada && ficha.dados.condicoesProntas ? ficha.dados.condicoes : null,
     // Lote B (revisão do commit 6fac668, I3) — mesmo `veCustos` do item I2 acima: o campo continua se chamando
     // `podeVerCustos` (nome inalterado no shape de `selosSecoesSheet`), só o VALOR passado muda (união das 2
@@ -1130,11 +1158,18 @@ function PlanejamentoDetailConteudo({
       mes: meses.find((m) => m.id === draft.mes_id)?.nome ?? null,
       ano: anos.find((x) => x.id === draft.ano_id)?.nome ?? null,
     }),
-    desenvolvimentoCompleto: !!draft.modelista_id && !!draft.piloteiro1_id && !!draft.data_piloto1 && !!draft.data_desenho_tecnico,
-    preco: isRevenda ? null : { efetivo: precoEfetivo, markup: markupReal },
+    desenvolvimentoCompleto: desenvolvimentoCompleto(draft, campoVisivelDev),
+    preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
     maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
+  });
+  // F3.4 — selo da grade cor × tamanho (comprado): requisito `grade_preenchida` do fluxo de comprado, senão informativo.
+  selos.grade_revenda = seloGradeComprado({
+    requeridas: requeridasCard,
+    satisfeitas: ficha.habilitada && ficha.dados.condicoesProntas ? ficha.dados.condicoes : null,
+    totalGeral: gradeComprado.totalGeralRevenda,
+    nVariantes: gradeComprado.variantesRevenda.length,
   });
   const seloDe = (k: SecaoSheetKey) => {
     const s = selos[k];
@@ -1147,12 +1182,20 @@ function PlanejamentoDetailConteudo({
     cfg: kanbanCard.kanbanCfg, explosaoEnvioStatus: kanbanCard.explosaoEnvioStatus,
     statusCru: enviada ? kanbanCard.statusSalvo : null, derivacao: kanbanCard.derivacao, condProntas: kanbanCard.condProntas,
   });
+  // F3.4 — D2 (A): comprado também envia à Explosão, como no Desenvolvimento (ModeloDetailPanel.tsx:1577-1598): a lista
+  // "Para enviar, falta" só exige o que a loja deixou VISÍVEL p/ comprado, e a grade é a cor × tamanho.
   const mostraEnviarExplosao = fichaVisivel && enviada && !enviadoCad;
   // Fix T9 M2 — só calcula/mostra pendências com a ficha CARREGADA: `ficha.estado.blocks`/`.grades` podem estar
   // vazios/parciais enquanto a carga do BOM/CAD roda, e sem este gate "Falta: tecido / grade" piscava durante a
   // carga (mesmo com `gateEnvio.ok`, que só confere a ETAPA do card, não se a ficha já hidratou).
   const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado
-    ? pendenciasEnvioExplosao({ draft, blocks: ficha.estado.blocks, grades: ficha.estado.grades, rotuloRef: fl("ref") })
+    ? pendenciasEnvioExplosao({
+      draft, blocks: ficha.estado.blocks,
+      grades: isComprado ? buildLinhasGradeRevenda() : ficha.estado.grades,
+      rotuloRef: fl("ref"),
+      campoVisivel: campoVisivelDev,
+      secaoGrade: isComprado ? "grade_revenda" : "grade",
+    })
     : [];
   const mostraFaltas = pendenciasEnvio.length > 0;
   const motivoEnvioBloqueado: string | null = !mostraEnviarExplosao ? null
@@ -1352,10 +1395,11 @@ function PlanejamentoDetailConteudo({
           {/* F3.2 — seções vindas do Desenvolvimento: Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade (ordem
               do mockup aprovado). SEMPRE visíveis (recolhidas) p/ quem vê o Desenvolvimento; editáveis p/ quem o
               edita (decisão F3 #8); só produto interno (comprado = F3.4). Substituem o "Tecido Planejado". */}
-          {vis.tecidos && modeloId && (
+          {fichaVisivel && modeloId && (
             <BomSecoes
               ficha={ficha}
               numeros={numeros}
+              visiveis={secFicha}
               modeloId={modeloId}
               estoque={estoqueMap}
               ordemEnviada={enviada}
@@ -1418,7 +1462,9 @@ function PlanejamentoDetailConteudo({
                 podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
-                custosBom={ficha.habilitada && ficha.carregado && veCustos ? {
+                // F3.4 — linhas "Custos do BOM" e custos adicionais só no INTERNO: no comprado não entram no custo
+                // (`_custo_unitario_modelos_core` ramos revenda/importado) — mostrar confundiria a tabela do importado.
+                custosBom={!isComprado && ficha.habilitada && ficha.carregado && veCustos ? {
                   totais: ficha.totais,
                   custosAdicionais: draft.custos_adicionais,
                   onChange: (v) => setDraftTracked((d) => ({ ...d, custos_adicionais: v })),
@@ -1482,15 +1528,17 @@ function PlanejamentoDetailConteudo({
           )}
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
-          {vis.produto_acabado && (
+          {vis.produto_acabado && (isRevenda ? (
             <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} numero={numeros.produto_acabado} />
-          )}
+          ) : (
+            <ProdutoImportadoSecao gc={gradeComprado} navigate={navigate} numero={numeros.produto_acabado} />
+          ))}
 
           {/* Revenda (Task 7): grade cor×tamanho editável — por variante do produto (rótulo
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {vis.grade_revenda && (
-            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} />
+            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} />
           )}
 
           {/* SETOR 5 — Anexos */}
@@ -1657,7 +1705,8 @@ function PlanejamentoDetailConteudo({
               // `emptyDraft()`), no `duplicando` e na dica.
               duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
               duplicandoTitle={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined}
-              onImportar={ficha.podeEditar ? () => importar.setAberto(true) : undefined}
+              // F3.4 — só interno: o diálogo do Dev copia a grade por variante do Tecido 1, que o comprado não tem.
+              onImportar={ficha.podeEditar && !isComprado ? () => importar.setAberto(true) : undefined}
               onFichaTecnica={enviadoCad ? () => setPrintTecnicaToken((t) => t + 1) : undefined}
               // Fix T9 I3 (ruling do controlador) — com `enviado_cad=true` o card já foi p/ a Explosão (CQ/
               // Direcionamento podem ter avançado por cima do CAD); "Cancelar Ordem" volta o card pro
@@ -1749,7 +1798,9 @@ function PlanejamentoDetailConteudo({
             <AlertDialogHeader>
               <AlertDialogTitle>Enviar modelo para a Explosão?</AlertDialogTitle>
               <AlertDialogDescription>
-                O card é salvo e vai para a Explosão (próxima etapa) com os tecidos, variantes, grade e CAD atuais. Na Explosão
+                {isComprado
+                  ? "O card é salvo e vai para a Explosão (próxima etapa) com a grade e os insumos atuais."
+                  : "O card é salvo e vai para a Explosão (próxima etapa) com os tecidos, variantes, grade e CAD atuais."} Na Explosão
                 você define a quantidade a enviar e autoriza a baixa do estoque. Depois de enviado, os campos vindos do
                 Desenvolvimento ficam travados — use "Editar" para alterá-los.
               </AlertDialogDescription>

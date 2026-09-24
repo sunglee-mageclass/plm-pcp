@@ -6,7 +6,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { usePedidoAbertura } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 
-export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOpen = false, open: openProp, onOpenChange, children }: {
+export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOpen = false, open: openProp, onOpenChange, oculta = false, children }: {
   id: string;
   titulo: string;
   /** F3.3 — numeração dinâmica "N." (selos-secoes.ts `numerarSecoes`). */
@@ -16,6 +16,8 @@ export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOp
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
+  /** F3.4 — seção fora do fluxo desta origem (comprado: "Fluxo de Revenda"). Os hooks rodam antes do retorno. */
+  oculta?: boolean;
   children: ReactNode;
 }) {
   const [openLocal, setOpenLocal] = useState(defaultOpen);
@@ -31,6 +33,8 @@ export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOp
     if (openProp === undefined) setOpenLocal(true);
     onOpenChange?.(true);
   }, ref);
+  // F3.4 — depois dos hooks (regra dos hooks): a seção some sem mudar a ordem deles.
+  if (oculta) return null;
   return (
     <section ref={ref} className="space-y-3" data-secao={id}>
       <div className="flex items-center gap-2 border-b pb-1.5">

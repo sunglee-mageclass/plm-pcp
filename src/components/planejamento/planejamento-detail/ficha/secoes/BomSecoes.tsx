@@ -20,6 +20,7 @@ import type { FichaTecnica } from "../useFichaTecnica";
 import { SecaoBom } from "./SecaoBom";
 import { SeloBadge } from "./SeloBadge";
 import type { SecaoSheetKey } from "../selos-secoes";
+import { SECOES_FICHA_INTERNO, type SecoesFicha } from "@/components/planejamento/planejamento-detail/comprado";
 
 // Avisos da trava ÚNICA (R2), IGUAIS aos da F3.1 (`AvisoCamposDev`): sem a trava interina "tem CAD", o "Editar" destrava
 // BOM e CAD como os demais campos do Dev (F3.3) — "enviado" usa a MESMA frase.
@@ -40,7 +41,7 @@ function Carregando({ erro }: { erro: boolean }) {
   );
 }
 
-export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, numeros }: {
+export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, numeros, visiveis }: {
   ficha: FichaTecnica;
   modeloId: string;
   estoque: Record<string, EstoqueArtigo>;
@@ -56,9 +57,12 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
   proporcoes: Record<string, number>;
   /** F3.3 — numeração dinâmica do Sheet (selos-secoes.ts `numerarSecoes`). */
   numeros?: Partial<Record<SecaoSheetKey, number>>;
+  /** F3.4 — seções desta origem (`secoesFicha`): comprado segue o "Fluxo de Revenda" e nunca tem a grade do Tecido 1. */
+  visiveis?: SecoesFicha;
 }) {
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
+  const vv = visiveis ?? SECOES_FICHA_INTERNO;
   const carregando = !ficha.carregado;
   // Lote B (revisão do commit 6fac668, I1) — uma recarga do CAD que FALHA depois de já ter carregado uma vez
   // (foco, invalidação pós-Salvar, Realtime) não regride `ficha.carregado` (`bom.hidratado`/`cad.hidratado` são
@@ -74,7 +78,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
 
   return (
     <>
-      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" numero={numeros?.tecidos} selo={<SeloBadge selo={ficha.selos.tecidos} />}>
+      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" numero={numeros?.tecidos} selo={<SeloBadge selo={ficha.selos.tecidos} />} oculta={!vv.tecidos}>
         {!carregando && !ordemEnviada && ficha.podeEditar && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -100,7 +104,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="aviamentos" titulo="Aviamentos" numero={numeros?.aviamentos} selo={<SeloBadge selo={ficha.selos.aviamentos} />}>
+      <SecaoBom id="aviamentos" titulo="Aviamentos" numero={numeros?.aviamentos} selo={<SeloBadge selo={ficha.selos.aviamentos} />} oculta={!vv.aviamentos}>
         {corpo(
           <ModeloAviamentosSection
             rows={estado.aviamentos}
@@ -114,7 +118,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="insumos" titulo="Insumos" numero={numeros?.insumos} selo={<SeloBadge selo={ficha.selos.insumos} />}>
+      <SecaoBom id="insumos" titulo="Insumos" numero={numeros?.insumos} selo={<SeloBadge selo={ficha.selos.insumos} />} oculta={!vv.insumos}>
         {corpo(
           <ModeloEtiquetasSection
             rows={estado.etiquetas}
@@ -129,7 +133,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="grade" titulo="Grade" numero={numeros?.grade} selo={<SeloBadge selo={ficha.selos.grade} />}>
+      <SecaoBom id="grade" titulo="Grade" numero={numeros?.grade} selo={<SeloBadge selo={ficha.selos.grade} />} oculta={!vv.gradeTecido}>
         {corpo(
           <ModeloGradeSection
             tamanhos={dados.tamanhos}
@@ -150,12 +154,18 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
       {/* F3.3 — seção CAD (Dev :2881-2912): o MESMO `CadTecidosSection` (reusado SEM modificar — decisão 8), sem a coluna
           "a Separar/Enviar" (é da Explosão). Grava no MESMO Salvar do BOM (decisão F3 #7). Antes da Ordem de Criação e
           sem CAD fica só-leitura (D2 — o Planejamento não cria o CAD antes da Ordem). */}
-      <SecaoBom id="cad" titulo="CAD" numero={numeros?.cad} selo={<SeloBadge selo={ficha.seloCad} />}>
+      <SecaoBom id="cad" titulo="CAD" numero={numeros?.cad} selo={<SeloBadge selo={ficha.seloCad} />} oculta={!vv.cad}>
         {corpo(
           ficha.cad.linhas.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção Tecidos / Forros / Entretelas.</p>
           ) : (
             <>
+              {ficha.gradeExterna && (
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  Produto comprado: o CAD nasce no recebimento do pedido (OC) — aqui ele é só leitura.
+                </p>
+              )}
               {ficha.cadAntesDaOrdem && (
                 <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
