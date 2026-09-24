@@ -327,7 +327,11 @@ export function useFichaTecnica(a: {
   // ciclo de render).
   const cadCapturaRef = useRef({ hidratado: false, existe: false, ordemEnviada: false, recarregando: false, chavesBom: new Set<string>() as ReadonlySet<string> });
   cadCapturaRef.current = {
-    hidratado: cad.hidratado, existe: dados.cadExiste, ordemEnviada: a.ordemEnviada, recarregando: dados.bomFetching,
+    hidratado: cad.hidratado, existe: dados.cadExiste, ordemEnviada: a.ordemEnviada,
+    // Acréscimo do controlador (pós-revisão T4) — `bomFetching` (recarga JÁ em curso) OU `cargaPendenteRef` (a
+    // carga do CAD ainda não aplicou o `cargaSeq` mais recente — 1 render de atraso, `useFichaCad.ts`): os dois
+    // são "o CAD local pode estar velho" e somam ao `recarregando` de `deveGravarCad`, junto com o `cadVelhoRef`.
+    recarregando: dados.bomFetching || cad.cargaPendenteRef.current,
     chavesBom: new Set((dados.tecidosData?.tecidos ?? []).map((t) => `${t.tipo}|${t.numero}`)),
   };
 

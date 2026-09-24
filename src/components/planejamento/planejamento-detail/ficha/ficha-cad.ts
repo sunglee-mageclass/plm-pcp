@@ -11,7 +11,7 @@ import {
   type TipoTec,
 } from "@/components/producao/cad/types";
 import type { AviamentoRow, GradeRow, ModeloEtiquetaRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
-import { montarAviamentosPayload, montarGradesPayload, type TecidoRowDb, type VarianteRowDb } from "./ficha-calc";
+import { montarAviamentosPayload, montarGradesPayload, roundNumeric, type TecidoRowDb, type VarianteRowDb } from "./ficha-calc";
 
 export type { CadTecidoRow, CadVarianteRow, TipoTec };
 
@@ -388,32 +388,25 @@ export function snapshotCad(cad: CadTecidoRow[]): string {
 }
 
 /**
- * Arredonda como o `numeric`/`integer` do Postgres guarda (meio p/ longe do zero), pelo EXPOENTE em string — o MESMO
- * método do `roundNumeric` da assinatura do BOM (ficha-calc.ts, fix round 2 da F3.2; privado lá): `abs * 10**n` erra
- * empates decimais no float (1,005 × 100 ≠ 100,5), o parser decimal de `"1.005e2"` não. Escalas do banco (cópia, 24/set):
- * `cad_tecido_variantes.quantidade_folhas` INTEGER (o `salvar_cad_completo` faz `::numeric` e o INSERT arredonda);
- * `metragem_planejada`/`metragem_enviada` e `cad_tecidos.tamanho_folha` NUMERIC(10,2).
- */
-function arredBanco(x: unknown, casas: number): number {
-  const n = Number(x) || 0;
-  if (n === 0) return 0;
-  const abs = Math.abs(n);
-  return Math.sign(n) * Number(Math.round(Number(abs + "e" + casas)) + "e-" + casas);
-}
-
-/**
  * Assinatura do que é DO CAD (folha, qtd de folhas, metragens) e ≠ 0, por tipo+número+variante, em ordem estável e na
  * escala do BANCO (o cálculo automático gera 4,17 folhas; o servidor devolve 4 — sem isso o eco do próprio Salvar
  * acenderia "Tecidos & BOM"). Consumo/%loss/artigo/variantes/multiplicador são do BOM (já na `assinaturaBom`); linha/
- * variante zerada = ausente (a carga cria zeradas as que o CAD não tem — sem isso toda carga "divergiria").
+ * variante zerada = ausente (a carga cria zeradas as que o CAD não tem — sem isso toda carga "divergiria"). Arredonda
+ * como o `numeric`/`integer` do Postgres guarda com o MESMO `roundNumeric` da assinatura do BOM (ficha-calc.ts, fix
+ * round 2/3 da F3.2 — meio p/ longe do zero, decompõe por `toExponential()` em vez de concatenar `abs + "e" + casas`,
+ * sem NaN nas bordas de valores muito pequenos/grandes/±Infinity). Escalas do banco (cópia, 24/set):
+ * `cad_tecido_variantes.quantidade_folhas` INTEGER (o `salvar_cad_completo` faz `::numeric` e o INSERT arredonda);
+ * `metragem_planejada`/`metragem_enviada` e `cad_tecidos.tamanho_folha` NUMERIC(10,2).
  */
 export function assinaturaCad(cad: CadTecidoRow[]): string {
   const partes: string[] = [];
   for (const t of cad) {
-    const folha = arredBanco(t.tamanho_folha, 2);
+    const folha = roundNumeric(Number(t.tamanho_folha) || 0, 2);
     if (folha > 0) partes.push(`t|${t.tipo}|${t.numero}|${folha}`);
     for (const v of t.variantes) {
-      const qf = arredBanco(v.quantidade_folhas, 0), mp = arredBanco(v.metragem_planejada, 2), me = arredBanco(v.metragem_enviada, 2);
+      const qf = roundNumeric(Number(v.quantidade_folhas) || 0, 0);
+      const mp = roundNumeric(Number(v.metragem_planejada) || 0, 2);
+      const me = roundNumeric(Number(v.metragem_enviada) || 0, 2);
       if (qf > 0 || mp > 0 || me > 0) partes.push(`v|${t.tipo}|${t.numero}|${v.variante_tecido_id ?? ""}|${qf}|${mp}|${me}`);
     }
   }

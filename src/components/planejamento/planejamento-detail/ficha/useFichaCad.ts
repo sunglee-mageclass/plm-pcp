@@ -7,7 +7,11 @@
 //    catálogos (preço/largura/nome das linhas semeadas do BOM — no Dev a semeadura podia sair com preço 0);
 //  • T2 — toda edição do CAD marca o "tocado" da ficha (no Dev só consumo/%loss marcavam);
 //  • T4 — a sincronia cria a linha de um tecido novo na hora e tira a linha ainda não gravada de um bloco esvaziado;
-//  • T7 — ao hidratar, entrega a assinatura do CAD do SERVIDOR (a referência do conflito "Tecidos & BOM").
+//  • T7 — ao hidratar, entrega a assinatura do CAD do SERVIDOR (a referência do conflito "Tecidos & BOM");
+//  • Acréscimo do controlador (pós-revisão T4) — `aplicadaRef` guarda `${modeloId}|${cargaSeq}` (não só `cargaSeq`,
+//    p/ resistir a uma troca de card com cache quente) e `cargaPendenteRef` expõe, síncrono, "há uma carga do BOM
+//    que este hook ainda não aplicou" — soma ao `recarregando` do `deveGravarCad` no useFichaTecnica (o `cadVelhoRef`
+//    só cobre a janela SEM `rev` novo; este cobre o 1 render de atraso entre o `cargaSeq` subir e a hidratação do CAD).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,7 +49,16 @@ export function useFichaCad({
   const [hidratado, setHidratado] = useState(false);
   const linhasRef = useRef(linhas);
   linhasRef.current = linhas;
-  const aplicadaRef = useRef(0);
+  // Acréscimo do controlador (pós-revisão T4) — chave POR CARD (não só `cargaSeq`): um `cargaSeq` isolado
+  // sobreviveria a uma troca de card com cache já quente (staleTime futuro > 0) e a carga do CAD achava que já
+  // tinha aplicado aquele número, sem hidratar o card novo. `${modeloId}|${cargaSeq}` reseta com o card.
+  const aplicadaRef = useRef<string>("");
+  // Acréscimo do controlador — "a carga do CAD PEDIU mas ainda não aplicou" (1 render de atraso: o efeito de
+  // carga do useFichaBom sobe `cargaSeq` num commit, este efeito só hidrata no PRÓXIMO). Lido de FORA (síncrono,
+  // sem esperar o render) pela captura do Salvar — soma ao `recarregando` de `deveGravarCad` (R1 do G-plano
+  // F3.3): sem isto, o `cadVelhoRef` (que só cobre a janela SEM `rev` novo) deixava passar um Salvar nesse 1
+  // render de atraso, gravando o CAD ainda com `linhasRef` do card/carga ANTERIOR.
+  const cargaPendenteRef = useRef(false);
   const aoHidratarRef = useRef(aoHidratar);
   aoHidratarRef.current = aoHidratar;
 
@@ -54,23 +67,30 @@ export function useFichaCad({
     setLinhas(SEM_LINHAS);
     setAutoFolhasState(false);
     setHidratado(false);
-    aplicadaRef.current = 0;
+    aplicadaRef.current = "";
+    cargaPendenteRef.current = false;
   }, [modeloId]);
 
   const ctx = useMemo(() => ({ artigoMap: dados.artigoMap, frozen: dados.frozenPrecos }), [dados.artigoMap, dados.frozenPrecos]);
 
+  // "Pendente" = há uma carga do BOM (`cargaSeq`, > 0) que este hook ainda não aplicou — calculado a cada render
+  // (síncrono, antes do efeito abaixo rodar) e mantido em ref p/ leitura fora do ciclo de render (a captura do Salvar).
+  cargaPendenteRef.current = habilitada && cargaSeq > 0 && `${modeloId}|${cargaSeq}` !== aplicadaRef.current;
+
   // Carga (Dev :1040-1174): 1× por carga do BOM (`cargaSeq`), com os catálogos prontos e nada recarregando.
   useEffect(() => {
-    if (!habilitada || cargaSeq === 0 || cargaSeq === aplicadaRef.current) return;
+    const chave = `${modeloId}|${cargaSeq}`;
+    if (!habilitada || cargaSeq === 0 || chave === aplicadaRef.current) return;
     if (!dados.catalogosProntos || dados.bomFetching) return;
     const tec = dados.tecidosData;
     if (!tec || dados.cadData === undefined) return;
-    aplicadaRef.current = cargaSeq;
+    aplicadaRef.current = chave;
+    cargaPendenteRef.current = false;
     setLinhas(hidratarCad({ cad: dados.cadData, bomTecidos: tec.tecidos, bomVariantes: tec.variantes, artigoMap: ctx.artigoMap, frozen: ctx.frozen }));
     setHidratado(true);
     aoHidratarRef.current(assinaturaCadServidor(dados.cadData));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habilitada, cargaSeq, dados.catalogosProntos, dados.bomFetching]);
+  }, [habilitada, modeloId, cargaSeq, dados.catalogosProntos, dados.bomFetching]);
 
   // Rótulos de TODAS as variantes dos blocos (Dev :1271-1312) — variante nova aparece com nome na hora.
   const idsVariantes = useMemo(() => idsVariantesDosBlocos(blocks), [blocks]);
@@ -130,5 +150,5 @@ export function useFichaCad({
 
   const faltas = useMemo(() => faltasCad(linhas), [linhas]);
 
-  return { linhas, linhasRef, hidratado, autoFolhas, setAutoFolhas, faltas, updateTec, updateVar, propagarDoBloco };
+  return { linhas, linhasRef, hidratado, cargaPendenteRef, autoFolhas, setAutoFolhas, faltas, updateTec, updateVar, propagarDoBloco };
 }

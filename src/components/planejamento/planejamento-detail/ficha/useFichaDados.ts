@@ -140,6 +140,8 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
   // comparar — mesma receita do gate do CAD no Dev (`ModeloDetailPanel.tsx:1047-1054`,
   // `cadRowDevFetching || tecidosDataFetching`). Sem isso, um refetch parcial re-hidrata coleções com
   // o cache velho das outras (sem toque) ou compara um BOM MISTO (com toque, `aoRecarregarComTocado`).
+  // F3.3 — `bomFetching` cresceu para 6 queries: as 5 do BOM + a do CAD (`qCad`, abaixo) — ver comentário na
+  // declaração dela.
   const qTecidos = useQuery({
     queryKey: ["plan-ficha-tecidos", modeloId],
     enabled: on,
@@ -233,7 +235,7 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
       return (((data ?? {}) as any)[modeloId as string] ?? {}) as Record<string, boolean>;
     },
   });
-  // I2 — em refetch (foco/invalidação) TODAS as 5 precisam assentar antes da carga mexer no estado.
+  // I2 — em refetch (foco/invalidação) TODAS as 6 (5 do BOM + o CAD) precisam assentar antes da carga mexer no estado.
   // T5 m1 — NÃO derivável de `chavesBomServidor` sem mudar a ordem dos hooks: cada `.isFetching` vem do
   // objeto de retorno de um `useQuery` individual (qTecidos/qOcLinks/…), não das keys (que são só arrays
   // de identidade); trocar para `useQueries([...chavesBomServidor(...)])` mudaria a estrutura dos hooks

@@ -243,6 +243,22 @@ describe("snapshot e assinatura do CAD", () => {
     const soConsumo: CadRowDb = { ...cadServidor, cad_tecidos: [{ ...cadServidor.cad_tecidos![0], consumo_cad: 9 }] };
     expect(cadDivergeDaReferencia(ref, soConsumo)).toBe(false); // consumo é do BOM (já na assinaturaBom)
   });
+  // Acréscimo do controlador (fix da revisão T1, pós-revisão da T4) — bordas do `roundNumeric` compartilhado com a
+  // assinatura do BOM (ficha-calc.ts): valores extremos não podem virar NaN (que vira `null` no JSON.stringify e
+  // acenderia "Tecidos & BOM" falso contra o servidor, que nunca vê um `numeric` guardar algo tão extremo).
+  it("bordas do arredondamento compartilhado — sem NaN em valores muito pequenos/grandes/±Infinity", () => {
+    // 1e-7 arredonda a 0 nas 2 casas do banco — mesmo resultado do servidor (que armazenaria 0,00).
+    const minusculo = atualizarLinhaCad(base, 0, { tamanho_folha: 1e-7 });
+    expect(assinaturaCad(minusculo)).toBe(assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: 0 })));
+    // 1e21 e Infinity não podem produzir NaN/string inválida — a assinatura continua uma string bem-formada.
+    expect(() => assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: 1e21 }))).not.toThrow();
+    expect(assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: 1e21 }))).not.toContain("NaN");
+    expect(() => assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: Infinity }))).not.toThrow();
+    expect(assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: Infinity }))).not.toContain("NaN");
+    // −0,001 arredonda a 0 (não a −0) nas 2 casas — mesmo tratamento do `roundNumeric` da assinatura do BOM.
+    const negQuaseZero = atualizarLinhaCad(base, 0, { tamanho_folha: -0.001 });
+    expect(assinaturaCad(negQuaseZero)).toBe(assinaturaCad(atualizarLinhaCad(base, 0, { tamanho_folha: 0 })));
+  });
 });
 
 describe("deveGravarCad — quando o Salvar grava o CAD (§3 P2, D2)", () => {
@@ -258,6 +274,12 @@ describe("deveGravarCad — quando o Salvar grava o CAD (§3 P2, D2)", () => {
   it("D2: antes da Ordem de Criação e sem CAD, não cria o CAD", () => {
     expect(deveGravarCad({ ...ok, cadExiste: false, ordemEnviada: false, tocado: true })).toBe(false);
     expect(deveGravarCad({ ...ok, cadExiste: false, ordemEnviada: true })).toBe(true);
+  });
+  // Acréscimo do controlador (fix da revisão T1) — caso que faltava isolado: card COM CAD já existente, mas cuja
+  // Ordem de Criação foi cancelada depois (`ordemEnviada: false`) — o CAD já existe no servidor, então D2 não se
+  // aplica (a guarda é "sem CAD E sem Ordem"); o Salvar segue gravando o CAD normalmente.
+  it("cadExiste=true e ordemEnviada=false ⇒ grava (D2 só bloqueia SEM CAD e SEM Ordem)", () => {
+    expect(deveGravarCad({ ...ok, cadExiste: true, ordemEnviada: false })).toBe(true);
   });
   it("sem toque, estado possivelmente velho (retry do P0409 ou recarga em curso) ⇒ não grava", () => {
     expect(deveGravarCad({ ...ok, retry: true })).toBe(false);

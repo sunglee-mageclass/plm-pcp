@@ -462,7 +462,7 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
  * independente de quão grande/pequeno `abs` seja. Não-finito (`Infinity`/`NaN`) e `-0` viram `0` (mesmo
  * valor que o `numeric` do Postgres armazenaria nesses casos — não há coluna que guarde infinito).
  */
-function roundNumeric(x: number, casas: number): number {
+export function roundNumeric(x: number, casas: number): number {
   const n = Number(x);
   if (!Number.isFinite(n) || n === 0) return 0;
   const abs = Math.abs(n);
