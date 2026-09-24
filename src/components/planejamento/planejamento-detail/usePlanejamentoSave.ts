@@ -16,7 +16,7 @@ import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/component
 import { ehOrigemComprada } from "@/lib/origem";
 import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
-import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
+import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
@@ -151,7 +151,9 @@ export function usePlanejamentoSave({
       // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica). A F3.2 usa este MESMO `d`
       // (rascunho vivo) pra capturar o BOM/MO — não reimplementa o fix do retry (ruling do controlador).
       const d = draftParaSalvar(draftLiveRef.current, draft);
-      const bom = fichaRef.current.capturar(d.custos_adicionais);
+      // F3.3 — a captura do CAD precisa saber se é o retry do P0409 (sem toque, o CAD local pode estar velho) e das
+      // proporções ENVIADAS (o `salvar_cad_completo` grava `modelos.proporcoes`).
+      const bom = fichaRef.current.capturar(d.custos_adicionais, { retry: retryRef.current, proporcoes: d.proporcoes });
       // Colunas DERIVADAS do BOM: na 1ª tentativa sempre; no retry do P0409 só quando ESTE save grava o BOM (os derivados
       // saem do MESMO BOM gravado — R5). Retry sem gravar o BOM: o BOM local (não tocado) pode estar velho.
       const incluirDerivados = !retryRef.current || bom.gravar;
@@ -327,6 +329,19 @@ export function usePlanejamentoSave({
           // avisar especificamente que a grade/tecido não foi salvo (o card em si já foi criado).
           if (gradeErr) { (gradeErr as any).etapaFalha = "grade"; throw gradeErr; }
         }
+      }
+      // F3.3 — CAD no MESMO Salvar (decisão F3 #7; Dev :2062-2119): DEPOIS do BOM e das etiquetas (a RPC devolve
+      // consumo/%loss do CAD ao BOM — funcoes.sql:6878-6881 — e aqui são os MESMOS valores: plano F3.3 §3 P1–P3) e ANTES
+      // da MO. Só card existente; `bom.cad.gravar` já decidiu tudo (`deveGravarCad`). Falha aqui = o BOM já gravou e o CAD
+      // não (cadeia não atômica, como no Dev): etapa marcada p/ a mensagem própria no onError.
+      if (isEdit && modeloId && bom.cad.gravar) {
+        try {
+          await persistirCad(modeloId, bom.cad);
+        } catch (eCad) {
+          (eCad as any).etapaFalha = "cad";
+          throw eCad;
+        }
+        fichaRef.current.cadGravado(bom.cad);
       }
       // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
       // aprovação já foi imediata via RPC própria, não entra aqui). Só quando o rascunho de MO
@@ -568,6 +583,8 @@ export function usePlanejamentoSave({
       qc.invalidateQueries({ queryKey: ["modelo-composicao", modeloId] });
       // F3.2 — o BOM é o MESMO do Desenvolvimento: refresca o Sheet do Dev (mesma aba) e quem lê o BOM.
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      // F3.3 — o CAD gravado: Explosão, Ficha Técnica, Sheet do Dev e o CQ/Lançar deste card relêem.
+      if (enviadoRef.current?.bom.cad.gravar) invalidarAposGravarCad(qc, modeloId);
       if (enviadoRef.current?.bom.gravar) {
         for (const k of ["modelo-tecidos-consumo", "modelo-tecido-oc-links", "modelo-aviamentos", "modelo-etiquetas", "modelo-grades", "modelo-condicoes-kanban", "etapas-afetadas"])
           qc.invalidateQueries({ queryKey: [k, modeloId] });
@@ -741,6 +758,20 @@ export function usePlanejamentoSave({
       // avançar o `rev`, então nada dispara essa conferência sozinho). Mesmo padrão do item H (m2) acima,
       // que já cobre o ramo do P0409 sem retry.
       fichaRef.current.invalidarBom();
+      // Rebase F3.3→3adfbd3: a invalidação da F3.2 fica ANTES do ramo do CAD (F3.3) — cobre também a falha do CAD
+      // (erro não-P0409 depois do UPDATE/BOM); invalidar de novo quando o BOM já gravou (`bomGravado`) é inócuo.
+      // F3.3 — o CAD falhou (passo DEPOIS do BOM e das etiquetas). O selo "não salvo" segue aceso (o onSuccess não rodou)
+      // e o próximo Salvar grava os dois (plano F3.3 §3 P6). R2 do G-plano F3.3: "os tecidos foram salvos" SÓ quando ESTE
+      // Salvar gravou o BOM (`bom.gravar`) — num Salvar sem toque o BOM não grava e só o CAD (regravado por paridade)
+      // falhou. As duas pedem "salve de novo antes de fechar": fechar e DESCARTAR deixa a deriva BOM × CAD, e o próximo
+      // Salvar sem toque (aqui ou no Dev) devolve ao BOM o consumo do CAD em silêncio (paridade com o Dev — §6 R11).
+      if (e?.etapaFalha === "cad") {
+        const detalhe = mensagemErro(e, "erro desconhecido");
+        toast.error(enviadoRef.current?.bom.gravar
+          ? `Os tecidos foram salvos, mas o CAD não — salve de novo antes de fechar. (${detalhe})`
+          : `O CAD não foi salvo — salve de novo antes de fechar. (${detalhe})`);
+        return;
+      }
       toast.error(mensagemErro(e, "Erro"));
     },
     // Item G (CONTADOR — fix round 3) — desmarca "save em voo" (−1) ao fim de QUALQUER ciclo (sucesso, erro,

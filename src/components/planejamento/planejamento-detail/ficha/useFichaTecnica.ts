@@ -4,7 +4,7 @@
 //  • colab (conflito de SEÇÃO "Tecidos & BOM" — Dev :599-603, :838-843, :1813-1842 — só quando o BOM do SERVIDOR
 //    mudou de verdade: R5 do G-plano conjunto);
 //  • `save` (FichaSave — consumida por usePlanejamentoSave).
-// Trava ÚNICA (R2 do G-plano conjunto): deriva da trava da F3.1 (`travaDev`) + a trava interina "tem CAD".
+// Trava ÚNICA (R2 do G-plano conjunto): deriva da trava da F3.1 (`travaDev`). F3.3: a trava interina "tem CAD" saiu.
 // Porta a orquestração do PanelContent do Dev (ModeloDetailPanel.tsx), que fica intocado até a F5.
 import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -284,16 +284,15 @@ export function useFichaTecnica(a: {
   const guardaCad = useFichaGuarda({ modeloId: a.modeloId, snapshot: snapshotCadAtual, tocado: bom.tocado, hidratado: cad.hidratado });
 
   const carregado = habilitada && bom.hidratado && dados.catalogosProntos && bom.varianteArtigoMapPronto && cad.hidratado;
-  // Trava ÚNICA (R2 do G-plano conjunto): DERIVA da trava da F3.1 e soma a trava INTERINA "tem CAD" (até a F3.3):
-  // sem regravar o CAD, um consumo editado aqui seria DEVOLVIDO pelo próximo Salvar do Dev (salvar_cad_completo copia
-  // consumo_cad → BOM, funcoes.sql:6878-6881) e a Explosão ficaria desalinhada. Card enviado ⇒ tem CAD (0 exceções na
-  // cópia local): o "Editar" da F3.1 destrava os campos simples do Dev, mas aqui o motivo só passa de "enviado" a "cad".
+  // Trava ÚNICA (R2 do G-plano conjunto): DERIVA da trava da F3.1. F3.3 — a trava interina "tem CAD" da F3.2 SAIU: o
+  // Salvar grava o CAD junto com o BOM (`deveGravarCad` + usePlanejamentoSave) e toda edição leva consumo/%loss/artigo às
+  // DUAS estruturas, então o próximo Salvar do Dev não desfaz nada (prova: plano F3.3 §3). O "Editar" da F3.1 destrava
+  // BOM e CAD junto com os demais campos do Dev.
   const motivoSomenteLeitura: MotivoSomenteLeitura =
     a.travaDev === "sem_permissao" || !podeEditarFicha ? "permissao"
       : a.travaDev === "enviado" ? "enviado"
         : !dados.cadFetched ? "carregando"
-          : dados.cadExiste ? "cad"
-            : null;
+          : null;
   const podeEditar = carregado && motivoSomenteLeitura === null;
   // T7 m2 — `capturar` (chamado no início do Salvar, inclusive num RETRY) precisa ler o `podeEditar` de
   // AGORA, não o do closure em que `save.capturar` foi criado no render anterior. Cenário: P0409 porque
