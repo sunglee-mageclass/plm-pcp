@@ -77,6 +77,12 @@ export function invalidarAposGravarCad(qc: QueryClient, modeloId: string | null)
   // exatas de usePlanejamentoSave.ts (~:519-521): consumo/grade/estoque que o CAD também deriva.
   for (const k of ["modelo-tecidos-consumo", "modelo-grades"]) qc.invalidateQueries({ queryKey: [k, modeloId] });
   qc.invalidateQueries({ queryKey: ["estoque-tecido-por-artigo"] });
+  // Fix T9 M6 — `["modelo-condicoes-kanban", modeloId]` (a MESMA key que o Dev usa — ModeloDetailPanel.tsx:284
+  // — pra avaliar `cad_preenchido`/demais condições do kanban) também faltava aqui: com SÓ o CAD gravando
+  // (BOM não tocado), a condição `cad_preenchido` (que olha `cad_tecidos.tamanho_folha`/`cad_tecido_variantes.
+  // quantidade_folhas`/`metragem_planejada` — exatamente o que este Salvar acabou de gravar) ficava com o cache
+  // velho no card do kanban do Desenvolvimento até um refetch manual.
+  qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
   for (const k of chavesFichaBom(modeloId)) qc.invalidateQueries({ queryKey: k });
   qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
 }

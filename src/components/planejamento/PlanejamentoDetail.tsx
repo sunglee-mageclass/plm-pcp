@@ -1063,7 +1063,10 @@ function PlanejamentoDetailConteudo({
     statusCru: enviada ? kanbanCard.statusSalvo : null, derivacao: kanbanCard.derivacao, condProntas: kanbanCard.condProntas,
   });
   const mostraEnviarExplosao = fichaVisivel && enviada && !enviadoCad;
-  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok
+  // Fix T9 M2 — só calcula/mostra pendências com a ficha CARREGADA: `ficha.estado.blocks`/`.grades` podem estar
+  // vazios/parciais enquanto a carga do BOM/CAD roda, e sem este gate "Falta: tecido / grade" piscava durante a
+  // carga (mesmo com `gateEnvio.ok`, que só confere a ETAPA do card, não se a ficha já hidratou).
+  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado
     ? pendenciasEnvioExplosao({ draft, blocks: ficha.estado.blocks, grades: ficha.estado.grades, rotuloRef: fl("ref") })
     : [];
   const mostraFaltas = pendenciasEnvio.length > 0;
@@ -1554,15 +1557,22 @@ function PlanejamentoDetailConteudo({
             <MenuMaisAcoes
               className={mostraFaltas ? "max-sm:ml-auto" : "ml-auto"}
               onDuplicar={handleDuplicate}
-              // Rebase F3.3→3adfbd3 — o Duplicar saiu do rodapé para o ⋯ e leva junto a condição da F3.2: round 4 (item 7,
-              // T13 m2: `ficha.habilitada && !ficha.carregado` — a `mutationFn` lê `fichaRef.current.carregado`/`.estado.blocks`;
-              // antes de carregar caía no fallback `tecidos_planejados.slice(0,3)`) + micro-fix M1 3adfbd3 (`isEdit && !modeloData`
-              // — cache FRIO: `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed,
-              // copiando o `emptyDraft()`).
+              // Fix T9 I1 — devolve a condição do round 4 da F3.2 (item 7, 67e363f ~:1387-1388), perdida quando
+              // o Duplicar saiu do rodapé (solto) e virou item do MenuMaisAcoes (Task 9): a `mutationFn` do
+              // Duplicar lê `fichaRef.current.carregado`/`.estado.blocks` — clicar ANTES de carregar caía no
+              // fallback `tecidos_planejados.slice(0,3)` em vez dos artigos reais do BOM.
+              // Rebase F3.3→3adfbd3 — + a condição do micro-fix M1 da F3.2 (3adfbd3): `isEdit && !modeloData` (cache FRIO:
+              // `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed, copiando o
+              // `emptyDraft()`), no `duplicando` e na dica.
               duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
+              duplicandoTitle={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined}
               onImportar={ficha.podeEditar ? () => importar.setAberto(true) : undefined}
               onFichaTecnica={enviadoCad ? () => setPrintTecnicaToken((t) => t + 1) : undefined}
-              onCancelarOrdem={enviada ? () => setConfirmCancelarOrdem(true) : undefined}
+              // Fix T9 I3 (ruling do controlador) — com `enviado_cad=true` o card já foi p/ a Explosão (CQ/
+              // Direcionamento podem ter avançado por cima do CAD); "Cancelar Ordem" volta o card pro
+              // Planejamento mas NÃO desfaz nada da Explosão — some do menu pra não sugerir uma reversão que
+              // não existe.
+              onCancelarOrdem={enviada && !enviadoCad ? () => setConfirmCancelarOrdem(true) : undefined}
               cancelandoOrdem={enviar.isPending}
             />
           )}
@@ -1655,18 +1665,39 @@ function PlanejamentoDetailConteudo({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Não, quero revisar antes</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { setConfirmEnviarExplosao(false); enviarExplosao.mutate(); }}>Sim, enviar</AlertDialogAction>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmEnviarExplosao(false);
+                  // Fix T9 M5 — re-checa `podeEnviarExplosaoAgora` no clique (não só no `disabled` do botão que abriu
+                  // o diálogo): o AlertDialog pode ficar aberto um tempo antes da confirmação, e o gate pode ter
+                  // mudado nesse meio-tempo (etapa avançou/regrediu, outra pessoa salvou, ficha ficou indisponível).
+                  // Sem esta checagem, "Sim, enviar" dispararia a mutation mesmo sem mais poder enviar.
+                  if (!podeEnviarExplosaoAgora) {
+                    toast.error(motivoEnvioBloqueado ?? "Não é mais possível enviar à Explosão — confira o card.");
+                    return;
+                  }
+                  enviarExplosao.mutate();
+                }}
+              >
+                Sim, enviar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Cancelar Ordem de Criação (menu ⋯, NEUTRO — R7): ação sensível, confirma antes de reverter. */}
+        {/* Cancelar Ordem de Criação (menu ⋯, NEUTRO — R7): ação sensível, confirma antes de reverter.
+            Fix T9 I3 (ruling do controlador) — com CAD existente (`ficha.dados.cadExiste`) e o card ainda NÃO
+            enviado à Explosão (o item só aparece nesse caso — `enviadoCad` esconde o item por completo, ver
+            MenuMaisAcoes acima), o texto avisa que o CAD sobrevive ao cancelamento; sem CAD, mantém o texto de
+            sempre. */}
         <AlertDialog open={confirmCancelarOrdem} onOpenChange={setConfirmCancelarOrdem}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Cancelar a Ordem de Criação?</AlertDialogTitle>
               <AlertDialogDescription>
-                O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.
+                {ficha.dados.cadExiste
+                  ? 'Este card já tem CAD: ao cancelar a Ordem, o CAD continua existindo e o card não poderá ser excluído. Ele sai do kanban do Desenvolvimento e poderá ser enviado de novo.'
+                  : 'O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

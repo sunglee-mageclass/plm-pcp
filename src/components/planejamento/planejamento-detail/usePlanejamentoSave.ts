@@ -792,7 +792,10 @@ export function usePlanejamentoSave({
    * automático segue sozinho (onError) e quem chamou aborta.
    */
   const salvarAntes = async (): Promise<void> => {
-    if (savingRef.current || save.isPending) throw new Error("Aguarde o salvamento em andamento terminar.");
+    // Fix T9 M1 — a mensagem original não tinha acento nem palavra da lista `PARECE_PT` (erro-mensagem.ts) —
+    // caía no fallback genérico "Erro ao enviar" em vez de mostrar o motivo real. Mesma classe do Item F
+    // (fix round 2, linha ~124 acima: "Conferindo se outra pessoa mudou o BOM...").
+    if (savingRef.current || save.isPending) throw new Error("Há um salvamento em andamento — aguarde terminar e tente de novo.");
     savingRef.current = true;
     try {
       await save.mutateAsync(undefined);

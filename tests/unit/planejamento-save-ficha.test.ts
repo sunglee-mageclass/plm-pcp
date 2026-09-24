@@ -327,3 +327,24 @@ describe("deveLimparTocadoAposSalvar — fix pós-T9 (edições perdidas em sil�
     expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: false })).toBe(false);
   });
 });
+
+// Fix T9 I2 (IMPORTANTE) — `tocado` deixou de ser a ref crua de toque (`colecoesTouchadasRef.current`, que
+// fica `true` mesmo depois de "tocar e desfazer" — o snapshot volta a bater com o baseline, mas a ref de
+// toque não reseta) e passou a ser `sujoNaCaptura` = `guarda.dirty || (cadGravavel && guardaCad.dirty)`,
+// CONGELADO no início do Salvar (useFichaTecnica.ts, `capturar()`). Os 4 casos abaixo usam o `tocado` desta
+// função pura já como esse valor SEMÂNTICO (não a ref crua) — é o chamador (useFichaTecnica.ts `aposSalvar`)
+// que muda de fonte; a função em si não precisa mudar, só o que ela recebe.
+describe("deveLimparTocadoAposSalvar — I2: tocado = sujoNaCaptura (não a ref crua de toque)", () => {
+  it("(a) tocar e desfazer antes da Ordem: snapshot volta a bater com o baseline ⇒ sujoNaCaptura=false ⇒ sem aviso, tocado limpa", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
+  });
+  it("(b) editou o BOM antes da Ordem: BOM sujo E grava; CAD não gravável (D2, sem Ordem) não conta na captura ⇒ sem aviso", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true, cadGravou: false })).toBe(true);
+  });
+  it("(c) CAD falhou com a ficha suja: sujoNaCaptura=true e NADA gravou (a falha do CAD nem chega ao onSuccess/aposSalvar — mas se chegasse, o selo teria que continuar aceso)", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: false })).toBe(false);
+  });
+  it("(d) sem toque: sujoNaCaptura=false ⇒ nada a fazer, sem aviso", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
+  });
+});

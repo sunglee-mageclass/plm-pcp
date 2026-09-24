@@ -8,10 +8,17 @@ import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/compone
 
 const ITEM = "flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40";
 
-export function MenuMaisAcoes({ className, onDuplicar, duplicando, onImportar, onFichaTecnica, onCancelarOrdem, cancelandoOrdem }: {
+export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTitle, onImportar, onFichaTecnica, onCancelarOrdem, cancelandoOrdem }: {
   className?: string;
   onDuplicar: () => void;
   duplicando: boolean;
+  /**
+   * Fix T9 I1 — dica quando `duplicando` vem `true` SÓ por "Carregando a ficha…" (round 4 da F3.2, item 7,
+   * 67e363f ~:1387-1388: a `mutationFn` do Duplicar lê `fichaRef.current.carregado`/`.estado.blocks` — clicar
+   * ANTES de carregar caía no fallback `tecidos_planejados.slice(0,3)` em vez dos artigos reais do BOM).
+   * `undefined` = desabilitado por estar realmente em voo (`duplicate.isPending`, sem dica extra).
+   */
+  duplicandoTitle?: string;
   /** Ausente = ficha não editável (o item some — Dev :2732-2736 só com o card editável). */
   onImportar?: () => void;
   /** Ausente = ainda não enviado à Explosão (item desabilitado — "após Enviar"). */
@@ -29,8 +36,15 @@ export function MenuMaisAcoes({ className, onDuplicar, duplicando, onImportar, o
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-60 p-1">
         <PopoverClose asChild>
-          <button type="button" className={ITEM} onClick={onDuplicar} disabled={duplicando}>
+          <button
+            type="button"
+            className={ITEM}
+            onClick={onDuplicar}
+            disabled={duplicando}
+            title={duplicando ? duplicandoTitle : undefined}
+          >
             <Copy className="h-4 w-4 shrink-0" /> Duplicar
+            {duplicando && duplicandoTitle && <span className="ml-auto text-xs text-muted-foreground">carregando…</span>}
           </button>
         </PopoverClose>
         {onImportar && (

@@ -209,6 +209,14 @@ export function contadorVoo(atual: number, marcar: boolean): number {
  *
  * Rebase F3.3→3adfbd3: a F3.2 (fix final M1) portou a versão SÓ-BOM (`{ tocado, bomGravou }`); aqui volta a versão da
  * F3.3 com `cadGravou` (regra do `rebase-f32.md`) — os testes da F3.2 passam `cadGravou: false`.
+ *
+ * Fix T9 M4 — o `aposSalvar` (useFichaTecnica.ts) que consome este `podeLimpar` tinha um bug de integração: o
+ * ramo `if (bomMudouEmVoo) { guarda.rebasear(...) }` já existia ANTES deste fix (herdado da F3.2/receita
+ * 2419d0f do Dev, de uma época em que "não gravou apesar de estar sujo" não era um cenário considerado) e
+ * corria INCONDICIONAL — só o `else` ficou atrás de `podeLimpar`. Resultado: `bomMudouEmVoo && !podeLimpar`
+ * ainda rebaseava pra um snapshot NUNCA enviado ao servidor. Os DOIS ramos (rebasear e limpar) precisam estar
+ * atrás do MESMO `if (podeLimpar)` — não havia motivo deliberado pro rebase incondicional, foi um descuido ao
+ * encaixar este guard num `if/else` pré-existente que não previa o caso.
  */
 export function deveLimparTocadoAposSalvar(i: { tocado: boolean; bomGravou: boolean; cadGravou: boolean }): boolean {
   if (!i.tocado) return true;

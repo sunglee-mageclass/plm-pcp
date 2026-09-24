@@ -323,6 +323,11 @@ export function useFichaTecnica(a: {
   // F3.3 — D2: antes da Ordem de Criação o Planejamento NÃO cria o CAD (FK `cad.modelo_id` NO ACTION: o card não se
   // excluiria mais). Sem CAD e sem Ordem, a seção CAD é só-leitura (o que se digitasse não seria gravado).
   const cadGravavel = podeEditar && (dados.cadExiste || a.ordemEnviada);
+  // Fix T9 I2 — mesmo padrão de `podeEditarRef`: `capturar()` roda fora do ciclo de render (inclusive no
+  // retry do P0409) e precisa do `cadGravavel` de AGORA pra decidir se `guardaCad.dirty` conta como "devia
+  // ter gravado" (D2, antes da Ordem sem CAD, NÃO conta).
+  const cadGravavelRef = useRef(false);
+  cadGravavelRef.current = cadGravavel;
   const cadHandlers = cadGravavel ? { updateTec: cad.updateTec, updateVar: cad.updateVar, setAutoFolhas: cad.setAutoFolhas } : CAD_NOOP;
   // Espelho SÍNCRONO do que a captura do CAD precisa (mesma razão do `podeEditarRef`: o retry do P0409 roda fora do
   // ciclo de render).
@@ -554,13 +559,21 @@ export function useFichaTecnica(a: {
       // ESTA captura vai GRAVAR, não se a ficha ESTÁ suja): tocar e desfazer (`snap===base`) ou uma
       // proporção/toggle de grade automática com `oldSum=0`/`grade_total=0` (marca tocado, mas o snapshot da
       // GRADE não muda — só `proporcoes`, fora do snapshot do BOM) saem `false` aqui.
-      const sujoNaCaptura = bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snap, base);
-      const gravar = podeEditarRef.current && (sujoNaCaptura || bom.prefillPendenteRef.current);
+      const bomSujo = bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snap, base);
+      const gravar = podeEditarRef.current && (bomSujo || bom.prefillPendenteRef.current);
+      // Fix T9 I2 da F3.3 (rebase F3.3→3adfbd3: UM campo só, `sujoNaCaptura` = BOM sujo OU CAD sujo) — o CAD usa o
+      // MESMO helper puro da F3.2 (`bomSujoNaCaptura(tocado, snap, base)` — a fórmula é genérica), lido DIRETO das refs
+      // (`cad.linhasRef`/`guardaCad.baselineRef`), não de `guardaCad.dirty` (STATE, só atualiza no próximo render). O
+      // CAD só conta quando é gravável/esperado (`cadGravavelRef.current` — D2, antes da Ordem sem CAD, não conta);
+      // `cadGravavelRef` (não o closure): `capturar()` também roda no retry do P0409, fora do ciclo de render.
+      const baseCad = guardaCad.baselineRef.current;
+      const snapCad = snapshotCad(cad.linhasRef.current);
+      const cadSujo = cadGravavelRef.current && bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snapCad, baseCad);
       return {
         estado: e,
         snapshot: snap,
         gravar,
-        sujoNaCaptura,
+        sujoNaCaptura: bomSujo || cadSujo,
         flags: { ...bom.flagsRef.current },
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
@@ -607,11 +620,30 @@ export function useFichaTecnica(a: {
       // de verdade mas a trava chegou depois e impediu a gravação" (NÃO limpa; ver cenário (c) no relatório).
       // Fix pós-T9 da F3.3 (re-revisão de 67e363f, item 1) — o CAD também conta: só limpa quando não havia toque, ou
       // quando o que estava tocado foi de fato gravado (BOM ou CAD).
+      // Fix pós-T9 (re-revisão de 67e363f, item 1) — "edições perdidas em silêncio": a ficha estava TOCADA mas
+      // `capturar()`/`capturarCad` decidiram `gravar=false` (ex.: `podeEditar`/CAD hidratado viraram false NO MEIO do
+      // caminho — a captura já tinha corrido antes disso). Sem esta guarda, o `else bom.limparTocado()` de baixo
+      // apagava o "não salvo" mesmo sem NADA ter ido ao servidor — a edição do usuário sumia sem aviso e sem chance
+      // de tentar salvar de novo. `deveLimparTocadoAposSalvar` (save-ficha.ts, puro/testado): só limpa quando não
+      // havia toque, ou quando o que estava tocado foi de fato gravado (BOM ou CAD).
+      // Fix T9 I2 (IMPORTANTE) — `tocado` deixou de ser `bom.colecoesTouchadasRef.current` (a ref crua fica
+      // `true` mesmo depois de "tocar e desfazer": o snapshot volta a bater com o baseline, mas a ref de toque
+      // não reseta) e passou a ser `bomEnviado.sujoNaCaptura` — "havia algo NÃO SALVO na captura" CONGELADO no
+      // início deste Salvar (BOM sujo OU CAD sujo — `bomSujoNaCaptura` da F3.2 lido das refs; ficha-calc.ts). Sem este fix,
+      // "tocar e desfazer" (ou editar só o BOM antes da Ordem, sem CAD — D2) sempre caía em `tocado=true,
+      // bomGravou=false ⇒ false`: aviso "NÃO foram salvas" falso em TODO Salvar e o tocado preso pra sempre.
       const podeLimpar = deveLimparTocadoAposSalvar({
         tocado: bomEnviado.sujoNaCaptura,
         bomGravou: bomEnviado.gravar,
         cadGravou: bomEnviado.cad.gravar,
       });
+      // Fix T9 M4 — o rebase (ramo `bomMudouEmVoo`) corria INCONDICIONAL, antes até de checar `podeLimpar`: com a
+      // ficha suja na captura e NADA gravado (`!podeLimpar`) MAIS uma edição em voo por cima, o rebase adotava
+      // `bomEnviado.snapshot`/`.cad.snapshot` como baseline — um snapshot que NUNCA foi ao servidor. Isso
+      // contradiz o próprio comentário de `deveLimparTocadoAposSalvar` (save-ficha.ts): "NÃO limpe o tocado
+      // (nem rebaseie, nem mova a referência)" quando havia algo que devia gravar e não gravou. `!podeLimpar`
+      // agora barra os DOIS ramos — nem rebaseia, nem limpa; o "não salvo" segue contra o baseline de ANTES
+      // deste Salvar (o `edicoesPerdidas` do retorno já avisa o orquestrador via toast).
       const edicoesPerdidas = !podeLimpar;
       if (podeLimpar) {
         if (bomMudouEmVoo) { guarda.rebasear(bomEnviado.snapshot); guardaCad.rebasear(bomEnviado.cad.snapshot); }

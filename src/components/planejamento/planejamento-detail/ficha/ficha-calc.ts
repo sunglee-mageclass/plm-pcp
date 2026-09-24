@@ -389,6 +389,10 @@ export type BomCapturado = {
    * zerada/`oldSum=0` (marcam tocado mas não mudam o snapshot, porque a grade não tinha nada a redistribuir)
    * — saem `false` aqui mesmo com `colecoesTouchadasRef.current=true`; usado por `deveLimparTocadoAposSalvar`
    * em vez do `tocado` cru (ver `useFichaTecnica.aposSalvar`).
+   *
+   * Fix T9 I2 da F3.3 (rebase F3.3→3adfbd3 — UM campo só): "havia algo NÃO SALVO na captura?" = BOM sujo OU CAD sujo
+   * (o CAD só quando é gravável/esperado — `cadGravavel`, D2 não conta), os dois pela MESMA fórmula
+   * (`bomSujoNaCaptura`, acima) lida das refs — não de `guarda.dirty`/`guardaCad.dirty` (STATE, um render atrasado).
    */
   sujoNaCaptura: boolean;
   flags: FlagsBom;
