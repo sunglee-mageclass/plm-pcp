@@ -196,15 +196,30 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
   gc: GradeComprado; numero?: number; selo?: ReactNode; motivoSomenteLeitura?: string | null;
 }) {
   const {
-    origem, produto, gradeRevenda, variantesRevenda, tamanhosRevenda,
+    origem, produto, produtoLoading, produtoError, gradeRevenda, variantesRevenda, tamanhosRevenda,
     setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
   } = gc;
   const tela = origem === "importado" ? "Produto Importado" : "Produto Acabado";
   return (
             <Secao id="grade_revenda" titulo="Grade" numero={numero} selo={selo} defaultOpen={false}>
-              {!produto ? (
+              {/* Fix round T7 (M1) — esta seção NÃO tinha o ramo `produtoLoading`/erro (só `ProdutoImportadoSecao`
+                  tinha, ~:171); acrescentado no MESMO padrão: "Carregando…" enquanto a query de `useGradeComprado`
+                  não resolveu, e um texto PT distinto em caso de FALHA (a query lançou) — "sem produto" (não
+                  carregando, sem erro, `produto===null`) é um estado válido (card ainda sem OC), diferente de "a
+                  busca falhou" (precisa recarregar, não criar). */}
+              {produtoLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando…</p>
+              ) : produtoError ? (
+                <p className="text-sm text-destructive">Não foi possível carregar o produto vinculado. Recarregue o card e tente de novo.</p>
+              ) : !produto ? (
+                // Fix round T7 (M3a) — `gc.origem` é a origem SALVA (o produto lido é dela); com o RASCUNHO trocado
+                // pra outra origem (Select ainda não salvo), `{tela}` ficaria errado ("Produto Acabado" quando o
+                // usuário está prestes a virar Importado, por ex.). `motivoSomenteLeitura` já cobre exatamente esse
+                // caso ("Salve a troca de Origem antes de editar a grade.", calculado pelo orquestrador a partir do
+                // RASCUNHO) — mostra ELE no lugar do texto genérico de "tela", que só faz sentido quando a origem
+                // exibida É a que o usuário está editando.
                 <p className="text-sm text-muted-foreground">
-                  Este card ainda não tem produto vinculado. Salve o card (com Grupo e Categoria) para o sistema criá-lo no {tela}.
+                  {motivoSomenteLeitura ?? `Este card ainda não tem produto vinculado. Salve o card (com Grupo e Categoria) para o sistema criá-lo no ${tela}.`}
                 </p>
               ) : variantesRevenda.length === 0 ? (
                 <p className="text-sm text-muted-foreground">

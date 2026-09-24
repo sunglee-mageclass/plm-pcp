@@ -1198,21 +1198,39 @@ function PlanejamentoDetailConteudo({
   // F3.4 — D2 (A): comprado também envia à Explosão, como no Desenvolvimento (ModeloDetailPanel.tsx:1577-1598): a lista
   // "Para enviar, falta" só exige o que a loja deixou VISÍVEL p/ comprado, e a grade é a cor × tamanho.
   const mostraEnviarExplosao = fichaVisivel && enviada && !enviadoCad;
+  // Fix round T7 (Important, RULING do controlador) — o card é comprado, "s4" está visível no Fluxo de Revenda, mas o
+  // módulo da FAMÍLIA está desligado (Produto Acabado p/ revenda, Produto Importado p/ importado): a seção
+  // `grade_revenda` NUNCA aparece nesse caso (`vis.grade_revenda` exige `paOn`/`piOn` além de `secFicha.gradeComprado`),
+  // então a grade jamais "preenche" e o Enviar travaria pra sempre com um link morto. Texto honesto, sem link.
+  const gradeIndisponivel = isComprado && secFicha.gradeComprado && !(isRevenda ? paOn : piOn)
+    ? `Grade cor × tamanho indisponível — o módulo ${isRevenda ? "Produto Acabado" : "Produto Importado"} está desligado nesta loja; peça ao administrador.`
+    : undefined;
   // Fix T9 M2 — só calcula/mostra pendências com a ficha CARREGADA: `ficha.estado.blocks`/`.grades` podem estar
   // vazios/parciais enquanto a carga do BOM/CAD roda, e sem este gate "Falta: tecido / grade" piscava durante a
   // carga (mesmo com `gateEnvio.ok`, que só confere a ETAPA do card, não se a ficha já hidratou).
-  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado
+  // Fix round T7 (M2) — comprado: a grade cor × tamanho não vem da ficha (BOM), vem de `gradeComprado`
+  // (`useGradeComprado`) — sua PRÓPRIA carga (produto vinculado + `modelo_grades`). Sem esperar por ela também,
+  // "Falta: grade preenchida" piscava (Σ=0 durante a carga) mesmo com o card já tendo grade preenchida no servidor.
+  // Interno: `gradeComprado.produtoLoading`/`gradeSeeded` são sempre `false`/`true` (a query nem dispara, `on=false`
+  // dentro do hook) — sem efeito no caminho de sempre.
+  const gradeCompradoPronta = !gradeComprado.produtoLoading && gradeComprado.gradeSeeded;
+  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado && gradeCompradoPronta
     ? pendenciasEnvioExplosao({
       draft, blocks: ficha.estado.blocks,
       grades: isComprado ? buildLinhasGradeRevenda() : ficha.estado.grades,
       rotuloRef: fl("ref"),
       campoVisivel: campoVisivelDev,
       secaoGrade: isComprado ? "grade_revenda" : "grade",
+      gradeIndisponivel,
     })
     : [];
   const mostraFaltas = pendenciasEnvio.length > 0;
+  // Fix round T7 (M2) — `!gradeCompradoPronta` some do `motivoEnvioBloqueado` da MESMA forma que `!ficha.carregado`:
+  // sem esta checagem, `pendenciasEnvio` ficava `[]` (o guard zera a lista durante a carga da grade do comprado) ⇒
+  // `mostraFaltas=false` ⇒ o botão "Enviar à Explosão" ficava DESTRAVADO na janela entre `ficha.carregado=true` e a
+  // grade do comprado terminar de carregar — exatamente o clique precoce que o M2 original pretendia evitar.
   const motivoEnvioBloqueado: string | null = !mostraEnviarExplosao ? null
-    : !ficha.carregado ? "Carregando a ficha…"
+    : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
       : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
         : gateEnvio.carregando ? "Conferindo a etapa do card…"
           : !gateEnvio.ok ? `Disponível a partir da etapa "${gateEnvio.reqLabel}".`
@@ -1669,7 +1687,13 @@ function PlanejamentoDetailConteudo({
               {pendenciasEnvio.map((p, i) => (
                 <span key={p.label}>
                   {i > 0 && " · "}
-                  <button type="button" className="font-medium underline underline-offset-2" onClick={() => abrirSecao(p.secao)}>{p.label}</button>
+                  {/* Fix round T7 (Important) — `p.secao` ausente = pendência SEM seção pra abrir (ex.: grade indisponível
+                      por módulo desligado): texto puro, sem link/onClick, não o `<button>` de sempre. */}
+                  {p.secao ? (
+                    <button type="button" className="font-medium underline underline-offset-2" onClick={() => abrirSecao(p.secao as string)}>{p.label}</button>
+                  ) : (
+                    <span className="font-medium">{p.label}</span>
+                  )}
                 </span>
               ))}
             </p>
@@ -1700,7 +1724,12 @@ function PlanejamentoDetailConteudo({
               {pendenciasEnvio.map((p, i) => (
                 <span key={p.label}>
                   {i > 0 && ", "}
-                  <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => abrirSecao(p.secao)}>{p.label}</button>
+                  {/* Fix round T7 (Important) — mesmo tratamento do bloco mobile acima: sem `secao`, texto puro. */}
+                  {p.secao ? (
+                    <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => abrirSecao(p.secao as string)}>{p.label}</button>
+                  ) : (
+                    <span>{p.label}</span>
+                  )}
                 </span>
               ))}
             </span>

@@ -163,7 +163,14 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
               {ficha.gradeExterna && (
                 <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  Produto comprado: o CAD nasce no recebimento do pedido (OC) — aqui ele é só leitura.
+                  {/* Fix round T7 (M3b) — a nota original dizia sempre "nasce no recebimento do pedido (OC)", mas
+                      DEPOIS do Enviar à Explosão do comprado (D2), o CAD deste card foi criado pelo PRÓPRIO Enviar
+                      (`enviar_modelo_para_cad`), não pelo recebimento — o texto ficava desatualizado/incorreto
+                      assim que `ficha.motivoSomenteLeitura === "enviado"` (a trava única que marca "já foi enviado").
+                      Antes de enviar, a origem real É o recebimento da OC (`receber_oc_p_acabado`, invariante #13). */}
+                  {ficha.motivoSomenteLeitura === "enviado"
+                    ? "Produto comprado: este CAD foi criado ao enviar o card à Explosão — aqui ele é só leitura."
+                    : "Produto comprado: o CAD nasce no recebimento do pedido (OC) — aqui ele é só leitura."}
                 </p>
               )}
               {ficha.cadAntesDaOrdem && (

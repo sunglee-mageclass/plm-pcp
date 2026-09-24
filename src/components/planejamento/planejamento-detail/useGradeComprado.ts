@@ -63,6 +63,13 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
   // de seed e os handlers ficam abaixo (closures sobre o mesmo state, ordem de hooks fixa).
   const [gradeRevenda, setGradeRevenda] = useState<Record<number, Record<string, number>>>({});
   const gradeRevendaSeededRef = useRef(false);
+  // Fix round T7 (M2) — espelho OBSERVÁVEL (state) de `gradeRevendaSeededRef` (a ref não dispara re-render sozinha):
+  // "a grade cor × tamanho já semeou 1×" p/ `PlanejamentoDetail.tsx` esperar antes de calcular `pendenciasEnvio` — sem
+  // isto, "Falta: grade preenchida" piscava (Σ=0 durante a carga) mesmo com a grade JÁ preenchida no servidor. `!on`
+  // (módulo desligado ou card não-comprado) nunca dispara a query (`enabled: on`) — conta como "carregada" (não há
+  // nada a esperar; o card comprado sem módulo já é coberto por `gradeIndisponivel`, que não pode ficar bloqueado
+  // esperando um seed que nunca chega).
+  const [gradeSeeded, setGradeSeeded] = useState(!on);
   const gradeRevendaBaseRef = useRef("{}");
   // Trava otimista da grade da REVENDA (`salvar_grade_revenda`): rev de `modelos` capturado no momento em que a grade foi
   // LIDA do servidor (seed inicial OU recarga após P0409) — INDEPENDENTE de `revRef` (ver o comentário no `usePlanejamentoSave`).
@@ -70,7 +77,11 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
   const gradeRevendaRevRef = useRef<number | null>(null);
   const gradeRevendaDirty = gradeRevendaSeededRef.current && JSON.stringify(gradeRevenda) !== gradeRevendaBaseRef.current;
 
-  const { data: produto, isLoading: produtoLoading } = useQuery({
+  // Fix round T7 (M1) — `isError` exposto (`produtoError`) p/ `GradeRevendaSecao` (RevendaSetores.tsx) mostrar um
+  // texto PT em vez de cair silenciosamente no ramo "sem produto vinculado" quando a query FALHOU (não é a mesma
+  // coisa: "sem produto" é um estado válido — card recém-criado sem OC ainda — "erro de carga" precisa de retry,
+  // não de um botão "Criar produto").
+  const { data: produto, isLoading: produtoLoading, isError: produtoError } = useQuery({
     queryKey: ["plan-comprado-produto", modeloId, origem],
     enabled: on,
     queryFn: async () => {
@@ -132,7 +143,14 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
     // pelo retry do header, que dispara a recarga da grade via `gradeConflict`.
     gradeRevendaRevRef.current = revRef.current;
     gradeRevendaSeededRef.current = true;
+    setGradeSeeded(true);
   }, [gradeModeloRows]);
+  // Fix round T7 (M2) — `on` pode ligar DEPOIS do 1º render (raro: a origem do servidor só chega via `modeloData`,
+  // que carrega em paralelo — `gradeSeeded` nasceu `true` pelo valor inicial `!on` de quando `on` ainda era `false`).
+  // Sincroniza sempre que `on` vira `false→true`: volta a esperar o seed de verdade (o efeito acima o marca `true`
+  // de novo assim que `gradeModeloRows` chegar). `on→false` não desfaz um seed que já rolou (edição em curso não
+  // pode voltar a "carregando" por baixo do usuário).
+  useEffect(() => { if (on && !gradeRevendaSeededRef.current) setGradeSeeded(false); }, [on]);
   const setCelulaGradeRevenda = (ordem: number, tam: string, v: number) => {
     aoEditarRef.current?.();
     setGradeRevenda((prev) => ({ ...prev, [ordem]: { ...(prev[ordem] ?? {}), [tam]: Math.max(0, Math.trunc(v) || 0) } }));
@@ -147,7 +165,10 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
   const buildLinhasGradeRevenda = () => linhasGradeComprado(gradeRevenda);
 
   return {
-    origem, produto: produto ?? null, produtoLoading,
+    origem, produto: produto ?? null, produtoLoading, produtoError,
+    // Fix round T7 (M2) — `gradeSeeded`: a grade cor × tamanho já semeou 1× (ou não se aplica, `!on`). Consumido por
+    // `PlanejamentoDetail.tsx` p/ não calcular `pendenciasEnvio` (a lista "Falta: …") ANTES da grade ter carregado.
+    gradeSeeded,
     gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty,
     variantesRevenda, tamanhosRevenda,
     setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,

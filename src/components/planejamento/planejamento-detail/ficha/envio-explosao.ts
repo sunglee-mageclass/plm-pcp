@@ -29,7 +29,13 @@ export function gateEnvioExplosao(i: {
   return { ok: g.ok, carregando: false, reqLabel: g.reqLabel };
 }
 
-export type PendenciaEnvio = { label: string; secao: SecaoSheetKey };
+/**
+ * Fix round T7 (Important, RULING do controlador) — `secao` virou OPCIONAL: ausente = pendência SEM link (texto puro,
+ * sem seção pra abrir). Único uso hoje: a grade cor × tamanho indisponível porque o módulo da origem (Produto Acabado/
+ * Produto Importado) está desligado — a seção `grade_revenda` nem existe nesse caso (`secFicha.gradeComprado` depende
+ * de `paOn`/`piOn` no orquestrador), então um link pra ela abriria uma seção que não está lá.
+ */
+export type PendenciaEnvio = { label: string; secao?: SecaoSheetKey };
 
 /**
  * "Para enviar, falta" (Dev :1576-1595). F3.4 (D2): comprado também — só exige o que a loja deixou VISÍVEL p/ comprado
@@ -45,6 +51,17 @@ export function pendenciasEnvioExplosao(i: {
   campoVisivel?: (key: string) => boolean;
   /** F3.4 — seção onde "grade preenchida" se resolve (comprado = "grade_revenda", a grade cor × tamanho). */
   secaoGrade?: SecaoSheetKey;
+  /**
+   * Fix round T7 (Important, RULING) — o card é comprado (revenda/importado), a seção "s4" está visível no Fluxo de
+   * Revenda, MAS o módulo da FAMÍLIA (Produto Acabado p/ revenda, Produto Importado p/ importado) está desligado: a
+   * grade nunca chega a existir/carregar (a query de `useGradeComprado` nem dispara — `moduloOn=false`) e a seção
+   * `grade_revenda` some do Sheet (`secFicha.gradeComprado` continua `true` — vem só de "s4" — mas `vis.grade_revenda`
+   * exige `paOn`/`piOn` também). SEM este parâmetro, "grade preenchida" ficaria PERMANENTE (a grade nunca preenche
+   * sozinha) e o link apontaria para uma seção que não renderiza — Enviar travaria pra sempre, sem explicação.
+   * Presente ⇒ troca o texto da pendência de grade por este (ex.: "Grade cor × tamanho indisponível — o módulo
+   * Produto Acabado está desligado nesta loja; peça ao administrador.") e OMITE `secao` (sem link).
+   */
+  gradeIndisponivel?: string;
 }): PendenciaEnvio[] {
   const cv = i.campoVisivel ?? (() => true);
   const out: PendenciaEnvio[] = [];
@@ -62,7 +79,13 @@ export function pendenciasEnvioExplosao(i: {
     if (!temTecidoComVariante) out.push({ label: "ao menos 1 tecido com variante", secao: "tecidos" });
     else if (!todosComVariante) out.push({ label: "1 variante em cada tecido/forro/entretela selecionado", secao: "tecidos" });
   }
-  if (cv("s4") && i.grades.reduce((s, g) => s + (g.grade_total || 0), 0) <= 0) out.push({ label: "grade preenchida", secao: i.secaoGrade ?? "grade" });
+  // Fix round T7 — `gradeIndisponivel` tem PRECEDÊNCIA sobre a checagem normal de Σgrade_total: com o módulo
+  // desligado, a grade nunca carrega dado nenhum (fica sempre vazia) — checar Σ<=0 daria o mesmo resultado, mas o
+  // texto/link errados; aqui a pendência é sobre o MÓDULO, não sobre "faltou preencher".
+  if (cv("s4")) {
+    if (i.gradeIndisponivel) out.push({ label: i.gradeIndisponivel });
+    else if (i.grades.reduce((s, g) => s + (g.grade_total || 0), 0) <= 0) out.push({ label: "grade preenchida", secao: i.secaoGrade ?? "grade" });
+  }
   if (cv("data_desenho_tecnico") && vazio(d.data_desenho_tecnico)) out.push({ label: "Data Desenho Técnico", secao: "desenvolvimento" });
   if (cv("data_piloto1") && vazio(d.data_piloto1)) out.push({ label: "Data Piloto 1", secao: "desenvolvimento" });
   const piloto2Aberto = !!(d.piloteiro2_id || !vazio(d.data_piloto2));

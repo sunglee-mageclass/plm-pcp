@@ -98,4 +98,39 @@ describe("pendenciasEnvioExplosao — F3.4 comprado (Dev ModeloDetailPanel.tsx:1
     expect(pendenciasEnvioExplosao({ draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF" }).map((p) => p.label))
       .toEqual(["ao menos 1 tecido com variante", "grade preenchida", "Data Desenho Técnico", "Data Piloto 1"]);
   });
+
+  // Fix round T7 (Important, RULING) — módulo da família (Produto Acabado/Produto Importado) desligado: a grade nunca
+  // carrega, "grade preenchida" ficaria permanente e o link apontaria pra uma seção que não existe no Sheet.
+  describe("gradeIndisponivel — módulo da origem desligado", () => {
+    it("troca o texto da pendência de grade e OMITE `secao` (sem link)", () => {
+      const out = pendenciasEnvioExplosao({
+        draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF",
+        campoVisivel: soVisivel(["s4"]), secaoGrade: "grade_revenda",
+        gradeIndisponivel: "Grade cor × tamanho indisponível — o módulo Produto Acabado está desligado nesta loja; peça ao administrador.",
+      });
+      expect(out).toEqual([{ label: "Grade cor × tamanho indisponível — o módulo Produto Acabado está desligado nesta loja; peça ao administrador." }]);
+      expect(out[0].secao).toBeUndefined();
+    });
+    it("tem PRECEDÊNCIA sobre a checagem normal de Σgrade_total, mesmo com grade preenchida (o módulo nunca deixaria isso acontecer, mas a regra é: se veio, prevalece)", () => {
+      const out = pendenciasEnvioExplosao({
+        draft: minimos(), blocks: makeEmptyBlocks(), grades: [{ variante_numero: 1, grades: { "38|P": 1 }, grade_total: 1 }],
+        rotuloRef: "REF", campoVisivel: soVisivel(["s4"]), secaoGrade: "grade_revenda", gradeIndisponivel: "Indisponível.",
+      });
+      expect(out).toEqual([{ label: "Indisponível." }]);
+    });
+    it("sem 's4' visível: a pendência nem aparece (a seção da grade está fora do Fluxo de Revenda desta loja)", () => {
+      const out = pendenciasEnvioExplosao({
+        draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF",
+        campoVisivel: soVisivel([]), secaoGrade: "grade_revenda", gradeIndisponivel: "Indisponível.",
+      });
+      expect(out).toEqual([]);
+    });
+    it("`gradeIndisponivel` ausente: comportamento de antes (checagem normal com link)", () => {
+      const out = pendenciasEnvioExplosao({
+        draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF",
+        campoVisivel: soVisivel(["s4"]), secaoGrade: "grade_revenda",
+      });
+      expect(out).toEqual([{ label: "grade preenchida", secao: "grade_revenda" }]);
+    });
+  });
 });
