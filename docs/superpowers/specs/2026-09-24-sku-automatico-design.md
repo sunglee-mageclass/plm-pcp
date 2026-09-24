@@ -50,7 +50,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 
 ### 4.1 Dados (migration própria, F3.5a)
 
-- `cores.sigla_sku text` e `cores_apelido.sigla_sku text`: opcionais, normalizados (trim + maiúsculas) no salvar.
+- `cores.sigla_sku text` e `cores_apelido.sigla_sku text`: opcionais, normalizados no salvar. *(G-plano 24/set, R4 → D6 do plano, pendente do dono; recomendação implementada:)* sem acento (lista fixa), só A–Z/0–9, maiúsculas, vazia = sem sigla — o SKU inteiro fica em A–Z, 0–9 e `- . _ /`.
 - **Siglas de tamanho:** `tenant_config.tamanhos_sku jsonb`, um mapa de **cada lado do par** para a sua sigla. Exemplo:
   `{"34":"34","PPP":"PPP","36":"36","PP":"PP"}`.
   - `tamanhos_grade` não muda: os pares continuam como estão.
@@ -65,10 +65,10 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - os Sheets de Produto Acabado e Importado mostram e editam o do **modelo espelho** (1:1, invariante #13);
   - antes de existir o espelho, o produto guarda o valor e o passa ao espelho quando o card nasce.
 - **Tabela `modelo_skus`:**
-  - colunas: `(id, tenant_id, modelo_id, variante_key, tamanho_key, sku, manual boolean default false, gerado_em, rev)`;
-  - `variante_key` = id da variante de tecido (interno) ou da variante do produto (comprado);
+  - colunas: `(id, tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual boolean default false, gerado_em, rev)` (`ref` = REF do card na gravação);
+  - `variante_key` = chave derivada da COR da variante (cor base + cor apelido), igual no interno e no comprado *(G-plano R1: o id da linha de variante muda a cada Salvar — o do produto é apagado e regravado; o do interno muda ao trocar o tecido mantendo as cores)*;
   - `tamanho_key` = a chave da grade ("34|PPP");
-  - **UNIQUE composta** `(tenant_id, sku)` — é segura (regra "O que NÃO fazer" do CLAUDE.md) e barra SKU duplicado na loja. Também `(modelo_id, variante_key, tamanho_key)` único;
+  - SKU único na loja, EXCETO entre réplicas/versões do mesmo produto (mesma REF + mesma cor + mesmo tamanho), que reusam o SKU do original — garantido por gatilho, no lugar da UNIQUE `(tenant_id, sku)` *(G-plano R2 → D5 do plano, pendente do dono; variante B = unicidade estrita)*. `(modelo_id, variante_key, tamanho_key)` continua UNIQUE composta;
   - RLS por tenant + modgate do módulo `criacao`;
   - `_core` com EXECUTE revogado dos três (invariante #9).
 - Inverso em `supabase/rollback/`. Aplicação: primeiro na cópia local; em produção só com o G-migration + OK do dono.
@@ -83,10 +83,10 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - linha `manual=true` → **nunca** é tocada;
   - `_regerar=false` → só cria as linhas que faltam;
   - `_regerar=true` → recalcula as automáticas;
-  - conflito de UNIQUE (SKU igual a outro da loja) → não grava aquela linha e devolve `conflitos[]`, com mensagem em PT.
+  - conflito de unicidade (SKU igual a outro da loja que não seja a réplica — D5) → não grava aquela linha e devolve `conflitos[]`, com mensagem em PT.
 - **Quando roda:** automaticamente depois do Salvar que deixa o card com REF e sem SKUs (1ª geração), e pelo botão "Regerar SKUs".
   Não roda a cada Salvar (Q2: fixo).
-- **Edição manual:** `salvar_sku_manual(_id, _sku)` marca `manual=true`. Sujeita à mesma UNIQUE. **Não** trava depois do envio à Explosão: a decisão F3 #1 trava só o que veio do Desenvolvimento, e o SKU é campo novo, de identidade comercial, do Planejamento.
+- **Edição manual:** `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)` marca `manual=true`; com `_id` nulo cria a linha manual da variante × tamanho que ainda não tem SKU (em conflito ou com falta de sigla — G-plano R3). Sujeita à mesma unicidade. **Não** trava depois do envio à Explosão: a decisão F3 #1 trava só o que veio do Desenvolvimento, e o SKU é campo novo, de identidade comercial, do Planejamento.
 - **Espelho TS** `montarSku(...)` em `src/lib/sku-montar.ts`, só para a **pré-visualização** da Config, com teste anti-drift × SQL (padrão `ref-montar.ts`).
 
 ### 4.3 Telas
@@ -119,7 +119,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 
 ## 6. Riscos
 
-- **UNIQUE global por loja:** dois produtos com a mesma REF + cor + tamanho são impossíveis pela REF única. SKU manual pode colidir; o servidor devolve o conflito em PT.
+- **REF NÃO é única** *(correção do G-plano, 24/set — o texto anterior dizia "impossíveis pela REF única")*: há 7 pares de cards com a mesma REF na cópia (8 em produção em 22/set), quase todos redigitados à mão (v1/v2), e o Replicar do Plan. Tecido MANTÉM a REF por regra do dono (7c4486b). Réplica/versão reusa o SKU do original (D5, pendente do dono); REF igual por engano em produtos diferentes também dividiria o SKU nas linhas de mesma cor/tamanho — a lista de REFs repetidas vai ao dono antes de gerar. SKU manual pode colidir; o servidor devolve o conflito em PT.
 - **Loja com tamanhos soltos:** a classificação automática número/letra pode errar num caso raro (ex.: "3M"). A sigla é editável e resolve.
 - **Revenda/importado:** as variantes vêm do produto espelho. Se a F3.4 mudar a grade do comprado, a F3.5b segue a grade única da F3.4.
 - **`tamanho_tipo` em cards antigos:** null = padrão da loja. Nenhum dado existente muda.

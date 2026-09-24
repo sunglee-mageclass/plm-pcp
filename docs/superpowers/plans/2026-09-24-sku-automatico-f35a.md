@@ -4,7 +4,7 @@
 
 **Goal:** Deixar o banco e os cadastros PRONTOS para o SKU automático (spec §4.1, §4.2, §4.4 e a parte F3.5a do §4.3): siglas SKU em Cor base, Cor apelido e em cada lado dos pares da Grade de Tamanhos; o "Formato do SKU" na Config da Loja, com prévia ao vivo; `modelos.tamanho_tipo` (e o do produto comprado antes do espelho); a tabela `modelo_skus`; as RPCs `gerar_skus_modelo` / `salvar_sku_manual` / `skus_modelo` no padrão wrapper + `_core`; e o espelho TS `montarSku`/`parseTamanho` casado com o SQL por teste anti-drift. A seção "REF e SKUs" do Planejamento e o "Tamanho em" nos cards ficam para a F3.5b (esboço no §10).
 
-**Architecture:** O SKU é GERADO e GRAVADO no servidor (fonte única). A regra mora em funções SQL PURAS (`_sku_*`, IMMUTABLE) com espelho TS PURO (`src/lib/tamanho.ts` + `src/lib/sku-montar.ts`), e o MESMO arquivo de casos (`tests/fixtures/sku-casos.ts`) roda nos dois lados (unit × integração na cópia). O cálculo por modelo (`_skus_modelo_calc`) junta variantes (Tecido 1 no interno; variantes do produto no comprado) × tamanhos com quantidade > 0 e chama o resolvedor puro; `_gerar_skus_modelo_core` grava (manual nunca tocado, UNIQUE da loja devolvida como `conflitos[]` em PT) e `_skus_modelo_core` devolve a matriz de leitura que a F3.5b vai mostrar. As siglas são normalizadas no SALVAR por gatilho (Cadastro › Atributos grava direto na tabela). No front, `AttributeTab` ganha um campo de texto genérico (`extraText`), a Grade de Tamanhos ganha o bloco "Siglas no SKU" e a Config ganha o card próprio `FormatoSkuCard` (2 linhas em `configuracoes.tsx`), cada um gravando SÓ a própria coluna.
+**Architecture:** O SKU é GERADO e GRAVADO no servidor (fonte única). A regra mora em funções SQL PURAS (`_sku_*`, IMMUTABLE) com espelho TS PURO (`src/lib/tamanho.ts` + `src/lib/sku-montar.ts`), e o MESMO arquivo de casos (`tests/fixtures/sku-casos.ts`) roda nos dois lados (unit × integração na cópia). O cálculo por modelo (`_skus_modelo_calc`) junta variantes — chave = a COR da variante (R1) — (Tecido 1 no interno; variantes do produto no comprado) × tamanhos com quantidade > 0 e chama o resolvedor puro; `_gerar_skus_modelo_core` grava (manual nunca tocado; SKU repetido na loja — fora a réplica da MESMA REF, D5 — devolvido como `conflitos[]` em PT) e `_skus_modelo_core` devolve a matriz de leitura que a F3.5b vai mostrar. As siglas são normalizadas no SALVAR por gatilho (Cadastro › Atributos grava direto na tabela). No front, `AttributeTab` ganha um campo de texto genérico (`extraText`), a Grade de Tamanhos ganha o bloco "Siglas no SKU" e a Config ganha o card próprio `FormatoSkuCard` (2 linhas em `configuracoes.tsx`), cada um gravando SÓ a própria coluna.
 
 **Tech Stack:** Vite + React 19 + TypeScript (strict) + TanStack Router/Query v5 + supabase-js; Postgres 17.6 (Supabase próprio; RLS multi-tenant). Testes: Vitest (unit em `tests/unit`, integração em `tests/integration` SÓ na cópia local) e Playwright (QA na cópia, arquivo NÃO versionado).
 
@@ -14,18 +14,20 @@
 
 **Repositório, worktree e ordem**
 - Worktree própria `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a`, branch `f35a/sku-banco-cadastros`, criada do HEAD de `feature/plan-tecido-a1` no início da Task 0 (o sha fica em `.superpowers/f35a/BASE`). Caminhos relativos neste plano = raiz da worktree.
-- A F3.5a roda EM PARALELO com a F3.4 (não tocam os mesmos arquivos — §4.2). Ordem de produção (dono): **F1 → Aviso Global (`20261001100000`) → Data da Nota de Entrada (`20261002100000`) → F3.5a (`20261003100000`)**. A F3.5a só junta na branch principal DEPOIS da migration dela em produção (Task 12 antes da Task 13): o `:5173` do dono lê/grava produção e o front novo manda `sigla_sku`/`sku_config`/`tamanhos_sku`.
+- A F3.5a roda EM PARALELO com a F3.4 (não tocam os mesmos arquivos — §4.2). Ordem de produção (dono): **F1 → Aviso Global (`20261001100000`) → Data da Nota de Entrada (`20261002100000`) → F3.5a (`20261003100000`)**. A F3.5a só junta na branch principal DEPOIS da migration dela em produção (Task 12 antes da Task 13): o `:5173` do dono lê/grava produção e o front novo manda `sigla_sku`/`sku_config`/`tamanhos_sku`. O pré-voo de produção confere F1/Aviso/Nota pelos OBJETOS (R7), nunca por `schema_migrations` (o Aviso não se registra).
 - Se a branch principal andar (F2, F3.1–F3.4) antes do merge: `git rebase --onto feature/plan-tecido-a1 "$(cat .superpowers/f35a/BASE)" f35a/sku-banco-cadastros` (Task 13 Step 2 — regra de rebase no §4.2).
 - Commit: `git add -- <SÓ os arquivos NOVOS da task>` + `git commit --only -m "…" -- <todos os arquivos da task>` + `git show --stat HEAD` (o `commit --only` sozinho falha com arquivo não rastreado). Nunca `git add .`/`-A`/`commit -a`; ⛔ **nunca `git stash`** (pilha compartilhada entre worktrees); sem push. Toda mensagem termina com a linha `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` (o executor põe o nome do SEU modelo).
 - `src/routeTree.gen.ts` é regerado pelo build: nunca entra em commit (`git checkout -- src/routeTree.gen.ts`).
 - zsh: escreva `"${X}:caminho"` (com chaves) — `$X:s…` vira modificador do zsh. Blocos marcados "(bash)" rodam num `/bin/bash`.
 
 **Banco (regras duras)**
-- DDL SÓ na CÓPIA LOCAL (`postgresql://postgres:postgres@127.0.0.1:54422/postgres`) e SÓ por dois caminhos: (a) a suíte com `SKU_MIG_TXN=1` (o harness aplica a migration DENTRO da txn revertida do teste, sem `\i`); (b) os scripts `.superpowers/f35a/mig/*.sh` (receita `aplica_v2` do runbook da F1: arquivo inteiro numa mensagem, `lock_timeout` 500 ms + `transaction_timeout` 3 s). **PROIBIDO:** `psql -f`, `\i` de migration em transação de teste (incidente 15/set), probe exploratório fora do harness (incidente 23/set), qualquer DDL/escrita em PRODUÇÃO (`/tmp/dburl.txt`, `*.supabase.co`) — produção é a Task 12, pelo DONO, no Terminal.
+- DDL SÓ na CÓPIA LOCAL (`postgresql://postgres:postgres@127.0.0.1:54422/postgres`) e SÓ por dois caminhos: (a) a suíte com `SKU_MIG_TXN=1` (o harness aplica a migration DENTRO da txn revertida do teste, sem `\i`); (b) os scripts `.superpowers/f35a/mig/*.sh` (receita `aplica_v2` do runbook da F1: arquivo inteiro numa mensagem, `lock_timeout` 500 ms + `transaction_timeout` 3 s — as MESMAS 2 travas estão também no próprio arquivo, logo depois do `BEGIN;`, e valem até num `psql -f` fora do roteiro). **PROIBIDO:** `psql -f`, `\i` de migration em transação de teste (incidente 15/set), probe exploratório fora do harness (incidente 23/set), qualquer DDL/escrita em PRODUÇÃO (`/tmp/dburl.txt`, `*.supabase.co`) — produção é a Task 12, pelo DONO, no Terminal.
 - Leitura na cópia: `PGOPTIONS='-c default_transaction_read_only=on' psql "$LOCAL" …` (só SELECT). Produção: só a Task 12 (do DONO) e o snapshot SÓ-LEITURA da Task 13 Step 1.
-- Integração: SEMPRE `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` explícito (sem ele o `db.ts` cai em `/tmp/dburl.txt` = produção — a suíte da F3.5a pula sozinha fora da cópia, mas não confie nisso). A cópia é COMPARTILHADA: antes de rodar, `ps -Ao pid,command | grep -E "[v]itest|[p]laywright"` tem de voltar vazio (um teste/QA por vez; o `SKU_MIG_TXN=1` segura AccessExclusive em `tenant_config`/`modelos`/`cores` durante cada teste).
+- Integração: SEMPRE `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` explícito (sem ele o `db.ts` cai em `/tmp/dburl.txt` = produção — a suíte da F3.5a pula sozinha fora da cópia, mas não confie nisso). A cópia é COMPARTILHADA: antes de rodar, `ps -Ao pid,command | grep -E "[v]itest|[p]laywright"` tem de voltar vazio (um teste/QA por vez; o `SKU_MIG_TXN=1` segura AccessExclusive em `tenant_config`/`modelos`/`cores`/`produtos_*` durante cada teste).
+- **N3 / R5 — a cópia é também o APP DE TESTE do dono** (`:5188`, `banco-local/APP-TESTE-LOCAL.md`, mesmo Postgres `:54422`). Toda rodada com DDL na cópia — a suíte com `SKU_MIG_TXN=1` (T2 Step 4, T3 Step 3, T4 Step 2, T5 Step 2, T13 Step 2), o ensaio (T6) e o `copia-qa.sh ida|volta` (T10, T13) — CONGELA o `:5188` enquanto roda (até o login: as policies acionam o hook supautils também no Supabase local). Antes de cada uma o controlador AVISA o dono no chat com o texto do `n3.sh` (*"Vou rodar <passo> do SKU automático (F3.5a) na cópia local agora (~<N> min). Enquanto roda, o app de teste :5188 congela — a suíte faz ALTER em tenant_config/modelos/cores/produtos e cria policies dentro de transação (até o login do :5188 espera). Se estiver usando o :5188, salve e me avise quando posso começar."*) e SÓ com o OK roda `SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes <passo>` (confere: nenhum vitest/playwright, nenhuma sessão ativa na cópia; registra funções|gatilhos|`modelo_skus` e o PID do `:5188`) e, no fim, `bash .superpowers/f35a/n3.sh depois <passo>`. Sem o OK: não roda e registra em `desvios.md`. (Mesmo procedimento da F3.1 — plano f31:41 — e da R4 da Nota.)
+- **Travas em tabelas EXISTENTES (lição supautils, 24/set):** a migration NÃO é "sem trava". Ela pega AccessExclusive nos ALTER de `cores`, `cores_apelido`, `produtos_acabados`, `produtos_importados`, `modelos` e `tenant_config` (lida pelas policies de TODAS as lojas), e cada `CREATE/DROP POLICY` feito como `postgres` dispara o hook `supautils.policy_grants`, que pega AccessExclusive em ~24 tabelas de auth/storage/realtime até o COMMIT — **login e refresh de token podem esperar até ~3 s** (o teto do `transaction_timeout`). Por isso: DDL que trava no FIM do arquivo e as 4 policies POR ÚLTIMO (no inverso, o `DROP TABLE` que leva as policies também por último); `SET LOCAL lock_timeout = '500ms'; SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;` no PRÓPRIO arquivo (migration e inverso — o teste "estático" confere); aplicar em HORÁRIO CALMO (produção: Task 12).
 - A migration é UMA (`supabase/migrations/20261003100000_sku_automatico.sql`), montada em 3 partes pelas Tasks 3–5 (A → C → B no arquivo final; marcadores fixos). Inverso ÚNICO `supabase/rollback/20261003100000_sku_automatico_down.sql` (Task 3), DESTRUTIVO, pede `SET LOCAL app.confirmo_apagar_skus = 'sim'` quando há dado.
-- ⚠️ **O SQL deste plano NÃO foi executado pelo planejador** (fase de plano = só leitura, nem na cópia). O TS foi executado (§9). Erro de SQL na cópia ⇒ corrigir o MÍNIMO, registrar em `.superpowers/f35a/desvios.md` (erro literal, causa, correção) e a revisão Opus da task confere; a REGRA (fixtures/espelho TS) só muda com o controlador.
+- ⚠️ **O SQL deste plano NÃO foi EXECUTADO pelo planejador** (fase de plano = só leitura, nem na cópia) — foi PARSEADO pelo parser do Postgres 17 (libpg_query via `pglast`, inclusive os 18 corpos plpgsql, com controle negativo) e as expressões dos normalizadores rodaram como SELECT só-leitura contra as fixtures (§9). O TS foi executado. Erro de SQL na cópia ⇒ corrigir o MÍNIMO, registrar em `.superpowers/f35a/desvios.md` (erro literal, causa, correção) e a revisão Opus da task confere; a REGRA (fixtures/espelho TS) só muda com o controlador.
 - `src/integrations/supabase/types.ts` NÃO é regenerado (precisa `supabase login`): colunas/tabela/RPCs novas são lidas com `select("*")` + `as any`, padrão do repo.
 
 **Gates (todo commit)** — `bash .superpowers/f35a/gates.sh` → `GATES F3.5a: ok` (código 0): tsc (o build NÃO faz type-check), build, unit com as MESMAS falhas da linha de base, escopo = só arquivos do mapa §4, Dev intocado desde o save point, `configuracoes.tsx` com exatamente +2/-0 linhas e `tests/integration/mig-txn.ts` idêntico ao da F3.1. Gate falhou = PARE, não commitar.
@@ -36,33 +38,53 @@
 
 **UI** — `docs/design/ui-padroes.md` §Q (primitivos Button/Input/Select/AlertDialog; sem hex/oklch/hsl solto, sem `.toFixed(`; o anti-drift de UI está ATIVO); textos PT-BR; erros por `mensagemErro(e, "…")`; tema claro de fábrica; ação sensível com AlertDialog; `useUnsavedGuard` + `UnsavedIndicator` em todo bloco com "Salvar".
 
-**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). As decisões D1–D4 (§2) precisam de resposta ANTES da Task 1; o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
+**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). As decisões D1–D6 (§2; a D5 e a D6 vêm das ressalvas R2/R4 do G-plano e estão **pendentes do dono**) precisam de resposta ANTES da Task 1; o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
 
 ---
+
+## 0. Ressalvas do G-plano (R1–R10) + lição supautils — onde entraram
+
+G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` ~1641–1763): **APROVA COM RESSALVAS**. Prazos do guardião: R4 antes da T1; R1, R2 e R3 antes da T2 (com re-check dele no trecho corrigido); R5 antes da T2 Step 4; R6 antes da T6; R7 antes da T12; R8 na T12 Step 4; R9 antes da T13 Step 4; R10 antes da T13 Step 6. Rulings do controlador (~19h): R2 e R4 = recomendação implementada e marcada "(pendente do dono)"; R8/R9 = cada frente regrava a referência da volta da F1 pelos OBJETOS, com números MEDIDOS.
+
+| # | Ressalva | Onde entrou |
+|---|---|---|
+| R1 | `variante_key` do comprado não é estável (o Salvar do produto apaga e regrava as variantes) | `_sku_variante_key(cor, apelido)` (Task 3, parte A) usada nos 3 casos por `_skus_modelo_calc` (Task 5): a chave é a COR; variantes com a mesma cor viram 1 linha. §1 F9/F10, §3 T2, §4.1. Testes (Task 2): "R1 revenda" (salva o PRODUTO pelo `salvar_produto_acabado` REAL — ids novos — e confere as linhas `ok`/`manual`, regerar remove 0) e "R1 interno" (`salvar_modelo_bom` REAL trocando o tecido por outro com as mesmas cores) |
+| R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 (pendente do dono)**, com a variante B. Gatilho `fn_modelo_skus_unico` + coluna `modelo_skus.ref` (Task 4) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
+| R3 | Linha em conflito/falta não recebe SKU à mão | `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)`: `_id` NULL + a tripla cria a linha manual, validada contra `_skus_modelo_calc` (Task 5). §3 T8, §4.1, §10. Testes: "R3 …" e o caminho novo no teste de permissões |
+| R4 | Caracteres do SKU incoerentes | §2 **D6 (pendente do dono)**. SQL: `_sku_sem_acento`, `_sku_norm_sigla`, `_sku_norm_ref`, `_sku_norm_manual`, separador só `- . _ /` (Task 3). TS: `normalizarSigla`/`normalizarRefSku`/`normalizarSkuManual`/`ACENTOS_DE`/`SKU_SEP_CHARS` (Task 1). Fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` nos 2 lados; teste estático da lista de acentos; textos das Tasks 7–9 e o E1 do QA |
+| R5 | N3: o `:5188` congela | Global Constraints (N3) + `regras.md` §5 + `.superpowers/f35a/n3.sh` (Task 0 Step 4), chamado em T2 Step 4, T3 Step 3, T4 Step 2, T5 Step 2, dentro do `ensaio-local.sh` (T6) e do `copia-qa.sh ida\|volta` (T10, T13) e em T13 Step 2 |
+| R6 | O ensaio só roda a suíte nova | `ensaio-local.sh` (Task 6): as 9 suítes vizinhas ANTES e DEPOIS da ida REAL, com o `DATABASE_URL` da cópia; conjunto de falhas depois ⊆ antes E mesmo total de testes (senão volta e PARA) |
+| R7 | Pré-voo de produção por registro | `prevoo_prod` (Task 12): `to_regprocedure('public.kanban_mover(uuid,text)')`, `to_regclass('public.avisos_globais')`, coluna `ocs_tecido.data_nota_entrada`; sem `NOTA`/`schema_migrations` |
+| R8 | A volta de emergência da F1 deixa de fechar | `.superpowers/f35a/mig/ref-volta-f1.sh` (Task 12 Step 1), rodado pelo DONO no Task 12 Step 4: detecta Aviso/Nota/F3.1 pelos objetos, encadeia na referência da frente anterior, CONT = o dela + o delta MEDIDO da F3.5a (`cont-antes/depois-f35a.txt` do `ida_prod`), confere que só a F3.5a mudou o schema desde o retrato anterior e grava `VOLTA-F1-POS-F35A.md` ao lado do runbook |
+| R9 | A contagem da cópia muda de vez | Task 13 Steps 3–4: o `copia-qa.sh ida` MEDE antes → depois; aviso às frentes com os classificadores a atualizar (`n3-copia.sh` da F3.1 — só `427\|219\|*`/`458\|263\|*`; o `460\|271` fixo da Nota). O G-plano calculou 476\|268 (477\|271 com a Nota) com 18\|5; com 23\|6 a conta dá 481\|269 (483\|277 com a Nota em 460\|271) — vale o MEDIDO |
+| R10 | Deploy sem portão | Task 13 Step 6: `portao_deploy_f35a && npm run deploy` — `src/` limpo (inclusive não rastreado), lista dos commits de front, PARE se fase sem banco pronto, a F3.5a só com `OBJ_F35A = 23\|6\|1\|7` em produção |
+| supautils | `CREATE/DROP POLICY` trava auth/storage | Global Constraints "Travas em tabelas EXISTENTES"; cabeçalhos da migration e do inverso (não afirmam mais "sem trava"); policies por último na parte B e `DROP TABLE` por último no inverso; `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos (+ teste estático; o harness da suíte as tira com `semTravas`); horário calmo; §7 R3/R14 (login/refresh até ~3 s) |
+| NOTAs | Sugestões do guardião | **adotadas as três:** 1 só `ALTER TABLE tenant_config` (2 colunas); CHECK `NOT VALID` em `modelos.tamanho_tipo` (e nos 2 produtos); `REVOKE ALL … FROM PUBLIC, anon, authenticated` + `GRANT SELECT` (tira o MAINTAIN do PG17) — parte B (Task 4), conferido no teste de ACL e no `ACL_F35A`. Também: `_sku_tamanhos_normaliza` × TS independentes da ordem das chaves (fixtures) |
 
 ## 1. Fatos verificados (24/set/2026, só leitura — cópia local e HEAD `a044759`)
 
 | # | Fato (spec §3) | Evidência | Situação |
 |---|---|---|---|
-| F1 | `cores(id, tenant_id, nome varchar(255), created_at)`, UNIQUE `(tenant_id, nome)`; `cores_apelido(id, tenant_id, nome, cor_base_id NOT NULL, created_at)`; sem sigla; RLS de escrita = `user_can_edit('cadastro_atributos:cores'|'…:cores_apelido')`; gatilho `set_tenant_id_trg` | `\d public.cores`, `\d public.cores_apelido` | ✅ confere |
+| F1 | `cores(id, tenant_id, nome varchar(255), created_at)`, UNIQUE `(tenant_id, nome)`; `cores_apelido(id, tenant_id, nome, cor_base_id NOT NULL, created_at)`; sem sigla; RLS de escrita = `user_can_edit('cadastro_atributos:cores'\|'…:cores_apelido')`; gatilho `set_tenant_id_trg` | `\d public.cores`, `\d public.cores_apelido` | ✅ confere |
 | F2 | Edição pelo `AttributeTab` genérico (`src/components/attribute-tab.tsx`, 1023 linhas) com `extra`/`extraNumber`/`extraEnum`/`toggleField` — **não existe campo de TEXTO livre** | leitura do arquivo | ➕ a Task 7 cria `extraText` (opt-in; nenhum outro atributo muda) |
-| F3 | `tenant_config.tamanhos_grade` jsonb, default `["34|PPP",…,"44|GG"]`; 5 lojas com pares; **Ark Store com itens soltos** `["36","38","40","42","44","PP","P","M","G","GG"]` | SELECT por loja | ✅ confere |
+| F3 | `tenant_config.tamanhos_grade` jsonb, default `["34\|PPP",…,"44\|GG"]`; 5 lojas com pares; **Ark Store com itens soltos** `["36","38","40","42","44","PP","P","M","G","GG"]` | SELECT por loja | ✅ confere |
 | F4 | ⚠️ `modelo_grades.grades` tem a chave **`"UN"`** (grade única dos Acessórios de revenda/importado — `_pa_grade_variante`, `TAM_ACESSORIO`): 55 células na Ave Rara, e `"UN"` NÃO está em nenhum `tamanhos_grade` ⇒ não teria onde cadastrar a sigla | `jsonb_object_keys` por loja; `src/components/oc-p-acabado/shared.ts:18` | ❗ divergência → **D1** |
-| F5 | O split do `|` aparece em **17** arquivos (spec: ~15) | `grep -rln 'split("|")'` | ℹ️ fora de escopo (código novo usa `parseTamanho`) |
-| F6 | `modelo_grades` sem `tenant_id`; chave = string inteira ("34|PPP"); valores todos `number` (2979 células) | SELECT | ✅ |
+| F5 | O split do `\|` aparece em **17** arquivos (spec: ~15) | `grep -rln 'split("\|")'` | ℹ️ fora de escopo (código novo usa `parseTamanho`) |
+| F6 | `modelo_grades` sem `tenant_id`; chave = string inteira (`"34\|PPP"`); valores todos `number` (2979 células) | SELECT | ✅ |
 | F7 | `ref_config` (1 loja configurada), `FormatoRefCard` em `admin/configuracoes.tsx:484`; o save da Config é `upsert` com `...cfgRest` montado das chaves de `DEFAULTS` — **coluna nova fora de `DEFAULTS` nunca entra no upsert genérico** (a F2 troca esse save — RP3) | leitura `configuracoes.tsx:84-291` | ✅ o `FormatoSkuCard` grava a própria coluna, fora do `cfg` da página |
 | F8 | Gatilhos de REF `trg_modelo_ref_auto`/`trg_pa_ref`/`trg_pi_ref`; `fn_modelo_ref_auto` sai cedo com `ordem_criacao_enviada=false`; `fn_produto_acabado_ref` não mexe com `ref` preenchida | `pg_trigger` + `pg_get_functiondef` | ✅ (os testes criam cards com REF fora do padrão AUTO) |
-| F9 | Interno: grade `variante_numero` = `modelo_tecido_variantes.ordem` do Tecido 1 (`tipo='tecido' AND numero=1`) — `_estoque_tecido_core` (join `g.variante_numero = mv.ordem`); `salvar_modelo_bom` APAGA e regrava `modelo_tecido_variantes` (o `id` muda a cada Salvar) | `pg_get_functiondef('_estoque_tecido_core')` | ➕ `variante_key` do interno = `variantes_tecido.id` (estável) — §3 T2 |
-| F10 | Revenda/importado: `produto_acabado_variantes`/`produto_importado_variantes(id, tenant_id, produto_*_id, ordem, cor_id, cor_apelido_id, …)`, UNIQUE `(produto, ordem)`; espelho por `produtos_*.modelo_id` (`enforce_unique_fk`); só `produtos_acabados` tem gatilho de loja do espelho (`trg_pa_modelo_tenant`) | `\d` + `pg_trigger` | ➕ o handover do `tamanho_tipo` confere a loja (§3 T11) |
-| F11 | ⚠️ **A REF NÃO é única**: 7 grupos / 14 cards com a mesma REF na cópia (legado + réplicas do Plan. Tecido, que mantêm a REF) — a spec §6 diz "impossíveis pela REF única" | `GROUP BY tenant_id, ref HAVING count(*)>1` | ❗ divergência de RISCO (não muda o desenho): o 2º card de cada par recebe `conflitos[]` e pede SKU à mão — **ciência do dono (§2)** |
+| F9 | Interno: grade `variante_numero` = `modelo_tecido_variantes.ordem` do Tecido 1 (`tipo='tecido' AND numero=1`) — `_estoque_tecido_core` (join `g.variante_numero = mv.ordem`); `salvar_modelo_bom` APAGA e regrava `modelo_tecido_variantes` (o `id` muda a cada Salvar) | `pg_get_functiondef('_estoque_tecido_core')` | ➕ nem `variantes_tecido.id` é estável: trocar o tecido do Tecido 1 mantendo as cores muda o id ⇒ `variante_key` = a COR (R1) — §3 T2 |
+| F10 | Revenda/importado: `produto_acabado_variantes`/`produto_importado_variantes(id, tenant_id, produto_*_id, ordem, cor_id, cor_apelido_id, …)`, UNIQUE `(produto, ordem)`; espelho por `produtos_*.modelo_id` (`enforce_unique_fk`); só `produtos_acabados` tem gatilho de loja do espelho (`trg_pa_modelo_tenant`). ⚠️ `_salvar_produto_acabado_core` (l.189) e `_salvar_produto_importado_core` (l.106) APAGAM e regravam as variantes a cada Salvar do Sheet (ids novos) | `\d` + `pg_trigger` + `pg_get_functiondef` (G-plano R1) | ➕ `variante_key` = a COR (R1); o handover do `tamanho_tipo` confere a loja (§3 T11) |
+| F11 | ⚠️ **A REF NÃO é única**: 7 pares / 14 cards com a mesma REF na cópia (8 pares em produção em 22/set). Origem (guardião, `audit_log`): 12 dos 14 REDIGITADOS à mão (Lara, 21/ago–22/set: 5 pares v1/v2 da sub "Repetições" — o Duplicar apaga a REF, `PlanejamentoDetail.tsx:702`, e ela redigita a do original; Elita, 15/set: `ACBO0142` em CLUTCH LILLY e CHIARA, produtos DIFERENTES — provável erro de digitação, card × produto divergem) + 1 par de teste; o pool `ref_sequencia` NÃO falhou; 0 réplicas do Replicar desde 8/set — e o Replicar MANTÉM a REF por regra do dono (`7c4486b`). A spec §6 ("impossíveis pela REF única") estava errada (corrigida) | `GROUP BY tenant_id, ref HAVING count(*)>1` + diário do guardião | ❗ vira a **D5 (§2)** |
 | F12 | `modgate_*` do módulo `criacao` = RESTRICTIVE só em INSERT/UPDATE/DELETE (`modelos`, `modelo_grades`, `modelo_tecidos`, …; sem SELECT) | `pg_policies` | ✅ `modelo_skus` segue igual |
-| F13 | Default privileges do `postgres` em `public`: função nova ganha EXECUTE p/ `anon`/`authenticated`/`service_role` (+ PUBLIC embutido); tabela nova ganha `arwdDxtm` p/ `anon`/`authenticated` | `pg_default_acl` | ➕ REVOKE explícito (funções: dos TRÊS; tabela: tudo de anon, escrita de authenticated) |
+| F13 | Default privileges do `postgres` em `public`: função nova ganha EXECUTE p/ `anon`/`authenticated`/`service_role` (+ PUBLIC embutido); tabela nova ganha `arwdDxtm` p/ `anon`/`authenticated` | `pg_default_acl` | ➕ REVOKE explícito (funções: dos TRÊS; tabela: `REVOKE ALL` de PUBLIC/anon/authenticated — tira também o MAINTAIN do PG17 — + `GRANT SELECT` p/ authenticated) |
 | F14 | `user_can_edit`/`user_can_view`: super_admin/admin/tenant_admin passam; senão `_perm_efetiva`. `tenant_module_enabled` = true p/ super_admin; `criacao` ausente = ligado | `pg_get_functiondef` | ✅ `_sku_guarda` |
 | F15 | "sku": zero ocorrências em `src/` e `supabase/migrations/`; nenhum objeto do banco com `sku`/`tamanho_tipo` no nome | grep + `pg_proc`/`pg_trigger` | ✅ nomes livres |
-| F16 | Cópia local: `458|263` (a F1 aplicada + a coluna da F3.1); `pgrst_ddl_watch` presente (PostgREST recarrega sozinho); ICU `en-US` (`upper('ß')='SS'`, igual ao JS) | `psql` só leitura | ℹ️ o provedor de locale de PRODUÇÃO é conferido no pré-voo (Task 12) |
+| F16 | Cópia local: `458\|263` (a F1 aplicada; a coluna da F3.1 e a tabela `avisos_globais` também estão lá — 0\|0 nas contagens; sem a Nota); `pgrst_ddl_watch` presente (PostgREST recarrega sozinho); ICU `en-US` | `psql` só leitura (reconferido 24/set ~20h) | ℹ️ com a D6 o SKU é ASCII (acento sai por lista fixa) — o locale não muda o resultado; o pré-voo ainda mostra o provedor |
 | F17 | Harness de migration em txn: `tests/integration/mig-txn.ts` existe SÓ nas branches F3.1–F3.4 (idêntico nas 4, sha256 `276f36e67c900d562efb99eff9be3c2327182c31df24921dfb9780e6b573be0c`); o da F1 é local ao `kanban-auto.test.ts`; `exigeBancoLocal()` vem daí | `git show f31/…:tests/integration/mig-txn.ts` | ➕ a F3.5a copia o arquivo BYTE A BYTE (add/add idêntico no merge — §4.2) |
 | F18 | `criar-variante.sh`: a linha `case "$PORTA"` JÁ aceita `5180` (reservada pelo controlador, backup `.bak-pre-reserva-portas`) | `grep` | ✅ o QA só confere (Task 10 Step 1) |
 | F19 | Usuários comuns (papel `user`) existem na Ave Rara — base do teste de permissão | SELECT `users`/`user_roles` | ✅ |
+| F21 | Todo `CREATE/DROP POLICY` feito como `postgres` aciona o hook `supautils.policy_grants`, que pega AccessExclusive em ~24 tabelas de auth/storage/realtime até o COMMIT (login/refresh esperam) | lição repassada pelo controlador (24/set) | ➕ policies por último, travas no arquivo, horário calmo (Global Constraints) |
 | F20 | `realtime-invalidation-map`: `tenant_config` casa qualquer queryKey cujo 1º elemento contém "tenant"; `cores`/`cores_apelido` casam `["attr","cores",…]` (lista do `AttributeTab`) | leitura | ✅ sem mudar o mapa |
 
 ## 2. Decisões para o dono (responder ANTES da Task 1)
@@ -71,37 +93,41 @@
 - **D2 — "Regerar SKUs" e linhas que saíram da grade.** Recomendado (implementado): **o Regerar APAGA os SKUs AUTOMÁTICOS de variante/tamanho que não estão mais na grade** (variante trocada/removida, tamanho zerado) ANTES de gerar — senão o SKU antigo barra o novo igual (ex.: trocar o tecido do Tecido 1 mantendo as cores); os editados à mão NUNCA saem (ficam como "órfã"); o "Gerar" sem Regerar não apaga nada. *Se "manter tudo":* tirar o bloco `IF _regerar THEN DELETE …` do `_gerar_skus_modelo_core` e o teste "regerar remove as AUTOMÁTICAS…" passa a esperar `removidos: 0` e a linha `orfa`.
 - **D3 — Onde fica o "Formato do SKU".** A spec diz "no card do Formato da REF, um bloco". Recomendado (implementado): **um card PRÓPRIO logo ABAIXO do "Formato da REF"**, com o seu botão "Salvar formato do SKU" — o card da REF grava pelo "Salvar" geral da página e misturar dois "Salvar" no mesmo card confunde; e assim `configuracoes.tsx` muda só 2 linhas (conflito mínimo com a F2). *Se "dentro do mesmo card":* o `FormatoRefCard` ganha a prop opcional `children` (renderizada ao fim do `CardContent`, com `border-t`) e a linha `<FormatoSkuCard />` vira filho do `<FormatoRefCard …>` (o `FormatoRefCard.tsx` entra no mapa §4 e o gate do `configuracoes.tsx` passa a `4|1`).
 - **D4 — Variante SEM apelido com "Cor apelido" no formato.** Recomendado (implementado): **a parte do apelido some, junto com o separador que a antecede** (ex.: `REF-AM/34`), igual ao exemplo da spec ("1 — Amarelo"); "Falta sigla" só quando o apelido EXISTE e não tem sigla. *Se "exigir apelido":* `resolverSku`/`_sku_resolver` devolvem `falta {cor_apelido, null, null}` ("Falta o apelido na variante") — pede refazer as fixtures 4, 13, 14 e os testes que usam a variante 1 (o planejador refaz o trecho).
-- **Ciência (sem decisão) — F11:** hoje há 7 pares de cards com a mesma REF (réplicas e legado). Ao gerar, o 2º card de cada par NÃO grava as linhas repetidas e mostra "SKU … já existe em <card> (REF …)" — resolve-se trocando a REF do card ou editando o SKU à mão. A UNIQUE `(tenant_id, sku)` da spec segue.
+- **D5 — Réplica/versão do mesmo produto: MESMO SKU do original ou SKU próprio? (pendente do dono — R2 do G-plano)** Fato (F11): o Replicar do Plan. Tecido MANTÉM a REF por regra do dono, e as versões v1/v2 são feitas redigitando a REF. Recomendado (implementado): **mesmo SKU** — um SKU só pode repetir na loja entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor base + apelido + tamanho): a réplica gera exatamente o SKU do original (o ERP/e-commerce vê o mesmo produto). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, REF vazia) = conflito. Garantido pelo gatilho `fn_modelo_skus_unico` (lock consultivo por loja; 23505) no lugar da UNIQUE `(tenant_id, sku)` da spec (que não admite a exceção), com índice `(tenant_id, sku)` para a busca e `modelo_skus.ref` = REF normalizada na gravação. Efeito colateral: dois produtos DIFERENTES com a mesma REF por engano (ex.: `ACBO0142`) também dividem o SKU nas linhas de mesma cor/tamanho — o snapshot da Task 13 lista as REFs repetidas para o dono corrigir antes de gerar. *Variante B ("SKU próprio da versão"):* tirar o `AND NOT (NEW.ref <> '' AND …)` do gatilho e o `AND NOT (…)` do `conflito_com` em `_skus_modelo_core` (= unicidade estrita por loja; pode voltar a ser `UNIQUE (tenant_id, sku)`); o teste "D5 réplica" passa a esperar 2 `conflitos` e a linha "réplica" da unicidade da Task 4 passa a esperar 23505; a versão recebe SKU à mão (R3) ou outra REF.
+- **D6 — Caracteres do SKU (pendente do dono — R4 do G-plano).** Recomendado (implementado): **o SKU só tem A–Z, 0–9 e `- . _ /`, em MAIÚSCULAS, sem acento nem espaço**, normalizado no servidor: siglas (cor base, apelido, lado do tamanho) = sem acento, só letras e números (`Off White`→`OFFWHITE`, `açaí`→`ACAI`, `a-m`→`AM`); a REF dentro do SKU = sem acento, só A–Z/0–9/`- . _ /` (o resto sai); separador = só `- . _ /` (até 3; `#` ou espaço = erro PT); SKU à mão = tira espaço e acento, maiúsculas e RECUSA outro caractere ("SKU inválido: use só letras, números e - . _ /.") — `abc-1` e `ABC-1` não convivem. O acento sai por uma lista FIXA (`translate` no SQL = `ACENTOS_DE/PARA` no TS; teste estático), sem depender do locale do banco. *Se o dono quiser manter acento/espaço:* `_sku_norm_sigla` volta a `trim + upper`, `_sku_norm_ref`/`_sku_norm_manual` perdem o filtro, o separador volta a só "sem espaço", e as fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` são refeitas (o planejador refaz o trecho).
+- **Ciência (sem decisão) — F11:** com a D5 recomendada, os pares v1/v2 de mesma REF dividem o SKU (é o pedido); o par `ACBO0142` (produtos diferentes) também dividiria — conferir com o dono e corrigir a REF antes da 1ª geração (lista no snapshot da Task 13).
 
 ## 3. Decisões técnicas (o plano decide; revisão Opus confere)
 
-- **T1 Normalização no servidor por GATILHO** (e não por RPC): Cadastro › Atributos grava `cores`/`cores_apelido` DIRETO pela API (insert/update do `AttributeTab`), e a Grade/Config gravam `tenant_config` direto; só um gatilho cobre todos os caminhos (importação, SQL, telas futuras). O de `tenant_config` é `BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku` — o upsert genérico da Config não manda essas colunas, então nem dispara. Regra única: `trim(espaço/tab/CR/LF) + upper`, vazia = NULL (`_sku_norm_sigla`), igual à spec; o Formato e o mapa de tamanhos são validados/canonizados com as MESMAS mensagens PT do espelho TS (RAISE P0001 → `mensagemErro` mostra a própria mensagem).
-- **T2 `variante_key`** = `variantes_tecido.id` (interno, Tecido 1) ou `produto_*_variantes.id` (comprado) — estáveis; o id de `modelo_tecido_variantes` muda a cada Salvar (F9). Mesmo tecido repetido no Tecido 1: vale a menor `ordem` (DISTINCT ON).
-- **T3 Separadores** `{"<a>|<b>": sep}` só entre partes VIZINHAS da lista; o separador ANDA COM A PARTE SEGUINTE — parte ausente na linha some com o separador que a antecede. Até 3 caracteres, sem espaço (senão o SKU sai com espaço — ERP/e-commerce).
+- **T1 Normalização no servidor por GATILHO** (e não por RPC): Cadastro › Atributos grava `cores`/`cores_apelido` DIRETO pela API (insert/update do `AttributeTab`), e a Grade/Config gravam `tenant_config` direto; só um gatilho cobre todos os caminhos (importação, SQL, telas futuras). O de `tenant_config` é `BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku` — o upsert genérico da Config não manda essas colunas, então nem dispara. Regra única (D6): sem acento pela lista FIXA `_sku_sem_acento` (= `ACENTOS_DE/PARA` do TS), só A–Z/0–9, maiúsculas, vazia = NULL (`_sku_norm_sigla`); o Formato e o mapa de tamanhos são validados/canonizados com as MESMAS mensagens PT do espelho TS (RAISE P0001 → `mensagemErro` mostra a própria mensagem).
+- **T2 `variante_key`** = `_sku_variante_key(cor_id, cor_apelido_id)` (uuid por md5 da cor base + apelido) nos 3 casos (R1): o id da linha de variante NÃO é estável — o Salvar do produto apaga e regrava `produto_*_variantes` (F10), o `salvar_modelo_bom` regrava `modelo_tecido_variantes` e trocar o tecido do Tecido 1 mantendo as cores muda `variantes_tecido.id` (F9). A cor é o que identifica a variante comercial. Duas variantes com a MESMA cor viram UMA linha (vale a menor `ordem`; as quantidades por tamanho somam).
+- **T3 Separadores** `{"<a>|<b>": sep}` só entre partes VIZINHAS da lista; o separador ANDA COM A PARTE SEGUINTE — parte ausente na linha some com o separador que a antecede. Até 3 caracteres, só `- . _ /` (D6 — o SKU inteiro fica em A–Z, 0–9 e `- . _ /`; ERP/e-commerce).
 - **T4 `parseTamanho` por conteúdo:** "34|PPP" e "PPP|34" dão o mesmo (lado só-dígitos = número); dois números ou duas letras = posicional (esq = número); solto classificado; só o 1º "|" separa.
 - **T5 Sem o lado pedido** (solto ou "UN") usa o outro lado — um card "Tamanho em: Letra" com a grade `36, 38` sai com `36`/`38`.
 - **T6 3ª RPC `skus_modelo`** (leitura da matriz) + `_skus_modelo_calc`/`_skus_modelo_core` NESTA fase: a F3.5b precisa mostrar "Falta sigla", "conflito", "divergente" e o selo SEM gravar ao abrir o card; com a leitura pronta aqui, a F3.5b fica só front (sem migration) e sem reimplementar a regra no TS.
 - **T7 `_sku_guarda(tenant, editar)`** comum aos 3 wrappers: login → módulo `criacao` → loja do modelo (NULL = "Sem permissão", sem vazar existência) → `user_can_edit|view('criacao_planejamento')`. super_admin fura a loja como nos demais wrappers.
-- **T8 `salvar_sku_manual(_id, _sku, _rev_base DEFAULT NULL)`** — o `_rev_base` opcional é a trava otimista da linha (P0409, padrão colab); o SKU manual é só APARADO (não vira maiúscula: é o que a pessoa digitou); vazio = "Informe o SKU."
-- **T9 `modelo_skus`:** escrita SÓ pelas RPCs DEFINER (`authenticated` fica só com SELECT, RLS por loja); `modgate_*` RESTRICTIVE ins/upd/del iguais aos de `modelo_grades`; `rev` próprio (NÃO sobe `modelos.rev` — gerar SKU não pode dar P0409 no Sheet aberto); sem Realtime/auditoria nesta fase (a F3.5b decide).
-- **T10** `pg_advisory_xact_lock` por modelo na geração (duas abas no mesmo card esperam em fila); conflito de UNIQUE capturado por linha (sub-bloco `EXCEPTION`) — a geração nunca derruba o resto.
+- **T8 `salvar_sku_manual(_id, _sku, _rev_base DEFAULT NULL, _modelo_id DEFAULT NULL, _variante_key DEFAULT NULL, _tamanho_key DEFAULT NULL)`** — `_id` = linha JÁ gravada (troca o SKU); `_id` NULL + a tripla = linha AINDA sem SKU (em conflito, com falta de sigla ou pendente — R3): cria a linha manual, validada contra `_skus_modelo_calc` ("Esta variante/tamanho não está na grade do produto."); a tripla aponta linha gravada = atualiza ela. O `_rev_base` opcional é a trava otimista da linha (P0409, padrão colab). O SKU é normalizado (D6: sem espaço/acento, maiúsculas; outro caractere = "SKU inválido: …"); vazio = "Informe o SKU."
+- **T9 `modelo_skus`:** escrita SÓ pelas RPCs DEFINER (`REVOKE ALL` de PUBLIC/anon/authenticated + `GRANT SELECT` p/ authenticated, RLS por loja); `ref` = REF normalizada na gravação (base da D5); `modgate_*` RESTRICTIVE ins/upd/del iguais aos de `modelo_grades`; `rev` próprio (NÃO sobe `modelos.rev` — gerar SKU não pode dar P0409 no Sheet aberto); sem Realtime/auditoria nesta fase (a F3.5b decide).
+- **T10** `pg_advisory_xact_lock` por modelo na geração (duas abas no mesmo card esperam em fila); conflito de unicidade (23505 do gatilho D5 ou da UNIQUE da linha) capturado por linha (sub-bloco `EXCEPTION`) — a geração nunca derruba o resto.
 - **T11 Handover do `tamanho_tipo`** por GATILHO nos produtos (`BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo`): com espelho, o valor passa ao modelo (só se o modelo não tem) e SAI do produto — fonte única; exige a mesma loja. Assim nenhuma função existente (`_criar_card_*`) é redefinida: **a migration não altera NENHUMA função pré-existente** (conferido por md5 no ensaio e em produção).
 - **T12 Front tolerante:** o `AttributeTab` só manda `sigla_sku` quando MUDOU (editar o nome de uma cor não depende da coluna existir) — defesa se a ordem "produção antes do merge" falhar.
 - **T13 Gravação por coluna (RP3):** `FormatoSkuCard` faz `update({sku_config})` depois de conferir que o valor no banco ainda é o que a tela carregou (senão "Outra pessoa mudou…"); o bloco de siglas da Grade relê o mapa ATUAL e aplica só as chaves que o usuário mudou (`mesclarSiglasTamanho`).
 - **T14 Harness** = `tests/integration/mig-txn.ts` da F3.1, cópia BYTE A BYTE (gate); `aplica_v2`/`espera`/`ativ_vazio`/`com_travas` = extraídos por awk do runbook v2 da F1 (hash conferido) — nada reescrito à mão.
 - **T15** `tamanho_padrao` ausente = `"letra"`; sem `sku_config` (ou sem partes) = a loja não gera SKU (`status: 'sem_formato'`).
 - **T16** `NOTIFY pgrst, 'reload schema'` dentro da txn (entregue no COMMIT; o `pgrst_ddl_watch` também recarrega).
+- **T17 Unicidade do SKU (D5) por GATILHO** `fn_modelo_skus_unico` (`BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref`): `pg_advisory_xact_lock` POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas); repete só entre cards diferentes com a MESMA REF não vazia e a MESMA linha; senão RAISE 23505 (o `EXCEPTION WHEN unique_violation` da geração e da edição captura igual). Não há `btree_gist` para um EXCLUDE, e UNIQUE parcial não expressa a exceção.
+- **T18 Travas no PRÓPRIO arquivo + ordem (supautils):** `SET LOCAL lock_timeout = '500ms'; SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;` na migration e no inverso (o `aplica_v2` injeta as mesmas — repetir é inofensivo; a suíte as tira com `semTravas`, senão os 3 s limitariam a txn inteira do teste); DDL que trava no fim; policies por último; 1 só `ALTER TABLE tenant_config`; CHECKs `NOT VALID` (as linhas existentes são todas NULL — nada a varrer sob AccessExclusive).
 
 ## 4. Mapa de arquivos
 
 | Arquivo | Ação | Task |
 |---|---|---|
 | `src/lib/tamanho.ts` | criar — `parseTamanho`, `ladoTamanho`, `aparar`, `ehNumeroTamanho` | 1 |
-| `src/lib/sku-montar.ts` | criar — tipos, `normalizarSigla`, `normalizarSkuConfig`, `normalizarTamanhosSku`, `montarSku`, `resolverSku`, `textoFalta`, `canonico`, `ladosDaGrade`, `mesclarSiglasTamanho` | 1 |
+| `src/lib/sku-montar.ts` | criar — tipos, `normalizarSigla`, `normalizarRefSku`, `normalizarSkuManual`, `ACENTOS_DE/PARA`, `normalizarSkuConfig`, `normalizarTamanhosSku`, `montarSku`, `resolverSku`, `textoFalta`, `canonico`, `ladosDaGrade`, `mesclarSiglasTamanho` | 1 |
 | `tests/fixtures/sku-casos.ts` | criar — casos do anti-drift (TS e SQL) | 1 |
 | `tests/unit/sku-montar.test.ts` | criar | 1 |
 | `tests/integration/mig-txn.ts` | criar — CÓPIA byte a byte do da F3.1 | 2 |
-| `tests/integration/sku-automatico.test.ts` | criar — 24 testes (só na cópia) | 2 |
+| `tests/integration/sku-automatico.test.ts` | criar — 31 testes (1 estático sem banco + 30 só na cópia) | 2 |
 | `supabase/migrations/20261003100000_sku_automatico.sql` | criar (A) e completar (B, C) | 3, 4, 5 |
 | `supabase/rollback/20261003100000_sku_automatico_down.sql` | criar (inteiro) | 3 |
 | `src/components/attribute-tab.tsx` | modificar — `extraText` | 7 |
@@ -110,13 +136,13 @@
 | `src/components/configuracoes/FormatoSkuCard.tsx` | criar | 9 |
 | `src/routes/_authenticated/admin/configuracoes.tsx` | modificar — +2 linhas (import + `<FormatoSkuCard />`) | 9 |
 | `tests/e2e/f35a-qa.spec.ts` | criar, **NÃO versionar** (apagado na Task 13) | 10 |
-| `.superpowers/f35a/**` (fora do git) | `BASE`, `regras.md`, `arqs-f35a.txt`, `gates.sh`, `unit-fail-base.txt`, `mig/{aplica,ensaio-local,copia-qa,producao}.sh`, `desvios.md`, logs, QA | 0, 6, 10, 12 |
+| `.superpowers/f35a/**` (fora do git) | `BASE`, `regras.md`, `arqs-f35a.txt`, `gates.sh`, `n3.sh` (R5), `unit-fail-base.txt`, `mig/{aplica,ensaio-local,copia-qa,producao,ref-volta-f1}.sh`, `deploy-{base,lista}.txt` (R10), `desvios.md`, logs, QA | 0, 6, 10, 12, 13 |
 
 ### 4.1 Interfaces produzidas (a F3.5b consome)
 
-- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, conflito_com, estado }] }`, `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
-- **Dados:** `modelos.tamanho_tipo` (`letra|numero|NULL`=padrão da loja) · `produtos_acabados.tamanho_tipo` / `produtos_importados.tamanho_tipo` (só ANTES do espelho — o gatilho passa ao modelo) · `tenant_config.sku_config` (canônico) · `tenant_config.tamanhos_sku` · `cores.sigla_sku` · `cores_apelido.sigla_sku` · `modelo_skus` (SELECT por loja).
-- **TS:** `parseTamanho`, `ladoTamanho`, `TamanhoTipo` (`@/lib/tamanho`); `SkuConfig`, `SkuFalta`, `SkuParte`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, `normalizarSkuConfig`, `resolverSku`, `textoFalta`, `canonico` (`@/lib/sku-montar`); `AttributeTabConfig.extraText`; queryKeys `["tenant-config-sku", tenantId]`, `["tenant-config-tamanhos-sku", tenantId]`, `["tenant-sku-exemplo", tenantId]`.
+- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL, _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL, _tamanho_key text DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar; `_id` NULL + a tripla = cria a linha manual de uma linha ainda sem SKU — R3; devolve `{id, sku, manual, rev}`). `variante_key` = `_sku_variante_key(cor_id, cor_apelido_id)` — a COR (R1). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, conflito_com, estado }] }`, `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
+- **Dados:** `modelos.tamanho_tipo` (`letra|numero|NULL`=padrão da loja) · `produtos_acabados.tamanho_tipo` / `produtos_importados.tamanho_tipo` (só ANTES do espelho — o gatilho passa ao modelo) · `tenant_config.sku_config` (canônico) · `tenant_config.tamanhos_sku` · `cores.sigla_sku` · `cores_apelido.sigla_sku` · `modelo_skus` (SELECT por loja; `ref` = REF normalizada na gravação; SKU repetido só entre réplicas — D5).
+- **TS:** `parseTamanho`, `ladoTamanho`, `TamanhoTipo` (`@/lib/tamanho`); `SkuConfig`, `SkuFalta`, `SkuParte`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, `SKU_SEP_CHARS`, `normalizarSkuConfig`, `normalizarSkuManual` (validar o SKU à mão antes de mandar — mesma mensagem do servidor), `normalizarRefSku`, `resolverSku`, `textoFalta`, `canonico` (`@/lib/sku-montar`); `AttributeTabConfig.extraText`; queryKeys `["tenant-config-sku", tenantId]`, `["tenant-config-tamanhos-sku", tenantId]`, `["tenant-sku-exemplo", tenantId]`.
 
 ### 4.2 Sobreposição com as frentes abertas e regra de rebase
 
@@ -126,7 +152,7 @@ Levantado em 24/set (`git diff --name-only feature/plan-tecido-a1...<branch>`), 
 |---|---|---|
 | `f2/kanban-telas` | `src/routes/_authenticated/admin/configuracoes.tsx` (a F2 reescreve o save — RP3 — e acrescenta imports logo abaixo do `FormatoRefCard` e trechos antes/depois do `<FormatoRefCard …/>`) | A F3.5a só insere 2 linhas: o import DEPOIS de `import { PAGES_CATALOG }…` (longe dos imports da F2) e `<FormatoSkuCard />` logo depois do `/>` do `FormatoRefCard` (entre os dois trechos da F2). **Simulado com `git merge-file` (base `a044759` × F3.5a × F2): 0 conflito.** |
 | `f31`, `f32`, `f33`, `f34` | `tests/integration/mig-txn.ts` (as 4 têm o MESMO arquivo, criado pela F3.1) | A F3.5a cria a MESMA cópia (gate de igualdade) ⇒ add/add idêntico, sem conflito. (O Aviso Global preferiu um harness local ao próprio teste; aqui a cópia idêntica evita ter um 3º harness — decisão T14.) |
-| Aviso Global / Data da Nota (planos commitados em 24/set, ainda sem branch) | nenhum arquivo (Aviso: `app-sidebar.tsx`, harness local; Nota: OCs) | só a ORDEM de produção (Global Constraints). |
+| Aviso Global / Data da Nota (planos commitados em 24/set; worktrees em curso) | nenhum arquivo (Aviso: `app-sidebar.tsx`, harness local; Nota: OCs) | só a ORDEM de produção (Global Constraints). |
 | todas | nenhum outro arquivo | — |
 
 **Regra de rebase:** a F3.5a nasce do HEAD atual de `feature/plan-tecido-a1` (BASE). Se a F2 (ou qualquer F3.x) juntar antes, a Task 13 Step 2 faz `git rebase --onto feature/plan-tecido-a1 "$(cat .superpowers/f35a/BASE)" f35a/sku-banco-cadastros`. Conflito em `configuracoes.tsx`: ficar com o texto da principal e reaplicar SÓ a mesma intenção (import + `<FormatoSkuCard />` logo abaixo do `<FormatoRefCard …/>`), gate `+2/-0` de novo. Conflito em `mig-txn.ts`: ficar com o da principal (é a F3.1; o gate compara com ele). Depois do rebase: gates + a suíte de integração (`SKU_MIG_TXN=1`) + re-revisão Opus de `configuracoes.tsx`.
@@ -147,7 +173,7 @@ Task 0 (pré-voo) → 1 (TS puro) → 2 (suíte vermelha) → 3 (SQL parte A + i
 | 9 | **Individual Opus** (Config: RP3, conflito, prévia, 2 linhas no `configuracoes.tsx`) |
 | 10–13 | controlador + guardião (QA, G-commit, G-migration, produção, merge) |
 
-Checklist de toda revisão = `code-reviewer` + guardião: tenant/RLS, invariante #9 (REVOKE dos TRÊS, conferido por `has_function_privilege`), UNIQUE só composta, nenhuma função pré-existente redefinida, `mensagemErro`, queryKeys próprias com "tenant", guarda de não salvo, nenhum `\i`/`psql -f`, nenhuma escrita fora da cópia, escopo = §4.
+Checklist de toda revisão = `code-reviewer` + guardião: tenant/RLS, invariante #9 (REVOKE dos TRÊS, conferido por `has_function_privilege`), UNIQUE só composta (+ gatilho D5), travas no arquivo/policies por último (supautils), N3 antes de toda DDL na cópia, nenhuma função pré-existente redefinida, `mensagemErro`, queryKeys próprias com "tenant", guarda de não salvo, nenhum `\i`/`psql -f`, nenhuma escrita fora da cópia, escopo = §4.
 
 ---
 
@@ -261,8 +287,12 @@ Criar `.superpowers/f35a/regras.md` (todo executor lê antes de cada task):
    exploratório fora do harness, qualquer coisa em produção (`/tmp/dburl.txt`, `*.supabase.co`).
 5. Integração: SEMPRE `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` explícito; antes,
    `ps -Ao pid,command | grep -E "[v]itest|[p]laywright"` tem de voltar vazio (a cópia é compartilhada: um por vez).
+   N3 (R5): toda rodada com DDL na cópia (suíte com `SKU_MIG_TXN=1`, ensaio, `copia-qa.sh ida|volta`) CONGELA o app
+   de teste do dono (`:5188`). Antes: o controlador avisa o dono no chat (texto do `n3.sh`) e, com o OK,
+   `SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes <passo>`; depois: `bash .superpowers/f35a/n3.sh depois
+   <passo>`. Sem o OK do dono: não roda (registra em `desvios.md`).
 6. Leitura na cópia: `PGOPTIONS='-c default_transaction_read_only=on' psql …` (só SELECT).
-7. O SQL do plano não foi executado pelo planejador: erro de SQL ⇒ corrigir o MÍNIMO e registrar em
+7. O SQL do plano não foi EXECUTADO pelo planejador (só parseado pelo parser do PG17): erro de SQL ⇒ corrigir o MÍNIMO e registrar em
    `.superpowers/f35a/desvios.md` (erro literal, causa, correção). Diferença de VALOR entre TS e SQL = drift de regra:
    PARE e chame o controlador (a regra só muda com ele).
 8. Âncora que não bate (Task 0 Step 3): não adaptar por conta própria — registrar em
@@ -270,19 +300,24 @@ Criar `.superpowers/f35a/regras.md` (todo executor lê antes de cada task):
 9. Não subir/derrubar servidor (só o controlador, na Task 10); nunca `:5173`, `:5188`, `:5181`–`:5187`; nada de
    `pkill`/`killall`. Não despachar subagentes.
 10. Nunca imprimir senha/chave (nem do `.env`, nem da variante do app de teste).
+11. A migration trava tabelas EXISTENTES (ALTER em cores/cores_apelido/produtos_*/modelos/tenant_config e, nas 4
+    policies, o hook `supautils.policy_grants` em ~24 tabelas de auth/storage/realtime — login/refresh esperam). Não
+    mova policy nem ALTER para o meio do arquivo e não tire as 2 linhas `SET LOCAL` logo depois do `BEGIN;` (o teste
+    "estático" confere).
 ```
 
 Gerar `.superpowers/f35a/mig/aplica.sh` a partir do runbook v2 da F1 (funções LITERAIS, hash conferido) + as consultas da F3.5a. Criar primeiro `.superpowers/f35a/mig/aplica-extra.sh`:
 
 ```bash
 CONT="select (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public') || '|' || (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal)"
-RE_F35A='^(_sku_|_skus_modelo_|skus_modelo$|gerar_skus_modelo$|_gerar_skus_modelo_core$|salvar_sku_manual$|_salvar_sku_manual_core$|fn_sigla_sku_normaliza$|fn_tenant_config_sku_normaliza$|fn_produto_tamanho_tipo_handover$)'
-# Objetos da F3.5a (só leitura) — funções|gatilhos|tabela|colunas: 0|0|0|0 sem a F3.5a; 18|5|1|7 com ela.
-OBJ_F35A="select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname ~ '$RE_F35A') || '|' || (select count(*) from pg_trigger where not tgisinternal and tgname in ('trg_cores_sigla_sku','trg_cores_apelido_sigla_sku','trg_pa_tamanho_tipo','trg_pi_tamanho_tipo','trg_tenant_config_sku')) || '|' || (select count(*) from pg_class where oid = to_regclass('public.modelo_skus')) || '|' || (select count(*) from information_schema.columns where table_schema = 'public' and (table_name::text, column_name::text) in (('cores','sigla_sku'),('cores_apelido','sigla_sku'),('tenant_config','tamanhos_sku'),('tenant_config','sku_config'),('modelos','tamanho_tipo'),('produtos_acabados','tamanho_tipo'),('produtos_importados','tamanho_tipo')))"
+RE_F35A='^(_sku_|_skus_modelo_|skus_modelo$|gerar_skus_modelo$|_gerar_skus_modelo_core$|salvar_sku_manual$|_salvar_sku_manual_core$|fn_sigla_sku_normaliza$|fn_tenant_config_sku_normaliza$|fn_produto_tamanho_tipo_handover$|fn_modelo_skus_unico$)'
+# Objetos da F3.5a (só leitura) — funções|gatilhos|tabela|colunas: 0|0|0|0 sem a F3.5a; 23|6|1|7 com ela.
+OBJ_F35A="select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname ~ '$RE_F35A') || '|' || (select count(*) from pg_trigger where not tgisinternal and tgname in ('trg_modelo_skus_unico','trg_cores_sigla_sku','trg_cores_apelido_sigla_sku','trg_pa_tamanho_tipo','trg_pi_tamanho_tipo','trg_tenant_config_sku')) || '|' || (select count(*) from pg_class where oid = to_regclass('public.modelo_skus')) || '|' || (select count(*) from information_schema.columns where table_schema = 'public' and (table_name::text, column_name::text) in (('cores','sigla_sku'),('cores_apelido','sigla_sku'),('tenant_config','tamanhos_sku'),('tenant_config','sku_config'),('modelos','tamanho_tipo'),('produtos_acabados','tamanho_tipo'),('produtos_importados','tamanho_tipo')))"
 # Fidelidade das funções PRÉ-EXISTENTES (tudo de public que NÃO é da F3.5a): md5 de assinatura+definição | quantidade.
 FN_PRE="select md5(string_agg(p.oid::regprocedure::text || '=' || md5(pg_get_functiondef(p.oid)), E'\n' order by p.oid::regprocedure::text collate \"C\")) || '|' || count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind in ('f','p') and p.proname !~ '$RE_F35A'"
-# ACL (invariante #9) — internas expostas | RPCs erradas | tabela exposta: esperado 0|0|0 (SÓ com a F3.5a aplicada).
-ACL_F35A="with i(f) as (values ('_sku_norm_sigla(text)'), ('_sku_tamanho_lados(text)'), ('_sku_tamanho_lado(text,text)'), ('_sku_config_normaliza(jsonb)'), ('_sku_tamanhos_normaliza(jsonb)'), ('_sku_montar(jsonb,jsonb)'), ('_sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)'), ('_sku_guarda(uuid,boolean)'), ('_skus_modelo_calc(uuid)'), ('_skus_modelo_core(uuid)'), ('_gerar_skus_modelo_core(uuid,boolean)'), ('_salvar_sku_manual_core(uuid,text,integer)'), ('fn_sigla_sku_normaliza()'), ('fn_tenant_config_sku_normaliza()'), ('fn_produto_tamanho_tipo_handover()')), r(f) as (values ('skus_modelo(uuid)'), ('gerar_skus_modelo(uuid,boolean)'), ('salvar_sku_manual(uuid,text,integer)')) select (select count(*) from i where has_function_privilege('public', 'public.' || f, 'EXECUTE') or has_function_privilege('anon', 'public.' || f, 'EXECUTE') or has_function_privilege('authenticated', 'public.' || f, 'EXECUTE')) || '|' || (select count(*) from r where has_function_privilege('public', 'public.' || f, 'EXECUTE') or has_function_privilege('anon', 'public.' || f, 'EXECUTE') or not has_function_privilege('authenticated', 'public.' || f, 'EXECUTE')) || '|' || ((select count(*) from (values ('anon'), ('authenticated')) p(r) where has_table_privilege(p.r, 'public.modelo_skus', 'INSERT,UPDATE,DELETE')) + (case when has_table_privilege('anon', 'public.modelo_skus', 'SELECT') then 1 else 0 end))"
+# ACL (invariante #9) — internas expostas | RPCs erradas | tabela exposta (escrita/MAINTAIN p/ anon|authenticated, SELECT p/ anon,
+# qualquer coisa p/ PUBLIC): esperado 0|0|0 (SÓ com a F3.5a aplicada).
+ACL_F35A="with i(f) as (values ('_sku_sem_acento(text)'), ('_sku_norm_sigla(text)'), ('_sku_norm_ref(text)'), ('_sku_norm_manual(text)'), ('_sku_variante_key(uuid,uuid)'), ('_sku_tamanho_lados(text)'), ('_sku_tamanho_lado(text,text)'), ('_sku_config_normaliza(jsonb)'), ('_sku_tamanhos_normaliza(jsonb)'), ('_sku_montar(jsonb,jsonb)'), ('_sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)'), ('_sku_guarda(uuid,boolean)'), ('_skus_modelo_calc(uuid)'), ('_skus_modelo_core(uuid)'), ('_gerar_skus_modelo_core(uuid,boolean)'), ('_salvar_sku_manual_core(uuid,text,integer,uuid,uuid,text)'), ('fn_sigla_sku_normaliza()'), ('fn_tenant_config_sku_normaliza()'), ('fn_produto_tamanho_tipo_handover()'), ('fn_modelo_skus_unico()')), r(f) as (values ('skus_modelo(uuid)'), ('gerar_skus_modelo(uuid,boolean)'), ('salvar_sku_manual(uuid,text,integer,uuid,uuid,text)')) select (select count(*) from i where has_function_privilege('public', 'public.' || f, 'EXECUTE') or has_function_privilege('anon', 'public.' || f, 'EXECUTE') or has_function_privilege('authenticated', 'public.' || f, 'EXECUTE')) || '|' || (select count(*) from r where has_function_privilege('public', 'public.' || f, 'EXECUTE') or has_function_privilege('anon', 'public.' || f, 'EXECUTE') or not has_function_privilege('authenticated', 'public.' || f, 'EXECUTE')) || '|' || ((select count(*) from (values ('anon'), ('authenticated')) p(r) where has_table_privilege(p.r, 'public.modelo_skus', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')) + (case when has_table_privilege('anon', 'public.modelo_skus', 'SELECT') then 1 else 0 end) + (select count(*) from aclexplode((select relacl from pg_class where oid = to_regclass('public.modelo_skus'))) a where a.grantee = 0))"
 ```
 
 e `.superpowers/f35a/mig/monta-aplica.sh`:
@@ -348,6 +383,55 @@ fi
 echo "GATES F3.5a: ok"
 ```
 
+Criar `.superpowers/f35a/n3.sh` (R5 — antes e depois de TODA rodada com DDL na cópia):
+
+```bash
+#!/usr/bin/env bash
+# R5 do G-plano (N3) — a cópia local (:54422) é também o APP DE TESTE do dono (:5188 — banco-local/APP-TESTE-LOCAL.md).
+# Toda rodada que faz DDL na cópia — a suíte com SKU_MIG_TXN=1 (Tasks 2–5 e 13), o ensaio (Task 6) e o
+# copia-qa.sh ida|volta (Tasks 10 e 13) — segura AccessExclusive em tenant_config/modelos/cores/produtos_* e, nas
+# policies, o hook supautils em auth/storage do Supabase LOCAL: o :5188 CONGELA enquanto roda (o login também espera).
+# SÓ LEITURA. Uso (raiz da worktree):
+#   SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes <passo>     ex.: t2s4, t3s3, t4s2, t5s2, t6, t10-ida, t13s2
+#   bash .superpowers/f35a/n3.sh depois <passo>
+# SKU_DONO_AVISADO=sim SÓ depois que o dono respondeu no chat que o :5188 está ocioso (texto abaixo).
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+LOCAL="postgresql://postgres:postgres@127.0.0.1:54422/postgres"
+QUANDO="${1:-}"
+PASSO="${2:-}"
+case "$QUANDO" in antes|depois) ;; *) echo "uso: n3.sh antes|depois <passo>"; exit 2 ;; esac
+[ -n "$PASSO" ] || { echo "uso: n3.sh antes|depois <passo>"; exit 2; }
+mkdir -p .superpowers/f35a/logs
+docker ps --filter name=supabase_db_banco-local --format '{{.Status}}' | grep -q '^Up' \
+  || { echo "PARE: cópia fora do ar (não subir/recriar por conta própria)"; exit 1; }
+if [ "$QUANDO" = antes ]; then
+  if ps -Ao command | grep -E "[v]itest|[p]laywright" > /dev/null; then
+    ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "PARE: vitest/playwright rodando (um teste/QA por vez na cópia)"; exit 1
+  fi
+  N=$(PGCONNECT_TIMEOUT=5 psql "$LOCAL" -X -A -t -v ON_ERROR_STOP=1 -c "select count(*) from pg_stat_activity where datname = current_database() and backend_type = 'client backend' and pid <> pg_backend_pid() and state <> 'idle'") \
+    || { echo "PARE: não conectei na cópia"; exit 1; }
+  [ "$N" = 0 ] || { echo "PARE: $N sessão(ões) ativa(s) na cópia — outra frente usando; esperar"; exit 1; }
+  if [ "${SKU_DONO_AVISADO:-}" != sim ]; then
+    cat <<'MSG'
+PARE: avise o dono no chat ANTES e espere o OK (depois rode de novo com SKU_DONO_AVISADO=sim):
+  "Vou rodar <passo> do SKU automático (F3.5a) na cópia local agora (~<N> min). Enquanto roda, o app de teste :5188
+   congela — a suíte faz ALTER em tenant_config/modelos/cores/produtos e cria policies dentro de transação (até o
+   login do :5188 espera). Se estiver usando o :5188, salve e me avise quando posso começar."
+MSG
+    exit 1
+  fi
+fi
+E=$(PGOPTIONS='-c default_transaction_read_only=on' psql "$LOCAL" -X -A -t -c "select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public') || '|' || (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal) || '|' || (to_regclass('public.modelo_skus') is not null)") \
+  || { echo "PARE: não li o estado da cópia"; exit 1; }
+P=$(lsof -nP -iTCP:5188 -sTCP:LISTEN -t 2>/dev/null | head -1)
+AV=""; [ "$QUANDO" = antes ] && AV=" · dono avisado"
+echo "$(date '+%F %T') $QUANDO $PASSO: funções|gatilhos|modelo_skus = $E · :5188 $([ -n "$P" ] && echo "no ar (PID $P)" || echo "fora do ar")$AV" \
+  | tee -a .superpowers/f35a/logs/n3.log
+[ "$QUANDO" = antes ] && echo "OK (N3): pode rodar $PASSO"
+exit 0
+```
+
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 bash .superpowers/f35a/mig/monta-aplica.sh .superpowers/f35a/mig/aplica-extra.sh .superpowers/f35a/mig/aplica.sh
@@ -358,9 +442,10 @@ npm run build 2>&1 | tail -3; git checkout -- src/routeTree.gen.ts 2>/dev/null |
 env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit > .superpowers/f35a/logs/unit-base.log 2>&1; tail -5 .superpowers/f35a/logs/unit-base.log
 grep -E "^ FAIL " .superpowers/f35a/logs/unit-base.log | sed -E 's/ +[0-9]+ms$//' | sort -u > .superpowers/f35a/unit-fail-base.txt; cat .superpowers/f35a/unit-fail-base.txt
 bash .superpowers/f35a/gates.sh; echo "código=$?"
+bash .superpowers/f35a/n3.sh antes t0; echo "sem-aviso=$?"     # sem SKU_DONO_AVISADO: mostra o texto p/ o dono e sai 1
 ```
 
-Expected: `aplica.sh gerado: …`; `OK (cópia sem a F3.5a): 0|0|0|0`; as contagens da cópia (24/set: `458|263`) e `<md5>|458` das funções — anotar em `.superpowers/f35a/logs/copia-inicial.txt`; tsc sem erro; build ok; unit com as falhas HERDADAS do anti-drift de UI (24/set: 2 — `(a) cor literal` em `DocPrintCasca`/`OcDocumentoPrint` e `(e) font-size fracionário`); `GATES F3.5a: ok` e `código=0`. `PARE: o bloco de apoio v2 da F1 mudou (hash)` ⇒ reler o runbook com o controlador antes de seguir.
+Expected: `aplica.sh gerado: …`; `OK (cópia sem a F3.5a): 0|0|0|0`; as contagens da cópia (24/set: `458|263`) e `<md5>|458` das funções — anotar em `.superpowers/f35a/logs/copia-inicial.txt`; tsc sem erro; build ok; unit com as falhas HERDADAS do anti-drift de UI (24/set: 2 — `(a) cor literal` em `DocPrintCasca`/`OcDocumentoPrint` e `(e) font-size fracionário`); `GATES F3.5a: ok` e `código=0`; o `n3.sh` sem a variável imprime o texto para o dono e `sem-aviso=1` (a trava funciona). `PARE: o bloco de apoio v2 da F1 mudou (hash)` ⇒ reler o runbook com o controlador antes de seguir.
 
 ---
 
@@ -409,14 +494,40 @@ export const CASOS_TAMANHO: {
   { entrada: "\t40\n|\tM ", numero: "40", letra: "M", ladoNumero: "40", ladoLetra: "M" },
 ];
 
+// D6/R4 (pendente do dono): sem acento (lista fixa), só A–Z/0–9, MAIÚSCULAS.
 export const CASOS_SIGLA: { entrada: string | null; esperado: string | null }[] = [
   { entrada: "am", esperado: "AM" },
   { entrada: "  vd \t", esperado: "VD" },
-  { entrada: "Off White", esperado: "OFF WHITE" },
-  { entrada: "açaí", esperado: "AÇAÍ" },
+  { entrada: "Off White", esperado: "OFFWHITE" },
+  { entrada: "açaí", esperado: "ACAI" },
+  { entrada: "a-m", esperado: "AM" },
+  { entrada: "Ñandú 2", esperado: "NANDU2" },
+  { entrada: "ß", esperado: null },
   { entrada: "", esperado: null },
   { entrada: " \t\r\n ", esperado: null },
   { entrada: null, esperado: null },
+];
+
+// A REF dentro do SKU: sem acento, só A–Z/0–9 e - . _ /, MAIÚSCULAS (o resto sai).
+export const CASOS_REF: { entrada: string | null; esperado: string }[] = [
+  { entrada: " r1 ", esperado: "R1" },
+  { entrada: "ab c#1", esperado: "ABC1" },
+  { entrada: "TOBMC10000009", esperado: "TOBMC10000009" },
+  { entrada: "ref-01/a.b_c", esperado: "REF-01/A.B_C" },
+  { entrada: "Ação", esperado: "ACAO" },
+  { entrada: "", esperado: "" },
+  { entrada: null, esperado: "" },
+];
+
+// SKU digitado à mão: sem espaço, sem acento, MAIÚSCULAS; só A–Z, 0–9 e - . _ / (senão erro).
+export const CASOS_SKU_MANUAL: ({ entrada: string | null; esperado: string } | { entrada: string | null; erro: string })[] = [
+  { entrada: " abc-1 ", esperado: "ABC-1" },
+  { entrada: "açaí 34", esperado: "ACAI34" },
+  { entrada: "a b/c.d_e", esperado: "AB/C.D_E" },
+  { entrada: "x#1", erro: "SKU inválido: use só letras, números e - . _ /." },
+  { entrada: "\u00a0x", erro: "SKU inválido: use só letras, números e - . _ /." },
+  { entrada: "   ", erro: "Informe o SKU." },
+  { entrada: null, erro: "Informe o SKU." },
 ];
 
 export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | { entrada: unknown; erro: string })[] = [
@@ -451,7 +562,10 @@ export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | {
   { entrada: { partes: ["ref", "ref"] }, erro: "Parte do SKU repetida: ref." },
   { entrada: { partes: ["ref", "tamanho"], separadores: [] }, erro: "Formato do SKU inválido: separadores." },
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": 1 } }, erro: "Separador do SKU inválido." },
-  { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "- " } }, erro: "Separador do SKU não pode ter espaço." },
+  { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "- " } }, erro: "Separador do SKU: use só - . _ /." },
+  { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "#" } }, erro: "Separador do SKU: use só - . _ /." },
+  { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "_/" } },
+    esperado: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "_/" }, tamanho_padrao: "letra" } },
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "----" } }, erro: "Separador do SKU: no máximo 3 caracteres." },
   { entrada: { partes: ["ref"], tamanho_padrao: "grande" }, erro: "Tamanho padrão do SKU inválido (use letra ou número)." },
   { entrada: { partes: ["ref"], tamanho_padrao: 5 }, erro: "Tamanho padrão do SKU inválido (use letra ou número)." },
@@ -465,7 +579,11 @@ export const CASOS_TAMANHOS_SKU: ({ entrada: unknown; esperado: Record<string, s
   { entrada: [], erro: "Siglas de tamanho inválidas." },
   { entrada: { "34": 34 }, erro: "Sigla de tamanho inválida: 34." },
   { entrada: { "34": "A", " 34": "B" }, erro: "Sigla de tamanho repetida: 34." },
-  { entrada: { "34": "", " 34": "B" }, esperado: { "34": "B" } },
+  // repetida vale mesmo com uma das siglas vazia, e não depende da ordem das chaves (jsonb × JS — G-plano NOTA)
+  { entrada: { "34": "", " 34": "B" }, erro: "Sigla de tamanho repetida: 34." },
+  { entrada: { " P": "", P: "B" }, erro: "Sigla de tamanho repetida: P." },
+  { entrada: { PPP: "p p p", "36": "3-6" }, esperado: { PPP: "PPP", "36": "36" } },
+  { entrada: { B: 1, A: 2 }, erro: "Sigla de tamanho inválida: A." },
 ];
 
 const F_TODAS: SkuConfig = {
@@ -554,11 +672,11 @@ export const CASOS_RESOLVER: CasoResolver[] = [
 import { describe, it, expect } from "vitest";
 import { aparar, ehNumeroTamanho, ladoTamanho, parseTamanho } from "@/lib/tamanho";
 import {
-  canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarSigla, normalizarSkuConfig,
-  normalizarTamanhosSku, resolverSku, textoFalta,
+  ACENTOS_DE, ACENTOS_PARA, canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarRefSku, normalizarSigla,
+  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoFalta,
 } from "@/lib/sku-montar";
 import {
-  CASOS_CONFIG, CASOS_MONTAR, CASOS_RESOLVER, CASOS_SIGLA, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
+  CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
 } from "../fixtures/sku-casos";
 
 // Lado TS do anti-drift (o lado SQL roda as MESMAS fixtures em tests/integration/sku-automatico.test.ts).
@@ -588,6 +706,25 @@ describe("sku-montar.ts — normalizarSigla (espelho _sku_norm_sigla)", () => {
   for (const c of CASOS_SIGLA) {
     it(`${JSON.stringify(c.entrada)} → ${JSON.stringify(c.esperado)}`, () => {
       expect(normalizarSigla(c.entrada)).toBe(c.esperado);
+    });
+  }
+});
+
+describe("sku-montar.ts — normalizarRefSku / normalizarSkuManual (espelhos _sku_norm_ref / _sku_norm_manual)", () => {
+  it("lista de acentos: DE e PARA com o mesmo tamanho (é a do translate() do SQL)", () => {
+    expect([...ACENTOS_DE].length).toBe([...ACENTOS_PARA].length);
+    expect(new Set([...ACENTOS_DE]).size).toBe([...ACENTOS_DE].length);
+  });
+  for (const c of CASOS_REF) {
+    it(`REF ${JSON.stringify(c.entrada)} → ${JSON.stringify(c.esperado)}`, () => {
+      expect(normalizarRefSku(c.entrada)).toBe(c.esperado);
+    });
+  }
+  for (const c of CASOS_SKU_MANUAL) {
+    it(`manual ${JSON.stringify(c.entrada)}`, () => {
+      const r = normalizarSkuManual(c.entrada);
+      if ("erro" in c) expect(r).toEqual({ ok: false, erro: c.erro });
+      else expect(r).toEqual({ ok: true, valor: c.esperado });
     });
   }
 });
@@ -722,6 +859,8 @@ export function ladoTamanho(t: string | null | undefined, tipo: TamanhoTipo): st
 // O SKU é GERADO e GRAVADO no servidor (RPC gerar_skus_modelo — fonte única); este arquivo só serve à
 // PRÉ-VISUALIZAÇÃO (Config da Loja) e à validação dos formulários ANTES de gravar. Casa byte a byte com:
 //   normalizarSigla       ⇄ public._sku_norm_sigla(text)
+//   normalizarRefSku      ⇄ public._sku_norm_ref(text)
+//   normalizarSkuManual   ⇄ public._sku_norm_manual(text)              (mesmas mensagens de erro, em PT)
 //   normalizarSkuConfig   ⇄ public._sku_config_normaliza(jsonb)      (mesmas mensagens de erro, em PT)
 //   normalizarTamanhosSku ⇄ public._sku_tamanhos_normaliza(jsonb)    (mesmas mensagens de erro, em PT)
 //   montarSku             ⇄ public._sku_montar(jsonb,jsonb)
@@ -729,12 +868,15 @@ export function ladoTamanho(t: string | null | undefined, tipo: TamanhoTipo): st
 // Anti-drift: tests/fixtures/sku-casos.ts roda nos DOIS lados (tests/unit/sku-montar.test.ts e
 // tests/integration/sku-automatico.test.ts). Mudou a regra aqui? Mude o SQL (nova migration) e as fixtures.
 //
-// Regras (decisões do dono Q1–Q4 + plano F3.5a §7):
-//  - Sigla: trim (espaço/tab/CR/LF) + MAIÚSCULAS; vazia ⇒ null.
+// Regras (decisões do dono Q1–Q4, D1–D6 e plano F3.5a §3):
+//  - Caracteres do SKU (D6/R4 — pendente do dono): tudo MAIÚSCULO, sem acento (lista FIXA abaixo, igual ao
+//    `translate()` do SQL — independe do locale do banco), sem espaço. Sigla: só A–Z e 0–9 (o resto sai). REF no
+//    SKU: A–Z, 0–9 e - . _ / (o resto sai). SKU manual: A–Z, 0–9 e - . _ / (outro caractere = erro). Separador:
+//    só - . _ / (até 3; vazio = colado). Ordem sempre: tira acento → filtra → MAIÚSCULAS (só ASCII chega ao upper).
 //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
-//    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS da lista ("a|b"); vazio = colado;
-//    até 3 caracteres, sem espaço. `tamanho_padrao` = "letra" (padrão) | "numero".
-//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (variante sem apelido;
+//    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). `tamanho_padrao` =
+//    "letra" (padrão) | "numero".
+//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (variante sem apelido — D4;
 //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
 //  - Falta sigla (Q4) ⇒ a linha NÃO gera SKU e devolve `faltas` na ordem cor_base → cor_apelido → tamanho.
 //    Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
@@ -756,6 +898,19 @@ export type Normalizado<T> = { ok: true; valor: T } | { ok: false; erro: string 
 /** Grade única dos Acessórios (revenda/importado) — `_pa_grade_variante` grava `{"UN": qtd}`. */
 export const TAMANHO_UNICO = "UN";
 export const SKU_SEP_MAX = 3;
+/** Caracteres permitidos no separador (e, junto com A–Z/0–9, no SKU manual e na REF dentro do SKU). */
+export const SKU_SEP_CHARS = "- . _ /";
+
+// Lista FIXA de acentos (maiúsculas e minúsculas) — IDÊNTICA ao translate() de _sku_sem_acento no SQL.
+export const ACENTOS_DE = "ÁÀÂÃÄÅáàâãäåÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇçÑñÝýÿ";
+export const ACENTOS_PARA = "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCcNnYyy";
+const PARA = [...ACENTOS_PARA];
+const MAPA_ACENTOS = new Map([...ACENTOS_DE].map((c, i) => [c, PARA[i]]));
+function semAcento(s: string): string {
+  let out = "";
+  for (const ch of s) out += MAPA_ACENTOS.get(ch) ?? ch;
+  return out;
+}
 
 export function chaveSeparador(a: SkuParte, b: SkuParte): string {
   return `${a}|${b}`;
@@ -763,11 +918,26 @@ export function chaveSeparador(a: SkuParte, b: SkuParte): string {
 
 const ehObjeto = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const nChars = (s: string) => [...s].length; // = char_length do SQL (conta pontos de código, não UTF-16)
+const porCodigo = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0); // = ORDER BY … COLLATE "C"
 
-/** Sigla (cor base, cor apelido, lado do tamanho): trim + MAIÚSCULAS; vazia ⇒ null. */
+/** Sigla (cor base, cor apelido, lado do tamanho): sem acento, só A–Z/0–9, MAIÚSCULAS; vazia ⇒ null. */
 export function normalizarSigla(s: string | null | undefined): string | null {
-  const v = aparar(s).toUpperCase();
+  const v = semAcento(s ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   return v === "" ? null : v;
+}
+
+/** A REF dentro do SKU: sem acento, só A–Z/0–9 e - . _ /, MAIÚSCULAS (o resto sai; vazia = ""). */
+export function normalizarRefSku(s: string | null | undefined): string {
+  return semAcento(s ?? "").replace(/[^A-Za-z0-9._/-]/g, "").toUpperCase();
+}
+
+/** SKU digitado à mão: sem espaço, sem acento, MAIÚSCULAS; só A–Z, 0–9 e - . _ / (outro caractere = erro). */
+export function normalizarSkuManual(s: string | null | undefined): Normalizado<string> {
+  const semEspaco = (s ?? "").replace(/[ \t\r\n]/g, "");
+  if (semEspaco === "") return { ok: false, erro: "Informe o SKU." };
+  const v = semAcento(semEspaco);
+  if (/[^A-Za-z0-9._/-]/.test(v)) return { ok: false, erro: "SKU inválido: use só letras, números e - . _ /." };
+  return { ok: true, valor: v.toUpperCase() };
 }
 
 /** Valida e canoniza o Formato do SKU (o mesmo que o gatilho de tenant_config faz no servidor). */
@@ -795,7 +965,7 @@ export function normalizarSkuConfig(raw: unknown): Normalizado<SkuConfig | null>
     const v = seps[k];
     if (v === null || v === undefined) continue;
     if (typeof v !== "string") return { ok: false, erro: "Separador do SKU inválido." };
-    if (/\s/.test(v)) return { ok: false, erro: "Separador do SKU não pode ter espaço." };
+    if (!/^[-._/]*$/.test(v)) return { ok: false, erro: `Separador do SKU: use só ${SKU_SEP_CHARS}.` };
     if (nChars(v) > SKU_SEP_MAX) return { ok: false, erro: `Separador do SKU: no máximo ${SKU_SEP_MAX} caracteres.` };
     if (v !== "") separadores[k] = v;
   }
@@ -807,17 +977,27 @@ export function normalizarSkuConfig(raw: unknown): Normalizado<SkuConfig | null>
   return { ok: true, valor: { partes, separadores, tamanho_padrao: tipo } };
 }
 
-/** Valida e canoniza o mapa lado-do-tamanho → sigla (tenant_config.tamanhos_sku). Vazio ⇒ null. */
+/**
+ * Valida e canoniza o mapa lado-do-tamanho → sigla (tenant_config.tamanhos_sku). Vazio ⇒ null. As checagens NÃO
+ * dependem da ordem das chaves (o jsonb reordena): 1º tipo inválido (chaves em ordem de código), 2º chave repetida
+ * depois de aparar (idem), 3º o mapa das siglas não vazias.
+ */
 export function normalizarTamanhosSku(raw: unknown): Normalizado<Record<string, string> | null> {
   if (raw === null || raw === undefined) return { ok: true, valor: null };
   if (!ehObjeto(raw)) return { ok: false, erro: "Siglas de tamanho inválidas." };
-  const out: Record<string, string> = {};
-  for (const [k0, v] of Object.entries(raw)) {
-    const k = aparar(k0);
-    if (k === "" || v === null || v === undefined) continue;
+  const entradas = Object.entries(raw)
+    .map(([k, v]) => [aparar(k), v] as const)
+    .filter(([k, v]) => k !== "" && v !== null && v !== undefined)
+    .sort((a, b) => porCodigo(a[0], b[0]));
+  for (const [k, v] of entradas) {
     if (typeof v !== "string") return { ok: false, erro: `Sigla de tamanho inválida: ${k}.` };
-    if (Object.prototype.hasOwnProperty.call(out, k)) return { ok: false, erro: `Sigla de tamanho repetida: ${k}.` };
-    const sig = normalizarSigla(v);
+  }
+  for (let i = 1; i < entradas.length; i++) {
+    if (entradas[i][0] === entradas[i - 1][0]) return { ok: false, erro: `Sigla de tamanho repetida: ${entradas[i][0]}.` };
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of entradas) {
+    const sig = normalizarSigla(v as string);
     if (sig) out[k] = sig;
   }
   return { ok: true, valor: Object.keys(out).length === 0 ? null : out };
@@ -853,7 +1033,7 @@ export function resolverSku(o: {
   const faltas: SkuFalta[] = [];
   const usa = (p: SkuParte) => o.cfg.partes.includes(p);
   const valores: Partial<Record<SkuParte, string>> = {};
-  if (usa("ref")) valores.ref = aparar(o.ref);
+  if (usa("ref")) valores.ref = normalizarRefSku(o.ref);
   if (usa("cor_base")) {
     if (!o.cor) faltas.push({ atributo: "cor_base", id: null, nome: null });
     else if (!o.cor.sigla) faltas.push({ atributo: "cor_base", id: o.cor.id, nome: o.cor.nome });
@@ -934,7 +1114,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/lib
 git show --stat HEAD | tail -6
 ```
 
-Expected: `Tests  80 passed (80)` (planejador rodou num espelho em 24/set: 80/80, tsc strict limpo); `GATES F3.5a: ok`; commit com os 4 arquivos.
+Expected: `Tests  103 passed (103)` (planejador rodou num espelho em 24/set, depois das ressalvas: 103/103, tsc strict limpo); `GATES F3.5a: ok`; commit com os 4 arquivos.
 
 ---
 
@@ -945,7 +1125,7 @@ Expected: `Tests  80 passed (80)` (planejador rodou num espelho em 24/set: 80/80
 
 **Interfaces:**
 - Consumes: `tests/integration/db.ts` (`hasDb`, `dbUrl`, `withTx`, `comoUsuario`, `semUsuario`, `um`, `TENANT_TESTE`, `ehBancoLocal`); Task 1.
-- Produces: 24 testes — anti-drift (5, parte A), colunas/gatilhos/tabela (5, parte B), geração/leitura/manual (10, parte C), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`).
+- Produces: 31 testes — estático (1, SEM banco: as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos + a lista de acentos do SQL = a do TS), anti-drift (7, parte A), colunas/gatilhos/tabela (5, parte B — inclui a unicidade D5), geração/leitura/manual (14, parte C — inclui R1 interno e R1 revenda pelas RPCs REAIS de salvar, D5 réplica e R3), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`). O harness aplica a migration pelo `aplicarSql` depois de tirar as 2 travas do arquivo (`semTravas` — o `transaction_timeout` de 3 s mataria a txn do teste).
 
 - [ ] **Step 1: Pré-condições da cópia (um teste por vez)**
 
@@ -980,20 +1160,26 @@ Expected: `276f36e67c900d562efb99eff9be3c2327182c31df24921dfb9780e6b573be0c`. (S
  * Dois modos:
  *  • SKU_MIG_TXN=1 — aplica a migration DENTRO da txn de cada teste (tests/integration/mig-txn.ts: tira BEGIN/COMMIT,
  *    NUNCA `\i` — incidente 15/set) → a cópia NÃO precisa ter a F3.5a. Segura AccessExclusive em tenant_config/modelos/
- *    cores durante o teste: rodar só com a cópia sem uso (nenhum QA/E2E de outra frente — Task 2 Step 1).
- *  • sem a variável — exige a F3.5a JÁ aplicada na cópia (ensaio da Task 7 / QA da Task 12); sem ela, pula.
- * Dados de teste: criados na própria txn (cores "SKU-T …", artigo, variantes, modelos, produtos) na Loja Teste.
+ *    cores durante o teste: o app de teste :5188 CONGELA enquanto roda (R5 — avisar o dono antes; Task 2 Step 1).
+ *    As 2 linhas `SET LOCAL lock_timeout/transaction_timeout` do arquivo (receita supautils) são tiradas antes de
+ *    aplicar (semTravas): o transaction_timeout de 3 s limitaria a txn INTEIRA do teste.
+ *  • sem a variável — exige a F3.5a JÁ aplicada na cópia (ensaio da Task 6 / QA da Task 10); sem ela, pula.
+ * O teste "estático" (travas no arquivo + lista de acentos TS = SQL) não usa banco: roda sempre.
+ * Dados de teste: criados na própria txn (cores "SKU-T …", artigos, variantes, modelos, produtos) na Loja Teste.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { Client } from "pg";
 type PgClient = Client;
 import { hasDb, dbUrl, withTx, comoUsuario, semUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db";
-import { aplicarArquivo, exigeBancoLocal } from "./mig-txn";
+import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 import {
-  CASOS_CONFIG, CASOS_MONTAR, CASOS_RESOLVER, CASOS_SIGLA, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
+  CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
 } from "../fixtures/sku-casos";
 import { parseTamanho } from "../../src/lib/tamanho";
-import { montarSku, resolverSku } from "../../src/lib/sku-montar";
+import {
+  ACENTOS_DE, ACENTOS_PARA, montarSku, normalizarRefSku, normalizarSigla, normalizarSkuManual, resolverSku,
+} from "../../src/lib/sku-montar";
 
 const MIG = "supabase/migrations/20261003100000_sku_automatico.sql";
 const INV = "supabase/rollback/20261003100000_sku_automatico_down.sql";
@@ -1001,12 +1187,21 @@ const LOCAL = ehBancoLocal();
 const MIG_TXN = process.env.SKU_MIG_TXN === "1";
 if (MIG_TXN && hasDb) exigeBancoLocal(); // recusa na COLETA, antes de qualquer conexão
 
+/** As 2 travas da receita supautils (logo depois do BEGIN — ver Global Constraints do plano). */
+const RE_TRAVAS = /^SET LOCAL (lock_timeout|transaction_timeout) = '[^']*';$/gm;
+function semTravas(sql: string, nome: string): string {
+  const n = (sql.match(RE_TRAVAS) ?? []).length;
+  if (n !== 2) throw new Error(`${nome}: esperado as 2 travas SET LOCAL (lock_timeout + transaction_timeout); achei ${n}`);
+  return sql.replace(RE_TRAVAS, "-- [teste] trava do arquivo removida (a txn do teste tem as suas)");
+}
+const aplica = (c: PgClient, rel: string) => aplicarSql(c, semTravas(readFileSync(rel, "utf8"), rel), rel);
+
 async function jaAplicada(): Promise<boolean> {
   if (!hasDb || !LOCAL || MIG_TXN) return false; // fora da cópia: nem conecta
   const c = new Client({ connectionString: dbUrl()!, ssl: false });
   await c.connect();
   try {
-    const r = await c.query("SELECT to_regprocedure('public.gerar_skus_modelo(uuid,boolean)') IS NOT NULL AS ok");
+    const r = await c.query("SELECT to_regprocedure('public.salvar_sku_manual(uuid,text,integer,uuid,uuid,text)') IS NOT NULL AS ok");
     return r.rows[0]?.ok === true;
   } finally {
     await c.end();
@@ -1018,7 +1213,7 @@ async function prepara(c: PgClient): Promise<void> {
   exigeBancoLocal();
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '60s'");
-  if (MIG_TXN) await aplicarArquivo(c, MIG);
+  if (MIG_TXN) await aplica(c, MIG);
 }
 
 /** Roda e ESPERA erro; volta ao savepoint (a txn segue usável — o RAISE abortaria o resto do teste). */
@@ -1051,6 +1246,9 @@ async function lojaSku(c: PgClient, cfg: unknown = CFG, tsku: unknown = TSKU, gr
   );
 }
 const novoId = async (c: PgClient, sql: string, p: unknown[]) => (await um<{ id: string }>(c, sql, p)).id;
+/** A chave da variante no SKU = a COR (R1): a mesma função do servidor. */
+const chave = async (c: PgClient, cor: string | null, apelido: string | null) =>
+  (await um<{ k: string }>(c, "SELECT public._sku_variante_key($1::uuid, $2::uuid) AS k", [cor, apelido])).k;
 async function grade(c: PgClient, modelo: string, n: number, g: Record<string, number>): Promise<void> {
   const total = Object.values(g).reduce((s, v) => s + v, 0);
   await c.query(
@@ -1066,13 +1264,24 @@ async function tecido1(c: PgClient, mt: string, vts: string[], desde = 1): Promi
     );
   }
 }
+const modelo = (c: PgClient, nome: string, ref: string, origem = "interno") =>
+  novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, $2, $3, $4) RETURNING id", [T, nome, ref, origem]);
+/** Modelo interno com o Tecido 1 = as variantes dadas (na ordem) — para réplica/conflito. */
+async function internoCom(c: PgClient, artigo: string, nome: string, ref: string, vts: string[]): Promise<string> {
+  const m = await modelo(c, nome, ref);
+  const mt = await novoId(c, "INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido') RETURNING id", [m, artigo]);
+  await tecido1(c, mt, vts);
+  return m;
+}
 
 type Cen = {
   corAm: string; corVd: string; corAmb: string; apeCan: string; apeMus: string; artigo: string;
   vtAm: string; vtAmCan: string; vtVdMus: string; vtAmb: string; interno: string; mt: string;
+  kAm: string; kAmCan: string; kVdMus: string; kAmb: string; kVd: string;
 };
 /** Loja Teste com o Formato CFG + interno "SKU-T Blusa" (REF SKU-T1): Tecido 1 = [Amarelo (AM), Amarelo+Canário
- *  (AM/CAN), Verde+Musgo (SEM siglas)]; grade v1 {34|PPP:2, 36|PP:1, 38|P:0}, v2 {34|PPP:1}, v3 {36|PP:1}. */
+ *  (AM/CAN), Verde+Musgo (SEM siglas)]; grade v1 {34|PPP:2, 36|PP:1, 38|P:0}, v2 {34|PPP:1}, v3 {36|PP:1}.
+ *  k* = chave da variante no SKU (cor base + apelido — R1). */
 async function cenario(c: PgClient): Promise<Cen> {
   await lojaSku(c);
   const corAm = await novoId(c, "INSERT INTO public.cores (tenant_id, nome, sigla_sku) VALUES ($1, 'SKU-T Amarelo', ' am ') RETURNING id", [T]);
@@ -1087,13 +1296,17 @@ async function cenario(c: PgClient): Promise<Cen> {
   const vtAmCan = await vt(corAm, apeCan);
   const vtVdMus = await vt(corVd, apeMus);
   const vtAmb = await vt(corAmb, null);
-  const interno = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, 'SKU-T Blusa', 'SKU-T1', 'interno') RETURNING id", [T]);
+  const interno = await modelo(c, "SKU-T Blusa", "SKU-T1");
   const mt = await novoId(c, "INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido') RETURNING id", [interno, artigo]);
   await tecido1(c, mt, [vtAm, vtAmCan, vtVdMus]);
   await grade(c, interno, 1, { "34|PPP": 2, "36|PP": 1, "38|P": 0 });
   await grade(c, interno, 2, { "34|PPP": 1 });
   await grade(c, interno, 3, { "36|PP": 1 });
-  return { corAm, corVd, corAmb, apeCan, apeMus, artigo, vtAm, vtAmCan, vtVdMus, vtAmb, interno, mt };
+  return {
+    corAm, corVd, corAmb, apeCan, apeMus, artigo, vtAm, vtAmCan, vtVdMus, vtAmb, interno, mt,
+    kAm: await chave(c, corAm, null), kAmCan: await chave(c, corAm, apeCan), kVdMus: await chave(c, corVd, apeMus),
+    kAmb: await chave(c, corAmb, null), kVd: await chave(c, corVd, null),
+  };
 }
 
 async function rpc(c: PgClient, fn: string, args: unknown[]): Promise<any> {
@@ -1109,8 +1322,25 @@ async function skus(c: PgClient, m: string): Promise<{ variante_key: string; tam
     "SELECT variante_key, tamanho_key, sku, manual FROM public.modelo_skus WHERE modelo_id = $1 ORDER BY sku COLLATE \"C\"", [m],
   )).rows;
 }
+const idDe = async (c: PgClient, m: string, vk: string, tk: string) => (await um<{ id: string; rev: number }>(c,
+  "SELECT id, rev FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2 AND tamanho_key = $3", [m, vk, tk]));
 
-// ─────────────────────────────── Task 2/3 — anti-drift TS × SQL ───────────────────────────────
+// ─────────────────────────────── Task 3 — estático (sem banco) ───────────────────────────────
+describe("SKU F3.5a — estático: travas no arquivo e acentos", () => {
+  it("migration e inverso: as 2 travas SET LOCAL logo depois do BEGIN; lista de acentos do SQL = a do TS", () => {
+    for (const f of [MIG, INV]) {
+      const linhas = readFileSync(f, "utf8").split("\n");
+      const i = linhas.findIndex((l) => /^BEGIN;\s*$/.test(l));
+      expect(i, `${f}: BEGIN;`).toBeGreaterThanOrEqual(0);
+      expect(linhas.slice(i + 1, i + 3), f).toEqual(["SET LOCAL lock_timeout = '500ms';", "SET LOCAL transaction_timeout = '3s';"]);
+    }
+    const sql = readFileSync(MIG, "utf8");
+    expect(sql).toContain(`'${ACENTOS_DE}'`);
+    expect(sql).toContain(`'${ACENTOS_PARA}'`);
+  });
+});
+
+// ─────────────────────────────── Task 3 — anti-drift TS × SQL ───────────────────────────────
 describe.skipIf(!PRONTO)("SKU F3.5a — anti-drift TS × SQL (tests/fixtures/sku-casos.ts)", () => {
   it("parseTamanho/ladoTamanho ≡ _sku_tamanho_lados/_sku_tamanho_lado", async () => {
     await withTx(async (c) => {
@@ -1126,12 +1356,42 @@ describe.skipIf(!PRONTO)("SKU F3.5a — anti-drift TS × SQL (tests/fixtures/sku
     });
   });
 
-  it("normalizarSigla ≡ _sku_norm_sigla", async () => {
+  it("normalizarSigla ≡ _sku_norm_sigla (sem acento, só A–Z/0–9, maiúsculas — D6)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       for (const k of CASOS_SIGLA) {
         const r = await um<{ v: string | null }>(c, "SELECT public._sku_norm_sigla($1) AS v", [k.entrada]);
         expect(r.v, JSON.stringify(k.entrada)).toBe(k.esperado);
+        expect(normalizarSigla(k.entrada)).toBe(r.v);
+      }
+    });
+  });
+
+  it("normalizarRefSku ≡ _sku_norm_ref", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      for (const k of CASOS_REF) {
+        const r = await um<{ v: string }>(c, "SELECT public._sku_norm_ref($1) AS v", [k.entrada]);
+        expect(r.v, JSON.stringify(k.entrada)).toBe(k.esperado);
+        expect(normalizarRefSku(k.entrada)).toBe(r.v);
+      }
+    });
+  });
+
+  it("normalizarSkuManual ≡ _sku_norm_manual (valor e MESMA mensagem de erro, P0001)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      for (const k of CASOS_SKU_MANUAL) {
+        const q = "SELECT public._sku_norm_manual($1) AS v";
+        if ("erro" in k) {
+          const e = await falha(c, q, [k.entrada]);
+          expect({ code: e.code, message: e.message }, JSON.stringify(k.entrada)).toEqual({ code: "P0001", message: k.erro });
+          expect(normalizarSkuManual(k.entrada)).toEqual({ ok: false, erro: e.message });
+        } else {
+          const v = (await um<{ v: string }>(c, q, [k.entrada])).v;
+          expect(v, JSON.stringify(k.entrada)).toBe(k.esperado);
+          expect(normalizarSkuManual(k.entrada)).toEqual({ ok: true, valor: v });
+        }
       }
     });
   });
@@ -1189,9 +1449,9 @@ describe.skipIf(!PRONTO)("SKU F3.5a — anti-drift TS × SQL (tests/fixtures/sku
   });
 });
 
-// ─────────────────────────────── Task 4 — dados: normalização no salvar, handover, schema ───────────────────────────────
+// ─────────────────────────────── Task 4 — dados: normalização no salvar, handover, schema, unicidade ───────────────────────────────
 describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
-  it("siglas de cor base/apelido normalizadas NO SALVAR (trim + maiúsculas; vazia = NULL)", async () => {
+  it("siglas de cor base/apelido normalizadas NO SALVAR (sem acento/espaço, maiúsculas; vazia = NULL)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -1200,8 +1460,10 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect(await sig("cores_apelido", k.apeCan)).toBe("CAN");
       await c.query("UPDATE public.cores SET sigla_sku = ' \t ' WHERE id = $1", [k.corAm]);
       expect(await sig("cores", k.corAm)).toBeNull();
-      await c.query("UPDATE public.cores SET sigla_sku = ' x1 ' WHERE id = $1", [k.corAm]);
-      expect(await sig("cores", k.corAm)).toBe("X1");
+      await c.query("UPDATE public.cores SET sigla_sku = ' off white ' WHERE id = $1", [k.corAm]);
+      expect(await sig("cores", k.corAm)).toBe("OFFWHITE");
+      await c.query("UPDATE public.cores SET sigla_sku = 'açaí' WHERE id = $1", [k.corAm]);
+      expect(await sig("cores", k.corAm)).toBe("ACAI");
       await c.query("UPDATE public.cores_apelido SET sigla_sku = '' WHERE id = $1", [k.apeCan]);
       expect(await sig("cores_apelido", k.apeCan)).toBeNull();
     });
@@ -1222,6 +1484,9 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect(e).toEqual({ code: "P0001", message: 'Parte do SKU desconhecida: "cor".' });
       const e2 = await falha(c, "UPDATE public.tenant_config SET tamanhos_sku = '{\"34\": 34}'::jsonb WHERE tenant_id = $1", [T]);
       expect(e2).toEqual({ code: "P0001", message: "Sigla de tamanho inválida: 34." });
+      const e3 = await falha(c,
+        "UPDATE public.tenant_config SET sku_config = '{\"partes\":[\"ref\",\"tamanho\"],\"separadores\":{\"ref|tamanho\":\"#\"}}'::jsonb WHERE tenant_id = $1", [T]);
+      expect(e3).toEqual({ code: "P0001", message: "Separador do SKU: use só - . _ /." });
       await c.query("UPDATE public.tenant_config SET sku_config = '{\"partes\":[]}'::jsonb WHERE tenant_id = $1", [T]);
       expect((await um<any>(c, "SELECT sku_config FROM public.tenant_config WHERE tenant_id = $1", [T])).sku_config).toBeNull();
       // o upsert genérico da Config (sem as 2 colunas no SET) não passa pelo gatilho: ele é "UPDATE OF" as 2 colunas
@@ -1230,7 +1495,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
     });
   });
 
-  it("tamanho_tipo: CHECK letra|numero em modelos/produtos; NULL = padrão da loja", async () => {
+  it("tamanho_tipo: CHECK letra|numero (NOT VALID — vale p/ escrita nova) em modelos/produtos; NULL = padrão da loja", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -1240,6 +1505,8 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       await c.query("UPDATE public.modelos SET tamanho_tipo = NULL WHERE id = $1", [k.interno]);
       const e2 = await falha(c, "INSERT INTO public.produtos_acabados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T x', 'SKU-PAX', 'm')", [T]);
       expect(e2.code).toBe("23514");
+      const e3 = await falha(c, "INSERT INTO public.produtos_importados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T y', 'SKU-PIY', 'm')", [T]);
+      expect(e3.code).toBe("23514");
     });
   });
 
@@ -1248,7 +1515,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       await prepara(c);
       const pa = await novoId(c, "INSERT INTO public.produtos_acabados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T PA', 'SKU-PA0', 'numero') RETURNING id", [T]);
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.produtos_acabados WHERE id = $1", [pa])).tamanho_tipo).toBe("numero");
-      const m1 = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, 'SKU-T PA', 'SKU-PA0', 'revenda') RETURNING id", [T]);
+      const m1 = await modelo(c, "SKU-T PA", "SKU-PA0", "revenda");
       await c.query("UPDATE public.produtos_acabados SET modelo_id = $1 WHERE id = $2", [m1, pa]);
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.modelos WHERE id = $1", [m1])).tamanho_tipo).toBe("numero");
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.produtos_acabados WHERE id = $1", [pa])).tamanho_tipo).toBeNull();
@@ -1267,15 +1534,31 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
     });
   });
 
-  it("modelo_skus: UNIQUE compostas (tenant_id, sku) e (modelo_id, variante_key, tamanho_key); CASCADE com o modelo", async () => {
+  it("modelo_skus: 1 SKU por linha (UNIQUE composta); SKU igual na loja SÓ entre réplicas (mesma REF não vazia + mesma linha — D5); CASCADE", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
-      const ins = "INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku) VALUES ($1, $2, $3, $4, $5)";
-      await c.query(ins, [T, k.interno, k.vtAm, "34|PPP", "X-1"]);
-      expect((await falha(c, ins, [T, k.interno, k.vtAmCan, "34|PPP", "X-1"])).code).toBe("23505");
-      expect((await falha(c, ins, [T, k.interno, k.vtAm, "34|PPP", "X-2"])).code).toBe("23505");
-      expect((await falha(c, ins, [T, k.interno, k.vtAm, "36|PP", "  "])).code).toBe("23514");
+      const ins = "INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref) VALUES ($1, $2, $3, $4, $5, $6)";
+      const emUso = { code: "23505", message: "O SKU X-1 já está em uso na loja." };
+      await c.query(ins, [T, k.interno, k.kAm, "34|PPP", "X-1", "SKU-T1"]);
+      expect(await falha(c, ins, [T, k.interno, k.kAmCan, "34|PPP", "X-1", "SKU-T1"])).toEqual(emUso); // outra linha do MESMO card
+      expect((await falha(c, ins, [T, k.interno, k.kAm, "34|PPP", "X-2", "SKU-T1"])).code).toBe("23505"); // mesma linha 2×
+      expect((await falha(c, ins, [T, k.interno, k.kAm, "36|PP", "  ", "SKU-T1"])).code).toBe("23514");
+      // réplica/versão (outro card, MESMA REF, MESMA cor + tamanho) reusa o SKU
+      const rep = await modelo(c, "SKU-T Blusa v2", "SKU-T1");
+      await c.query(ins, [T, rep, k.kAm, "34|PPP", "X-1", "SKU-T1"]);
+      expect(await falha(c, ins, [T, rep, k.kAmCan, "34|PPP", "X-1", "SKU-T1"])).toEqual(emUso); // réplica, outra linha
+      expect(await falha(c, "UPDATE public.modelo_skus SET ref = 'SKU-T9' WHERE modelo_id = $1", [rep])).toEqual(emUso); // vira outra REF
+      const outra = await modelo(c, "SKU-T Outra", "SKU-T9");
+      expect(await falha(c, ins, [T, outra, k.kAm, "34|PPP", "X-1", "SKU-T9"])).toEqual(emUso); // outra REF
+      // sem REF não conta como réplica
+      const s1 = await modelo(c, "SKU-T Sem REF 1", "SKU-T7");
+      const s2 = await modelo(c, "SKU-T Sem REF 2", "SKU-T8");
+      await c.query(ins, [T, s1, k.kAm, "38|P", "Y-1", ""]);
+      expect((await falha(c, ins, [T, s2, k.kAm, "38|P", "Y-1", ""])).code).toBe("23505");
+      // outra loja pode ter o mesmo SKU
+      const alheio = await um<{ id: string; tenant_id: string }>(c, "SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 ORDER BY id LIMIT 1", [T]);
+      await c.query(ins, [alheio.tenant_id, alheio.id, k.kAm, "34|PPP", "X-1", "ZZ"]);
       await c.query("DELETE FROM public.modelos WHERE id = $1", [k.interno]); // filhas em CASCADE (grades, tecidos, skus)
       expect((await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public.modelo_skus WHERE modelo_id = $1", [k.interno])).n).toBe(0);
     });
@@ -1300,7 +1583,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
     });
   });
 
-  it("gera por variante do Tecido 1 × tamanho com qtd > 0; falta sigla ⇒ a linha não gera e volta em faltas[]", async () => {
+  it("gera por variante (COR) do Tecido 1 × tamanho com qtd > 0; falta sigla ⇒ a linha não gera e volta em faltas[]", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -1310,18 +1593,18 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       expect(r.criados).toBe(3);
       expect(r.tamanho_tipo).toBe("numero"); // card sem valor = padrão da loja
       expect(await skus(c, k.interno)).toEqual([
-        { variante_key: k.vtAm, tamanho_key: "34|PPP", sku: "SKU-T1-AM-34", manual: false },
-        { variante_key: k.vtAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
-        { variante_key: k.vtAmCan, tamanho_key: "34|PPP", sku: "SKU-T1-AMCAN-34", manual: false },
+        { variante_key: k.kAm, tamanho_key: "34|PPP", sku: "SKU-T1-AM-34", manual: false },
+        { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
+        { variante_key: k.kAmCan, tamanho_key: "34|PPP", sku: "SKU-T1-AMCAN-34", manual: false },
       ]);
       expect(r.faltas).toHaveLength(2);
       expect(r.faltas).toEqual(expect.arrayContaining([
         { atributo: "cor_base", id: k.corVd, nome: "SKU-T Verde" },
         { atributo: "cor_apelido", id: k.apeMus, nome: "SKU-T Musgo" },
       ]));
-      expect(linha(r, k.vtVdMus, "36|PP").estado).toBe("falta");
-      expect(linha(r, k.vtAm, "34|PPP").estado).toBe("ok");
-      expect(linha(r, k.vtAm, "38|P")).toBeUndefined(); // qtd 0 não entra
+      expect(linha(r, k.kVdMus, "36|PP").estado).toBe("falta");
+      expect(linha(r, k.kAm, "34|PPP").estado).toBe("ok");
+      expect(linha(r, k.kAm, "38|P")).toBeUndefined(); // qtd 0 não entra
       expect((await matriz(c, k.interno)).linhas).toEqual(r.linhas); // leitura = o que a geração devolveu
     });
   });
@@ -1332,21 +1615,21 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      const id34 = (await um<{ id: string }>(c, "SELECT id FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2 AND tamanho_key = '34|PPP'", [k.interno, k.vtAm])).id;
-      const man = await rpc(c, "salvar_sku_manual", [id34, "  MEU-1 ", null]);
+      const id34 = (await idDe(c, k.interno, k.kAm, "34|PPP")).id;
+      const man = await rpc(c, "salvar_sku_manual", [id34, "  meu-1 "]);
       expect(man).toMatchObject({ id: id34, sku: "MEU-1", manual: true });
       await c.query("UPDATE public.cores SET sigla_sku = 'ama' WHERE id = $1", [k.corAm]);
       let r = await gerar(c, k.interno);
       expect([r.criados, r.atualizados]).toEqual([0, 0]);
-      expect(linha(r, k.vtAm, "36|PP")).toMatchObject({ estado: "divergente", sku: "SKU-T1-AM-36", sku_previsto: "SKU-T1-AMA-36" });
+      expect(linha(r, k.kAm, "36|PP")).toMatchObject({ estado: "divergente", sku: "SKU-T1-AM-36", sku_previsto: "SKU-T1-AMA-36" });
       r = await gerar(c, k.interno, true);
       expect(r.atualizados).toBe(2);
       expect(await skus(c, k.interno)).toEqual([
-        { variante_key: k.vtAm, tamanho_key: "34|PPP", sku: "MEU-1", manual: true },
-        { variante_key: k.vtAm, tamanho_key: "36|PP", sku: "SKU-T1-AMA-36", manual: false },
-        { variante_key: k.vtAmCan, tamanho_key: "34|PPP", sku: "SKU-T1-AMACAN-34", manual: false },
+        { variante_key: k.kAm, tamanho_key: "34|PPP", sku: "MEU-1", manual: true },
+        { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AMA-36", manual: false },
+        { variante_key: k.kAmCan, tamanho_key: "34|PPP", sku: "SKU-T1-AMACAN-34", manual: false },
       ]);
-      expect(linha(r, k.vtAm, "34|PPP")).toMatchObject({ estado: "manual", manual: true, sku_previsto: "SKU-T1-AMA-34" });
+      expect(linha(r, k.kAm, "34|PPP")).toMatchObject({ estado: "manual", manual: true, sku_previsto: "SKU-T1-AMA-34" });
     });
   });
 
@@ -1356,36 +1639,83 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      const id34 = (await um<{ id: string }>(c, "SELECT id FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2 AND tamanho_key = '34|PPP'", [k.interno, k.vtAm])).id;
-      await rpc(c, "salvar_sku_manual", [id34, "MEU-34", null]);
+      await rpc(c, "salvar_sku_manual", [(await idDe(c, k.interno, k.kAm, "34|PPP")).id, "MEU-34"]);
       await c.query("UPDATE public.modelo_grades SET grades = '{\"34|PPP\": 0, \"36|PP\": 0}'::jsonb WHERE modelo_id = $1 AND variante_numero = 1", [k.interno]);
       let r = await gerar(c, k.interno);
       expect(r.removidos).toBe(0);
-      expect(linha(r, k.vtAm, "36|PP").estado).toBe("orfa");
+      expect(linha(r, k.kAm, "36|PP").estado).toBe("orfa");
       r = await gerar(c, k.interno, true);
       expect(r.removidos).toBe(1);
-      expect(linha(r, k.vtAm, "36|PP")).toBeUndefined();
-      expect(linha(r, k.vtAm, "34|PPP")).toMatchObject({ estado: "orfa", manual: true, sku: "MEU-34" });
+      expect(linha(r, k.kAm, "36|PP")).toBeUndefined();
+      expect(linha(r, k.kAm, "34|PPP")).toMatchObject({ estado: "orfa", manual: true, sku: "MEU-34" });
     });
   });
 
-  it("conflito com OUTRO produto (mesma REF): não grava a linha e devolve conflitos[] com mensagem PT", async () => {
+  it("R1 interno: Salvar do BOM (salvar_modelo_bom real) trocando o tecido por outro com as MESMAS cores ⇒ SKUs e manual continuam ligados", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      const m2 = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, 'SKU-T Blusa 2', 'SKU-T1', 'interno') RETURNING id", [T]);
-      const mt2 = await novoId(c, "INSERT INTO public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) VALUES ($1, $2, 1, 'tecido') RETURNING id", [m2, k.artigo]);
-      await tecido1(c, mt2, [k.vtAm]);
-      await grade(c, m2, 1, { "34|PPP": 1 });
-      const r = await gerar(c, m2);
+      await rpc(c, "salvar_sku_manual", [(await idDe(c, k.interno, k.kAm, "34|PPP")).id, "MEU-34"]);
+      const antes = await skus(c, k.interno);
+      const artigo2 = await novoId(c, "INSERT INTO public.artigos (tenant_id, nome) VALUES ($1, 'SKU-T Tecido 2') RETURNING id", [T]);
+      const vt2 = (cor: string, ape: string | null) =>
+        novoId(c, "INSERT INTO public.variantes_tecido (tenant_id, artigo_id, cor_id, cor_apelido_id) VALUES ($1, $2, $3, $4) RETURNING id", [T, artigo2, cor, ape]);
+      const w = [await vt2(k.corAm, null), await vt2(k.corAm, k.apeCan), await vt2(k.corVd, k.apeMus)];
+      await c.query("SELECT public.salvar_modelo_bom($1, $2::jsonb, '[]'::jsonb, $3::jsonb, NULL)", [
+        k.interno,
+        JSON.stringify([{ artigo_id: artigo2, numero: 1, tipo: "tecido", consumo: 1, loss_percent: 0, custo_previsto: 0, variantes: w }]),
+        JSON.stringify([
+          { variante_numero: 1, grades: { "34|PPP": 2, "36|PP": 1, "38|P": 0 }, grade_total: 3 },
+          { variante_numero: 2, grades: { "34|PPP": 1 }, grade_total: 1 },
+          { variante_numero: 3, grades: { "36|PP": 1 }, grade_total: 1 },
+        ]),
+      ]);
+      const vts = await c.query(
+        "SELECT mtv.variante_tecido_id AS v FROM public.modelo_tecido_variantes mtv JOIN public.modelo_tecidos mt ON mt.id = mtv.modelo_tecido_id WHERE mt.modelo_id = $1 ORDER BY mtv.ordem", [k.interno]);
+      expect(vts.rows.map((x) => x.v)).toEqual(w); // o BOM trocou mesmo (ids de variante novos)
+      const r = await gerar(c, k.interno, true);
+      expect([r.criados, r.atualizados, r.removidos, r.conflitos]).toEqual([0, 0, 0, []]);
+      expect(await skus(c, k.interno)).toEqual(antes);
+      expect(linha(r, k.kAm, "34|PPP")).toMatchObject({ estado: "manual", sku: "MEU-34" });
+    });
+  });
+
+  it("D5 réplica: outro card com a MESMA REF e a mesma cor/tamanho gera o MESMO SKU, sem conflito (pendente do dono)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.interno);
+      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm]);
+      await grade(c, rep, 1, { "34|PPP": 1, "36|PP": 1 });
+      const r = await gerar(c, rep);
+      expect([r.criados, r.conflitos]).toEqual([2, []]);
+      expect(await skus(c, rep)).toEqual([
+        { variante_key: k.kAm, tamanho_key: "34|PPP", sku: "SKU-T1-AM-34", manual: false },
+        { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
+      ]);
+      expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP").estado).toBe("ok"); // o original não vira "conflito"
+    });
+  });
+
+  it("conflito com OUTRO produto (REF diferente, Formato sem a REF): não grava a linha e devolve conflitos[] com mensagem PT", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      await gerar(c, k.interno);
+      const m3 = await internoCom(c, k.artigo, "SKU-T Outra", "SKU-T9", [k.vtAm]);
+      await grade(c, m3, 1, { "34|PPP": 1 });
+      const r = await gerar(c, m3);
       expect(r.criados).toBe(0);
       expect(r.conflitos).toHaveLength(1);
-      expect(r.conflitos[0]).toMatchObject({ sku: "SKU-T1-AM-34", com_modelo_id: k.interno, variante_key: k.vtAm, tamanho_key: "34|PPP" });
-      expect(r.conflitos[0].mensagem).toBe("SKU SKU-T1-AM-34 já existe em SKU-T Blusa (REF SKU-T1). Edite este SKU à mão ou mude a sigla.");
-      expect(linha(r, k.vtAm, "34|PPP")).toMatchObject({ estado: "conflito", conflito_com: { modelo_id: k.interno, nome: "SKU-T Blusa", ref: "SKU-T1" } });
-      expect(await skus(c, m2)).toEqual([]);
+      expect(r.conflitos[0]).toMatchObject({ sku: "AM-34", com_modelo_id: k.interno, variante_key: k.kAm, tamanho_key: "34|PPP" });
+      expect(r.conflitos[0].mensagem).toBe("SKU AM-34 já existe em SKU-T Blusa (REF SKU-T1). Edite este SKU à mão ou mude a sigla.");
+      expect(linha(r, k.kAm, "34|PPP")).toMatchObject({ estado: "conflito", conflito_com: { modelo_id: k.interno, nome: "SKU-T Blusa", ref: "SKU-T1" } });
+      expect(await skus(c, m3)).toEqual([]);
     });
   });
 
@@ -1399,9 +1729,9 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const r = await gerar(c, k.interno);
       expect(r.criados).toBe(3);
       expect(r.conflitos).toHaveLength(1);
-      expect(r.conflitos[0]).toMatchObject({ variante_key: k.vtAmb, sku: "SKU-T1-AM-34", com_modelo_id: k.interno });
+      expect(r.conflitos[0]).toMatchObject({ variante_key: k.kAmb, sku: "SKU-T1-AM-34", com_modelo_id: k.interno });
       expect(r.conflitos[0].mensagem).toMatch(/^SKU SKU-T1-AM-34 repetido neste produto/);
-      expect(linha(r, k.vtAmb, "34|PPP").estado).toBe("conflito");
+      expect(linha(r, k.kAmb, "34|PPP").estado).toBe("conflito");
     });
   });
 
@@ -1414,19 +1744,60 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const pa = await novoId(c, "INSERT INTO public.produtos_acabados (tenant_id, nome, ref) VALUES ($1, 'SKU-T Vestido', 'SKU-PA1') RETURNING id", [T]);
       const rev = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) VALUES ($1, 'SKU-T Vestido', 'SKU-R1', 'revenda', 'letra') RETURNING id", [T]);
       await c.query("UPDATE public.produtos_acabados SET modelo_id = $1 WHERE id = $2", [rev, pa]);
-      const pv = (ordem: number, cor: string, ape: string | null) => novoId(c,
-        "INSERT INTO public.produto_acabado_variantes (tenant_id, produto_acabado_id, ordem, cor_id, cor_apelido_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        [T, pa, ordem, cor, ape]);
-      const pv1 = await pv(1, k.corAm, k.apeCan);
-      const pv2 = await pv(2, k.corVd, null);
+      const pv = (ordem: number, cor: string, ape: string | null, qtd: number) => c.query(
+        "INSERT INTO public.produto_acabado_variantes (tenant_id, produto_acabado_id, ordem, cor_id, cor_apelido_id, qtd) VALUES ($1, $2, $3, $4, $5, $6)",
+        [T, pa, ordem, cor, ape, qtd]);
+      await pv(1, k.corAm, k.apeCan, 1);
+      await pv(2, k.corVd, null, 2);
       await grade(c, rev, 1, { "38|P": 1 });
       await grade(c, rev, 2, { "36|PP": 2 });
       const r = await gerar(c, rev);
       expect([r.criados, r.tamanho_tipo, r.tamanho_tipo_card]).toEqual([2, "letra", "letra"]);
       expect(await skus(c, rev)).toEqual([
-        { variante_key: pv1, tamanho_key: "38|P", sku: "SKU-R1-AMCAN-P", manual: false },
-        { variante_key: pv2, tamanho_key: "36|PP", sku: "SKU-R1-VD-PP", manual: false },
+        { variante_key: k.kAmCan, tamanho_key: "38|P", sku: "SKU-R1-AMCAN-P", manual: false },
+        { variante_key: k.kVd, tamanho_key: "36|PP", sku: "SKU-R1-VD-PP", manual: false },
       ]);
+    });
+  });
+
+  it("R1 revenda: Salvar do PRODUTO (salvar_produto_acabado real) apaga e regrava as variantes ⇒ SKUs e manual continuam ligados", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await c.query("UPDATE public.cores SET sigla_sku = 'vd' WHERE id = $1", [k.corVd]);
+      const pa = await novoId(c, "INSERT INTO public.produtos_acabados (tenant_id, nome, ref, qtd_total) VALUES ($1, 'SKU-T Vestido', 'SKU-PA1', 3) RETURNING id", [T]);
+      const rev = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) VALUES ($1, 'SKU-T Vestido', 'SKU-R1', 'revenda', 'letra') RETURNING id", [T]);
+      await c.query("UPDATE public.produtos_acabados SET modelo_id = $1 WHERE id = $2", [rev, pa]);
+      const variantes = [
+        { ordem: 1, cor_id: k.corAm, cor_apelido_id: k.apeCan, peso: 1, qtd: 1 },
+        { ordem: 2, cor_id: k.corVd, cor_apelido_id: null, peso: 2, qtd: 2 },
+      ];
+      for (const v of variantes) {
+        await c.query(
+          "INSERT INTO public.produto_acabado_variantes (tenant_id, produto_acabado_id, ordem, cor_id, cor_apelido_id, peso, qtd) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [T, pa, v.ordem, v.cor_id, v.cor_apelido_id, v.peso, v.qtd]);
+      }
+      const idsAntes = (await c.query("SELECT id FROM public.produto_acabado_variantes WHERE produto_acabado_id = $1", [pa])).rows.map((x) => x.id);
+      await grade(c, rev, 1, { "38|P": 1 });
+      await grade(c, rev, 2, { "36|PP": 2 });
+      await gerar(c, rev);
+      await rpc(c, "salvar_sku_manual", [(await idDe(c, rev, k.kVd, "36|PP")).id, "VD-MAO"]);
+      const antes = await skus(c, rev);
+      await c.query("SELECT public.salvar_produto_acabado($1::uuid, $2::jsonb, $3::jsonb, NULL::integer)",
+        [pa, JSON.stringify({ nome: "SKU-T Vestido", qtd_total: 3 }), JSON.stringify(variantes)]);
+      const idsDepois = (await c.query("SELECT id FROM public.produto_acabado_variantes WHERE produto_acabado_id = $1", [pa])).rows.map((x) => x.id);
+      expect(idsDepois).toHaveLength(2);
+      expect(idsDepois.filter((id) => idsAntes.includes(id))).toEqual([]); // o Salvar regravou (ids novos)
+      const r = await gerar(c, rev, true);
+      expect([r.criados, r.atualizados, r.removidos, r.conflitos]).toEqual([0, 0, 0, []]);
+      expect(await skus(c, rev)).toEqual(antes);
+      expect(antes).toEqual([
+        { variante_key: k.kAmCan, tamanho_key: "38|P", sku: "SKU-R1-AMCAN-P", manual: false },
+        { variante_key: k.kVd, tamanho_key: "36|PP", sku: "VD-MAO", manual: true },
+      ]);
+      expect(linha(r, k.kVd, "36|PP")).toMatchObject({ estado: "manual", sku: "VD-MAO" });
+      expect(linha(r, k.kAmCan, "38|P")).toMatchObject({ estado: "ok" });
     });
   });
 
@@ -1436,15 +1807,15 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const k = await cenario(c);
       await comoUsuario(c);
       const pi = await novoId(c, "INSERT INTO public.produtos_importados (tenant_id, nome, ref) VALUES ($1, 'SKU-T Cinto', 'SKU-PI1') RETURNING id", [T]);
-      const imp = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, 'SKU-T Cinto', 'SKU-I1', 'importado') RETURNING id", [T]);
+      const imp = await modelo(c, "SKU-T Cinto", "SKU-I1", "importado");
       await c.query("UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2", [imp, pi]);
-      const iv1 = await novoId(c,
-        "INSERT INTO public.produto_importado_variantes (tenant_id, produto_importado_id, ordem, cor_id) VALUES ($1, $2, 1, $3) RETURNING id",
+      await c.query(
+        "INSERT INTO public.produto_importado_variantes (tenant_id, produto_importado_id, ordem, cor_id) VALUES ($1, $2, 1, $3)",
         [T, pi, k.corAm]);
       await grade(c, imp, 1, { UN: 5 });
       const r = await gerar(c, imp);
       expect(r.criados).toBe(1);
-      expect(await skus(c, imp)).toEqual([{ variante_key: iv1, tamanho_key: "UN", sku: "SKU-I1-AM", manual: false }]);
+      expect(await skus(c, imp)).toEqual([{ variante_key: k.kAm, tamanho_key: "UN", sku: "SKU-I1-AM", manual: false }]);
     });
   });
 
@@ -1457,37 +1828,69 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       await c.query("UPDATE public.modelo_grades SET grades = '{\"36\": 1, \"PP\": 1, \"34|PPP\": 1}'::jsonb WHERE modelo_id = $1 AND variante_numero = 1", [k.interno]);
       let mz = await matriz(c, k.interno);
       expect(mz.tamanho_tipo).toBe("letra");
-      expect(linha(mz, k.vtAm, "36").sku_previsto).toBe("SKU-T1-AM-36");
-      expect(linha(mz, k.vtAm, "PP").sku_previsto).toBe("SKU-T1-AM-PP");
-      expect(linha(mz, k.vtAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-PPP");
+      expect(linha(mz, k.kAm, "36").sku_previsto).toBe("SKU-T1-AM-36");
+      expect(linha(mz, k.kAm, "PP").sku_previsto).toBe("SKU-T1-AM-PP");
+      expect(linha(mz, k.kAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-PPP");
       await c.query("UPDATE public.modelos SET tamanho_tipo = 'numero' WHERE id = $1", [k.interno]);
       mz = await matriz(c, k.interno);
-      expect(linha(mz, k.vtAm, "PP").sku_previsto).toBe("SKU-T1-AM-PP");
-      expect(linha(mz, k.vtAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-34");
-      expect(linha(mz, k.vtAm, "36|PP")).toBeUndefined();
-      expect(linha(mz, k.vtAm, "34|PPP").estado).toBe("pendente");
+      expect(linha(mz, k.kAm, "PP").sku_previsto).toBe("SKU-T1-AM-PP");
+      expect(linha(mz, k.kAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-34");
+      expect(linha(mz, k.kAm, "36|PP")).toBeUndefined();
+      expect(linha(mz, k.kAm, "34|PPP").estado).toBe("pendente");
     });
   });
 
-  it("salvar_sku_manual: apara; vazio, repetido (outro produto / mesma linha do produto) e rev velho recusados em PT", async () => {
+  it("salvar_sku_manual (linha gravada): normaliza (D6); vazio, inválido, repetido (outro produto / mesma linha) e rev velho recusados em PT", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      const idDe = async (vk: string, tk: string) => (await um<{ id: string; rev: number }>(c,
-        "SELECT id, rev FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2 AND tamanho_key = $3", [k.interno, vk, tk]));
-      const a = await idDe(k.vtAm, "34|PPP");
-      const b = await idDe(k.vtAm, "36|PP");
+      const a = await idDe(c, k.interno, k.kAm, "34|PPP");
+      const b = await idDe(c, k.interno, k.kAm, "36|PP");
       const q = "SELECT public.salvar_sku_manual($1, $2, $3) AS v";
       expect(await falha(c, q, [a.id, "   ", null])).toEqual({ code: "P0001", message: "Informe o SKU." });
-      expect(await falha(c, q, [a.id, " SKU-T1-AM-36 ", null])).toEqual({ code: "P0001", message: "O SKU SKU-T1-AM-36 já está em outra linha deste produto." });
-      const m2 = await novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, 'SKU-T Outro', 'SKU-T9', 'interno') RETURNING id", [T]);
-      await c.query("INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku) VALUES ($1, $2, $3, '34|PPP', 'OUTRO-1')", [T, m2, k.vtAm]);
+      expect(await falha(c, q, [a.id, "x#1", null])).toEqual({ code: "P0001", message: "SKU inválido: use só letras, números e - . _ /." });
+      expect(await falha(c, q, [a.id, " sku-t1-am-36 ", null])).toEqual({ code: "P0001", message: "O SKU SKU-T1-AM-36 já está em outra linha deste produto." });
+      const m2 = await modelo(c, "SKU-T Outro", "SKU-T9");
+      await c.query("INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref) VALUES ($1, $2, $3, '34|PPP', 'OUTRO-1', 'SKU-T9')", [T, m2, k.kAm]);
       expect(await falha(c, q, [a.id, "OUTRO-1", null])).toEqual({ code: "P0001", message: "O SKU OUTRO-1 já existe em SKU-T Outro (REF SKU-T9). Escolha outro." });
       expect((await falha(c, q, [b.id, "NOVO-36", b.rev + 7])).code).toBe("P0409");
-      const ok = (await um<{ v: any }>(c, q, [b.id, "NOVO-36", b.rev])).v;
-      expect(ok).toEqual({ id: b.id, sku: "NOVO-36", manual: true, rev: b.rev + 1 });
+      const ok = (await um<{ v: any }>(c, q, [b.id, "novo 36", b.rev])).v;
+      expect(ok).toEqual({ id: b.id, sku: "NOVO36", manual: true, rev: b.rev + 1 });
+    });
+  });
+
+  it("R3 salvar_sku_manual (linha SEM SKU): cria a linha manual em conflito/falta; fora da grade e sem a linha = erro PT", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await tecido1(c, k.mt, [k.vtAmb], 4); // Âmbar (AM) repete o SKU do Amarelo ⇒ linha em conflito, sem SKU
+      await grade(c, k.interno, 4, { "34|PPP": 1 });
+      await gerar(c, k.interno);
+      const q = "SELECT public.salvar_sku_manual(NULL, $1, NULL, $2, $3, $4) AS v";
+      const cf = (await um<{ v: any }>(c, q, ["amb-34", k.interno, k.kAmb, "34|PPP"])).v;
+      expect(cf).toMatchObject({ sku: "AMB-34", manual: true, rev: 0 });
+      const fa = (await um<{ v: any }>(c, q, ["vdm-36", k.interno, k.kVdMus, "36|PP"])).v; // linha com falta de sigla
+      expect(fa).toMatchObject({ sku: "VDM-36", manual: true });
+      const mz = await matriz(c, k.interno);
+      expect(linha(mz, k.kAmb, "34|PPP")).toMatchObject({ id: cf.id, estado: "manual", sku: "AMB-34" });
+      expect(linha(mz, k.kVdMus, "36|PP")).toMatchObject({ id: fa.id, estado: "manual", sku: "VDM-36" });
+      // a linha JÁ gravada, apontada pela tripla, é atualizada (não duplica)
+      const existente = await idDe(c, k.interno, k.kAm, "34|PPP");
+      expect((await um<{ v: any }>(c, q, ["AM-X", k.interno, k.kAm, "34|PPP"])).v).toMatchObject({ id: existente.id, sku: "AM-X" });
+      expect(await falha(c, q, ["P-38", k.interno, k.kAm, "38|P"]))
+        .toEqual({ code: "P0001", message: "Esta variante/tamanho não está na grade do produto." }); // qtd 0
+      expect(await falha(c, q, ["P-1", k.interno, null, "34|PPP"]))
+        .toEqual({ code: "P0001", message: "Informe a linha do SKU (modelo, variante e tamanho)." });
+      expect(await falha(c, q, ["x#1", k.interno, k.kAm, "36|PP"]))
+        .toEqual({ code: "P0001", message: "SKU inválido: use só letras, números e - . _ /." });
+      expect(await falha(c, q, ["AMB-34", k.interno, k.kAm, "36|PP"]))
+        .toEqual({ code: "P0001", message: "O SKU AMB-34 já está em outra linha deste produto." });
+      const r = await gerar(c, k.interno, true); // regerar não toca as manuais criadas
+      expect(linha(r, k.kAmb, "34|PPP")).toMatchObject({ estado: "manual", sku: "AMB-34" });
+      expect(r.conflitos).toEqual([]);
     });
   });
 });
@@ -1507,10 +1910,12 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
       expect(comum?.id, "a cópia precisa de 1 usuário comum de outra loja").toBeTruthy();
       const q = "SELECT public.gerar_skus_modelo($1, false) AS v";
       const ler = "SELECT public.skus_modelo($1) AS v";
+      const criar = "SELECT public.salvar_sku_manual(NULL, 'C-1', NULL, $1, $2, '36|PP') AS v";
       await semUsuario(c);
       expect(await falha(c, q, [k.interno])).toEqual({ code: "42501", message: "Não autenticado." });
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: comum.id, role: "authenticated" })]);
       expect(await falha(c, q, [k.interno])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
+      expect(await falha(c, criar, [k.interno, k.kVdMus])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
       expect(await falha(c, q, ["00000000-0000-0000-0000-00000000f35a"])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
       await c.query("UPDATE public.users SET tenant_id = $1, papel_id = NULL WHERE id = $2", [T, comum.id]);
       await c.query("DELETE FROM public.user_permissions WHERE user_id = $1", [comum.id]);
@@ -1518,6 +1923,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
       await c.query("INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1, $2, 'criacao_planejamento', true, false)", [comum.id, T]);
       expect((await um<any>(c, ler, [k.interno])).v.status).toBe("ok");
       expect(await falha(c, q, [k.interno])).toEqual({ code: "42501", message: "Sem permissão para editar SKUs (Planejamento de Produto)." });
+      expect(await falha(c, criar, [k.interno, k.kVdMus])).toEqual({ code: "42501", message: "Sem permissão para editar SKUs (Planejamento de Produto)." });
       await c.query("UPDATE public.user_permissions SET pode_editar = true WHERE user_id = $1 AND pagina = 'criacao_planejamento'", [comum.id]);
       expect((await um<any>(c, q, [k.interno])).v.criados).toBe(3);
       const idSku = (await um<{ id: string }>(c, "SELECT id FROM public.modelo_skus WHERE modelo_id = $1 LIMIT 1", [k.interno])).id;
@@ -1536,13 +1942,15 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
     await withTx(async (c) => {
       await prepara(c);
       const internas = [
-        "_sku_norm_sigla(text)", "_sku_tamanho_lados(text)", "_sku_tamanho_lado(text,text)", "_sku_config_normaliza(jsonb)",
+        "_sku_sem_acento(text)", "_sku_norm_sigla(text)", "_sku_norm_ref(text)", "_sku_norm_manual(text)",
+        "_sku_variante_key(uuid,uuid)", "_sku_tamanho_lados(text)", "_sku_tamanho_lado(text,text)", "_sku_config_normaliza(jsonb)",
         "_sku_tamanhos_normaliza(jsonb)", "_sku_montar(jsonb,jsonb)", "_sku_resolver(jsonb,text,jsonb,jsonb,text,text,jsonb)",
         "_sku_guarda(uuid,boolean)", "_skus_modelo_calc(uuid)", "_skus_modelo_core(uuid)", "_gerar_skus_modelo_core(uuid,boolean)",
-        "_salvar_sku_manual_core(uuid,text,integer)", "fn_sigla_sku_normaliza()", "fn_tenant_config_sku_normaliza()",
-        "fn_produto_tamanho_tipo_handover()",
+        "_salvar_sku_manual_core(uuid,text,integer,uuid,uuid,text)", "fn_sigla_sku_normaliza()", "fn_tenant_config_sku_normaliza()",
+        "fn_produto_tamanho_tipo_handover()", "fn_modelo_skus_unico()",
       ];
-      const rpcs = ["skus_modelo(uuid)", "gerar_skus_modelo(uuid,boolean)", "salvar_sku_manual(uuid,text,integer)"];
+      const rpcs = ["skus_modelo(uuid)", "gerar_skus_modelo(uuid,boolean)", "salvar_sku_manual(uuid,text,integer,uuid,uuid,text)"];
+      expect(internas.length + rpcs.length).toBe(23);
       for (const f of internas) {
         const r = await um<any>(c,
           `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon, has_function_privilege('authenticated', $1, 'EXECUTE') AS auth,
@@ -1556,14 +1964,15 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
           "SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon, has_function_privilege('authenticated', $1, 'EXECUTE') AS auth", [`public.${f}`]);
         expect(r, f).toEqual({ anon: false, auth: true });
       }
-      const t = await um<any>(c, `SELECT has_table_privilege('anon', 'public.modelo_skus', 'SELECT') AS anon_sel,
+      const t = await um<any>(c, `SELECT has_table_privilege('anon', 'public.modelo_skus', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AS anon_qq,
           has_table_privilege('authenticated', 'public.modelo_skus', 'SELECT') AS auth_sel,
-          has_table_privilege('authenticated', 'public.modelo_skus', 'INSERT,UPDATE,DELETE') AS auth_esc,
+          has_table_privilege('authenticated', 'public.modelo_skus', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AS auth_esc,
+          EXISTS (SELECT 1 FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = 'public.modelo_skus'::regclass)) a WHERE a.grantee = 0) AS publico,
           (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.modelo_skus'::regclass) AS rls,
           (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'modelo_skus') AS policies,
           (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'modelo_skus' AND permissive = 'RESTRICTIVE'
              AND coalesce(qual, with_check) LIKE '%tenant_module_enabled(''criacao''%') AS modgate`);
-      expect(t).toEqual({ anon_sel: false, auth_sel: true, auth_esc: false, rls: true, policies: 4, modgate: 3 });
+      expect(t).toEqual({ anon_qq: false, auth_sel: true, auth_esc: false, publico: false, rls: true, policies: 4, modgate: 3 });
     });
   });
 
@@ -1587,13 +1996,13 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
   });
 });
 
-// ─────────────────────────────── Task 6 — inverso e idempotência (SÓ no modo SKU_MIG_TXN=1) ───────────────────────────────
+// ─────────────────────────────── Task 5 — inverso e idempotência (SÓ no modo SKU_MIG_TXN=1) ───────────────────────────────
 describe.skipIf(!PRONTO || !MIG_TXN)("SKU F3.5a — inverso (round-trip) e idempotência", () => {
   const OBJETOS = `SELECT to_regclass('public.modelo_skus') IS NOT NULL AS tabela,
       (SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'public'::regnamespace
-         AND proname ~ '^(_sku_|_skus_modelo_|skus_modelo$|gerar_skus_modelo$|_gerar_skus_modelo_core$|salvar_sku_manual$|_salvar_sku_manual_core$|fn_sigla_sku_normaliza$|fn_tenant_config_sku_normaliza$|fn_produto_tamanho_tipo_handover$)') AS funcoes,
+         AND proname ~ '^(_sku_|_skus_modelo_|skus_modelo$|gerar_skus_modelo$|_gerar_skus_modelo_core$|salvar_sku_manual$|_salvar_sku_manual_core$|fn_sigla_sku_normaliza$|fn_tenant_config_sku_normaliza$|fn_produto_tamanho_tipo_handover$|fn_modelo_skus_unico$)') AS funcoes,
       (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal
-         AND tgname IN ('trg_cores_sigla_sku','trg_cores_apelido_sigla_sku','trg_pa_tamanho_tipo','trg_pi_tamanho_tipo','trg_tenant_config_sku')) AS gatilhos,
+         AND tgname IN ('trg_modelo_skus_unico','trg_cores_sigla_sku','trg_cores_apelido_sigla_sku','trg_pa_tamanho_tipo','trg_pi_tamanho_tipo','trg_tenant_config_sku')) AS gatilhos,
       (SELECT count(*)::int FROM information_schema.columns WHERE table_schema = 'public'
          AND (table_name::text, column_name::text) IN (('cores','sigla_sku'),('cores_apelido','sigla_sku'),('tenant_config','tamanhos_sku'),
            ('tenant_config','sku_config'),('modelos','tamanho_tipo'),('produtos_acabados','tamanho_tipo'),('produtos_importados','tamanho_tipo'))) AS colunas`;
@@ -1601,19 +2010,19 @@ describe.skipIf(!PRONTO || !MIG_TXN)("SKU F3.5a — inverso (round-trip) e idemp
   it("aplicar 2× não dá erro; o inverso RECUSA com dado e sem confirmação; com confirmação apaga TUDO; reaplicar recria igual", async () => {
     await withTx(async (c) => {
       await prepara(c);
-      await aplicarArquivo(c, MIG); // 2ª aplicação na mesma txn: idempotente
-      const cheio = { tabela: true, funcoes: 18, gatilhos: 5, colunas: 7 };
+      await aplica(c, MIG); // 2ª aplicação na mesma txn: idempotente
+      const cheio = { tabela: true, funcoes: 23, gatilhos: 6, colunas: 7 };
       expect(await um(c, OBJETOS)).toEqual(cheio);
       const k = await cenario(c);
       await comoUsuario(c);
       await gerar(c, k.interno);
-      await expect(aplicarArquivo(c, INV)).rejects.toThrow(/O inverso da F3\.5a APAGA \d+ dado\(s\) digitado\(s\)/);
+      await expect(aplica(c, INV)).rejects.toThrow(/O inverso da F3\.5a APAGA \d+ dado\(s\) digitado\(s\)/);
       expect(await um(c, OBJETOS)).toEqual(cheio); // recusou inteiro (savepoint do harness)
       await c.query("SET LOCAL app.confirmo_apagar_skus = 'sim'");
-      await aplicarArquivo(c, INV);
+      await aplica(c, INV);
       expect(await um(c, OBJETOS)).toEqual({ tabela: false, funcoes: 0, gatilhos: 0, colunas: 0 });
-      await aplicarArquivo(c, INV); // inverso idempotente
-      await aplicarArquivo(c, MIG);
+      await aplica(c, INV); // inverso idempotente
+      await aplica(c, MIG);
       expect(await um(c, OBJETOS)).toEqual(cheio);
     });
   });
@@ -1622,9 +2031,13 @@ describe.skipIf(!PRONTO || !MIG_TXN)("SKU F3.5a — inverso (round-trip) e idemp
 
 - [ ] **Step 4: Vermelha (nos dois modos) + commit**
 
+R5: avisar o dono ANTES (texto do `n3.sh`) e rodar o bloco SÓ com o OK (neste passo a migration ainda não existe — nada trava —, mas o procedimento é o mesmo de todas as rodadas `SKU_MIG_TXN=1`).
+
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -5
+SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t2s4 && \
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -5
+bash .superpowers/f35a/n3.sh depois t2s4
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -3
 DATABASE_URL="postgresql://x:x@127.0.0.1:1/nada" SKU_MIG_TXN=1 npx vitest run tests/integration/sku-automatico.test.ts 2>&1 | grep -E "só na cópia local|Error" | head -2
 bash .superpowers/f35a/gates.sh
@@ -1635,7 +2048,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- tests/i
 git show --stat HEAD | tail -4
 ```
 
-Expected: (1) `Tests  24 failed (24)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe); (2) `24 skipped` (sem a F3.5a na cópia e sem `SKU_MIG_TXN`, a suíte pula — e NÃO conecta fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
+Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  31 failed (31)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe; o estático também); (2) `Tests  1 failed | 30 skipped (31)` — só o estático falha (ENOENT); os outros pulam sem a F3.5a na cópia e sem `SKU_MIG_TXN` (e NÃO conectam fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
 
 ---
 
@@ -1645,7 +2058,7 @@ Expected: (1) `Tests  24 failed (24)` — todos param em `ENOENT … 20261003100
 - Create: `supabase/migrations/20261003100000_sku_automatico.sql`, `supabase/rollback/20261003100000_sku_automatico_down.sql`
 
 **Interfaces:**
-- Produces (SQL, IMMUTABLE, EXECUTE revogado dos três): `_sku_norm_sigla(text)`, `_sku_tamanho_lados(text, OUT numero, OUT letra)`, `_sku_tamanho_lado(text, text)`, `_sku_config_normaliza(jsonb)`, `_sku_tamanhos_normaliza(jsonb)`, `_sku_montar(jsonb, jsonb)`, `_sku_resolver(jsonb, text, jsonb, jsonb, text, text, jsonb)` — espelhos byte a byte do Task 1. Os marcadores `-- ==== [PARTE C] …` e `-- ==== [PARTE B] …` ficam no arquivo (Tasks 5 e 4 inserem ACIMA de cada um).
+- Produces (SQL, IMMUTABLE, EXECUTE revogado dos três): `_sku_sem_acento(text)`, `_sku_norm_sigla(text)`, `_sku_norm_ref(text)`, `_sku_norm_manual(text)`, `_sku_variante_key(uuid, uuid)` (a chave da variante = a cor — R1), `_sku_tamanho_lados(text, OUT numero, OUT letra)`, `_sku_tamanho_lado(text, text)`, `_sku_config_normaliza(jsonb)`, `_sku_tamanhos_normaliza(jsonb)`, `_sku_montar(jsonb, jsonb)`, `_sku_resolver(jsonb, text, jsonb, jsonb, text, text, jsonb)` — espelhos byte a byte do Task 1. Os marcadores `-- ==== [PARTE C] …` e `-- ==== [PARTE B] …` ficam no arquivo (Tasks 5 e 4 inserem ACIMA de cada um). As 2 travas `SET LOCAL` ficam logo depois do `BEGIN;` (migration e inverso — supautils).
 
 - [ ] **Step 1: Criar a migration com a parte A** — `supabase/migrations/20261003100000_sku_automatico.sql`:
 
@@ -1653,30 +2066,95 @@ Expected: (1) `Tests  24 failed (24)` — todos param em `ENOENT … 20261003100
 -- SKU automático — F3.5a (banco): siglas SKU, Formato do SKU, "Tamanho em", modelo_skus e RPCs de geração.
 -- ============================================================================================================
 -- Spec: docs/superpowers/specs/2026-09-24-sku-automatico-design.md (§4.1, §4.2, §4.4) · Plano:
--- docs/superpowers/plans/2026-09-24-sku-automatico-f35a.md (Tasks 3–5). Inverso pareado (DESTRUTIVO, pede
--- confirmação): supabase/rollback/20261003100000_sku_automatico_down.sql.
+-- docs/superpowers/plans/2026-09-24-sku-automatico-f35a.md (Tasks 3–5; ressalvas R1–R10 do G-plano). Inverso pareado
+-- (DESTRUTIVO, pede confirmação): supabase/rollback/20261003100000_sku_automatico_down.sql.
 --
 -- ADITIVA e IDEMPOTENTE (CREATE OR REPLACE / IF NOT EXISTS / DROP … IF EXISTS antes de CREATE TRIGGER|POLICY).
--- NÃO redefine NENHUMA função existente (tudo aqui é novo: 18 funções, 5 gatilhos, 1 tabela, 7 colunas).
--- Ordem (lição R1 da F1): funções primeiro; tabela nova + ALTERs de cores/cores_apelido/produtos/modelos/
--- tenant_config POR ÚLTIMO, logo antes do COMMIT — o ALTER pega AccessExclusive e tenant_config/modelos são
--- lidos pelas policies de TODAS as lojas. Em produção: aplica_v2 (lock_timeout 500 ms + transaction_timeout 3 s).
+-- NÃO redefine NENHUMA função existente (tudo aqui é novo: 23 funções, 6 gatilhos, 1 tabela, 7 colunas em tabelas
+-- existentes). MAS TRAVA TABELAS EXISTENTES até o COMMIT:
+--   • AccessExclusive nos ALTER de cores, cores_apelido, produtos_acabados, produtos_importados, modelos e
+--     tenant_config (lida pelas policies de TODAS as lojas) e SHARE ROW EXCLUSIVE em modelos/tenants (FKs novas);
+--   • cada CREATE/DROP POLICY feito como `postgres` dispara o hook `supautils.policy_grants`, que pega AccessExclusive
+--     em ~24 tabelas de auth/storage/realtime (auth.users, auth.sessions, auth.refresh_tokens, storage.objects…) —
+--     login e refresh de token esperam enquanto a transação estiver aberta.
+-- Por isso: toda DDL que trava fica no FIM do arquivo (policies por último) e as travas abaixo valem mesmo por
+-- `psql -f` (o caminho padrão do CLAUDE.md), não só pelo aplica_v2; aplicar em horário calmo.
 -- Partes: [A] helpers puros (espelhos de src/lib/tamanho.ts + src/lib/sku-montar.ts) · [C] cálculo, RPCs e ACL ·
--- [B] tabela modelo_skus, colunas e gatilhos (normalização no SALVAR + handover do "Tamanho em").
+-- [B] tabela modelo_skus, colunas, gatilhos e policies.
 
 BEGIN;
+SET LOCAL lock_timeout = '500ms';
+SET LOCAL transaction_timeout = '3s';
 
 -- ─────────────────────────── [A] Helpers PUROS (IMMUTABLE) — espelho TS, anti-drift ───────────────────────────
 
--- Sigla (cor base, cor apelido, lado do tamanho): trim (espaço/tab/CR/LF) + MAIÚSCULAS; vazia ⇒ NULL.
--- Espelho: normalizarSigla (src/lib/sku-montar.ts).
+-- Tira acento por uma lista FIXA (maiúsculas e minúsculas) — não depende do locale do banco. Espelho: semAcento
+-- (src/lib/sku-montar.ts, ACENTOS_DE/ACENTOS_PARA).
+CREATE OR REPLACE FUNCTION public._sku_sem_acento(_s text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT translate(coalesce(_s, ''),
+    'ÁÀÂÃÄÅáàâãäåÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇçÑñÝýÿ',
+    'AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCcNnYyy')
+$function$;
+
+-- Sigla (cor base, cor apelido, lado do tamanho): sem acento, só A–Z/0–9, MAIÚSCULAS; vazia ⇒ NULL (D6/R4).
+-- O upper() só recebe ASCII (o filtro vem antes). Espelho: normalizarSigla.
 CREATE OR REPLACE FUNCTION public._sku_norm_sigla(_s text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
 SET search_path TO 'public'
 AS $function$
-  SELECT nullif(upper(btrim(coalesce(_s, ''), E' \t\r\n')), '')
+  SELECT nullif(upper(regexp_replace(public._sku_sem_acento(_s), '[^A-Za-z0-9]', '', 'g')), '')
+$function$;
+
+-- A REF dentro do SKU: sem acento, só A–Z/0–9 e - . _ /, MAIÚSCULAS (o resto sai; vazia = ''). Espelho: normalizarRefSku.
+CREATE OR REPLACE FUNCTION public._sku_norm_ref(_s text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT upper(regexp_replace(public._sku_sem_acento(_s), '[^A-Za-z0-9._/-]', '', 'g'))
+$function$;
+
+-- SKU digitado à mão: sem espaço, sem acento, MAIÚSCULAS; só A–Z, 0–9 e - . _ / (senão RAISE P0001, mesma
+-- mensagem do TS). Espelho: normalizarSkuManual.
+CREATE OR REPLACE FUNCTION public._sku_norm_manual(_s text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v text;
+BEGIN
+  v := regexp_replace(coalesce(_s, ''), '[ \t\r\n]', '', 'g');
+  IF v = '' THEN
+    RAISE EXCEPTION 'Informe o SKU.' USING ERRCODE = 'P0001';
+  END IF;
+  v := public._sku_sem_acento(v);
+  IF v ~ '[^A-Za-z0-9._/-]' THEN
+    RAISE EXCEPTION 'SKU inválido: use só letras, números e - . _ /.' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN upper(v);
+END
+$function$;
+
+-- Chave da VARIANTE no SKU = a COR (base + apelido), não o id da linha de variante (R1 do G-plano): o Salvar do
+-- Produto Acabado/Importado APAGA e regrava as variantes (id novo a cada save) e a troca do tecido do Tecido 1
+-- mantendo as cores muda o id de variantes_tecido — a cor é o que identifica a variante comercial.
+CREATE OR REPLACE FUNCTION public._sku_variante_key(_cor uuid, _apelido uuid)
+RETURNS uuid
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT md5('sku-variante|' || coalesce(_cor::text, '-') || '|' || coalesce(_apelido::text, '-'))::uuid
 $function$;
 
 -- "34|PPP" → (34, PPP); "PPP|34" → (34, PPP); solto: só dígitos → número, o resto → letra. Só o 1º "|" separa.
@@ -1788,8 +2266,8 @@ BEGIN
           RAISE EXCEPTION 'Separador do SKU inválido.' USING ERRCODE = 'P0001';
         END IF;
         v_s := v_sep #>> '{}';
-        IF v_s ~ '\s' THEN
-          RAISE EXCEPTION 'Separador do SKU não pode ter espaço.' USING ERRCODE = 'P0001';
+        IF v_s !~ '^[-._/]*$' THEN
+          RAISE EXCEPTION 'Separador do SKU: use só - . _ /.' USING ERRCODE = 'P0001';
         END IF;
         IF char_length(v_s) > 3 THEN
           RAISE EXCEPTION 'Separador do SKU: no máximo 3 caracteres.' USING ERRCODE = 'P0001';
@@ -1809,8 +2287,9 @@ BEGIN
 END
 $function$;
 
--- Mapa lado-do-tamanho → sigla canônico (chave aparada, sigla normalizada, vazias fora) ou NULL.
--- RAISE P0001 com as MESMAS mensagens de normalizarTamanhosSku.
+-- Mapa lado-do-tamanho → sigla canônico (chave aparada, sigla normalizada, vazias fora) ou NULL. As checagens NÃO
+-- dependem da ordem das chaves: 1º tipo inválido, 2º chave repetida depois de aparar (ambas pela menor chave em
+-- COLLATE "C"), 3º o mapa. RAISE P0001 com as MESMAS mensagens de normalizarTamanhosSku.
 CREATE OR REPLACE FUNCTION public._sku_tamanhos_normaliza(_m jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1818,10 +2297,8 @@ IMMUTABLE
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  r record;
   v_k text;
-  v_sig text;
-  v_out jsonb := '{}'::jsonb;
+  v_out jsonb;
 BEGIN
   IF _m IS NULL OR jsonb_typeof(_m) = 'null' THEN
     RETURN NULL;
@@ -1829,20 +2306,30 @@ BEGIN
   IF jsonb_typeof(_m) <> 'object' THEN
     RAISE EXCEPTION 'Siglas de tamanho inválidas.' USING ERRCODE = 'P0001';
   END IF;
-  FOR r IN SELECT e.key, e.value FROM jsonb_each(_m) AS e LOOP
-    v_k := btrim(r.key, E' \t\r\n');
-    CONTINUE WHEN v_k = '' OR jsonb_typeof(r.value) = 'null';
-    IF jsonb_typeof(r.value) <> 'string' THEN
-      RAISE EXCEPTION 'Sigla de tamanho inválida: %.', v_k USING ERRCODE = 'P0001';
-    END IF;
-    IF v_out ? v_k THEN
-      RAISE EXCEPTION 'Sigla de tamanho repetida: %.', v_k USING ERRCODE = 'P0001';
-    END IF;
-    v_sig := public._sku_norm_sigla(r.value #>> '{}');
-    CONTINUE WHEN v_sig IS NULL;
-    v_out := v_out || jsonb_build_object(v_k, v_sig);
-  END LOOP;
-  RETURN CASE WHEN v_out = '{}'::jsonb THEN NULL ELSE v_out END;
+  SELECT x.k INTO v_k
+    FROM (SELECT btrim(e.key, E' \t\r\n') AS k, e.value AS v FROM jsonb_each(_m) AS e) x
+   WHERE x.k <> '' AND jsonb_typeof(x.v) NOT IN ('null', 'string')
+   ORDER BY x.k COLLATE "C"
+   LIMIT 1;
+  IF v_k IS NOT NULL THEN
+    RAISE EXCEPTION 'Sigla de tamanho inválida: %.', v_k USING ERRCODE = 'P0001';
+  END IF;
+  SELECT x.k INTO v_k
+    FROM (SELECT btrim(e.key, E' \t\r\n') AS k, e.value AS v FROM jsonb_each(_m) AS e) x
+   WHERE x.k <> '' AND jsonb_typeof(x.v) <> 'null'
+   GROUP BY x.k
+  HAVING count(*) > 1
+   ORDER BY x.k COLLATE "C"
+   LIMIT 1;
+  IF v_k IS NOT NULL THEN
+    RAISE EXCEPTION 'Sigla de tamanho repetida: %.', v_k USING ERRCODE = 'P0001';
+  END IF;
+  SELECT jsonb_object_agg(y.k, y.sig) INTO v_out
+    FROM (SELECT btrim(e.key, E' \t\r\n') AS k, public._sku_norm_sigla(e.value #>> '{}') AS sig
+            FROM jsonb_each(_m) AS e
+           WHERE btrim(e.key, E' \t\r\n') <> '' AND jsonb_typeof(e.value) = 'string') y
+   WHERE y.sig IS NOT NULL;
+  RETURN v_out;
 END
 $function$;
 
@@ -1903,7 +2390,7 @@ BEGIN
   END IF;
   v_usa := coalesce(_cfg -> 'partes', '[]'::jsonb);
   IF v_usa ? 'ref' THEN
-    v_val := v_val || jsonb_build_object('ref', btrim(coalesce(_ref, ''), E' \t\r\n'));
+    v_val := v_val || jsonb_build_object('ref', public._sku_norm_ref(_ref));
   END IF;
   IF v_usa ? 'cor_base' THEN
     IF _cor IS NULL OR jsonb_typeof(_cor) = 'null' THEN
@@ -1943,7 +2430,11 @@ $function$;
 
 -- Invariante #9: helpers internos SEM EXECUTE para PUBLIC/anon/authenticated (só as funções DEFINER os chamam).
 REVOKE EXECUTE ON FUNCTION
+  public._sku_sem_acento(text),
   public._sku_norm_sigla(text),
+  public._sku_norm_ref(text),
+  public._sku_norm_manual(text),
+  public._sku_variante_key(uuid, uuid),
   public._sku_tamanho_lados(text),
   public._sku_tamanho_lado(text, text),
   public._sku_config_normaliza(jsonb),
@@ -1954,7 +2445,7 @@ REVOKE EXECUTE ON FUNCTION
 
 -- ==== [PARTE C] cálculo, RPCs e ACL entram ACIMA desta linha (Task 5) ====
 
--- ==== [PARTE B] tabela, colunas e gatilhos entram ACIMA desta linha (Task 4) ====
+-- ==== [PARTE B] tabela, colunas, gatilhos e policies entram ACIMA desta linha (Task 4) ====
 
 NOTIFY pgrst, 'reload schema';
 
@@ -1970,12 +2461,18 @@ COMMIT;
 -- cores_apelido.sigla_sku) e na Grade de Tamanhos (tenant_config.tamanhos_sku), o FORMATO DO SKU
 -- (tenant_config.sku_config), o "TAMANHO EM" (modelos/produtos_acabados/produtos_importados.tamanho_tipo) e TODOS
 -- os SKUs gerados E os editados à mão (tabela modelo_skus). Não há como recuperar sem o backup/export.
--- Com dado presente, RECUSA sem a confirmação explícita (só com OK do dono, DEPOIS do export — runbook Task 14):
+-- Com dado presente, RECUSA sem a confirmação explícita (só com OK do dono, DEPOIS do export — Task 12 Step 5):
 --   export EXTRA_SQL="SET LOCAL app.confirmo_apagar_skus = 'sim';"   (o aplica_v2 injeta logo depois do BEGIN)
 -- Idempotente (IF EXISTS em tudo) e válido em qualquer estágio da migration (parte A, A+C ou A+C+B).
--- Plano: docs/superpowers/plans/2026-09-24-sku-automatico-f35a.md (Task 3; round-trip na Task 6).
+-- TRAVA tabelas EXISTENTES até o COMMIT: AccessExclusive nas tabelas das colunas (cores, cores_apelido, produtos_*,
+-- modelos, tenant_config — lida pelas policies de TODAS as lojas) e, no DROP da tabela (por último), as policies dela
+-- (hook supautils.policy_grants ⇒ auth/storage presos: login/refresh esperam). Não faz trabalho por linha (só count +
+-- DROP): cabe folgado nas travas abaixo (500 ms de espera por trava, 3 s no total). Horário calmo.
+-- Plano: docs/superpowers/plans/2026-09-24-sku-automatico-f35a.md (Task 3; round-trip na Task 5; ensaio na Task 6).
 
 BEGIN;
+SET LOCAL lock_timeout = '500ms';
+SET LOCAL transaction_timeout = '3s';
 
 DO $do$
 DECLARE
@@ -2013,9 +2510,9 @@ DROP TRIGGER IF EXISTS trg_cores_apelido_sigla_sku ON public.cores_apelido;
 
 DROP FUNCTION IF EXISTS public.skus_modelo(uuid);
 DROP FUNCTION IF EXISTS public.gerar_skus_modelo(uuid, boolean);
-DROP FUNCTION IF EXISTS public.salvar_sku_manual(uuid, text, integer);
+DROP FUNCTION IF EXISTS public.salvar_sku_manual(uuid, text, integer, uuid, uuid, text);
 DROP FUNCTION IF EXISTS public._gerar_skus_modelo_core(uuid, boolean);
-DROP FUNCTION IF EXISTS public._salvar_sku_manual_core(uuid, text, integer);
+DROP FUNCTION IF EXISTS public._salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text);
 DROP FUNCTION IF EXISTS public._skus_modelo_core(uuid);
 DROP FUNCTION IF EXISTS public._skus_modelo_calc(uuid);
 DROP FUNCTION IF EXISTS public._sku_guarda(uuid, boolean);
@@ -2028,9 +2525,11 @@ DROP FUNCTION IF EXISTS public._sku_tamanhos_normaliza(jsonb);
 DROP FUNCTION IF EXISTS public._sku_config_normaliza(jsonb);
 DROP FUNCTION IF EXISTS public._sku_tamanho_lado(text, text);
 DROP FUNCTION IF EXISTS public._sku_tamanho_lados(text);
+DROP FUNCTION IF EXISTS public._sku_variante_key(uuid, uuid);
+DROP FUNCTION IF EXISTS public._sku_norm_manual(text);
+DROP FUNCTION IF EXISTS public._sku_norm_ref(text);
 DROP FUNCTION IF EXISTS public._sku_norm_sigla(text);
-
-DROP TABLE IF EXISTS public.modelo_skus;
+DROP FUNCTION IF EXISTS public._sku_sem_acento(text);
 
 ALTER TABLE public.cores DROP COLUMN IF EXISTS sigla_sku;
 ALTER TABLE public.cores_apelido DROP COLUMN IF EXISTS sigla_sku;
@@ -2038,6 +2537,12 @@ ALTER TABLE public.produtos_acabados DROP COLUMN IF EXISTS tamanho_tipo;
 ALTER TABLE public.produtos_importados DROP COLUMN IF EXISTS tamanho_tipo;
 ALTER TABLE public.modelos DROP COLUMN IF EXISTS tamanho_tipo;
 ALTER TABLE public.tenant_config DROP COLUMN IF EXISTS sku_config, DROP COLUMN IF EXISTS tamanhos_sku;
+
+-- A tabela POR ÚLTIMO (leva junto o gatilho trg_modelo_skus_unico e as 4 policies — hook supautils.policy_grants:
+-- auth/storage presos até o COMMIT, então o mais perto dele possível). DROP TRIGGER … ON uma tabela que pode não
+-- existir quebraria a idempotência (lição da F1) — por isso o DROP TABLE e, só depois, a função do gatilho dela.
+DROP TABLE IF EXISTS public.modelo_skus;
+DROP FUNCTION IF EXISTS public.fn_modelo_skus_unico();
 
 NOTIFY pgrst, 'reload schema';
 
@@ -2051,10 +2556,12 @@ cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "testes-checados"
 grep -c '^BEGIN;$' supabase/migrations/20261003100000_sku_automatico.sql supabase/rollback/20261003100000_sku_automatico_down.sql
 grep -c '^COMMIT;$' supabase/migrations/20261003100000_sku_automatico.sql supabase/rollback/20261003100000_sku_automatico_down.sql
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts -t "anti-drift" 2>&1 | tail -5
+SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t3s3 && \
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts -t "anti-drift|estático" 2>&1 | tail -5
+bash .superpowers/f35a/n3.sh depois t3s3
 ```
 
-Expected: só `testes-checados`; `:1` nos 4 greps; `Tests  5 passed | 19 skipped (24)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
+Expected (dono avisado ANTES — R5): só `testes-checados`; `:1` nos 4 greps; `OK (N3): pode rodar t3s3`; `Tests  8 passed | 23 skipped (31)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
 
 - [ ] **Step 4: Gates + commit**
 
@@ -2070,21 +2577,21 @@ git show --stat HEAD | tail -4
 
 ---
 
-## Task 4: Migration — parte [B] (tabela `modelo_skus`, colunas, gatilhos)  *(individual Opus)*
+## Task 4: Migration — parte [B] (tabela `modelo_skus`, colunas, gatilhos, unicidade D5; policies por último)  *(individual Opus)*
 
 **Files:**
-- Modify: `supabase/migrations/20261003100000_sku_automatico.sql` — inserir o bloco abaixo IMEDIATAMENTE ACIMA da linha `-- ==== [PARTE B] tabela, colunas e gatilhos entram ACIMA desta linha (Task 4) ====` (deixa uma linha em branco entre o bloco e o marcador; o marcador fica).
+- Modify: `supabase/migrations/20261003100000_sku_automatico.sql` — inserir o bloco abaixo IMEDIATAMENTE ACIMA da linha `-- ==== [PARTE B] tabela, colunas, gatilhos e policies entram ACIMA desta linha (Task 4) ====` (deixa uma linha em branco entre o bloco e o marcador; o marcador fica).
 
 **Interfaces:**
-- Produces: `fn_sigla_sku_normaliza()`, `fn_tenant_config_sku_normaliza()`, `fn_produto_tamanho_tipo_handover()` (DEFINER, revogadas dos três); `modelo_skus` (+ RLS/policies/grants); colunas `cores.sigla_sku`, `cores_apelido.sigla_sku`, `produtos_acabados.tamanho_tipo`, `produtos_importados.tamanho_tipo`, `modelos.tamanho_tipo`, `tenant_config.tamanhos_sku`, `tenant_config.sku_config`; gatilhos `trg_cores_sigla_sku`, `trg_cores_apelido_sigla_sku`, `trg_pa_tamanho_tipo`, `trg_pi_tamanho_tipo`, `trg_tenant_config_sku`.
+- Produces: `fn_sigla_sku_normaliza()`, `fn_tenant_config_sku_normaliza()`, `fn_produto_tamanho_tipo_handover()`, `fn_modelo_skus_unico()` (DEFINER, revogadas dos três); `modelo_skus` (+ coluna `ref`, UNIQUE composta da linha, índice `(tenant_id, sku)`, gatilho D5 `trg_modelo_skus_unico`, `REVOKE ALL` + `GRANT SELECT`, RLS; as 4 policies POR ÚLTIMO no arquivo); colunas `cores.sigla_sku`, `cores_apelido.sigla_sku`, `produtos_acabados.tamanho_tipo`, `produtos_importados.tamanho_tipo`, `modelos.tamanho_tipo` (CHECKs `NOT VALID`), `tenant_config.tamanhos_sku` + `tenant_config.sku_config` (1 só `ALTER`); gatilhos `trg_cores_sigla_sku`, `trg_cores_apelido_sigla_sku`, `trg_pa_tamanho_tipo`, `trg_pi_tamanho_tipo`, `trg_tenant_config_sku`.
 
 - [ ] **Step 1: O bloco**
 
 ```sql
--- ─────────────────────────── [B] Gatilhos, tabela modelo_skus e colunas (POR ÚLTIMO) ───────────────────────────
+-- ─────────────────────────── [B] Gatilhos, tabela modelo_skus, colunas e policies (POR ÚLTIMO) ───────────────────────────
 
--- Normalização da sigla NO SALVAR, no servidor (spec §4.1). GATILHO (e não RPC) porque Cadastro > Atributos grava
--- cores/cores_apelido DIRETO pela API (AttributeTab: insert/update na tabela) — o gatilho cobre esse caminho E
+-- Normalização da sigla NO SALVAR, no servidor (spec §4.1 + D6/R4). GATILHO (e não RPC) porque Cadastro > Atributos
+-- grava cores/cores_apelido DIRETO pela API (AttributeTab: insert/update na tabela) — o gatilho cobre esse caminho E
 -- qualquer outro (importação, SQL). DEFINER: chama o helper revogado (#9) sem depender do EXECUTE do usuário.
 CREATE OR REPLACE FUNCTION public.fn_sigla_sku_normaliza()
 RETURNS trigger
@@ -2135,17 +2642,45 @@ BEGIN
 END
 $function$;
 
+-- Unicidade do SKU na loja (D5/R2 — PENDENTE DO DONO; implementada a recomendação do guardião): um SKU só pode
+-- repetir entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor + tamanho) — é a réplica/versão do mesmo
+-- produto, que o ERP/e-commerce vê como o mesmo SKU. Qualquer outro SKU igual (outra REF, outra linha, ou duas linhas
+-- do mesmo card) = RAISE 23505 (unique_violation), que a geração captura como `conflitos[]` e a edição manual traduz
+-- em PT. Um lock consultivo POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas).
+-- Variante B da D5 ("SKU próprio da versão"): tirar a exceção `AND NOT (…)` abaixo = unicidade estrita por loja.
+CREATE OR REPLACE FUNCTION public.fn_modelo_skus_unico()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('sku_unico:' || NEW.tenant_id::text, 0));
+  PERFORM 1
+     FROM public.modelo_skus o
+    WHERE o.tenant_id = NEW.tenant_id
+      AND o.sku = NEW.sku
+      AND o.id <> NEW.id
+      AND NOT (NEW.ref <> '' AND o.modelo_id <> NEW.modelo_id AND o.ref = NEW.ref
+               AND o.variante_key = NEW.variante_key AND o.tamanho_key = NEW.tamanho_key);
+  IF FOUND THEN
+    RAISE EXCEPTION 'O SKU % já está em uso na loja.', NEW.sku USING ERRCODE = '23505';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
 REVOKE EXECUTE ON FUNCTION
   public.fn_sigla_sku_normaliza(),
   public.fn_tenant_config_sku_normaliza(),
-  public.fn_produto_tamanho_tipo_handover()
+  public.fn_produto_tamanho_tipo_handover(),
+  public.fn_modelo_skus_unico()
   FROM PUBLIC, anon, authenticated;
 
--- SKUs gravados (1 linha por modelo × variante × tamanho). UNIQUE COMPOSTAS (seguras p/ o PostgREST — regra
--- "O que NÃO fazer": nunca UNIQUE em coluna única embedada): (tenant_id, sku) barra SKU repetido na loja;
--- (modelo_id, variante_key, tamanho_key) = 1 SKU por linha (e serve de índice por modelo_id).
--- Escrita SÓ pelas RPCs DEFINER: `authenticated` só tem SELECT (RLS por loja); os modgate RESTRICTIVE do módulo
--- `criacao` seguem o padrão de modelo_grades/modelo_tecidos (defesa em profundidade).
+-- SKUs gravados (1 linha por modelo × variante(cor) × tamanho). UNIQUE COMPOSTA (segura p/ o PostgREST — regra "O que
+-- NÃO fazer") em (modelo_id, variante_key, tamanho_key) = 1 SKU por linha (e índice por modelo_id). O SKU igual na
+-- loja é barrado pelo gatilho acima (D5), com o índice (tenant_id, sku) para a busca. `ref` = REF do card (normalizada)
+-- quando o SKU foi gravado. Escrita SÓ pelas RPCs DEFINER: `authenticated` só tem SELECT (RLS por loja).
 CREATE TABLE IF NOT EXISTS public.modelo_skus (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id    uuid NOT NULL REFERENCES public.tenants(id),
@@ -2153,15 +2688,80 @@ CREATE TABLE IF NOT EXISTS public.modelo_skus (
   variante_key uuid NOT NULL,
   tamanho_key  text NOT NULL,
   sku          text NOT NULL CONSTRAINT modelo_skus_sku_chk CHECK (btrim(sku) <> ''),
+  ref          text NOT NULL DEFAULT '',
   manual       boolean NOT NULL DEFAULT false,
   gerado_em    timestamptz NOT NULL DEFAULT now(),
   rev          integer NOT NULL DEFAULT 0,
-  CONSTRAINT modelo_skus_tenant_sku_key UNIQUE (tenant_id, sku),
   CONSTRAINT modelo_skus_modelo_variante_tamanho_key UNIQUE (modelo_id, variante_key, tamanho_key)
 );
+CREATE INDEX IF NOT EXISTS idx_modelo_skus_tenant_sku ON public.modelo_skus (tenant_id, sku);
 COMMENT ON TABLE public.modelo_skus IS
-  'SKU por modelo × variante × tamanho (F3.5a). Escrita só por gerar_skus_modelo/salvar_sku_manual. variante_key = variantes_tecido.id (interno, Tecido 1) ou produto_*_variantes.id (revenda/importado); tamanho_key = chave inteira da grade ("34|PPP"). manual=true nunca é sobrescrito.';
+  'SKU por modelo × variante × tamanho (F3.5a). Escrita só por gerar_skus_modelo/salvar_sku_manual. variante_key = _sku_variante_key(cor base, cor apelido) (R1: estável entre saves); tamanho_key = chave inteira da grade ("34|PPP"); ref = REF do card na gravação. manual=true nunca é sobrescrito. SKU repetido só entre réplicas (mesma REF e mesma linha) — gatilho fn_modelo_skus_unico (D5).';
+DROP TRIGGER IF EXISTS trg_modelo_skus_unico ON public.modelo_skus;
+CREATE TRIGGER trg_modelo_skus_unico BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref
+  ON public.modelo_skus FOR EACH ROW EXECUTE FUNCTION public.fn_modelo_skus_unico();
+REVOKE ALL ON public.modelo_skus FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.modelo_skus TO authenticated;
 ALTER TABLE public.modelo_skus ENABLE ROW LEVEL SECURITY;
+
+-- Colunas (AccessExclusive curto em cada tabela — por isso no FIM do arquivo).
+ALTER TABLE public.cores ADD COLUMN IF NOT EXISTS sigla_sku text;
+COMMENT ON COLUMN public.cores.sigla_sku IS 'Sigla da cor base no SKU (F3.5a). Normalizada no salvar (sem acento, só A–Z/0–9, maiúsculas; vazia = NULL).';
+DROP TRIGGER IF EXISTS trg_cores_sigla_sku ON public.cores;
+CREATE TRIGGER trg_cores_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores
+  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
+
+ALTER TABLE public.cores_apelido ADD COLUMN IF NOT EXISTS sigla_sku text;
+COMMENT ON COLUMN public.cores_apelido.sigla_sku IS 'Sigla da cor apelido no SKU (F3.5a). Normalizada no salvar (sem acento, só A–Z/0–9, maiúsculas; vazia = NULL).';
+DROP TRIGGER IF EXISTS trg_cores_apelido_sigla_sku ON public.cores_apelido;
+CREATE TRIGGER trg_cores_apelido_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores_apelido
+  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
+
+ALTER TABLE public.produtos_acabados ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+ALTER TABLE public.produtos_importados ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+ALTER TABLE public.modelos ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+-- CHECK letra|numero como NOT VALID: vale para toda escrita nova e evita varrer a tabela sob AccessExclusive (todas as
+-- linhas existentes são NULL — nada a validar).
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'produtos_acabados_tamanho_tipo_chk'
+                  AND conrelid = 'public.produtos_acabados'::regclass) THEN
+    ALTER TABLE public.produtos_acabados
+      ADD CONSTRAINT produtos_acabados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'produtos_importados_tamanho_tipo_chk'
+                  AND conrelid = 'public.produtos_importados'::regclass) THEN
+    ALTER TABLE public.produtos_importados
+      ADD CONSTRAINT produtos_importados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'modelos_tamanho_tipo_chk'
+                  AND conrelid = 'public.modelos'::regclass) THEN
+    ALTER TABLE public.modelos
+      ADD CONSTRAINT modelos_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+END
+$do$;
+COMMENT ON COLUMN public.modelos.tamanho_tipo IS '"Tamanho em" do card (F3.5): letra | numero; NULL = padrão da loja (tenant_config.sku_config.tamanho_padrao).';
+DROP TRIGGER IF EXISTS trg_pa_tamanho_tipo ON public.produtos_acabados;
+CREATE TRIGGER trg_pa_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_acabados
+  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
+DROP TRIGGER IF EXISTS trg_pi_tamanho_tipo ON public.produtos_importados;
+CREATE TRIGGER trg_pi_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_importados
+  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
+
+-- tenant_config (as policies RLS de todas as lojas leem esta tabela): UM só ALTER.
+ALTER TABLE public.tenant_config
+  ADD COLUMN IF NOT EXISTS tamanhos_sku jsonb,
+  ADD COLUMN IF NOT EXISTS sku_config jsonb;
+COMMENT ON COLUMN public.tenant_config.tamanhos_sku IS 'Sigla SKU de CADA LADO dos pares da grade ({"34":"34","PPP":"PPP"}) — F3.5a. tamanhos_grade não muda.';
+COMMENT ON COLUMN public.tenant_config.sku_config IS 'Formato do SKU {partes, separadores {"a|b": sep}, tamanho_padrao} — F3.5a. NULL = a loja não gera SKU.';
+DROP TRIGGER IF EXISTS trg_tenant_config_sku ON public.tenant_config;
+CREATE TRIGGER trg_tenant_config_sku BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku ON public.tenant_config
+  FOR EACH ROW EXECUTE FUNCTION public.fn_tenant_config_sku_normaliza();
+
+-- Policies de modelo_skus POR ÚLTIMO: todo CREATE/DROP POLICY como `postgres` dispara o hook
+-- supautils.policy_grants, que trava ~24 tabelas de auth/storage/realtime até o COMMIT (login/refresh esperam).
+-- RLS por loja no SELECT + modgate RESTRICTIVE do `criacao` em escrita (padrão de modelo_grades; defesa em profundidade).
 DROP POLICY IF EXISTS tenant_select ON public.modelo_skus;
 CREATE POLICY tenant_select ON public.modelo_skus FOR SELECT TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
@@ -2174,47 +2774,6 @@ CREATE POLICY modgate_upd ON public.modelo_skus AS RESTRICTIVE FOR UPDATE
 DROP POLICY IF EXISTS modgate_del ON public.modelo_skus;
 CREATE POLICY modgate_del ON public.modelo_skus AS RESTRICTIVE FOR DELETE
   USING (public.tenant_module_enabled('criacao'));
-REVOKE ALL ON public.modelo_skus FROM PUBLIC, anon;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.modelo_skus FROM authenticated;
-GRANT SELECT ON public.modelo_skus TO authenticated;
-
--- Colunas (AccessExclusive curto em cada tabela — por isso no FIM do arquivo).
-ALTER TABLE public.cores ADD COLUMN IF NOT EXISTS sigla_sku text;
-COMMENT ON COLUMN public.cores.sigla_sku IS 'Sigla da cor base no SKU (F3.5a). Normalizada no salvar (trim + maiúsculas; vazia = NULL).';
-DROP TRIGGER IF EXISTS trg_cores_sigla_sku ON public.cores;
-CREATE TRIGGER trg_cores_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores
-  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
-
-ALTER TABLE public.cores_apelido ADD COLUMN IF NOT EXISTS sigla_sku text;
-COMMENT ON COLUMN public.cores_apelido.sigla_sku IS 'Sigla da cor apelido no SKU (F3.5a). Normalizada no salvar (trim + maiúsculas; vazia = NULL).';
-DROP TRIGGER IF EXISTS trg_cores_apelido_sigla_sku ON public.cores_apelido;
-CREATE TRIGGER trg_cores_apelido_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores_apelido
-  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
-
-ALTER TABLE public.produtos_acabados ADD COLUMN IF NOT EXISTS tamanho_tipo text
-  CONSTRAINT produtos_acabados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero'));
-DROP TRIGGER IF EXISTS trg_pa_tamanho_tipo ON public.produtos_acabados;
-CREATE TRIGGER trg_pa_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_acabados
-  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
-
-ALTER TABLE public.produtos_importados ADD COLUMN IF NOT EXISTS tamanho_tipo text
-  CONSTRAINT produtos_importados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero'));
-DROP TRIGGER IF EXISTS trg_pi_tamanho_tipo ON public.produtos_importados;
-CREATE TRIGGER trg_pi_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_importados
-  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
-
-ALTER TABLE public.modelos ADD COLUMN IF NOT EXISTS tamanho_tipo text
-  CONSTRAINT modelos_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero'));
-COMMENT ON COLUMN public.modelos.tamanho_tipo IS '"Tamanho em" do card (F3.5): letra | numero; NULL = padrão da loja (tenant_config.sku_config.tamanho_padrao).';
-
--- tenant_config POR ÚLTIMO (as policies RLS de todas as lojas leem esta tabela).
-ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS tamanhos_sku jsonb;
-ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS sku_config jsonb;
-COMMENT ON COLUMN public.tenant_config.tamanhos_sku IS 'Sigla SKU de CADA LADO dos pares da grade ({"34":"34","PPP":"PPP"}) — F3.5a. tamanhos_grade não muda.';
-COMMENT ON COLUMN public.tenant_config.sku_config IS 'Formato do SKU {partes, separadores {"a|b": sep}, tamanho_padrao} — F3.5a. NULL = a loja não gera SKU.';
-DROP TRIGGER IF EXISTS trg_tenant_config_sku ON public.tenant_config;
-CREATE TRIGGER trg_tenant_config_sku BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku ON public.tenant_config
-  FOR EACH ROW EXECUTE FUNCTION public.fn_tenant_config_sku_normaliza();
 ```
 
 - [ ] **Step 2: Verde (A + B)**
@@ -2223,10 +2782,12 @@ CREATE TRIGGER trg_tenant_config_sku BEFORE INSERT OR UPDATE OF sku_config, tama
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "testes-checados"
 grep -n -- '-- ==== \[PARTE' supabase/migrations/20261003100000_sku_automatico.sql
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts -t "anti-drift|colunas, gatilhos e tabela" 2>&1 | tail -5
+SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t4s2 && \
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts -t "anti-drift|estático|colunas, gatilhos e tabela" 2>&1 | tail -5
+bash .superpowers/f35a/n3.sh depois t4s2
 ```
 
-Expected: os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles; `Tests  10 passed | 14 skipped (24)`.
+Expected (dono avisado ANTES — R5): os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles (terminando nas 4 policies); `OK (N3): pode rodar t4s2`; `Tests  13 passed | 18 skipped (31)`.
 
 - [ ] **Step 3: Gates + commit**
 
@@ -2247,7 +2808,7 @@ git show --stat HEAD | tail -3
 - Modify: `supabase/migrations/20261003100000_sku_automatico.sql` — inserir o bloco abaixo IMEDIATAMENTE ACIMA da linha `-- ==== [PARTE C] cálculo, RPCs e ACL entram ACIMA desta linha (Task 5) ====` (linha em branco entre o bloco e o marcador).
 
 **Interfaces:**
-- Produces: `_sku_guarda(uuid, boolean)`, `_skus_modelo_calc(uuid)`, `_skus_modelo_core(uuid)`, `_gerar_skus_modelo_core(uuid, boolean)`, `_salvar_sku_manual_core(uuid, text, integer)` (revogadas dos três); `skus_modelo(uuid)`, `gerar_skus_modelo(uuid, boolean DEFAULT false)`, `salvar_sku_manual(uuid, text, integer DEFAULT NULL)` (só `authenticated`). Contrato no §4.1.
+- Produces: `_sku_guarda(uuid, boolean)`, `_skus_modelo_calc(uuid)` (chave = a cor — R1), `_skus_modelo_core(uuid)`, `_gerar_skus_modelo_core(uuid, boolean)`, `_salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text)` (revogadas dos três); `skus_modelo(uuid)`, `gerar_skus_modelo(uuid, boolean DEFAULT false)`, `salvar_sku_manual(uuid, text, integer DEFAULT NULL, uuid DEFAULT NULL, uuid DEFAULT NULL, text DEFAULT NULL)` (só `authenticated`; cria a linha manual — R3). Contrato no §4.1.
 
 - [ ] **Step 1: O bloco**
 
@@ -2256,6 +2817,10 @@ git show --stat HEAD | tail -3
 -- Modelo de segurança (invariante #9 + spec §4.4): o WRAPPER checa login → módulo `criacao` → loja do modelo →
 -- permissão (`criacao_planejamento`: ver p/ ler, editar p/ gerar/regerar/editar) via _sku_guarda; os `_core`
 -- e o cálculo têm EXECUTE revogado dos TRÊS (PUBLIC, anon, authenticated).
+-- Unicidade do SKU (D5/R2 — PENDENTE DO DONO; implementada a recomendação): SKU igual só é aceito entre cards com a
+-- MESMA REF e a MESMA linha (cor + tamanho) — a réplica/versão do produto reusa o SKU do original; qualquer outro
+-- SKU igual na loja é conflito. Quem garante é o gatilho fn_modelo_skus_unico (parte B); a leitura abaixo espelha
+-- a MESMA regra para marcar "conflito".
 
 -- Guarda comum dos 3 wrappers. _tenant = loja do modelo/SKU (NULL = não existe ⇒ "Sem permissão", sem vazar).
 CREATE OR REPLACE FUNCTION public._sku_guarda(_tenant uuid, _editar boolean)
@@ -2285,11 +2850,11 @@ END
 $function$;
 
 -- As linhas (variante × tamanho com quantidade > 0) do modelo e o SKU PREVISTO de cada uma (ou as faltas).
--- Variantes: interno = variantes do Tecido 1 (variante_key = variantes_tecido.id — estável entre saves; o id de
--- modelo_tecido_variantes muda a cada salvar_modelo_bom); revenda = produto_acabado_variantes; importado =
--- produto_importado_variantes (variante_key = id da variante do produto). Grade: modelo_grades.variante_numero =
--- ordem da variante; tamanho_key = a chave INTEIRA da grade ("34|PPP"). Sem sku_config: nenhuma linha.
--- Não lê modelo_skus (quem decide gravar é o _gerar_skus_modelo_core).
+-- Variantes: interno = variantes do Tecido 1; revenda = produto_acabado_variantes; importado =
+-- produto_importado_variantes. A CHAVE da variante é a COR (_sku_variante_key(cor, apelido) — R1): o id da linha de
+-- variante muda a cada Salvar do produto. Duas variantes com a MESMA cor viram UMA linha (menor ordem; tamanhos
+-- somados). Grade: modelo_grades.variante_numero = ordem da variante; tamanho_key = a chave INTEIRA da grade
+-- ("34|PPP"). Sem sku_config: linhas com sku NULL (o chamador decide o status). Não lê modelo_skus.
 CREATE OR REPLACE FUNCTION public._skus_modelo_calc(_modelo_id uuid)
 RETURNS TABLE (variante_key uuid, variante_ordem integer, cor_nome text, apelido_nome text,
                tamanho_key text, tamanho_ordem integer, sku text, faltas jsonb)
@@ -2303,7 +2868,7 @@ BEGIN
   RETURN QUERY
   WITH m AS (
     SELECT mo.id AS mid,
-           btrim(coalesce(mo.ref, ''), E' \t\r\n') AS mref,
+           mo.ref AS mref,
            coalesce(mo.origem, 'interno') AS morigem,
            coalesce(mo.tamanho_tipo, tc.sku_config ->> 'tamanho_padrao', 'letra') AS mtipo,
            tc.sku_config AS mcfg,
@@ -2313,33 +2878,38 @@ BEGIN
       LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
      WHERE mo.id = _modelo_id
   ),
-  vs AS (
-    (SELECT DISTINCT ON (vt.id) vt.id AS vkey, mtv.ordem AS vordem, vt.cor_id AS vcor, vt.cor_apelido_id AS vapelido
-       FROM m
-       JOIN public.modelo_tecidos mt ON mt.modelo_id = m.mid AND mt.tipo = 'tecido' AND mt.numero = 1
-       JOIN public.modelo_tecido_variantes mtv ON mtv.modelo_tecido_id = mt.id
-       JOIN public.variantes_tecido vt ON vt.id = mtv.variante_tecido_id
-      WHERE m.morigem = 'interno'
-      ORDER BY vt.id, mtv.ordem)
+  va AS (
+    SELECT public._sku_variante_key(vt.cor_id, vt.cor_apelido_id) AS vkey, mtv.ordem AS vordem,
+           vt.cor_id AS vcor, vt.cor_apelido_id AS vapelido
+      FROM m
+      JOIN public.modelo_tecidos mt ON mt.modelo_id = m.mid AND mt.tipo = 'tecido' AND mt.numero = 1
+      JOIN public.modelo_tecido_variantes mtv ON mtv.modelo_tecido_id = mt.id
+      JOIN public.variantes_tecido vt ON vt.id = mtv.variante_tecido_id
+     WHERE m.morigem = 'interno'
     UNION ALL
-    SELECT pv.id, pv.ordem, pv.cor_id, pv.cor_apelido_id
+    SELECT public._sku_variante_key(pv.cor_id, pv.cor_apelido_id), pv.ordem, pv.cor_id, pv.cor_apelido_id
       FROM m
       JOIN public.produtos_acabados pa ON pa.modelo_id = m.mid
       JOIN public.produto_acabado_variantes pv ON pv.produto_acabado_id = pa.id
      WHERE m.morigem = 'revenda'
     UNION ALL
-    SELECT iv.id, iv.ordem, iv.cor_id, iv.cor_apelido_id
+    SELECT public._sku_variante_key(iv.cor_id, iv.cor_apelido_id), iv.ordem, iv.cor_id, iv.cor_apelido_id
       FROM m
       JOIN public.produtos_importados pi ON pi.modelo_id = m.mid
       JOIN public.produto_importado_variantes iv ON iv.produto_importado_id = pi.id
      WHERE m.morigem = 'importado'
   ),
+  vs AS (
+    SELECT DISTINCT ON (va.vkey) va.vkey, va.vordem, va.vcor, va.vapelido
+      FROM va
+     ORDER BY va.vkey, va.vordem
+  ),
   tam AS (
-    SELECT vs.vkey AS tvkey, e.key AS tkey
-      FROM vs
-      JOIN public.modelo_grades g ON g.modelo_id = _modelo_id AND g.variante_numero = vs.vordem
+    SELECT va.vkey AS tvkey, e.key AS tkey
+      FROM va
+      JOIN public.modelo_grades g ON g.modelo_id = _modelo_id AND g.variante_numero = va.vordem
       CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(g.grades) = 'object' THEN g.grades ELSE '{}'::jsonb END) AS e
-     GROUP BY vs.vkey, e.key
+     GROUP BY va.vkey, e.key
     HAVING sum(CASE
                  WHEN jsonb_typeof(e.value) = 'number' THEN (e.value #>> '{}')::numeric
                  WHEN jsonb_typeof(e.value) = 'string' AND btrim(e.value #>> '{}') ~ '^[0-9]+(\.[0-9]+)?$'
@@ -2373,15 +2943,15 @@ BEGIN
                tam.tkey,
                m.mtipo,
                m.mtsku) AS res
-    ) AS r
-   WHERE m.mcfg IS NOT NULL;
+    ) AS r;
 END
 $function$;
 
 -- A MATRIZ do card (Variante × Tamanho) — leitura pura (a F3.5b mostra; nada é gravado aqui).
 -- status: 'sem_formato' (loja sem sku_config) | 'aguardando_ref' (card sem REF) | 'ok'.
 -- estado por linha: ok · manual · falta · pendente (ainda não gerado) · divergente (Regerar mudaria) ·
--- conflito (o SKU previsto já é de outra linha da loja — `conflito_com`) · vazio · orfa (gravado, fora da grade).
+-- conflito (o SKU previsto já é de outra linha da loja — `conflito_com`; réplica com a mesma REF e a mesma linha NÃO
+-- é conflito — D5) · vazio · orfa (gravado, fora da grade).
 CREATE OR REPLACE FUNCTION public._skus_modelo_core(_modelo_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2391,7 +2961,7 @@ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_tenant uuid;
-  v_ref text;
+  v_refn text;
   v_cfg jsonb;
   v_tipo_card text;
   v_tipo text;
@@ -2399,8 +2969,8 @@ DECLARE
   v_linhas jsonb;
   v_faltas jsonb;
 BEGIN
-  SELECT mo.tenant_id, btrim(coalesce(mo.ref, ''), E' \t\r\n'), tc.sku_config, mo.tamanho_tipo
-    INTO v_tenant, v_ref, v_cfg, v_tipo_card
+  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config, mo.tamanho_tipo
+    INTO v_tenant, v_refn, v_cfg, v_tipo_card
     FROM public.modelos mo
     LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
    WHERE mo.id = _modelo_id;
@@ -2408,7 +2978,7 @@ BEGIN
     RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0001';
   END IF;
   v_tipo := coalesce(v_tipo_card, v_cfg ->> 'tamanho_padrao', 'letra');
-  v_status := CASE WHEN v_cfg IS NULL THEN 'sem_formato' WHEN v_ref = '' THEN 'aguardando_ref' ELSE 'ok' END;
+  v_status := CASE WHEN v_cfg IS NULL THEN 'sem_formato' WHEN v_refn = '' THEN 'aguardando_ref' ELSE 'ok' END;
 
   IF v_status <> 'ok' THEN
     SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -2440,6 +3010,8 @@ BEGIN
               FROM public.modelo_skus o
               JOIN public.modelos mo ON mo.id = o.modelo_id
              WHERE o.tenant_id = v_tenant AND o.sku = j.previsto AND o.id IS DISTINCT FROM j.sid
+               AND NOT (o.modelo_id <> _modelo_id AND o.ref = v_refn
+                        AND o.variante_key = j.c_vkey AND o.tamanho_key = j.tkey)
              LIMIT 1) AS conflito_com
       FROM j
   )
@@ -2475,8 +3047,8 @@ END
 $function$;
 
 -- Gera (1ª vez: _regerar=false só cria o que falta) ou regera (_regerar=true: recalcula as AUTOMÁTICAS e remove
--- as automáticas que saíram da grade). Linha manual: NUNCA tocada (Q2). Falta sigla: não gera a linha (Q4).
--- SKU igual a outro da loja (UNIQUE tenant_id+sku): não grava a linha e devolve em `conflitos` (mensagem PT).
+-- as automáticas que saíram da grade — D2). Linha manual: NUNCA tocada (Q2). Falta sigla: não gera a linha (Q4).
+-- SKU já usado por OUTRA linha da loja (gatilho de unicidade, D5): não grava a linha e devolve em `conflitos`.
 -- Devolve a MATRIZ (_skus_modelo_core) + criados/atualizados/removidos/conflitos.
 CREATE OR REPLACE FUNCTION public._gerar_skus_modelo_core(_modelo_id uuid, _regerar boolean)
 RETURNS jsonb
@@ -2487,7 +3059,7 @@ AS $function$
 #variable_conflict use_column
 DECLARE
   v_tenant uuid;
-  v_ref text;
+  v_refn text;
   v_cfg jsonb;
   l record;
   v_id uuid;
@@ -2501,8 +3073,8 @@ DECLARE
   v_com_nome text;
   v_com_ref text;
 BEGIN
-  SELECT mo.tenant_id, btrim(coalesce(mo.ref, ''), E' \t\r\n'), tc.sku_config
-    INTO v_tenant, v_ref, v_cfg
+  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config
+    INTO v_tenant, v_refn, v_cfg
     FROM public.modelos mo
     LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
    WHERE mo.id = _modelo_id;
@@ -2513,10 +3085,9 @@ BEGIN
   -- Uma geração por modelo de cada vez (duas abas/pessoas no mesmo card esperam em fila).
   PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || _modelo_id::text, 0));
 
-  IF v_cfg IS NOT NULL AND v_ref <> '' THEN
+  IF v_cfg IS NOT NULL AND v_refn <> '' THEN
     IF _regerar THEN
-      -- Automáticas que saíram da grade (variante trocada/removida, tamanho zerado) saem ANTES de gerar: senão o
-      -- SKU delas barraria o da linha nova igual (ex.: trocou o tecido do Tecido 1 mantendo as cores). Manual: nunca.
+      -- Automáticas que saíram da grade (variante/cor removida, tamanho zerado) saem ANTES de gerar. Manual: nunca.
       DELETE FROM public.modelo_skus s
        WHERE s.modelo_id = _modelo_id
          AND NOT s.manual
@@ -2539,11 +3110,11 @@ BEGIN
       CONTINUE WHEN v_id IS NOT NULL AND (NOT _regerar OR v_sku = l.sku);      -- fixo (Q2) ou já igual
       BEGIN
         IF v_id IS NULL THEN
-          INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
-          VALUES (v_tenant, _modelo_id, l.variante_key, l.tamanho_key, l.sku, false, now());
+          INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual, gerado_em)
+          VALUES (v_tenant, _modelo_id, l.variante_key, l.tamanho_key, l.sku, v_refn, false, now());
           v_criados := v_criados + 1;
         ELSE
-          UPDATE public.modelo_skus SET sku = l.sku, gerado_em = now(), rev = rev + 1 WHERE id = v_id;
+          UPDATE public.modelo_skus SET sku = l.sku, ref = v_refn, gerado_em = now(), rev = rev + 1 WHERE id = v_id;
           v_atualizados := v_atualizados + 1;
         END IF;
       EXCEPTION WHEN unique_violation THEN
@@ -2554,6 +3125,7 @@ BEGIN
           FROM public.modelo_skus o
           JOIN public.modelos mo ON mo.id = o.modelo_id
          WHERE o.tenant_id = v_tenant AND o.sku = l.sku
+         ORDER BY (o.modelo_id = _modelo_id) DESC
          LIMIT 1;
         v_conflitos := v_conflitos || jsonb_build_array(jsonb_build_object(
           'variante_key', l.variante_key, 'tamanho_key', l.tamanho_key, 'sku', l.sku,
@@ -2575,47 +3147,76 @@ BEGIN
 END
 $function$;
 
--- Edição manual de UM SKU: grava aparado, marca manual=true (nunca mais é sobrescrito, nem pelo Regerar).
--- Mesma UNIQUE da loja (mensagem PT). `_rev_base` (opcional) = trava otimista da linha (P0409).
+-- SKU à mão (R3): grava manual=true e aparado/normalizado (D6). Duas formas:
+--   • `_id` = linha JÁ gravada (automática ou manual) → troca o SKU;
+--   • `_id` NULL + (`_modelo_id`, `_variante_key`, `_tamanho_key`) = linha AINDA SEM SKU (em conflito, com falta de
+--     sigla ou só pendente) → cria a linha manual, validada contra a grade atual (_skus_modelo_calc).
+-- Mesma unicidade da geração (D5). `_rev_base` (opcional, linha existente) = trava otimista (P0409).
 -- NÃO trava depois do envio à Explosão (spec §4.2: o SKU é identidade comercial do Planejamento).
-CREATE OR REPLACE FUNCTION public._salvar_sku_manual_core(_id uuid, _sku text, _rev_base integer)
+CREATE OR REPLACE FUNCTION public._salvar_sku_manual_core(_id uuid, _sku text, _rev_base integer,
+                                                          _modelo_id uuid, _variante_key uuid, _tamanho_key text)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_sku text := btrim(coalesce(_sku, ''), E' \t\r\n');
+  v_sku text;
+  v_id uuid := _id;
   v_tenant uuid;
   v_modelo uuid;
+  v_refn text;
   v_rev integer;
   v_com_modelo uuid;
   v_com_nome text;
   v_com_ref text;
 BEGIN
-  IF v_sku = '' THEN
-    RAISE EXCEPTION 'Informe o SKU.' USING ERRCODE = 'P0001';
+  v_sku := public._sku_norm_manual(_sku);
+  IF v_id IS NULL THEN
+    IF _modelo_id IS NULL OR _variante_key IS NULL OR coalesce(btrim(_tamanho_key), '') = '' THEN
+      RAISE EXCEPTION 'Informe a linha do SKU (modelo, variante e tamanho).' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT s.id INTO v_id
+      FROM public.modelo_skus s
+     WHERE s.modelo_id = _modelo_id AND s.variante_key = _variante_key AND s.tamanho_key = _tamanho_key;
+    IF v_id IS NULL AND NOT EXISTS (
+         SELECT 1 FROM public._skus_modelo_calc(_modelo_id) AS c
+          WHERE c.variante_key = _variante_key AND c.tamanho_key = _tamanho_key) THEN
+      RAISE EXCEPTION 'Esta variante/tamanho não está na grade do produto.' USING ERRCODE = 'P0001';
+    END IF;
   END IF;
-  SELECT s.tenant_id, s.modelo_id, s.rev INTO v_tenant, v_modelo, v_rev
-    FROM public.modelo_skus s
-   WHERE s.id = _id
-     FOR UPDATE;
-  IF v_tenant IS NULL THEN
-    RAISE EXCEPTION 'SKU não encontrado.' USING ERRCODE = 'P0001';
+  IF v_id IS NOT NULL THEN
+    SELECT s.tenant_id, s.modelo_id, s.rev INTO v_tenant, v_modelo, v_rev
+      FROM public.modelo_skus s
+     WHERE s.id = v_id
+       FOR UPDATE;
+    IF v_tenant IS NULL THEN
+      RAISE EXCEPTION 'SKU não encontrado.' USING ERRCODE = 'P0001';
+    END IF;
+    IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
+      RAISE EXCEPTION 'conflito_versao: o SKU foi alterado por outra pessoa' USING ERRCODE = 'P0409';
+    END IF;
+  ELSE
+    SELECT mo.tenant_id, mo.id INTO v_tenant, v_modelo FROM public.modelos mo WHERE mo.id = _modelo_id;
   END IF;
-  IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
-    RAISE EXCEPTION 'conflito_versao: o SKU foi alterado por outra pessoa' USING ERRCODE = 'P0409';
-  END IF;
+  SELECT public._sku_norm_ref(mo.ref) INTO v_refn FROM public.modelos mo WHERE mo.id = v_modelo;
   BEGIN
-    UPDATE public.modelo_skus s
-       SET sku = v_sku, manual = true, gerado_em = now(), rev = s.rev + 1
-     WHERE s.id = _id
-    RETURNING s.rev INTO v_rev;
+    IF v_id IS NULL THEN
+      INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual, gerado_em)
+      VALUES (v_tenant, v_modelo, _variante_key, _tamanho_key, v_sku, coalesce(v_refn, ''), true, now())
+      RETURNING id, rev INTO v_id, v_rev;
+    ELSE
+      UPDATE public.modelo_skus s
+         SET sku = v_sku, ref = coalesce(v_refn, ''), manual = true, gerado_em = now(), rev = s.rev + 1
+       WHERE s.id = v_id
+      RETURNING s.rev INTO v_rev;
+    END IF;
   EXCEPTION WHEN unique_violation THEN
     SELECT o.modelo_id, mo.nome, mo.ref INTO v_com_modelo, v_com_nome, v_com_ref
       FROM public.modelo_skus o
       JOIN public.modelos mo ON mo.id = o.modelo_id
-     WHERE o.tenant_id = v_tenant AND o.sku = v_sku AND o.id <> _id
+     WHERE o.tenant_id = v_tenant AND o.sku = v_sku AND o.id IS DISTINCT FROM v_id
+     ORDER BY (o.modelo_id = v_modelo) DESC
      LIMIT 1;
     IF v_com_modelo = v_modelo THEN
       RAISE EXCEPTION 'O SKU % já está em outra linha deste produto.', v_sku USING ERRCODE = 'P0001';
@@ -2623,7 +3224,7 @@ BEGIN
     RAISE EXCEPTION 'O SKU % já existe em % (REF %). Escolha outro.', v_sku, coalesce(v_com_nome, 'outro produto'),
       coalesce(nullif(btrim(v_com_ref), ''), '—') USING ERRCODE = 'P0001';
   END;
-  RETURN jsonb_build_object('id', _id, 'sku', v_sku, 'manual', true, 'rev', v_rev);
+  RETURN jsonb_build_object('id', v_id, 'sku', v_sku, 'manual', true, 'rev', v_rev);
 END
 $function$;
 
@@ -2659,7 +3260,9 @@ BEGIN
 END
 $function$;
 
-CREATE OR REPLACE FUNCTION public.salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL,
+                                                    _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL,
+                                                    _tamanho_key text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -2668,9 +3271,13 @@ AS $function$
 DECLARE
   v_tenant uuid;
 BEGIN
-  SELECT s.tenant_id INTO v_tenant FROM public.modelo_skus s WHERE s.id = _id;
+  IF _id IS NOT NULL THEN
+    SELECT s.tenant_id INTO v_tenant FROM public.modelo_skus s WHERE s.id = _id;
+  ELSE
+    SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = _modelo_id;
+  END IF;
   PERFORM public._sku_guarda(v_tenant, true);
-  RETURN public._salvar_sku_manual_core(_id, _sku, _rev_base);
+  RETURN public._salvar_sku_manual_core(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key);
 END
 $function$;
 
@@ -2680,17 +3287,17 @@ REVOKE EXECUTE ON FUNCTION
   public._skus_modelo_calc(uuid),
   public._skus_modelo_core(uuid),
   public._gerar_skus_modelo_core(uuid, boolean),
-  public._salvar_sku_manual_core(uuid, text, integer)
+  public._salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text)
   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION
   public.skus_modelo(uuid),
   public.gerar_skus_modelo(uuid, boolean),
-  public.salvar_sku_manual(uuid, text, integer)
+  public.salvar_sku_manual(uuid, text, integer, uuid, uuid, text)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION
   public.skus_modelo(uuid),
   public.gerar_skus_modelo(uuid, boolean),
-  public.salvar_sku_manual(uuid, text, integer)
+  public.salvar_sku_manual(uuid, text, integer, uuid, uuid, text)
   TO authenticated;
 ```
 
@@ -2702,10 +3309,12 @@ ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "testes-checados"
 grep -c 'CREATE OR REPLACE FUNCTION public\.' supabase/migrations/20261003100000_sku_automatico.sql
 grep -c 'CREATE TRIGGER ' supabase/migrations/20261003100000_sku_automatico.sql
 grep -nE '\\i |psql -f' supabase/migrations/20261003100000_sku_automatico.sql supabase/rollback/20261003100000_sku_automatico_down.sql tests/integration/sku-automatico.test.ts; echo "sem-\\i-checado"
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -6
+SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t5s2 && \
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -6
+bash .superpowers/f35a/n3.sh depois t5s2
 ```
 
-Expected: `18` funções, `5` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `Tests  24 passed (24)`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
+Expected (dono avisado ANTES — R5): `23` funções, `6` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `OK (N3): pode rodar t5s2`; `Tests  31 passed (31)`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
 
 - [ ] **Step 3: Gates + commit**
 
@@ -2724,21 +3333,24 @@ git show --stat HEAD | tail -3
 
 **Files:** nenhum no git. Cria `.superpowers/f35a/mig/ensaio-local.sh` e grava `.superpowers/f35a/mig/md5-{mig,inv}.txt` (referência do QA e da produção).
 
-**Por quê:** prova a receita `aplica_v2` (o MESMO caminho da produção) com `lock_timeout`/`transaction_timeout`, mede o tempo que a migration segura lock, prova que NENHUMA função pré-existente muda (md5) e roda a suíte contra os objetos APLICADOS (sem harness). Termina com a cópia LIMPA.
+**Por quê:** prova a receita `aplica_v2` (o MESMO caminho da produção) com `lock_timeout`/`transaction_timeout`, mede o tempo que a migration (e o inverso) seguram lock, prova que NENHUMA função pré-existente muda (md5) e que as contagens sobem exatamente os objetos da F3.5a, roda a suíte contra os objetos APLICADOS (sem harness) e — R6 — roda as 9 suítes VIZINHAS (produto acabado/importado, OC de produto acabado, Plan. Tecido, REF, BOM de aviamento, exclusão de tecido, OTB — tocam as tabelas que ganham os 5 gatilhos novos) ANTES e DEPOIS da ida real, comparando o conjunto de falhas e o total de testes. Termina com a cópia LIMPA.
 
 - [ ] **Step 1: O script** — criar `.superpowers/f35a/mig/ensaio-local.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# ENSAIO GERAL da F3.5a na CÓPIA LOCAL (Task 6): backup → IDA real → objetos/ACL/funções pré-existentes → suíte com os
-# objetos APLICADOS → VOLTA → REIDA → VOLTA. Termina com a cópia LIMPA (sem a F3.5a), igual a antes.
-# Uso (raiz da worktree): bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee .superpowers/f35a/logs/ensaio.log
+# ENSAIO GERAL da F3.5a na CÓPIA LOCAL (Task 6): N3 → backup → suítes VIZINHAS antes (R6) → IDA real → objetos/ACL/
+# funções pré-existentes/contagens → suíte com os objetos APLICADOS → suítes VIZINHAS depois (R6: nenhuma falha nova,
+# mesmo total) → VOLTA → REIDA → VOLTA. Termina com a cópia LIMPA (sem a F3.5a), igual a antes.
+# Uso (raiz da worktree, SÓ depois do OK do dono no chat — o :5188 congela em trechos, R5):
+#   SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee .superpowers/f35a/logs/ensaio.log
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 source .superpowers/f35a/mig/aplica.sh || exit 1
 S=.superpowers/f35a
 BK="/Users/sunglee/PLM + Criação/banco-local/backups"
 if ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; then echo "PARE: há teste rodando (a cópia é compartilhada — um por vez)"; exit 1; fi
+bash "$S/n3.sh" antes t6 || exit 1
 docker ps --filter name=supabase_db_banco-local --format '{{.Status}}' | grep -q '^Up' || { echo "PARE: cópia local fora do ar"; exit 1; }
 git diff --quiet HEAD -- "$MIG" "$INV" || { echo "PARE: SQL da F3.5a com alteração não commitada"; exit 1; }
 espera "$LOCAL" "$OBJ_F35A" "0|0|0|0" "cópia SEM a F3.5a" || exit 1
@@ -2751,6 +3363,18 @@ F="$BK/pre-f35a-ensaio-$(date +%F-%H%M%S).dump"
 docker exec -e PGPASSWORD=postgres supabase_db_banco-local pg_dump -h 127.0.0.1 -U supabase_admin -d postgres -Fc > "$F" && [ -s "$F" ] \
   || { echo "PARE: backup falhou"; rm -f "$F"; exit 1; }
 echo "backup: $F ($(du -h "$F" | cut -f1))"
+# R6 — suítes VIZINHAS (tocam as tabelas dos gatilhos novos: produtos, cores, tenant_config, modelos) ANTES e DEPOIS da
+# ida REAL: o conjunto de falhas depois tem de estar CONTIDO no de antes (débito herdado) e o total de testes igual (uma
+# rodada que pulasse tudo daria "verde" calado). SEMPRE com o DATABASE_URL da CÓPIA (sem ele o fallback é PRODUÇÃO).
+VIZ="tests/integration/oc-p-acabado.test.ts tests/integration/produto-acabado.test.ts tests/integration/produto-acabado-hardening.test.ts tests/integration/plan-tecido.test.ts tests/integration/plan-tecido-aplicar.test.ts tests/integration/ref-exibir.test.ts tests/integration/variante-aviamento-bom.test.ts tests/integration/rpc-tecido-exclusao.test.ts tests/integration/otb.test.ts"
+falhas() { grep -E "^ FAIL " "$1" | sed -E 's/ +[0-9]+ms$//' | sort -u; }
+total() { grep -E "^ +Tests +" "$1" | tail -1 | sed -E 's/.*\(([0-9]+)\).*/\1/'; }
+viz() {
+  DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism $VIZ > "$S/logs/r6-$1.log" 2>&1
+  falhas "$S/logs/r6-$1.log" > "$S/logs/r6-falhas-$1.txt"
+  echo "R6 $1: $(grep -E '^ +Tests +' "$S/logs/r6-$1.log" | tail -1 | sed 's/^ *//') · $(wc -l < "$S/logs/r6-falhas-$1.txt" | tr -d ' ') falha(s)"
+}
+viz antes
 volta() {
   export EXTRA_SQL="SET LOCAL app.confirmo_apagar_skus = 'sim';"
   ativ_vazio "$LOCAL" && aplica_v2 "$LOCAL" "$INV"
@@ -2759,23 +3383,38 @@ volta() {
   return $rc
 }
 aplica_v2 "$LOCAL" "$MIG" || exit 1
-espera "$LOCAL" "$OBJ_F35A" "18|5|1|7" "IDA: objetos da F3.5a" || { volta; exit 1; }
+espera "$LOCAL" "$OBJ_F35A" "23|6|1|7" "IDA: objetos da F3.5a" || { volta; exit 1; }
+CONT1="$(psql "$LOCAL" -X -A -t -c "$CONT")"
+OBJ1="$(psql "$LOCAL" -X -A -t -c "$OBJ_F35A")"
+DF=$(( ${CONT1%|*} - ${CONT0%|*} )); DG=$(( ${CONT1#*|} - ${CONT0#*|} ))
+[ "$DF|$DG" = "$(echo "$OBJ1" | cut -d'|' -f1-2)" ] && echo "OK (IDA: contagens $CONT0 → $CONT1 = +$DF funções +$DG gatilhos, os da F3.5a)" \
+  || { echo "FALHOU (IDA: contagens $CONT0 → $CONT1 ≠ objetos da F3.5a $OBJ1)"; volta; exit 1; }
 espera "$LOCAL" "$ACL_F35A" "0|0|0" "IDA: ACL (#9)" || { volta; exit 1; }
 espera "$LOCAL" "$FN_PRE" "$FN0" "IDA: nenhuma função pré-existente mudou" || { volta; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts > "$S/logs/ensaio-suite.log" 2>&1
 tail -6 "$S/logs/ensaio-suite.log"
-grep -qE "Tests +23 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
-  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 23 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
+grep -qE "Tests +30 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
+  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 30 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
+viz depois
+NOVAS="$(comm -13 "$S/logs/r6-falhas-antes.txt" "$S/logs/r6-falhas-depois.txt")"
+TA="$(total "$S/logs/r6-antes.log")"; TD="$(total "$S/logs/r6-depois.log")"
+if [ -z "$NOVAS" ] && [ -n "$TA" ] && [ "$TA" = "$TD" ]; then
+  echo "OK (R6): suítes vizinhas sem falha nova ($(wc -l < "$S/logs/r6-falhas-antes.txt" | tr -d ' ') herdada(s)); $TA testes antes e depois"
+else
+  [ -n "$NOVAS" ] && echo "$NOVAS" | sed 's/^/FALHA NOVA: /'
+  echo "FALHOU (R6): falha nova ou total diferente nas suítes vizinhas (antes $TA, depois $TD)"; volta; exit 1
+fi
 volta || exit 1
 espera "$LOCAL" "$OBJ_F35A" "0|0|0|0" "VOLTA: cópia sem a F3.5a" || exit 1
 espera "$LOCAL" "$CONT" "$CONT0" "VOLTA: contagens = antes" || exit 1
 espera "$LOCAL" "$FN_PRE" "$FN0" "VOLTA: funções pré-existentes = antes" || exit 1
 aplica_v2 "$LOCAL" "$MIG" || exit 1
-espera "$LOCAL" "$OBJ_F35A" "18|5|1|7" "REIDA: objetos" || { volta; exit 1; }
+espera "$LOCAL" "$OBJ_F35A" "23|6|1|7" "REIDA: objetos" || { volta; exit 1; }
 volta || exit 1
 espera "$LOCAL" "$OBJ_F35A" "0|0|0|0" "VOLTA 2" && espera "$LOCAL" "$CONT" "$CONT0" "VOLTA 2: contagens" \
   && espera "$LOCAL" "$FN_PRE" "$FN0" "VOLTA 2: funções pré-existentes" || exit 1
 md5 -q "$MIG" > "$S/mig/md5-mig.txt"; md5 -q "$INV" > "$S/mig/md5-inv.txt"
+bash "$S/n3.sh" depois t6
 echo "== ENSAIO F3.5a OK — cópia limpa; backup: $F; md5 da migration $(cat "$S/mig/md5-mig.txt")"
 ```
 
@@ -2784,10 +3423,12 @@ echo "== ENSAIO F3.5a OK — cópia limpa; backup: $F; md5 da migration $(cat "$
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 chmod +x .superpowers/f35a/mig/ensaio-local.sh
-/bin/bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee .superpowers/f35a/logs/ensaio.log | tail -40
+SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee .superpowers/f35a/logs/ensaio.log | tail -50
 ```
 
-Expected: `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 18|5|1|7` → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  23 passed | 1 skipped (24)` → VOLTA → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
+R5: avisar o dono ANTES (texto do `n3.sh`; ~15–20 min — as suítes vizinhas 2×, a suíte da F3.5a e ida/volta 2×; o `:5188` congela nos trechos de DDL) e rodar SÓ com o OK.
+
+Expected: `OK (N3): pode rodar t6` → `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → `R6 antes: Tests … (<T>) · <k> falha(s)` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção, com auth/storage presos pelas policies; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 23|6|1|7` → `OK (IDA: contagens 458|263 → 481|269 = +23 funções +6 gatilhos, os da F3.5a)` (ou os números do T0) → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  30 passed | 1 skipped (31)` → `R6 depois: …` → `OK (R6): suítes vizinhas sem falha nova (<k> herdada(s)); <T> testes antes e depois` → VOLTA (anotar o `real` do inverso também: ele não faz trabalho por linha, só count + DROP) → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. `FALHA NOVA: …`/`FALHOU (R6)` = a migration mudou comportamento fora do desenho: o script já voltou; PARE e chame o revisor Opus. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
 
 ---
 
@@ -3173,8 +3814,8 @@ Por:
 ```tsx
       singular: "Cor base",
       plural: "Cores base",
-      // Sigla da cor no SKU automático (F3.5a). O servidor normaliza no salvar (trim + maiúsculas; vazia = sem sigla).
-      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: AM", maxLength: 10, hint: "Usada no SKU automático. Fica em maiúsculas." },
+      // Sigla da cor no SKU automático (F3.5a). O servidor normaliza no salvar (sem acento/espaço, só A–Z/0–9, maiúsculas; vazia = sem sigla — D6).
+      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: AM", maxLength: 10, hint: "Usada no SKU automático: só letras e números, sem acento nem espaço (fica em maiúsculas)." },
 ```
 
 **20. Cor apelido ganha Sigla SKU** — `src/routes/_authenticated/cadastro.atributos.tsx`
@@ -3192,7 +3833,7 @@ Por:
       singular: "Cor apelido",
       plural: "Cores apelido",
       // Sigla do apelido no SKU automático (F3.5a) — mesma regra da Cor base.
-      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: CAN", maxLength: 10, hint: "Usada no SKU automático. Fica em maiúsculas." },
+      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: CAN", maxLength: 10, hint: "Usada no SKU automático: só letras e números, sem acento nem espaço (fica em maiúsculas)." },
 ```
 
 
@@ -3208,7 +3849,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/com
 git show --stat HEAD | tail -4
 ```
 
-Expected: `attribute-tab.tsx:28` e `cadastro.atributos.tsx:2`; `GATES F3.5a: ok` (o anti-drift de UI continua só com as 2 falhas herdadas — conferido pelo planejador num espelho: tsc limpo, 836 unit verdes).
+Expected: `attribute-tab.tsx:28` e `cadastro.atributos.tsx:2`; `GATES F3.5a: ok` (o anti-drift de UI continua só com as 2 falhas herdadas — conferido pelo planejador num espelho depois das ressalvas: tsc limpo, 859 unit verdes + as 2 herdadas).
 
 ---
 
@@ -3351,7 +3992,7 @@ export function GradeTamanhosCard({ readOnly }: { readOnly?: boolean } = {}) {
  * Siglas no SKU de CADA LADO dos pares da grade (spec SKU §4.1/§4.3): "34|PPP" → número 34 → sigla, letra PPP →
  * sigla. Item solto é um lado só (classificado: só dígitos = número). O mapa é por TEXTO do lado — dois pares com o
  * mesmo lado dividem a sigla. Grava SÓ `tamanhos_sku` (update da coluna, nunca a linha inteira — lição RP3 da F2),
- * aplicando sobre o valor ATUAL do banco apenas os lados que VOCÊ mudou. O servidor normaliza (trim + maiúsculas).
+ * aplicando sobre o valor ATUAL do banco apenas os lados que VOCÊ mudou. O servidor normaliza (sem acento/espaço, só A–Z/0–9, maiúsculas — D6).
  */
 function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: boolean }) {
   const qc = useQueryClient();
@@ -3505,7 +4146,7 @@ git show --stat HEAD | tail -3
 - Modify: `src/routes/_authenticated/admin/configuracoes.tsx` (+2 linhas — gate)
 
 **Interfaces:**
-- Consumes: `normalizarSkuConfig`, `normalizarTamanhosSku`, `resolverSku`, `textoFalta`, `canonico`, `chaveSeparador`, `SKU_PARTES`, `SKU_PARTE_LABEL`, `SKU_SEP_MAX` (Task 1). Produces: queryKeys `["tenant-config-sku", tenantId]` e `["tenant-sku-exemplo", tenantId]` (casam o prefixo "tenant" do mapa de Realtime e o `invalidateQueries` do Salvar geral — a semeadura só acontece SEM rascunho pendente); grava SÓ `tenant_config.sku_config` (conferência de conflito antes — RP3), com AlertDialog; prévia ao vivo com a REF mais recente da loja + a 1ª cor com sigla + um apelido dela + o 1º tamanho da grade (com e sem apelido). Ganchos de QA: `data-secao="formato-sku"`, `data-sku-previa`, `aria-label` nos separadores e no "Tamanho em".
+- Consumes: `normalizarSkuConfig`, `normalizarTamanhosSku`, `resolverSku`, `textoFalta`, `canonico`, `chaveSeparador`, `SKU_PARTES`, `SKU_PARTE_LABEL`, `SKU_SEP_CHARS`, `SKU_SEP_MAX` (Task 1; o campo do separador só aceita `- . _ /` — D6). Produces: queryKeys `["tenant-config-sku", tenantId]` e `["tenant-sku-exemplo", tenantId]` (casam o prefixo "tenant" do mapa de Realtime e o `invalidateQueries` do Salvar geral — a semeadura só acontece SEM rascunho pendente); grava SÓ `tenant_config.sku_config` (conferência de conflito antes — RP3), com AlertDialog; prévia ao vivo com a REF mais recente da loja + a 1ª cor com sigla + um apelido dela + o 1º tamanho da grade (com e sem apelido). Ganchos de QA: `data-secao="formato-sku"`, `data-sku-previa`, `aria-label` nos separadores e no "Tamanho em".
 
 - [ ] **Step 1: O componente** — criar `src/components/configuracoes/FormatoSkuCard.tsx`:
 
@@ -3532,7 +4173,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import {
   canonico, chaveSeparador, normalizarSkuConfig, normalizarTamanhosSku, resolverSku, textoFalta,
-  SKU_PARTES, SKU_PARTE_LABEL, SKU_SEP_MAX,
+  SKU_PARTES, SKU_PARTE_LABEL, SKU_SEP_CHARS, SKU_SEP_MAX,
   type SkuConfig, type SkuCor, type SkuParte,
 } from "@/lib/sku-montar";
 import type { TamanhoTipo } from "@/lib/tamanho";
@@ -3623,7 +4264,7 @@ export function FormatoSkuCard() {
       return { ...r, partes };
     });
   const setSep = (k: string, v: string) =>
-    setRascunho((r) => ({ ...r, separadores: { ...r.separadores, [k]: v.replace(/\s/g, "") } }));
+    setRascunho((r) => ({ ...r, separadores: { ...r.separadores, [k]: v.replace(/[^-._/]/g, "") } }));
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -3694,7 +4335,7 @@ export function FormatoSkuCard() {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Montagem do SKU</p>
           <p className="text-xs text-muted-foreground">
             Marque as partes e ordene com as setas. Entre duas partes, um separador opcional (até {SKU_SEP_MAX}
-            caracteres, sem espaço; vazio = colado).
+            caracteres, só {SKU_SEP_CHARS}; vazio = colado).
           </p>
           <ul className="space-y-1.5">
             {rascunho.partes.map((p, i) => (
@@ -3889,7 +4530,7 @@ Expected: `conflitos com a F2 = 0` (o planejador simulou em 24/set: 0); `2	0	…
 
 ## Task 10: QA na CÓPIA — variante `:5180`, guarda invertida  *(controlador; relatório ao guardião)*
 
-> A F3.5a vai à cópia pelo `copia-qa.sh ida` (backup antes). S1–S5 automáticos NÃO gravam (escrita = violação). E1–E4 gravam de verdade NA CÓPIA (siglas das cores do card escolhido, siglas da grade, Formato do SKU, SKUs do card) — um por vez, com o dono avisado no chat antes; tudo sai com o `copia-qa.sh volta` (que exporta antes). Produção: nada aqui.
+> A F3.5a vai à cópia pelo `copia-qa.sh ida` (N3 + backup antes; R5: dono avisado no chat ANTES da ida e da volta). S1–S5 automáticos NÃO gravam (escrita = violação). E1–E4 gravam de verdade NA CÓPIA (siglas das cores do card escolhido, siglas da grade, Formato do SKU, SKUs do card) — um por vez, com o dono avisado no chat antes; tudo sai com o `copia-qa.sh volta` (que exporta antes). Produção: nada aqui.
 
 **Files:**
 - Create (NÃO versionar): `tests/e2e/f35a-qa.spec.ts`; `.superpowers/f35a/mig/copia-qa.sh`; evidências em `.superpowers/f35a/qa/`.
@@ -3912,9 +4553,11 @@ Criar `.superpowers/f35a/mig/copia-qa.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# F3.5a NA CÓPIA LOCAL para o QA (Task 10) e, depois do merge, para FICAR (Task 13). Uso (raiz da worktree, bash):
-#   bash .superpowers/f35a/mig/copia-qa.sh estado|ida|volta [--apos-merge]
-#  • ida   — backup pg_dump -Fc ANTES; aplica_v2 da migration; confere objetos, ACL e funções pré-existentes.
+# F3.5a NA CÓPIA LOCAL para o QA (Task 10) e, depois do merge, para FICAR (Task 13). Uso (raiz da worktree, bash;
+# ida/volta SÓ depois do OK do dono no chat — o :5188 congela, R5):
+#   SKU_DONO_AVISADO=sim bash .superpowers/f35a/mig/copia-qa.sh estado|ida|volta [--apos-merge]
+#  • ida   — N3 (n3.sh) + backup pg_dump -Fc ANTES; aplica_v2 da migration; confere objetos, ACL, funções
+#            pré-existentes e as contagens MEDIDAS (antes → depois = os objetos da F3.5a; R9 usa esse número).
 #  • volta — exporta o que o QA gravou (siglas, formato, SKUs) e aplica o inverso COM a confirmação. Recusa com a
 #            variante :5180 no ar e, com a F3.5a já no checkout principal, só com --apos-merge (o :5188 do dono passa a
 #            mandar sigla_sku/sku_config sem as colunas no banco).
@@ -3930,10 +4573,12 @@ case "${1:-}" in
   estado) mostra ;;
   ida)
     sem_testes || exit 1
+    bash .superpowers/f35a/n3.sh antes copia-ida || exit 1
     espera "$LOCAL" "$OBJ_F35A" "0|0|0|0" "cópia sem a F3.5a" || { echo "(já aplicada? use 'estado')"; exit 1; }
     git diff --quiet HEAD -- "$MIG" "$INV" || { echo "PARE: SQL da F3.5a com alteração não commitada"; exit 1; }
     [ "$(md5 -q "$MIG")" = "$(cat .superpowers/f35a/mig/md5-mig.txt)" ] || { echo "PARE: a migration não é a do ensaio (md5)"; exit 1; }
     FN0="$(psql "$LOCAL" -X -A -t -c "$FN_PRE")"
+    C0="$(psql "$LOCAL" -X -A -t -c "$CONT")"
     mkdir -p "$BK"
     F="$BK/pre-f35a-qa-$(date +%F-%H%M%S).dump"
     docker exec -e PGPASSWORD=postgres supabase_db_banco-local pg_dump -h 127.0.0.1 -U supabase_admin -d postgres -Fc > "$F" && [ -s "$F" ] \
@@ -3941,12 +4586,17 @@ case "${1:-}" in
     echo "backup: $F ($(du -h "$F" | cut -f1))"
     ativ_vazio "$LOCAL" || exit 1
     aplica_v2 "$LOCAL" "$MIG" || exit 1
-    espera "$LOCAL" "$OBJ_F35A" "18|5|1|7" "objetos da F3.5a" && espera "$LOCAL" "$ACL_F35A" "0|0|0" "ACL (#9)" \
+    espera "$LOCAL" "$OBJ_F35A" "23|6|1|7" "objetos da F3.5a" && espera "$LOCAL" "$ACL_F35A" "0|0|0" "ACL (#9)" \
       && espera "$LOCAL" "$FN_PRE" "$FN0" "funções pré-existentes intactas" || exit 1
+    C1="$(psql "$LOCAL" -X -A -t -c "$CONT")"
+    [ "$(( ${C1%|*} - ${C0%|*} ))|$(( ${C1#*|} - ${C0#*|} ))" = "23|6" ] || { echo "FALHOU (contagens $C0 → $C1 ≠ +23|+6 da F3.5a — outra frente mexeu na cópia no meio?)"; exit 1; }
+    echo "$(date '+%F %T') ida: funções|gatilhos $C0 → $C1" | tee -a .superpowers/f35a/logs/copia-contagens.txt
     mostra
-    echo "== F3.5a NA CÓPIA. Tirar com: bash .superpowers/f35a/mig/copia-qa.sh volta" ;;
+    bash .superpowers/f35a/n3.sh depois copia-ida
+    echo "== F3.5a NA CÓPIA ($C0 → $C1). Tirar com: SKU_DONO_AVISADO=sim bash .superpowers/f35a/mig/copia-qa.sh volta" ;;
   volta)
     sem_testes || exit 1
+    bash .superpowers/f35a/n3.sh antes copia-volta || exit 1
     if lsof -nP -iTCP:5180 -sTCP:LISTEN -t >/dev/null 2>&1; then echo "PARE: a variante :5180 está no ar — descer antes (app-teste-variantes/f35a/descer.sh)"; exit 1; fi
     if git -C "$MAIN" cat-file -e "feature/plan-tecido-a1:$MIG" 2>/dev/null && [ "${2:-}" != "--apos-merge" ]; then
       echo "PARE: a F3.5a já está no checkout principal — sem a migration na cópia o :5188 do dono falha ao salvar sigla/formato. Só com --apos-merge (e o dono avisado)."; exit 1
@@ -3965,7 +4615,9 @@ case "${1:-}" in
     unset EXTRA_SQL
     [ "$rc" = 0 ] || exit 1
     espera "$LOCAL" "$OBJ_F35A" "0|0|0|0" "volta: F3.5a fora da cópia" || exit 1
+    echo "$(date '+%F %T') volta: funções|gatilhos agora $(psql "$LOCAL" -X -A -t -c "$CONT")" | tee -a .superpowers/f35a/logs/copia-contagens.txt
     mostra
+    bash .superpowers/f35a/n3.sh depois copia-volta
     echo "== F3.5a FORA DA CÓPIA" ;;
   *) echo "uso: copia-qa.sh estado|ida|volta [--apos-merge]"; exit 2 ;;
 esac
@@ -3974,14 +4626,14 @@ esac
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 chmod +x .superpowers/f35a/mig/copia-qa.sh
-/bin/bash .superpowers/f35a/mig/copia-qa.sh ida 2>&1 | tee .superpowers/f35a/logs/copia-ida.log | tail -12
+SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/copia-qa.sh ida 2>&1 | tee .superpowers/f35a/logs/copia-ida.log | tail -14
 VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
 bash "$VAR/criar-variante.sh" f35a "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a" 5180
 "$VAR/f35a/subir.sh"
 lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
 ```
 
-Expected: `== F3.5a NA CÓPIA` (com `OK (objetos…): 18|5|1|7`, `OK (ACL (#9)): 0|0|0`, `OK (funções pré-existentes intactas)`); `variante f35a pronta …`; `OK: variante f35a em http://localhost:5180 (PID …)` + a linha `[guarda-copia-local] OK: variante f35a (:5180, raiz …/sku-f35a) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o `:5188` com o mesmo PID de antes. `RECUSADO`/`ABORTADO`/`ERRO`/`PARE`: pare e reporte (nunca contornar a guarda).
+Expected: `OK (N3): pode rodar copia-ida`, `== F3.5a NA CÓPIA (<antes> → <depois>)` (com `OK (objetos…): 23|6|1|7`, `OK (ACL (#9)): 0|0|0`, `OK (funções pré-existentes intactas)`; o `ida: funções|gatilhos …` em `logs/copia-contagens.txt`); `variante f35a pronta …`; `OK: variante f35a em http://localhost:5180 (PID …)` + a linha `[guarda-copia-local] OK: variante f35a (:5180, raiz …/sku-f35a) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o `:5188` com o mesmo PID de antes. `RECUSADO`/`ABORTADO`/`ERRO`/`PARE`: pare e reporte (nunca contornar a guarda).
 
 Escolher o card e as cores (SELECT só-leitura na cópia) e exportar:
 
@@ -4205,12 +4857,16 @@ test.describe("F3.5a — E (grava na CÓPIA — F35A_ESCRITA=1, um por vez)", ()
     await expect(linha.locator("span.font-mono")).toHaveText(sigla.toUpperCase()); // normalizada pelo gatilho
   }
 
-  test("E1 — siglas das cores do card (maiúsculas no servidor)", async () => {
+  // Sigla de teste = 3 primeiras letras/dígitos ASCII do nome (sem acento): o servidor tira espaço e põe em maiúsculas (D6).
+  const siglaDe = (nome: string) =>
+    nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 3) || "QA";
+
+  test("E1 — siglas das cores do card (normalizadas no servidor: sem espaço, maiúsculas)", async () => {
     await abrirAtributo("Cor base");
-    for (const c of CORES) await siglaNaLinha(c, c.slice(0, 3));
+    for (const c of CORES) await siglaNaLinha(c, siglaDe(c));
     if (APELIDOS.length) {
       await abrirAtributo("Cor apelido");
-      for (const a of APELIDOS) await siglaNaLinha(a, a.slice(0, 3));
+      for (const a of APELIDOS) await siglaNaLinha(a, siglaDe(a));
     }
     expect(g.escritas.every((e) => /^PATCH \/rest\/v1\/cores(_apelido)?\?/.test(e))).toBe(true);
   });
@@ -4320,7 +4976,7 @@ Expected: E1–E4 passed; `rede.log` mostra SÓ as escritas previstas (PATCH `co
 VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
 "$VAR/f35a/descer.sh"
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
-/bin/bash .superpowers/f35a/mig/copia-qa.sh volta 2>&1 | tail -8
+SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/copia-qa.sh volta 2>&1 | tail -10     # R5: dono avisado de novo
 ```
 
 Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …/f35a-dados-copia-<data>` → `== F3.5a FORA DA CÓPIA` (cópia de volta ao estado do Task 0). Relatório do QA (`.superpowers/f35a/qa/RELATORIO.md`): S/E, rede, screenshots, desvios de seletor, OK do dono → guardião.
@@ -4334,39 +4990,40 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
   1. arquivo único em `BEGIN…COMMIT`, idempotente (a suíte aplica 2× — teste "aplicar 2×"), número `20261003100000` > todas as migrations (inclusive F1 `…150000`, F3.1 `20260930180000`, Aviso `20261001100000` e Nota `20261002100000`);
   2. NENHUMA função pré-existente redefinida (ensaio: `FN_PRE` igual antes/depois);
   3. ACL #9: `_core`/cálculo/helpers/gatilhos sem EXECUTE p/ PUBLIC, anon e authenticated; RPCs só `authenticated`; `modelo_skus` sem escrita p/ clientes (`ACL_F35A = 0|0|0`; teste "como o PostgREST");
-  4. UNIQUE só compostas `(tenant_id, sku)` e `(modelo_id, variante_key, tamanho_key)` (nenhuma em coluna única embedada); FK `modelo_id` com CASCADE;
+  4. UNIQUE só composta `(modelo_id, variante_key, tamanho_key)` (nenhuma em coluna única embedada) + o gatilho D5 `fn_modelo_skus_unico` (SKU único na loja fora a réplica — ou estrito, conforme a resposta do dono) com lock consultivo por loja; FK `modelo_id` com CASCADE; `variante_key` = a cor (R1);
   5. RLS por loja + `modgate_*` RESTRICTIVE do `criacao` (padrão `modelo_grades`);
-  6. ALTERs no FIM do arquivo; tempo medido no ensaio (lock em produção < 1 s); `aplica_v2` pronto (`producao.sh`);
+  6. ALTERs no FIM do arquivo e as policies POR ÚLTIMO (hook supautils); as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos; tempo medido no ensaio (lock em produção < 1 s); `aplica_v2` pronto (`producao.sh`); pré-voo por OBJETOS (R7);
   7. inverso DESTRUTIVO com guarda de confirmação + export antes (round-trip testado);
-  8. anti-drift TS × SQL verde (5 testes) e as mensagens PT idênticas;
-  9. decisões D1–D4 do dono aplicadas como respondidas;
+  8. anti-drift TS × SQL verde (7 testes + o estático da lista de acentos) e as mensagens PT idênticas; R1 (salvar produto/BOM pelas RPCs reais) e R3 (linha manual nova) verdes; R6 sem falha nova;
+  9. decisões D1–D6 do dono aplicadas como respondidas (D5/D6: variante B/alternativa refeita se o dono escolheu diferente);
   10. ordem de produção: F1 → Aviso → Nota → F3.5a; front só junta DEPOIS (Task 12 antes da Task 13).
   Veredito no diário. **BLOQUEIA ⇒ parar.** Ressalvas ⇒ resolver antes do Step 3.
-- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as respostas D1–D4, a ciência das REFs repetidas (F11) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
+- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as respostas D1–D6, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 ---
 
 ## Task 12: PRODUÇÃO — pelo DONO, no Terminal, com backup completo ANTES  *(dono; controlador acompanha pelo chat)*
 
-> ⛔ Pré-condições: Task 11 inteira (G-migration APROVA + OK do dono); **F1, Aviso Global e Data da Nota de Entrada JÁ em produção** (diário do guardião); fora do horário de uso das lojas. O plano Supabase NÃO tem PITR: o `backup_prod` é obrigatório e vem primeiro. O agente NÃO roda nada contra produção.
+> ⛔ Pré-condições: Task 11 inteira (G-migration APROVA + OK do dono); **F1, Aviso Global e Data da Nota de Entrada JÁ em produção** (o pré-voo confere pelos OBJETOS — R7); HORÁRIO CALMO, fora do uso das lojas (a migration trava tabelas existentes e, nas policies, auth/storage: login/refresh podem esperar até ~3 s). O plano Supabase NÃO tem PITR: o `backup_prod` é obrigatório e vem primeiro. O agente NÃO roda nada contra produção.
 
-**Files:** nenhum no git. Cria `.superpowers/f35a/mig/producao.sh`; saída em `/Users/sunglee/PLM + Criação/savepoints/<data>-pre-f35a-sku/` (FORA do repo; dados de lojas — nunca commitar).
+**Files:** nenhum no git. Cria `.superpowers/f35a/mig/producao.sh` e `.superpowers/f35a/mig/ref-volta-f1.sh` (R8); saída em `/Users/sunglee/PLM + Criação/savepoints/<data>-pre-f35a-sku/` (FORA do repo; dados de lojas — nunca commitar).
 
 - [ ] **Step 1: O script** (o controlador cria; o dono roda) — `.superpowers/f35a/mig/producao.sh`:
 
 ```bash
 #!/usr/bin/env bash
 # PRODUÇÃO da F3.5a — SÓ O DONO roda, no Terminal (bash), na raiz da worktree, DEPOIS de: G-migration APROVADO + OK
-# explícito do dono (diário do guardião) + F1, Aviso Global e Data da Nota de Entrada JÁ aplicadas em produção.
+# explícito do dono (diário do guardião) + F1, Aviso Global e Data da Nota de Entrada JÁ em produção — conferidas pelos
+# OBJETOS no pré-voo (R7: o Aviso não se registra em schema_migrations). Horário CALMO: a migration trava tabelas
+# existentes e, nas policies, o hook supautils trava auth/storage — login/refresh podem esperar até ~3 s.
 # O plano Supabase NÃO tem PITR: o backup COMPLETO (backup_prod) vem ANTES de tudo. Uso:
 #   /bin/bash --noprofile --norc
-#   source .superpowers/f35a/mig/aplica.sh && export NOTA=20261002100000 && source .superpowers/f35a/mig/producao.sh
-#   (NOTA = versão da migration da Data da Nota de Entrada — 20261002100000_oc_data_nota_entrada.sql no plano dela; conferir no diário)
+#   source .superpowers/f35a/mig/aplica.sh && source .superpowers/f35a/mig/producao.sh
 #   backup_prod && prevoo_prod && ida_prod && registra_prod && pos_prod
+#   (depois, a referência nova da volta da F1 — R8: /bin/bash --noprofile --norc .superpowers/f35a/mig/ref-volta-f1.sh)
 # Volta (SÓ com OK do dono, depois de tirar do ar o front que grava as colunas): volta_prod
 [ -n "${BASH_VERSION:-}" ] || { echo "ERRO: use bash"; return 1 2>/dev/null || exit 1; }
 [ -n "${OBJ_F35A:-}" ] || { echo "ERRO: carregue antes: source .superpowers/f35a/mig/aplica.sh"; return 1; }
-[ -n "${NOTA:-}" ] || { echo "ERRO: export NOTA=<versão da migration da Data da Nota de Entrada> (do plano/diário dela)"; return 1; }
 PROD="$(cat /tmp/dburl.txt)"
 DP="/Users/sunglee/PLM + Criação/savepoints/$(date +%F)-pre-f35a-sku"
 mkdir -p "$DP"
@@ -4385,18 +5042,30 @@ prevoo_prod() {
   [ -s "$DP/producao-completa.dump" ] || { echo "FALHOU: sem backup de hoje — rode backup_prod"; return 1; }
   espera "$PROD" "select current_setting('server_version_num')::int >= 170000 and exists (select 1 from pg_settings where name = 'transaction_timeout')" "t" "PG >= 17 com transaction_timeout" &&
   espera "$PROD" "$OBJ_F35A" "0|0|0|0" "objetos da F3.5a ainda NÃO existem" &&
-  espera "$PROD" "select count(*) from supabase_migrations.schema_migrations where version in ('20260930150000', '20261001100000', '$NOTA')" "3" "F1, Aviso e Nota já registradas" &&
+  espera "$PROD" "select to_regprocedure('public.kanban_mover(uuid,text)') is not null" "t" "F1 em produção (kanban_mover)" &&
+  espera "$PROD" "select to_regclass('public.avisos_globais') is not null" "t" "Aviso Global em produção (avisos_globais)" &&
+  espera "$PROD" "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ocs_tecido' and column_name = 'data_nota_entrada')" "t" "Nota de Entrada em produção (ocs_tecido.data_nota_entrada)" &&
+  psql "$PROD" -X -A -t -c "$CONT" > "$DP/cont-antes-f35a.txt" && echo "OK (retrato): funções|gatilhos antes $(cat "$DP/cont-antes-f35a.txt")" &&
   psql "$PROD" -X -A -t -c "$FN_PRE" > "$DP/funcoes-pre.txt" && echo "OK (retrato): funções pré-existentes $(cat "$DP/funcoes-pre.txt")" &&
   psql "$PROD" -X -A -t -c "select datlocprovider || '|' || datcollate from pg_database where datname = current_database()" | sed 's/^/INFO locale (upper do SQL × toUpperCase do JS): /' &&
   ativ_vazio "$PROD" &&
   echo "== PRÉ-VOO OK $(date '+%T')"
 }
+confere_delta() {  # contagens MEDIDAS: depois − antes = funções|gatilhos da F3.5a contados pelos objetos (grava o "depois")
+  local a p o df dg
+  a=$(cat "$DP/cont-antes-f35a.txt") && p=$(psql "$PROD" -X -A -t -c "$CONT") && o=$(psql "$PROD" -X -A -t -c "$OBJ_F35A") || return 1
+  echo "$p" > "$DP/cont-depois-f35a.txt"
+  df=$(( ${p%|*} - ${a%|*} )); dg=$(( ${p#*|} - ${a#*|} ))
+  if [ "$df|$dg" = "$(echo "$o" | cut -d'|' -f1-2)" ]; then echo "OK (IDA: contagens $a → $p = +$df funções +$dg gatilhos, os da F3.5a)"
+  else echo "FALHOU (IDA: contagens $a → $p ≠ objetos da F3.5a $o — outra mudança no meio?)"; return 1; fi
+}
 ida_prod() {
   prevoo_prod && aplica_v2 "$PROD" "$MIG" &&
-  espera "$PROD" "$OBJ_F35A" "18|5|1|7" "IDA: objetos da F3.5a" &&
+  espera "$PROD" "$OBJ_F35A" "23|6|1|7" "IDA: objetos da F3.5a" &&
   espera "$PROD" "$ACL_F35A" "0|0|0" "IDA: ACL (#9)" &&
   espera "$PROD" "$FN_PRE" "$(cat "$DP/funcoes-pre.txt")" "IDA: nenhuma função pré-existente mudou" &&
-  echo "== F3.5a APLICADA EM PRODUÇÃO $(date '+%T')"
+  confere_delta &&
+  echo "== F3.5a APLICADA EM PRODUÇÃO $(date '+%T') — agora rode o ref-volta-f1.sh (R8)"
 }
 registra_prod() {
   psql "$PROD" -X -v ON_ERROR_STOP=1 -q -c "INSERT INTO supabase_migrations.schema_migrations (version, name, statements) VALUES ('20261003100000', 'sku_automatico', '{}'::text[]) ON CONFLICT (version) DO NOTHING" &&
@@ -4422,8 +5091,91 @@ volta_prod() {  # SÓ com OK do dono. Exporta o que as lojas já gravaram e apli
   espera "$PROD" "$OBJ_F35A" "0|0|0|0" "VOLTA: F3.5a fora de produção" &&
   espera "$PROD" "$FN_PRE" "$(cat "$DP/funcoes-pre.txt")" "VOLTA: funções pré-existentes = antes" &&
   psql "$PROD" -X -v ON_ERROR_STOP=1 -q -c "DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261003100000'" &&
-  echo "== F3.5a DESFEITA EM PRODUÇÃO"
+  echo "== F3.5a DESFEITA EM PRODUÇÃO — a referência da volta da F1 'pos_f35a' deixou de valer: voltar à da frente anterior (LEIA-volta-f1-pos-f35a.txt diz qual)"
 }
+```
+
+e `.superpowers/f35a/mig/ref-volta-f1.sh` (R8 — o dono roda no Step 4; SÓ LEITURA):
+
+```bash
+#!/usr/bin/env bash
+# Task 12 Step 4 (R8 do G-plano da F3.5a; ruling do controlador 24/set ~19h) — REGRAVA a referência de fidelidade da
+# VOLTA DE EMERGÊNCIA da F1 logo depois da ida da F3.5a em produção. A volta da F1 (runbook v2 §9.2,
+# task-18-runbook-v2.md:788-791) termina com `espera … "$CONT" <n>` e o diff da fidelidade de TODO o public; com a F3.5a
+# em produção as duas deixam de fechar. Detecta o que já está em produção pelos OBJETOS (nunca schema_migrations nem
+# número fixo) e ENCADEIA na referência da frente anterior:
+#   Nota (ocs_tecido.data_nota_entrada) → base fidelidade_ref_volta_f1_pos_nota_detalhe.txt + cont_volta_f1_pos_nota.txt
+#   senão Aviso (avisos_globais)         → base fidelidade_ref_volta_f1_com_aviso_detalhe.txt + contagens.txt (Aviso = 0|0)
+#   senão                                → base fidelidade_prod_pre_detalhe.txt (pré-F1) + contagens.txt
+# Referência nova = base + as linhas da F3.5a lidas AGORA (a F3.5a só CRIA objetos: nenhuma chave dela está na base).
+# CONT esperado da volta = CONT da base + o delta MEDIDO da F3.5a (cont-depois − cont-antes, gravados pelo ida_prod).
+# Confere também que, desde o retrato da frente anterior, SÓ a F3.5a mudou o schema (outra fase sem referência ⇒ PARE).
+# SÓ LEITURA (txn READ ONLY). Roda o DONO:  /bin/bash --noprofile --norc <worktree>/.superpowers/f35a/mig/ref-volta-f1.sh
+set -uo pipefail
+BF1="/Users/sunglee/PLM + Criação/savepoints/pre-apply-f1-kanban-auto"
+RB="/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-22-kanban-automatico-f1-banco"
+DP="${DP:-/Users/sunglee/PLM + Criação/savepoints/$(date +%F)-pre-f35a-sku}"   # a pasta do producao.sh (mesmo dia)
+# O bloco de apoio da F1 só DEFINE coisas (fidelidade, FIDEL_DET, CONT, D="$BF1"…) e dá cd no checkout principal.
+source "$BF1/bloco_apoio_v2.sh" || exit 1
+PROD="$(cat /tmp/dburl.txt)"
+q() { PGOPTIONS='-c default_transaction_read_only=on' psql "$PROD" -X -q -A -t -v ON_ERROR_STOP=1 -c "$1"; }
+# Chaves da F3.5a no retrato (categoria:objeto — o que vem antes do 1º "="). "[(]"/"[.]" = literais (nada de \( no awk).
+F35A='[.](_sku_|_skus_modelo_|skus_modelo[(]|gerar_skus_modelo[(]|_gerar_skus_modelo_core[(]|salvar_sku_manual[(]|_salvar_sku_manual_core[(]|fn_sigla_sku_normaliza[(]|fn_tenant_config_sku_normaliza[(]|fn_produto_tamanho_tipo_handover[(])|modelo_skus|trg_cores_sigla_sku|trg_cores_apelido_sigla_sku|trg_pa_tamanho_tipo|trg_pi_tamanho_tipo|trg_tenant_config_sku|[.](sigla_sku|tamanhos_sku|sku_config|tamanho_tipo)$'
+[ "$(q "select to_regprocedure('public.kanban_mover(uuid,text)') is not null")" = t ] || { echo "PARE: a F1 não está em produção — não há volta da F1 a referenciar"; exit 1; }
+[ "$(q "select to_regclass('public.modelo_skus') is not null")" = t ] || { echo "PARE: a F3.5a não está em produção — rode depois do ida_prod"; exit 1; }
+AVISO=$(q "select to_regclass('public.avisos_globais') is not null") || exit 1
+NOTA=$(q "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ocs_tecido' and column_name = 'data_nota_entrada')") || exit 1
+F31=$(q "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name = 'descricao_produto')") || exit 1
+if [ "$NOTA" = t ]; then
+  BASE="$D/fidelidade_ref_volta_f1_pos_nota_detalhe.txt"; CB="$D/cont_volta_f1_pos_nota.txt"; ANT="$D/fidelidade_prod_pos_nota_detalhe.txt"
+elif [ "$AVISO" = t ]; then
+  BASE="$D/fidelidade_ref_volta_f1_com_aviso_detalhe.txt"; CB="$D/contagens.txt"; ANT="$D/fidelidade_prod_pos_aviso_detalhe.txt"
+else
+  BASE="$D/fidelidade_prod_pre_detalhe.txt"; CB="$D/contagens.txt"; ANT=""
+fi
+[ -s "$BASE" ] || { echo "PARE: falta $BASE — a frente anterior não gravou a referência dela (avisar o controlador)"; exit 1; }
+[ "$CB" = "$D/contagens.txt" ] || [ -s "$CB" ] || { echo "PARE: falta $CB (CONT da volta da frente anterior)"; exit 1; }
+CBV=$(cat "$CB" 2>/dev/null || echo "427|219")   # contagens.txt da F1 ausente = o 427|219 do runbook v2
+[ -s "$DP/cont-antes-f35a.txt" ] && [ -s "$DP/cont-depois-f35a.txt" ] || { echo "PARE: faltam $DP/cont-{antes,depois}-f35a.txt (prevoo_prod/ida_prod)"; exit 1; }
+AGORA="$D/fidelidade_prod_pos_f35a_detalhe.txt"
+fidelidade "$PROD" "$D/fidelidade_prod_pos_f35a.txt" "$AGORA" > /dev/null || { echo "FALHOU: não li a fidelidade de produção"; exit 1; }
+N=$(awk -F'=' -v pat="$F35A" '$1 ~ pat' "$AGORA" | grep -c .)
+[ "$N" -gt 0 ] || { echo "PARE: nenhuma linha da F3.5a no retrato — a F3.5a está mesmo em produção?"; exit 1; }
+if awk -F'=' -v pat="$F35A" '$1 ~ pat' "$BASE" | grep -q .; then echo "PARE: a referência anterior já tem objetos da F3.5a — rodou 2× ou ordem trocada?"; exit 1; fi
+if [ "$F31" = t ] && ! grep -q 'descricao_produto' "$BASE"; then
+  echo "PARE: a F3.1 (modelos.descricao_produto) está em produção mas a referência anterior não a inclui — avisar o controlador"; exit 1
+fi
+if [ -n "$ANT" ]; then
+  [ -s "$ANT" ] || { echo "PARE: falta $ANT (retrato de produção da frente anterior)"; exit 1; }
+  OUTRAS=$(diff <(awk -F'=' -v pat="$F35A" '!($1 ~ pat)' "$ANT" | LC_ALL=C sort) <(awk -F'=' -v pat="$F35A" '!($1 ~ pat)' "$AGORA" | LC_ALL=C sort) | grep -E '^[<>]')
+  if [ -n "$OUTRAS" ]; then
+    echo "$OUTRAS" | head -20
+    echo "PARE: desde $(basename "$ANT") o schema de produção mudou FORA da F3.5a (outra fase sem referência?) — avisar o controlador"; exit 1
+  fi
+else
+  echo "INFO: sem retrato de produção da frente anterior — a conferência 'só a F3.5a mudou' foi pulada"
+fi
+REF="$D/fidelidade_ref_volta_f1_pos_f35a_detalhe.txt"
+{ cat "$BASE"; awk -F'=' -v pat="$F35A" '$1 ~ pat' "$AGORA"; } | LC_ALL=C sort > "$REF"
+A=$(cat "$DP/cont-antes-f35a.txt"); P=$(cat "$DP/cont-depois-f35a.txt")
+CV="$(( ${CBV%|*} + ${P%|*} - ${A%|*} ))|$(( ${CBV#*|} + ${P#*|} - ${A#*|} ))"
+echo "$CV" > "$D/cont_volta_f1_pos_f35a.txt"
+{
+  echo "# Volta de emergência da F1 DEPOIS da F3.5a ($(date '+%F %T'); em produção: Aviso=$AVISO Nota=$NOTA F3.1=$F31; base: $(basename "$BASE"))"
+  echo "# No runbook v2 §9.2 (task-18-runbook-v2.md:788-791) as 2 conferências finais passam a ser:"
+  echo "espera \"\$PROD\" \"\$CONT\" \"$CV\" \"contagens pós-volta (com a F3.5a)\" &&"
+  echo "fidelidade \"\$PROD\" \"\$D/fidelidade_prod_pos_volta.txt\" \"\$D/fidelidade_prod_pos_volta_detalhe.txt\" > /dev/null &&"
+  echo "diff \"\$D/fidelidade_ref_volta_f1_pos_f35a_detalhe.txt\" <(LC_ALL=C sort \"\$D/fidelidade_prod_pos_volta_detalhe.txt\") && echo \"== VOLTA OK (com a F3.5a)\""
+  echo "# (a referência $(basename "$BASE") está SUPERADA por esta; se a F3.5a for desfeita, ela volta a valer)"
+} | tee "$D/LEIA-volta-f1-pos-f35a.txt" > "$RB/VOLTA-F1-POS-F35A.md"
+echo "OK (referência nova p/ a volta da F1): $REF — $(basename "$BASE") + $N linha(s) da F3.5a; CONT esperado da volta: $CV (= $CBV + delta medido da F3.5a: $A → $P)"
+echo "Gravado ao lado do runbook da F1: $RB/VOLTA-F1-POS-F35A.md (e $D/LEIA-volta-f1-pos-f35a.txt)"
+```
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
+chmod +x .superpowers/f35a/mig/producao.sh .superpowers/f35a/mig/ref-volta-f1.sh
+/bin/bash -n .superpowers/f35a/mig/producao.sh && /bin/bash -n .superpowers/f35a/mig/ref-volta-f1.sh && echo sintaxe-ok
 ```
 
 - [ ] **Step 2: Backup + pré-voo (dono, bash)**
@@ -4431,11 +5183,11 @@ volta_prod() {  # SÓ com OK do dono. Exporta o que as lojas já gravaram e apli
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
 /bin/bash --noprofile --norc
-source .superpowers/f35a/mig/aplica.sh && export NOTA=20261002100000 && source .superpowers/f35a/mig/producao.sh
+source .superpowers/f35a/mig/aplica.sh && source .superpowers/f35a/mig/producao.sh
 backup_prod && prevoo_prod
 ```
 
-Expected: `OK (backup): …/producao-completa.dump (<tamanho>; <n> entradas)`; `OK (PG >= 17 …): t`; `OK (objetos da F3.5a ainda NÃO existem): 0|0|0|0`; `OK (F1, Aviso e Nota já registradas): 3`; o retrato das funções; `INFO locale …` (se não for ICU/`en-US`, o controlador confere que as siglas do anti-drift são ASCII/ç e segue); `OK (ATIV): nenhuma transação longa`; `== PRÉ-VOO OK`. Qualquer `FALHOU`: PARE (não aplicar).
+Expected: `OK (backup): …/producao-completa.dump (<tamanho>; <n> entradas)`; `OK (PG >= 17 …): t`; `OK (objetos da F3.5a ainda NÃO existem): 0|0|0|0`; `OK (F1 em produção (kanban_mover)): t`, `OK (Aviso Global em produção (avisos_globais)): t`, `OK (Nota de Entrada em produção (ocs_tecido.data_nota_entrada)): t` (R7 — por objeto; `f` = a frente ainda não foi: PARE); `OK (retrato): funções|gatilhos antes …`; o retrato das funções; `INFO locale …` (se não for ICU/`en-US`, o controlador confere que as siglas do anti-drift são ASCII/ç e segue); `OK (ATIV): nenhuma transação longa`; `== PRÉ-VOO OK`. Qualquer `FALHOU`: PARE (não aplicar).
 
 - [ ] **Step 3: Aplicar (dono, no MESMO bash, logo depois do pré-voo)**
 
@@ -4443,11 +5195,17 @@ Expected: `OK (backup): …/producao-completa.dump (<tamanho>; <n> entradas)`; `
 ida_prod && registra_prod && pos_prod
 ```
 
-Expected: igual ao ensaio — `== …sku_automatico.sql (início …)`, os 2 avisos de transação, `real` na ordem do ensaio; `OK (IDA: objetos da F3.5a): 18|5|1|7`; `OK (IDA: ACL (#9)): 0|0|0`; `OK (IDA: nenhuma função pré-existente mudou)`; `== F3.5a APLICADA EM PRODUÇÃO`; `OK (registro): 20261003100000|sku_automatico`; `OK (pós: nenhuma linha escrita): 0|0|0|0|0`. `canceling statement due to lock timeout` repetido 5× ⇒ o `aplica_v2` PARA sozinho: esperar, repetir o `ida_prod` mais tarde (nada ficou); outro erro ⇒ PARAR e falar com o controlador.
+Expected: igual ao ensaio — `== …sku_automatico.sql (início …)`, os 2 avisos de transação, `real` na ordem do ensaio; `OK (IDA: objetos da F3.5a): 23|6|1|7`; `OK (IDA: ACL (#9)): 0|0|0`; `OK (IDA: nenhuma função pré-existente mudou)`; `OK (IDA: contagens <antes> → <depois> = +23 funções +6 gatilhos, os da F3.5a)`; `== F3.5a APLICADA EM PRODUÇÃO … — agora rode o ref-volta-f1.sh (R8)`; `OK (registro): 20261003100000|sku_automatico`; `OK (pós: nenhuma linha escrita): 0|0|0|0|0`. `canceling statement due to lock timeout` repetido 5× ⇒ o `aplica_v2` PARA sozinho: esperar, repetir o `ida_prod` mais tarde (nada ficou); outro erro ⇒ PARAR e falar com o controlador.
 
-- [ ] **Step 4: Registrar** — saída inteira dos Steps 2–3 no diário do guardião e na memória da campanha (`project_sku_automatico`: "F3.5a aplicada em produção em <data>").
+- [ ] **Step 4: Referência NOVA da volta de emergência da F1 (R8) + registrar** — o DONO, logo depois do Step 3, num terminal (só leitura):
 
-- [ ] **Step 5: Volta (SÓ com OK do dono; NÃO faz parte do fluxo)** — ordem: (1) tirar do ar o front que grava as colunas (se a Task 13 já juntou, reverter o merge no branch/deploy); (2) OK explícito do dono para APAGAR siglas/formato/SKUs; (3) no bash com os 2 `source`: `volta_prod` (exporta tudo para `…/volta-<hora>/`, aplica o inverso com a confirmação, confere funções pré-existentes = antes e desregistra). Última rede: o `producao-completa.dump`.
+```bash
+/bin/bash --noprofile --norc "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a/.superpowers/f35a/mig/ref-volta-f1.sh" 2>&1 | tee -a "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a/.superpowers/f35a/logs/prod-ida.log"
+```
+
+Expected: `OK (referência nova p/ a volta da F1): …/pre-apply-f1-kanban-auto/fidelidade_ref_volta_f1_pos_f35a_detalhe.txt — fidelidade_ref_volta_f1_pos_nota_detalhe.txt + <n> linha(s) da F3.5a; CONT esperado da volta: <CV> (= <CONT da Nota> + delta medido da F3.5a: <antes> → <depois>)` (conta de referência: 429\|227 da Nota + 23\|6 = 452\|233 — vale o MEDIDO) e `Gravado ao lado do runbook da F1: …/VOLTA-F1-POS-F35A.md`. A partir daqui a volta de emergência da F1 (runbook v2 §9.2) troca as 2 conferências finais (`task-18-runbook-v2.md:788-791`) pelas 3 linhas desse arquivo; a referência da Nota fica SUPERADA. `PARE: falta …` (a frente anterior não gravou a referência) ou `PARE: … o schema de produção mudou FORA da F3.5a` (outra fase foi a produção sem referência, ex.: F3.1) ⇒ avisar o controlador (sem referência, a volta da F1 compara à mão, categoria por categoria). Registrar no diário do guardião a saída inteira dos Steps 2–4 e na memória da campanha (`project_sku_automatico`: "F3.5a aplicada em produção em <data>").
+
+- [ ] **Step 5: Volta (SÓ com OK do dono; NÃO faz parte do fluxo)** — ordem: (1) tirar do ar o front que grava as colunas (se a Task 13 já juntou, reverter o merge no branch/deploy); (2) OK explícito do dono para APAGAR siglas/formato/SKUs; (3) no bash com os 2 `source`: `volta_prod` (exporta tudo para `…/volta-<hora>/`, aplica o inverso com a confirmação, confere funções pré-existentes = antes e desregistra). Desfeita a F3.5a, a referência `pos_f35a` da volta da F1 deixa de valer — volta a da frente anterior (o `LEIA-volta-f1-pos-f35a.txt` diz qual); registrar no diário. Última rede: o `producao-completa.dump`.
 
 ---
 
@@ -4472,7 +5230,7 @@ R "\copy (SELECT tenant_id, ref, count(*) AS cards, string_agg(id::text, ' ') AS
 cat "$DEST/INDICE.tsv"
 ```
 
-Expected: 8 CSVs com contagem e hash; `modelo_skus.csv` com 0 linhas e as colunas novas todas vazias (nada gravado ainda); `refs_repetidas.csv` = a lista que vai dar "conflito" ao gerar (levar ao dono — F11). `LEIA-ME.md` na pasta: data, sha do código, "restaurar só com OK do dono", "dados de lojas — não commitar". Guardião anota no diário (G-fase).
+Expected: 8 CSVs com contagem e hash; `modelo_skus.csv` com 0 linhas e as colunas novas todas vazias (nada gravado ainda); `refs_repetidas.csv` = os cards que vão DIVIDIR o SKU nas linhas de mesma cor/tamanho pela D5 (ou dar "conflito", na variante B) — levar ao dono ANTES da 1ª geração (F11/D5; conferir o par `ACBO0142`, provável erro de digitação). `LEIA-ME.md` na pasta: data, sha do código, "restaurar só com OK do dono", "dados de lojas — não commitar". Guardião anota no diário (G-fase).
 
 - [ ] **Step 2: Rebase (se a principal andou) + gates**
 
@@ -4486,31 +5244,40 @@ git rebase --onto feature/plan-tecido-a1 "$B" f35a/sku-banco-cadastros
 git rev-parse feature/plan-tecido-a1 > .superpowers/f35a/BASE
 bash .superpowers/f35a/gates.sh
 ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "testes-checados"
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -4
+SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t13s2 && \
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts 2>&1 | tail -4
+bash .superpowers/f35a/n3.sh depois t13s2
 ```
 
-Expected: `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  24 passed (24)`. Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
+Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  31 passed (31)`. Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
 
-- [ ] **Step 3: Merge (fast-forward) — só com a Task 12 OK**
+- [ ] **Step 3: A F3.5a na CÓPIA e o merge (fast-forward) NA MESMA HORA — só com a Task 12 OK**
 
-Avisar o dono ANTES (chat): salvar e fechar Config da Loja e Cadastro › Atributos no `:5173` e no `:5188`.
-
-```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp"
-git status --porcelain -- src supabase tests | grep . && echo "checkout principal com alteração — PARE e falar com o dono"
-git merge --ff-only f35a/sku-banco-cadastros && git log --oneline -8
-```
-
-Expected: fast-forward; os commits `F3.5a (1)…(9)` no topo.
-
-- [ ] **Step 4: A F3.5a volta à CÓPIA e FICA** (o `:5188` do dono serve o checkout principal, que agora manda `sigla_sku`/`sku_config`/`tamanhos_sku`)
+O `:5188` do dono serve o checkout principal, que depois do merge manda/lê `sigla_sku`/`sku_config`/`tamanhos_sku`: a ida na cópia e o ff vão num comando só (sem janela em que o `:5188` peça colunas a uma cópia sem elas). Avisar o dono ANTES (chat; R5): salvar e fechar Config da Loja e Cadastro › Atributos no `:5173` e no `:5188` (a cópia congela alguns segundos na ida). Com o OK:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
-/bin/bash .superpowers/f35a/mig/copia-qa.sh ida 2>&1 | tail -6
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"
+git -C "$MAIN" status --porcelain -- src supabase tests | grep . && echo "checkout principal com alteração — PARE e falar com o dono"
+git -C "$MAIN" diff --cached --quiet || echo "índice do checkout principal com coisa staged (outra sessão) — PARE e combine com o controlador"
+SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/copia-qa.sh ida > .superpowers/f35a/logs/copia-ida-pos-merge.log 2>&1; tail -8 .superpowers/f35a/logs/copia-ida-pos-merge.log
+grep -q "== F3.5a NA CÓPIA" .superpowers/f35a/logs/copia-ida-pos-merge.log \
+  && git -C "$MAIN" merge --ff-only f35a/sku-banco-cadastros && git -C "$MAIN" log --oneline -8
 ```
 
-Expected: `== F3.5a NA CÓPIA`. Daqui em diante ela fica na cópia; um re-ensaio da F1 (ou regravar as referências de fidelidade dela) exige tirá-la antes: `copia-qa.sh volta --apos-merge` (dono avisado).
+Expected: `== F3.5a NA CÓPIA (<antes> → <depois>)` e o fast-forward com os commits `F3.5a (1)…(9)` no topo. A ida falhou ⇒ o merge NÃO roda. O ff falhou ⇒ a cópia fica com a F3.5a (inofensivo: o front antigo não lê as colunas novas); resolver o ff e repetir só o `merge`.
+
+- [ ] **Step 4: A F3.5a FICA na cópia — contagem MEDIDA e aviso às frentes (R9)**
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
+grep ' ida: ' .superpowers/f35a/logs/copia-contagens.txt | tail -1
+```
+
+Com os números MEDIDOS dessa linha (`<antes> → <depois>`), mensagem ao controlador (que repassa às frentes F3.x, Aviso e Nota), registrada no diário do guardião:
+> "A cópia local (`:54422`) passa a ter a F3.5a DE VEZ: funções|gatilhos = **<depois>** (era <antes>), + a tabela `modelo_skus`, 7 colunas (`cores.sigla_sku`, `cores_apelido.sigla_sku`, `modelos`/`produtos_acabados`/`produtos_importados.tamanho_tipo`, `tenant_config.sku_config`/`tamanhos_sku`), 23 funções e 6 gatilhos novos. Classificadores com número fixo passam a dizer 'INESPERADO': o `.superpowers/f31/n3-copia.sh` da F3.1 (reconhece só `427|219|*` e `458|263|*`) — acrescentar `<depois>|*` = 'F1 (+ Nota, se já veio) + F3.5a na cópia (depois do merge da F3.5a)'; o plano da Nota fixa `460|271` como 'cópia com a Nota' (o G-plano citou 459\|266, número de antes da D7 dela) — com a F3.5a a cópia sai desse número. Um re-ensaio da F1 (ou qualquer comparação com o retrato 427|219/458|263) exige antes `SKU_DONO_AVISADO=sim bash .superpowers/f35a/mig/copia-qa.sh volta --apos-merge` na worktree da F3.5a (e `ida` depois). Na volta de emergência da F1 em PRODUÇÃO vale `VOLTA-F1-POS-F35A.md` (Task 12 Step 4)."
+
+Conta de referência, só para conferir o medido: 458\|263 + 23\|6 = **481\|269**; com a Nota antes (460\|271) = **483\|277**. (O G-plano calculou 476\|268 / 477\|271 com 18\|5 — antes das ressalvas.) Diferente disso = outra frente mexeu na cópia no meio: conferir antes de avisar. O controlador acrescenta a mesma nota curta ao `banco-local/APP-TESTE-LOCAL.md` (seção de estado da cópia).
 
 - [ ] **Step 5: Smoke SÓ-LEITURA no `:5173` do dono (produção)**
 
@@ -4523,7 +5290,50 @@ E2E_BASE_URL=http://localhost:5173 VITE_SUPABASE_URL="$(grep -E '^VITE_SUPABASE_
 
 Expected: `:5173 http=200` (o `:5173` NÃO é derrubado nem reiniciado; se estiver fora do ar, pular e anotar); `1 passed`; nenhuma escrita (a guarda aborta tudo que não é leitura).
 
-- [ ] **Step 6: Limpeza + docs** — apagar `tests/e2e/f35a-qa.spec.ts` (nunca versionado); manter `.superpowers/f35a/` até o dono encerrar a fase; `docs-keeper`: CLAUDE.md ganha a invariante do SKU (fonte única no servidor, wrapper + `_core`, siglas normalizadas por gatilho, manual nunca sobrescrito, UNIQUE `(tenant_id, sku)`), `docs/api-integracao-erp.md` ganha a nota "SKU por variante × tamanho em `modelo_skus`" (spec §5) e a memória `project_sku_automatico` vira "F3.5a FEITA; F3.5b a seguir". Deploy Cloudflare do front: pendente, do dono (`npm run deploy`), junto com as demais fases.
+- [ ] **Step 6: Limpeza + docs + deploy SÓ pelo portão (R10)** — apagar `tests/e2e/f35a-qa.spec.ts` (nunca versionado); manter `.superpowers/f35a/` até o dono encerrar a fase; `docs-keeper`: CLAUDE.md ganha a invariante do SKU (fonte única no servidor, wrapper + `_core`, siglas normalizadas por gatilho, manual nunca sobrescrito, `variante_key` = a cor, SKU único por loja fora a réplica da mesma REF — gatilho D5, ou estrito conforme o dono), `docs/api-integracao-erp.md` ganha a nota "SKU por variante × tamanho em `modelo_skus`" (spec §5) e a memória `project_sku_automatico` vira "F3.5a FEITA; F3.5b a seguir".
+
+Deploy Cloudflare do front — SÓ o dono, num `/bin/bash --noprofile --norc`, encadeado ao portão (mesmo modelo da R1 do Aviso / R7 da Nota). Antes, o controlador grava em `.superpowers/f35a/deploy-base.txt` o sha do ÚLTIMO deploy (registrado no diário) e em `.superpowers/f35a/deploy-lista.txt` os SHAs de front APROVADOS pelo dono para este deploy + os da F3.5a (`git log --format=%H "$(cat .superpowers/f35a/BASE)"..f35a/sku-banco-cadastros`):
+
+```bash
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"; WT="$MAIN/.claude/worktrees/sku-f35a"
+cd "$MAIN" && git branch --show-current
+prereq_banco() {  # fases com pré-requisito de banco no intervalo → os objetos TÊM de existir em produção (só leitura)
+  local P rng; P="$(cat /tmp/dburl.txt)"; rng="$(cat "$WT/.superpowers/f35a/deploy-base.txt")..HEAD"
+  chk() { local v; v=$(PGOPTIONS='-c default_transaction_read_only=on' psql "$P" -X -q -A -t -c "$2") || return 1
+          [ "$v" = "$3" ] || { echo "PARE (R10): $1 está na branch mas o banco de produção não tem o pré-requisito ($v ≠ $3)"; return 1; }; }
+  if git log --format=%s "$rng" | grep -qiE 'f3\.?5a|\(sku\)|sku autom'; then
+    ( source "$WT/.superpowers/f35a/mig/aplica.sh" >/dev/null && chk "F3.5a (SKU: 23 funções|6 gatilhos|modelo_skus|7 colunas)" "$OBJ_F35A" "23|6|1|7" ) || return 1; fi
+  if git log --format=%s "$rng" | grep -qiE 'nota-entrada|nota de entrada'; then
+    chk "Data da Nota de Entrada" "select count(*) = 5 from information_schema.columns where table_schema = 'public' and column_name = 'data_nota_entrada'" t || return 1; fi
+  if git log --format=%s "$rng" | grep -qiE 'f3\.?1|descricao_produto'; then
+    chk "F3.1 (modelos.descricao_produto)" "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name = 'descricao_produto')" t || return 1; fi
+  if git log --format=%s "$rng" | grep -qiE 'kanban-auto|kanban automático'; then
+    chk "F1/F2 (tenant_config.kanban_automatico)" "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'kanban_automatico')" t || return 1; fi
+  if git log --format=%s "$rng" | grep -qiE 'aviso global|aviso-global'; then
+    chk "Aviso Global (avisos_globais)" "select to_regclass('public.avisos_globais') is not null" t || return 1; fi
+  echo "OK (R10): pré-requisitos de banco das fases no intervalo existem em produção"
+}
+portao_deploy_f35a() {
+  local sujo fora base lista="$WT/.superpowers/f35a/deploy-lista.txt"
+  sujo=$(git status --porcelain --untracked-files=all -- src)
+  [ -z "$sujo" ] || { echo "$sujo"; echo "PARE (R10): mudança em src/ fora de commit (inclusive não rastreado) — nada é publicado"; return 1; }
+  base=$(cat "$WT/.superpowers/f35a/deploy-base.txt" 2>/dev/null) || { echo "PARE: sem deploy-base.txt"; return 1; }
+  [ -s "$lista" ] || { echo "PARE: $lista vazio — os SHAs de front aprovados pelo dono + os da F3.5a"; return 1; }
+  fora=$(git log --format='%H %s' "$base"..HEAD -- src | grep -v -F -f "$lista")
+  if [ -n "$fora" ]; then
+    echo "$fora"
+    echo "PARE (R10): commit de front FORA da lista aprovada. Fase da campanha (F2/F3.x/Nota/Aviso) juntada? Confira os"
+    echo "pré-requisitos de banco dela ANTES e fale com o dono — nada é publicado."
+    return 1
+  fi
+  echo "commits de front que vão ao ar:"; git log --format='  %h %s' "$base"..HEAD -- src
+  prereq_banco || return 1
+  echo "OK (R10): src limpo e só a lista aprovada vai para o ar ($(git log --format=%H "$base"..HEAD -- src | wc -l | tr -d ' ') commits de front)"
+}
+portao_deploy_f35a && npm run deploy
+```
+
+Expected: `feature/plan-tecido-a1`; a lista `commits de front que vão ao ar`; `OK (R10): pré-requisitos de banco das fases no intervalo existem em produção` (a F3.5a só passa com `OBJ_F35A = 23|6|1|7` em produção); `OK (R10): src limpo e só a lista aprovada vai para o ar (<n> commits de front)`; o deploy do wrangler sem erro. `PARE (R10)` ⇒ NADA foi publicado: resolver (commitar/descartar com o dono; ou o dono aceitar incluir a fase — conferidos os pré-requisitos de banco dela — e acrescentar os SHAs à lista, registrando no diário) e rodar o MESMO bloco.
 
 ---
 
@@ -4531,15 +5341,20 @@ Expected: `:5173 http=200` (o `:5173` NÃO é derrubado nem reiniciado; se estiv
 
 | # | Risco | Evidência | Mitigação |
 |---|---|---|---|
-| R1 | SQL não executado no planejamento (sintaxe/semântica plpgsql) | regra da fase | TDD em txn na cópia (Tasks 3–5) antes de qualquer apply; `desvios.md`; revisão Opus por task; ensaio completo (Task 6) |
+| R1 | SQL não executado no planejamento (semântica plpgsql) | regra da fase | sintaxe conferida pelo parser do PG17 (§9); TDD em txn na cópia (Tasks 3–5) antes de qualquer apply; `desvios.md`; revisão Opus por task; ensaio completo (Task 6) |
 | R2 | Front junto antes da migration em produção ⇒ Salvar das siglas/formato falha | o `:5173` grava em produção | Task 12 antes da 13; o `AttributeTab` só manda `sigla_sku` quando muda (editar nome segue funcionando) |
-| R3 | Lock em `tenant_config`/`modelos`/`cores` na aplicação trava as policies de todas as lojas | incidente 23/set | ALTERs no fim; `aplica_v2` (500 ms/3 s, 5 tentativas); ATIV vazio; fora do horário |
-| R4 | REF repetida ⇒ conflitos ao gerar | F11 (7 pares) | `conflitos[]` com mensagem PT; SKU manual resolve; lista no snapshot (Task 13) |
+| R3 | Lock em `tenant_config`/`modelos`/`cores`/`produtos_*` na aplicação trava as policies de todas as lojas | incidente 23/set | ALTERs no fim; travas no próprio arquivo + `aplica_v2` (500 ms/3 s, 5 tentativas); ATIV vazio; horário calmo |
+| R4 | REF repetida: réplica × erro de digitação | F11 (7 pares; `ACBO0142`) | D5: réplica reusa o SKU; REF igual por engano também dividiria — lista no snapshot (Task 13) ao dono antes da 1ª geração; variante B se o dono quiser estrito; SKU manual (R3) resolve caso a caso |
 | R5 | Sigla repetida entre cores (ex.: Amarelo e Âmbar = AM) ⇒ SKU repetido no mesmo produto | teste "conflito DENTRO do produto" | a 2ª linha não grava e diz "repetido neste produto"; F3.5b mostra |
 | R6 | Mudança de sigla/formato NÃO muda SKUs gerados (Q2) — alguém pode esperar que mude | decisão Q2 | AlertDialog e textos dizem "só pelo Regerar"; `skus_modelo` marca `divergente` |
 | R7 | Tamanho solto classificado errado ("3M") | spec §6 | sigla editável; `ladoTamanho` cai no lado que existir |
-| R8 | Locale de produção ≠ ICU ⇒ `upper()` × `toUpperCase()` diferem fora do ASCII | F16 | pré-voo mostra o provedor; siglas são curtas/ASCII na prática; anti-drift cobre ASCII + ç |
-| R9 | Cópia compartilhada: F3.5a aplicada na cópia muda contagens que outras frentes conferem | F16 | `copia-qa.sh` com backup, `ida`/`volta`, e recusa com `:5180` no ar; re-ensaio da F1 exige tirar a F3.5a antes |
+| R8 | Locale de produção ≠ ICU ⇒ `upper()` × `toUpperCase()` diferem fora do ASCII | F16 | com a D6 o acento sai por lista FIXA ANTES do `upper()` e o resto é filtrado para A–Z/0–9 — só ASCII chega ao `upper()`; o pré-voo ainda mostra o provedor |
+| R9 | Cópia compartilhada: F3.5a aplicada na cópia muda contagens que outras frentes conferem | F16; G-plano R9 | `copia-qa.sh` com N3 + backup, `ida`/`volta` com contagem MEDIDA, e recusa com `:5180` no ar; aviso às frentes com os classificadores (Task 13 Step 4); re-ensaio da F1 exige tirar a F3.5a antes |
+| R10 | Comprado: o Salvar do produto regrava as variantes (ids novos) ⇒ SKUs órfãos e o manual solto da linha | F10; G-plano R1 | `variante_key` = a cor; testes pelo `salvar_produto_acabado`/`salvar_modelo_bom` REAIS |
+| R11 | Linha em conflito/falta sem jeito de receber SKU à mão | G-plano R3 | `salvar_sku_manual` cria a linha manual (validada contra a grade) |
+| R12 | O `:5188` do dono congela nas rodadas com DDL na cópia | G-plano R5 | N3: aviso no chat + `n3.sh antes/depois` em toda rodada |
+| R13 | Volta de emergência da F1 deixa de fechar com a F3.5a em produção; deploy de front sem banco pronto | G-plano R8/R10 | `ref-volta-f1.sh` (por objetos, contagem medida) no Task 12 Step 4; `portao_deploy_f35a` no Task 13 Step 6 |
+| R14 | **Login/refresh de token esperam até ~3 s** durante a aplicação (as 4 policies acionam o hook `supautils.policy_grants`, que trava ~24 tabelas de auth/storage/realtime até o COMMIT) — em produção E na cópia | F21 (lição supautils) | policies POR ÚLTIMO (o hook segura o mínimo); `transaction_timeout` 3 s no próprio arquivo = teto; horário calmo; aviso ao dono no OK da Task 11 |
 
 ## 8. Fora de escopo (F3.5a)
 
@@ -4547,18 +5362,20 @@ Seção "REF e SKUs" e "Tamanho em" nos cards (F3.5b — §10); migrar os 17 `sp
 
 ## 9. Autorrevisão e o que o planejador EXECUTOU (24/set, sem tocar `src/`/`supabase/`/banco)
 
-- **TS:** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **80/80 verdes**, `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco inexistente: **24 skipped, zero conexão** (a guarda não conecta fora da cópia).
-- **Front:** as edições das Tasks 7 e 9 (todas as âncoras 1×) + os 2 arquivos novos aplicados num espelho do HEAD `a044759`: **tsc limpo**; unit do repo **836 passed / 2 failed** — as 2 falhas são as HERDADAS do anti-drift de UI (`DocPrintCasca`/`OcDocumentoPrint`), nenhuma dos arquivos da F3.5a. Spec de QA: tsc limpo.
+- **TS (refeito depois das ressalvas):** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **103/103 verdes**, `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco não local: **1 passed (o estático) | 30 skipped, zero conexão**; com `SKU_MIG_TXN=1` fora da cópia ela recusa na coleta.
+- **Front:** as edições das Tasks 7 e 9 (todas as âncoras 1×) + os 2 arquivos novos aplicados num espelho do HEAD `a044759`: **tsc limpo**; unit do repo **859 passed / 2 failed** — as 2 falhas são as HERDADAS do anti-drift de UI (`DocPrintCasca`/`OcDocumentoPrint`), nenhuma dos arquivos da F3.5a. Spec de QA: tsc limpo.
 - **Merge com a F2:** `git merge-file` (base `a044759` × F3.5a × `f2/kanban-telas`) em `configuracoes.tsx`: **0 conflito**.
-- **SQL (não executado):** a montagem A → C → B foi feita por script exatamente como as Tasks 3–5 mandam (18 funções, 5 gatilhos, 1 `BEGIN;`/1 `COMMIT;`); o `semTransacao` do harness da F3.1 **aceita** a migration e o inverso; as consultas do `aplica.sh` (`OBJ_F35A`, `FN_PRE`, `CONT`) rodaram SÓ-LEITURA na cópia (`0|0|0|0`, `…|458`, `458|263`) e a `ACL_F35A` passou no `EXPLAIN`; a extração do `aplica_v2` do runbook da F1 foi conferida por hash; os 4 scripts `bash -n` ok.
-- **Cobertura do pedido:** §4.1 inteira (incl. `tamanho_tipo` do modelo e do produto antes do espelho, `modelo_skus`), §4.2 (wrapper + `_core`, `salvar_sku_manual`, `montarSku`/`parseTamanho` com anti-drift × SQL), §4.3 F3.5a (Atributos e Config), §4.4; UNIQUE compostas, RLS + modgate, REVOKE dos três com `has_function_privilege`; inverso com aviso de perda; testes: sem REF, falta sigla, manual preservado com `_regerar=true`, regerar só automáticos, conflito PT, interno × revenda × importado, soltos, ACL; backup antes de aplicar na cópia; QA `:5180` com guarda invertida; snapshot antes do merge; G-migration; produção pelo dono com `pg_dump` e depois da F1/Aviso/Nota.
+- **SQL (não executado — nada foi aplicado em banco nenhum):** a montagem A → C → B foi feita por script exatamente como as Tasks 3–5 mandam (23 funções, 6 gatilhos, 1 `BEGIN;`/1 `COMMIT;`, as 2 travas logo depois do `BEGIN;`); **parser do Postgres 17** (libpg_query via `pglast` 8.4, num venv do scratchpad): migration (71 comandos) e inverso (41) parseiam, e os 18 corpos plpgsql + 5 corpos SQL + o `DO` também (controle negativo: um corpo com erro de sintaxe e um com SQL embutido quebrado são recusados); o `semTransacao` do harness da F3.1 **aceita** os 2 arquivos; as expressões de `_sku_norm_sigla`/`_sku_norm_ref`/`_sku_norm_manual` rodaram como SELECT só-leitura na cópia contra `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL` (todas batem) e a de `_sku_variante_key` devolve uuid; as consultas do `aplica.sh` (`OBJ_F35A`, `FN_PRE`, `CONT`) rodaram SÓ-LEITURA na cópia (`0|0|0|0`, `…|458`, `458|263`) e a `ACL_F35A` passou no `EXPLAIN`; as 3 consultas de objeto do pré-voo (R7) rodaram na cópia (`t|t|f` — a Nota ainda não está nela); a extração do `aplica_v2` do runbook da F1 foi conferida por hash; todos os scripts `bash -n` ok no `/bin/bash` 3.2.
+- **R6/R8 (scripts):** `falhas()`/`total()` do ensaio conferidos num log real do vitest (`861` e as 2 falhas herdadas); o padrão das chaves da F3.5a do `ref-volta-f1.sh` rodado sobre o retrato de fidelidade da cópia (3144 linhas, só leitura): **0 falso positivo**, e 22/22 chaves sintéticas da F3.5a (funções, gatilhos, colunas, índices, policies, `(rls)`) casam.
+- **Ressalvas:** R1–R10 + supautils + as 3 sugestões do guardião — mapa no §0.
+- **Cobertura do pedido:** §4.1 inteira (incl. `tamanho_tipo` do modelo e do produto antes do espelho, `modelo_skus`), §4.2 (wrapper + `_core`, `salvar_sku_manual`, `montarSku`/`parseTamanho` com anti-drift × SQL), §4.3 F3.5a (Atributos e Config), §4.4; UNIQUE composta da linha + unicidade do SKU por gatilho (D5), RLS + modgate, REVOKE dos três com `has_function_privilege`; inverso com aviso de perda; testes: sem REF, falta sigla, manual preservado com `_regerar=true`, regerar só automáticos, conflito PT, réplica (D5), linha manual nova (R3), Salvar do produto/BOM pelas RPCs reais (R1), interno × revenda × importado, soltos, ACL, travas no arquivo; suítes vizinhas antes/depois no ensaio (R6); backup antes de aplicar na cópia; QA `:5180` com guarda invertida; snapshot antes do merge; G-migration; produção pelo dono com `pg_dump` e depois da F1/Aviso/Nota (conferidas por objeto); referência nova da volta da F1 (R8); deploy só pelo portão (R10).
 
 ## 10. Esboço — F3.5b (depois da F3.4; meia página)
 
 **Objetivo:** mostrar e operar os SKUs no card e escolher "Tamanho em". **Sem migration** (tudo o que precisa já vem da F3.5a).
 
-- **Consome da F3.5a:** `skus_modelo` (matriz: `status`, `tamanho_tipo`, `tamanho_tipo_card`, `linhas[].estado/sku/sku_previsto/faltas/conflito_com/id/rev/manual`, `faltas`), `gerar_skus_modelo(_id, _regerar)`, `salvar_sku_manual(_id, _sku, _rev_base)`, `textoFalta`, `ladoTamanho`/`parseTamanho`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, as colunas `modelos.tamanho_tipo` e `produtos_*.tamanho_tipo` (com o handover por gatilho) e `tenant_config.sku_config.tamanho_padrao`.
-- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho com o SKU editável (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`) / falta sigla / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
+- **Consome da F3.5a:** `skus_modelo` (matriz: `status`, `tamanho_tipo`, `tamanho_tipo_card`, `linhas[].estado/sku/sku_previsto/faltas/conflito_com/id/rev/manual`, `faltas`), `gerar_skus_modelo(_id, _regerar)`, `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)` (linha sem `id` — conflito/falta/pendente — recebe SKU à mão pela tripla; R3), `normalizarSkuManual` (mesma mensagem do servidor), `textoFalta`, `ladoTamanho`/`parseTamanho`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, as colunas `modelos.tamanho_tipo` e `produtos_*.tamanho_tipo` (com o handover por gatilho) e `tenant_config.sku_config.tamanho_padrao`.
+- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho (linha = cor base + apelido — R1) com o SKU editável em TODA linha, inclusive as sem `id` (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`) / falta sigla / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
 - **1ª geração automática:** no fim do Salvar do Planejamento (`usePlanejamentoSave`), se o card tem REF, o formato existe e a matriz não tem nenhuma linha gravada ⇒ `gerar_skus_modelo(_id, false)` best-effort (nunca derruba o Salvar; toast de faltas/conflitos). Não roda a cada Salvar (Q2).
 - **"Tamanho em" nos cards:** Plan. Tecido (os cards são `modelos` — `update` com `rev`), Produto Acabado e Importado (com espelho: o do MODELO; sem espelho: o do produto — o gatilho passa ao modelo quando o card nasce); a grade exibida em todos segue `ladoTamanho(chave, tipo)`; a chave interna continua "34|PPP".
 - **A decidir na F3.5b:** Realtime de `modelo_skus` (hoje fora da publication), "voltar ao automático", auditoria.
