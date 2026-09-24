@@ -1,6 +1,6 @@
 # Aviso Global — desenho
 
-**Data:** 24/set/2026 · **Estado:** desenho APROVADO pelo dono (24/set) · **Plano:** `docs/superpowers/plans/2026-09-24-aviso-global.md`
+**Data:** 24/set/2026 · **Estado:** desenho APROVADO pelo dono (24/set); G-plano APROVA COM RESSALVAS R1–R8, aplicadas (24/set) · **Plano:** `docs/superpowers/plans/2026-09-24-aviso-global.md`
 **Fase:** independente da campanha "Planejamento unificado + Kanban automático"; worktree própria `.claude/worktrees/aviso-global` (branch `aviso-global`, da ponta `a044759` de `feature/plan-tecido-a1`).
 
 ## 1. Objetivo
@@ -33,7 +33,7 @@ Deixar o super admin avisar, na hora, quem está usando o sistema. O caso princi
 | `inicio_em` | timestamptz | Manutenção: alvo da contagem. Informativo: o momento do envio |
 | `expira_em` | timestamptz | `> inicio_em` e `≤ inicio_em + 7 dias` |
 | `encerrado_em` | timestamptz null | "Encerrar agora"; não volta a NULL |
-| `criado_por` | uuid | `auth.uid()` (o cliente não grava esta coluna) |
+| `criado_por` | uuid | `auth.uid()` (o cliente não grava nem lê esta coluna — R7) |
 | `created_at` | timestamptz | `now()` |
 
 A tabela é global de propósito: não tem `tenant_id`, e o destino fica em `todas_lojas`/`lojas`. "Ativo" quer dizer `encerrado_em IS NULL AND expira_em > now()`. Não há índice além da PK, porque a tabela é mínima. **Não há função, gatilho nem publicação.** Por isso a invariante #9 (`_core` com EXECUTE revogado) não se aplica, e nenhuma tabela existente é travada.
@@ -48,7 +48,7 @@ A tabela é global de propósito: não tem `tenant_id`, e o destino fica em `tod
 - **Sem policy de DELETE**: ninguém apaga pela API, e o histórico fica.
 
 **Permissões:** o padrão do Supabase dá tudo a `anon`/`authenticated` em tabela nova. A migration tira tudo e devolve só:
-- `SELECT` para `authenticated`;
+- `SELECT` **por coluna** para `authenticated` — todas menos `criado_por` (R7). `lojas` continua legível: a policy filtraria sem ela (conferido no Postgres descartável), mas o super admin é o MESMO papel `authenticated` e precisa dela na lista do Admin e no filtro da faixa (risco aceito, §7);
 - `INSERT` só em `(mensagem, nivel, todas_lojas, lojas, inicio_em, expira_em)`;
 - `UPDATE` só em `(encerrado_em)`;
 - `anon` fica sem nada.
@@ -59,9 +59,9 @@ Um `DO` no fim da migration confere RLS, policies e permissões na mesma transa�
 
 1. O "Encerrar agora" deixa a linha **invisível** para o usuário comum, porque a policy só mostra os ativos. O Realtime não entrega uma mudança que o assinante não pode ler, então com postgres_changes o aviso encerrado ficaria na tela até recarregar.
 2. Não mexe na publicação `supabase_realtime`: a migration continua só com objetos novos.
-3. O toque não leva dado nenhum, então o canal público não vaza nada. Um toque forjado só causa uma busca a mais, e as buscas são juntadas em 500 ms.
+3. O toque não leva dado nenhum, então o canal público não vaza nada. Toques em rajada ou forjados viram **no máximo 1 busca a cada 5 s, com trailing** — o último sempre gera uma busca (R6).
 
-**Rede de segurança**, porque o Realtime pode cair ou a aba pode estar em segundo plano: o cliente refaz a busca ao entrar e ao **reentrar** no canal (`SUBSCRIBED`, o que cobre a reconexão), quando a aba volta a ficar visível e quando o navegador volta a ficar online. O TanStack também refaz ao focar a janela. A validade é conferida no cliente a cada segundo, então a faixa some sozinha na hora certa.
+**Rede de segurança**, porque o Realtime pode cair ou a aba pode estar em segundo plano: o cliente refaz a busca ao entrar e ao **reentrar** no canal (`SUBSCRIBED`, o que cobre a reconexão), quando a aba volta a ficar visível e quando o navegador volta a ficar online (mesmo limite de 1 busca a cada 5 s). O TanStack também refaz ao focar a janela. A validade é conferida no cliente a cada segundo, então a faixa some sozinha na hora certa.
 
 **Super admin:** a RLS deixa ele ler todos os avisos. Por isso a faixa filtra no cliente pela **loja em visualização** (`avisoParaLoja`).
 
@@ -71,10 +71,10 @@ Um `DO` no fim da migration confere RLS, policies e permissões na mesma transa�
 
 - **Faixa Informativa:** tom `--tone-info-*`, ícone `Info`, a mensagem em até 2 linhas e um X para fechar (alvo de 44 px no mobile). Fechada, ela fica fechada para aquele usuário naquele navegador (`localStorage`, dentro de try/catch; se o storage falhar, vale só na memória da aba).
 - **Faixa de Manutenção:** `bg-destructive text-destructive-foreground`, ícone `Wrench`, sem botão de fechar. Mostra "Manutenção em mm:ss" (ou `h:mm:ss` a partir de 1 hora, arredondando para cima) e, a partir do início, "Sistema em manutenção". A contagem fica em `aria-hidden` e o leitor de tela recebe um texto fixo com o horário.
-- **Cartão de Manutenção:** vai por portal no `body`, com `z-[60]`, acima do escurecido do Sheet/Dialog (`z-50`). Fica no canto inferior esquerdo no desktop (o Sheet abre à direita e o toast fica no topo); no mobile fica largo, acima da barra de ações (`bottom-20`). Mostra "Manutenção programada", a contagem, a mensagem e o botão "Entendi". Três proteções evitam que ele interrompa o trabalho:
+- **Cartão de Manutenção:** vai por portal no `body`, com `z-[60]`, acima do escurecido do Sheet/Dialog (`z-50`). Fica em **`bottom-20` em todos os tamanhos** (acima da PageActionBar e do rodapé do Sheet — R4): no desktop, no canto esquerdo (o Sheet abre à direita e o toast fica no topo); no mobile, largo. Mostra "Manutenção programada", a contagem, a mensagem e o botão "Entendi". Três proteções evitam que ele interrompa o trabalho:
   1. Um listener **nativo** de `pointerdown` no cartão faz `stopPropagation`. O Radix fecha o modal num `pointerdown` que chega ao `document` vindo de fora, então o Sheet ou o Dialog aberto nem fica sabendo do clique.
   2. `pointer-events-auto` no cartão, porque o modal põe `pointer-events: none` no `body`.
-  3. `onMouseDown={preventDefault}` no "Entendi" e nenhum `autoFocus`, para o foco ficar no campo em que a pessoa digita.
+  3. `onMouseDown={preventDefault}` na **raiz** do cartão (R3) e nenhum `autoFocus`: clicar no texto ou no "Entendi" não tira o foco do campo em que a pessoa digita.
 
   Com mais de uma manutenção ativa, aparece um cartão por vez. Não se usa `DismissableLayerBranch` do Radix porque é um pacote interno ("not intended for public usage") e exigiria dependência nova.
 - **Tela Admin → Avisos** (`/admin/avisos`): o gate é igual ao de `lojas.tsx`/`usuarios.tsx` (`isSuperAdmin`; quem não é vai para `/dashboard`). As telas de super admin **não** entram em `nav.ts` nem em `permissions-catalog`: são itens fixos do grupo "Admin Mestre" no `app-sidebar.tsx` e cards do `admin/index.tsx`, e o Avisos segue o mesmo caminho.
@@ -107,4 +107,9 @@ Um `DO` no fim da migration confere RLS, policies e permissões na mesma transa�
 | Toque forjado no canal público | Sem dado nenhum: causa só uma busca a mais (juntada em 500 ms). |
 | Com Sheet/Dialog aberto, a faixa fica sob o escurecido | O cartão fica por cima. Depois do "Entendi", a contagem só aparece de novo ao fechar o Sheet. Levado ao dono (plano §8 D2). |
 | Pré-voo da F1 | A migration só vai depois da F1 em produção; o pré-voo do aviso **exige** a F1 no banco. |
+| Volta de emergência da F1 depois do aviso | A comparação final da volta da F1 (fidelidade de todo o `public`) acusaria a tabela nova. Logo depois do aviso, grava-se uma referência nova (retrato pré-F1 + as linhas do aviso) e a comparação que a substitui (plano Task 7 Step 3, R2). |
+| Toques em rajada ou forjados | No máximo 1 busca a cada 5 s por cliente, com trailing — o último toque sempre gera uma busca (R6). |
+| `lojas` legível pela API (**risco aceito**, R7) | Quem lê um aviso vê os UUIDs das outras lojas destinatárias DAQUELE aviso — sem nome nem dado delas. Tirar a coluna quebraria a lista do Admin e o filtro do super admin (mesmo papel `authenticated`). `criado_por` não é legível. |
+| Deploy levar commit a mais | Portão duro antes do `npm run deploy`: `src/` limpo e só os commits listados (plano Task 8 Step 3, R1). |
+| 1º deploy não é anunciável pelo aviso | Quem está aberto desde antes do deploy só vê avisos depois de recarregar: publicar em horário calmo e pedir por WhatsApp que recarreguem (plano §8 D4, R8). |
 | Backup sem PITR | `pg_dump` completo (container 17.6) **antes** do apply, dentro do próprio script. |

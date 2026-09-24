@@ -11,14 +11,16 @@
 
 **Tech Stack:** Vite + React 19.2 + TypeScript (strict) + TanStack Router/Query v5 + supabase-js 2.108.1 (realtime-js 2.108.1) + Radix/shadcn + lucide-react + sonner + date-fns 4. Testes: Vitest (`tests/unit`, `environment: node`) + integração `pg` em BEGIN…ROLLBACK na CÓPIA LOCAL + Playwright (QA na cópia, não commitado). Postgres 17.6 (produção e cópia). Shell: scripts `bash` (macOS `/bin/bash` 3.2).
 
-**Spec:** `docs/superpowers/specs/2026-09-24-aviso-global-design.md` (desenho aprovado pelo dono em 24/set). Memória: `project_aviso_global`.
+**Spec:** `docs/superpowers/specs/2026-09-24-aviso-global-design.md` (desenho aprovado pelo dono em 24/set). Memória: `project_aviso_global`. **G-plano (guardião): APROVA COM RESSALVAS R1–R8 — aplicadas neste texto em 24/set** (onde entrou cada uma: §9).
 
 ## Global Constraints
 
 **Sequência (OBRIGATÓRIA — ordem do dono, 24/set)**
 - A migration vai a PRODUÇÃO **só DEPOIS da F1 (kanban automático)** aplicada em produção com a verificação pós-apply OK (runbook `.superpowers/sdd/2026-09-22-kanban-automatico-f1-banco/task-18-runbook-v2.md`, Step 7). O pré-voo da F1 compara a fidelidade produção × `fidelidade_ref_local.txt` e PARARIA com a tabela do aviso a mais. O `ida-producao.sh` deste plano RECUSA se a F1 não estiver no banco.
 - Número da migration: **`20261001100000`** (> `20260930180000`, a coluna da F3.1).
-- Ponta a ponta: Tasks 0–6 (worktree, código, QA na cópia, G-commit) → **F1 em produção (outro plano)** → Task 7 (o DONO aplica a migration em produção, com `pg_dump` antes) → Task 8 (merge fast-forward + deploy, decisão do dono). **Nunca merge nem deploy antes da Task 7** (sem a tabela, a faixa some em silêncio, mas a tela Avisos quebra no `:5173` do dono, que grava em produção).
+- Ponta a ponta: Tasks 0–6 (worktree, código, QA na cópia, G-commit) → **F1 em produção (outro plano)** → Task 7 (o DONO aplica a migration em produção, com `pg_dump` antes, e grava a referência nova da volta da F1) → Task 8 (merge fast-forward + deploy, decisão do dono). **Nunca merge nem deploy antes da Task 7** (sem a tabela, a faixa some em silêncio, mas a tela Avisos quebra no `:5173` do dono, que grava em produção).
+- **Portão DURO do deploy (R1):** o `npm run deploy` só roda encadeado ao portão da Task 8 Step 3 — `src/` limpo (`git status --porcelain --untracked-files=all -- src` VAZIO, na hora) e NENHUM commit de front fora da lista do §8 D1 + os commits do aviso. Commit a mais (ex.: F2/F3.x juntada) ⇒ PARE e confira os pré-requisitos de banco daquela fase (ex.: a F3.1 grava `modelos.descricao_produto`, que não existe em produção antes da Task 9 dela).
+- **Volta de emergência da F1 depois do aviso (R2):** com a tabela do aviso em produção, a comparação final da volta da F1 (runbook v2 §9.2, `task-18-runbook-v2.md:790-791`, fidelidade de TODO o `public`) acusaria diferença. A Task 7 Step 3 grava a referência nova `savepoints/pre-apply-f1-kanban-auto/fidelidade_ref_volta_f1_com_aviso_detalhe.txt` e diz a comparação que a substitui.
 - Fase **independente** da campanha: worktree `.claude/worktrees/aviso-global`, branch `aviso-global`, nascida da ponta de `feature/plan-tecido-a1` (hoje `a044759`; a Task 0 grava o sha em `.superpowers/aviso/BASE`). Não depende de F2/F3.x e não toca arquivo delas (conferido 24/set: nenhuma branch f2/f31/f32/f33/f34 mexe em `_authenticated.tsx`, `app-sidebar.tsx`, `admin/index.tsx`, `routeTree.gen.ts` ou `package*.json`).
 
 **Repositório e commits**
@@ -31,16 +33,17 @@
 - NUNCA teste nem DDL em produção. `/tmp/dburl.txt` = PRODUÇÃO e `tests/integration/db.ts` cai nele sem `DATABASE_URL` → todo teste de integração roda com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` (cópia local); o teste do aviso RECUSA DDL fora dela (`exigeBancoLocal`). Leitura na cópia fora dos testes: `PGOPTIONS='-c default_transaction_read_only=on'`.
 - PROIBIDO `psql -f`/`\i` de migration dentro de transação de teste (incidentes 15/set e 23/set) e PROIBIDO "probe exploratório" fora do harness. SQL fora do harness SÓ pelo `aplica_v2` (`.superpowers/aviso/mig/aplica.sh`, cópia literal do bloco de apoio v2 da F1) e SÓ em 3 usos: ensaio na cópia (Task 1), tabela na cópia para o QA (Task 5) e produção (Task 7, pelo DONO).
 - Produção: SÓ o dono roda (o classificador bloqueia o agente), com `pg_dump` completo ANTES (plano Supabase SEM PITR) — o `ida-producao.sh` faz o backup e para se ele falhar. Nenhuma leitura em produção pelos agentes.
+- Permissões: `SELECT` **por coluna** (sem `criado_por`; `lojas` fica legível — risco aceito, spec §7, R7), `INSERT` só nas 6 colunas do envio, `UPDATE` só em `encerrado_em`; `anon` nada.
 - Migration aditiva, `BEGIN;`/`COMMIT;` (1 de cada, em linha própria), idempotente, **sem timeout embutido** (o `aplica_v2` injeta `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` logo depois do `BEGIN;`), inverso em `supabase/rollback/`. **Sem função** → invariante #9 não se aplica (se uma revisão futura puser função: `_core` + `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated` + conferir `has_function_privilege`).
 - A migration só cria objetos novos → não trava tabela existente e não congela o app de teste `:5188` do dono. Mesmo assim: nunca rodar teste/ensaio do aviso junto com a suíte da F1 na cópia (conferir `ps` antes).
 
-**Realtime** — broadcast "toque" (evento `mudou`, payload sem dado) no canal `avisos-globais` + busca pela RLS (spec §4). A tabela NÃO entra na publicação `supabase_realtime` nem no `realtime-invalidation-map.ts`.
+**Realtime** — broadcast "toque" (evento `mudou`, payload sem dado) no canal `avisos-globais` + busca pela RLS (spec §4). Buscas disparadas por evento (toque, reentrada no canal, aba visível, online): **no máximo 1 a cada 5 s, com trailing** — o último evento sempre gera uma busca (R6; `esperaParaBuscar`). A tabela NÃO entra na publicação `supabase_realtime` nem no `realtime-invalidation-map.ts`.
 
-**UI (`docs/design/ui-padroes.md` §A/§G/§Q)** — novo = Dialog (`fixedFooter mobileFull`, guarda de não salvo, rodapé Voltar · Enviar); datas `<DateField>` + hora `<HoraField>` (nunca `<input type="date|time">`); erros `mensagemErro()`; cor só por token (`destructive`, `--tone-*`, `--elevation-*`); ícones lucide por `className`; alvos 44 px no mobile; mobile 360 sem overflow horizontal. Anti-drift ATIVO: nenhum hit NOVO. **Cartão de Manutenção: nunca Dialog/AlertDialog/Sheet, nunca `autoFocus`; o teste estático `tests/unit/aviso-global-componente.test.ts` trava as 3 proteções** (isolar `pointerdown`, `pointer-events-auto`, `onMouseDown preventDefault`).
+**UI (`docs/design/ui-padroes.md` §A/§G/§Q)** — novo = Dialog (`fixedFooter mobileFull`, guarda de não salvo, rodapé Voltar · Enviar); datas `<DateField>` + hora `<HoraField>` (nunca `<input type="date|time">`); erros `mensagemErro()`; cor só por token (`destructive`, `--tone-*`, `--elevation-*`); ícones lucide por `className`; alvos 44 px no mobile; mobile 360 sem overflow horizontal. Anti-drift ATIVO: nenhum hit NOVO. **Cartão de Manutenção: nunca Dialog/AlertDialog/Sheet, nunca `autoFocus`; `onMouseDown preventDefault` na RAIZ do cartão (clicar no texto também não tira o foco — R3); `bottom-20` em TODOS os tamanhos (não cobre a PageActionBar nem o rodapé do Sheet — R4). O teste estático `tests/unit/aviso-global-componente.test.ts` trava isso** (isolar `pointerdown`, `pointer-events-auto`, `onMouseDown` na raiz, `bottom-20` sem variante de breakpoint).
 
 **Gates (toda task de código)** — `bash .superpowers/aviso/gates.sh`: `npm run build` ok · `npx tsc --noEmit` = **0** erro (o build NÃO faz type-check) · `env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit` com o MESMO conjunto de falhas da linha de base (hoje 2, do anti-drift: `DocPrintCasca.tsx`/`OcDocumentoPrint.tsx`) · nenhum hit do anti-drift em arquivo do aviso · diff só nos caminhos permitidos. NUNCA `npx vitest run` sem caminho.
 
-**QA na cópia (Task 5)** — variante do app de teste em **`:5182`**, gerada pelo `banco-local/app-teste-variantes/criar-variante.sh` (a porta 5182 entra no `case` com backup e SAI no fim do QA — a receita da F3.4 casa a linha LITERAL). Guarda invertida: qualquer requisição a `*.supabase.co` reprova. Nunca `:5173` nem `:5183`–`:5188` (nem `:5198`/`:5199`); nunca `npm run dev` + `VITE_*`; porta ocupada ⇒ PARE (nunca matar nada); derrubar só pelo `descer.sh` da variante; nunca junto com outro QA/E2E.
+**QA na cópia (Task 5)** — variante do app de teste em **`:5182`**, gerada pelo `banco-local/app-teste-variantes/criar-variante.sh`. A 5182 **já está RESERVADA** no `case` pelo controlador (backup `criar-variante.sh.bak-pre-reserva-portas`, R5): o QA só confere com `grep -q 5182` e PARA se faltar — **nunca edita o script**. Guarda invertida: qualquer requisição a `*.supabase.co` reprova. Nunca `:5173` nem `:5183`–`:5188` (nem `:5198`/`:5199`); nunca `npm run dev` + `VITE_*`; porta ocupada ⇒ PARE (nunca matar nada); derrubar só pelo `descer.sh` da variante; nunca junto com outro QA/E2E.
 
 **Modelos e comunicação** — Sonnet executa as Tasks 0–4; Opus revisa: Task 1 (individual — banco/segurança), Tasks 2+3 (um lote — lógica pura + layout de TODAS as telas) e Task 4 (individual — tela de super admin). O controlador faz as Tasks 5 e 6. O DONO faz as Tasks 7 e 8. Sem Fable. Avisos ao dono por CHAT, sem popup de plano (`ExitPlanMode` proibido).
 
@@ -56,9 +59,10 @@
 - Cópia local (PG 17.6): funções|gatilhos de `public` = `458|263` (a F1 e a coluna da F3.1 estão aplicadas NA CÓPIA). `get_user_tenant_id()` devolve o sentinela nil para loja inativa (menos super admin); `is_super_admin()` lê `user_roles`; ambos `SECURITY DEFINER`. Default ACL de tabela nova em `public` = TUDO para `anon`/`authenticated`/`service_role` (`pg_default_acl`) — por isso a migration faz REVOKE + GRANT por coluna. `postgres` é membro de `anon` e `authenticated`. `public.users.id → auth.users(id)`, `nome NOT NULL`, `role` default `'user'`; `auth.users` sem gatilho. Publicação `supabase_realtime`: 47 tabelas. Serviços locais (Kong/Auth/REST/Realtime) no ar em `127.0.0.1:54321`.
 - Usuários da Loja Teste (`37889b78-fffb-404b-8c75-18b7e50a1d9b`) na cópia: só `teste@teste.com` (super admin; senha = a do `.env` → `E2E_EMAIL`/`E2E_PASSWORD`) e `sung.lee@mageclass.com.br` (super admin; `USER_TESTE` dos testes). **Nenhum usuário comum da Loja Teste com senha conhecida** (os de outras lojas são pessoas reais) → o QA usa o super admin nos 2 papéis (o "comum" com os papéis SIMULADOS no navegador) e a RLS de usuário comum de verdade é provada na integração (usuário sintético dentro da transação).
 - Harness de migration: o da F1 é LOCAL a `tests/integration/kanban-auto.test.ts:56-128`; `tests/integration/mig-txn.ts` só existe na branch da F3.1 → o do aviso fica LOCAL a `tests/integration/aviso-global.test.ts` (evita conflito add/add no merge).
-- `banco-local/app-teste-variantes/criar-variante.sh` aceita hoje `5184|5185|5186|5187` (backup `.bak-pre-f33` já existe); o plano da F3.4 acrescenta a 5183 casando a linha LITERAL (F3.4, Task 9 Step 1).
+- `banco-local/app-teste-variantes/criar-variante.sh`: o controlador RESERVOU `5180|5181|5182|5183|5184|5185|5186|5187` no `case` (24/set, backup `criar-variante.sh.bak-pre-reserva-portas`; comentário "Aviso = 5182"). Ninguém mais edita a lista (R5).
+- Runbook da F1: a volta de emergência (§9.2) termina com `diff "$D/fidelidade_prod_pre.txt" "$D/fidelidade_prod_pos_volta.txt"` (linhas 790-791), estrito em colunas/índices/policies de todo o `public`; o retrato pré-F1 detalhado fica em `savepoints/pre-apply-f1-kanban-auto/fidelidade_prod_pre_detalhe.txt` (Step 4 da F1).
 - Deploy = `npm run deploy` manual, publica o checkout. Última confirmação de deploy: 20/set (memória `project_merge_pendente_ring`: "tudo deployado"; a branch estava em `2768145`, 18/set). Não há marca de deploy no repo.
-- **Validação deste plano (24/set, fora do repo):** o SQL, o teste de integração e os scripts rodaram num Postgres 17.6 DESCARTÁVEL (imagem do Supabase, porta 55432, com `tenants`/`users`/`user_roles`/`is_super_admin`/`get_user_tenant_id` copiados da cópia e o `auth.uid()` da cópia): **9/9** na integração, e 3 mutações da migration (sem a guarda nil, reabrir permitido, ler vencidos) derrubam o teste certo; `ensaio-local.sh` e `backup_banco` (pg_dump pelo container) OK; `tsc --noEmit` = 0 num espelho do `src/` com todos os arquivos e edições deste plano; **22/22** testes unitários; anti-drift sem hit novo; o spec do QA compila; a receita da porta 5182 volta o `criar-variante.sh` ao original byte a byte. O QA de navegador NÃO rodou (exige subir o vite — Task 5).
+- **Validação deste plano (24/set, fora do repo; refeita após R1–R8):** o SQL, o teste de integração e os scripts rodaram num Postgres 17.6 DESCARTÁVEL (imagem do Supabase, porta 55432, com `tenants`/`users`/`user_roles`/`is_super_admin`/`get_user_tenant_id` copiados da cópia e o `auth.uid()` da cópia): **9/9** na integração, e 4 mutações da migration (sem a guarda nil, reabrir permitido, ler vencidos, SELECT em `criado_por`) derrubam o teste certo; experimento R7: a policy filtra por `lojas` mesmo SEM SELECT na coluna, mas aí o super admin (mesmo papel) não lê `lojas` — por isso ela fica; `ensaio-local.sh`, `backup_banco` (pg_dump pelo container) e `ref-volta-f1.sh` (referência nova da volta da F1 = retrato pós-volta simulado, `== VOLTA OK (com o aviso)`) OK; `tsc --noEmit` = 0 num espelho do `src/` com todos os arquivos e edições deste plano; **24/24** testes unitários; anti-drift sem hit novo; o spec do QA compila. O QA de navegador NÃO rodou (exige subir o vite — Task 5).
 
 ## 2. Estrutura de arquivos
 
@@ -67,14 +71,14 @@
 | `supabase/migrations/20261001100000_aviso_global.sql` (novo) | tabela, CHECKs, RLS (4 policies), permissões por coluna, conferência `DO` | 1 |
 | `supabase/rollback/20261001100000_aviso_global_down.sql` (novo) | `DROP TABLE` da tabela nova (+ conferência) | 1 |
 | `tests/integration/aviso-global.test.ts` (novo) | estático (forma dos SQL) + banco (RLS, permissões, CHECKs, loja inativa, inverso) — SÓ na cópia | 1 |
-| `.superpowers/aviso/mig/{aplica,ensaio-local,copia-qa,ida-producao,volta-producao}.sh` (fora do git) | receita de travas (`aplica_v2`), ensaio, tabela na cópia p/ QA, produção e volta de emergência | 1 (usados em 5 e 7) |
+| `.superpowers/aviso/mig/{aplica,ensaio-local,copia-qa,ida-producao,ref-volta-f1,volta-producao}.sh` (fora do git) | receita de travas (`aplica_v2`), ensaio, tabela na cópia p/ QA, produção, referência nova da volta da F1 (R2) e volta de emergência | 1 (usados em 5 e 7) |
 | `.superpowers/aviso/{gates.sh,BASE,unit-fail-t0.txt,logs/}` (fora do git) | gates + linha de base | 0 |
 | `src/lib/hora.ts` (novo, puro) | `maskHora`, `horaValida` | 2 |
-| `src/lib/aviso-global.ts` (novo, puro) | tipos, constantes, visibilidade, contagem, lista do Admin, formulário, chave de dispensa | 2 |
-| `tests/unit/aviso-global.test.ts` (novo) | 19 testes da lógica pura | 2 |
+| `src/lib/aviso-global.ts` (novo, puro) | tipos, constantes, visibilidade, contagem, limite de busca (5 s, R6), lista do Admin, formulário, chave de dispensa | 2 |
+| `tests/unit/aviso-global.test.ts` (novo) | 20 testes da lógica pura | 2 |
 | `src/hooks/useAvisosGlobais.ts` (novo) | busca dos ativos + canal broadcast + rede de segurança + `sinalizarAvisosGlobais` + `useAgora` + `useDispensaAvisos` | 3 |
 | `src/components/avisos/AvisosGlobais.tsx` (novo) | faixas + cartão de Manutenção (portal, isolado do modal) | 3 |
-| `tests/unit/aviso-global-componente.test.ts` (novo) | trava estática: cartão não-modal, não rouba foco, não fecha o Sheet | 3 |
+| `tests/unit/aviso-global-componente.test.ts` (novo) | trava estática: cartão não-modal, não rouba foco (raiz), não fecha o Sheet, `bottom-20` em todos os tamanhos | 3 |
 | `src/routes/_authenticated.tsx` (mod.) | monta `<AvisosGlobais/>` abaixo do header | 3 |
 | `src/components/shared/HoraField.tsx` (novo) | campo `hh:mm` mascarado (par do `DateField`) | 4 |
 | `src/components/avisos/NovoAvisoDialog.tsx` (novo) | Dialog "Novo aviso" | 4 |
@@ -82,8 +86,7 @@
 | `src/components/app-sidebar.tsx` (mod.) | item "Avisos" no Admin Mestre | 4 |
 | `src/routes/_authenticated/admin/index.tsx` (mod.) | card "Avisos" (super admin) | 4 |
 | `src/routeTree.gen.ts` (regenerado pelo build) | rota `/admin/avisos` | 4 |
-| `tests/e2e/aviso-global-qa.spec.ts` (novo, NUNCA commitado) | QA na cópia (2 contextos, Sheet aberto, destino, informativo, reconexão, mobile 360, gate) | 5 |
-| `.superpowers/aviso/porta-5182.py` (fora do git) | põe/tira a porta 5182 no `criar-variante.sh` sem depender da versão da linha | 5 |
+| `tests/e2e/aviso-global-qa.spec.ts` (novo, NUNCA commitado) | QA na cópia (2 contextos, Sheet aberto, clique no texto, destino, informativo, reconexão, mobile 360, sobreposição a 390/1280, gate) | 5 |
 | `banco-local/app-teste-variantes/aviso/` (fora do repo) | variante do app de teste em `:5182` | 5 |
 
 ## 3. Ordem e dependências
@@ -105,7 +108,7 @@
 | 6 | **code-reviewer Opus no diff inteiro** + G-commit | portão final |
 | 7 | G-migration aprovado + F1 em produção + OK do dono | aplicação final (dono) |
 
-**Checklist G-migration (revisor da Task 1):** (1) só objetos novos — nenhuma tabela/função/gatilho/publicação existente tocada; (2) RLS ligada, 4 policies e textos idênticos à spec §4; (3) `anon` sem nada; `authenticated`: SELECT de tabela, INSERT só nas 6 colunas, UPDATE só em `encerrado_em`, nada de DELETE; (4) sentinela nil barrado na leitura; (5) CHECKs = spec §3; (6) `BEGIN;`/`COMMIT;` 1 de cada, idempotente (2ª ida sem erro), sem timeout embutido; (7) inverso só com o `DROP` da tabela nova; (8) ensaio na cópia `== ENSAIO OK` com contagens iguais antes/depois; (9) teste de integração 9/9 NA CÓPIA; (10) nenhum `psql -f`/`\i` fora do harness.
+**Checklist G-migration (revisor da Task 1):** (1) só objetos novos — nenhuma tabela/função/gatilho/publicação existente tocada; (2) RLS ligada, 4 policies e textos idênticos à spec §4; (3) `anon` sem nada; `authenticated`: SELECT por coluna (sem `criado_por`; `lojas` legível — risco aceito, spec §7), INSERT só nas 6 colunas, UPDATE só em `encerrado_em`, nada de DELETE; (4) sentinela nil barrado na leitura; (5) CHECKs = spec §3; (6) `BEGIN;`/`COMMIT;` 1 de cada, idempotente (2ª ida sem erro), sem timeout embutido; (7) inverso só com o `DROP` da tabela nova; (8) ensaio na cópia `== ENSAIO OK` com contagens iguais antes/depois; (9) teste de integração 9/9 NA CÓPIA; (10) nenhum `psql -f`/`\i` fora do harness.
 
 O revisor recebe `git diff <antes>..<depois>` da(s) task(s), este plano (a task + Global Constraints + §6) e confere arquivo:linha no código real. Achado BLOQUEANTE volta ao implementador na mesma worktree; a task só fecha com o revisor OK.
 
@@ -223,7 +226,7 @@ Expected: `build ok`; `0`; as falhas listadas são SÓ do `tests/unit/ui-padroes
 
 **Files:**
 - Create: `supabase/migrations/20261001100000_aviso_global.sql`, `supabase/rollback/20261001100000_aviso_global_down.sql`, `tests/integration/aviso-global.test.ts`
-- Create (fora do git): `.superpowers/aviso/mig/{aplica.sh,ensaio-local.sh,copia-qa.sh,ida-producao.sh,volta-producao.sh}`
+- Create (fora do git): `.superpowers/aviso/mig/{aplica.sh,ensaio-local.sh,copia-qa.sh,ida-producao.sh,ref-volta-f1.sh,volta-producao.sh}`
 
 **Interfaces:**
 - Consumes: `tests/integration/db.ts` (`hasDb`, `withTx`, `comoUsuario`, `um`, `TENANT_TESTE`, `USER_TESTE`, `ehBancoLocal`) — sem mudar.
@@ -405,7 +408,7 @@ async function rejeita(c: Client, fn: () => Promise<unknown>, code: string, rotu
 }
 
 describe.skipIf(!hasDb || !LOCAL)("Aviso Global — banco (cópia local, BEGIN…ROLLBACK)", () => {
-  it("ida 2× (idempotente): RLS ligada, 4 policies, permissões exatas e NENHUMA função/gatilho novo", async () => {
+  it("ida 2× (idempotente): RLS ligada, 4 policies, permissões exatas (por coluna) e NENHUMA função/gatilho novo", async () => {
     await withTx(async (c) => {
       const antes = await contagens(c);
       await prepara(c);
@@ -418,15 +421,17 @@ describe.skipIf(!hasDb || !LOCAL)("Aviso Global — banco (cópia local, BEGIN�
            from pg_class c where c.oid = 'public.avisos_globais'::regclass`)).toEqual({ rls: true, policies: 4, publicacoes: 0 });
       expect(await um(c,
         `select has_table_privilege('anon', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') as anon_algo,
-                has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT') as auth_ler,
-                has_table_privilege('authenticated', 'public.avisos_globais', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') as auth_tabela,
+                has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') as auth_tabela,
+                has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'SELECT') as sel_mensagem,
+                has_column_privilege('authenticated', 'public.avisos_globais', 'lojas', 'SELECT') as sel_lojas,
+                has_column_privilege('authenticated', 'public.avisos_globais', 'criado_por', 'SELECT') as sel_criado_por,
                 has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'INSERT') as ins_mensagem,
                 has_column_privilege('authenticated', 'public.avisos_globais', 'criado_por', 'INSERT') as ins_criado_por,
                 has_column_privilege('authenticated', 'public.avisos_globais', 'encerrado_em', 'INSERT') as ins_encerrado,
                 has_column_privilege('authenticated', 'public.avisos_globais', 'encerrado_em', 'UPDATE') as upd_encerrado,
                 has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'UPDATE') as upd_mensagem`)).toEqual({
-        anon_algo: false, auth_ler: true, auth_tabela: false, ins_mensagem: true, ins_criado_por: false,
-        ins_encerrado: false, upd_encerrado: true, upd_mensagem: false,
+        anon_algo: false, auth_tabela: false, sel_mensagem: true, sel_lojas: true, sel_criado_por: false,
+        ins_mensagem: true, ins_criado_por: false, ins_encerrado: false, upd_encerrado: true, upd_mensagem: false,
       });
     });
   });
@@ -490,7 +495,7 @@ describe.skipIf(!hasDb || !LOCAL)("Aviso Global — banco (cópia local, BEGIN�
     });
   });
 
-  it("CHECKs e travas de coluna: texto/nível/destino/validade; super admin não forja autor, não edita texto, não reabre, não cria vencido", async () => {
+  it("CHECKs e travas de coluna: texto/nível/destino/validade; super admin não forja nem lê o autor, não edita texto, não reabre, não cria vencido", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoSuper(c);
@@ -510,8 +515,11 @@ describe.skipIf(!hasDb || !LOCAL)("Aviso Global — banco (cópia local, BEGIN�
          values ('ITEST forjado', 'informativo', now() + interval '1 hour', gen_random_uuid())`), "42501", "forjar criado_por");
       await rejeita(c, () => inserir(c, { inicio: "now() - interval '2 hours'", expira: "now() - interval '1 hour'" }), "42501", "criar vencido");
       const a = await inserir(c, { mensagem: "ITEST coluna" });
+      await rejeita(c, () => c.query("select criado_por from public.avisos_globais where id = $1", [a.id]), "42501", "ler criado_por pela API");
+      await c.query("RESET ROLE"); // o autor só se lê como dono da tabela
       expect((await um<{ criado_por: string }>(c, "select criado_por::text from public.avisos_globais where id = $1", [a.id])).criado_por)
         .toBe(USER_TESTE);
+      await c.query("SET ROLE authenticated"); // as claims do super admin seguem na txn
       await rejeita(c, () => c.query("update public.avisos_globais set mensagem = 'mudou' where id = $1", [a.id]), "42501", "editar texto");
       await c.query("update public.avisos_globais set encerrado_em = now() where id = $1", [a.id]);
       await rejeita(c, () => c.query("update public.avisos_globais set encerrado_em = null where id = $1", [a.id]), "42501", "reabrir");
@@ -631,8 +639,13 @@ CREATE POLICY avisos_globais_super_admin_encerrar ON public.avisos_globais
 -- Sem policy de DELETE: ninguém apaga pela API (o histórico fica). O default do Supabase dá TUDO a anon/authenticated
 -- em tabela nova do public — tira e devolve só o necessário. Colunas: o cliente não forja criado_por/created_at/id
 -- nem nasce encerrado; no UPDATE só mexe em encerrado_em.
+-- SELECT POR COLUNA (R7 do G-plano): criado_por (quem enviou) não é lido pela API. `lojas` FICA legível: a policy
+-- filtraria sem ela, mas o super admin é o MESMO papel `authenticated` e precisa dela (destino na lista do Admin e
+-- filtro da faixa pela loja em visualização). Risco aceito: quem lê um aviso vê os UUIDs das outras lojas
+-- destinatárias DAQUELE aviso (sem nome nem dado) — spec §7.
 REVOKE ALL ON TABLE public.avisos_globais FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public.avisos_globais TO authenticated;
+GRANT SELECT (id, mensagem, nivel, todas_lojas, lojas, inicio_em, expira_em, encerrado_em, created_at)
+  ON TABLE public.avisos_globais TO authenticated;
 GRANT INSERT (mensagem, nivel, todas_lojas, lojas, inicio_em, expira_em) ON TABLE public.avisos_globais TO authenticated;
 GRANT UPDATE (encerrado_em) ON TABLE public.avisos_globais TO authenticated;
 GRANT ALL ON TABLE public.avisos_globais TO service_role;
@@ -649,8 +662,10 @@ BEGIN
   IF has_table_privilege('anon', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
     RAISE EXCEPTION 'aviso global: anon com privilégio em public.avisos_globais';
   END IF;
-  IF NOT has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.avisos_globais', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  IF has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+     OR NOT has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'SELECT')
+     OR NOT has_column_privilege('authenticated', 'public.avisos_globais', 'lojas', 'SELECT')
+     OR has_column_privilege('authenticated', 'public.avisos_globais', 'criado_por', 'SELECT')
      OR has_column_privilege('authenticated', 'public.avisos_globais', 'criado_por', 'INSERT')
      OR has_column_privilege('authenticated', 'public.avisos_globais', 'encerrado_em', 'INSERT')
      OR has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'UPDATE')
@@ -741,9 +756,9 @@ ATIV="select pid, usename, application_name, state, now() - xact_start as idade_
 CONT="select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'), (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal)"
 # tabela existe | nº de policies dela   (antes: f|0 · depois da ida: t|4)
 ESTADO="select to_regclass('public.avisos_globais') is not null, (select count(*) from pg_policies where schemaname = 'public' and tablename = 'avisos_globais')"
-# RLS | anon tem algo | authenticated lê | authenticated tem INSERT/UPDATE/DELETE de TABELA | UPDATE só de encerrado_em | em publicação
-# (esperado depois da ida: t|f|t|f|t|0)
-ACL="select (select c.relrowsecurity from pg_class c where c.oid = 'public.avisos_globais'::regclass), has_table_privilege('anon', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE'), has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT'), has_table_privilege('authenticated', 'public.avisos_globais', 'INSERT,UPDATE,DELETE'), has_column_privilege('authenticated', 'public.avisos_globais', 'encerrado_em', 'UPDATE'), (select count(*) from pg_publication_tables where tablename = 'avisos_globais')"
+# RLS | anon tem algo | authenticated lê mensagem | authenticated lê criado_por | authenticated tem privilégio de TABELA
+# | UPDATE de encerrado_em | em publicação   (esperado depois da ida: t|f|t|f|f|t|0)
+ACL="select (select c.relrowsecurity from pg_class c where c.oid = 'public.avisos_globais'::regclass), has_table_privilege('anon', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE'), has_column_privilege('authenticated', 'public.avisos_globais', 'mensagem', 'SELECT'), has_column_privilege('authenticated', 'public.avisos_globais', 'criado_por', 'SELECT'), has_table_privilege('authenticated', 'public.avisos_globais', 'SELECT,INSERT,UPDATE,DELETE'), has_column_privilege('authenticated', 'public.avisos_globais', 'encerrado_em', 'UPDATE'), (select count(*) from pg_publication_tables where tablename = 'avisos_globais')"
 # F1 (kanban automático) já está no banco? (produção: o aviso SÓ vai depois dela — ordem do dono, 24/set)
 F1="select to_regclass('public.kanban_snapshot') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'kanban_automatico')"
 
@@ -815,7 +830,7 @@ prevoo_aviso() {  # uso: prevoo_aviso URL sim|nao
 # Conferência pós-ida (só leitura). $2 = contagens de ANTES (funções|gatilhos).
 confere_ida_aviso() {  # uso: confere_ida_aviso URL CONT_ANTES
   espera "$1" "$ESTADO" "t|4" "tabela criada com 4 policies" &&
-  espera "$1" "$ACL" "t|f|t|f|t|0" "RLS · anon sem nada · authenticated lê e só encerra · fora da publicação" &&
+  espera "$1" "$ACL" "t|f|t|f|f|t|0" "RLS · anon sem nada · authenticated lê por coluna (sem o autor) e só encerra · fora da publicação" &&
   espera "$1" "$CONT" "$2" "nenhuma função/gatilho novo"
 }
 confere_volta_aviso() {  # uso: confere_volta_aviso URL CONT_ANTES
@@ -936,6 +951,35 @@ confere_ida_aviso "$PROD" "$CONT_ANTES" \
 psql "$PROD" -X -q -v ON_ERROR_STOP=1 -c "NOTIFY pgrst, 'reload schema'" && echo "== PostgREST recarregado"
 ```
 
+Criar `.superpowers/aviso/mig/ref-volta-f1.sh` (usado na Task 7 Step 3, pelo DONO — R2; só leitura):
+
+```bash
+#!/usr/bin/env bash
+# Task 7 Step 3 (R2 do G-plano) — NOVA referência de fidelidade para a VOLTA DE EMERGÊNCIA da F1, gravada logo DEPOIS
+# do `== IDA OK` do aviso. A volta da F1 (runbook v2 §9.2, task-18-runbook-v2.md:790-791) termina comparando a
+# fidelidade de TODO o public (colunas, índices, policies…) com o retrato pré-F1 `fidelidade_prod_pre.txt`; com a
+# tabela do aviso em produção essa comparação acusaria diferença mesmo com a volta certa. A referência nova = o retrato
+# pré-F1 (detalhe, linha a linha) + SÓ as linhas do aviso lidas agora em produção. SÓ LEITURA (txn READ ONLY).
+# Roda o DONO, num terminal, de qualquer pasta:  /bin/bash <worktree>/.superpowers/aviso/mig/ref-volta-f1.sh
+set -uo pipefail
+BF1="/Users/sunglee/PLM + Criação/savepoints/pre-apply-f1-kanban-auto"
+# O bloco de apoio da F1 só DEFINE coisas (fidelidade, FIDEL_DET, D="$BF1"…) e dá cd no checkout principal.
+source "$BF1/bloco_apoio_v2.sh" || exit 1
+PROD="$(cat /tmp/dburl.txt)"
+PRE="$D/fidelidade_prod_pre_detalhe.txt"
+[ -s "$PRE" ] || { echo "PARE: falta $PRE (retrato pré-F1 do Step 4 da F1) — sem ele não há referência"; exit 1; }
+fidelidade "$PROD" "$D/fidelidade_prod_pos_aviso.txt" "$D/fidelidade_prod_pos_aviso_detalhe.txt" > /dev/null \
+  || { echo "FALHOU: não li a fidelidade de produção"; exit 1; }
+N=$(grep -c 'avisos_globais' "$D/fidelidade_prod_pos_aviso_detalhe.txt")
+[ "$N" -gt 0 ] || { echo "PARE: nenhuma linha do aviso no retrato — a tabela está mesmo em produção?"; exit 1; }
+if grep -q 'avisos_globais' "$PRE"; then echo "PARE: o retrato pré-F1 já tem linhas do aviso — ordem trocada?"; exit 1; fi
+REF="$D/fidelidade_ref_volta_f1_com_aviso_detalhe.txt"
+{ cat "$PRE"; grep 'avisos_globais' "$D/fidelidade_prod_pos_aviso_detalhe.txt"; } | LC_ALL=C sort > "$REF"
+echo "OK (referência nova p/ a volta da F1): $REF — retrato pré-F1 ($(wc -l < "$PRE") linhas) + $N linhas do aviso"
+echo "Na volta de emergência da F1 (runbook §9.2), com o aviso em produção, a última comparação passa a ser:"
+echo "  diff \"\$D/fidelidade_ref_volta_f1_com_aviso_detalhe.txt\" <(LC_ALL=C sort \"\$D/fidelidade_prod_pos_volta_detalhe.txt\") && echo \"== VOLTA OK (com o aviso)\""
+```
+
 Criar `.superpowers/aviso/mig/volta-producao.sh` (NÃO faz parte do fluxo — só emergência, com OK do dono):
 
 ```bash
@@ -963,7 +1007,7 @@ diff <(awk '/^# ── CÓPIA LITERAL/{p=1;next} /^# ── Aviso Global ──/
      <(sed -n '190,239p' "/Users/sunglee/PLM + Criação/savepoints/pre-apply-f1-kanban-auto/bloco_apoio_v2.sh" | sed '/^$/d') && echo "funções = bloco da F1 (literal)"
 ```
 
-Expected: 5 × `ok …`; `funções = bloco da F1 (literal)`.
+Expected: 6 × `ok …`; `funções = bloco da F1 (literal)`.
 
 - [ ] **Step 8: Ensaio da receita na CÓPIA LOCAL (G-migration)**
 
@@ -973,7 +1017,7 @@ ps -Ao pid,command | grep -E "[v]itest|[p]laywright"; echo "testes-checados"
 /bin/bash .superpowers/aviso/mig/ensaio-local.sh 2>&1 | tee .superpowers/aviso/logs/t1-ensaio-local.log | grep -vE "^(NOTICE|LOCATION)"
 ```
 
-Expected, na ordem: `contagens antes (funções|gatilhos): 458|263` (ou o que a cópia tiver — anotar); `== PRÉ-VOO OK`; a migration aplicada (`real 0.0x`); `OK (tabela criada com 4 policies): t|4`; `OK (RLS · anon sem nada · authenticated lê e só encerra · fora da publicação): t|f|t|f|t|0`; `OK (nenhuma função/gatilho novo): <igual ao antes>`; a 2ª ida (idempotente) com as mesmas 3 linhas OK; `OK (ATIV)`; o inverso; `OK (tabela do aviso removida): f|0`; `OK (contagens = antes)`; `== ENSAIO OK`. Qualquer `FALHOU`/`PAROU`: PARE e reporte (a cópia pode ter ficado com a tabela: `copia-qa.sh estado`).
+Expected, na ordem: `contagens antes (funções|gatilhos): 458|263` (ou o que a cópia tiver — anotar); `== PRÉ-VOO OK`; a migration aplicada (`real 0.0x`); `OK (tabela criada com 4 policies): t|4`; `OK (RLS · anon sem nada · authenticated lê por coluna (sem o autor) e só encerra · fora da publicação): t|f|t|f|f|t|0`; `OK (nenhuma função/gatilho novo): <igual ao antes>`; a 2ª ida (idempotente) com as mesmas 3 linhas OK; `OK (ATIV)`; o inverso; `OK (tabela do aviso removida): f|0`; `OK (contagens = antes)`; `== ENSAIO OK`. Qualquer `FALHOU`/`PAROU`: PARE e reporte (a cópia pode ter ficado com a tabela: `copia-qa.sh estado`).
 
 ---
 
@@ -985,7 +1029,7 @@ Expected, na ordem: `contagens antes (funções|gatilhos): 458|263` (ou o que a 
 **Interfaces:**
 - Consumes: `date-fns` (`format`, `isValid`, `parse`).
 - Produces (`@/lib/hora`): `maskHora(raw: string): string`, `horaValida(hhmm: string): boolean`.
-- Produces (`@/lib/aviso-global`): tipos `NivelAviso`, `AvisoGlobal`, `AvisoInsert`, `AvisoForm`, `SituacaoAviso`, `Dispensa`; constantes `NIL_UUID`, `MENSAGEM_MAX` (500), `ANTECEDENCIA_PADRAO_MIN` (5), `VALIDADE_PADRAO_MIN` (30), `VALIDADE_MAX_DIAS` (7), `AVISOS_CANAL` (`"avisos-globais"`), `AVISOS_EVENTO` (`"mudou"`), `NIVEL_ROTULO`, `SITUACAO_ROTULO`; funções `avisoAtivo(a, agora)`, `avisoParaLoja(a, tenantId)`, `avisosVisiveis(lista, tenantId, agora)`, `formatarContagem(ms)`, `textoFaixaManutencao(a, agora)`, `situacaoAviso(a, agora)`, `ordenarAvisosAdmin(lista, agora)`, `rotuloDestino(a, nomes)`, `formatarDataHora(iso)`, `combinarDataHora(dataIso, hhmm): Date | null`, `separarDataHora(d)`, `padraoInicio(agora): Date`, `padraoValidade(inicio): Date`, `formInicial(agora): AvisoForm`, `validarAviso(f, agora): string | null`, `montarAvisoPayload(f, agora): AvisoInsert`, `chaveDispensa(userId, tipo, avisoId)`.
+- Produces (`@/lib/aviso-global`): tipos `NivelAviso`, `AvisoGlobal`, `AvisoInsert`, `AvisoForm`, `SituacaoAviso`, `Dispensa`; constantes `NIL_UUID`, `MENSAGEM_MAX` (500), `ANTECEDENCIA_PADRAO_MIN` (5), `VALIDADE_PADRAO_MIN` (30), `VALIDADE_MAX_DIAS` (7), `AVISOS_CANAL` (`"avisos-globais"`), `AVISOS_EVENTO` (`"mudou"`), `INTERVALO_BUSCA_MS` (5000), `NIVEL_ROTULO`, `SITUACAO_ROTULO`; funções `esperaParaBuscar(ultimaBusca, agora, intervalo?)`, `avisoAtivo(a, agora)`, `avisoParaLoja(a, tenantId)`, `avisosVisiveis(lista, tenantId, agora)`, `formatarContagem(ms)`, `textoFaixaManutencao(a, agora)`, `situacaoAviso(a, agora)`, `ordenarAvisosAdmin(lista, agora)`, `rotuloDestino(a, nomes)`, `formatarDataHora(iso)`, `combinarDataHora(dataIso, hhmm): Date | null`, `separarDataHora(d)`, `padraoInicio(agora): Date`, `padraoValidade(inicio): Date`, `formInicial(agora): AvisoForm`, `validarAviso(f, agora): string | null`, `montarAvisoPayload(f, agora): AvisoInsert`, `chaveDispensa(userId, tipo, avisoId)`.
 
 - [ ] **Step 1: Escrever o teste**
 
@@ -996,7 +1040,8 @@ Criar `tests/unit/aviso-global.test.ts`:
 // (new Date(ano, mês, dia, h, m)) → os testes valem em qualquer fuso da máquina.
 import { describe, it, expect } from "vitest";
 import {
-  NIL_UUID, avisoAtivo, avisoParaLoja, avisosVisiveis, chaveDispensa, combinarDataHora, formInicial, formatarContagem,
+  INTERVALO_BUSCA_MS, NIL_UUID, avisoAtivo, avisoParaLoja, avisosVisiveis, chaveDispensa, combinarDataHora, esperaParaBuscar,
+  formInicial, formatarContagem,
   formatarDataHora, montarAvisoPayload, ordenarAvisosAdmin, padraoInicio, padraoValidade, rotuloDestino, separarDataHora,
   situacaoAviso, textoFaixaManutencao, validarAviso, type AvisoForm, type AvisoGlobal,
 } from "@/lib/aviso-global";
@@ -1109,6 +1154,13 @@ describe("o que aparece", () => {
     expect(formatarContagem(60 * MIN)).toBe("1:00:00");
     expect(formatarContagem(-5_000)).toBe("00:00");
     expect(formatarContagem(Number.NaN)).toBe("00:00");
+  });
+  it("esperaParaBuscar: no máximo 1 busca a cada 5 s (trailing = espera o que falta, nunca descarta)", () => {
+    expect(INTERVALO_BUSCA_MS).toBe(5_000);
+    expect(esperaParaBuscar(0, T0)).toBe(0); // nunca buscou → já
+    expect(esperaParaBuscar(T0 - 6_000, T0)).toBe(0); // última há 6 s → já
+    expect(esperaParaBuscar(T0 - 2_000, T0)).toBe(3_000); // última há 2 s → daqui a 3 s
+    expect(esperaParaBuscar(T0, T0)).toBe(5_000);
   });
   it("textoFaixaManutencao: contagem até o início; depois, 'Sistema em manutenção'", () => {
     const a = aviso({ inicio_em: iso(T0 + 4 * MIN + 30_000) });
@@ -1238,6 +1290,9 @@ export const VALIDADE_MAX_DIAS = 7;
 /** Canal Realtime GLOBAL (broadcast) — o evento é só um "toque" SEM conteúdo; quem recebe refaz a busca (RLS). */
 export const AVISOS_CANAL = "avisos-globais";
 export const AVISOS_EVENTO = "mudou";
+/** No máximo 1 busca a cada 5 s disparada por evento (toque do broadcast, reentrada no canal, aba visível, online) —
+ *  com "trailing": o ÚLTIMO evento sempre gera uma busca (R6 do G-plano; spec §7). */
+export const INTERVALO_BUSCA_MS = 5_000;
 export const NIVEL_ROTULO: Record<NivelAviso, string> = { informativo: "Informativo", manutencao: "Manutenção" };
 
 const MIN = 60_000;
@@ -1266,6 +1321,11 @@ export function avisosVisiveis(lista: AvisoGlobal[], tenantId: string | null | u
       || (ms(x.inicio_em) || 0) - (ms(y.inicio_em) || 0)
       || x.created_at.localeCompare(y.created_at)
       || x.id.localeCompare(y.id));
+}
+
+/** Quanto esperar para a próxima busca: 0 se a última foi há ≥ `intervalo`; senão o que falta (limite com trailing). */
+export function esperaParaBuscar(ultimaBusca: number, agora: number, intervalo = INTERVALO_BUSCA_MS): number {
+  return Math.max(0, ultimaBusca + intervalo - agora);
 }
 
 /** "mm:ss" (ou "h:mm:ss" a partir de 1 hora), arredondado PARA CIMA — "00:00" só no instante do início. */
@@ -1408,7 +1468,7 @@ cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global"
 env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit/aviso-global.test.ts 2>&1 | grep -E "Tests |×"
 ```
 
-Expected: `Tests  19 passed (19)`.
+Expected: `Tests  20 passed (20)`.
 
 - [ ] **Step 6: Gates + commit**
 
@@ -1416,7 +1476,7 @@ Expected: `Tests  19 passed (19)`.
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global"
 bash .superpowers/aviso/gates.sh
 git add -- src/lib/hora.ts src/lib/aviso-global.ts tests/unit/aviso-global.test.ts
-git commit --only -m "feat(aviso-global): lógica pura — visibilidade por loja/validade, contagem mm:ss, lista do Admin, formulário (hora hh:mm, padrões +5/+30 min, validação PT)
+git commit --only -m "feat(aviso-global): lógica pura — visibilidade por loja/validade, contagem mm:ss, limite de busca 5 s, lista do Admin, formulário (hora hh:mm, padrões +5/+30 min, validação PT)
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/lib/hora.ts src/lib/aviso-global.ts tests/unit/aviso-global.test.ts
 git show --stat HEAD
@@ -1434,7 +1494,7 @@ Expected: `GATES OK`; commit com os 3 arquivos.
 
 **Interfaces:**
 - Consumes: Task 2 (`@/lib/aviso-global`); `useAuth` (`user`), `useActiveTenantId()`; `supabase` (`from`, `channel`, `getChannels`, `removeChannel`); `Button`.
-- Produces (`@/hooks/useAvisosGlobais`): `AVISOS_ATIVOS_KEY` (`["avisos-globais-ativos"]`), `useAvisosGlobais(): { avisos: AvisoGlobal[]; tenantId: string }`, `sinalizarAvisosGlobais(): Promise<void>`, `useAgora(ligado: boolean, passoMs?: number): number`, `useDispensaAvisos(userId?)`. (`@/components/avisos/AvisosGlobais`): `AvisosGlobais()`. `data-testid`s que o QA usa: `avisos-globais`, `aviso-faixa-manutencao`, `aviso-faixa-informativo`, `aviso-contagem`, `aviso-fechar`, `aviso-cartao`, `aviso-entendi`.
+- Produces (`@/hooks/useAvisosGlobais`): `AVISOS_ATIVOS_KEY` (`["avisos-globais-ativos"]`), `useAvisosGlobais(): { avisos: AvisoGlobal[]; tenantId: string }`, `sinalizarAvisosGlobais(): Promise<void>`, `useAgora(ligado: boolean, passoMs?: number): number`, `useDispensaAvisos(userId?)`; buscas por evento limitadas a 1 a cada 5 s com trailing (`esperaParaBuscar`, R6). (`@/components/avisos/AvisosGlobais`): `AvisosGlobais()`. `data-testid`s que o QA usa: `avisos-globais`, `aviso-faixa-manutencao`, `aviso-faixa-informativo`, `aviso-contagem`, `aviso-fechar`, `aviso-cartao`, `aviso-entendi`.
 
 - [ ] **Step 1: Escrever o teste estático (trava o pedido do dono)**
 
@@ -1464,8 +1524,13 @@ describe("AvisosGlobais — o cartão de Manutenção não é modal nem rouba fo
     expect(codigo).toMatch(/pointer-events-auto/);
     expect(codigo).toMatch(/createPortal\(/);
   });
-  it("'Entendi' não tira o foco do campo que a pessoa digita", () => {
-    expect(codigo).toMatch(/onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/);
+  it("clicar em QUALQUER parte do cartão (texto ou 'Entendi') não tira o foco do campo — onMouseDown na RAIZ (R3)", () => {
+    expect(codigo).toMatch(/data-testid="aviso-cartao"\s+onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/);
+  });
+  it("cartão em bottom-20 em TODOS os tamanhos — não cobre a PageActionBar nem o rodapé do Sheet (R4)", () => {
+    const classe = /data-testid="aviso-cartao"[\s\S]*?className="([^"]+)"/.exec(codigo)?.[1] ?? "";
+    expect(classe.split(/\s+/)).toContain("bottom-20");
+    expect(classe).not.toMatch(/\b(sm|md|lg|xl):bottom-/);
   });
 });
 ```
@@ -1489,7 +1554,7 @@ Expected: FAIL com `ENOENT … src/components/avisos/AvisosGlobais.tsx`.
 // loja em visualização em avisosVisiveis). Por que não postgres_changes: o "Encerrar agora" deixa a linha INVISÍVEL
 // para o usuário comum (a policy só mostra ativos) e o Realtime não entrega mudança de linha que o assinante não pode
 // ler — o aviso encerrado ficaria na tela até recarregar. O toque não carrega dado nenhum, então o canal público não
-// vaza nada; um toque forjado só causa uma busca a mais (juntada em 500 ms).
+// vaza nada; toques (forjados ou em rajada) viram NO MÁXIMO 1 busca a cada 5 s, e o último sempre gera uma (R6).
 // Rede de segurança: refaz a busca ao entrar (e REENTRAR, após reconexão) no canal (SUBSCRIBED), quando a aba volta a
 // ficar visível e quando o navegador volta a ficar online; o TanStack também refaz ao focar a janela.
 // Montado UMA vez (layout _authenticated, via <AvisosGlobais/>).
@@ -1498,12 +1563,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { AVISOS_CANAL, AVISOS_EVENTO, chaveDispensa, type AvisoGlobal, type Dispensa } from "@/lib/aviso-global";
+import {
+  AVISOS_CANAL, AVISOS_EVENTO, chaveDispensa, esperaParaBuscar, type AvisoGlobal, type Dispensa,
+} from "@/lib/aviso-global";
 
 /** Prefixo da queryKey da faixa — a tela Avisos invalida por ele depois de criar/encerrar. */
 export const AVISOS_ATIVOS_KEY = ["avisos-globais-ativos"] as const;
 const COLUNAS = "id,mensagem,nivel,todas_lojas,lojas,inicio_em,expira_em,encerrado_em,created_at";
-const JUNTAR_MS = 500;
 
 export function useAvisosGlobais(): { avisos: AvisoGlobal[]; tenantId: string } {
   const { user } = useAuth();
@@ -1532,15 +1598,18 @@ export function useAvisosGlobais(): { avisos: AvisoGlobal[]; tenantId: string } 
   });
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ultimaBusca = useRef(0);
   useEffect(() => {
     if (!user) return;
-    // Junta rajadas (um toque + o SUBSCRIBED + a volta da aba) numa busca só.
+    // Limite com trailing: no máximo 1 busca a cada 5 s. Evento que chega com uma busca JÁ agendada é coberto por ela
+    // (que roda depois dele); senão agenda para quando o intervalo vencer (0 se já venceu).
     const recarregar = () => {
       if (timer.current) return;
       timer.current = setTimeout(() => {
         timer.current = null;
+        ultimaBusca.current = Date.now();
         void qc.invalidateQueries({ queryKey: AVISOS_ATIVOS_KEY });
-      }, JUNTAR_MS);
+      }, esperaParaBuscar(ultimaBusca.current, Date.now()));
     };
     // Re-mount rápido: supabase.channel() reusa a instância por topic — tira a remanescente antes (useRealtimeInvalidation).
     const remanescente = supabase.getChannels().find((c) => c.topic === `realtime:${AVISOS_CANAL}`);
@@ -1647,14 +1716,14 @@ export function useDispensaAvisos(userId: string | undefined): {
 //    início; e um CARTÃO flutuante no canto com a mensagem e "Entendi" — que só fecha o cartão (a faixa continua).
 // ⚠️ O cartão NÃO pode interromper o trabalho (pedido do dono, 24/set):
 //  – nada de Dialog/AlertDialog/Sheet (não é modal; o teste tests/unit/aviso-global-componente.test.ts trava isso);
-//  – não rouba foco: sem autoFocus e com onMouseDown preventDefault no "Entendi" (o campo que a pessoa digita segue
-//    focado);
+//  – não rouba foco: sem autoFocus e com onMouseDown preventDefault na RAIZ do cartão (clicar no texto ou no
+//    "Entendi" não tira o foco do campo que a pessoa digita — R3 do G-plano);
 //  – não fecha o Sheet/Dialog aberto: o Radix fecha um modal em qualquer `pointerdown` que chegue ao `document` vindo
 //    de fora dele — o cartão PARA a propagação do pointerdown nele mesmo (listener nativo), então o modal nem fica
 //    sabendo; e o modal põe `pointer-events: none` no <body> → o cartão volta a receber clique com pointer-events-auto.
 //  – vai por PORTAL no body (a sidebar cria containing block para `fixed` — ver MobileActionBar) e fica ACIMA do
-//    escurecido do Sheet/Dialog (z-50) com z-[60]; desktop no canto inferior ESQUERDO (o Sheet abre à direita e os
-//    toasts ficam no topo), mobile acima da barra de ações (bottom-20).
+//    escurecido do Sheet/Dialog (z-50) com z-[60]; `bottom-20` em TODOS os tamanhos (acima da PageActionBar e do
+//    rodapé do Sheet — R4); desktop no canto ESQUERDO (o Sheet abre à direita e os toasts ficam no topo).
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Info, Wrench, X } from "lucide-react";
@@ -1755,7 +1824,8 @@ function CartaoManutencao({ aviso, agora, onEntendi }: { aviso: AvisoGlobal; ago
       role="status"
       aria-live="polite"
       data-testid="aviso-cartao"
-      className="pointer-events-auto fixed inset-x-4 bottom-20 z-[60] rounded-xl border bg-card p-4 text-card-foreground shadow-[var(--elevation-3)] sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[22rem]"
+      onMouseDown={(e) => e.preventDefault()}
+      className="pointer-events-auto fixed inset-x-4 bottom-20 z-[60] rounded-xl border bg-card p-4 text-card-foreground shadow-[var(--elevation-3)] sm:inset-x-auto sm:left-4 sm:w-[22rem]"
     >
       <div className="flex items-start gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--tone-danger-bg)] text-[var(--tone-danger-fg)]">
@@ -1770,13 +1840,8 @@ function CartaoManutencao({ aviso, agora, onEntendi }: { aviso: AvisoGlobal; ago
         </div>
       </div>
       <div className="mt-3 flex justify-end">
-        <Button
-          type="button"
-          size="sm"
-          data-testid="aviso-entendi"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onEntendi}
-        >
+        {/* O onMouseDown da RAIZ já impede que este clique tire o foco do campo que a pessoa está digitando. */}
+        <Button type="button" size="sm" data-testid="aviso-entendi" onClick={onEntendi}>
           Entendi
         </Button>
       </div>
@@ -1824,7 +1889,7 @@ env -u DATABASE_URL npx vitest run --no-file-parallelism tests/unit/aviso-global
 grep -n "AvisosGlobais" src/routes/_authenticated.tsx
 ```
 
-Expected: `Tests  22 passed (22)`; 2 linhas (import e `<AvisosGlobais />`).
+Expected: `Tests  24 passed (24)`; 2 linhas (import e `<AvisosGlobais />`).
 
 - [ ] **Step 7: Gates + commit**
 
@@ -1835,8 +1900,9 @@ git add -- src/hooks/useAvisosGlobais.ts src/components/avisos/AvisosGlobais.tsx
 git commit --only -m "feat(aviso-global): faixa (informativo/manutenção) + cartão 'Entendi' em todas as telas, entrega por broadcast + busca pela RLS
 
 O cartão não é modal: isola o pointerdown (não fecha Sheet/Dialog aberto), pointer-events-auto sob o
-modal e não rouba foco (onMouseDown preventDefault). Busca refeita ao (re)entrar no canal, na volta da
-aba e no online. Sem a tabela, some em silêncio.
+modal, onMouseDown preventDefault na raiz (não rouba foco) e bottom-20 em todos os tamanhos. Busca
+refeita ao (re)entrar no canal, na volta da aba e no online — no máximo 1 a cada 5 s, com trailing.
+Sem a tabela, some em silêncio.
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/hooks/useAvisosGlobais.ts src/components/avisos/AvisosGlobais.tsx tests/unit/aviso-global-componente.test.ts src/routes/_authenticated.tsx
 git show --stat HEAD
@@ -2444,12 +2510,11 @@ Expected: `routeTree regenerado com /admin/avisos …` e `GATES OK`; 2 linhas do
 
 **Files:**
 - Create (NUNCA commitado): `tests/e2e/aviso-global-qa.spec.ts`; evidência em `.superpowers/aviso/qa/`.
-- Create (fora do git): `.superpowers/aviso/porta-5182.py`, `.superpowers/aviso/qa-card.env`.
-- Modify (fora do repo, com backup): `/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes/criar-variante.sh` — aceita a porta 5182 durante o QA (e volta ao que era no fim).
+- Create (fora do git): `.superpowers/aviso/qa-card.env`; a variante `banco-local/app-teste-variantes/aviso/` (pelo `criar-variante.sh`, que NÃO é editado — a 5182 já está reservada, R5).
 
 **Interfaces:**
 - Consumes: Tasks 1–4 commitadas; `.superpowers/aviso/mig/copia-qa.sh` (Task 1); `tests/e2e/_helpers.ts` (`doLogin`).
-- Produces: `.superpowers/aviso/qa/{1-manutencao,2-destino-informativo,3-mobile}.json` + PNGs; log com `3 passed`; a cópia de volta SEM a tabela; o `criar-variante.sh` com o `case` que tinha antes.
+- Produces: `.superpowers/aviso/qa/{1-manutencao,1-sobreposicao-sheet-1280,2-destino-informativo,3-mobile,3-sobreposicao}.json` + PNGs; log com `3 passed`; a cópia de volta SEM a tabela.
 
 - [ ] **Step 1: Pré-condições (só leitura)**
 
@@ -2465,55 +2530,18 @@ bash .superpowers/aviso/mig/copia-qa.sh estado
 
 Expected: `1` e `1`; só `testes-checados` (nenhum QA/E2E/vitest rodando — a F3.x também usa a cópia e o mesmo usuário); só `porta-5182-checada` (ocupada ⇒ PARE, não mate nada); `Supabase local http=200` (senão o dono sobe os serviços — APP-TESTE-LOCAL.md §1; não subir por conta própria); `tabela|policies = f|0`.
 
-- [ ] **Step 2: Porta 5182 no `criar-variante.sh` (backup) e a variante `aviso`**
-
-Criar `.superpowers/aviso/porta-5182.py`:
-
-```python
-# Acrescenta (ida) ou tira (volta) a porta 5182 (Aviso Global) no `case` e no comentário "# Portas:" do
-# banco-local/app-teste-variantes/criar-variante.sh — SEM depender da versão exata da linha (as fases F3.x também
-# acrescentam portas nela). Uso: python3 porta-5182.py ida|volta <arquivo>
-import re, sys
-modo, arq = sys.argv[1], sys.argv[2]
-txt = open(arq, encoding="utf-8").read()
-RE_CASE = re.compile(r'^case "\$PORTA" in ([0-9|]+)\) ;; \*\) echo "RECUSADO: porta \$PORTA \(variantes: ([^)]*)\)"; exit 1;; esac$', re.M)
-RE_COM = re.compile(r"^# Portas: (.*)\. NUNCA", re.M)
-casos, coms = RE_CASE.findall(txt), RE_COM.findall(txt)
-if len(casos) != 1 or len(coms) != 1:
-    sys.exit(f"PARE: esperado 1 linha do case e 1 comentário de portas (achei {len(casos)} e {len(coms)})")
-portas, rotulos = casos[0]
-if modo == "ida":
-    if "5182" in portas.split("|"):
-        sys.exit("PARE: a 5182 já está no case (alguém já acrescentou) — nada mudou")
-    novas_portas, novos_rotulos = "5182|" + portas, rotulos + ", Aviso=5182"
-    novo_com = coms[0] + ", Aviso = 5182"
-elif modo == "volta":
-    if "5182" not in portas.split("|"):
-        sys.exit("PARE: a 5182 não está no case — nada a tirar")
-    novas_portas = "|".join(p for p in portas.split("|") if p != "5182")
-    novos_rotulos = rotulos.replace(", Aviso=5182", "")
-    novo_com = coms[0].replace(", Aviso = 5182", "")
-else:
-    sys.exit("uso: porta-5182.py ida|volta <arquivo>")
-txt = RE_CASE.sub(lambda m: f'case "$PORTA" in {novas_portas}) ;; *) echo "RECUSADO: porta $PORTA (variantes: {novos_rotulos})"; exit 1;; esac', txt, count=1)
-txt = RE_COM.sub(lambda m: f"# Portas: {novo_com}. NUNCA", txt, count=1)
-open(arq, "w", encoding="utf-8").write(txt)
-print(f"{modo}: case = {novas_portas}")
-```
+- [ ] **Step 2: Conferir a porta 5182 (reservada — R5) e subir a variante `aviso`**
 
 ```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global"
 VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
-cp -p "$VAR/criar-variante.sh" "$VAR/criar-variante.sh.bak-pre-aviso"
-python3 .superpowers/aviso/porta-5182.py ida "$VAR/criar-variante.sh"
-diff "$VAR/criar-variante.sh.bak-pre-aviso" "$VAR/criar-variante.sh"
-/bin/bash -n "$VAR/criar-variante.sh" && echo "sintaxe ok"
+grep '^case "\$PORTA"' "$VAR/criar-variante.sh" | grep -q 5182 && echo "5182 reservada no case" \
+  || { echo "PARE: a 5182 NÃO está no case do criar-variante.sh — falar com o controlador (não editar o script)"; }
 bash "$VAR/criar-variante.sh" aviso "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global" 5182
 "$VAR/aviso/subir.sh"
 lsof -nP -iTCP:5188 -sTCP:LISTEN -t | sed 's/^/:5188 do dono intacto, PID /'
 ```
 
-Expected: `ida: case = 5182|…`; o `diff` mostra SÓ a linha do comentário "# Portas:" e a do `case`; `sintaxe ok`; `variante aviso pronta …`; `OK: variante aviso em http://localhost:5182 (PID …)` + `[guarda-copia-local] OK: variante aviso (:5182, raiz …/aviso-global) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o `:5188` com o mesmo PID de antes (ou fora do ar, como estava). `RECUSADO`/`ABORTADO`/`ERRO`/`PARE` ⇒ pare e reporte (nunca contornar a guarda; nunca `npm run dev` + `VITE_*`). Se a F3.4 tiver posto a 5183 antes, o script casa a linha nova do mesmo jeito.
+Expected: `5182 reservada no case` (sem ela: PARE — a reserva é do controlador, R5); `variante aviso pronta …`; `OK: variante aviso em http://localhost:5182 (PID …)` + `[guarda-copia-local] OK: variante aviso (:5182, raiz …/aviso-global) — cliente e worker -> http://127.0.0.1:54321 (cópia local)`; o `:5188` com o mesmo PID de antes (ou fora do ar, como estava). `RECUSADO`/`ABORTADO`/`ERRO`/`PARE` ⇒ pare e reporte (nunca contornar a guarda; nunca `npm run dev` + `VITE_*`).
 
 - [ ] **Step 3: Tabela na cópia + card do Sheet**
 
@@ -2525,7 +2553,7 @@ CARD=$(Q "select m.id from modelos m where m.tenant_id = '37889b78-fffb-404b-8c7
 echo "AVISO_QA_CARD=$CARD" | tee .superpowers/aviso/qa-card.env
 ```
 
-Expected: `OK (backup da cópia): …/banco-local/backups/pre-aviso-copia-<data>.dump`; `== PRÉ-VOO OK`; as 3 conferências OK (`t|4`, `t|f|t|f|t|0`, contagens iguais); `== TABELA DO AVISO NA CÓPIA (QA)`; um uuid em `AVISO_QA_CARD`. Vazio ⇒ PARE (a Loja Teste da cópia não tem card interno).
+Expected: `OK (backup da cópia): …/banco-local/backups/pre-aviso-copia-<data>.dump`; `== PRÉ-VOO OK`; as 3 conferências OK (`t|4`, `t|f|t|f|f|t|0`, contagens iguais); `== TABELA DO AVISO NA CÓPIA (QA)`; um uuid em `AVISO_QA_CARD`. Vazio ⇒ PARE (a Loja Teste da cópia não tem card interno).
 
 - [ ] **Step 4: Escrever o spec e rodar**
 
@@ -2621,7 +2649,7 @@ async function guardar(ctx: BrowserContext, papel: Papel) {
   });
 }
 
-async function novaPagina(browser: Browser, papel: Papel, viewport = { width: 1366, height: 900 }): Promise<{ ctx: BrowserContext; page: Page }> {
+async function novaPagina(browser: Browser, papel: Papel, viewport = { width: 1280, height: 900 }): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ baseURL: BASE, viewport });
   await guardar(ctx, papel);
   const page = await ctx.newPage();
@@ -2666,6 +2694,33 @@ async function encerrar(a: Page, mensagem: string) {
   await expect(a.getByText("Aviso encerrado").first()).toBeVisible({ timeout: 15_000 });
 }
 
+/** R4: o cartão NÃO pode cobrir barra de ações fixa/sticky no rodapé (PageActionBar, MobileActionBar, rodapé do Sheet)
+ *  nem botão "Voltar"/"Salvar" visível. Mede com getBoundingClientRect no navegador. */
+async function sobreposicao(page: Page) {
+  return page.evaluate(() => {
+    const cartao = document.querySelector("[data-testid=aviso-cartao]");
+    if (!cartao) return { temCartao: false, barras: 0, botoes: 0, sobrepostas: [] as string[] };
+    const c = cartao.getBoundingClientRect();
+    const visivel = (r: DOMRect) => r.width > 0 && r.height > 0;
+    const cruza = (r: DOMRect) => visivel(r) && c.left < r.right && r.left < c.right && c.top < r.bottom && r.top < c.bottom;
+    const fora = (el: Element) => !el.closest("[data-testid=aviso-cartao]") && !el.closest("[data-testid=avisos-globais]");
+    const barras = Array.from(document.querySelectorAll("body *")).filter((el) => {
+      if (!fora(el)) return false;
+      const s = getComputedStyle(el);
+      if (s.position !== "fixed" && s.position !== "sticky") return false;
+      const r = el.getBoundingClientRect();
+      return visivel(r) && r.height < innerHeight / 2 && r.bottom >= innerHeight - 2 && !!el.querySelector("button, a");
+    });
+    const botoes = Array.from(document.querySelectorAll("button, a")).filter((el) =>
+      fora(el) && visivel(el.getBoundingClientRect()) && /^(Voltar|Salvar)/i.test((el.getAttribute("aria-label") || el.textContent || "").trim()));
+    const sobrepostas = [
+      ...barras.filter((b) => cruza(b.getBoundingClientRect())).map((b) => `barra <${b.tagName.toLowerCase()} class="${(b.getAttribute("class") || "").slice(0, 60)}">`),
+      ...botoes.filter((b) => cruza(b.getBoundingClientRect())).map((b) => `botão "${(b.getAttribute("aria-label") || b.textContent || "").trim()}"`),
+    ];
+    return { temCartao: true, barras: barras.length, botoes: botoes.length, sobrepostas, cartao: { top: c.top, bottom: c.bottom, left: c.left, right: c.right }, alturaTela: innerHeight };
+  });
+}
+
 function salvar(nome: string, dados: unknown) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, `${nome}.json`), JSON.stringify(dados, null, 2));
@@ -2703,6 +2758,16 @@ test("Aviso Global — manutenção chega AO VIVO no Sheet aberto, 'Entendi' nã
   await expect(cartao).toContainText(msg);
   await expect(sheet).toBeVisible();
   expect(await focoNoCampo()).toBe(true);
+  // R3: clicar no TEXTO do cartão também não tira o foco nem fecha o Sheet.
+  await cartao.getByText(msg).click();
+  await expect(sheet).toBeVisible();
+  expect(await focoNoCampo()).toBe(true);
+  // R4 (1280 px): o cartão não cobre o rodapé do Sheet ("Voltar"/"Salvar").
+  const s1280 = await sobreposicao(B.page);
+  salvar("1-sobreposicao-sheet-1280", s1280);
+  expect(s1280.temCartao).toBe(true);
+  expect(s1280.botoes).toBeGreaterThan(0);
+  expect(s1280.sobrepostas).toEqual([]);
   await B.page.screenshot({ path: path.join(OUT, "1-cartao-sobre-o-sheet.png") });
 
   // "Entendi": só o cartão fecha.
@@ -2777,7 +2842,7 @@ test("Aviso Global — destino por loja, Informativo fecha e fica fechado, 'Sist
   await C.ctx.close();
 });
 
-test("Aviso Global — mobile 360: faixa e cartão sem estourar a largura; usuário comum não vê a tela Avisos", async ({ browser }) => {
+test("Aviso Global — mobile 360 sem estourar; cartão fora da barra de ações a 390 e 1280 px; usuário comum não vê a tela Avisos", async ({ browser }) => {
   test.setTimeout(180_000);
   const A = await novaPagina(browser, "A");
   const M = await novaPagina(browser, "B", { width: 360, height: 740 });
@@ -2807,6 +2872,29 @@ test("Aviso Global — mobile 360: faixa e cartão sem estourar a largura; usuá
   expect(medida.cartao!.right).toBeLessThanOrEqual(360);
   expect(medida.cartao!.bottom).toBeLessThanOrEqual(medida.alturaTela - 64); // acima da barra de ações do rodapé
 
+  // R4 — 390 px com o Sheet aberto (rodapé do Sheet) e a PageActionBar (Config da Loja, super admin) a 390 e 1280 px.
+  await M.page.setViewportSize({ width: 390, height: 844 });
+  await M.page.goto(`/criacao/planejamento?modelo=${CARD}`, { waitUntil: "networkidle" });
+  await expect(M.page.getByRole("dialog")).toBeVisible({ timeout: 30_000 });
+  await expect(M.page.getByTestId("aviso-cartao")).toBeVisible({ timeout: 15_000 });
+  const sSheet390 = await sobreposicao(M.page);
+  await M.page.screenshot({ path: path.join(OUT, "3-sheet-390.png") });
+  const sBarra: Record<string, Awaited<ReturnType<typeof sobreposicao>>> = {};
+  for (const [w, h] of [[390, 844], [1280, 900]] as const) {
+    await A.page.setViewportSize({ width: w, height: h });
+    await A.page.goto("/admin/configuracoes", { waitUntil: "networkidle" });
+    await expect(A.page.getByTestId("aviso-cartao")).toBeVisible({ timeout: 15_000 });
+    sBarra[w] = await sobreposicao(A.page);
+    await A.page.screenshot({ path: path.join(OUT, `3-pageactionbar-${w}.png`) });
+  }
+  salvar("3-sobreposicao", { sSheet390, sBarra });
+  expect(sSheet390.botoes).toBeGreaterThan(0);
+  expect(sSheet390.sobrepostas).toEqual([]);
+  for (const w of [390, 1280]) {
+    expect(sBarra[w].barras, `PageActionBar a ${w}px`).toBeGreaterThan(0);
+    expect(sBarra[w].sobrepostas, `sobreposição a ${w}px`).toEqual([]);
+  }
+
   // Usuário comum (papéis simulados): sem o item "Avisos" no menu e mandado embora da tela.
   await M.page.setViewportSize({ width: 1366, height: 900 });
   await M.page.goto("/admin/avisos", { waitUntil: "networkidle" });
@@ -2832,22 +2920,19 @@ E2E_BASE_URL=http://localhost:5182 VITE_SUPABASE_URL=http://127.0.0.1:54321 \
 cat .superpowers/aviso/qa/1-manutencao.json .superpowers/aviso/qa/3-mobile.json
 ```
 
-Expected: `3 passed`; `violacoes: []`; `barradasEsperadas` só com `servicos_financeiro` e/ou broadcast REST de B; `gravadasA` só `POST/PATCH /rest/v1/avisos_globais`; `3-mobile.json` com `scrollW ≤ clientW`, faixa e cartão dentro de 0–360 px. Violação de RPC de LEITURA nova (fora do `READ_RPCS`) ⇒ o controlador confere no `funcoes.sql` do snapshot (`savepoints/2026-09-22-pre-unificacao/`) que é `STABLE` e sem escrita ANTES de acrescentar — e registra. Falha em "Entendi fecha o Sheet" ou "foco sai do campo" = BLOQUEANTE (volta para a Task 3). Mostrar ao dono os PNGs (`1-cartao-sobre-o-sheet.png`, `3-mobile-360.png`) e, se ele quiser, o `:5182` ao vivo (login `teste@teste.com`).
+Expected: `3 passed`; `violacoes: []`; `barradasEsperadas` só com `servicos_financeiro` e/ou broadcast REST de B; `gravadasA` só `POST/PATCH /rest/v1/avisos_globais`; `3-mobile.json` com `scrollW ≤ clientW`, faixa e cartão dentro de 0–360 px; clicar no TEXTO do cartão não fecha o Sheet nem tira o foco (R3); `1-sobreposicao-sheet-1280.json` e `3-sobreposicao.json` com `sobrepostas: []` — o cartão não cobre o rodapé do Sheet (1280 e 390 px) nem a PageActionBar da Config da Loja (390 e 1280 px), medido com `getBoundingClientRect` (R4). Violação de RPC de LEITURA nova (fora do `READ_RPCS`) ⇒ o controlador confere no `funcoes.sql` do snapshot (`savepoints/2026-09-22-pre-unificacao/`) que é `STABLE` e sem escrita ANTES de acrescentar — e registra. Falha em "Entendi/texto fecha o Sheet", "foco sai do campo" ou sobreposição com a barra de ações = BLOQUEANTE (volta para a Task 3). Mostrar ao dono os PNGs (`1-cartao-sobre-o-sheet.png`, `3-mobile-360.png`) e, se ele quiser, o `:5182` ao vivo (login `teste@teste.com`).
 
-- [ ] **Step 5: Descer, tirar a tabela da cópia e a porta 5182**
+- [ ] **Step 5: Descer a variante e tirar a tabela da cópia**
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global"
 VAR="/Users/sunglee/PLM + Criação/banco-local/app-teste-variantes"
 "$VAR/aviso/descer.sh"
 bash .superpowers/aviso/mig/copia-qa.sh volta 2>&1 | tee .superpowers/aviso/logs/t5-copia-volta.log | grep -vE "^(NOTICE|LOCATION)"
-python3 .superpowers/aviso/porta-5182.py volta "$VAR/criar-variante.sh"
-cmp "$VAR/criar-variante.sh" "$VAR/criar-variante.sh.bak-pre-aviso" && echo "criar-variante.sh = antes do QA" || echo "(outra fase mexeu no script durante o QA — só a 5182 saiu; conferir o diff)"
-/bin/bash -n "$VAR/criar-variante.sh" && echo "sintaxe ok"
 bash .superpowers/aviso/mig/copia-qa.sh estado
 ```
 
-Expected: `Variante aviso (:5182) derrubada`; `avisos do QA exportados: …csv`; `OK (tabela do aviso removida): f|0`; `OK (contagens = antes)`; `== TABELA DO AVISO FORA DA CÓPIA`; `volta: case = 5184|…` (sem a 5182); `criar-variante.sh = antes do QA`; `sintaxe ok`; `tabela|policies = f|0`.
+Expected: `Variante aviso (:5182) derrubada`; `avisos do QA exportados: …csv`; `OK (tabela do aviso removida): f|0`; `OK (contagens = antes)`; `== TABELA DO AVISO FORA DA CÓPIA`; `tabela|policies = f|0`. (O `criar-variante.sh` não foi tocado — a 5182 segue reservada.)
 
 ---
 
@@ -2890,11 +2975,11 @@ O controlador registra no diário do guardião (`.superpowers/sdd/2026-09-22-uni
 
 ### Task 7: Migration em PRODUÇÃO  *(o DONO roda — depois da F1)*
 
-**Files:** nenhum no repo. Evidência: `/Users/sunglee/PLM + Criação/savepoints/pre-apply-aviso-global/` (dump `.dump` + `.toc` + `.log`) e `$WT/.superpowers/aviso/logs/prod-ida.log`.
+**Files:** nenhum no repo. Evidência: `/Users/sunglee/PLM + Criação/savepoints/pre-apply-aviso-global/` (dump `.dump` + `.toc` + `.log`), `$WT/.superpowers/aviso/logs/prod-ida.log` e, para a volta da F1 (R2), em `/Users/sunglee/PLM + Criação/savepoints/pre-apply-f1-kanban-auto/`: `fidelidade_prod_pos_aviso.txt`, `fidelidade_prod_pos_aviso_detalhe.txt` e **`fidelidade_ref_volta_f1_com_aviso_detalhe.txt`**.
 
 **Interfaces:**
 - Consumes: Task 6 (G-commit); **F1 aplicada em produção com o pós-apply OK** (runbook da F1, Step 7 (a)–(f), registrado no diário); OK explícito do dono; `/tmp/dburl.txt`; o container `supabase_db_banco-local` no ar (o `pg_dump` 17.6 mora nele).
-- Produces: `public.avisos_globais` em produção (pré-condição do merge e do deploy).
+- Produces: `public.avisos_globais` em produção (pré-condição do merge e do deploy) e a referência nova da volta de emergência da F1 (R2).
 
 Quando: qualquer horário serve para as travas (a migration não trava tabela existente), mas o `pg_dump` completo pesa no banco → prefira fora do horário de uso. Tempo estimado: backup 1–3 min; aplicação < 1 s.
 
@@ -2922,7 +3007,7 @@ Expected, na ordem:
 - a migration (`real 0.0x`)
 - `== IDA OK`
 - `OK (tabela criada com 4 policies): t|4`
-- `OK (RLS · anon sem nada · authenticated lê e só encerra · fora da publicação): t|f|t|f|t|0`
+- `OK (RLS · anon sem nada · authenticated lê por coluna (sem o autor) e só encerra · fora da publicação): t|f|t|f|f|t|0`
 - `OK (nenhuma função/gatilho novo): <n>|<m>` (igual ao "antes")
 - `== PostgREST recarregado`
 
@@ -2938,11 +3023,27 @@ Desvios:
 | `PAROU …` | Falar com o controlador. |
 | `CONFERÊNCIA FALHOU` | A tabela está lá e é aditiva: avisar o controlador. NÃO rodar o inverso sem OK. |
 
-- [ ] **Step 3: Registro**
+- [ ] **Step 3: Referência NOVA para a volta de emergência da F1 (R2) — o dono, logo depois do `== IDA OK`**
 
-O controlador anota no diário: horário, o `prod-ida.log` e o nome do dump.
+A volta de emergência da F1 (runbook v2 §9.2, `task-18-runbook-v2.md:790-791`) termina com `diff "$D/fidelidade_prod_pre.txt" "$D/fidelidade_prod_pos_volta.txt"`, estrito em colunas/índices/policies de TODO o `public`. Com o aviso em produção, essa linha acusaria as 16 linhas da tabela nova mesmo com a volta certa. A referência nova = o retrato pré-F1 detalhado (Step 4 da F1) + SÓ as linhas do aviso lidas agora em produção (só leitura):
 
-- [ ] **Step 4: (Só se o dono pedir) volta de emergência**
+```bash
+/bin/bash "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global/.superpowers/aviso/mig/ref-volta-f1.sh" 2>&1 | tee -a "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/aviso-global/.superpowers/aviso/logs/prod-ida.log"
+```
+
+Expected: `OK (referência nova p/ a volta da F1): …/savepoints/pre-apply-f1-kanban-auto/fidelidade_ref_volta_f1_com_aviso_detalhe.txt — retrato pré-F1 (<n> linhas) + 16 linhas do aviso` e a linha da comparação nova. `PARE: falta …fidelidade_prod_pre_detalhe.txt` ⇒ o Step 4 da F1 não gravou o detalhe: avisar o controlador (sem referência, a volta da F1 depois do aviso compara à mão, categoria por categoria). **Na volta de emergência da F1, com o aviso em produção, a última linha do §9.2 passa a ser** (o `fidelidade … pos_volta` antes dela continua igual):
+
+```bash
+diff "$D/fidelidade_ref_volta_f1_com_aviso_detalhe.txt" <(LC_ALL=C sort "$D/fidelidade_prod_pos_volta_detalhe.txt") && echo "== VOLTA OK (com o aviso)"
+```
+
+O controlador anota isso no diário do guardião e ao lado do runbook da F1 (o `CONT` `427|219` e o `confere_snapshot` da volta não mudam: o aviso não tem função nem gatilho).
+
+- [ ] **Step 4: Registro**
+
+O controlador anota no diário: horário, o `prod-ida.log`, o nome do dump e o caminho da referência nova da volta da F1.
+
+- [ ] **Step 5: (Só se o dono pedir) volta de emergência do aviso**
 
 NÃO faz parte do fluxo. Apaga o histórico de avisos (exporta CSV antes). A faixa some em silêncio; a tela Avisos passa a mostrar erro até o front sair do ar.
 
@@ -2984,15 +3085,63 @@ git -C "$MAIN" merge --ff-only aviso-global && git -C "$MAIN" log --oneline -6
 
 Expected: só `main-limpo-checado`; o ff com os commits do aviso no topo. Sem push (é do dono).
 
-- [ ] **Step 3: Deploy (o DONO)**
+- [ ] **Step 3: Portão DURO + deploy (o DONO, num comando só — R1)**
 
-Depois de responder ao §8 D1, o dono lista o que vai junto e publica do `MAIN`:
+Depois de responder ao §8 D1 e ao D4 (horário calmo + recado por WhatsApp). O portão roda IMEDIATAMENTE antes do deploy, encadeado (`&&`): `src/` limpo (inclusive não rastreados) e nenhum commit de front fora da lista do D1 + os commits do aviso. Rodar num `/bin/bash --noprofile --norc` (como o bloco da F1; testado no bash 3.2 do Mac) e colar o bloco inteiro:
 
 ```bash
-cd "/Users/sunglee/PLM + Criação/plm-pcp"
-git log --oneline 2768145..HEAD -- src    # front desde o último deploy confirmado (20/set) — conferir com a lista do §8 D1
-npm run deploy
+MAIN="/Users/sunglee/PLM + Criação/plm-pcp"; WT="$MAIN/.claude/worktrees/aviso-global"
+cd "$MAIN" && git branch --show-current
+portao_deploy() {
+  local sujo fora base
+  sujo=$(git status --porcelain --untracked-files=all -- src)
+  [ -z "$sujo" ] || { echo "$sujo"; echo "PARE (R1): mudança em src/ fora de commit — nada é publicado"; return 1; }
+  base=$(cat "$WT/.superpowers/aviso/BASE") || { echo "PARE: sem $WT/.superpowers/aviso/BASE"; return 1; }
+  fora=$(git log --format='%H %s' 2768145..HEAD -- src | grep -v -F -f <( { cat <<'LISTA'
+984c4620000dc57d65d6ee28ab854ca34bfd515c
+f9c7c608612a0766fd95983f96eef825d786068b
+a3c11db0931d5993878833d789a49aac373c3990
+1d0b6c743a7720890863c745a56fa438237a0266
+f24353d6d647f1e7d29150449680b37420f30c11
+cd176c8d6c4f7ec379e2c25a9fa4d345742688a2
+20974de09a73a1c8b5dbf8a28c33fa3d7328aa74
+cdc61d21d70f71e5a10fe9e89232e0b4829cad8c
+18482f475f3feaed11ec0083377e8161f604136b
+3d3c7b4819e3839cd8c0d61b1632a92ba63de316
+02cb2ff64f30a4d4e4913f3f0489d55f4b5f21fb
+2da33f3b5652045b3ebe677a3babbede1b482ed1
+5811cea26834b9c03cded6c70aaba114f5508790
+ed8aedb539af3c9266b7b2a7514c2469d81376ef
+e78afe483ea5d0bc9fb54a23cbc04841c895d7fa
+001b37180ab80169612d27b2c71e469ac448f75e
+f5e296ac9d36e9410390dd8bd190f67fa0ef5922
+a35452573f894a0cd55ffd9153ecbb62412d2194
+f5b0bd2be7006c5632232295cd8384246e7d41e5
+6d680a5bb58f57af954f7ba4d817afd692d2a960
+b4b87d09c50fa891e818e8cbe8a9ac06d6630c81
+b5afa9cbc766884768b1d8a2a92d934488b11b32
+e85f56536ea262300a558ebb4f088997e1460bd0
+74dfcd392c5875534af611d03e8d390d8df76b24
+4014ee9624816041ad79101dd97194dc9a4eaa7f
+44a1a91f9c3644c0e24998ce4babbcb460c2a4c6
+80a97d51cda9cd032fa751f04b05a69891d3486d
+d39070af34636110cd97bbdb46987307280cda3d
+fe6685782cca8921f87cf469673aeb548c484062
+5f81ab2aa45d2efcc3e89fb0b73b31bcf173f587
+LISTA
+    git log --format=%H "$base"..aviso-global; } ) )
+  if [ -n "$fora" ]; then
+    echo "$fora"
+    echo "PARE (R1): commit de front FORA da lista do §8 D1 + aviso. Se for fase da campanha (F2/F3.x), confira os pré-requisitos"
+    echo "de banco dela ANTES (ex.: F3.1 grava modelos.descricao_produto, que só existe em produção depois da Task 9 dela)."
+    return 1
+  fi
+  echo "OK (R1): src limpo e só a lista do D1 + o aviso vão para o ar ($(git log --format=%H 2768145..HEAD -- src | wc -l | tr -d ' ') commits de front)"
+}
+portao_deploy && npm run deploy
 ```
+
+Expected: `feature/plan-tecido-a1`; `OK (R1): src limpo e só a lista do D1 + o aviso vão para o ar (<30 + nº de commits do aviso> commits de front)`; o deploy do wrangler terminando sem erro. `PARE (R1)` ⇒ NADA foi publicado: resolva (commitar/descartar com o dono; ou conferir os pré-requisitos de banco da fase juntada e o dono aceitar incluí-la — aí acrescentar os SHAs dela à lista, registrando no diário) e rode o MESMO comando de novo.
 
 - [ ] **Step 4: Smoke em produção (o dono, ~2 min)**
 
@@ -3018,7 +3167,7 @@ Com o OK do dono: `git -C "$MAIN" worktree remove "$WT"` (a pasta `.superpowers/
 | Lista ativos/antigos + Encerrar agora | `ordenarAvisosAdmin`/`situacaoAviso` (unit) + QA (encerrar some na hora) |
 | Informativo: faixa discreta que fecha | QA teste 2 (fecha, recarrega, continua fechada) |
 | Manutenção: faixa vermelha fixa + "Manutenção em mm:ss" → "Sistema em manutenção" | unit (`textoFaixaManutencao`, `formatarContagem`) + QA testes 1–2 |
-| Cartão "Entendi" não interrompe (sem modal, sem roubar foco, não fecha Sheet) | teste estático + QA teste 1 (Sheet aberto, foco e valor intactos) |
+| Cartão "Entendi" não interrompe (sem modal, sem roubar foco, não fecha Sheet) | teste estático (raiz com `onMouseDown`, `bottom-20`) + QA teste 1 (Sheet aberto; "Entendi" e clique no texto; foco e valor intactos) + sobreposição a 390/1280 px (QA testes 1 e 3) |
 | Chega na hora; aparece ao abrir/recarregar até expirar | QA (sem reload; contexto novo vê; offline → online) |
 | Cada usuário só vê os da sua loja (ou "todas") | integração (RLS) + unit (`avisoParaLoja`) + QA (só Ave Rara ⇒ B não vê) |
 | Loja inativa (nil) não lê | integração |
@@ -3030,13 +3179,18 @@ Com o OK do dono: `git -C "$MAIN" worktree remove "$WT"` (a pasta `.superpowers/
 |---|---|
 | Front no ar antes da tabela | A busca engole o erro (faixa some em silêncio). Ordem T7 → T8 (merge/deploy só depois). |
 | Toque perdido | SUBSCRIBED (inclui reconexão), `visibilitychange`, `online`, foco do TanStack; validade conferida no cliente. QA testa offline → online. |
+| Toques em rajada ou forjados (canal público) | No máximo 1 busca a cada 5 s, com trailing (R6, unit `esperaParaBuscar`). |
+| `lojas` legível pela API | Risco ACEITO (R7, spec §7): só UUIDs das outras lojas destinatárias do mesmo aviso; `criado_por` não é legível. |
+| Cartão cobrindo a barra de ações | `bottom-20` em todos os tamanhos + QA mede a 390 e 1280 px (R4). |
+| Volta de emergência da F1 depois do aviso | Referência nova gravada na Task 7 Step 3 (R2). |
+| 1º deploy não pode ser anunciado pelo aviso | D4 (horário calmo + WhatsApp) (R8). |
+| Deploy levar commit a mais | Portão duro da Task 8 Step 3 (R1). |
 | Radix fecha o Sheet no clique do cartão | `pointerdown` isolado + `pointer-events-auto` + teste estático + QA com o Sheet aberto. |
 | Foco sai do campo | `onMouseDown` preventDefault, sem `autoFocus`; QA confere `document.activeElement`. |
 | Super admin vendo aviso de outra loja | Filtro no cliente pela loja em visualização (`avisoParaLoja`); QA "só Ave Rara". |
 | Permissão padrão do Supabase (tudo para anon/authenticated) | REVOKE + GRANT por coluna + `DO` na migration + integração (ACL exata). |
 | Pré-voo da F1 quebrado pela tabela a mais | Ordem obrigatória; `ida-producao.sh` exige a F1. |
 | Backup falhar em schema interno | `backup_banco` para no erro; opção `BACKUP_SO_PUBLIC=1` só com OK do dono. |
-| Receita da F3.4 (linha literal do `case`) | A 5182 sai no fim do QA (Task 5 Step 5); não rodar os dois QAs juntos. |
 | Relógio do aparelho | Aceito (spec §7). |
 
 ## 7. Decisões técnicas (o controlador decide; registradas)
@@ -3048,6 +3202,8 @@ Com o OK do dono: `git -C "$MAIN" worktree remove "$WT"` (a pasta `.superpowers/
 - **T5 "Fechei"/"Entendi" no `localStorage`** por usuário e aviso (conveniência de um navegador; try/catch + memória).
 - **T6 Harness local ao teste** (não criar `mig-txn.ts`, que é da F3.1).
 - **T7 Limites:** mensagem ≤ 500, validade ≤ 7 dias depois do início, até 200 lojas por aviso; horários no fuso do navegador do super admin.
+- **T9 Limite de buscas por evento (R6):** 1 a cada 5 s com trailing, em TODOS os gatilhos (toque, SUBSCRIBED, aba visível, online) — superconjunto do pedido (só o toque), para uma reconexão não virar 3 buscas.
+- **T10 SELECT por coluna (R7):** sem `criado_por`; `lojas` fica (o super admin é o mesmo papel `authenticated` e precisa dela) — risco aceito na spec §7.
 - **T8 QA com o super admin nos 2 papéis** (não há usuário comum com senha conhecida na Loja Teste da cópia); a RLS de comum de verdade fica na integração.
 
 ## 8. Decisões do dono
@@ -3068,6 +3224,8 @@ Se alguma fase da campanha (F2, F3.x) for juntada antes do deploy, ela vai junto
 - (A) Deixar assim, como aprovado. **Recomendado:** o cartão já avisou e não polui a tela.
 - (B) Depois do "Entendi", deixar uma etiqueta pequena "Manutenção em mm:ss" no canto, sem botão e sem receber clique.
 
+**D4 — O primeiro deploy não pode ser anunciado pelo próprio aviso (R8).** Quem está com o sistema aberto desde ANTES do deploy roda o código antigo, sem o aviso: só passa a ver avisos depois de recarregar a página. **Recomendação:** publicar num horário calmo e pedir por WhatsApp que todos recarreguem (F5) depois do deploy. Dali em diante, os próximos deploys já podem ser anunciados pelo aviso.
+
 **D3 — Combinados menores (confirme ou ajuste):**
 - A mensagem tem até 500 letras.
 - A validade vai no máximo até 7 dias depois do início.
@@ -3081,4 +3239,5 @@ Se alguma fase da campanha (F2, F3.x) for juntada antes do deploy, ela vai junto
 - **Cobertura da spec:** §2 itens 1–9 → Tasks 4 (1–3), 3 (4–7), 1 (8), Global Constraints/T7 (9); §3 dados → T1; §4 segurança/entrega → T1 + T3; §5 UI → T3 + T4; §7 riscos → §6. Sem lacuna.
 - **Placeholders:** nenhum "TBD"/"similar a"; todo passo de código traz o arquivo inteiro ou a edição exata (texto casado 1× — conferido por script no espelho).
 - **Tipos/nomes:** `AVISOS_ATIVOS_KEY`, `sinalizarAvisosGlobais`, `useAgora`, `useDispensaAvisos`, `LojaDestino`, `HoraField`, `data-testid`s — os mesmos nas Tasks 3/4/5 (o `tsc` do espelho compilou tudo junto; o spec do QA compilou contra os mesmos testids).
-- **Executado (fora do repo, 24/set):** integração 9/9 num Postgres 17.6 descartável (+3 mutações detectadas); `ensaio-local.sh` e `backup_banco` OK; `tsc --noEmit` = 0 com todas as edições; 22/22 unit; anti-drift sem hit novo; `bash -n` em todos os scripts (bash 3.2); receita da porta 5182 ida/volta byte a byte. Dois defeitos achados e corrigidos nessa execução: (1) `rejeita()` recebia a Promise já criada — a query rodava ANTES do `SAVEPOINT` (agora recebe uma função); (2) um `;` dentro do texto do `COMMENT` quebrava o teste estático (tirado). Não executado: o QA de navegador (exige subir o vite) e o backup contra o pooler de produção (a mecânica foi testada contra outro servidor).
+- **Ressalvas do G-plano (R1–R8), aplicadas em 24/set:** R1 → Global Constraints + Task 8 Step 3 (portão duro `portao_deploy && npm run deploy`); R2 → Global Constraints + §1 + Task 1 Step 7 (`ref-volta-f1.sh`) + Task 7 Step 3; R3 → `AvisosGlobais.tsx` (raiz) + teste estático + QA teste 1; R4 → `AvisosGlobais.tsx` (`bottom-20` sem breakpoint) + teste estático + QA testes 1 e 3 (390/1280); R5 → Global Constraints + §1 + Task 5 Step 2 (só `grep`; receita da porta removida); R6 → `esperaParaBuscar` (Task 2) + hook (Task 3) + spec §7; R7 → migration (GRANT SELECT por coluna) + integração + `aplica.sh` + spec §4/§7 (`lojas` mantida: risco aceito); R8 → §8 D4.
+- **Executado (fora do repo, 24/set):** integração 9/9 num Postgres 17.6 descartável (+4 mutações detectadas); `ensaio-local.sh`, `backup_banco` e `ref-volta-f1.sh` OK; `tsc --noEmit` = 0 com todas as edições; 24/24 unit; anti-drift sem hit novo; `bash -n` em todos os scripts (bash 3.2); o spec do QA compila. Dois defeitos achados e corrigidos nessa execução: (1) `rejeita()` recebia a Promise já criada — a query rodava ANTES do `SAVEPOINT` (agora recebe uma função); (2) um `;` dentro do texto do `COMMENT` quebrava o teste estático (tirado). Não executado: o QA de navegador (exige subir o vite) e o backup contra o pooler de produção (a mecânica foi testada contra outro servidor).
