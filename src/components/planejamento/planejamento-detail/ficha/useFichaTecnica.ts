@@ -310,7 +310,7 @@ export function useFichaTecnica(a: {
   // retry do P0409, fora do ciclo normal de render) precisa ler o motivo de AGORA, não o closure velho.
   const motivoSomenteLeituraRef = useRef<MotivoSomenteLeitura>(null);
   motivoSomenteLeituraRef.current = motivoSomenteLeitura;
-  // T9 I1(a) — sem permissão/enviado/cad ⇒ handlers NO-OP (identidade estável de módulo); com permissão ⇒ os
+  // T9 I1(a) — sem permissão/enviado/carregando ⇒ handlers NO-OP (identidade estável de módulo); com permissão ⇒ os
   // handlers de verdade do `useFichaBom`. `bom.handlers` é recriado a cada render de `useFichaBom` (objeto
   // literal no return, sem `useMemo` próprio) — o `useMemo` aqui não evita recriação nesse ramo (a dependência
   // `bom.handlers` já muda todo render), mas evita alocar objeto NOVO no ramo `podeEditar` (HANDLERS_NOOP é
@@ -533,7 +533,7 @@ export function useFichaTecnica(a: {
     // pendente.
     // Fix round 4 (item 9, acréscimo do controlador) — soma `podeEditarRef.current`: o prefill
     // (`prefillPendenteRef`) é marcado na CARGA do BOM (useFichaBom.ts) pra QUALQUER um que veja o Dev, não só
-    // quem edita — um usuário só-leitura (ex.: `canView` sem `canEdit`, ou card travado por "enviado"/"cad")
+    // quem edita — um usuário só-leitura (ex.: `canView` sem `canEdit`, ou card travado por "enviado"/"carregando")
     // nunca vai gravar o BOM (a trava zera `podeGravarColunasDev`/handlers viram NO-OP), mas SEM este gate
     // `bomPendenteDeGravar()` dava `true` só pelo prefill, e o `onError` do P0409 (usePlanejamentoSave.ts)
     // conferia o BOM do servidor e podia acender "Tecidos & BOM"/travar o Salvar por um BOM que este save
@@ -572,7 +572,7 @@ export function useFichaTecnica(a: {
         totais: carregadoRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
         cad: capturarCad(e, gravar, !!opts?.retry, opts?.proporcoes ?? a.proporcoes),
         // Item C — `true` só quando a captura viu o card JÁ enviado (a trava ÚNICA em "enviado"). Os outros
-        // motivos ("permissao"/"carregando"/"cad"/null) não são o cenário do bug (envio à Explosão em voo).
+        // motivos ("permissao"/"carregando"/null) não são o cenário do bug (envio à Explosão em voo).
         enviadoNaCaptura: motivoSomenteLeituraRef.current === "enviado",
       };
     },

@@ -109,8 +109,10 @@ export function prepararRetryP0409<T extends Record<string, any>>(o: { base: T; 
  * Item C (fix round 3 — IMPORTANTE) — a versão anterior usava `enviadoNaCaptura = motivoSomenteLeitura ===
  * "enviado"` como proxy de "o card JÁ estava enviado na captura". Bug: "permissao" tem PRECEDÊNCIA sobre
  * "enviado" na trava ÚNICA (`motivoSomenteLeitura`, useFichaTecnica.ts), e o "Editar" (`editandoDev=true` no
- * PD) transforma o motivo em "cad"/null mesmo com o card enviado — nos dois casos `motivoSomenteLeitura` NUNCA
- * é `"enviado"`, então `enviadoNaCaptura` saía sempre `false`, mesmo com o card JÁ enviado ANTES do save.
+ * PD) transforma o motivo em `null` mesmo com o card enviado (a trava interina "cad" que existia aqui na F3.2
+ * saiu na Task 6 — hoje "Editar" destrava BOM e CAD juntos, sem degrau intermediário) — nos dois casos
+ * `motivoSomenteLeitura` NUNCA é `"enviado"`, então `enviadoNaCaptura` saía sempre `false`, mesmo com o card
+ * JÁ enviado ANTES do save.
  * Cenário que dava errado: card JÁ enviado, usuário sem edição do Dev (ou em "Editar") — o payload já não
  * tinha colunas do Dev (era exatamente o comportamento certo), mas QUALQUER P0409 nesse save (ex.: Lançar e
  * logo em seguida Salvar) caía no bloqueio (`fresh.enviado_cad=true` e `capturadoEnviado` sempre `false`),

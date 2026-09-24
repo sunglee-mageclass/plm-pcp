@@ -60,7 +60,12 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
   const carregando = !ficha.carregado;
-  const corpo = (node: ReactNode) => (carregando ? <Carregando erro={dados.cadErro} /> : (
+  // Lote B (revisão do commit 6fac668, I1) — uma recarga do CAD que FALHA depois de já ter carregado uma vez
+  // (foco, invalidação pós-Salvar, Realtime) não regride `ficha.carregado` (`bom.hidratado`/`cad.hidratado` são
+  // state, não voltam a `false` sozinhos), mas `motivoSomenteLeitura` vira `"carregando"` (`!dados.cadFetched`,
+  // que SIM reflete o `isSuccess` da query em erro) — sem este ramo, `AvisoSomenteLeitura` não trata `"carregando"`
+  // (só "permissao"/"enviado") e devolve `null`: o BOM e o CAD ficam travados (`podeEditar=false`) SEM aviso.
+  const corpo = (node: ReactNode) => (carregando || ficha.motivoSomenteLeitura === "carregando" ? <Carregando erro={dados.cadErro} /> : (
     <>
       <AvisoSomenteLeitura motivo={ficha.motivoSomenteLeitura} />
       <fieldset disabled={!ficha.podeEditar} className="contents">{node}</fieldset>

@@ -47,7 +47,10 @@ export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = 
           <span className="truncate">{numero ? `${numero}. ` : ""}{titulo}</span>
           {chip && <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground max-sm:hidden">{chip}</span>}
         </button>
-        {selo && <span className="ml-auto inline-flex shrink-0 items-center gap-1">{selo}</span>}
+        {/* Lote B (revisão do commit 6fac668, minor) — `min-w-0` + `truncate` (não `shrink-0`, que IMPEDE encolher):
+            selos com texto longo (ex.: resumo da Coleção, "Verão 2027 · Casual · lanç. 2 · mar/2027") estouravam a
+            largura em telas estreitas (360px); o `title` do StatusBadge (dentro de `selo`) já traz o texto completo. */}
+        {selo && <span className="ml-auto inline-flex min-w-0 items-center gap-1 truncate">{selo}</span>}
       </div>
       {open && children}
     </section>

@@ -160,7 +160,7 @@ export function usePlanejamentoSave({
       const moLinhasEnviadas = moLinhasRef.current;
       // Item C (fix round 3, (a)) — `enviado_cad` REAL lido do cache da query `["modelo", modeloId]` (a
       // MESMA que o PD já mantém populada — `PlanejamentoDetail.tsx:145-152`, `select("*")`), não da trava
-      // DERIVADA (`motivoSomenteLeitura`/`travaDev`), que colapsa "permissao"/"cad"/"enviado" e perde se o
+      // DERIVADA (`motivoSomenteLeitura`/`travaDev`), que colapsa "permissao"/"carregando"/"enviado" e perde se o
       // card JÁ estava enviado quando "permissao" tem precedência ou o usuário está em "Editar". Sem query
       // nova: `qc` já é o QueryClient do orquestrador, e a key já é lida do mesmo jeito no retry (linha ~551
       // abaixo, `getQueryData<any>(["modelo", modeloId])`).
@@ -365,7 +365,7 @@ export function usePlanejamentoSave({
         // Dev :2140-2150). Só quando esta tentativa já mandou as colunas derivadas.
         // Fix round 4 (item 3) — `custo_peca_previsto` é DERIVADO (Σ BOM + MO), não coluna do Dev: passa a
         // depender de `totais != null` (a ficha estava CARREGADA na captura — ver `useFichaTecnica.capturar`),
-        // não mais de `podeGravarColunasDev`. Cenário: card com CAD (trava "cad") ou usuário sem `canEdit` do
+        // não mais de `podeGravarColunasDev`. Cenário: card ainda carregando (trava "carregando") ou usuário sem `canEdit` do
         // Dev edita a MO no Planejamento — antes o update pontual ficava preso à trava do Dev e o
         // `custo_peca_previsto` gravado divergia do previsto ao vivo mostrado no Sheet; agora recalcula com os
         // totais do BOM CARREGADO (do servidor, já que travado não edita) + a MO recém-enviada. As demais

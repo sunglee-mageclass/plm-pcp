@@ -996,7 +996,11 @@ function PlanejamentoDetailConteudo({
     tecidos: fichaVisivel, aviamentos: fichaVisivel, insumos: fichaVisivel, grade: fichaVisivel, cad: fichaVisivel,
     tecidos_novo: !isEdit && !isComprado,
     preco: isEdit,
-    mao_obra: (!isComprado ? true : isEdit) && (podeVerCustos || (isEdit && podeAprovarMaoObra)),
+    // Lote B (revisão do commit 6fac668, I2) — `veCustos` (união das 2 permissões, decisão F3 #2), não
+    // `podeVerCustos` sozinho: quem só tem `criacao_desenvolvimento:custos` (não `criacao_planejamento:custos`)
+    // precisa ver a seção Mão de obra igual às demais seções gated por custo (linhas 1174/1216/1224 já usam
+    // `veCustos`) — a exibição da SEÇÃO não pode ficar mais restrita que o conteúdo dela.
+    mao_obra: (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)),
     produto_acabado: isEdit && isRevenda && paOn,
     grade_revenda: isEdit && isRevenda && paOn && !!produtoRevenda,
     anexos: true,
@@ -1009,7 +1013,10 @@ function PlanejamentoDetailConteudo({
   const selos = selosSecoesSheet({
     requeridas: requisitosUniao(isComprado ? kanbanCard.revendaCfg.requisitos : kanbanCard.kanbanCfg.kanban_requisitos),
     satisfeitas: ficha.habilitada && ficha.dados.condicoesProntas ? ficha.dados.condicoes : null,
-    podeVerCustos,
+    // Lote B (revisão do commit 6fac668, I3) — mesmo `veCustos` do item I2 acima: o campo continua se chamando
+    // `podeVerCustos` (nome inalterado no shape de `selosSecoesSheet`), só o VALOR passado muda (união das 2
+    // permissões, não só a page-level do Planejamento).
+    podeVerCustos: veCustos,
     infoCompleta: !!draft.nome.trim() && !!draft.estilista_id && !!draft.categoria_principal_id,
     colecaoResumo: resumoColecao({
       colecao: draft.colecao || null,
