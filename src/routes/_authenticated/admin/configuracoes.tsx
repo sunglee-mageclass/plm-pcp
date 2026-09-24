@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send, Tag, Hand, Zap, LogIn, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -706,12 +706,30 @@ function ConfiguracoesLojaPage() {
                   : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual exibir a REF no card.`}
               </p>
             )}
-            <p className="text-xs text-foreground">
-              <Hand className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
-              {kanbanChaveLigada
-                ? "Coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual."
-                : "Com o Kanban automático ligado, coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual."}
-            </p>
+            {kanbanChaveLigada ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground">
+                <span className="flex items-center gap-1">
+                  <LogIn className="h-3.5 w-3.5" /> Entrada
+                </span>
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3.5 w-3.5" /> Automática
+                </span>
+                <span className="flex items-center gap-1">
+                  <Hand className="h-3.5 w-3.5" /> Manual
+                </span>
+                <span className="flex items-center gap-1">
+                  <Hand className="h-3.5 w-3.5" /><Lock className="h-3 w-3 -ml-1" /> Manual (sempre)
+                </span>
+                <span className="w-full text-muted-foreground">
+                  Coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual.
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-foreground">
+                <Hand className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+                Com o Kanban automático ligado, coluna sem requisito é manual: o card só entra e sai dela arrastado. Reprovado é sempre manual.
+              </p>
+            )}
           </div>
         }
       />
@@ -1355,7 +1373,13 @@ function SortableItem({
   );
   return (
     <li ref={setNodeRef} style={style} className="rounded-md border bg-card p-2">
-      <div className="flex items-center gap-2">
+      {/* `flex-wrap`: o card "Status do Kanban" fica estreito no grid de 2 colunas do desktop
+          (~514px) mesmo a 1400px de viewport — o breakpoint `md:` dos botões extras é por
+          VIEWPORT, não pelo container, então eles continuam lado a lado com o nome mesmo sem
+          espaço. O nome tem prioridade: `flex-1 min-w-[9rem]` no Input garante uma largura
+          mínima legível; sem espaço pros extras na mesma linha, eles quebram pra 2ª linha
+          (em vez de espremer o nome a poucos px, cortando "Desenho Técnico" → "Dese"). */}
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className="flex shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground touch-none hover:text-foreground max-md:min-h-11 max-md:min-w-10"
@@ -1368,7 +1392,7 @@ function SortableItem({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="h-8 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
+          className="h-8 min-w-[9rem] flex-1 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
         />
         {/* Sem ações extras (ex.: outras listas sem `extra`): Excluir fica sempre inline —
             só 1 botão, não precisa de 2ª linha no mobile. Com `extra` (Status do Kanban:
