@@ -119,7 +119,8 @@ export function usePlanejamentoSave({
   const save = useMutation({
     mutationFn: async () => {
       // Fix round 1 (I1) — zera a captura anterior LOGO NO INÍCIO de todo ciclo (1ª tentativa OU retry, que
-      // reentra aqui do zero): sem isto, um erro lançado ANTES da captura síncrona abaixo (linhas ~163-167)
+      // reentra aqui do zero): sem isto, um erro lançado ANTES da captura síncrona abaixo (onde `enviadoRef.current`
+      // é atribuído pela 1ª vez neste ciclo, logo depois de montar `payload`/`temCamposDevNoPayloadNaCaptura`)
       // reaproveitaria `enviadoRef.current` de um ciclo ANTERIOR (ex.: o retry do P0409 herdando a captura da
       // 1ª tentativa, já desatualizada) em vez de cair nos fallbacks conservadores do `onError`.
       enviadoRef.current = null;
@@ -884,7 +885,7 @@ export function usePlanejamentoSave({
         // chegar; dá P0409. `colecoesTouchadasRef=false` ⇒ `bomConflito` ficava sempre `false` ⇒ o retry
         // gravava o esqueleto Tecido 1..N por cima do BOM que B acabou de completar. `bomPendenteDeGravar()`
         // soma o prefill à condição de conferir (mesma fonte usada por `capturar().gravar`).
-        // Fix round 1 (I2) — mesma soma do guard acima (linha ~161): `gradeCompradoPeloBom && gradeRevendaDirty`
+        // Fix round 1 (I2) — mesma soma do guard acima (`barradoPorGradeComprado`, início do `mutationFn`): `gradeCompradoPeloBom && gradeRevendaDirty`
         // também faz ESTE Salvar gravar o BOM (a grade do importado, sem nenhum outro campo do BOM tocado). Este
         // ramo só é alcançado quando o P0409 NÃO era de `gradeConflict` (esse já retornou antes, acima) — ou
         // seja, o rev mudou por OUTRO motivo (campo escalar do draft, MO, etc.); se a grade do importado estava
@@ -903,9 +904,12 @@ export function usePlanejamentoSave({
           // simples do Dev no payload` — fix round 4, item 10) — senão o payload já saiu sem nada do Dev e o
           // retry é seguro (não é este bug).
           // Fix round 1 (I1) — os fallbacks NÃO são todos `?? false`: com a captura dos 3 campos síncronos
-          // agora ANTES do `await` (fix round 1 acima), `enviadoRef.current` só fica `null`/incompleto se o
-          // erro ocorreu ANTES da captura (os guards do início do mutationFn — conflito de seção,
-          // `verificandoBomRef`, `bomRecarregando`). Nesse "não sei" o `onError` precisa ser CONSERVADOR, e
+          // agora ANTES do `await lerGradeServidorComprado` (fix round 1 acima), `enviadoRef.current` só fica
+          // `null`/incompleto quando o P0409 que trouxe a execução até AQUI veio dessa leitura da grade — o
+          // ÚNICO ponto, antes da captura síncrona, que lança um erro com `code === "P0409"` (os guards do
+          // INÍCIO do mutationFn — conflito de seção, `verificandoBomRef`, `barradoPorBom`/
+          // `barradoPorGradeComprado` — lançam `new Error(...)` PLANO, sem `code`, então nunca chegam a este
+          // ramo `e?.code === "P0409"`). Nesse "não sei" o `onError` precisa ser CONSERVADOR, e
           // conservador tem sentido DIFERENTE por campo:
           //  • `enviadoCadNaCaptura` — conservador = `false` ("eu não sabia que já tinha sido enviado"), porque
           //    é isso que faz `passouAEnviado` poder ficar `true` (bloquear) quando `fresh.enviado_cad` é `true`.

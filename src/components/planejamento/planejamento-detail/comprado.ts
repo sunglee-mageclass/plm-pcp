@@ -54,10 +54,15 @@ export function espelhosDoCard(i: {
  *    sido comprado").
  *  • Interno → comprado: só com a seção Tecidos VAZIA — tecido no BOM reserva estoque (`_estoque_tecido_core` não filtra
  *    origem) e, num comprado, ficaria escondido reservando. Interno → Revenda especificamente NÃO depende de `acabado`
- *    (nem antes, nem agora): um card que NUNCA foi revenda não pode ter um Produto Acabado vinculado por construção — a
- *    única forma de vincular um é pelo próprio fluxo de revenda (auto-criação no Salvar, que já exige `paOn`), então
- *    "acabado indeterminado" não é um risco real aqui; travar interno→revenda por causa disso regrediria uma loja com o
- *    módulo Produto Acabado momentaneamente desligado sem nenhum ganho de segurança.
+ *    (nem antes, nem agora) — mas NÃO por "impossibilidade por construção": D1 (i) permite Revenda → Interno SEM
+ *    pedido (OC), e essa volta MANTÉM o Produto Acabado vinculado (o tipo `EspelhoProduto`/comentário do topo do
+ *    arquivo já documenta isso — "um card interno pode já ter sido comprado"). Ou seja, um card interno PODE, sim,
+ *    ter um `acabado` já vinculado. A regra segue sem checar `acabado` aqui por ESCOLHA de trade-off: com o módulo
+ *    Produto Acabado desligado, `acabado` fica indeterminado (`null`) e travar Interno→Revenda até confirmar
+ *    regrediria QUALQUER card interno (mesmo os que nunca foram revenda) enquanto o módulo estiver off — pior que o
+ *    risco real, que é estreito (só afeta o card que JÁ foi revenda e voltou). Efeito colateral aceito: com o módulo
+ *    desligado, Interno → Revenda vira uma porta de mão única para esse card específico (o Salvar/auto-criação do
+ *    Produto Acabado, ao vincular de novo, teria de lidar com um vínculo pré-existente sem tê-lo conferido aqui).
  *  • Saída de um comprado: o produto DELE tem de ser legível (o módulo da FAMÍLIA dele desligado ⇒ indeterminado ⇒
  *    trava — Revenda → * trava sem `paOn`, Importado → * trava sem `piOn`); D1 (i) — com pedido (OC) do produto, a
  *    Origem não muda mais.

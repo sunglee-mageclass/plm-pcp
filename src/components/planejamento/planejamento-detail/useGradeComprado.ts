@@ -119,7 +119,12 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
 
   // Grade cor×tamanho — lê `modelo_grades` (variante_numero=ordem) e semeia 1× por abertura do card (texto movido: o
   // detalhe nasce/some por inteiro a cada abrir/fechar, então um refetch em BG nunca perde edição).
-  const { data: gradeModeloRows } = useQuery({
+  // Fix minors (M2) — `isError` exposto (`gradeModeloError`): se esta query FALHAR (não é "0 linhas", que é um
+  // resultado válido), `gradeModeloRows` nunca deixa de ser `undefined` e o `useEffect` de seed abaixo nunca roda —
+  // sem isto, `gradeSeeded` ficava `false` PARA SEMPRE e o Enviar (PlanejamentoDetail.tsx, `motivoEnvioBloqueado`)
+  // mostrava "Carregando a ficha…" indefinidamente (nunca soltava o retry pro usuário nem travava com um motivo
+  // honesto). Mesma classe do `produtoError` acima (Fix round T7, M1).
+  const { data: gradeModeloRows, isError: gradeModeloError } = useQuery({
     queryKey: ["modelo-grades-revenda", modeloId],
     enabled: on,
     queryFn: async () => {
@@ -145,6 +150,13 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
     gradeRevendaSeededRef.current = true;
     setGradeSeeded(true);
   }, [gradeModeloRows]);
+  // Fix minors (M2) — com ERRO (não com "ainda carregando"): `gradeSeeded` também vira `true` (destrava o
+  // "Carregando a ficha…" que ficaria preso pra sempre — o efeito acima nunca roda sem `gradeModeloRows`), mas o
+  // Enviar continua BLOQUEADO: NUNCA destrava o envio sem grade (`gradeModeloError` expõe o erro pro consumidor
+  // mostrar "Não foi possível carregar a grade — recarregue a página" em vez de "Carregando…"). Não seta
+  // `gradeRevendaSeededRef`/não semeia rascunho — um retry manual (refetch) ainda pode suceder e seguir o caminho
+  // normal do efeito acima.
+  useEffect(() => { if (gradeModeloError) setGradeSeeded(true); }, [gradeModeloError]);
   // Fix round T7 (M2) — `on` pode ligar DEPOIS do 1º render (raro: a origem do servidor só chega via `modeloData`,
   // que carrega em paralelo — `gradeSeeded` nasceu `true` pelo valor inicial `!on` de quando `on` ainda era `false`).
   // Sincroniza sempre que `on` vira `false→true`: volta a esperar o seed de verdade (o efeito acima o marca `true`
@@ -169,6 +181,10 @@ export function useGradeComprado({ modeloId, isEdit, origem, moduloOn, grupos, t
     // Fix round T7 (M2) — `gradeSeeded`: a grade cor × tamanho já semeou 1× (ou não se aplica, `!on`). Consumido por
     // `PlanejamentoDetail.tsx` p/ não calcular `pendenciasEnvio` (a lista "Falta: …") ANTES da grade ter carregado.
     gradeSeeded,
+    // Fix minors (M2) — a query de `modelo_grades` FALHOU: `gradeSeeded` já vira `true` (não trava "Carregando…" pra
+    // sempre), mas isto deixa o consumidor (`PlanejamentoDetail.tsx`) diferenciar "pronta de verdade" de "erro" —
+    // o Enviar tem de continuar BLOQUEADO com uma mensagem PT, nunca destravar sem a grade de verdade.
+    gradeModeloError,
     gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty,
     variantesRevenda, tamanhosRevenda,
     setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,

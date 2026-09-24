@@ -127,9 +127,12 @@ export async function substituirObservacoesDoBloco(
  * grades) é LIDA NO PRÓPRIO Salvar — nunca o cache `plan-ficha-grades`: uma mudança alheia sem toque só INVALIDA o cache
  * (useFichaTecnica `aoMudarNoServidor`) e o merge já avançou o `revRef`; um Salvar nessa janela passaria no `.eq("rev")` do
  * header e regravaria a grade VELHA por cima da nova. `rev` e grade vêm num SELECT só (embed `modelo_grades`, o mesmo de
- * PlanTecidoSheet.tsx:457) ⇒ do mesmo instante. `rev` lido ≠ o do card AGORA (`revDoCard()` DEPOIS do await — é o valor que
- * o header confere logo em seguida, sem outro `await` no meio: `let revParaHeader = revRef.current`) ⇒ P0409: o retry que já
- * existe relê o modelo e o BOM e tenta 1×. Erro ⇒ lança: falha FECHADA (nunca devolve [] como "o servidor não tem grade").
+ * PlanTecidoSheet.tsx:457) ⇒ do mesmo instante. `rev` lido ≠ o que o `revDoCard()` devolve (fix C1 — o CALLER, em
+ * `usePlanejamentoSave.ts`, congela `revCongelado = revRef.current` no MESMO ponto síncrono em que o rascunho `d` é
+ * congelado, ANTES deste await; `revDoCard` é um fechamento que devolve ESSE `revCongelado`, não `revRef.current` lido de
+ * novo aqui dentro — se o merge do colab avançar `revRef` durante este SELECT, o valor já capturado não muda) ⇒ P0409: o
+ * retry que já existe relê o modelo e o BOM e tenta 1×. Erro ⇒ lança: falha FECHADA (nunca devolve [] como "o servidor não
+ * tem grade").
  */
 export async function lerGradeServidorComprado(modeloId: string, revDoCard: () => number | null): Promise<GradeRowDb[]> {
   const { data, error } = await (supabase.from("modelos") as any)

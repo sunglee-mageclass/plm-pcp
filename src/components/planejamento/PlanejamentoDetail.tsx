@@ -1115,7 +1115,8 @@ function PlanejamentoDetailConteudo({
   const secFicha = secoesFicha(isComprado, campoVisivelDev);
   // Grade cor × tamanho: a da origem SALVA. Só-leitura com a troca de Origem ainda não salva, ou no importado sem a ficha
   // editável (a grade dele grava pelo BOM — D3 (A)). Revenda: editável como hoje.
-  const motivoGradeSomenteLeitura: string | null = draft.origem !== origemComprado
+  const origemTrocadaPendente = draft.origem !== origemComprado;
+  const motivoGradeSomenteLeitura: string | null = origemTrocadaPendente
     ? "Salve a troca de Origem antes de editar a grade."
     : origemComprado === "importado" && !ficha.podeEditar
       ? ficha.motivoSomenteLeitura === "enviado"
@@ -1123,6 +1124,12 @@ function PlanejamentoDetailConteudo({
         ? "Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."
         : "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera aqui (com a ficha carregada)."
       : null;
+  // Fix minors (M1) — o texto de "sem produto vinculado" ("salve para criar") só faz sentido quando é O SALVAR do
+  // Planejamento que resolve. Com `origemTrocadaPendente`, é exatamente esse Salvar que cria o produto (não exige o
+  // Dev) — mantém o genérico. Já com a ficha travada no importado (`motivoGradeSomenteLeitura` do outro ramo), o
+  // Salvar do Planejamento sozinho NÃO cria nada (precisa do Dev) — nesse caso o texto de "sem produto" mostra o
+  // motivo REAL (`motivoGradeSomenteLeitura`) em vez do "salve para criar" enganoso.
+  const motivoSemProdutoComprado: string | null = origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
@@ -1214,7 +1221,12 @@ function PlanejamentoDetailConteudo({
   // Interno: `gradeComprado.produtoLoading`/`gradeSeeded` são sempre `false`/`true` (a query nem dispara, `on=false`
   // dentro do hook) — sem efeito no caminho de sempre.
   const gradeCompradoPronta = !gradeComprado.produtoLoading && gradeComprado.gradeSeeded;
-  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado && gradeCompradoPronta
+  // Fix minors (M2) — a query de `modelo_grades` falhou (`gradeModeloError`): `gradeCompradoPronta` já vira `true`
+  // (senão "Carregando a ficha…" travaria pra sempre — ver `useGradeComprado.ts`), então some do guard de
+  // `pendenciasEnvio` como "pronta"; sem este `!gradeModeloError` aqui, `pendenciasEnvioExplosao` rodaria sobre um
+  // rascunho de grade NUNCA semeado (sempre vazio) e devolveria "falta grade" — um motivo de bloqueio que parece
+  // pedir preenchimento, quando na verdade é falha de carga (precisa recarregar, não editar).
+  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok && ficha.carregado && gradeCompradoPronta && !gradeComprado.gradeModeloError
     ? pendenciasEnvioExplosao({
       draft, blocks: ficha.estado.blocks,
       grades: isComprado ? buildLinhasGradeRevenda() : ficha.estado.grades,
@@ -1229,13 +1241,18 @@ function PlanejamentoDetailConteudo({
   // sem esta checagem, `pendenciasEnvio` ficava `[]` (o guard zera a lista durante a carga da grade do comprado) ⇒
   // `mostraFaltas=false` ⇒ o botão "Enviar à Explosão" ficava DESTRAVADO na janela entre `ficha.carregado=true` e a
   // grade do comprado terminar de carregar — exatamente o clique precoce que o M2 original pretendia evitar.
+  // Fix minors (M2) — `gradeComprado.gradeModeloError` ganha um ramo PRÓPRIO, antes de `!gradeCompradoPronta`
+  // (que já é `true` nesse caso): mensagem PT de erro em vez de "Carregando a ficha…" (que ficaria mostrando
+  // "carregando" pra sempre — o guard antigo nunca saía desse estado com a query falhada) e NUNCA destrava o
+  // envio sem a grade (mesma trava de antes, só troca o texto).
   const motivoEnvioBloqueado: string | null = !mostraEnviarExplosao ? null
-    : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
-      : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
-        : gateEnvio.carregando ? "Conferindo a etapa do card…"
-          : !gateEnvio.ok ? `Disponível a partir da etapa "${gateEnvio.reqLabel}".`
-            : mostraFaltas ? "Preencha os itens pendentes para enviar."
-              : null;
+    : gradeComprado.gradeModeloError ? "Não foi possível carregar a grade — recarregue a página."
+      : !ficha.carregado || !gradeCompradoPronta ? "Carregando a ficha…"
+        : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
+          : gateEnvio.carregando ? "Conferindo a etapa do card…"
+            : !gateEnvio.ok ? `Disponível a partir da etapa "${gateEnvio.reqLabel}".`
+              : mostraFaltas ? "Preencha os itens pendentes para enviar."
+                : null;
   const podeEnviarExplosaoAgora = mostraEnviarExplosao && motivoEnvioBloqueado === null && ficha.podeEditar
     && !enviarExplosao.isPending && !save.isPending;
 
@@ -1569,7 +1586,7 @@ function PlanejamentoDetailConteudo({
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {vis.grade_revenda && (
-            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} />
+            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} />
           )}
 
           {/* SETOR 5 — Anexos */}

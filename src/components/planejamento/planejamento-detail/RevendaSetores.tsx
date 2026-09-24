@@ -168,8 +168,14 @@ export function ProdutoImportadoSecao({ gc, numero, navigate }: {
 }) {
   return (
             <Secao id="produto_acabado" titulo="Produto Importado" numero={numero} defaultOpen={false}>
+              {/* Fix minors (item 3) — ganha o MESMO ramo de erro do `GradeRevendaSecao` (Fix round T7, M1): sem ele,
+                  a query de `gc.produto` falhando caía direto no ramo "sem produto ainda" (`!gc.produto`) — texto
+                  errado (convida a "salvar para criar" quando na verdade é a CONSULTA que falhou, não "não existe
+                  ainda"; um Salvar nesse estado tentaria criar um 2º produto por cima de um que pode já existir). */}
               {gc.produtoLoading ? (
                 <p className="text-sm text-muted-foreground">Carregando…</p>
+              ) : gc.produtoError ? (
+                <p className="text-sm text-destructive">Não foi possível carregar o produto vinculado. Recarregue o card e tente de novo.</p>
               ) : gc.produto ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-muted-foreground">Este modelo está vinculado a um produto importado.</p>
@@ -192,8 +198,13 @@ export function ProdutoImportadoSecao({ gc, numero, navigate }: {
 /** Seção "Grade" cor×tamanho do card COMPRADO (revenda e importado — F3.4, decisão F3 #4: a fonte ÚNICA da grade do
  *  comprado). Edita o rascunho de `useGradeComprado`; o Salvar grava (revenda: `salvar_grade_revenda`; importado: junto
  *  com o BOM — plano F3.4 §3). `motivoSomenteLeitura`: texto do porquê de não editar (ou null = editável). */
-export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null }: {
+export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null, motivoSemProduto = null }: {
   gc: GradeComprado; numero?: number; selo?: ReactNode; motivoSomenteLeitura?: string | null;
+  /** Fix minors (M1) — motivo do "sem produto vinculado" QUANDO ele realmente impede criar o produto por aqui (ex.:
+   *  ficha travada no importado). `null`/omitido = mantém o texto genérico "salve para criar" — cobre o caso comum
+   *  (card recém-criado, sem OC ainda) E a troca de Origem pendente (é O PRÓPRIO Salvar do Planejamento que cria o
+   *  produto ali, sem depender do Dev — mostrar "editar a grade" seria enganoso, ver `PlanejamentoDetail.tsx`). */
+  motivoSemProduto?: string | null;
 }) {
   const {
     origem, produto, produtoLoading, produtoError, gradeRevenda, variantesRevenda, tamanhosRevenda,
@@ -214,12 +225,16 @@ export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = nul
               ) : !produto ? (
                 // Fix round T7 (M3a) — `gc.origem` é a origem SALVA (o produto lido é dela); com o RASCUNHO trocado
                 // pra outra origem (Select ainda não salvo), `{tela}` ficaria errado ("Produto Acabado" quando o
-                // usuário está prestes a virar Importado, por ex.). `motivoSomenteLeitura` já cobre exatamente esse
-                // caso ("Salve a troca de Origem antes de editar a grade.", calculado pelo orquestrador a partir do
-                // RASCUNHO) — mostra ELE no lugar do texto genérico de "tela", que só faz sentido quando a origem
-                // exibida É a que o usuário está editando.
+                // usuário está prestes a virar Importado, por ex.).
+                // Fix minors (M1, revisão pós-T7) — `motivoSomenteLeitura` cobria ESSE caso, mas também o de ficha
+                // travada no importado (enviado à Explosão / sem permissão do Dev) — aí o texto virava "Card enviado
+                // à Explosão: a grade do importado trava junto com a ficha…", que fala de EDITAR uma grade que ainda
+                // nem existe (sem produto, não há grade pra travar). `motivoSemProduto` (calculado no orquestrador)
+                // só chega preenchido quando o motivo REALMENTE impede criar o produto por aqui: a troca de Origem
+                // pendente NÃO conta (é o PRÓPRIO Salvar do Planejamento que cria o produto, sem depender do Dev) —
+                // nesse caso mantém o "salve para criar" genérico, como no card recém-criado sem OC.
                 <p className="text-sm text-muted-foreground">
-                  {motivoSomenteLeitura ?? `Este card ainda não tem produto vinculado. Salve o card (com Grupo e Categoria) para o sistema criá-lo no ${tela}.`}
+                  {motivoSemProduto ?? `Este card ainda não tem produto vinculado. Salve o card (com Grupo e Categoria) para o sistema criá-lo no ${tela}.`}
                 </p>
               ) : variantesRevenda.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
