@@ -30,6 +30,9 @@ import { DateField } from "@/components/shared/DateField";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { type Draft, type Opt } from "@/components/planejamento/modelo-shared";
 import { FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+
+const SEM_COPIADOS: Set<string> = new Set();
 
 // MESMA queryKey e MESMO shape (Opt[]) do Dev (`useColabs`, ModeloDetailPanel.tsx:3290-3299): cache compartilhado
 // sem colisão de forma.
@@ -58,7 +61,7 @@ const CAMPOS_CRONOGRAMA = [
   "data_desenho_tecnico", "data_aprovacao",
 ] as const;
 
-export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisivel, bloqueado }: {
+export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisivel, bloqueado, camposCopiados, onCampoEditado }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
   /** Campo REF a partir da etapa configurada (refCampoVisivel; posição derivada c/ a chave ligada). */
@@ -68,6 +71,9 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
   /** = `devBloqueado` do orquestrador. Repassado a TODO FieldSelect (Radix Select ignora o fieldset —
    *  ver comentário de topo). DateField/Input/Textarea seguem travando só pelo fieldset (confirmado). */
   bloqueado: boolean;
+  /** F3.3 — destaque do "Importar dados" (realce amarelo que some ao editar — ModeloInfoSection.tsx:361-363). */
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (chave: string) => void;
 }) {
   const fl = useFieldLabels();
   const { data: modelistas = [] } = useColaboradoresTipo("modelista");
@@ -202,7 +208,13 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
 
       <div className="grid gap-1">
         <Label>Observações Técnicas</Label>
-        <Textarea rows={3} value={draft.observacoes_tecnicas} onChange={(e) => set({ observacoes_tecnicas: e.target.value })} data-colab-path="observacoes_tecnicas" />
+        <Textarea
+          rows={3}
+          value={draft.observacoes_tecnicas}
+          className={classeCopiado(camposCopiados ?? SEM_COPIADOS, "obs_tecnicas")}
+          onChange={(e) => { set({ observacoes_tecnicas: e.target.value }); onCampoEditado?.("obs_tecnicas"); }}
+          data-colab-path="observacoes_tecnicas"
+        />
       </div>
     </div>
   );

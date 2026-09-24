@@ -97,3 +97,19 @@ export async function gravarTecidosIniciais(modeloIdRecemCriado: string, artigoI
   });
   if (error) throw error;
 }
+
+/**
+ * F3.3 — Importar dados, "Observações (bloco)": SUBSTITUI na hora (Dev :2383-2394 — o bloco `ModeloObservacoes` é
+ * auto-save, fora do Salvar). Apaga SEMPRE (origem vazia limpa o destino) e insere as linhas da origem.
+ */
+export async function substituirObservacoesDoBloco(
+  modeloId: string,
+  linhas: { ordem: number | null; descricao: string | null; observacao: string | null }[],
+): Promise<void> {
+  const { error: eDel } = await supabase.from("modelo_observacoes" as any).delete().eq("modelo_id", modeloId);
+  if (eDel) throw eDel;
+  const rows = linhas.map((o) => ({ modelo_id: modeloId, ordem: o.ordem, descricao: o.descricao, observacao: o.observacao }));
+  if (rows.length === 0) return;
+  const { error: eIns } = await supabase.from("modelo_observacoes" as any).insert(rows);
+  if (eIns) throw eIns;
+}

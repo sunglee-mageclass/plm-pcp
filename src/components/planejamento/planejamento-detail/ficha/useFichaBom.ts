@@ -30,6 +30,7 @@ import {
 } from "./ficha-calc";
 import type { PatchBlocoCad } from "./ficha-cad";
 import type { FichaDados } from "./useFichaDados";
+import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 
 const MAPA_VAZIO: Record<string, string> = {};
 const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false };
@@ -445,6 +446,31 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     }));
   };
 
+  /**
+   * F3.3 — Importar dados (Dev :2328-2350): aplica o patch no BOM em STAGING (só o Salvar grava), recalcula os custos com
+   * o preço ATUAL (a cópia traz o custo do modelo de origem) e marca o destaque. T3: leva consumo/%loss/artigo de cada
+   * bloco ao CAD (o Dev não leva — o CAD dele ficava com o consumo antigo até a próxima carga).
+   */
+  const aplicarImportacao = (patch: PatchCopia, campos: Set<string>) => {
+    if (patch.blocks || patch.aviamentos || patch.etiquetas || patch.grades) marcarTocado();
+    if (patch.blocks !== undefined) {
+      const novos = patch.blocks.map((b) => recomputeBlock(b, dados.artigoMap, varianteArtigoMap, frozen));
+      setBlocks(novos);
+      for (const b of novos) aoMudarBlocoRef.current?.(b.tipo, b.numero, { consumo: b.consumo, loss_percent: b.loss_percent, artigo_id: b.artigo_id });
+      marcarFlag("consumo");
+    }
+    if (patch.aviamentos !== undefined) {
+      setAviamentosState(patch.aviamentos.map((r) => recomputeAviamento(r, dados.aviamentoMap)));
+      marcarFlag("aviamentos");
+    }
+    if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas.map((r) => recomputeEtiqueta(r, dados.etiquetaMap)));
+    if (patch.grades !== undefined) {
+      setGrades(patch.grades);
+      marcarFlag("grade");
+    }
+    setCamposCopiados((prev) => new Set([...prev, ...campos]));
+  };
+
   const onCampoEditado = (chave: string) => setCamposCopiados((prev) => {
     if (!prev.has(chave)) return prev;
     const n = new Set(prev); n.delete(chave); return n;
@@ -469,7 +495,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     camposCopiados, onCampoEditado, marcarCopiados, limparCopiados,
     limparTocado, limparFlags, descartarEdicoes,
     // F3.3 — o CAD (useFichaCad) hidrata junto com esta carga (`cargaSeq`) e marca o MESMO "tocado".
-    marcarTocado, cargaSeq, aplicarConsumoDoCad,
+    marcarTocado, cargaSeq, aplicarConsumoDoCad, aplicarImportacao,
     handlers: {
       updateBlock, updateBlockVariante, updateBlockOcLinks,
       updateAviamento, addAviamento, removeAviamento,

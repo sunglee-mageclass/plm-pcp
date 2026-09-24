@@ -82,6 +82,8 @@ import { gateEnvioExplosao, pendenciasEnvioExplosao } from "@/components/planeja
 import { PedidoSecaoContext, proximoPedido, type PedidoSecao } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 import { MenuMaisAcoes } from "@/components/planejamento/planejamento-detail/MenuMaisAcoes";
 import { useEnviarExplosao } from "@/components/planejamento/planejamento-detail/useEnviarExplosao";
+import { useImportarDados } from "@/components/planejamento/planejamento-detail/useImportarDados";
+import { ImportarDadosDialog } from "@/components/desenvolvimento/importar/ImportarDadosDialog";
 import { numerarSecoes, resumoColecao, selosSecoesSheet, type SecaoSheetKey } from "@/components/planejamento/planejamento-detail/ficha/selos-secoes";
 import { requisitosUniao } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
@@ -757,6 +759,8 @@ function PlanejamentoDetailConteudo({
     modeloId, qc, salvarAntes, draftLiveRef,
     onEnviado: () => { setEditandoDev(false); onSaved(); },
   });
+  // F3.3 — Importar dados (Dev :2328-2400): staging no rascunho/BOM/CAD (só o Salvar grava); obs. do bloco grava na hora.
+  const importar = useImportarDados({ modeloId, ficha, draft, setDraftTracked, qc });
 
   // Fix final (F3.1, item 3) — card NOVO: entre o clique em Salvar e o Sheet remontar com o id
   // criado (`onCreated`, key nova no `PlanejamentoDetail` acima), o que se digita no formulário
@@ -1239,6 +1243,8 @@ function PlanejamentoDetailConteudo({
                   refVisivel={kanbanCard.refVisivel}
                   campoVisivel={campoVisivelDev}
                   bloqueado={devBloqueado}
+                  camposCopiados={ficha.camposCopiados}
+                  onCampoEditado={ficha.onCampoEditado}
                 />
               </fieldset>
             </Secao>
@@ -1554,6 +1560,7 @@ function PlanejamentoDetailConteudo({
               // — cache FRIO: `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed,
               // copiando o `emptyDraft()`).
               duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
+              onImportar={ficha.podeEditar ? () => importar.setAberto(true) : undefined}
               onFichaTecnica={enviadoCad ? () => setPrintTecnicaToken((t) => t + 1) : undefined}
               onCancelarOrdem={enviada ? () => setConfirmCancelarOrdem(true) : undefined}
               cancelandoOrdem={enviar.isPending}
@@ -1669,6 +1676,31 @@ function PlanejamentoDetailConteudo({
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* F3.3 — Importar dados (Dev :3239-3259): o diálogo do Dev SEM modificar; só existe aberto (nasce limpo). */}
+        {isEdit && modeloId && importar.aberto && (
+          <ImportarDadosDialog
+            open={importar.aberto}
+            onOpenChange={importar.setAberto}
+            modeloDestinoId={modeloId}
+            destinoBlocks={ficha.estado.blocks}
+            onCopiar={(r, origem, sel) => importar.onCopiar(r, origem, sel)}
+          />
+        )}
+        <AlertDialog open={!!importar.confirmacao} onOpenChange={(o) => { if (!o) importar.setConfirmacao(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sobrescrever dados existentes?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A importação vai substituir: {importar.confirmacao?.itens.join(" · ")}. Os campos entram para revisão (só o
+                Salvar grava); as Observações (bloco), se marcadas, são aplicadas na hora.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => importar.confirmacao?.aplicar()}>Substituir</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste card." />
         {/* F3.3 — Ficha Técnica (menu ⋯, "após Enviar"): a MESMA do Dev (PrintFicha — PrintArea em portal), montada oculta
             e disparada pelo token (Dev :3261-3265). */}

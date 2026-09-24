@@ -32,6 +32,7 @@ import {
   snapshotCad, type CadCapturado, type CadRowDb, type CadTecidoRow, type CadVarianteRow, type PatchBlocoCad,
 } from "./ficha-cad";
 import { seloCadSecao } from "./selos-secoes";
+import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 
 const SEM_LABELS: Record<string, string> = {};
 
@@ -645,6 +646,8 @@ export function useFichaTecnica(a: {
     // F3.3 — seção CAD (render em BomSecoes) e as regras dela.
     cad: { linhas: cad.linhas, autoFolhas: cad.autoFolhas, faltas: cad.faltas, handlers: cadHandlers },
     cadGravavel, cadAntesDaOrdem: !dados.cadExiste && !a.ordemEnviada,
+    // F3.3 — Importar dados: só com a ficha editável (o item do menu nem aparece sem isso).
+    aplicarImportacaoBom: podeEditar ? bom.aplicarImportacao : (_p: PatchCopia, _c: Set<string>) => undefined,
     confirmGrade: bom.confirmGrade, setConfirmGrade: bom.setConfirmGrade,
     camposCopiados: bom.camposCopiados, onCampoEditado: bom.onCampoEditado, marcarCopiados: bom.marcarCopiados,
     dirty: guarda.dirty || guardaCad.dirty,
