@@ -69,6 +69,14 @@ export type FichaSave = {
   capturar: (custosAdicionais: unknown) => BomCapturado;
   /** Pós-save: re-baseia (edição em voo segue "não salva"), a referência vira o ENVIADO, limpa marcadores, invalida o BOM. */
   aposSalvar: (a: { bomEnviado: BomCapturado }) => { bomMudouEmVoo: boolean };
+  /**
+   * Fix T10 m1 — falha DEPOIS do `persistirBom` (etiqueta, MO, `custo_peca`) deixava a referência do BOM
+   * velha: com o BOM já gravado no servidor mas o `aposSalvar` sem rodar (o save inteiro lançou antes de
+   * chegar lá), o próximo eco Realtime ou o próximo P0409 comparava com a referência ANTIGA e acendia
+   * "Tecidos & BOM" contra o próprio write. Chamar IMEDIATAMENTE depois do `persistirBom` bem-sucedido —
+   * a referência vira o ENVIADO assim que o servidor o tem, mesmo que um passo seguinte falhe.
+   */
+  bomGravado: (bomEnviado: BomCapturado) => void;
   etapas: { corte?: boolean; baixa_total?: number };
 };
 
@@ -338,6 +346,10 @@ export function useFichaTecnica(a: {
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
         totais: podeEditarRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
       };
+    },
+    // m1 da revisão T10: a referência vira o ENVIADO assim que o servidor o tem, mesmo que um passo seguinte falhe.
+    bomGravado: (bomEnviado) => {
+      referenciaRef.current = assinaturaBom(bomEnviado.estado);
     },
     aposSalvar: ({ bomEnviado }) => {
       const vivo = snapshotBom(bom.estadoRef.current);

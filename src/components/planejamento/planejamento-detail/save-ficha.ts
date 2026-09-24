@@ -2,7 +2,7 @@
 // tests/unit/planejamento-save-ficha.test.ts. Os dois fixes vêm da receita do Desenvolvimento
 // (commit 2419d0f): re-basear no ENVIADO (não no ao vivo) e mandar no retry o draft MESCLADO.
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
-import { pecaCom, type TotaisBom } from "./ficha/ficha-calc";
+import { pecaCom, type TotaisBom, type BomCapturado } from "./ficha/ficha-calc";
 
 export type OpcoesColunasFicha = {
   isEdit: boolean;
@@ -39,6 +39,22 @@ export function aplicarColunasFicha(payload: Record<string, unknown>, o: OpcoesC
   }
   if (o.gravaBom) payload.tecidos_planejados = o.tecidosPlanejados;
   return payload;
+}
+
+/**
+ * Fix T10 I1 — "alguém salvou agora" falso depois do PRÓPRIO save do BOM. O UPDATE do header leva
+ * `tecidos_planejados` DERIVADO do BOM (`aplicarColunasFicha`, só quando `bom.gravar`) — mas o draft
+ * ENVIADO (`savedDraft`, congelado no início do `mutationFn`) ainda carrega o valor de ANTES do save
+ * (a lista não é recalculada no draft, só no payload). Sem este fix, `baseRef`/`resetDraftBaseline`/
+ * `tocadosAposSalvar` comparam com um baseline desatualizado e o refetch de `["modelo"]` (que já tem a
+ * lista NOVA) aparece como "atualizados=['tecidos_planejados']" no merge — um aviso de conflito contra
+ * o PRÓPRIO write. Fix: quando o BOM gravou, o draft ENVIADO efetivo adota `bom.tecidosPlanejados` (a
+ * lista que FOI de fato ao banco); quando não gravou, `savedDraft` sai inalterado.
+ */
+export function draftEnviadoEfetivo<T extends { tecidos_planejados: string[] }>(savedDraft: T, bom: Pick<BomCapturado, "gravar" | "tecidosPlanejados">): T {
+  if (!bom.gravar) return savedDraft;
+  if (igual(savedDraft.tecidos_planejados, bom.tecidosPlanejados)) return savedDraft;
+  return { ...savedDraft, tecidos_planejados: bom.tecidosPlanejados };
 }
 
 /** Depois do save: segue "tocado" só o campo que mudou DEPOIS do envio (tecla digitada em voo). */

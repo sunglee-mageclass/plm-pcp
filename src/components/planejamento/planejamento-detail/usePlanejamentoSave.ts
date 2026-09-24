@@ -19,7 +19,7 @@ import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert"
 import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
-import { aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar } from "@/components/planejamento/planejamento-detail/save-ficha";
+import { aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo } from "@/components/planejamento/planejamento-detail/save-ficha";
 
 export type UsePlanejamentoSaveArgs = {
   modeloId: string | null;
@@ -214,7 +214,14 @@ export function usePlanejamentoSave({
         }
         // F3.2 — BOM (substitui o sync do antigo "Tecido Planejado"): só grava quando CARREGADO E SUJO.
         // `_rev_base: null` — a trava já validou no UPDATE acima (desenho do Dev, ModeloDetailPanel.tsx:1950-1959).
-        if (bom.gravar) await persistirBom(modeloId, bom);
+        if (bom.gravar) {
+          await persistirBom(modeloId, bom);
+          // Fix T10 m1 — a referência do BOM vira o ENVIADO AGORA, logo após o servidor confirmar o
+          // `persistirBom` — não espera o `aposSalvar` do onSuccess (que pode nunca rodar se etiqueta/MO/
+          // custo_peca falharem DEPOIS deste ponto). `aposSalvar` chama de novo no sucesso completo, mas é
+          // idempotente (mesma assinatura).
+          fichaRef.current.bomGravado(bom);
+        }
       } else {
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto, UMA vez só (F3.1).
         if (criadoIdRef.current) {
@@ -227,7 +234,17 @@ export function usePlanejamentoSave({
           // F3.2 / G-mockup R3 — o seletor "Tecidos" do Dialog grava o BOM como Tecido 1..N (só o artigo) logo após
           // o INSERT REAL. DENTRO do `else` (R1 do G-plano conjunto): só com o id que ESTE insert criou — BOM vazio,
           // salvar_modelo_bom não apaga nada. No caminho do `criadoIdRef` já preenchido (2º clique/retry) NÃO regrava.
-          if (savedId) await gravarTecidosIniciais(savedId, d.tecidos_planejados);
+          // Fix T10 I2 — marca a etapa que falhou (mesmo padrão de "grade"/"mo" abaixo): o card JÁ foi criado
+          // (INSERT acima teve sucesso) mesmo que este passo falhe; o onError usa `etapaFalha` pra avisar
+          // especificamente que os tecidos não foram para a Ficha (BOM), não que o card inteiro falhou.
+          if (savedId) {
+            try {
+              await gravarTecidosIniciais(savedId, d.tecidos_planejados);
+            } catch (eT) {
+              (eT as any).etapaFalha = "tecidos";
+              throw eT;
+            }
+          }
         }
         // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
         // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
@@ -374,19 +391,35 @@ export function usePlanejamentoSave({
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
         qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
       }
+      // Fix T10 I1 — o UPDATE do header manda `tecidos_planejados` DERIVADO do BOM quando `bom.gravar`
+      // (aplicarColunasFicha), mas `savedDraft` (congelado ANTES do payload ser montado) ainda carrega o
+      // valor de origem. Sem isto, `baseRef`/`resetDraftBaseline`/`tocadosAposSalvar` comparam com um
+      // baseline desatualizado e o refetch de `["modelo"]` (já com a lista NOVA) soa como "alguém salvou
+      // agora — 1 campo atualizado" contra o PRÓPRIO write.
+      const enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(savedDraft, enviadoRef.current.bom) : savedDraft;
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
-      // (`savedDraft` — já é o `d` congelado no mutationFn, mesma fonte de `enviadoRef.current.draft`); campo
-      // editado durante o voo SEGUE tocado e o selo segue aceso até o próximo Salvar (o eco do meu UPDATE não
-      // reverte nem vira conflito comigo mesmo). Mesmo tick síncrono do `ficha.aposSalvar` abaixo — sem `await`
-      // entre o rebase do draft e o rebase do BOM (nota do controlador, revisão T7).
-      resetDraftBaseline(savedDraft);
+      // (`enviadoEfetivo` — já é o `d` congelado no mutationFn, mesma fonte de `enviadoRef.current.draft`,
+      // com `tecidos_planejados` corrigido pelo fix I1 acima); campo editado durante o voo SEGUE tocado e o
+      // selo segue aceso até o próximo Salvar (o eco do meu UPDATE não reverte nem vira conflito comigo
+      // mesmo). Mesmo tick síncrono do `ficha.aposSalvar` abaixo — sem `await` entre o rebase do draft e o
+      // rebase do BOM (nota do controlador, revisão T7).
+      resetDraftBaseline(enviadoEfetivo);
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime (meu
       // próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev real
       // (bumpado no servidor) chega no próximo refetch — o merge effect processa em silêncio
-      // (base≈fresh, sem conflitos) e avança `revRef`. `savedDraft` (não o `draft` do closure,
+      // (base≈fresh, sem conflitos) e avança `revRef`. `enviadoEfetivo` (não o `draft` do closure,
       // que pode ter avançado durante o `await`) é a verdade do que está no servidor agora.
-      baseRef.current = { draft: savedDraft };
-      touchedRef.current = tocadosAposSalvar({ touched: touchedRef.current, live: draftLiveRef.current, enviado: savedDraft });
+      baseRef.current = { draft: enviadoEfetivo };
+      touchedRef.current = tocadosAposSalvar({ touched: touchedRef.current, live: draftLiveRef.current, enviado: enviadoEfetivo });
+      // Fix T10 I1 — o draft VIVO também adota a lista derivada do BOM, SEM marcar como tocado: senão o
+      // campo "Tecido Planejado" na tela mostraria o valor VELHO enquanto o baseline (acima) já é o novo,
+      // o que acenderia o selo "não salvo" sozinho logo após o Salvar. Só quando o usuário NÃO editou a
+      // lista em voo (`touchedRef` já recalculado por `tocadosAposSalvar` acima) — edição em voo tem
+      // prioridade e seria sobrescrita se adotássemos incondicionalmente.
+      if (enviadoEfetivo.tecidos_planejados !== savedDraft.tecidos_planejados && !touchedRef.current.has("tecidos_planejados")) {
+        setDraft((d) => (d.tecidos_planejados === enviadoEfetivo.tecidos_planejados ? d : { ...d, tecidos_planejados: enviadoEfetivo.tecidos_planejados }));
+        draftLiveRef.current = { ...draftLiveRef.current, tecidos_planejados: enviadoEfetivo.tecidos_planejados };
+      }
       if (enviadoRef.current) fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
       conflitosRef.current = [];
       setConflitos([]);
@@ -444,7 +477,11 @@ export function usePlanejamentoSave({
         if (e?.etapaFalha === "mo") {
           toast.error("O card foi criado, mas a mão de obra NÃO foi salva — confira e salve de novo.");
         } else if (e?.etapaFalha === "tecidos") {
-          toast.error("O card foi criado, mas os tecidos NÃO foram salvos — confira e salve de novo.");
+          // Fix T10 I2 — mensagem antes órfã (nada mais marcava esta etapa) reescrita pra refletir o
+          // comportamento real: o 2º Salvar NÃO regrava sozinho, porque o BOM não fica "tocado" com a lista
+          // do Dialog (ela só populou o Tecido 1..N no servidor, não os blocos do BOM em memória) — o
+          // usuário precisa abrir a seção Tecidos pra tocar o BOM antes do próximo Salvar valer.
+          toast.error("O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Abra a seção Tecidos, confira e salve de novo.");
         } else if (e?.etapaFalha === "grade") {
           toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
         } else {

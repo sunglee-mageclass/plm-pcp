@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar,
+  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 
@@ -41,6 +41,25 @@ describe("aplicarColunasFicha", () => {
   });
   it("ficha não carregada (totais null): sem custos derivados", () => {
     expect(aplicarColunasFicha(base(), op({ totais: null })).custo_tecido_total).toBeUndefined();
+  });
+});
+
+describe("draftEnviadoEfetivo — fix T10 I1 (aviso falso 'alguém salvou' após o próprio save do BOM)", () => {
+  it("BOM gravou → a lista do draft ENVIADO vem do BOM (a que foi de fato ao banco)", () => {
+    const savedDraft = { nome: "X", tecidos_planejados: ["A"] };
+    const out = draftEnviadoEfetivo(savedDraft, { gravar: true, tecidosPlanejados: ["A", "B"] });
+    expect(out).toEqual({ nome: "X", tecidos_planejados: ["A", "B"] });
+    expect(out).not.toBe(savedDraft);
+  });
+  it("BOM não gravou → savedDraft sai INALTERADO (mesma referência)", () => {
+    const savedDraft = { nome: "X", tecidos_planejados: ["A"] };
+    const out = draftEnviadoEfetivo(savedDraft, { gravar: false, tecidosPlanejados: ["A", "B"] });
+    expect(out).toBe(savedDraft);
+  });
+  it("BOM gravou mas a lista derivada já é IGUAL à do savedDraft → mesma referência (sem objeto novo à toa)", () => {
+    const savedDraft = { nome: "X", tecidos_planejados: ["A", "B"] };
+    const out = draftEnviadoEfetivo(savedDraft, { gravar: true, tecidosPlanejados: ["A", "B"] });
+    expect(out).toBe(savedDraft);
   });
 });
 
