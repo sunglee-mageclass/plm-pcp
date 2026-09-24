@@ -12,13 +12,17 @@
 //    p/ resistir a uma troca de card com cache quente) e `cargaPendenteRef` expõe, síncrono, "há uma carga do BOM
 //    que este hook ainda não aplicou" — soma ao `recarregando` do `deveGravarCad` no useFichaTecnica (o `cadVelhoRef`
 //    só cobre a janela SEM `rev` novo; este cobre o 1 render de atraso entre o `cargaSeq` subir e a hidratação do CAD).
+//  • Fix round 1 (revisão Opus das T5+T6, I1) — a carga do CAD passou a olhar a ficha TOCADA (`deveAplicarCargaCad`,
+//    ficha-cad.ts): com a ficha tocada, NÃO hidrata (só marca a chave como aplicada) — sem isto, uma carga que subiu
+//    `cargaSeq` ANTES de o usuário tocar aplicava o CAD do servidor por cima da edição local quando o efeito rodasse
+//    depois (o `useFichaBom` :178, R5a, já protege o BOM nesse caso, mas o CAD não olhava o "tocado").
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { GradeRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import {
-  assinaturaCadServidor, atualizarLinhaCad, atualizarVarianteCad, calcularFolhasAuto, faltasCad, hidratarCad,
-  idsVariantesDosBlocos, propagarBlocoParaCad, sincronizarCadComBlocos,
+  assinaturaCadServidor, atualizarLinhaCad, atualizarVarianteCad, calcularFolhasAuto, deveAplicarCargaCad, faltasCad,
+  hidratarCad, idsVariantesDosBlocos, propagarBlocoParaCad, sincronizarCadComBlocos,
   type CadTecidoRow, type CadVarianteRow, type PatchBlocoCad, type RotulosVariante,
 } from "./ficha-cad";
 import type { FichaDados } from "./useFichaDados";
@@ -27,7 +31,8 @@ const SEM_LINHAS: CadTecidoRow[] = [];
 const SEM_ROTULOS: RotulosVariante = {};
 
 export function useFichaCad({
-  modeloId, habilitada, dados, cargaSeq, blocks, grades, proporcoes, marcarTocado, aplicarConsumoNoBom, aoHidratar,
+  modeloId, habilitada, dados, cargaSeq, blocks, grades, proporcoes, marcarTocado, colecoesTouchadasRef,
+  aplicarConsumoNoBom, aoHidratar,
 }: {
   modeloId: string | null;
   habilitada: boolean;
@@ -38,6 +43,8 @@ export function useFichaCad({
   grades: GradeRow[];
   proporcoes: Record<string, number>;
   marcarTocado: () => void;
+  /** `useFichaBom.colecoesTouchadasRef` — fix round 1 (I1): ficha tocada não hidrata (`deveAplicarCargaCad`). */
+  colecoesTouchadasRef: { current: boolean };
   /** CAD → BOM (Dev :1187-1210): consumo/%loss editados no CAD vão ao bloco do mesmo tipo+número. */
   aplicarConsumoNoBom: (tipo: string, numero: number, patch: { consumo?: number; loss_percent?: number }) => void;
   /** Chamado a cada hidratação com a assinatura do CAD do SERVIDOR (referência do conflito). */
@@ -77,11 +84,25 @@ export function useFichaCad({
   // (síncrono, antes do efeito abaixo rodar) e mantido em ref p/ leitura fora do ciclo de render (a captura do Salvar).
   cargaPendenteRef.current = habilitada && cargaSeq > 0 && `${modeloId}|${cargaSeq}` !== aplicadaRef.current;
 
-  // Carga (Dev :1040-1174): 1× por carga do BOM (`cargaSeq`), com os catálogos prontos e nada recarregando.
+  // Carga (Dev :1040-1174): 1× por carga do BOM (`cargaSeq`), com os catálogos prontos e — fix round 1 (I1) —
+  // NUNCA hidratando por cima de uma ficha TOCADA nesse meio-tempo. `deveAplicarCargaCad` (ficha-cad.ts) decide:
+  // chave já aplicada OU `bomFetching` em curso ⇒ nada a fazer ainda (dados em trânsito ou já consumidos); chave
+  // NOVA + `bomFetching` resolvido + TOCADA ⇒ `false` (não hidrata — a edição do usuário no CAD local não pode
+  // ser sobrescrita pelo servidor), mas essa chave só fica "pendente" (não marcada) enquanto tocada; ela é
+  // marcada como aplicada aqui embaixo mesmo sem hidratar, p/ não ficar pendente para sempre (`cargaPendenteRef`
+  // preso em `true`) — só falta olhar `catalogosProntos`/dados presentes pra hidratar de fato.
   useEffect(() => {
     const chave = `${modeloId}|${cargaSeq}`;
-    if (!habilitada || cargaSeq === 0 || chave === aplicadaRef.current) return;
-    if (!dados.catalogosProntos || dados.bomFetching) return;
+    if (!habilitada || cargaSeq === 0) return;
+    const pode = deveAplicarCargaCad({ chave, aplicada: aplicadaRef.current, tocado: colecoesTouchadasRef.current, bomFetching: dados.bomFetching });
+    if (!pode) {
+      if (chave !== aplicadaRef.current && !dados.bomFetching && colecoesTouchadasRef.current) {
+        aplicadaRef.current = chave;
+        cargaPendenteRef.current = false;
+      }
+      return;
+    }
+    if (!dados.catalogosProntos) return;
     const tec = dados.tecidosData;
     if (!tec || dados.cadData === undefined) return;
     aplicadaRef.current = chave;
@@ -90,7 +111,7 @@ export function useFichaCad({
     setHidratado(true);
     aoHidratarRef.current(assinaturaCadServidor(dados.cadData));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habilitada, modeloId, cargaSeq, dados.catalogosProntos, dados.bomFetching]);
+  }, [habilitada, modeloId, cargaSeq, dados.catalogosProntos, dados.bomFetching, colecoesTouchadasRef.current]);
 
   // Rótulos de TODAS as variantes dos blocos (Dev :1271-1312) — variante nova aparece com nome na hora.
   const idsVariantes = useMemo(() => idsVariantesDosBlocos(blocks), [blocks]);

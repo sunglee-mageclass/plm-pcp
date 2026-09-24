@@ -3,8 +3,8 @@ import { calcCusto } from "@/components/producao/cad/types";
 import { makeEmptyBlocks, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import {
   assinaturaCad, assinaturaCadServidor, atualizarLinhaCad, atualizarVarianteCad, cadDivergeDaReferencia, calcularFolhasAuto,
-  deveGravarCad, faltasCad, hidratarCad, idsVariantesDosBlocos, linhasParaGravar, montarCadPayload, propagarBlocoParaCad,
-  sincronizarCadComBlocos, snapshotCad, type CadRowDb, type CadTecidoRow,
+  deveAplicarCargaCad, deveGravarCad, faltasCad, hidratarCad, idsVariantesDosBlocos, linhasParaGravar, montarCadPayload,
+  propagarBlocoParaCad, sincronizarCadComBlocos, snapshotCad, type CadRowDb, type CadTecidoRow,
 } from "@/components/planejamento/planejamento-detail/ficha/ficha-cad";
 import { deveHidratarCarga, type TecidoRowDb, type VarianteRowDb } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 
@@ -287,6 +287,32 @@ describe("deveGravarCad — quando o Salvar grava o CAD (§3 P2, D2)", () => {
   });
   it("P2: tocado ⇒ grava (o BOM grava junto), mesmo no retry e com recarga", () => {
     expect(deveGravarCad({ ...ok, tocado: true, retry: true, recarregando: true })).toBe(true);
+  });
+});
+
+// Fix round 1 (revisão Opus das T5+T6, I1) — a carga do CAD (`useFichaCad`) não olhava se a ficha estava TOCADA
+// enquanto esperava o `bomFetching`: uma carga sem toque sobe `cargaSeq`; antes do próximo render corre outro
+// refetch (ex.: o eco pós-save); o usuário edita o consumo NESSA janela; quando o refetch chega, o BOM vai para o
+// R5a (compara, não sobrescreve — `useFichaBom` :178) mas o CAD, que só olhava `bomFetching`, aplicava a carga
+// pendente por cima da edição local. `deveAplicarCargaCad` decide isso — a lógica de "marcar como aplicada sem
+// hidratar" quando tocado fica no efeito do hook (`useFichaCad.ts`), fora desta função pura.
+describe("deveAplicarCargaCad — a carga do CAD nunca sobrescreve a ficha TOCADA (fix round 1, I1)", () => {
+  const base = { chave: "modelo-1|1", aplicada: "", tocado: false, bomFetching: false };
+  it("sem toque, chave nova, sem refetch em curso ⇒ aplica", () => {
+    expect(deveAplicarCargaCad(base)).toBe(true);
+  });
+  it("tocado ⇒ NÃO aplica (mesmo com a chave nova e sem refetch) — quem chama marca como aplicada à parte", () => {
+    expect(deveAplicarCargaCad({ ...base, tocado: true })).toBe(false);
+  });
+  it("chave já aplicada ⇒ não aplica, tocado ou não", () => {
+    expect(deveAplicarCargaCad({ ...base, chave: "modelo-1|1", aplicada: "modelo-1|1" })).toBe(false);
+    expect(deveAplicarCargaCad({ ...base, chave: "modelo-1|1", aplicada: "modelo-1|1", tocado: true })).toBe(false);
+  });
+  it("refetch em curso (bomFetching) ⇒ não aplica, mesmo sem toque e com chave nova", () => {
+    expect(deveAplicarCargaCad({ ...base, bomFetching: true })).toBe(false);
+  });
+  it("chave nova de outro card (modeloId mudou) ⇒ aplica normalmente", () => {
+    expect(deveAplicarCargaCad({ ...base, chave: "modelo-2|1", aplicada: "modelo-1|3" })).toBe(true);
   });
 });
 

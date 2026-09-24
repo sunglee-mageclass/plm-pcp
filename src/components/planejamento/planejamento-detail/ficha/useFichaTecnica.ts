@@ -267,7 +267,7 @@ export function useFichaTecnica(a: {
   const cad = useFichaCad({
     modeloId: a.modeloId, habilitada, dados, cargaSeq: bom.cargaSeq,
     blocks: bom.blocks, grades: bom.grades, proporcoes: a.proporcoes,
-    marcarTocado: bom.marcarTocado, aplicarConsumoNoBom: bom.aplicarConsumoDoCad,
+    marcarTocado: bom.marcarTocado, colecoesTouchadasRef: bom.colecoesTouchadasRef, aplicarConsumoNoBom: bom.aplicarConsumoDoCad,
     // R1 — o CAD do servidor entrou no estado: some o "CAD velho" (Step 4 (a)).
     aoHidratar: (assinatura) => { referenciaCadRef.current = assinatura; cadVelhoRef.current = false; },
   });

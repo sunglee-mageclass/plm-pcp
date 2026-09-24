@@ -4,7 +4,7 @@ import {
   artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, bomSujoNaCaptura, deveHidratarCarga, estadoBomDoServidor,
   herdarGrades, hidratarBlocos, hidratarGrades,
   montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
-  relevantArtigoIds, resumoBom, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
+  relevantArtigoIds, resumoBom, roundNumeric, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
   tecidosPlanejadosDerivados, totaisBom, type EstadoBom,
 } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { chavesBomServidor, chavesFichaBom } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -563,6 +563,42 @@ describe("assinaturaBom — bordas do arredondamento: não-finito e notação ci
   });
   it("CONTROLE etiqueta (4 casas, consumo): 1.01 × 1.02 ⇒ diverge", () => {
     expect(bomDivergeDaReferencia(assinaturaBom(et(1.01)), et(1.02))).toBe(true);
+  });
+});
+
+// Fix round 1 (revisão Opus das T5+T6, M1) — chamada DIRETA a `roundNumeric` (não só via `assinaturaBom`, cujo
+// `NaN > 0` no `gradeTemValor`/filtro de partes descartava a linha e escondia o bug por acaso). `1e19`/`1e21` com
+// poucas casas faziam `Math.round(...)` devolver um número tão grande que o PRÓPRIO JS o imprime em notação
+// científica (`1e+21`), e a concatenação `arredondado + "e-" + casas` virava notação científica ANINHADA
+// (`"1e+21e-2"`) → `Number(...)` = `NaN` — mesmo com `n` FINITO na entrada (o guard `!Number.isFinite(n)` do topo
+// não pega esse caso). O fix garante que o RESULTADO final nunca escapa como NaN.
+describe("roundNumeric — chamada direta: nunca NaN, nem em valores enormes ou ±Infinity (fix round 1, M1)", () => {
+  it("1e19 (2 casas) ⇒ número finito, sem NaN — bug real: Math.round(1e21) vira '1e+21', concatenar 'e-2' dava NaN", () => {
+    const r = roundNumeric(1e19, 2);
+    expect(Number.isNaN(r)).toBe(false);
+    expect(Number.isFinite(r)).toBe(true);
+  });
+  it("1e21 (2 casas) ⇒ número finito, sem NaN", () => {
+    const r = roundNumeric(1e21, 2);
+    expect(Number.isNaN(r)).toBe(false);
+    expect(Number.isFinite(r)).toBe(true);
+  });
+  it("Infinity (2 casas) ⇒ 0, finito, sem NaN", () => {
+    const r = roundNumeric(Infinity, 2);
+    expect(Number.isNaN(r)).toBe(false);
+    expect(Number.isFinite(r)).toBe(true);
+    expect(r).toBe(0);
+  });
+  it("-Infinity (2 casas) ⇒ 0, finito, sem NaN", () => {
+    const r = roundNumeric(-Infinity, 2);
+    expect(Number.isNaN(r)).toBe(false);
+    expect(r).toBe(0);
+  });
+  it("CONTROLE: casos normais/empate seguem corretos (o algoritmo dos casos normais não mudou)", () => {
+    expect(roundNumeric(1.005, 2)).toBe(1.01);
+    expect(roundNumeric(123.456, 2)).toBe(123.46);
+    expect(roundNumeric(-1.005, 2)).toBe(-1.01);
+    expect(roundNumeric(0, 2)).toBe(0);
   });
 });
 

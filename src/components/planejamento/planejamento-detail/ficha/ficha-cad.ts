@@ -393,8 +393,9 @@ export function snapshotCad(cad: CadTecidoRow[]): string {
  * acenderia "Tecidos & BOM"). Consumo/%loss/artigo/variantes/multiplicador são do BOM (já na `assinaturaBom`); linha/
  * variante zerada = ausente (a carga cria zeradas as que o CAD não tem — sem isso toda carga "divergiria"). Arredonda
  * como o `numeric`/`integer` do Postgres guarda com o MESMO `roundNumeric` da assinatura do BOM (ficha-calc.ts, fix
- * round 2/3 da F3.2 — meio p/ longe do zero, decompõe por `toExponential()` em vez de concatenar `abs + "e" + casas`,
- * sem NaN nas bordas de valores muito pequenos/grandes/±Infinity). Escalas do banco (cópia, 24/set):
+ * round 2/3 da F3.2 — meio p/ longe do zero, decompõe por `toExponential()` em vez de concatenar `abs + "e" + casas`
+ * nas bordas de valores muito pequenos; fix round 1, M1 — o resultado final NUNCA é NaN, nem em valores enormes tipo
+ * 1e19/1e21 ou ±Infinity, que agora caem em 0). Escalas do banco (cópia, 24/set):
  * `cad_tecido_variantes.quantidade_folhas` INTEGER (o `salvar_cad_completo` faz `::numeric` e o INSERT arredonda);
  * `metragem_planejada`/`metragem_enviada` e `cad_tecidos.tamanho_folha` NUMERIC(10,2).
  */
@@ -421,6 +422,27 @@ export function assinaturaCadServidor(cad: CadRowDb | null): string {
 /** O CAD do servidor diverge da referência (o que o usuário tinha do servidor ao editar)? Sem referência = diverge. */
 export function cadDivergeDaReferencia(referencia: string | null, cad: CadRowDb | null): boolean {
   return referencia === null || assinaturaCadServidor(cad) !== referencia;
+}
+
+/**
+ * Fix round 1 (revisão Opus das T5+T6, I1) — a carga do CAD (`useFichaCad`, efeito ligado ao `cargaSeq` do BOM)
+ * esperava só o `bomFetching`, sem olhar se a ficha estava TOCADA enquanto o refetch corria: uma carga sem toque
+ * sobe o `cargaSeq` (Dev/`useFichaBom`); antes do próximo render começa outro refetch (ex.: o eco pós-save); o
+ * usuário edita o consumo NESSA janela — a ficha fica tocada; quando o refetch chega, o BOM vai para o R5a
+ * (`useFichaBom` :178 — compara, não sobrescreve, e NÃO sobe `cargaSeq` de novo), mas a carga do CAD, que só olhava
+ * `cargaSeq`/`bomFetching`, aplicava a chave já pendente do PRIMEIRO `cargaSeq` — sobrescrevendo o CAD local (com a
+ * edição do usuário) pelo do servidor e movendo `aplicadaRef`. No Salvar, o BOM ia novo (tocado) e o CAD velho
+ * (sobrescrito), e `salvar_cad_completo` devolvia o consumo velho ao BOM em silêncio — exatamente o problema que
+ * justificava a trava "tem CAD" que a Task 6 removeu.
+ * Fix: com a ficha TOCADA (na chave NOVA, já sem `bomFetching` em curso — os dados do render já são os que a carga
+ * do BOM usou), não hidrata — só marca a chave como aplicada (fora desta função pura, no efeito do `useFichaCad`),
+ * p/ não ficar pendente para sempre (senão a próxima carga sem toque aplicaria um CAD potencialmente velho, ou o
+ * `cargaPendenteRef` ficaria preso em `true`). `bomFetching` continua bloqueando (guarda de DISPONIBILIDADE — o
+ * refetch ainda não resolveu, os dados do render podem estar em trânsito) — só o "tocado" é o gate NOVO.
+ */
+export function deveAplicarCargaCad(i: { chave: string; aplicada: string; tocado: boolean; bomFetching: boolean }): boolean {
+  if (i.chave === i.aplicada || i.bomFetching) return false;
+  return !i.tocado;
 }
 
 /**

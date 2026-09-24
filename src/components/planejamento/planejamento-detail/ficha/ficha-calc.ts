@@ -461,6 +461,14 @@ function gradeOrdenada(g: Record<string, number> | null | undefined): Record<str
  * ao PRÓPRIO expoente (em vez de concatenar direto no valor) para deslocar a vírgula corretamente
  * independente de quão grande/pequeno `abs` seja. Não-finito (`Infinity`/`NaN`) e `-0` viram `0` (mesmo
  * valor que o `numeric` do Postgres armazenaria nesses casos — não há coluna que guarde infinito).
+ *
+ * Fix round 1 (revisão Opus das T5+T6, M1) — a mesma armadilha do item A reaparece do OUTRO lado pra valores
+ * MUITO grandes (1e19+ com poucas casas): `Math.round(Number(mantissa + "e" + (expoente+casas)))` pode devolver
+ * um número tão grande que o PRÓPRIO JS o imprime em notação científica ao concatenar (`1e21`), e a concatenação
+ * seguinte (`arredondado + "e-" + casas`) vira de novo notação científica ANINHADA (`"1e+21e-2"`) → `Number(...)`
+ * = `NaN`. O algoritmo de arredondamento dos casos normais não muda — só a rede de segurança final: o resultado
+ * SEMPRE passa por `Number.isFinite` antes de sair; não-finito (incluindo um `NaN` que escapou da concatenação)
+ * vira `0`, nunca `NaN` cru.
  */
 export function roundNumeric(x: number, casas: number): number {
   const n = Number(x);
@@ -470,8 +478,9 @@ export function roundNumeric(x: number, casas: number): number {
   // de `String(abs)` pra valores muito pequenos/grandes.
   const [mantissa, expoenteStr] = abs.toExponential().split("e");
   const arredondado = Number(Math.round(Number(mantissa + "e" + (Number(expoenteStr) + casas))) + "e-" + casas);
+  if (!Number.isFinite(arredondado)) return 0; // valores enormes (1e19+): a concatenação final também pode aninhar notação científica → NaN.
   const resultado = Math.sign(n) * arredondado;
-  return resultado === 0 ? 0 : resultado; // −0 (n negativo arredondando a 0) ⇒ 0, igual ao numeric do banco.
+  return Number.isFinite(resultado) && resultado !== 0 ? resultado : 0; // −0 (n negativo arredondando a 0) ⇒ 0, igual ao numeric do banco.
 }
 
 /** `modelo_tecidos`/`modelo_aviamentos`.consumo e `modelo_etiquetas`.consumo — NUMERIC(10,4). */

@@ -9,6 +9,7 @@ import {
   type BomCapturado,
 } from "./ficha-calc";
 import type { CadCapturado } from "./ficha-cad";
+import { chavesFichaBom } from "./useFichaDados";
 
 /** Grava o BOM capturado. `_rev_base: null`: a trava otimista já validou no UPDATE de `modelos` (Dev :1950-1959). */
 export async function persistirBom(modeloId: string, bom: BomCapturado): Promise<void> {
@@ -53,7 +54,15 @@ export async function persistirCad(modeloId: string, cad: CadCapturado): Promise
   if (error) throw error;
 }
 
-/** F3.3 — quem lê o CAD relê depois de o Salvar gravá-lo (Dev :2244-2266 + o CQ/Lançar do Planejamento, `plan-cq`). */
+/**
+ * F3.3 — quem lê o CAD relê depois de o Salvar gravá-lo (Dev :2244-2266 + o CQ/Lançar do Planejamento, `plan-cq`).
+ * Fix round 1 (revisão Opus das T5+T6, M2) — cobre também o que `_salvar_cad_completo_core` mexe quando SÓ o CAD
+ * grava (sem o BOM tocado neste Salvar, então as invalidações do `bom.gravar` em `usePlanejamentoSave` não rodam):
+ * `modelo_grades` (linhas zeradas e poda — funcoes.sql :6797-6810), consumo (devolvido ao BOM — :6878-6881) e
+ * estoque (a grade real que `salvar_cad_completo` grava alimenta a reserva do tecido). `chavesFichaBom` já traz
+ * `plan-ficha-grades`/`plan-ficha-tecidos` (Sheet do Planejamento relê grade e consumo) e `plan-ficha-cad` (o
+ * próprio CAD); `estoque-tecidos` é a MESMA key que o Dev invalida sempre (`ModeloDetailPanel.tsx:2247`).
+ */
 export function invalidarAposGravarCad(qc: QueryClient, modeloId: string | null): void {
   for (const k of ["dev-cad-row", "explosao-cad-row", "modelo-cad-calc", "plan-cq"]) qc.invalidateQueries({ queryKey: [k, modeloId] });
   for (const k of ["dev-cad-tecidos", "dev-cad-aviamentos", "dev-cad-etiquetas", "explosao-cad-tecidos", "explosao-cad-grades"]) {
@@ -61,6 +70,8 @@ export function invalidarAposGravarCad(qc: QueryClient, modeloId: string | null)
   }
   qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
   qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("ft-") });
+  for (const k of chavesFichaBom(modeloId)) qc.invalidateQueries({ queryKey: k });
+  qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
 }
 
 /**
