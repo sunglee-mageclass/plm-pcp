@@ -11,7 +11,7 @@
 // Anti-drift: tests/fixtures/sku-casos.ts roda nos DOIS lados (tests/unit/sku-montar.test.ts e
 // tests/integration/sku-automatico.test.ts). Mudou a regra aqui? Mude o SQL (nova migration) e as fixtures.
 //
-// Regras (decisões do dono Q1–Q4, D1–D6 e plano F3.5a §3):
+// Regras (decisões do dono Q1–Q4, D1–D7 e plano F3.5a §3):
 //  - Caracteres do SKU (D6/R4 — pendente do dono): tudo MAIÚSCULO, sem acento (lista FIXA abaixo, igual ao
 //    `translate()` do SQL — independe do locale do banco), sem espaço. Sigla: só A–Z e 0–9 (o resto sai). REF no
 //    SKU: A–Z, 0–9 e - . _ / (o resto sai). SKU manual: A–Z, 0–9 e - . _ / (outro caractere = erro). Separador:
@@ -19,10 +19,14 @@
 //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
 //    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). `tamanho_padrao` =
 //    "letra" (padrão) | "numero".
-//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (variante sem apelido — D4;
+//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (apelido que não entra — D4;
 //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
-//  - Falta sigla (Q4) ⇒ a linha NÃO gera SKU e devolve `faltas` na ordem cor_base → cor_apelido → tamanho.
-//    Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
+//  - Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra. Variante SEM apelido, ou apelido SEM
+//    sigla, usa a COR BASE: com a parte `cor_base` no Formato, a parte `cor_apelido` some (não repete a cor); com SÓ
+//    `cor_apelido` (sem `cor_base`), a sigla da cor base vai nessa posição. Apelido que EXISTE sem sigla (e o Formato
+//    usa `cor_apelido`) ⇒ `avisos` (NÃO bloqueia: o SKU sai com a cor base; cadastrada a sigla, o Regerar atualiza).
+//  - Falta sigla (Q4) de cor base (quando o SKU precisa dela) ou de tamanho ⇒ a linha NÃO gera SKU e devolve `faltas`
+//    (bloqueiam) na ordem cor_base → tamanho. Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
 import { aparar, ladoTamanho, parseTamanho, type TamanhoTipo } from "@/lib/tamanho";
 
 export type SkuParte = "ref" | "cor_base" | "cor_apelido" | "tamanho";
@@ -163,7 +167,8 @@ export function montarSku(cfg: SkuConfig, valores: Partial<Record<SkuParte, stri
   return out;
 }
 
-/** O SKU de UMA linha (variante × tamanho) — ou as faltas de sigla que impedem gerá-lo (Q4). */
+/** O SKU de UMA linha (variante × tamanho) — ou as `faltas` de sigla que impedem gerá-lo (Q4) — e os `avisos` (D4:
+ *  apelido sem sigla — o SKU sai com a cor base). */
 export function resolverSku(o: {
   cfg: SkuConfig;
   ref: string | null;
@@ -172,19 +177,27 @@ export function resolverSku(o: {
   tamanhoKey: string;
   tipo: TamanhoTipo;
   tamanhosSku: Record<string, string> | null;
-}): { sku: string | null; faltas: SkuFalta[] } {
+}): { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] } {
   const faltas: SkuFalta[] = [];
+  const avisos: SkuFalta[] = [];
   const usa = (p: SkuParte) => o.cfg.partes.includes(p);
   const valores: Partial<Record<SkuParte, string>> = {};
   if (usa("ref")) valores.ref = normalizarRefSku(o.ref);
-  if (usa("cor_base")) {
+  const siglaApelido = o.apelido?.sigla || null;
+  if (usa("cor_apelido") && o.apelido && !siglaApelido) {
+    avisos.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
+  }
+  // A cor base é exigida se o Formato tem `cor_base` — ou se tem `cor_apelido` e o apelido não entra (D4).
+  let siglaBase: string | null = null;
+  if (usa("cor_base") || (usa("cor_apelido") && !siglaApelido)) {
     if (!o.cor) faltas.push({ atributo: "cor_base", id: null, nome: null });
     else if (!o.cor.sigla) faltas.push({ atributo: "cor_base", id: o.cor.id, nome: o.cor.nome });
-    else valores.cor_base = o.cor.sigla;
+    else siglaBase = o.cor.sigla;
   }
-  if (usa("cor_apelido") && o.apelido) {
-    if (!o.apelido.sigla) faltas.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
-    else valores.cor_apelido = o.apelido.sigla;
+  if (usa("cor_base") && siglaBase) valores.cor_base = siglaBase;
+  if (usa("cor_apelido")) {
+    if (siglaApelido) valores.cor_apelido = siglaApelido;
+    else if (!usa("cor_base") && siglaBase) valores.cor_apelido = siglaBase; // só cor_apelido no Formato: a cor base no lugar
   }
   if (usa("tamanho")) {
     const lado = ladoTamanho(o.tamanhoKey, o.tipo);
@@ -192,9 +205,9 @@ export function resolverSku(o: {
     if (sig) valores.tamanho = sig;
     else if (lado && lado !== TAMANHO_UNICO) faltas.push({ atributo: "tamanho", id: null, nome: lado });
   }
-  if (faltas.length > 0) return { sku: null, faltas };
+  if (faltas.length > 0) return { sku: null, faltas, avisos };
   const sku = montarSku(o.cfg, valores);
-  return { sku: sku === "" ? null : sku, faltas };
+  return { sku: sku === "" ? null : sku, faltas, avisos };
 }
 
 // ─────────────────────────── apoio às telas (não têm espelho SQL) ───────────────────────────
@@ -204,6 +217,11 @@ export function textoFalta(f: SkuFalta): string {
   if (f.atributo === "cor_base" && f.nome === null) return "Falta a cor base na variante";
   const rotulo = f.atributo === "cor_base" ? "Cor base" : f.atributo === "cor_apelido" ? "Cor apelido" : "Tamanho";
   return `Falta sigla: ${rotulo} ${f.nome ?? ""}`.trimEnd();
+}
+
+/** "Falta sigla na cor apelido: Musgo" — o texto dos AVISOS (D4: não bloqueiam; o SKU sai com a cor base). */
+export function textoAviso(a: SkuFalta): string {
+  return `Falta sigla na cor apelido: ${a.nome ?? ""}`.trimEnd();
 }
 
 /** JSON com chaves ordenadas — compara o Formato/as siglas lidos do banco (jsonb reordena chaves). */

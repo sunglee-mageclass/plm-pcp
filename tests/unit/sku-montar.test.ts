@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { aparar, ehNumeroTamanho, ladoTamanho, parseTamanho } from "@/lib/tamanho";
 import {
   ACENTOS_DE, ACENTOS_PARA, canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarRefSku, normalizarSigla,
-  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoFalta,
+  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
 } from "@/lib/sku-montar";
 import {
   CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
@@ -100,6 +100,9 @@ describe("sku-montar.ts — apoio às telas", () => {
     expect(textoFalta({ atributo: "cor_apelido", id: "y", nome: "Musgo" })).toBe("Falta sigla: Cor apelido Musgo");
     expect(textoFalta({ atributo: "tamanho", id: null, nome: "PPP" })).toBe("Falta sigla: Tamanho PPP");
     expect(textoFalta({ atributo: "cor_base", id: null, nome: null })).toBe("Falta a cor base na variante");
+  });
+  it("textoAviso (D4: apelido sem sigla não bloqueia)", () => {
+    expect(textoAviso({ atributo: "cor_apelido", id: "y", nome: "Musgo" })).toBe("Falta sigla na cor apelido: Musgo");
   });
   it("canonico ignora a ordem das chaves (o jsonb reordena)", () => {
     expect(canonico({ b: 1, a: { d: [2, { y: 1, x: 2 }], c: null } })).toBe(canonico({ a: { c: null, d: [2, { x: 2, y: 1 }] }, b: 1 }));

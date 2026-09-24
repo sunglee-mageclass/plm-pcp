@@ -162,42 +162,62 @@ export type CasoResolver = {
     tipo: TamanhoTipo;
     tamanhosSku: Record<string, string> | null;
   };
-  esperado: { sku: string | null; faltas: SkuFalta[] };
+  esperado: { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] };
 };
 
 export const CASOS_RESOLVER: CasoResolver[] = [
   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "REF00000001AM34", faltas: [] } },
+    esperado: { sku: "REF00000001AM34", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "REF00000001AMPPP", faltas: [] } },
+    esperado: { sku: "REF00000001AMPPP", faltas: [], avisos: [] } },
   { entrada: { cfg: F_TODAS, ref: " R1 ", cor: AM, apelido: CAN, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1-AM.CAN/P", faltas: [] } },
+    esperado: { sku: "R1-AM.CAN/P", faltas: [], avisos: [] } },
   { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: null, tamanhoKey: "38|P", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1-AM/38", faltas: [] } },
+    esperado: { sku: "R1-AM/38", faltas: [], avisos: [] } },
+  // D4: apelido SEM sigla não bloqueia — vira aviso; aqui a linha para pela cor base e pelo tamanho (Q4)
   { entrada: { cfg: F_TODAS, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "40|M", tipo: "letra", tamanhosSku: TSKU },
     esperado: { sku: null, faltas: [
       { atributo: "cor_base", id: VD_SEM.id, nome: "Verde" },
-      { atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" },
       { atributo: "tamanho", id: null, nome: "M" },
-    ] } },
+    ], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: null, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }] } },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1AM36", faltas: [] } },
+    esperado: { sku: "R1AM36", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "PP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1AMPP", faltas: [] } },
+    esperado: { sku: "R1AMPP", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1AM", faltas: [] } },
+    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: { UN: "U" } },
-    esperado: { sku: "R1AMU", faltas: [] } },
+    esperado: { sku: "R1AMU", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
-    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }] } },
+    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }], avisos: [] } },
+  // o Formato não usa cor_apelido: apelido sem sigla não conta (nem falta, nem aviso)
   { entrada: { cfg: { partes: ["ref", "cor_base"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: MUS_SEM,
       tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
-    esperado: { sku: "R1AM", faltas: [] } },
+    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
+  // D4, Formato SEM cor_base: sem apelido ⇒ a sigla da cor base vai na posição do apelido — sem ela, falta (bloqueia)
   { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1-34", faltas: [] } },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }], avisos: [] } },
   { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: null,
       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: null, faltas: [] } },
+    esperado: { sku: "AM", faltas: [], avisos: [] } },
+  // D4 (casos novos)
+  { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
+    esperado: { sku: "R1-AM/P", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "AM_R1-34", faltas: [], avisos: [] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "AM_R1-34", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "CAN_R1-34", faltas: [], avisos: [] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }],
+      avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: null, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
+  // apelido COM sigla: a cor base não é exigida quando o Formato não tem cor_base
+  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: VD_SEM, apelido: CAN,
+      tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
+    esperado: { sku: "CAN", faltas: [], avisos: [] } },
 ];
