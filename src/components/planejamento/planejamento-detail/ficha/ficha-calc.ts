@@ -12,6 +12,8 @@ import {
   type TecidoBlock,
 } from "@/components/desenvolvimento/modelo-detail/types";
 import type { GradeVarianteInfo } from "@/components/desenvolvimento/modelo-detail/ModeloGradeSection";
+// Só TIPO (apagado no build): ficha-cad importa FUNÇÕES daqui — sem ciclo em tempo de execução.
+import type { CadCapturado } from "./ficha-cad";
 
 /** Estado editável do BOM (o que o Sheet mostra e o Salvar grava). */
 export type EstadoBom = {
@@ -394,6 +396,8 @@ export type BomCapturado = {
   tecidosPlanejados: string[];
   /** Totais SEM mão de obra (a MO entra no Salvar). null = ficha não carregada / sem permissão / somente leitura. */
   totais: TotaisBom | null;
+  /** F3.3 — o CAD que este Salvar grava (`deveGravarCad`; decisão F3 #7 "todo Salvar regrava", com guardas). */
+  cad: CadCapturado;
   /**
    * Item C (fix round 2; SUBSTITUÍDO como fonte no fix round 3) — `motivoSomenteLeitura === "enviado"` no
    * INSTANTE da captura. Mantido por compatibilidade (a interface só GANHA campos) mas não é mais a fonte de

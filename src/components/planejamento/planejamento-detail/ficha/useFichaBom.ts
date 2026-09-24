@@ -2,7 +2,8 @@
 // do Desenvolvimento (ModeloDetailPanel.tsx — carga :870-1038, herança :1452-1468, handlers :2435-2652),
 // que fica INTOCADO até a F5 (decisão travada 8). Diferenças DELIBERADAS (registradas no plano F3.2):
 //  • G-mockup R5: o pré-preenchimento com `tecidos_planejados` só roda com o BOM VAZIO (ficha-calc).
-//  • CAD fora (F3.3): sem cadTecidosState e sem a propagação BOM→CAD de updateBlock (Dev :2441-2456).
+//  • CAD (F3.3): o estado mora no useFichaCad; aqui ficam a propagação BOM→CAD do updateBlock (Dev :2441-2456, + artigo)
+//    e o CAD→BOM (`aplicarConsumoDoCad`, Dev :1187-1210).
 //  • Carga num efeito ÚNICO (as 5 queries juntas) + `hidratarTick`, p/ "descartar e recarregar" reaplicar
 //    mesmo quando o refetch devolve dados idênticos (structural sharing do React Query não troca a ref).
 //  • "Tocado" também como ESTADO (alimenta o "não salvo" — useFichaGuarda); `toggleGradeAuto` marca tocado
@@ -27,6 +28,7 @@ import {
   relevantArtigoIds, tecido1VarianteIds as calcTecido1VarianteIds,
   type EstadoBom, type FlagsBom,
 } from "./ficha-calc";
+import type { PatchBlocoCad } from "./ficha-cad";
 import type { FichaDados } from "./useFichaDados";
 
 const MAPA_VAZIO: Record<string, string> = {};
@@ -34,7 +36,7 @@ const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false }
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;
 
-export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado }: {
+export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado, aoMudarBloco }: {
   modeloId: string | null;
   habilitada: boolean;
   dados: FichaDados;
@@ -43,10 +45,14 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
   /** R5a — a carga chegou com o BOM local JÁ tocado: recebe o BOM do SERVIDOR (montado pelas MESMAS funções da carga). */
   aoRecarregarComTocado?: (servidor: EstadoBom) => void;
+  /** F3.3 — consumo/%loss/artigo de um bloco mudaram por AÇÃO do usuário: leva à linha do CAD (useFichaCad). */
+  aoMudarBloco?: (tipo: string, numero: number, patch: PatchBlocoCad) => void;
 }) {
   // Sempre a versão atual do callback (o efeito da carga não o tem nas dependências).
   const aoRecarregarRef = useRef(aoRecarregarComTocado);
   aoRecarregarRef.current = aoRecarregarComTocado;
+  const aoMudarBlocoRef = useRef(aoMudarBloco);
+  aoMudarBlocoRef.current = aoMudarBloco;
   const [blocks, setBlocks] = useState<TecidoBlock[]>(makeEmptyBlocks);
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
   const [etiquetasState, setEtiquetasState] = useState<ModeloEtiquetaRow[]>([]);
@@ -238,7 +244,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     marcarTocado();
     // Só consumo/%loss mudam a metragem (#Erro); trocar artigo/substituto não.
     if (patch.consumo !== undefined || patch.loss_percent !== undefined) marcarFlag("consumo");
-    // (Dev :2441-2456 — propagação BOM→CAD — entra na F3.3 junto com o CAD.)
+    // (Dev :2441-2456 — propagação BOM→CAD: no fim do `applyPatch`, abaixo — F3.3.)
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
     const applyPatch = () => {
@@ -253,6 +259,11 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
         }
         return recomputeBlock(merged, dados.artigoMap, varianteArtigoMap, frozen);
       }));
+      // F3.3 — propagação BOM → CAD (Dev :2441-2456) + artigo (T4): consumo/%loss/artigo do bloco vão à linha do CAD do
+      // mesmo tipo+número. Aqui dentro p/ valer também depois do "Apagar grade preenchida?" (troca do Tecido 1).
+      if (target && (patch.consumo !== undefined || patch.loss_percent !== undefined || patch.artigo_id !== undefined)) {
+        aoMudarBlocoRef.current?.(target.tipo, target.numero, { consumo: patch.consumo, loss_percent: patch.loss_percent, artigo_id: patch.artigo_id });
+      }
     };
     // Trocar o artigo do Tecido 1 zera as variantes; a grade é indexada por elas → confirma e limpa.
     if (isTecido1 && patch.artigo_id !== undefined && patch.artigo_id !== target.artigo_id) {
@@ -420,6 +431,20 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     }));
   };
 
+  /** F3.3 — CAD → BOM (Dev :1187-1210): consumo/%loss editados na seção CAD vão ao bloco do mesmo tipo+número. */
+  const aplicarConsumoDoCad = (tipo: string, numero: number, patch: { consumo?: number; loss_percent?: number }) => {
+    marcarTocado();
+    marcarFlag("consumo");
+    setBlocks((bs) => bs.map((b) => {
+      if (b.tipo !== tipo || b.numero !== numero) return b;
+      const bomPatch: Partial<TecidoBlock> = {};
+      if (patch.consumo !== undefined && b.consumo !== patch.consumo) bomPatch.consumo = patch.consumo;
+      if (patch.loss_percent !== undefined && b.loss_percent !== patch.loss_percent) bomPatch.loss_percent = patch.loss_percent;
+      if (bomPatch.consumo === undefined && bomPatch.loss_percent === undefined) return b;
+      return recomputeBlock({ ...b, ...bomPatch }, dados.artigoMap, varianteArtigoMap, frozen);
+    }));
+  };
+
   const onCampoEditado = (chave: string) => setCamposCopiados((prev) => {
     if (!prev.has(chave)) return prev;
     const n = new Set(prev); n.delete(chave); return n;
@@ -444,7 +469,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     camposCopiados, onCampoEditado, marcarCopiados, limparCopiados,
     limparTocado, limparFlags, descartarEdicoes,
     // F3.3 — o CAD (useFichaCad) hidrata junto com esta carga (`cargaSeq`) e marca o MESMO "tocado".
-    marcarTocado, cargaSeq,
+    marcarTocado, cargaSeq, aplicarConsumoDoCad,
     handlers: {
       updateBlock, updateBlockVariante, updateBlockOcLinks,
       updateAviamento, addAviamento, removeAviamento,

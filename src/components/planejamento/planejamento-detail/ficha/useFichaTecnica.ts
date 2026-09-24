@@ -26,6 +26,12 @@ import {
   type TecidoRowDb, type VarianteRowDb,
 } from "./ficha-calc";
 import { requisitosUniao, seloSecaoBom, type SecaoBomKey, type SeloSecao } from "./selos-bom";
+import { useFichaCad } from "./useFichaCad";
+import {
+  assinaturaCad, assinaturaCadServidor, cadDivergeDaReferencia, deveGravarCad, linhasParaGravar, montarCadPayload,
+  snapshotCad, type CadCapturado, type CadRowDb, type CadTecidoRow, type CadVarianteRow, type PatchBlocoCad,
+} from "./ficha-cad";
+import { seloCadSecao } from "./selos-secoes";
 
 const SEM_LABELS: Record<string, string> = {};
 
@@ -53,9 +59,15 @@ const HANDLERS_NOOP: ReturnType<typeof useFichaBom>["handlers"] = {
   updateProporcao: () => undefined,
   toggleGradeAuto: () => undefined,
 };
+/** F3.3 — mesma receita p/ a seção CAD: sem permissão, travada, ou antes da Ordem sem CAD (D2) ⇒ nada muda com o mouse. */
+const CAD_NOOP = {
+  updateTec: (_i: number, _p: Partial<CadTecidoRow>) => undefined,
+  updateVar: (_i: number, _j: number, _p: Partial<CadVarianteRow>) => undefined,
+  setAutoFolhas: (_v: boolean) => undefined,
+};
 
 export type FichaSave = {
-  /** habilitada E carregada E sem trava (permissão / enviado / tem CAD) ⇒ colunas do Dev vão no UPDATE. */
+  /** habilitada E carregada E sem trava (permissão / enviado) ⇒ colunas do Dev vão no UPDATE. */
   podeGravarColunasDev: boolean;
   /** `criacao_planejamento:custos` OU `criacao_desenvolvimento:custos` (decisão F3 #2). */
   podeVerCustos: boolean;
@@ -73,7 +85,9 @@ export type FichaSave = {
   /** R5 — recarrega o BOM e diz se ele mudou em relação à referência (true em erro — conservador). */
   bomMudouNoServidor: () => Promise<boolean>;
   /** Congela o BOM no início do Salvar (lê refs — vale mesmo no retry, fora do ciclo de render). */
-  capturar: (custosAdicionais: unknown) => BomCapturado;
+  capturar: (custosAdicionais: unknown, opts?: { retry?: boolean; proporcoes?: Record<string, number> }) => BomCapturado;
+  /** F3.3 — o CAD foi gravado: a referência do CAD vira o ENVIADO já (mesma ideia do `bomGravado`). */
+  cadGravado: (cad: CadCapturado) => void;
   /**
    * Pós-save: re-baseia (edição em voo segue "não salva"), a referência vira o ENVIADO, limpa marcadores,
    * invalida o BOM. Fix final M1 — `edicoesPerdidas`: havia BOM tocado que DEVERIA ter sido gravado
@@ -127,6 +141,8 @@ export function useFichaTecnica(a: {
   maoObraVivo: number;
   /** F3.1 — `motivoTravaDev` do orquestrador ("sem_permissao" | "enviado" | null; o "Editar" já zera o "enviado"). */
   travaDev: MotivoTravaDev;
+  /** F3.3 — `modelos.ordem_criacao_enviada` do SERVIDOR (D2: antes dela o Planejamento não cria o CAD). */
+  ordemEnviada: boolean;
 }) {
   const qc = useQueryClient();
   const { canView, canEdit } = useAuth();
@@ -190,11 +206,28 @@ export function useFichaTecnica(a: {
   // carga sempre invoca a versão ATUAL via `aoRecarregarComTocadoRef.current(...)`, montada logo após `bom`
   // existir, lendo a ref VIVA (`bom.colecoesTouchadasRef`) em vez de um espelho por render.
   const aoRecarregarComTocadoRef = useRef<(servidor: EstadoBom) => void>(() => undefined);
+  // F3.3 — referência do CAD, SEPARADA da do BOM (o CAD grava num passo seguinte que pode falhar sozinho — §3 P6): o que
+  // é DO CAD (folhas/metragens) no servidor sobre o qual o usuário edita. Nasce na HIDRATAÇÃO (a do servidor, não a local
+  // — o cálculo automático de folhas mexe no local sem ser edição), vira o ENVIADO quando o CAD grava e o do servidor
+  // no "manter meu".
+  const referenciaCadRef = useRef<string | null>(null);
+  const ultimaAssinaturaCadServidorRef = useRef<string | null>(null);
+  // R1 do G-plano F3.3 — "o CAD local pode estar VELHO". Marcado SÍNCRONO no `aoMudarNoServidor` sem toque (Step 4 (k)):
+  // o merge já avançou o `revRef` (PlanejamentoDetail.tsx:625, antes do :636), mas o `bomFetching` só vira true no
+  // PRÓXIMO render e o CAD só re-hidrata um render DEPOIS de a carga do BOM subir o `cargaSeq`. Zerado no `aoHidratar`
+  // (o CAD do servidor acabou de entrar no estado) e na troca de card. Enquanto true, a captura trata como "recarga em
+  // curso": sem toque o Salvar NÃO grava o CAD (Step 5 (a); §7 T22). Não prende: sem toque, toda recarga pedida termina
+  // numa carga (o `bomFetching` volta a false ⇒ o efeito de carga do useFichaBom roda ⇒ `cargaSeq` sobe ⇒ `aoHidratar`);
+  // com toque, o `deveGravarCad` nem olha isto (grava pelo `tocado`, protegido pela conferência R5/R5a).
+  const cadVelhoRef = useRef(false);
+  // Propagação BOM → CAD: o useFichaBom chama isto; a função real vem do useFichaCad, criado DEPOIS dele.
+  const aoMudarBlocoRef = useRef<(tipo: string, numero: number, patch: PatchBlocoCad) => void>(() => undefined);
 
   const bom = useFichaBom({
     modeloId: a.modeloId, habilitada, dados,
     tecidosPlanejados: a.tecidosPlanejados, proporcoes: a.proporcoes, setDraftTracked: a.setDraftTracked,
     aoRecarregarComTocado: (servidor) => aoRecarregarComTocadoRef.current(servidor),
+    aoMudarBloco: (tipo, numero, patch) => aoMudarBlocoRef.current(tipo, numero, patch),
   });
   /**
    * R5a (re-check do guardião) — a CARGA (useFichaBom) chegou com o BOM local JÁ tocado: ela não sobrescreve
@@ -217,11 +250,28 @@ export function useFichaTecnica(a: {
    */
   aoRecarregarComTocadoRef.current = (servidor) => {
     ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
+    // F3.3 — o CAD do servidor chega junto (a carga espera as 6 queries estáveis — `bomFetching` inclui o CAD).
+    const cadServidor = dados.cadData ?? null;
+    ultimaAssinaturaCadServidorRef.current = assinaturaCadServidor(cadServidor);
+    // Fix final M2 (F3.2) — durante o PRÓPRIO save (`saveEmVooContadorRef > 0`) só atualiza as assinaturas (BOM e CAD,
+    // acima) e sai sem acender. Rebase F3.3→3adfbd3: este early-return também cobre o CAD — o servidor pode já ter o CAD
+    // ENVIADO antes de o `cadGravado` mover a referência (o `bomGravado` invalida tudo no meio da cadeia); o `aposSalvar`
+    // recarrega e a carga seguinte compara com a referência já nova.
     if (saveEmVooContadorRef.current > 0) return;
-    if (bom.colecoesTouchadasRef.current && bomDivergeDaReferencia(referenciaRef.current, servidor)) {
+    const cadDiverge = cadDivergeDaReferencia(referenciaCadRef.current, cadServidor);
+    if (bom.colecoesTouchadasRef.current && (bomDivergeDaReferencia(referenciaRef.current, servidor) || cadDiverge)) {
       setConflitoBomBoth(true);
     }
   };
+  // F3.3 — a seção CAD (porta do Dev): carga amarrada à do BOM, mesmo "tocado", propagação nos dois sentidos.
+  const cad = useFichaCad({
+    modeloId: a.modeloId, habilitada, dados, cargaSeq: bom.cargaSeq,
+    blocks: bom.blocks, grades: bom.grades, proporcoes: a.proporcoes,
+    marcarTocado: bom.marcarTocado, aplicarConsumoNoBom: bom.aplicarConsumoDoCad,
+    // R1 — o CAD do servidor entrou no estado: some o "CAD velho" (Step 4 (a)).
+    aoHidratar: (assinatura) => { referenciaCadRef.current = assinatura; cadVelhoRef.current = false; },
+  });
+  aoMudarBlocoRef.current = cad.propagarDoBloco;
 
   const estado: EstadoBom = useMemo(
     () => ({ blocks: bom.blocks, aviamentos: bom.aviamentosState, etiquetas: bom.etiquetasState, grades: bom.grades }),
@@ -229,8 +279,11 @@ export function useFichaTecnica(a: {
   );
   const snapshot = useMemo(() => snapshotBom(estado), [estado]);
   const guarda = useFichaGuarda({ modeloId: a.modeloId, snapshot, tocado: bom.tocado, hidratado: bom.hidratado });
+  // F3.3 — "não salvo" do CAD: 2ª guarda com o MESMO "tocado" da ficha (a do BOM segue a da F3.2).
+  const snapshotCadAtual = useMemo(() => snapshotCad(cad.linhas), [cad.linhas]);
+  const guardaCad = useFichaGuarda({ modeloId: a.modeloId, snapshot: snapshotCadAtual, tocado: bom.tocado, hidratado: cad.hidratado });
 
-  const carregado = habilitada && bom.hidratado && dados.catalogosProntos && bom.varianteArtigoMapPronto;
+  const carregado = habilitada && bom.hidratado && dados.catalogosProntos && bom.varianteArtigoMapPronto && cad.hidratado;
   // Trava ÚNICA (R2 do G-plano conjunto): DERIVA da trava da F3.1 e soma a trava INTERINA "tem CAD" (até a F3.3):
   // sem regravar o CAD, um consumo editado aqui seria DEVOLVIDO pelo próximo Salvar do Dev (salvar_cad_completo copia
   // consumo_cad → BOM, funcoes.sql:6878-6881) e a Explosão ficaria desalinhada. Card enviado ⇒ tem CAD (0 exceções na
@@ -267,6 +320,17 @@ export function useFichaTecnica(a: {
     () => (podeEditar ? bom.handlers : HANDLERS_NOOP),
     [podeEditar, bom.handlers],
   );
+  // F3.3 — D2: antes da Ordem de Criação o Planejamento NÃO cria o CAD (FK `cad.modelo_id` NO ACTION: o card não se
+  // excluiria mais). Sem CAD e sem Ordem, a seção CAD é só-leitura (o que se digitasse não seria gravado).
+  const cadGravavel = podeEditar && (dados.cadExiste || a.ordemEnviada);
+  const cadHandlers = cadGravavel ? { updateTec: cad.updateTec, updateVar: cad.updateVar, setAutoFolhas: cad.setAutoFolhas } : CAD_NOOP;
+  // Espelho SÍNCRONO do que a captura do CAD precisa (mesma razão do `podeEditarRef`: o retry do P0409 roda fora do
+  // ciclo de render).
+  const cadCapturaRef = useRef({ hidratado: false, existe: false, ordemEnviada: false, recarregando: false, chavesBom: new Set<string>() as ReadonlySet<string> });
+  cadCapturaRef.current = {
+    hidratado: cad.hidratado, existe: dados.cadExiste, ordemEnviada: a.ordemEnviada, recarregando: dados.bomFetching,
+    chavesBom: new Set((dados.tecidosData?.tecidos ?? []).map((t) => `${t.tipo}|${t.numero}`)),
+  };
 
   // Rótulos das variantes do Tecido 1 e dos pares casados (Dev :1470-1529) — só p/ o texto da Grade.
   const t1Ids = bom.tecido1VarianteIds;
@@ -327,6 +391,11 @@ export function useFichaTecnica(a: {
     insumos: seloSecaoBom("insumos", requeridas, dados.condicoes, resumo),
     grade: seloSecaoBom("grade", requeridas, dados.condicoes, resumo),
   };
+  // F3.3 — selo da seção CAD (Dev :2886-2890 + requisito `cad_preenchido`, no estado SALVO).
+  const seloCad = seloCadSecao({
+    requeridas, satisfeitas: dados.condicoesProntas ? dados.condicoes : null,
+    linhas: cad.linhas.length, faltas: cad.faltas, antesDaOrdem: !dados.cadExiste && !a.ordemEnviada,
+  });
 
   // Reset ao trocar de modelo — mesma instância (Dialog → Sheet do card recém-criado, Dev :674-690).
   useEffect(() => {
@@ -334,6 +403,9 @@ export function useFichaTecnica(a: {
     verificandoBomRef.current = false; setVerificandoBom(false);
     referenciaRef.current = null;
     ultimaAssinaturaServidorRef.current = null;
+    referenciaCadRef.current = null;
+    ultimaAssinaturaCadServidorRef.current = null;
+    cadVelhoRef.current = false;
     geracaoRef.current += 1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.modeloId]);
@@ -346,20 +418,23 @@ export function useFichaTecnica(a: {
   const bomMudouNoServidor = async (): Promise<boolean> => {
     const id = a.modeloId;
     try {
-      const chaves = chavesBomServidor(id);
+      // F3.3 — o CAD entra na conferência (a referência do CAD cobre folhas/metragens).
+      const chaves = [...chavesBomServidor(id), ["plan-ficha-cad", id]];
       await Promise.all(chaves.map((k) => qc.refetchQueries({ queryKey: k, exact: true })));
       const tec = qc.getQueryData<{ tecidos: TecidoRowDb[]; variantes: VarianteRowDb[] }>(["plan-ficha-tecidos", id]);
       const oc = qc.getQueryData<OcLinkRowDb[]>(["plan-ficha-oc-links", id]);
       const av = qc.getQueryData<AviamentoRowDb[]>(["plan-ficha-aviamentos", id]);
       const et = qc.getQueryData<EtiquetaRowDb[]>(["plan-ficha-etiquetas", id]);
       const gr = qc.getQueryData<GradeRowDb[]>(["plan-ficha-grades", id]);
-      if (!tec || !oc || !av || !et || !gr) return true;
+      const cadSrv = qc.getQueryData<CadRowDb | null>(["plan-ficha-cad", id]);
+      if (!tec || !oc || !av || !et || !gr || cadSrv === undefined) return true;
       const servidor = estadoBomDoServidor({
         tecidos: tec.tecidos, variantes: tec.variantes, ocLinks: oc, aviamentos: av, etiquetas: et, grades: gr,
         planejados: tecidosPlanejadosRef.current,
       });
       ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
-      return bomDivergeDaReferencia(referenciaRef.current, servidor);
+      ultimaAssinaturaCadServidorRef.current = assinaturaCadServidor(cadSrv);
+      return bomDivergeDaReferencia(referenciaRef.current, servidor) || cadDivergeDaReferencia(referenciaCadRef.current, cadSrv);
     } catch {
       return true;
     }
@@ -380,7 +455,14 @@ export function useFichaTecnica(a: {
     // (a condição já era só `!colecoesTouchadasRef`, sem olhar `prefillPendenteRef` — nada muda aqui). O
     // refetch disparado por esta invalidação passa pelo efeito de carga do `useFichaBom`, que resolve a
     // pendência pelo item (b): se o BOM do servidor chegou NÃO-vazio, `prefillPendenteRef` é zerado lá.
-    if (!bom.colecoesTouchadasRef.current) { invalidarBom(); return; }
+    if (!bom.colecoesTouchadasRef.current) {
+      // F3.3 — R1 (G-plano): SÍNCRONO e ANTES do invalidar. O `revRef` já avançou (merge) e o `bomFetching` só vira true
+      // no próximo render: sem isto, um Salvar nessa janela passaria no `.eq("rev")` e o `salvar_cad_completo` regravaria
+      // CAD, consumo e grade VELHOS por cima da edição de outra pessoa. Zerado no `aoHidratar` do CAD.
+      cadVelhoRef.current = true;
+      invalidarBom();
+      return;
+    }
     // Item G — save em voo (contador > 0, fix round 3): o eco do UPDATE do header (bump de `rev`) do PRÓPRIO
     // save não confere nem acende "Tecidos & BOM" — só marca que deve invalidar (o `aposSalvar` já invalida
     // ao fim; a R5a do guardião, que cobre "outra pessoa salva o consumo com o meu tocado", continua ativa —
@@ -402,6 +484,7 @@ export function useFichaTecnica(a: {
     if (manterMeu) {
       // Já vi ESTA versão do servidor: só um conflito NOVO acende o aviso de novo.
       if (ultimaAssinaturaServidorRef.current) referenciaRef.current = ultimaAssinaturaServidorRef.current;
+      if (ultimaAssinaturaCadServidorRef.current !== null) referenciaCadRef.current = ultimaAssinaturaCadServidorRef.current;
       return;
     }
     bom.descartarEdicoes();
@@ -409,6 +492,29 @@ export function useFichaTecnica(a: {
   };
 
   const { etapas } = useEtapasAfetadas(habilitada && a.modeloId ? a.modeloId : "");
+
+  /**
+   * F3.3 — o CAD que ESTE Salvar grava (Dev :2062-2119; decisão F3 #7 "todo Salvar regrava" com as guardas de
+   * `deveGravarCad` — plano F3.3 §3 P2). Lê refs (vale no retry). `linhasParaGravar`: linha que o servidor não tem só vai
+   * quando o BOM grava junto (senão o CAD ganharia um tecido que o BOM do servidor não tem).
+   */
+  const capturarCad = (e: EstadoBom, bomGravado: boolean, retry: boolean, proporcoes: Record<string, number>): CadCapturado => {
+    const c = cadCapturaRef.current;
+    const estadoCad = cad.linhasRef.current;
+    const linhas = linhasParaGravar(estadoCad, { bomGravado, chavesBomServidor: c.chavesBom });
+    // `tocado` = a ficha foi tocada OU o BOM grava neste Salvar (inclui o pré-preenchimento pendente da F3.2 — item E):
+    // §3 P2 — se o BOM grava, o CAD grava junto. `recarregando` = recarga em curso (`bomFetching`, espelho do render)
+    // OU pedida e ainda não aplicada ao CAD (`cadVelhoRef`, SÍNCRONO — R1 do G-plano F3.3): sem toque, não grava o CAD.
+    const gravar = deveGravarCad({
+      podeEditar: podeEditarRef.current, cadHidratado: c.hidratado, cadExiste: c.existe, ordemEnviada: c.ordemEnviada,
+      linhas: linhas.length, tocado: bom.colecoesTouchadasRef.current || bomGravado, retry,
+      recarregando: c.recarregando || cadVelhoRef.current,
+    });
+    return {
+      estado: estadoCad, linhas, snapshot: snapshotCad(estadoCad), gravar,
+      payload: gravar ? montarCadPayload({ cad: linhas, grades: e.grades, aviamentos: e.aviamentos, etiquetas: e.etiquetas, proporcoes }) : null,
+    };
+  };
 
   const save: FichaSave = {
     podeGravarColunasDev: podeEditar,
@@ -431,7 +537,7 @@ export function useFichaTecnica(a: {
     // jamais tentaria gravar. Cenário do controlador: usuário só-VÊ o Dev salva o preço durante um P0409 —
     // antes travava à toa; agora não, porque `podeEditarRef.current` é `false` para ele.
     bomPendenteDeGravar: () => podeEditarRef.current && (bom.colecoesTouchadasRef.current || bom.prefillPendenteRef.current),
-    capturar: (custosAdicionais) => {
+    capturar: (custosAdicionais, opts) => {
       const e = bom.estadoRef.current;
       const snap = snapshotBom(e);
       const base = guarda.baselineRef.current;
@@ -461,6 +567,7 @@ export function useFichaTecnica(a: {
         // Dev. As demais colunas derivadas (`custo_*` por tipo) continuam gated por `podeGravarColunasDev`
         // em `aplicarColunasFicha` (save-ficha.ts) — não mudou.
         totais: carregadoRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
+        cad: capturarCad(e, gravar, !!opts?.retry, opts?.proporcoes ?? a.proporcoes),
         // Item C — `true` só quando a captura viu o card JÁ enviado (a trava ÚNICA em "enviado"). Os outros
         // motivos ("permissao"/"carregando"/"cad"/null) não são o cenário do bug (envio à Explosão em voo).
         enviadoNaCaptura: motivoSomenteLeituraRef.current === "enviado",
@@ -475,9 +582,14 @@ export function useFichaTecnica(a: {
       referenciaRef.current = assinaturaBom(bomEnviado.estado);
       invalidarBom();
     },
+    // F3.3 — a referência do CAD vira o ENVIADO assim que o servidor o tem (mesmo que um passo seguinte falhe).
+    cadGravado: (c) => { referenciaCadRef.current = assinaturaCad(c.linhas); },
     aposSalvar: ({ bomEnviado }) => {
       const vivo = snapshotBom(bom.estadoRef.current);
-      const bomMudouEmVoo = bom.colecoesTouchadasRef.current && vivo !== bomEnviado.snapshot;
+      // F3.3 — o CAD entra na MESMA regra: edição em voo no CAD também segue "não salva" (as DUAS guardas re-baseiam no
+      // ENVIADO; sem edição em voo, o "tocado" da ficha inteira solta).
+      const cadMudouEmVoo = snapshotCad(cad.linhasRef.current) !== bomEnviado.cad.snapshot;
+      const bomMudouEmVoo = bom.colecoesTouchadasRef.current && (vivo !== bomEnviado.snapshot || cadMudouEmVoo);
       // Fix final M1 — a trava pode ter chegado ENTRE a captura (que marcou `bomEnviado.gravar`) e este
       // ponto (a mesma captura é reusada aqui — `enviadoRef.current.bom` no orquestrador). Só limpa o
       // "tocado"/rebaseia quando o toque de fato FOI gravado (ou nunca houve toque) — senão a edição do
@@ -492,11 +604,12 @@ export function useFichaTecnica(a: {
       const podeLimpar = deveLimparTocadoAposSalvar({ tocado: bomEnviado.sujoNaCaptura, bomGravou: bomEnviado.gravar });
       const edicoesPerdidas = !podeLimpar;
       if (podeLimpar) {
-        if (bomMudouEmVoo) guarda.rebasear(bomEnviado.snapshot);
+        if (bomMudouEmVoo) { guarda.rebasear(bomEnviado.snapshot); guardaCad.rebasear(bomEnviado.cad.snapshot); }
         else bom.limparTocado();
       }
       // R5 — o servidor passa a ter o que foi ENVIADO: é a nova referência (o eco do meu save não acende conflito).
       if (bomEnviado.gravar) referenciaRef.current = assinaturaBom(bomEnviado.estado);
+      if (bomEnviado.cad.gravar) referenciaCadRef.current = assinaturaCad(bomEnviado.cad.linhas);
       // NOTA do re-check do guardião — a conferência disparada pelo eco do 1º write (UPDATE) pode ter lido o BOM DEPOIS do
       // salvar_modelo_bom e comparado com a referência VELHA; se o `.then` dela resolvesse depois daqui, com edição em
       // voo, o aviso ficaria aceso. `geracaoRef += 1` a descarta; e como ela não chega a baixar o "conferindo", baixa-se
@@ -516,10 +629,13 @@ export function useFichaTecnica(a: {
   return {
     habilitada, carregado, podeEditar, podeVerCustos, motivoSomenteLeitura,
     dados, estado, handlers, gradeAuto: bom.gradeAuto,
-    tecido1Info, totais, selos,
+    tecido1Info, totais, selos, seloCad,
+    // F3.3 — seção CAD (render em BomSecoes) e as regras dela.
+    cad: { linhas: cad.linhas, autoFolhas: cad.autoFolhas, faltas: cad.faltas, handlers: cadHandlers },
+    cadGravavel, cadAntesDaOrdem: !dados.cadExiste && !a.ordemEnviada,
     confirmGrade: bom.confirmGrade, setConfirmGrade: bom.setConfirmGrade,
     camposCopiados: bom.camposCopiados, onCampoEditado: bom.onCampoEditado, marcarCopiados: bom.marcarCopiados,
-    dirty: guarda.dirty,
+    dirty: guarda.dirty || guardaCad.dirty,
     colab: { conflitoBom, verificandoBom, aoMudarNoServidor, resolverConflitoBom },
     save,
   };
