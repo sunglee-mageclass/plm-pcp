@@ -677,9 +677,26 @@ function OcLinksField({
     const checked = !!alloc;
     const entrega = o.data_entrega ? new Date(o.data_entrega).toLocaleDateString("pt-BR") : "—";
     const semSaldo = Number(o.disponivel_m) <= 0;
+    // Fix mobile (F3.3, achado 4) — checkbox nativo de 12×12px numa linha de ~16,5px de altura
+    // total: trocado pelo `Checkbox` compartilhado (já usado nesta tela p/ "Casar variantes",
+    // linhas 446/537). O Radix `Checkbox` é um `<button role="checkbox">`, não um input nativo —
+    // `<label>` só encaminha clique pra elemento nativo (input/select/textarea) ou via
+    // `htmlFor`/`id` explícitos; sem isso, clicar no TEXTO do rótulo não alternava (medido no
+    // laudo). `htmlFor`/`id` explícitos + `py-2 -my-2` no rótulo (padding vertical que estende a
+    // área de toque sem mudar a altura visual da linha, `-my-2` cancela o espaçamento extra entre
+    // linhas) somam ≥32px de altura clicável. Comportamento (o que marca/grava) idêntico — só o
+    // controle visual e a área de toque mudam. `id` prefixado por `varianteId`: a mesma OC pode
+    // aparecer em `OcLinksField` de mais de uma variante (cada uma sua própria instância deste
+    // componente) — sem o prefixo, `oc_tecido_item_id` sozinho colidiria (id duplicado no DOM,
+    // `htmlFor` sempre bindando na 1ª ocorrência).
+    const inputId = `oc-link-${varianteId}-${o.oc_tecido_item_id}`;
     return (
-      <label key={o.oc_tecido_item_id} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-        <input type="checkbox" className="h-3 w-3 shrink-0" checked={checked} onChange={() => toggle(o.oc_tecido_item_id)} />
+      <label
+        key={o.oc_tecido_item_id}
+        htmlFor={inputId}
+        className="flex items-center gap-1.5 py-2 -my-2 text-[11px] cursor-pointer"
+      >
+        <Checkbox id={inputId} className="h-3 w-3 shrink-0" checked={checked} onCheckedChange={() => toggle(o.oc_tecido_item_id)} />
         <span className="font-mono">{o.is_rolo ? `Rolo ${o.rolo_codigo ?? o.numero_pedido}` : `OC ${o.numero_pedido}`}</span>
         {!o.recebida && (
           <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">prevista · {entrega}</Badge>

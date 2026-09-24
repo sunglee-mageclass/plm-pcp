@@ -1,6 +1,15 @@
 // Tabela da seção "Preço" do detalhe do Planejamento (card manufaturado). Extraída na F3.0
 // (set/2026) de `PlanejamentoDetail.tsx` SEM mudança de comportamento: texto MOVIDO como estava
 // (só ganhou `export`). Só props — nenhum estado, query ou chamada ao banco aqui.
+// Fix mobile (F3.3, 24/set) — achado 2 do laudo mobile: a 360/390px só 2 de 4 colunas cabiam e o
+// campo de edição do Preço de venda (coluna "Valores") ficava parcialmente escondido, sem
+// indicador de rolagem. Correção: coluna "Valores" fica STICKY à direita SÓ abaixo de 768px
+// (`max-md:`), então TODOS os inputs editáveis da tabela (Preço, Consumo, Aviamento, custos
+// adicionais) ficam sempre 100% visíveis sem rolar; Descrição/Markup/Obs continuam roláveis
+// dentro do wrapper `overflow-x-auto`, com fade condicional ao scroll real (mesma receita do
+// `SegmentedTabs`, `src/components/dashboard/mobile.tsx` — §Q10). Em ≥768px nada muda: sem
+// `max-md:`, a tabela renderiza exatamente como antes.
+import { useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
@@ -70,6 +79,34 @@ export function PrecoTabela(props: {
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn } = props;
 
+  // Fix mobile (F3.3) — fade de rolagem do wrapper `overflow-x-auto` (achado 2). Mesma receita do
+  // `SegmentedTabs` (§Q10): por lado, condicional ao scroll real (nunca incondicional — senão
+  // "borra" a coluna Valores, que fica sticky do lado direito). Só a coluna Descrição rola por
+  // trás da Valores sticky, então só o fade ESQUERDO faz sentido aqui (a Valores nunca some atrás
+  // de si mesma); mede os dois por hábito/consistência com a receita, mas o direito nunca acende
+  // (a última coluna de leitura real é a Obs, que fica atrás da Valores sticky e não "recebe" o
+  // scroll — o scrollWidth do wrapper para na Valores).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const medir = () => {
+      setFade({
+        left: el.scrollLeft > 4,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+      });
+    };
+    medir();
+    el.addEventListener("scroll", medir);
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", medir);
+      ro.disconnect();
+    };
+  }, []);
+
   // F3.2 (decisão F3 #6): o "Custo total" é o MESMO número que o markup usa (custo-base). Real → leitura do real;
   // previsto → materiais do BOM (leitura); estimado → a ESTIMATIVA editável de sempre.
   const custoReal = seloCusto === "real";
@@ -116,8 +153,9 @@ export function PrecoTabela(props: {
   const temFaixas = !!linhaFaixas && (linhaFaixas.min != null || linhaFaixas.ideal != null || linhaFaixas.max != null);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="relative">
+      <div ref={scrollRef} className="overflow-x-auto">
+        <table className="w-full text-sm max-md:[&_tr>*:nth-child(3)]:sticky max-md:[&_tr>*:nth-child(3)]:right-0 max-md:[&_tr>*:nth-child(3)]:z-[1] max-md:[&_tr>*:nth-child(3)]:bg-background">
         <thead>
           <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
             <th className="py-1.5 pr-3 font-semibold">Descrição</th>
@@ -344,7 +382,20 @@ export function PrecoTabela(props: {
             );
           })()}
         </tbody>
-      </table>
+        </table>
+      </div>
+      {/* Fade condicional ao scroll real (§Q10, mesma receita do `SegmentedTabs`) — nunca
+          incondicional. Em ≥768px a tabela não estoura o wrapper (achado 2 do laudo: 4/4 colunas
+          cabem), então `scrollLeft`/`scrollWidth` nunca divergem e os dois ficam sempre `false`
+          sozinhos — sem precisar de `max-md:` aqui. A coluna Valores fica sticky à direita, então
+          só o fade ESQUERDO tem conteúdo pra anunciar na prática (Descrição rolando por baixo);
+          o direito fica pela paridade com a receita, caso uma tela maior de leitura precise dele. */}
+      {fade.left && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-[2] w-8 bg-gradient-to-r from-background to-transparent" />
+      )}
+      {fade.right && (
+        <div className="pointer-events-none absolute inset-y-0 right-8 z-[2] w-8 bg-gradient-to-l from-background to-transparent" />
+      )}
     </div>
   );
 }
