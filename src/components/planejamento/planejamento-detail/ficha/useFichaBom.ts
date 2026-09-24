@@ -149,7 +149,9 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     // o Salvar seguinte gravar o dado velho; (b) com toque, `aoRecarregarComTocado` recebe um BOM
     // MISTO (novo+velho) e acende um conflito "Tecidos & BOM" falso.
     const { tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData } = dados;
-    if (!deveHidratarCarga({ habilitada, bomFetching: dados.bomFetching, tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData })) return;
+    // F3.3 — `cadPronto`: o CAD hidrata no MESMO instante (useFichaCad segue `cargaSeq`); com a ficha tocada, o CAD
+    // do servidor vai junto na comparação (`aoRecarregarComTocado` — o orquestrador lê `dados.cadData`).
+    if (!deveHidratarCarga({ habilitada, bomFetching: dados.bomFetching, tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData, cadPronto: dados.cadData !== undefined })) return;
     // Narrowing local p/ o TS (deveHidratarCarga já garante isto em runtime — ela é a fonte da decisão).
     if (!tecidosData || !ocLinksData || !aviamentosData || !etiquetasData || !gradesData) return;
     // Item E (fix round 3, (b)) — o BOM do SERVIDOR chegou NÃO-vazio (alguém — ex.: outro usuário pelo Dev
@@ -190,7 +192,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       prefillPendenteRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habilitada, dados.bomFetching, dados.tecidosData, dados.ocLinksData, dados.aviamentosData, dados.etiquetasData, dados.gradesData, planejadosKey, hidratarTick]);
+  }, [habilitada, dados.bomFetching, dados.tecidosData, dados.ocLinksData, dados.aviamentosData, dados.etiquetasData, dados.gradesData, dados.cadData, planejadosKey, hidratarTick]);
 
   // Preços chegam DEPOIS da carga (Dev :959-1027): recalcula SÓ custo_previsto. Guarda de mapa vazio +
   // guarda de no-op (só troca o array se algum custo mudou) — sem ciclo. `cargaSeq` nas deps (I1): garante
@@ -441,6 +443,8 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     confirmGrade, setConfirmGrade,
     camposCopiados, onCampoEditado, marcarCopiados, limparCopiados,
     limparTocado, limparFlags, descartarEdicoes,
+    // F3.3 — o CAD (useFichaCad) hidrata junto com esta carga (`cargaSeq`) e marca o MESMO "tocado".
+    marcarTocado, cargaSeq,
     handlers: {
       updateBlock, updateBlockVariante, updateBlockOcLinks,
       updateAviamento, addAviamento, removeAviamento,

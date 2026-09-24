@@ -75,10 +75,14 @@ export function deveHidratarCarga(i: {
   aviamentosData: unknown;
   etiquetasData: unknown;
   gradesData: unknown;
+  /** F3.3 — o CAD do modelo já chegou (`plan-ficha-cad`; `null` = "sem CAD" também é chegou). Ausente = não espera. */
+  cadPronto?: boolean;
 }): boolean {
   if (!i.habilitada) return false;
   if (i.bomFetching) return false;
   if (!i.tecidosData || !i.ocLinksData || !i.aviamentosData || !i.etiquetasData || !i.gradesData) return false;
+  // F3.3 — a carga do CAD vai JUNTO com a do BOM (useFichaCad segue `cargaSeq`): sem o CAD, nenhum dos dois hidrata.
+  if (i.cadPronto === false) return false;
   return true;
 }
 

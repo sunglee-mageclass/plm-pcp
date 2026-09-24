@@ -6,7 +6,7 @@ import {
   deveGravarCad, faltasCad, hidratarCad, idsVariantesDosBlocos, linhasParaGravar, montarCadPayload, propagarBlocoParaCad,
   sincronizarCadComBlocos, snapshotCad, type CadRowDb, type CadTecidoRow,
 } from "@/components/planejamento/planejamento-detail/ficha/ficha-cad";
-import type { TecidoRowDb, VarianteRowDb } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
+import { deveHidratarCarga, type TecidoRowDb, type VarianteRowDb } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 
 // F3.3 — trava as contas PORTADAS da seção "CAD" do Desenvolvimento (ModeloDetailPanel.tsx:1040-1386, :2062-2119,
 // :2441-2456) + as melhorias locais do plano (§7 T3–T6) + a regra de quando o Salvar grava o CAD (§3 P2).
@@ -271,5 +271,14 @@ describe("deveGravarCad — quando o Salvar grava o CAD (§3 P2, D2)", () => {
 describe("idsVariantesDosBlocos — Dev :1274-1278", () => {
   it("todas as variantes de todos os blocos, sem repetição, ordenadas", () => {
     expect(idsVariantesDosBlocos(blocos(bloco("tecido", 1, { variantes: vars(V2, V1) }), bloco("forro", 1, { variantes: vars(V1, VF) })))).toEqual([V1, V2, VF].sort());
+  });
+});
+
+describe("deveHidratarCarga — F3.3: a carga espera o CAD (Task 4)", () => {
+  const prontas = { habilitada: true, bomFetching: false, tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] };
+  it("CAD ainda não chegou ⇒ espera; chegou (inclusive 'sem CAD') ⇒ hidrata; sem o campo ⇒ comportamento da F3.2", () => {
+    expect(deveHidratarCarga({ ...prontas, cadPronto: false })).toBe(false);
+    expect(deveHidratarCarga({ ...prontas, cadPronto: true })).toBe(true);
+    expect(deveHidratarCarga(prontas)).toBe(true);
   });
 });

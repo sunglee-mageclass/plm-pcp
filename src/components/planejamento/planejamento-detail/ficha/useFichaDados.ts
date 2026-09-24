@@ -10,6 +10,7 @@ import { lerRevendaConfig } from "@/lib/revenda-config";
 import type { EtiquetaInfo, Opt } from "@/components/desenvolvimento/modelo-detail/types";
 import type { AviamentoVarOpt } from "@/components/desenvolvimento/modelo-detail/ModeloAviamentosSection";
 import type { AviamentoRowDb, EtiquetaRowDb, GradeRowDb, OcLinkRowDb, TecidoRowDb, VarianteRowDb } from "./ficha-calc";
+import type { CadRowDb } from "./ficha-cad";
 
 export type ArtigoFicha = {
   id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null;
@@ -27,6 +28,14 @@ const SEM_ETIQUETAS: EtiquetaInfo[] = [];
 const SEM_PRECOS: Record<string, number> = {};
 const SEM_CONDICOES: Record<string, boolean> = {};
 const TAMANHOS_PADRAO = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+
+/** F3.3 — `cad` + `cad_tecidos` (com o artigo) + `cad_tecido_variantes` (com os rótulos): os MESMOS campos do Dev
+ *  (ModeloDetailPanel.tsx:520, :531), numa query só. Sem espaços (o supabase-js os tira da URL — o QA casa por isto). */
+const SELECT_CAD_FICHA =
+  "id,cad_tecidos(id,numero,tipo,artigo_id,consumo_cad,loss_percent_cad,custo_cad,tamanho_folha," +
+  "artigos:artigo_id(nome,preco_por_metro,unidade_medida,etiqueta_lavagem_urls,largura_estimada)," +
+  "cad_tecido_variantes(id,variante_tecido_id,ordem,multiplicador,quantidade_folhas,metragem_planejada,metragem_enviada,complementa_variante_ids," +
+  "variantes_tecido:variante_tecido_id(nome_variante,codigo_variante,cor:cor_id(nome),apelido:cor_apelido_id(nome))))";
 
 /** As 5 keys EXATAS do BOM do servidor (T5 m1) — fonte única p/ `bomMudouNoServidor`/`chavesFichaBom`. */
 export function chavesBomServidor(modeloId: string | null): QueryKey[] {
@@ -214,13 +223,6 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
       return (data ?? []) as unknown as GradeRowDb[];
     },
   });
-  // I2 — em refetch (foco/invalidação) TODAS as 5 precisam assentar antes da carga mexer no estado.
-  // T5 m1 — NÃO derivável de `chavesBomServidor` sem mudar a ordem dos hooks: cada `.isFetching` vem do
-  // objeto de retorno de um `useQuery` individual (qTecidos/qOcLinks/…), não das keys (que são só arrays
-  // de identidade); trocar para `useQueries([...chavesBomServidor(...)])` mudaria a estrutura dos hooks
-  // acima. Documentado conforme o brief (T5 m1) — deixado como está.
-  const bomFetching = qTecidos.isFetching || qOcLinks.isFetching || qAviamentosModelo.isFetching
-    || qEtiquetasModelo.isFetching || qGrades.isFetching;
   // Condições do kanban no estado SALVO (selos por requisito — Dev :283-291).
   const qCondicoes = useQuery({
     queryKey: ["plan-ficha-condicoes", modeloId],
@@ -231,16 +233,25 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
       return (((data ?? {}) as any)[modeloId as string] ?? {}) as Record<string, boolean>;
     },
   });
-  // CAD existe? Trava interina da F3.2 (sem sync BOM↔CAD até a F3.3 — ver motivoSomenteLeitura).
+  // I2 — em refetch (foco/invalidação) TODAS as 5 precisam assentar antes da carga mexer no estado.
+  // T5 m1 — NÃO derivável de `chavesBomServidor` sem mudar a ordem dos hooks: cada `.isFetching` vem do
+  // objeto de retorno de um `useQuery` individual (qTecidos/qOcLinks/…), não das keys (que são só arrays
+  // de identidade); trocar para `useQueries([...chavesBomServidor(...)])` mudaria a estrutura dos hooks
+  // acima. Documentado conforme o brief (T5 m1) — deixado como está.
+  // F3.3 — o CAD do modelo EMBUTIDO numa query só (Dev :516-534 — `dev-cad-row` + `dev-cad-tecidos`): alimenta a seção
+  // CAD (useFichaCad) e segue decidindo o "carregando"/erro (cadFetched/cadErro). Key PRÓPRIA, já em `chavesFichaBom`.
   const qCad = useQuery({
     queryKey: ["plan-ficha-cad", modeloId],
     enabled: on,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      const { data, error } = await (supabase as any).from("cad").select(SELECT_CAD_FICHA).eq("modelo_id", modeloId).maybeSingle();
       if (error) throw error;
-      return (data ?? null) as { id: string } | null;
+      return (data ?? null) as CadRowDb | null;
     },
   });
+  // I2 (F3.2) + F3.3 — a carga só mexe no estado com as 6 queries ESTÁVEIS: as 5 do BOM e a do CAD.
+  const bomFetching = qTecidos.isFetching || qOcLinks.isFetching || qAviamentosModelo.isFetching
+    || qEtiquetasModelo.isFetching || qGrades.isFetching || qCad.isFetching;
 
   // ── Derivados (Dev :347-422, :328-334) ──
   const artigos = qArtigos.data ?? SEM_ARTIGOS;
@@ -298,6 +309,10 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     cadFetched: qCad.isSuccess,
     /** T9 m3 — a trava "carregando" não pode ficar muda pra sempre se a query de CAD der erro. */
     cadErro: qCad.isError,
+    /** F3.3 — o CAD cru (undefined = ainda não chegou; null = o modelo não tem CAD). */
+    cadData: qCad.data,
+    /** F3.3 — condições do kanban carregadas (selos: sem isto só o informativo — nunca "falta" no escuro). */
+    condicoesProntas: qCondicoes.isSuccess,
     catalogosProntos: qArtigos.isSuccess && qCatTecido.isSuccess && qArtigoCats.isSuccess && qAviamentos.isSuccess
       && qEtiquetas.isSuccess && qFrozen.isSuccess && qTenant.isSuccess,
   };
