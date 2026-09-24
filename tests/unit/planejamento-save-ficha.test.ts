@@ -231,7 +231,8 @@ describe("bomRecarregando — fix final I1 (o Salvar espera o BOM recarregar)", 
 });
 
 // Fix final M1 (1ª parte) — trava que chega ENTRE editar e salvar não pode descartar a edição em silêncio.
-// Porta de save-ficha.ts da F3.3 (5e32951), sem CAD (a F3.2 não tem CAD).
+// Porta de save-ficha.ts da F3.3 (5e32951), sem CAD (a F3.2 não tem CAD). Rebase F3.3→3adfbd3: a função voltou à
+// versão da F3.3 (com `cadGravou`) — estes casos passam `cadGravou: false` (só o BOM, como na F3.2).
 //
 // ROUND 2 — regressão: o CHAMADOR (`useFichaTecnica.aposSalvar`) passava o `tocado` CRU
 // (`colecoesTouchadasRef.current`) como 1º campo. Bug: `gravar` (`capturar()`) exige `snap!==base` além do
@@ -244,32 +245,32 @@ describe("bomRecarregando — fix final I1 (o Salvar espera o BOM recarregar)", 
 // PAR (sujoNaCaptura, gravar) que o chamador agora produz.
 describe("deveLimparTocadoAposSalvar — fix final M1 (edições perdidas em silêncio)", () => {
   it("sem toque: sempre pode limpar (nada a perder)", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false })).toBe(true);
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
   });
   it("tocado e o BOM gravou: pode limpar", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true })).toBe(true);
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true, cadGravou: false })).toBe(true);
   });
   it("tocado e o BOM NÃO gravou (trava chegou no meio do caminho): NÃO limpa — a edição sumiria sem aviso", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false })).toBe(false);
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: false })).toBe(false);
   });
   // (a) tocar e desfazer: sujoNaCaptura=false (snapshot voltou ao baseline) ⇒ SEM aviso, o tocado limpa.
   it("(a) tocar e desfazer: sujoNaCaptura=false, bomGravou=false ⇒ limpa sem aviso", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false })).toBe(true);
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
   });
   // (b) só proporção com grade zerada (updateProporcao/toggleGradeAuto, oldSum=0/grade_total=0): marca
   // colecoesTouchadasRef, mas a grade não mudou e a proporção não entra no snapshot do BOM ⇒ sujoNaCaptura=false.
   it("(b) só proporção com grade zerada: sujoNaCaptura=false, bomGravou=false ⇒ limpa sem aviso", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false })).toBe(true);
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
   });
   // (c) ficha suja de verdade (snapshot mudou) mas a trava chegou ENTRE a captura e a gravação
   // (podeEditarRef.current virou false na captura reusada por aposSalvar): sujoNaCaptura=true (o snapshot
   // realmente diverge), bomGravou=false (a trava zerou `gravar`) ⇒ NÃO limpa — aviso e selo aceso.
   it("(c) ficha suja e travada no meio: sujoNaCaptura=true, bomGravou=false ⇒ aviso e selo aceso", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false })).toBe(false);
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: false })).toBe(false);
   });
   // (d) ficha suja que GRAVOU: sujoNaCaptura=true e bomGravou=true (mesma condição, sem trava) ⇒ limpa.
   it("(d) ficha suja que gravou: sujoNaCaptura=true, bomGravou=true ⇒ limpa", () => {
-    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true })).toBe(true);
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true, cadGravou: false })).toBe(true);
   });
 });
 
@@ -306,5 +307,23 @@ describe("draftEnviadoComColunasDev — fix final M1 (proporcoes/custos_adiciona
   it("podeGravarColunasDev=false mas os valores já são iguais aos do servidor → mesma referência (sem objeto novo à toa)", () => {
     const igualServidor = { nome: "X", proporcoes: servidor.proporcoes, custos_adicionais: servidor.custos_adicionais };
     expect(draftEnviadoComColunasDev(igualServidor, servidor, false)).toBe(igualServidor);
+  });
+});
+
+// Fix pós-T9 (re-revisão de 67e363f, item 1) — "edições perdidas em silêncio": a ficha tocada não pode ter o
+// aviso "não salvo" apagado quando NADA foi de fato gravado (BOM e CAD ambos gravar=false na captura, mesmo
+// tocada — cenário: permissão/carga do CAD caiu no meio do caminho, DEPOIS da captura já ter marcado `gravar`).
+describe("deveLimparTocadoAposSalvar — fix pós-T9 (edições perdidas em silêncio)", () => {
+  it("sem toque: sempre pode limpar (nada a perder)", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
+  });
+  it("tocado e o BOM gravou: pode limpar", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true, cadGravou: false })).toBe(true);
+  });
+  it("tocado e o CAD gravou (mesmo sem o BOM): pode limpar", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: true })).toBe(true);
+  });
+  it("tocado e NENHUM dos dois gravou: NÃO limpa — a edição sumiria sem aviso", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false, cadGravou: false })).toBe(false);
   });
 });

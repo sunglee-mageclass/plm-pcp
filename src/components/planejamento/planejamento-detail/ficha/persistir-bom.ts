@@ -70,6 +70,13 @@ export function invalidarAposGravarCad(qc: QueryClient, modeloId: string | null)
   }
   qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
   qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("ft-") });
+  // `chavesFichaBom` (nota abaixo) já cobre o cache PRÓPRIO da ficha do Planejamento (plan-ficha-*); esta função
+  // some quando SÓ o CAD grava (BOM não tocado neste Salvar) — nesse cenário as invalidações "genéricas" de
+  // `bom.gravar` em usePlanejamentoSave.ts (~:519-521) NÃO rodam, e telas que leem por essas chaves (não as
+  // `plan-ficha-*`) ficavam com cache velho. Fix pós-T9 (item 2, M2 da re-revisão de 67e363f) — mesmas 3 keys
+  // exatas de usePlanejamentoSave.ts (~:519-521): consumo/grade/estoque que o CAD também deriva.
+  for (const k of ["modelo-tecidos-consumo", "modelo-grades"]) qc.invalidateQueries({ queryKey: [k, modeloId] });
+  qc.invalidateQueries({ queryKey: ["estoque-tecido-por-artigo"] });
   for (const k of chavesFichaBom(modeloId)) qc.invalidateQueries({ queryKey: k });
   qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
 }

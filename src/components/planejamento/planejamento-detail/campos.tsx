@@ -49,8 +49,11 @@ export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = 
         </button>
         {/* Lote B (revisão do commit 6fac668, minor) — `min-w-0` + `truncate` (não `shrink-0`, que IMPEDE encolher):
             selos com texto longo (ex.: resumo da Coleção, "Verão 2027 · Casual · lanç. 2 · mar/2027") estouravam a
-            largura em telas estreitas (360px); o `title` do StatusBadge (dentro de `selo`) já traz o texto completo. */}
-        {selo && <span className="ml-auto inline-flex min-w-0 items-center gap-1 truncate">{selo}</span>}
+            largura em telas estreitas (360px); o `title` do StatusBadge (dentro de `selo`) já traz o texto completo.
+            Fix pós-T9 (item 3) — o `truncate` saiu deste wrapper (o corte de verdade agora é NO TEXTO, dentro do
+            `SeloBadge`); aqui fica só `max-w-[60%]` — teto que garante que o TÍTULO da seção (`flex-1` à esquerda)
+            nunca vai a 0px de largura mesmo com o selo pedindo mais espaço do que cabe. */}
+        {selo && <span className="ml-auto inline-flex min-w-0 max-w-[60%] items-center gap-1">{selo}</span>}
       </div>
       {open && children}
     </section>

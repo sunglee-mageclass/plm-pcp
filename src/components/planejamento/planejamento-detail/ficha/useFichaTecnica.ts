@@ -90,8 +90,8 @@ export type FichaSave = {
   cadGravado: (cad: CadCapturado) => void;
   /**
    * Pós-save: re-baseia (edição em voo segue "não salva"), a referência vira o ENVIADO, limpa marcadores,
-   * invalida o BOM. Fix final M1 — `edicoesPerdidas`: havia BOM tocado que DEVERIA ter sido gravado
-   * (`bomEnviado.gravar`) e este Salvar NÃO gravou (a trava chegou entre a captura e o save) — o "não salvo"
+   * invalida o BOM. Fix final M1 — `edicoesPerdidas`: havia ficha tocada que DEVERIA ter sido gravada
+   * (`bomEnviado.gravar` / `bomEnviado.cad.gravar` — F3.3) e este Salvar NÃO gravou (a trava chegou entre a captura e o save) — o "não salvo"
    * NÃO foi limpo (ver `deveLimparTocadoAposSalvar`); o chamador (`usePlanejamentoSave`) avisa o usuário.
    */
   aposSalvar: (a: { bomEnviado: BomCapturado }) => { bomMudouEmVoo: boolean; edicoesPerdidas: boolean };
@@ -604,7 +604,13 @@ export function useFichaTecnica(a: {
       // — "tocado E sujo" capturado no MESMO instante que `gravar` (não o `tocado` de agora, que pode já ter
       // mudado durante o `await` do save) — para distinguir "tocou sem sujar" (limpa normalmente) de "sujou
       // de verdade mas a trava chegou depois e impediu a gravação" (NÃO limpa; ver cenário (c) no relatório).
-      const podeLimpar = deveLimparTocadoAposSalvar({ tocado: bomEnviado.sujoNaCaptura, bomGravou: bomEnviado.gravar });
+      // Fix pós-T9 da F3.3 (re-revisão de 67e363f, item 1) — o CAD também conta: só limpa quando não havia toque, ou
+      // quando o que estava tocado foi de fato gravado (BOM ou CAD).
+      const podeLimpar = deveLimparTocadoAposSalvar({
+        tocado: bomEnviado.sujoNaCaptura,
+        bomGravou: bomEnviado.gravar,
+        cadGravou: bomEnviado.cad.gravar,
+      });
       const edicoesPerdidas = !podeLimpar;
       if (podeLimpar) {
         if (bomMudouEmVoo) { guarda.rebasear(bomEnviado.snapshot); guardaCad.rebasear(bomEnviado.cad.snapshot); }
@@ -624,6 +630,9 @@ export function useFichaTecnica(a: {
       bom.limparCopiados();
       setConflitoBomBoth(false);
       invalidarBom();
+      // Fix pós-T9 (item 1) — avisa o orquestrador (usePlanejamentoSave.ts) quando a ficha tocada NÃO foi gravada
+      // (nem BOM nem CAD), pra ele mostrar o aviso PT — "não salvo" segue aceso, mas sem toast o usuário não saberia
+      // que precisa recarregar/tentar de novo (a mutation inteira reporta "Modelo salvo" com sucesso).
       return { bomMudouEmVoo, edicoesPerdidas };
     },
     etapas,

@@ -194,19 +194,23 @@ export function contadorVoo(atual: number, marcar: boolean): number {
 }
 
 /**
- * Fix final M1 (1ª parte) — trava que chega ENTRE editar e salvar descarta a edição em silêncio. Porta de
- * `save-ficha.ts` da F3.3 (commit `5e32951`, worktree `f33-cad-acoes`, sem a parte do CAD — a F3.2 não tem
- * CAD, só BOM). Cenário: B toca o BOM (Tecidos/Aviamentos/Insumos/Grade); ENTRE a captura e o Salvar, o card é
- * enviado à Explosão por outra pessoa e a ficha destrava→trava ("cad"/"enviado") — `capturar().gravar` fica
- * `false` mesmo com o toque (`useFichaTecnica.capturar` exige `podeEditarRef.current` ANTES de olhar
- * `colecoesTouchadasRef`). `aposSalvar` (useFichaTecnica.ts) chamava `bom.limparTocado()` incondicional quando
- * `!bomMudouEmVoo` — e como `bomMudouEmVoo` também exige `tocado` (aqui É true, mas nada foi de fato enviado
- * ao servidor), o "não salvo" apagava e as edições do BOM somem com o toast "Modelo salvo".
- * Regra: NÃO limpe o tocado (nem rebaseie, nem mova a referência) quando havia BOM tocado que DEVERIA ter
- * sido gravado e este Salvar NÃO gravou. Só quando o que estava tocado FOI gravado (ou nunca houve toque) é
- * seguro limpar — aí `bomMudouEmVoo` decide se rebaseia no ENVIADO ou limpa de vez (como já fazia).
+ * Fix pós-T9 (re-revisão de 67e363f, item 1 — IMPORTANTE) — "edições perdidas em silêncio". Cenário: a ficha
+ * (BOM e/ou CAD) está TOCADA, mas na captura deste Salvar `podeEditar`/`cadHidratado` viraram false (ex.: a query do
+ * CAD falhou, ou o card ficou travado no meio do caminho) — `capturar()`/`capturarCad` decidem `gravar=false` mesmo
+ * com o toque (`useFichaTecnica.capturar`/`ficha-cad.deveGravarCad`: as duas exigem `podeEditar`/`cadHidratado` ANTES
+ * de olhar `tocado`). Sem esta guarda, `aposSalvar` (useFichaTecnica.ts) chamava `bom.limparTocado()` incondicional
+ * quando `!bomMudouEmVoo` — e como `bomMudouEmVoo` também exige `tocado` (que aqui É true, mas nada foi de fato
+ * enviado ao servidor), o "não salvo" apagava e a edição do usuário sumia sem aviso e sem chance de tentar de novo.
+ *
+ * Regra: NÃO limpe o tocado (nem rebaseie, nem mova a referência) quando havia algo tocado que DEVERIA ter sido
+ * gravado (BOM ou CAD) e este Salvar NÃO gravou. Only quando o que estava tocado FOI gravado (ou nunca houve toque)
+ * é seguro limpar — aí `bomMudouEmVoo` (edição feita DURANTE o save, depois da captura) decide se rebaseia no
+ * ENVIADO ou limpa de vez.
+ *
+ * Rebase F3.3→3adfbd3: a F3.2 (fix final M1) portou a versão SÓ-BOM (`{ tocado, bomGravou }`); aqui volta a versão da
+ * F3.3 com `cadGravou` (regra do `rebase-f32.md`) — os testes da F3.2 passam `cadGravou: false`.
  */
-export function deveLimparTocadoAposSalvar(i: { tocado: boolean; bomGravou: boolean }): boolean {
+export function deveLimparTocadoAposSalvar(i: { tocado: boolean; bomGravou: boolean; cadGravou: boolean }): boolean {
   if (!i.tocado) return true;
-  return i.bomGravou;
+  return i.bomGravou || i.cadGravou;
 }

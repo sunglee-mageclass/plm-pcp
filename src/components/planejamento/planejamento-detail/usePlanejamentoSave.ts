@@ -545,12 +545,12 @@ export function usePlanejamentoSave({
       }
       if (enviadoRef.current) {
         const { edicoesPerdidas } = fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
-        // Fix final M1 (1ª parte) — a ficha (Tecidos/Aviamentos/Insumos/Grade) estava tocada mas este
-        // Salvar não gravou o BOM (a trava chegou entre a captura e o save): o "não salvo" segue aceso
-        // (useFichaTecnica.aposSalvar já NÃO limpou), mas sem este aviso o usuário só veria "Modelo
-        // salvo" e acharia que tudo foi. Mesmo padrão de `toast.warning` do aviso "#Erro"/conflito.
+        // Fix pós-T9 (item 1) — a ficha (Tecidos/Aviamentos/Insumos/Grade/CAD) estava tocada mas este Salvar não
+        // gravou nem o BOM nem o CAD (a permissão/carga caiu no meio do caminho): o "não salvo" segue aceso
+        // (useFichaTecnica.aposSalvar já NÃO limpou), mas sem este aviso o usuário só veria "Modelo salvo" e
+        // achar que tudo foi. `toast.warning` (mesmo padrão dos avisos "#Erro"/conflito deste arquivo).
         if (edicoesPerdidas) {
-          toast.warning("As alterações da Ficha (Tecidos/Aviamentos/Insumos/Grade) NÃO foram salvas — a ficha está travada. Recarregue o card e tente de novo.");
+          toast.warning("As alterações da Ficha (Tecidos/Aviamentos/Insumos/Grade/CAD) NÃO foram salvas — a ficha está travada ou o CAD não carregou. Recarregue o card e tente de novo.");
         }
       }
       conflitosRef.current = [];
