@@ -120,8 +120,11 @@ describe("mensagemErro — a mensagem de 'BOM conferindo' do usePlanejamentoSave
 // enviado, então o proxy saía sempre `false` mesmo com o card JÁ enviado ANTES do save, bloqueando retries
 // seguros (o payload nunca tinha colunas do Dev de qualquer forma). round 3: a captura usa o `enviado_cad`
 // REAL (não a trava derivada) E só bloqueia quando esta captura IA gravar algo do Dev.
-const cap = (p: Partial<{ enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean }> = {}) => ({
-  enviadoCadNaCaptura: false, gravaBom: false, podeGravarColunasDev: false, ...p,
+// Fix round 4 (item 10) — 3º sinal `temCamposDevNoPayload`: cobre os CAMPOS SIMPLES do Dev da F3.1
+// (modelista, pilotos, datas…), que vão no payload por `podeEditarDev` (via `aplicarRegrasCamposDev`),
+// separado do BOM (`gravaBom`) e das colunas derivadas (`podeGravarColunasDev`).
+const cap = (p: Partial<{ enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean; temCamposDevNoPayload: boolean }> = {}) => ({
+  enviadoCadNaCaptura: false, gravaBom: false, podeGravarColunasDev: false, temCamposDevNoPayload: false, ...p,
 });
 describe("retryBloqueadoPorEnvio — item C: envio à Explosão em voo trava o retry automático SÓ com escrita do Dev", () => {
   it("não-enviado → enviado, COM escrita do Dev (bom.gravar) ⇒ bloqueia (o cenário do bug)", () => {
@@ -142,6 +145,13 @@ describe("retryBloqueadoPorEnvio — item C: envio à Explosão em voo trava o r
   it("fresh.enviado_cad ausente (null/undefined) ⇒ trata como não-enviado, não bloqueia", () => {
     expect(retryBloqueadoPorEnvio({ enviado_cad: null }, cap({ gravaBom: true }))).toBe(false);
     expect(retryBloqueadoPorEnvio({}, cap({ podeGravarColunasDev: true }))).toBe(false);
+  });
+  // Fix round 4 (item 10, acréscimo do controlador) — caso novo: sem BOM e sem colunas derivadas, mas COM
+  // campos simples do Dev (ex.: modelista) no payload ⇒ bloqueia. Sem este sinal, um retry que só gravava
+  // modelista/pilotos/datas num card recém-enviado passava batido (payload tinha dado do Dev, mas nenhum
+  // dos outros 2 sinais via isso).
+  it("não-enviado → enviado, sem BOM e sem colunas, mas COM campos simples do Dev no payload (modelista) ⇒ bloqueia", () => {
+    expect(retryBloqueadoPorEnvio({ enviado_cad: true }, cap({ temCamposDevNoPayload: true }))).toBe(true);
   });
 });
 

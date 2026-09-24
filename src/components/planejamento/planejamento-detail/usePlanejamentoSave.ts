@@ -14,7 +14,7 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
-import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
@@ -89,9 +89,14 @@ export function usePlanejamentoSave({
   // `modelos.enviado_cad` (lido do cache já populado pelo orquestrador, sem query nova) e a permissão de
   // gravar colunas do Dev, ambos no INSTANTE da captura (antes de qualquer `await` — vale também no retry,
   // que reentra no `mutationFn` do zero). Usados por `retryBloqueadoPorEnvio` no onError do P0409.
+  // Fix round 4 (item 10, acréscimo do controlador) — `temCamposDevNoPayloadNaCaptura`: "esta captura ia
+  // gravar algo do Dev" precisa cobrir também os CAMPOS SIMPLES do Dev da F3.1 (modelista, pilotos, datas,
+  // obs. técnicas — `CAMPOS_DEV_DRAFT`, helpers.ts), não só o BOM/colunas derivadas. Eles entram no payload
+  // via `aplicarRegrasCamposDev` (só com `podeEditarDev`) — capturado do PRÓPRIO `payload` já montado, no
+  // mesmo instante síncrono, sem lista paralela.
   const enviadoRef = useRef<{
     draft: Draft; moLinhas: MaoObraEditorLinha[]; bom: BomCapturado;
-    enviadoCadNaCaptura: boolean; podeGravarColunasDevNaCaptura: boolean;
+    enviadoCadNaCaptura: boolean; podeGravarColunasDevNaCaptura: boolean; temCamposDevNoPayloadNaCaptura: boolean;
   } | null>(null);
   const save = useMutation({
     mutationFn: async () => {
@@ -136,7 +141,6 @@ export function usePlanejamentoSave({
       // abaixo, `getQueryData<any>(["modelo", modeloId])`).
       const enviadoCadNaCaptura = !!qc.getQueryData<any>(["modelo", modeloId])?.enviado_cad;
       const podeGravarColunasDevNaCaptura = fichaRef.current.podeGravarColunasDev;
-      enviadoRef.current = { draft: d, moLinhas: moLinhasEnviadas, bom, enviadoCadNaCaptura, podeGravarColunasDevNaCaptura };
       // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
       // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
       // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
@@ -150,6 +154,14 @@ export function usePlanejamentoSave({
         // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
         descricao_produto: textoOuNull(d.descricao_produto),
       }, d, { podeEditarDev, refEditavel });
+      // Fix round 4 (item 10, acréscimo do controlador) — "esta captura ia gravar algo do Dev" também cobre os
+      // CAMPOS SIMPLES do Dev da F3.1 (modelista, pilotos, datas, obs. técnicas…), que vão no payload por
+      // `podeEditarDev` via `aplicarRegrasCamposDev` acima — não só o BOM/colunas derivadas. Lê o PRÓPRIO
+      // `payload` já montado contra a lista ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts), sem lista paralela:
+      // `aplicarRegrasCamposDev` já fez o `delete` de cada chave sem `podeEditarDev`, então `in` reflete
+      // exatamente o que vai (ou não) ao servidor nesta captura.
+      const temCamposDevNoPayloadNaCaptura = CAMPOS_DEV_DRAFT.some((k) => k in payload);
+      enviadoRef.current = { draft: d, moLinhas: moLinhasEnviadas, bom, enviadoCadNaCaptura, podeGravarColunasDevNaCaptura, temCamposDevNoPayloadNaCaptura };
       // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
       // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
       // markup/OC (`_pa_recomputar_precos_modelo`), nunca mais digitados aqui. NÃO reenviar
@@ -313,7 +325,15 @@ export function usePlanejamentoSave({
         if (moErr) { (moErr as any).etapaFalha = "mo"; throw moErr; }
         // F3.2 — MO CONFIRMADA: só AGORA corrige custo_peca_previsto com a MO nova (update pontual, desenho do
         // Dev :2140-2150). Só quando esta tentativa já mandou as colunas derivadas.
-        if (isEdit && incluirDerivados && bom.totais && fichaRef.current.podeGravarColunasDev && fichaRef.current.podeVerCustos) {
+        // Fix round 4 (item 3) — `custo_peca_previsto` é DERIVADO (Σ BOM + MO), não coluna do Dev: passa a
+        // depender de `totais != null` (a ficha estava CARREGADA na captura — ver `useFichaTecnica.capturar`),
+        // não mais de `podeGravarColunasDev`. Cenário: card com CAD (trava "cad") ou usuário sem `canEdit` do
+        // Dev edita a MO no Planejamento — antes o update pontual ficava preso à trava do Dev e o
+        // `custo_peca_previsto` gravado divergia do previsto ao vivo mostrado no Sheet; agora recalcula com os
+        // totais do BOM CARREGADO (do servidor, já que travado não edita) + a MO recém-enviada. As demais
+        // colunas derivadas do Dev (`custo_*` por tipo) continuam só com `podeGravarColunasDev`, em
+        // `aplicarColunasFicha` (save-ficha.ts) — intocado.
+        if (isEdit && incluirDerivados && bom.totais && fichaRef.current.podeVerCustos) {
           const moSomaEnviada = moLinhasEnviadas.reduce((s, l) => s + (Number(l.valor) || 0), 0);
           const { error: pecaErr } = await (supabase.from("modelos") as any)
             .update({ custo_peca_previsto: pecaCom(bom.totais, moSomaEnviada) })
@@ -514,7 +534,15 @@ export function usePlanejamentoSave({
           // de `tecidos_planejados` (a mesma lista que o Dialog gravou no draft) — SEM tocar, mas marcando
           // `prefillPendenteRef` (item E). O `capturar` do useFichaTecnica soma essa pendência à condição de
           // `gravar`: o PRÓXIMO Salvar regrava o BOM sozinho, mesmo sem o usuário tocar em nada.
-          toast.error("O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Eles aparecem na seção Tecidos — salve o card de novo para gravá-los.");
+          // Fix round 4 (item 8, T13 m3) — toast honesto: sem `podeEditarDev`, "salve de novo" é uma instrução
+          // que o próprio usuário não consegue cumprir (o Salvar sem `canEdit("criacao_desenvolvimento")` OMITE
+          // as colunas do Dev — decisão F3 #8 — e nunca regravaria o BOM). Mesma condição/mesma mensagem do
+          // `duplicate` em `PlanejamentoDetail.tsx`.
+          toast.error(
+            podeEditarDev
+              ? "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Eles aparecem na seção Tecidos — salve o card de novo para gravá-los."
+              : "O card foi criado, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
+          );
         } else if (e?.etapaFalha === "grade") {
           toast.error("O card foi criado, mas a grade NÃO foi salva — confira e salve de novo.");
         } else {
@@ -585,12 +613,14 @@ export function usePlanejamentoSave({
           // deste Salvar: o retry automático abaixo ainda leria `podeEditar`/`podeGravarColunasDev` do
           // MOMENTO da captura (antes do envio) — `_salvar_modelo_bom_core` não tem guarda própria no servidor,
           // então gravaria o BOM/colunas do Dev num card já enviado. Bloqueia ANTES de decidir `podeRetentar`,
-          // e SÓ quando esta captura IA gravar algo do Dev (`bom.gravar || podeGravarColunasDev`) — senão o
-          // payload já saiu sem as colunas do Dev e o retry é seguro (não é este bug).
+          // e SÓ quando esta captura IA gravar algo do Dev (`bom.gravar || podeGravarColunasDev || campos
+          // simples do Dev no payload` — fix round 4, item 10) — senão o payload já saiu sem nada do Dev e o
+          // retry é seguro (não é este bug).
           const bloqueadoPorEnvio = retryBloqueadoPorEnvio(fresh, {
             enviadoCadNaCaptura: enviadoRef.current?.enviadoCadNaCaptura ?? false,
             gravaBom: enviadoRef.current?.bom.gravar ?? false,
             podeGravarColunasDev: enviadoRef.current?.podeGravarColunasDevNaCaptura ?? false,
+            temCamposDevNoPayload: enviadoRef.current?.temCamposDevNoPayloadNaCaptura ?? false,
           });
           if (bloqueadoPorEnvio) {
             savingRef.current = false;

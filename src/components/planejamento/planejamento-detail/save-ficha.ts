@@ -102,13 +102,19 @@ export function prepararRetryP0409<T extends Record<string, any>>(o: { base: T; 
  * enviado (a mudança aconteceu DURANTE este save) E (2) esta captura IA gravar algo do Dev
  * (`bom.gravar || podeGravarColunasDev`, também capturados no início do save). Sem (2), o payload nunca teve
  * colunas do Dev — o retry é seguro e não deve ser bloqueado.
+ *
+ * Fix round 4 (item 10, acréscimo do controlador) — condição (2) também cobre os CAMPOS SIMPLES do Dev da
+ * F3.1 (modelista, pilotos, datas, obs. técnicas…), que vão no payload por `podeEditarDev` via
+ * `aplicarRegrasCamposDev` (helpers.ts ~:109-122) — não só o BOM/colunas derivadas. A decisão F3 #1 trava
+ * esses campos depois do envio à Explosão; sem este 3º sinal, um retry que só gravava campos simples do Dev
+ * (sem BOM, sem `podeGravarColunasDev`) passava batido num card recém-enviado.
  */
 export function retryBloqueadoPorEnvio(
   fresh: { enviado_cad?: boolean | null },
-  capturado: { enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean },
+  capturado: { enviadoCadNaCaptura: boolean; gravaBom: boolean; podeGravarColunasDev: boolean; temCamposDevNoPayload: boolean },
 ): boolean {
   const passouAEnviado = !!fresh.enviado_cad && !capturado.enviadoCadNaCaptura;
-  const iaGravarDoDev = capturado.gravaBom || capturado.podeGravarColunasDev;
+  const iaGravarDoDev = capturado.gravaBom || capturado.podeGravarColunasDev || capturado.temCamposDevNoPayload;
   return passouAEnviado && iaGravarDoDev;
 }
 

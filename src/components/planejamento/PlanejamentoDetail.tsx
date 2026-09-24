@@ -387,6 +387,12 @@ function PlanejamentoDetailConteudo({
   // `mutationFn` sempre leia o estado do BOM mais recente na hora de montar a cópia.
   const fichaRef = useRef(ficha);
   fichaRef.current = ficha;
+  // Fix round 4 (itens 1 e 2) — decisão F3 #2: qualquer uma das duas permissões de custo libera a
+  // visão de custo derivado (sugerido/markup/faixas/"Materiais do BOM"/"Custos do BOM"/MO na Parte 3).
+  // `podeVerCustos` = page-level do Planejamento (`criacao_planejamento:custos`); `ficha.podeVerCustos` =
+  // `criacao_planejamento:custos` OU `criacao_desenvolvimento:custos` (já é união — ver useFichaTecnica.ts).
+  // Usar SEMPRE `veCustos` (não `podeVerCustos` sozinho) onde a tabela/seção decide MOSTRAR custo derivado.
+  const veCustos = podeVerCustos || ficha.podeVerCustos;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
   const linhaFaixas = linhaSetor
@@ -420,8 +426,14 @@ function PlanejamentoDetailConteudo({
 
   // F3.2 — decisão F3 #6: o markup e a tabela usam o MESMO custo-base, com selo de 3 estados. Previsto = o do BOM
   // AO VIVO quando a ficha está carregada (e o BOM tem material); senão o salvo (custo_peca_previsto do Dev).
-  const previstoBase = ficha.carregado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
-  const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: custoData?.real, previsto: previstoBase, estimativa: simCalc.total });
+  // Fix round 4 (item 1, IMPORTANTE — vazamento de informação): `custoData` já vem mascarado (`{}`) do RPC
+  // `custo_unitario_modelos` sem permissão (invariante #12), mas `ficha.totais`/`simCalc` são calculados NO
+  // CLIENTE a partir do BOM/rascunho — sem gate, vazavam sugerido/markup/faixas mesmo sem `veCustos`. Sem
+  // `veCustos`: previsto e estimativa caem a 0 ⇒ `custoBase.valor` = 0 (real já vem mascarado do servidor) ⇒
+  // `precoInfo` devolve custo/sugerido/markup = 0 ⇒ a tabela mostra "—" em tudo, exatamente como antes da T12.
+  const previstoBase = !veCustos ? 0 : ficha.carregado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
+  const estimativaBase = veCustos ? simCalc.total : 0;
+  const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: custoData?.real, previsto: previstoBase, estimativa: estimativaBase });
   const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoBase.valor, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
   // M.O. embutida no custo-base: a real (Serviços ÷ grade) quando confirmado; senão a planejada ao vivo.
@@ -848,9 +860,16 @@ function PlanejamentoDetailConteudo({
       // fonte só; a lista segue derivada): com a ficha carregada, os artigos PRINCIPAIS dos blocos Tecido (sem
       // substitutos); sem ela, a lista salva (comportamento de hoje). Comprado (revenda/importado) nunca tem BOM
       // manufaturado (F3.2, decisão F3 #4) — `gravarTecidosIniciais` só roda para origem NÃO comprada.
-      const tecidosDaCopia = fichaRef.current.carregado
-        ? artigosTecidoPrincipais(fichaRef.current.estado.blocks)
-        : draft.tecidos_planejados.slice(0, 3);
+      // Fix round 4 (item 6, T13 m1) — COMPRADO nunca tem `fichaRef.current.carregado` true (a ficha nem
+      // habilita p/ comprado — `habilitada = isEdit && !isComprado && ...`), então caía sempre no fallback
+      // `.slice(0, 3)` — truncando a lista de comprado p/ 3 itens na cópia. Comprado não usa `tecidos_planejados`
+      // como BOM (é só coluna de texto, sem `gravarTecidosIniciais`), então a cópia deve levar a lista INTEIRA,
+      // como antes da T13 (sem truncar).
+      const tecidosDaCopia = isComprado
+        ? draft.tecidos_planejados
+        : fichaRef.current.carregado
+          ? artigosTecidoPrincipais(fichaRef.current.estado.blocks)
+          : draft.tecidos_planejados.slice(0, 3);
       payload.tecidos_planejados = tecidosDaCopia;
       const { data: novo, error } = await supabase.from("modelos").insert(payload).select("id").single();
       if (error) throw error;
@@ -870,7 +889,15 @@ function PlanejamentoDetailConteudo({
       // `etapaFalha === "tecidos"`) — o `prefillPendenteRef` (useFichaBom.ts) faz o PRÓXIMO Salvar, já na
       // nova versão, regravar o BOM sozinho a partir de `tecidos_planejados` (gravado no INSERT acima).
       if (e?.etapaFalha === "tecidos") {
-        toast.error("A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Abra a nova versão e salve de novo para gravá-los.");
+        // Fix round 4 (item 8, T13 m3) — toast honesto: quem NÃO edita o Dev não vai conseguir "salvar de
+        // novo" (o Salvar do Planejamento sem `canEdit("criacao_desenvolvimento")` OMITE as colunas do Dev —
+        // decisão F3 #8 —, então o BOM nunca seria regravado por essa pessoa). Mesma condição/mesma mensagem
+        // em `usePlanejamentoSave.ts` (card novo, `etapaFalha === "tecidos"`).
+        toast.error(
+          podeEditarDev
+            ? "A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Abra a nova versão e salve de novo para gravá-los."
+            : "A nova versão foi criada, mas os tecidos NÃO foram para a Ficha (BOM). Peça a quem edita o Desenvolvimento para salvar a nova versão.",
+        );
         qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
         onSaved();
         onClose();
@@ -1178,11 +1205,13 @@ function PlanejamentoDetailConteudo({
                 materiaisBase={materiaisSetor} custoPrevisto={custoPrevisto}
                 linhaFaixas={linhaFaixas}
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
-                podeVerCustos={podeVerCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
+                // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
+                // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
+                podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 onVerDev={modeloId ? () => setVerDevModeloId(modeloId) : undefined}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
-                custosBom={ficha.habilitada && ficha.carregado && ficha.podeVerCustos ? {
+                custosBom={ficha.habilitada && ficha.carregado && veCustos ? {
                   totais: ficha.totais,
                   custosAdicionais: draft.custos_adicionais,
                   onChange: (v) => setDraftTracked((d) => ({ ...d, custos_adicionais: v })),
@@ -1210,7 +1239,12 @@ function PlanejamentoDetailConteudo({
               `modelo_servico_mo` (chaveada por modelo_id) — a seção aparece igual ao manufaturado,
               e a MO entra na BASE do markup (banco: _pa/_imp_recomputar). Comprado só mostra com
               `isEdit` (o modelo espelho já existe p/ gravar; senão não há onde persistir). */}
-          {(!isComprado ? true : isEdit) && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+          {/* Fix round 4 (item 2) — gate de EXIBIR a seção usa `veCustos` (união das 2 permissões, decisão F3
+              #2): quem só tem `criacao_desenvolvimento:custos` não perde a seção. Dentro dela, `MaoObraEditor`
+              segue recebendo `podeVerCustos` (page-level, INALTERADO) — essa prop também controla EDIÇÃO
+              (digitar valor, adicionar/remover serviço), fora do escopo deste fix ("não mude permissões de
+              EDIÇÃO"); aprovar/reprovar segue só com `producao_servico_aprovacao`, como hoje. */}
+          {(!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)) && (
             <Secao titulo="Mão de obra" defaultOpen={false}>
               <MaoObraEditor
                 linhas={moLinhas}
@@ -1223,7 +1257,7 @@ function PlanejamentoDetailConteudo({
                 pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
                 linhasPersistidas={moLinhasPersistidas}
               />
-              {podeVerCustos && (
+              {veCustos && (
                 <div className="mt-3">
                   {/* F3.1 (mockup aprovado): rótulo "Obs. Mão de Obra", igual ao do Dev (ModeloDetailPanel.tsx:3051-3055). */}
                   <ObsMaoObraField
@@ -1371,12 +1405,21 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Excluir</span>
             </Button>
           )}
-          {/* Grupo direito: ml-auto empurra para a direita. */}
+          {/* Grupo direito: ml-auto empurra para a direita.
+              Fix round 4 (item 7, T13 m2) — desabilita enquanto `ficha.habilitada && !ficha.carregado`: a
+              `mutationFn` do Duplicar lê `fichaRef.current.carregado`/`.estado.blocks` p/ montar o BOM da cópia
+              (item da Task 13); clicar ANTES de carregar caía no fallback `tecidos_planejados.slice(0,3)` em vez
+              dos artigos reais do BOM. Sem `canView` do Dev (`!ficha.habilitada`) o fallback segue igual a hoje
+              (a ficha nunca carrega nesse caso, então bloquear pra sempre seria pior). `title` num `<span>`
+              (não no `<button disabled>`) — mesmo padrão do tooltip "Enviar Ordem de Criação" acima: botão
+              desabilitado não dispara `title` nativo em todo navegador. */}
           {isEdit && (
-            <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending} aria-label="Duplicar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
-              <Copy className="h-4 w-4 sm:mr-1" />
-              <span className="max-sm:sr-only">Duplicar</span>
-            </Button>
+            <span title={ficha.habilitada && !ficha.carregado ? "Carregando a ficha…" : undefined} className="ml-auto shrink-0" style={{ display: "inline-flex" }}>
+              <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending || (ficha.habilitada && !ficha.carregado)} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+                <Copy className="h-4 w-4 sm:mr-1" />
+                <span className="max-sm:sr-only">Duplicar</span>
+              </Button>
+            </span>
           )}
           {isEdit && (enviada ? (
             <Button variant="outline" onClick={() => enviar.mutate(false)} disabled={enviar.isPending}>

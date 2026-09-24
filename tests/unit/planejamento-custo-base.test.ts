@@ -21,6 +21,16 @@ describe("baseCustoPlanejamento", () => {
   it("nada → 0 estimado", () => {
     expect(baseCustoPlanejamento({ confirmado: false, realServidor: undefined, previsto: undefined, estimativa: 0 })).toEqual({ valor: 0, selo: "estimado" });
   });
+  // Fix round 4 (item 1, IMPORTANTE) — sem `veCustos` (nem `criacao_planejamento:custos` nem
+  // `criacao_desenvolvimento:custos`), o PD (PlanejamentoDetail.tsx) zera `previsto`/`estimativa` ANTES de
+  // chamar esta função (o gate de permissão fica no PD, não aqui — mantém `baseCustoPlanejamento` pura/sem
+  // RBAC). `confirmado`/`realServidor` seguem intocados porque já vêm mascarados (`{}`) do RPC
+  // `custo_unitario_modelos` no servidor (invariante #12) — redundante propositalmente, defesa em
+  // profundidade. Resultado: base 0/estimado, exatamente o mesmo caso de "nada" acima — documentado aqui
+  // como o cenário específico do vazamento corrigido (sugerido/markup/faixas viram "—" na tabela).
+  it("sem veCustos (o PD zera previsto/estimativa antes de chamar) → base 0, mesmo com real mascarado (real=0, confirmado=false)", () => {
+    expect(baseCustoPlanejamento({ confirmado: false, realServidor: 0, previsto: 0, estimativa: 0 })).toEqual({ valor: 0, selo: "estimado" });
+  });
 });
 
 describe("previstoDaFicha", () => {

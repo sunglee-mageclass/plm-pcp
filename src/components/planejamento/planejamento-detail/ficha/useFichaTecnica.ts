@@ -232,6 +232,12 @@ export function useFichaTecnica(a: {
   // o BOM com o `podeEditar` velho (true) num card que, agora, está só-leitura.
   const podeEditarRef = useRef(false);
   podeEditarRef.current = podeEditar;
+  // Fix round 4 (item 3) — `capturar().totais` precisa vir preenchido sempre que a ficha está CARREGADA
+  // (não só quando `podeEditar`), calculado sobre o estado CARREGADO do BOM (`bom.estadoRef.current` —
+  // travado não edita, então é sempre o do servidor). Mesmo padrão de ref que `podeEditarRef`: `capturar()`
+  // roda fora do ciclo de render (inclusive no retry do P0409) e precisa do valor de AGORA.
+  const carregadoRef = useRef(false);
+  carregadoRef.current = carregado;
   // Item C (fix round 2) — mesmo padrão/motivo do `podeEditarRef` acima: `capturar()` (chamado dentro do
   // retry do P0409, fora do ciclo normal de render) precisa ler o motivo de AGORA, não o closure velho.
   const motivoSomenteLeituraRef = useRef<MotivoSomenteLeitura>(null);
@@ -398,9 +404,17 @@ export function useFichaTecnica(a: {
     colecoesTouchadasRef: bom.colecoesTouchadasRef,
     setConflitoBom: setConflitoBomBoth,
     bomMudouNoServidor,
-    // Item E (fix round 3, (a)) — mesma condição de `gravar` em `capturar()` abaixo, sem o `podeEditarRef`
-    // (aqui é só "este save VAI TENTAR gravar", não "pode"): tocado OU prefill pendente.
-    bomPendenteDeGravar: () => bom.colecoesTouchadasRef.current || bom.prefillPendenteRef.current,
+    // Item E (fix round 3, (a)) — mesma condição de `gravar` em `capturar()` abaixo: tocado OU prefill
+    // pendente.
+    // Fix round 4 (item 9, acréscimo do controlador) — soma `podeEditarRef.current`: o prefill
+    // (`prefillPendenteRef`) é marcado na CARGA do BOM (useFichaBom.ts) pra QUALQUER um que veja o Dev, não só
+    // quem edita — um usuário só-leitura (ex.: `canView` sem `canEdit`, ou card travado por "enviado"/"cad")
+    // nunca vai gravar o BOM (a trava zera `podeGravarColunasDev`/handlers viram NO-OP), mas SEM este gate
+    // `bomPendenteDeGravar()` dava `true` só pelo prefill, e o `onError` do P0409 (usePlanejamentoSave.ts)
+    // conferia o BOM do servidor e podia acender "Tecidos & BOM"/travar o Salvar por um BOM que este save
+    // jamais tentaria gravar. Cenário do controlador: usuário só-VÊ o Dev salva o preço durante um P0409 —
+    // antes travava à toa; agora não, porque `podeEditarRef.current` é `false` para ele.
+    bomPendenteDeGravar: () => podeEditarRef.current && (bom.colecoesTouchadasRef.current || bom.prefillPendenteRef.current),
     capturar: (custosAdicionais) => {
       const e = bom.estadoRef.current;
       const snap = snapshotBom(e);
@@ -419,7 +433,13 @@ export function useFichaTecnica(a: {
         flags: { ...bom.flagsRef.current },
         idsEtiquetasServidor: (dados.etiquetasDataRef.current ?? []).map((x) => x.id),
         tecidosPlanejados: tecidosPlanejadosDerivados(e.blocks, bom.varianteArtigoMapRef.current),
-        totais: podeEditarRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
+        // Fix round 4 (item 3) — antes só vinha com `podeEditarRef` (ficha destravada); agora vem sempre que
+        // CARREGADA (travada ou não), sobre o estado carregado (`e` = `bom.estadoRef.current`, que com a
+        // ficha travada É o estado do servidor — travado não edita). `custo_peca_previsto` é DERIVADO do
+        // BOM + MO, não uma coluna do Dev: precisa acompanhar a MO mesmo sem permissão de gravar o resto do
+        // Dev. As demais colunas derivadas (`custo_*` por tipo) continuam gated por `podeGravarColunasDev`
+        // em `aplicarColunasFicha` (save-ficha.ts) — não mudou.
+        totais: carregadoRef.current ? totaisBom({ blocks: e.blocks, aviamentos: e.aviamentos, etiquetas: e.etiquetas, custosAdicionais, maoObra: 0 }) : null,
         // Item C — `true` só quando a captura viu o card JÁ enviado (a trava ÚNICA em "enviado"). Os outros
         // motivos ("permissao"/"carregando"/"cad"/null) não são o cenário do bug (envio à Explosão em voo).
         enviadoNaCaptura: motivoSomenteLeituraRef.current === "enviado",

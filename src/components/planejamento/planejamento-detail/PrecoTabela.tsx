@@ -56,6 +56,9 @@ export function PrecoTabela(props: {
   linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
   moMin: { moMax: number; atingivel: boolean }; moIdeal: { moMax: number; atingivel: boolean }; moMax: { moMax: number; atingivel: boolean };
   moStatusFaixa: "no_maximo" | "no_ideal" | "no_minimo" | "acima" | "indef";
+  // Fix round 4 (item 2) — o chamador (PlanejamentoDetail.tsx) manda `veCustos` aqui (união
+  // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
+  // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
   onVerDev?: () => void;
 }) {
@@ -209,8 +212,14 @@ export function PrecoTabela(props: {
             </>
           )}
           {/* F3.2 — custos do BOM como LINHAS da tabela (decisão F3 #2 + mockup Anotado, seção 10 — R9c). A trava é por
-              `disabled` em cada input (um <fieldset> não pode ficar dentro de <tbody>); sem `editavel` somem os botões. */}
-          {custosBom && (
+              `disabled` em cada input (um <fieldset> não pode ficar dentro de <tbody>); sem `editavel` somem os botões.
+              Fix round 4 (item 4, m1) — ESCONDE no estimado (`gen_anotado.py` §10 inacessível nesta worktree;
+              escolha registrada no relatório): sem material no BOM, `custoTotal` vem de `simCalc.total` (Tecido
+              da estimativa + aviamento manual + M.O.) — as linhas do BOM (todas "—", Σ=0) e os custos adicionais
+              não entram nessa soma, então mostrá-las junto do bloco "Tecido/Materiais" estimado (que já tem SEUS
+              próprios inputs) duplicava conceito e não fechava a conta. Esconder é reversível: assim que o BOM
+              ganha material, `seloCusto` vira "previsto" e o bloco reaparece com os valores certos. */}
+          {custosBom && seloCusto !== "estimado" && (
             <>
               <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos do BOM <span className="normal-case font-normal tracking-normal">— previsto, do Desenvolvimento</span></td></tr>
               {linhasBom.map(([rotulo, valor]) => (
@@ -235,7 +244,9 @@ export function PrecoTabela(props: {
                   </td>
                   <td className="py-2 px-2 text-right text-muted-foreground">—</td>
                   <td className="py-2 px-2 text-right">
-                    <NumberInput
+                    {/* Fix round 4 (item 5) — MoneyInput (§Q) no lugar do NumberInput: mesmo onChange (emite
+                        string canônica, `Number(...)` continua gravando número); só o formato de exibição muda. */}
+                    <MoneyInput
                       className="ml-auto h-8 w-28 text-right tabular-nums"
                       placeholder="0,00"
                       value={c.valor || ""}
