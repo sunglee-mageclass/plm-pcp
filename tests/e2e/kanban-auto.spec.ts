@@ -93,6 +93,33 @@ async function expandirGruposPlanejamento(page: Page): Promise<void> {
   }
 }
 
+// Achado (Task 8/finalização F2, registrado no controlador 24/set): o board Mobile do Desenvolvimento
+// (`div.md:hidden`, criacao.desenvolvimento.tsx) é um Accordion — 1 `AccordionItem` por COLUNA de status;
+// só a PRIMEIRA (`firstStatusKey`) nasce expandida (`defaultValue`). Se essa 1ª coluna estiver vazia
+// ("Sem cards"), nenhum card mobile — logo nenhum "Mover para…" (`combobox`) — fica no DOM, mesmo que
+// outras colunas tenham cards. `kanban-grupo-toggle` é um elemento DIFERENTE: agrupamento (splitter, ex.
+// por tecido) DENTRO de uma coluna já expandida — clicar nele sem antes garantir que a COLUNA em si tem
+// cards não resolve nada quando a coluna escolhida está vazia. Corrige o spec (não o produto): acha a
+// AccordionTrigger de uma coluna com contagem > 0, expande-a se ainda fechada, e só então expande um
+// eventual `kanban-grupo-toggle` dentro dela.
+async function expandirColunaMobileComCard(page: Page): Promise<void> {
+  // AccordionTrigger de coluna termina no <span> de contagem — filtra por trigger cujo texto termina num número > 0.
+  const triggers = page.getByRole("button", { expanded: false });
+  const n = await triggers.count();
+  for (let i = 0; i < n; i++) {
+    const trig = triggers.nth(i);
+    const texto = ((await trig.textContent()) ?? "").trim();
+    const m = /(\d+)\s*$/.exec(texto);
+    if (m && Number(m[1]) > 0) {
+      await trig.click();
+      await page.waitForTimeout(50); // Radix anima a expansão antes de montar o conteúdo por completo
+      break;
+    }
+  }
+  const grupo = page.getByTestId("kanban-grupo-toggle").filter({ visible: true }).first();
+  if (await grupo.count()) await grupo.click();
+}
+
 // Selo no card COMPACTO do Planejamento (B1, dono 23/set): cada selo dentro da linha e do corpo do card; o
 // compacto nunca mostra o texto "automática"/"fixado" (no máximo o ícone). Devolve quantos selos compactos viu.
 //
@@ -247,8 +274,7 @@ test.describe("Kanban automático — chave LIGADA na Loja Teste (G-chave) — S
   test("mobile: “Mover para…” anota cada destino (sem escolher)", async ({ browser }) => {
     const m = await abrir(browser, { width: 390, height: 844 });
     await m.goto("/criacao/desenvolvimento", { waitUntil: "networkidle" });
-    const grupo = m.getByTestId("kanban-grupo-toggle").filter({ visible: true }).first();
-    if (await grupo.count()) await grupo.click();
+    await expandirColunaMobileComCard(m);
     const mover = m.getByRole("combobox").filter({ hasText: "Mover para…" }).first();
     await expect(mover).toBeVisible();
     await mover.click();
