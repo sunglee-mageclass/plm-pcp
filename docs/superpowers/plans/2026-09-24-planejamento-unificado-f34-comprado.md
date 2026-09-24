@@ -69,6 +69,19 @@ O G-plano F3.4 (diário do guardião, `.superpowers/sdd/2026-09-22-unificacao-ka
 | **R7** — ficha pela origem do RASCUNHO × grade pela SALVA | A Origem não muda com edição pendente (ficha tocada OU grade cor × tamanho editada), nos dois sentidos | Task 1 (`edicaoPendente`, `MOTIVO_EDICAO_PENDENTE`, teste); Task 4 Step 6 (`tocado`); Task 6 Step 2; Task 9 S2b; §6 R15; §7 T15 |
 | **D3** (informativo) | "Depois de enviado à Explosão, a grade do importado trava junto com a ficha; para mudar, usar o botão Editar" — no texto ao dono e no aviso da tela | §8 D3; Task 7 Step 4 (a) |
 
+
+### Acréscimos do controlador (24/set, depois do G-plano)
+
+- **Decisões do dono JÁ TOMADAS (24/set) — §8 vale como DECIDIDO:** D1(i) comprado com OC **NÃO** volta a Interno;
+  D1(ii) Salvar como Importado **CRIA** o produto sozinho; D2 **(A)** Enviar à Explosão para Revenda **e** Importado.
+- **Lacuna da comparação Dev × Planejamento (item 102):** a chave `s1` do "Fluxo de Revenda" esconde "Informações
+  Básicas" inteira no Dev (`ModeloDetailPanel.tsx:1621`). No Planejamento, `s1` deve esconder a seção 3 "Desenvolvimento —
+  equipe e cronograma" (`DevEquipeSection`) do card comprado. Implementar na Task 1 (`secoesFicha` ganha `equipe: boolean`
+  = `!isComprado || campoVisivel("s1")`, com teste) e na Task 7 (`vis.desenvolvimento` usa `secFicha.equipe`); os campos de
+  Info Básicas por campo (`modelista_id`… via `campoVisivelDev`) continuam como estão. QA S3 confere.
+- **Base da F3.4 mudou:** a F3.2 e a F3.3 vão a produção JUNTAS (dono, 24/set); a F3.3 foi rebaseada sobre a F3.2 final
+  (3adfbd3). A Task 0 da F3.4 reconta as âncoras na ponta da F3.3 pós-rebase.
+
 ## 1. Fatos verificados (24/set/2026, só leitura)
 
 **Código — ponta da F3.2 (`f32-ficha-bom` @`f19202b`; a F3.3 não mexe nestes pontos salvo onde indicado):**
