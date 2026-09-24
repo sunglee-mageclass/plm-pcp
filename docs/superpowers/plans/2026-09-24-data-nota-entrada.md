@@ -25,7 +25,7 @@
 - Uma migration: `supabase/migrations/20261002100000_oc_data_nota_entrada.sql` (> `20261001100000` do Aviso Global > `20260930180000` da F3.1). Inverso: `supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`. Os dois são GERADOS (`gerar_sql.py`, Task 3) — nunca editados à mão. `BEGIN;`/`COMMIT;` (1 de cada, em linha própria), idempotente, **com `SET LOCAL lock_timeout = '500ms';` e `SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;`, DENTRO do arquivo** (R9 — `psql -f` é o caminho padrão do CLAUDE.md; o harness exige as 2 linhas e as tira da txn do teste).
 - **Travas (R3):** fora do harness de teste, a migration e o inverso SÓ vão a um banco pelo `aplica_v2` (`.superpowers/nota/mig/aplica.sh`, cópia literal do bloco de apoio v2 do runbook da F1, igual ao Aviso e à F3.1): o arquivo inteiro numa mensagem, `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout = '3s'` injetados depois do `BEGIN;`, nova tentativa só em 55P03/40P01/25P04 (ATIV antes), qualquer outro erro PARA. Nada de `psql -1 -f`. O `aplica_v2` reinjeta as mesmas 2 travas que o arquivo já traz (R9): repetido, inofensivo. Três usos: ensaio (Task 4), cópia do QA (Task 12) e a ida junto com o merge (Task 13 Step 8) e produção (Task 13, pelo DONO).
 - **Policy / supautils (R9 — lição do Aviso, provada na cópia):** no Supabase, `CREATE`/`DROP POLICY` como `postgres` dispara o hook `supautils.policy_grants`, que pega AccessExclusive em 24 tabelas de auth/storage/realtime (`auth.users`, `auth.sessions`, `storage.objects`… — `show supautils.policy_grants` na cópia, 24/set) até o COMMIT. A migration e o inverso da Nota NÃO têm DDL de policy (nenhum `CREATE`/`DROP`/`ALTER POLICY`; coluna nova não obriga a recriar policy) — o harness (`RE_DDL_POLICY`) e o pré-voo (`confere_arquivos_nota`) recusam se entrar uma; se um dia for preciso: no FIM do arquivo e a spec §7 deixa de dizer que não trava auth/storage. O que trava: `ALTER TABLE … ADD COLUMN` = AccessExclusive nas 5 OCs até o COMMIT, e as 5 policies de outras tabelas que leem as OCs (`enderecamento_tecido` endtec_ins/endtec_upd, `ocs_tecido_itens`, `ocs_aviamento_itens`, `ocs_etiqueta_itens`) esperam junto. Aplicação em horário calmo.
-- **Tempo do inverso (R9-a — guardião):** o inverso tem um laço que recalcula as não pagas de CADA OC datada (passo 3 do arquivo) e o tempo dele cresce com o nº de OCs datadas em produção. Por isso: (1) o inverso sai com `transaction_timeout` MAIOR — `gerar_sql.py --tt-inverso N` (padrão e mínimo 30 s; a Task 4 mede e pode subir: ⌈5 × tempo medido⌉); a ida fica em 3 s; o `lock_timeout` fica em 500 ms nos dois, porque é ele que protege os outros usuários (o arquivo nunca fica na fila de uma trava segurando quem chega depois); (2) o laço roda ANTES das travas exclusivas (funções → laço → gatilhos → colunas): durante ele só há trava de LINHA; o AccessExclusive nas 5 OCs é só o fim, curto; (3) o inverso vai pelo `aplica_v2_inverso` (`aplica.sh`), que injeta o `transaction_timeout` DO ARQUIVO antes dele — o 1º `SET LOCAL` arma o relógio e um maior depois NÃO o estende (provado na cópia pelo guardião), então o `com_travas` literal (3 s) não serve ao inverso; o `aplica_v2` e o `com_travas` literais seguem intactos; (4) o ensaio (Task 4) data as OCs recebidas da cópia e MEDE a volta com esse volume (`.superpowers/nota/mig/volta-medida.txt`); (5) o `volta-producao.sh` mostra, ANTES da confirmação digitada, quantas OCs estão datadas em produção e PARA se o tempo do arquivo não cobrir o laço com folga de 5×. Timeout maior é aceitável no inverso porque ele é EMERGÊNCIA, decidida pelo dono, em horário calmo. A ida não tem DML fora de corpo de função (o gerador recusa), então o tempo dela não cresce com os dados; ela é medida duas vezes no ensaio, sem e com as OCs datadas.
+- **Tempo do inverso (R9-a — guardião):** o inverso tem um laço que recalcula as não pagas de CADA OC datada (passo 3 do arquivo) e o tempo dele cresce com o nº de OCs datadas em produção. Por isso: (1) o inverso sai com `transaction_timeout` MAIOR — `gerar_sql.py --tt-inverso N` (padrão e mínimo 30 s; a Task 4 mede e pode subir: ⌈5 × tempo medido⌉); a ida fica em 3 s; o `lock_timeout` fica em 500 ms nos dois, porque é ele que protege os outros usuários (o arquivo nunca fica na fila de uma trava segurando quem chega depois); (2) o laço roda ANTES das travas exclusivas (funções → laço → gatilhos → colunas): durante ele só há trava de LINHA; o AccessExclusive nas 5 OCs é só o fim, curto; (3) o inverso vai pelo `aplica_v2_inverso` (`aplica.sh`), que injeta o `transaction_timeout` DO ARQUIVO antes dele — o 1º `SET LOCAL` arma o relógio e um maior depois NÃO o estende (provado na cópia pelo guardião), então o `com_travas` literal (3 s) não serve ao inverso; o `aplica_v2` e o `com_travas` literais seguem intactos; (4) o ensaio (Task 4) MEDE o laço com volume real numa transação DESFEITA (R9-b: migration → datar as OCs recebidas → inverso cronometrado → ROLLBACK; nenhum dado da cópia muda, conferido por retrato só-leitura antes × depois) e grava `.superpowers/nota/mig/volta-medida.txt`; o passo 4b do inverso REPASSA, já com o AccessExclusive, as OCs que ganharam data durante o laço (R9-b); (5) o `volta-producao.sh` mostra, ANTES da confirmação digitada, quantas OCs estão datadas em produção e PARA se o tempo do arquivo não cobrir o laço com folga de 5×. Timeout maior é aceitável no inverso porque ele é EMERGÊNCIA, decidida pelo dono, em horário calmo. A ida não tem DML fora de corpo de função (o gerador recusa), então o tempo dela não cresce com os dados; ela é medida duas vezes na mesma txn desfeita, sem e com as OCs datadas.
 - **Guarda de md5 (R2):** a migration e o inverso aceitam SÓ o md5 EXATO de 24/set (antes) ou o desta migration (depois) de cada uma das 10 funções (e das 2 novas); qualquer outro texto — inclusive um que ainda contenha `data_nota_entrada` — é recusado. Teste de recusa na Task 2.
 - **D6/D7 (PENDENTES DO DONO):** o plano implementa a recomendação — D6: OC recebida sem parcela a pagar acende, com o aviso curto "Falta a Data da Nota de Entrada" (sem "provisórios"); D7: a data não pode ser futura (> hoje no fuso da loja) nem anterior à data do pedido, com erro em PT, validada no SERVIDOR (gatilho `trg_nota_entrada_valida` nas 5 OCs) E no front. Resposta diferente = variante da §5.
 - Contagens: a migration acrescenta **2 funções** (`fn_oc_nota_entrada_recalc`, `fn_oc_nota_entrada_valida`) e **8 gatilhos** (3 de recálculo + 5 de validação; o do Acabado é recriado). Cópia hoje 458|263 → com a Nota **460|271**. Sem a D7 seriam +1|+3 (459|266).
@@ -68,7 +68,7 @@
 |---|---|---|
 | `src/lib/nota-entrada.ts` (novo) | Regra pura: famílias que alertam, `faltaNotaEntrada`, `parcelaProvisoria`, `baseVencimento`, `payloadDataNota`, textos, `invalidarVencimentos` | 1 |
 | `tests/unit/nota-entrada.test.ts` (novo) | Unit da regra | 1 |
-| `tests/integration/nota-entrada.test.ts` (novo) | Harness (migration na txn, só cópia) + 14 testes de banco/dinheiro (inclui D7 e a recusa R2) | 2 |
+| `tests/integration/nota-entrada.test.ts` (novo) | Harness (migration na txn, só cópia) + 15 testes de banco/dinheiro (inclui D7, a recusa R2 e a medição do laço do inverso numa txn desfeita — R9-b) | 2 |
 | `supabase/migrations/20261002100000_oc_data_nota_entrada.sql` (gerado) | Coluna ×5, 10 funções, 2 funções novas + 8 gatilhos (recálculo e validação D7), ACL, guarda md5 exata e pós-condição | 3 |
 | `supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql` (gerado) | Inverso destrutivo com confirmação | 3 |
 | `src/components/shared/NotaEntrada.tsx` (novo) | `CampoDataNotaEntrada`, `AvisoFaltaNota` (conta as parcelas a pagar — D6), `BolinhaFaltaNota`, `TagParcelaProvisoria`, `useValidarDataNota` (D7) | 5 |
@@ -551,7 +551,7 @@ git commit --only -m "feat(nota-entrada): regra única de tela — alerta, parce
 - Consumes: `tests/integration/db.ts` (`hasDb`, `withTx`, `comoUsuario`, `um`, `TENANT_TESTE`, `ehBancoLocal`) — não modificar.
 - Produces: a suíte que prova a Task 3. Variáveis: `DATABASE_URL` (a da cópia), `NOTA_MIG_TXN=1` (aplica a migration dentro da txn; exige a cópia SEM ela), `NOTA_CAPTURA_DEPOIS=<dir>` (grava o `pg_get_functiondef` depois — Task 3 Step 5).
 
-Cobertura (14 testes; 9 rodam nos dois modos, 5 só com `NOTA_MIG_TXN=1`). Datas SEMPRE no passado e ≥ o pedido (01/09/2026) — a D7 recusa futura:
+Cobertura (15 testes; 9 rodam nos dois modos, 6 só com `NOTA_MIG_TXN=1`). Datas SEMPRE no passado e ≥ o pedido (01/09/2026) — a D7 recusa futura:
 1. ACL #9 das internas; RPCs de sempre seguem para `authenticated`.
 2. Tecido: data → vencimentos = data + 30/60/90; mudar a data pela RPC → só as NÃO pagas mudam; paga idêntica (id, valor, vencimento, status, data de pagamento); valores das não pagas `333.34/333.33`; Σ = 1.000,00; data gravada.
 3. Tecido: UPDATE direto da data recalcula (gatilho); OC encomendada não ganha parcela.
@@ -563,8 +563,9 @@ Cobertura (14 testes; 9 rodam nos dois modos, 5 só com `NOTA_MIG_TXN=1`). Datas
 10. (MIG_TXN) sem a data = o de hoje, byte a byte (4 famílias; com e sem entrega; com paga + recálculo; prazo "30, 60").
 11. (MIG_TXN) idempotente e ACL das 10 redefinidas igual à de antes; 3 gatilhos de recálculo + 5 de validação.
 12. (MIG_TXN) **R2:** uma função alterada por "outra frente" que AINDA contém `data_nota_entrada` é RECUSADA pela migration e pelo inverso (e nada fica pela metade).
-13. (MIG_TXN) inverso: recusa sem confirmação (e não deixa nada pela metade); com ela, 10 funções no md5 de 24/set, gatilho do Acabado com as 3 colunas de antes, colunas fora, não pagas de volta à base da entrega (Tecido) e do pedido (P. Acabado — R9-a: o laço roda antes de derrubar os gatilhos, e o do Acabado ainda escuta a data), paga intacta, Σ = total; reaplicar depois funciona. O harness tira as 2 travas da txn do teste; o TEMPO do inverso com volume é medido na Task 4.
+13. (MIG_TXN) inverso: a ORDEM do arquivo (funções → laço → DROP TRIGGER → repasse → DROP COLUMN — R9-a/R9-b); recusa sem confirmação (e não deixa nada pela metade); com ela, 10 funções no md5 de 24/set, gatilho do Acabado com as 3 colunas de antes, colunas fora, as não pagas das 4 famílias (Tecido, Aviamento, Insumo e P. Acabado, todas datadas com NF 05/09 ≠ base antiga) de volta à base ANTIGA — entrega 10/09 ou pedido 01/09: prova que o laço rodou com as funções JÁ restauradas —, paga intacta, Σ = total; o NOTICE do repasse diz `0 OC(s) repassada(s)` (o laço já pegou todas); reaplicar depois funciona. O harness tira as 2 travas da txn do teste; o TEMPO do inverso com volume é medido na Task 4.
 14. (MIG_TXN + `NOTA_CAPTURA_DEPOIS`) captura o texto DEPOIS (10 + 2 novas) para o diff da Task 3.
+15. (MIG_TXN + `NOTA_MEDIR_VOLTA`) **R9-b:** mede o laço do inverso com as OCs recebidas da cópia DATADAS numa txn DESFEITA — migration, datar (a própria base de hoje, dentro da D7), a ida de novo, o inverso cronometrado por `clock_timestamp()` com `transaction_timeout` de 900 s só nessa txn; grava `volta-medida.txt`; confere Σ por OC e as pagas iguais depois da volta; ROLLBACK (resíduo zero). Só roda na Task 4.
 
 - [ ] **Step 1: Escrever a suíte** — `tests/integration/nota-entrada.test.ts`:
 
@@ -579,9 +580,10 @@ Cobertura (14 testes; 9 rodam nos dois modos, 5 só com `NOTA_MIG_TXN=1`). Datas
  *
  * Dois modos:
  *  • NOTA_MIG_TXN=1 — a cópia está SEM a migration; `prepara` aplica o arquivo DENTRO da txn (tira só as linhas `BEGIN;` e
- *    `COMMIT;` — NUNCA `\i`: o COMMIT do arquivo fecharia a txn e VAZARIA, incidente 15/set). Roda TUDO, inclusive os 5 testes
- *    que precisam do estado de ANTES ("sem data = hoje", idempotência/ACL, guarda R2, inverso, captura do diff).
- *  • sem a variável — a migration já está aplicada na cópia (Task 4/12); roda os testes de comportamento; os 5 pulam.
+ *    `COMMIT;` — NUNCA `\i`: o COMMIT do arquivo fecharia a txn e VAZARIA, incidente 15/set). Roda TUDO, inclusive os 6 testes
+ *    que precisam do estado de ANTES ("sem data = hoje", idempotência/ACL, guarda R2, inverso, captura do diff e a medição
+ *    do laço do inverso — R9-b: com as OCs recebidas da cópia DATADAS, tudo DESFEITO no ROLLBACK).
+ *  • sem a variável — a migration já está aplicada na cópia (Task 4/12); roda os testes de comportamento; os 6 pulam.
  * ⚠️ R4 do G-plano: a DDL em transação CONGELA o app de teste do dono (:5188) nas OCs/Estoque/Financeiro enquanto roda —
  *    só rodar depois do pré-voo `bash .superpowers/nota/prevoo-copia.sh <passo>` (dono avisado, :5188 ocioso, nenhum
  *    vitest/playwright, nenhuma sessão ativa na cópia).
@@ -598,6 +600,8 @@ const MIG = "supabase/migrations/20261002100000_oc_data_nota_entrada.sql";
 const DOWN = "supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql";
 const MIG_TXN = process.env.NOTA_MIG_TXN === "1";
 const CAPTURA = process.env.NOTA_CAPTURA_DEPOIS ?? "";
+/** R9-b: arquivo onde a medição do laço do inverso grava (chave=valor) — só com NOTA_MIG_TXN=1 (Task 4 Step 2). */
+const MEDIR = process.env.NOTA_MEDIR_VOLTA ?? "";
 const RODA = hasDb && ehBancoLocal();
 
 /** md5(pg_get_functiondef) das 10 funções redefinidas — cópia em 24/set (= produção em 23/set). */
@@ -1099,19 +1103,36 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
     });
   });
 
-  it.skipIf(!MIG_TXN)("inverso: recusa sem confirmação; com ela volta as 10 funções (md5 de 24/set) e a base antiga das não pagas (Tecido e P. Acabado — R9-a: laço antes dos gatilhos)", async () => {
+  it.skipIf(!MIG_TXN)("inverso: recusa sem confirmação; com ela volta as 10 funções (md5 de 24/set) e a base ANTIGA das não pagas nas 4 famílias (R9-a/R9-b: funções → laço → gatilhos → repasse → colunas)", async () => {
+    // R9-b: a ORDEM do arquivo (o laço antes das travas exclusivas; o repasse depois do DROP TRIGGER, antes das colunas)
+    const inv = readFileSync(ROOT + DOWN, "utf8");
+    const pos = ["-- 2) As 10 funções", "DO $volta$", "DROP TRIGGER IF EXISTS trg_nota_entrada_recalc", "DO $repasse$", "DROP COLUMN"]
+      .map((m) => inv.indexOf(m));
+    expect(pos.every((p) => p > 0)).toBe(true);
+    expect([...pos].sort((a, b) => a - b)).toEqual(pos);
     await withTx(async (c) => {
       await prepara(c); // aplica a migration na txn
       const fx = await fixtures(c);
       const id = await ocTecido(c, fx, { data_nota_entrada: "2026-09-05" });
       await pagar(c, (await parcelas(c, "tecido", id))[0].id);
       const paga = (await parcelas(c, "tecido", id))[0];
-      // R9-a: o laço do inverso roda com os gatilhos novos ainda no lugar — o do Acabado dispara pelo data_pedido
+      // O laço roda com os gatilhos novos ainda no lugar (o do Acabado dispara pelo data_pedido) e passa pelas 4 famílias.
+      // Todas com NF 05/09 ≠ base antiga: se o laço usasse o texto NOVO, o vencimento ficaria pela NF.
       const pa = await ocPAcabado(c, fx, { data_nota_entrada: "2026-09-05" });
-      expect((await parcelas(c, "p_acabado", pa)).map((x) => x.venc)).toEqual(["2026-10-05", "2026-11-04"]);
+      const avi = await ocAviamento(c, fx, { data_nota_entrada: "2026-09-05" });
+      const ins = await ocInsumo(c, fx, { data_nota_entrada: "2026-09-05" });
+      for (const [f, oc] of [["p_acabado", pa], ["aviamento", avi], ["etiqueta", ins]] as const) {
+        expect({ f, v: (await parcelas(c, f, oc)).map((x) => x.venc) }).toEqual({ f, v: ["2026-10-05", "2026-11-04"] });
+      }
+      const [totAvi, totIns] = [await totalAviamento(c, avi), await totalInsumo(c, ins)];
       await expect(aplicarArquivo(c, DOWN)).rejects.toThrow(/confirmo_apagar_data_nota_entrada/);
       expect(await colunas(c)).toBe(5); // a recusa não deixou nada pela metade
+      const avisos: string[] = [];
+      const ouvir = (m: { message?: string }) => avisos.push(m.message ?? "");
+      c.on("notice", ouvir);
       await aplicarArquivo(c, DOWN, "SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'");
+      c.removeListener("notice", ouvir);
+      expect(avisos).toContain("data_nota_entrada (inverso): 0 OC(s) repassada(s) depois do DROP TRIGGER"); // o laço já pegou as 4
       expect(await colunas(c)).toBe(0);
       for (const [sig, md5] of Object.entries(MD5_ANTES)) {
         expect({ sig, md5: (await um<{ m: string }>(c, `select md5(pg_get_functiondef($1::regprocedure)) m`, [sig])).m }).toEqual({ sig, md5 });
@@ -1128,6 +1149,12 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       const ppa = await parcelas(c, "p_acabado", pa);
       expect(ppa.map((x) => x.venc)).toEqual(["2026-10-01", "2026-10-31"]); // base = pedido 01/09 de novo
       expect(centavos(ppa)).toBe(100000);
+      const pavi = await parcelas(c, "aviamento", avi);
+      expect(pavi.map((x) => x.venc)).toEqual(["2026-10-10", "2026-11-09"]); // base = entrega 10/09 de novo
+      expect(centavos(pavi)).toBe(totAvi);
+      const pins = await parcelas(c, "etiqueta", ins);
+      expect(pins.map((x) => x.venc)).toEqual(["2026-10-10", "2026-11-09"]);
+      expect(centavos(pins)).toBe(totIns);
       await aplicarArquivo(c, MIG); // reaplicar depois de desfazer
       expect(await colunas(c)).toBe(5);
     });
@@ -1146,6 +1173,77 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       writeFileSync(`${CAPTURA}/md5-depois.txt`, linhas.join("\n") + "\n");
     });
   });
+
+  // R9-b: mede o laço do inverso com VOLUME REAL (as OCs recebidas da cópia datadas, o conjunto do dia 1) numa transação que
+  // é DESFEITA no fim (withTx → ROLLBACK): nenhuma parcela, OC, rev ou audit_log da cópia muda. A Task 4 confere com o
+  // retrato só-leitura antes × depois. Tempos pelo relógio do SERVIDOR (clock_timestamp()).
+  it.skipIf(!MIG_TXN || !MEDIR)("R9-b: mede o laço do inverso com as OCs recebidas da cópia DATADAS — numa txn DESFEITA (resíduo zero)", async () => {
+    await withTx(async (c) => {
+      exigeBancoLocal();
+      await c.query("SET LOCAL transaction_timeout = '900s'"); // 1º SET da txn: é ele que vale (teto ALTO só nesta medição)
+      const agora = async () => Number((await um<{ t: string }>(c, `select extract(epoch from clock_timestamp())::text t`)).t);
+      const t0 = await agora();
+      await prepara(c); // a migration na txn (sem BEGIN/COMMIT, nunca \i)
+      const tIda = (await agora()) - t0;
+      await c.query("SET LOCAL statement_timeout = '900s'");
+      const hoje = `coalesce((select (now() at time zone coalesce(nullif(tc.timezone, ''), 'America/Sao_Paulo'))::date
+                                from public.tenant_config tc where tc.tenant_id = o.tenant_id), (now() at time zone 'America/Sao_Paulo')::date)`;
+      // Alvo = o que acende no dia 1 (recebida, sem data), dentro da D7 (pedido ≤ hoje). Data = a PRÓPRIA base de hoje.
+      await c.query(`create temp table _nota_medida on commit drop as
+        select 'tecido'::text tipo, o.id, greatest(least(coalesce(o.data_entrega, h.d), h.d), coalesce(o.data_pedido, '-infinity'::date)) nota
+          from public.ocs_tecido o cross join lateral (select ${hoje} d) h
+         where o.status = 'recebido' and not coalesce(o.is_rolo, false) and o.data_nota_entrada is null and (o.data_pedido is null or o.data_pedido <= h.d)
+        union all
+        select 'aviamento', o.id, greatest(least(coalesce(o.data_entrega, h.d), h.d), coalesce(o.data_pedido, '-infinity'::date))
+          from public.ocs_aviamento o cross join lateral (select ${hoje} d) h
+         where o.status = 'recebido' and o.data_nota_entrada is null and (o.data_pedido is null or o.data_pedido <= h.d)
+        union all
+        select 'etiqueta', o.id, greatest(least(coalesce(o.data_entrega, h.d), h.d), coalesce(o.data_pedido, '-infinity'::date))
+          from public.ocs_etiqueta o cross join lateral (select ${hoje} d) h
+         where o.status = 'recebido' and o.data_nota_entrada is null and (o.data_pedido is null or o.data_pedido <= h.d)
+        union all
+        select 'p_acabado', o.id, least(coalesce(o.data_pedido, h.d), h.d)
+          from public.ocs_p_acabado o cross join lateral (select ${hoje} d) h
+         where o.status = 'recebido' and o.data_nota_entrada is null and (o.data_pedido is null or o.data_pedido <= h.d)`);
+      const fam = await um<{ t: string; a: string; e: string; p: string }>(c,
+        `select count(*) filter (where tipo = 'tecido') t, count(*) filter (where tipo = 'aviamento') a,
+                count(*) filter (where tipo = 'etiqueta') e, count(*) filter (where tipo = 'p_acabado') p from pg_temp._nota_medida`);
+      const n = Number(fam.t) + Number(fam.a) + Number(fam.e) + Number(fam.p);
+      // Σ por OC e as parcelas PAGAS — a volta tem de devolvê-los iguais
+      const retrato = async () => (await c.query(
+        `select m.tipo, m.id::text oc, coalesce(sum(round(p.valor * 100)), 0)::bigint::text centavos,
+                coalesce(jsonb_agg(jsonb_build_array(p.id, p.numero_parcela, p.valor, p.data_vencimento, p.status, p.data_pagamento)
+                           order by p.numero_parcela) filter (where p.status = 'pago' or p.data_pagamento is not null), '[]'::jsonb)::text pagas
+           from pg_temp._nota_medida m
+           left join public.parcelas p on m.id = coalesce(p.oc_tecido_id, p.oc_aviamento_id, p.oc_etiqueta_id, p.oc_p_acabado_id)
+          group by 1, 2 order by 1, 2`)).rows;
+      const antes = await retrato();
+      const t1 = await agora();
+      await c.query(`update public.ocs_tecido o set data_nota_entrada = m.nota from pg_temp._nota_medida m where m.tipo = 'tecido' and m.id = o.id;
+        update public.ocs_aviamento o set data_nota_entrada = m.nota from pg_temp._nota_medida m where m.tipo = 'aviamento' and m.id = o.id;
+        update public.ocs_etiqueta o set data_nota_entrada = m.nota from pg_temp._nota_medida m where m.tipo = 'etiqueta' and m.id = o.id;
+        update public.ocs_p_acabado o set data_nota_entrada = m.nota from pg_temp._nota_medida m where m.tipo = 'p_acabado' and m.id = o.id;`);
+      const t2 = await agora();
+      await aplicarArquivo(c, MIG); // a IDA de novo, agora com as OCs datadas (idempotente): não pode crescer com os dados
+      const t3 = await agora();
+      await aplicarArquivo(c, DOWN, "SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'");
+      const t4 = await agora();
+      const tVolta = t4 - t3;
+      const ttInverso = Number(/^SET LOCAL transaction_timeout = '(\d+)s';$/m.exec(readFileSync(ROOT + DOWN, "utf8"))?.[1] ?? NaN);
+      const med: Record<string, string | number> = {
+        modo: "txn-desfeita", medido_em: new Date().toISOString(), n_familias: `${fam.t}|${fam.a}|${fam.e}|${fam.p}`, n_copia: n,
+        t_ida_txn: tIda.toFixed(3), t_datar: (t2 - t1).toFixed(3), t_ida_datada: (t3 - t2).toFixed(3), t_volta: tVolta.toFixed(3),
+        s_por_oc: (n > 0 ? tVolta / n : tVolta).toFixed(4), tt_minimo: Math.max(30, Math.ceil(5 * tVolta)), tt_inverso: ttInverso,
+      };
+      writeFileSync(MEDIR, Object.entries(med).map(([k, v]) => `${k}=${v}`).join("\n") + "\n"); // grava ANTES de conferir
+      console.log(`[R9-b] ${n} OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = ${med.n_familias}) · datar ${med.t_datar}s · ` +
+        `ida ${med.t_ida_txn}s / com datas ${med.t_ida_datada}s · volta ${med.t_volta}s (≈ ${med.s_por_oc}s por OC) → ` +
+        `mínimo ${med.tt_minimo}s; o inverso tem ${ttInverso}s`);
+      expect(n).toBeGreaterThan(0); // sem volume a medição não vale
+      expect(await colunas(c)).toBe(0);
+      expect(await retrato()).toEqual(antes); // Σ por OC e as pagas iguais depois da volta (na txn; o ROLLBACK desfaz tudo)
+    });
+  }, 15 * 60_000);
 });
 ```
 
@@ -1641,7 +1739,8 @@ COMMIT;
 --     recalcula as NÃO pagas de CADA OC datada, e esse laço cresce com o nº de OCs (medido no ensaio, Task 4 —
 --     `.superpowers/nota/mig/volta-medida.txt`). Aceitável porque a volta é EMERGÊNCIA, decidida pelo dono, em horário
 --     calmo, e o laço roda ANTES das travas exclusivas: durante ele só há trava de LINHA (parcelas e a OC do P. Acabado);
---     o AccessExclusive nas 5 OCs (DROP TRIGGER/DROP COLUMN, passos 4–5) é só o fim, curto.
+--     o AccessExclusive nas 5 OCs (DROP TRIGGER/DROP COLUMN, passos 4–5) é só o fim, curto — e o passo 4b repassa, já com
+--     ele, as OCs que ganharam data durante o laço (R9-b).
 --   Aplicar pelo aplica_v2_inverso (aplica.sh): ele injeta ESTE transaction_timeout ANTES do arquivo (o 1º SET LOCAL arma o
 --   relógio; um maior depois NÃO o estende — provado na cópia), com a confirmação pelo EXTRA_SQL na MESMA transação.
 --   Sem DDL de policy (o hook supautils.policy_grants não dispara).
@@ -1737,6 +1836,40 @@ CREATE TRIGGER trg_gerar_parcelas_ocpa
   AFTER INSERT OR UPDATE OF valor_total_desconto, prazo_pagamento, data_pedido ON public.ocs_p_acabado
   FOR EACH ROW EXECUTE FUNCTION public.gerar_parcelas_oc_p_acabado();
 
+-- 4b) Repasse (R9-b): com o AccessExclusive das 5 OCs JÁ pego (os DROP TRIGGER acima), recalcula na base antiga as OCs que
+--     ganharam data DEPOIS da captura do passo 1 — ex.: uma OC encomendada com data que foi recebida durante o laço (o
+--     gerador da Nota, ainda vivo para as outras sessões naquele momento, gerou pela NF). Mesmo critério do passo 1, menos
+--     as já recalculadas. Normalmente 0 (o NOTICE diz quantas).
+DO $repasse$
+DECLARE
+  r record;
+  v_n int := 0;
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ocs_tecido' AND column_name = 'data_nota_entrada') THEN
+    FOR r IN EXECUTE $q$
+      SELECT 'tecido'::text AS tipo, id FROM public.ocs_tecido
+       WHERE data_nota_entrada IS NOT NULL AND status = 'recebido' AND NOT COALESCE(is_rolo, false)
+      UNION ALL SELECT 'aviamento', id FROM public.ocs_aviamento WHERE data_nota_entrada IS NOT NULL AND status = 'recebido'
+      UNION ALL SELECT 'etiqueta', id FROM public.ocs_etiqueta WHERE data_nota_entrada IS NOT NULL AND status = 'recebido'
+      UNION ALL SELECT 'p_acabado', id FROM public.ocs_p_acabado WHERE data_nota_entrada IS NOT NULL
+      EXCEPT SELECT tipo, id FROM pg_temp._nota_voltar
+      ORDER BY 1, 2
+    $q$ LOOP
+      v_n := v_n + 1;
+      IF r.tipo = 'etiqueta' THEN
+        PERFORM public.recalcular_parcelas_etiqueta(r.id);
+      ELSIF r.tipo = 'p_acabado' THEN
+        UPDATE public.ocs_p_acabado SET data_pedido = data_pedido WHERE id = r.id;
+      ELSE
+        PERFORM public._recalcular_parcelas_core(r.id, r.tipo);
+      END IF;
+    END LOOP;
+  END IF;
+  RAISE NOTICE 'data_nota_entrada (inverso): % OC(s) repassada(s) depois do DROP TRIGGER', v_n;
+END
+$repasse$;
+
 -- 5) Colunas (DESTRUTIVO)
 """)
     for t in TABELAS:
@@ -1818,7 +1951,7 @@ ok: migration, inverso, depois-esperado/ e diff-esperado.txt gerados
   fn_oc_nota_entrada_valida(): (nova)  depois-esperado e2c335a5e09cb45557babadd542cf958
 ```
 
-(~1.503 linhas a migration e ~1.424 o inverso — o grosso é o texto das 10 funções.) O gerador imprime `travas: ida lock 500ms / transaction 3s · inverso lock 500ms / transaction 30s (--tt-inverso)`. R9/R9-a: na migration `BEGIN;` / `SET LOCAL lock_timeout = '500ms';` / `SET LOCAL transaction_timeout = '3s';` e `0`; no inverso as mesmas linhas com `'30s'` (padrão do `--tt-inverso`; a Task 4 pode subir) e `0` — outra saída = PARE. No inverso, a ordem é guarda → captura → funções → laço (passo 3) → gatilhos (4) → colunas (5): `grep -n '^-- [0-9])' supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`. O `diff-esperado.txt` tem de ser EXATAMENTE este (é o diff mínimo aprovado no plano — qualquer linha a mais = PARE):
+(~1.503 linhas a migration e ~1.424 o inverso — o grosso é o texto das 10 funções.) O gerador imprime `travas: ida lock 500ms / transaction 3s · inverso lock 500ms / transaction 30s (--tt-inverso)`. R9/R9-a: na migration `BEGIN;` / `SET LOCAL lock_timeout = '500ms';` / `SET LOCAL transaction_timeout = '3s';` e `0`; no inverso as mesmas linhas com `'30s'` (padrão do `--tt-inverso`; a Task 4 pode subir) e `0` — outra saída = PARE. No inverso, a ordem é guarda → captura → funções (2) → laço (3) → gatilhos (4) → repasse (4b, R9-b) → colunas (5): `grep -n '^-- [0-9]b\?)' supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`. O `diff-esperado.txt` tem de ser EXATAMENTE este (é o diff mínimo aprovado no plano — qualquer linha a mais = PARE):
 
 ```diff
 --- antes/gerar_parcelas_oc_tecido()
@@ -1946,7 +2079,7 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres NOTA_MIG_TX
   npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts 2>&1 | tail -8
 ```
 
-Expected: `Tests 13 passed | 1 skipped` (o de captura pula sem `NOTA_CAPTURA_DEPOIS`). Nenhum "there is no transaction in progress". Conferir que a cópia NÃO mudou (tudo foi revertido): repetir o 1º comando do Task 0 Step 5 → as mesmas contagens de `copia-contagens-t0.txt` (3ª = `0`).
+Expected: `Tests 13 passed | 2 skipped` (a captura e a medição R9-b pulam sem `NOTA_CAPTURA_DEPOIS`/`NOTA_MEDIR_VOLTA`). Nenhum "there is no transaction in progress". Conferir que a cópia NÃO mudou (tudo foi revertido): repetir o 1º comando do Task 0 Step 5 → as mesmas contagens de `copia-contagens-t0.txt` (3ª = `0`).
 
 - [ ] **Step 5: Capturar o `pg_get_functiondef` DEPOIS e registrar o diff antes → depois**
 
@@ -1987,9 +2120,9 @@ Revisão individual Opus (Tasks 2+3) com: `diff-esperado.txt`, a saída dos Step
 
 ---
 
-## Task 4: Ensaio na CÓPIA — `aplica_v2`, suítes antes/depois, volta MEDIDA com OCs datadas, desfazer  *(controlador; revisão individual Opus da saída)*
+## Task 4: Ensaio na CÓPIA — `aplica_v2`, suítes antes/depois, desfazer, laço do inverso MEDIDO numa txn desfeita  *(controlador; revisão individual Opus da saída)*
 
-**Files:** nenhum no repo. Cria `.superpowers/nota/mig/{aplica.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh}` e `.superpowers/nota/copia.sh` (os de produção só rodam na Task 13, pelo DONO); registra em `.superpowers/nota/copia-estado.md` e as medições (R9-a) em `.superpowers/nota/mig/volta-medida.txt`. Escreve na cópia (backup antes) e a devolve sem a Nota; as parcelas NÃO pagas das OCs datadas no ensaio ganham id novo (recálculo — como todo save), e o Step 2 compara o conteúdo antes × depois.
+**Files:** nenhum no repo. Cria `.superpowers/nota/mig/{aplica.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh}` e `.superpowers/nota/copia.sh` (os de produção só rodam na Task 13, pelo DONO); registra em `.superpowers/nota/copia-estado.md`; o teste "R9-b" grava as medições em `.superpowers/nota/mig/volta-medida.txt`. Escreve na cópia (backup antes) e a devolve sem a Nota. **R9-b:** o ensaio NÃO data OC de verdade — a medição do laço com volume roda numa transação DESFEITA (teste de integração, ROLLBACK); o retrato só-leitura das parcelas e das 5 OCs (linhas inteiras: ids, vencimentos, `dias_offset`, `rev`) + nº de linhas do `audit_log` tem de sair IGUAL antes × depois.
 
 - [ ] **Step 1: Receita de travas e scripts (R3)**
 
@@ -2201,50 +2334,31 @@ backup_copia() {  # backup da CÓPIA LOCAL (dentro do container, porta interna 5
 ```bash
 #!/usr/bin/env bash
 # Data da Nota de Entrada na CÓPIA LOCAL (127.0.0.1:54422). NUNCA produção. Uso (raiz da worktree):
-#   NOTA_DONO_AVISADO=sim bash .superpowers/nota/copia.sh ida|datar|volta
-#   • ida   — migration pelo aplica_v2 (3 s — R3), com pré-voo R4 e backup pg_dump -Fc ANTES; grava t_ida.
-#   • datar — R9-a, SÓ no ensaio (Task 4): data as OCs RECEBIDAS (o conjunto que acende no dia 1) para medir o laço do
-#             inverso com volume de verdade; mede o datar e a IDA de novo com elas (t_datar, t_ida_datada).
+#   NOTA_DONO_AVISADO=sim bash .superpowers/nota/copia.sh ida|volta
+#   • ida   — migration pelo aplica_v2 (3 s — R3), com pré-voo R4 e backup pg_dump -Fc ANTES.
 #   • volta — inverso pelo aplica_v2_inverso (R9-a: transaction_timeout do arquivo, ≥ 30 s), backup ANTES; mostra quantas
-#             OCs estão datadas (= tamanho do laço). Depois de um `datar`: grava t_volta, s_por_oc, tt_minimo e compara as
-#             parcelas (sem id) com as de antes do datar.
-#   NOTA_TT_VOLTA=Ns … volta — transaction_timeout maior só nesta volta (o ensaio mede com 120s para a medição não estourar).
-# Medições: .superpowers/nota/mig/volta-medida.txt (chave=valor) — o volta-producao.sh lê de lá.
+#             OCs estão datadas (= tamanho do laço de recálculo). NOTA_TT_VOLTA=Ns = tempo maior só nesta volta.
+#   bash .superpowers/nota/copia.sh retrato — R9-b, SÓ LEITURA: checksum das linhas INTEIRAS de parcelas e das 5 OCs (ids,
+#             vencimentos, dias_offset, rev…) + nº de linhas do audit_log. A Task 4 tira um antes e um depois da medição do
+#             laço (feita numa transação DESFEITA, no teste de integração) e exige os dois IGUAIS.
+# O ensaio NÃO data OC de verdade na cópia (R9-b): a medição com volume fica no teste "R9-b" (NOTA_MEDIR_VOLTA), com ROLLBACK.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 source .superpowers/nota/mig/aplica.sh || exit 1
 REG=.superpowers/nota/copia-estado.md
 L=.superpowers/nota/logs; mkdir -p "$L"
-PEND=.superpowers/nota/datar-pendente   # existe entre o `datar` e a `volta` do ensaio
-# parcelas das OCs das 4 famílias SEM id/created_at (o recálculo troca o id; o que vale é nº, valor, vencimento, status)
-PARC="select tipo_oc, coalesce(oc_tecido_id, oc_aviamento_id, oc_etiqueta_id, oc_p_acabado_id) as oc, numero_parcela, valor, data_vencimento, status, data_pagamento, dias_offset from public.parcelas where coalesce(oc_tecido_id, oc_aviamento_id, oc_etiqueta_id, oc_p_acabado_id) is not null order by 1, 2, 3, 4"
-# R9-a: data = a PRÓPRIA base de hoje (entrega; pedido no Acabado), dentro da D7 (≥ pedido, ≤ hoje no fuso da loja) —
-# onde a base existe, os vencimentos não mudam. 1 transação; cada UPDATE dispara o recálculo da OC (é o que se mede).
-DATAR_SQL="BEGIN;
-SET LOCAL lock_timeout = '500ms';
-SET LOCAL transaction_timeout = '120s';
-CREATE TEMP TABLE _hoje ON COMMIT DROP AS
-  SELECT t.id AS tenant_id,
-         coalesce((SELECT (now() AT TIME ZONE coalesce(nullif(tc.timezone, ''), 'America/Sao_Paulo'))::date
-                     FROM public.tenant_config tc WHERE tc.tenant_id = t.id),
-                  (now() AT TIME ZONE 'America/Sao_Paulo')::date) AS hoje
-    FROM public.tenants t;
-UPDATE public.ocs_tecido o SET data_nota_entrada = greatest(least(coalesce(o.data_entrega, h.hoje), h.hoje), coalesce(o.data_pedido, '-infinity'::date))
-  FROM pg_temp._hoje h WHERE h.tenant_id = o.tenant_id AND o.status = 'recebido' AND NOT coalesce(o.is_rolo, false)
-   AND o.data_nota_entrada IS NULL AND (o.data_pedido IS NULL OR o.data_pedido <= h.hoje);
-UPDATE public.ocs_aviamento o SET data_nota_entrada = greatest(least(coalesce(o.data_entrega, h.hoje), h.hoje), coalesce(o.data_pedido, '-infinity'::date))
-  FROM pg_temp._hoje h WHERE h.tenant_id = o.tenant_id AND o.status = 'recebido'
-   AND o.data_nota_entrada IS NULL AND (o.data_pedido IS NULL OR o.data_pedido <= h.hoje);
-UPDATE public.ocs_etiqueta o SET data_nota_entrada = greatest(least(coalesce(o.data_entrega, h.hoje), h.hoje), coalesce(o.data_pedido, '-infinity'::date))
-  FROM pg_temp._hoje h WHERE h.tenant_id = o.tenant_id AND o.status = 'recebido'
-   AND o.data_nota_entrada IS NULL AND (o.data_pedido IS NULL OR o.data_pedido <= h.hoje);
-UPDATE public.ocs_p_acabado o SET data_nota_entrada = least(coalesce(o.data_pedido, h.hoje), h.hoje)
-  FROM pg_temp._hoje h WHERE h.tenant_id = o.tenant_id AND o.status = 'recebido'
-   AND o.data_nota_entrada IS NULL AND (o.data_pedido IS NULL OR o.data_pedido <= h.hoje);
-COMMIT;"
-tempo() { awk '/^real /{t=$2} END{print t}' "$1"; }   # o "real" do /usr/bin/time -p (o aplica_v2 imprime)
-datadas() { psql "$LOCAL" -X -q -A -t -F'|' -v ON_ERROR_STOP=1 -c "$DATADAS"; }
-case "${1:-}" in ida|datar|volta) ;; *) echo "uso: copia.sh ida|datar|volta"; exit 2;; esac
+RETRATO="select 'parcelas', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.parcelas t
+ union all select 'ocs_tecido', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.ocs_tecido t
+ union all select 'ocs_aviamento', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.ocs_aviamento t
+ union all select 'ocs_etiqueta', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.ocs_etiqueta t
+ union all select 'ocs_p_acabado', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.ocs_p_acabado t
+ union all select 'ocs_importado', count(*), md5(coalesce(string_agg(t::text, E'\n' order by t.id), '')) from public.ocs_importado t
+ union all select 'audit_log', count(*), '' from public.audit_log"
+case "${1:-}" in ida|volta|retrato) ;; *) echo "uso: copia.sh ida|volta|retrato"; exit 2;; esac
+if [ "$1" = retrato ]; then   # só leitura: sem pré-voo, sem backup, sem registro
+  PGOPTIONS='-c default_transaction_read_only=on' psql "$LOCAL" -X -q -A -t -F'|' -v ON_ERROR_STOP=1 -c "$RETRATO"
+  exit $?
+fi
 bash .superpowers/nota/prevoo-copia.sh "copia-$1" || exit 1
 ESP=$(psql "$LOCAL" -X -q -A -t -F'|' -v ON_ERROR_STOP=1 -c "$ESTADO") || exit 1
 ANTES=$(psql "$LOCAL" -X -q -A -t -F'|' -v ON_ERROR_STOP=1 -c "$CONT") || exit 1
@@ -2254,47 +2368,15 @@ if [ "$1" = ida ]; then
   echo "$ANTES" > .superpowers/nota/copia-cont-antes.txt
   backup_copia || exit 1
   prevoo_nota "$LOCAL" nao && aplica_v2 "$LOCAL" "$MIG" 2>&1 | tee "$L/copia-ida.out" && confere_ida_nota "$LOCAL" "$ANTES" || exit 1
-  grava_medida t_ida "$(tempo "$L/copia-ida.out")"
-elif [ "$1" = datar ]; then
-  [ "$ESP" = "5|8|t|t" ] || { echo "PARE: a cópia não tem a Nota inteira ($ESP) — o datar vem depois da ida"; exit 1; }
-  [ -s .superpowers/nota/copia-cont-antes.txt ] || { echo "PARE: sem copia-cont-antes.txt (a ida não foi por este script)"; exit 1; }
-  [ "$(datadas)" = "0|0|0|0" ] || { echo "PARE: já há OC datada na cópia ($(datadas)) — o datar é só do ensaio, logo depois da ida"; exit 1; }
-  psql "$LOCAL" -X -q -v ON_ERROR_STOP=1 -c "\copy ($PARC) to '$L/parcelas-antes-datar.csv' csv header" || exit 1
-  ativ_vazio "$LOCAL" || exit 1
-  { /usr/bin/time -p psql "$LOCAL" -X -q -v ON_ERROR_STOP=1 -c "$DATAR_SQL"; } 2>&1 | tee "$L/copia-datar.out" \
-    || { echo "PAROU no datar — era 1 transação: nada ficou; registrar e chamar o controlador"; exit 1; }
-  N4=$(datadas) || exit 1; N=$(echo "$N4" | awk -F'|' '{print $1 + $2 + $3 + $4}')
-  echo "OCs recebidas datadas (tecido|aviamento|insumo|p.acabado): $N4 → total $N em $(tempo "$L/copia-datar.out")s"
-  grava_medida n_familias "$N4"; grava_medida n_copia "$N"; grava_medida t_datar "$(tempo "$L/copia-datar.out")"
-  touch "$PEND"
-  # A IDA de novo, agora com as OCs datadas (R9-a): tem de custar o mesmo que a 1ª — ela não tem DML fora de corpo de
-  # função (o gerar_sql.py recusa), então o tempo não cresce com os dados. Idempotente (a guarda aceita o md5 "depois").
-  aplica_v2 "$LOCAL" "$MIG" 2>&1 | tee "$L/copia-ida-datada.out" \
-    && confere_ida_nota "$LOCAL" "$(cat .superpowers/nota/copia-cont-antes.txt)" || exit 1
-  grava_medida t_ida_datada "$(tempo "$L/copia-ida-datada.out")"
-  echo "R9-a: ida sem OC datada $(medida t_ida)s · ida com $N datada(s) $(medida t_ida_datada)s (limite da ida: 3s; folga 5× = até 0,6s)"
 else
   [ "$ESP" = "5|8|t|t" ] || { echo "a cópia NÃO tem a Nota inteira ($ESP) — PARE e avise o controlador"; exit 1; }
   [ -s .superpowers/nota/copia-cont-antes.txt ] || { echo "PARE: sem .superpowers/nota/copia-cont-antes.txt (a ida não foi por este script)"; exit 1; }
-  N4=$(datadas) || exit 1; N=$(echo "$N4" | awk -F'|' '{print $1 + $2 + $3 + $4}')
-  echo "laço do inverso: $N OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = $N4)"
+  N4=$(psql "$LOCAL" -X -q -A -t -F'|' -v ON_ERROR_STOP=1 -c "$DATADAS") || exit 1
+  echo "laço do inverso: $(echo "$N4" | awk -F'|' '{print $1 + $2 + $3 + $4}') OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = $N4)"
   backup_copia || exit 1
   ativ_vazio "$LOCAL" || exit 1
   EXTRA_SQL="SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim';" aplica_v2_inverso "$LOCAL" "$INV" 2>&1 | tee "$L/copia-volta.out" \
     && confere_volta_nota "$LOCAL" "$(cat .superpowers/nota/copia-cont-antes.txt)" || exit 1
-  if [ -f "$PEND" ]; then
-    TV=$(tempo "$L/copia-volta.out")
-    grava_medida t_volta "$TV"
-    grava_medida s_por_oc "$(awk -v tv="$TV" -v n="$N" 'BEGIN { printf "%.4f", (n > 0 ? tv / n : tv) }')"
-    grava_medida tt_minimo "$(awk -v tv="$TV" 'BEGIN { m = int(5 * tv + 0.999); if (m < 30) m = 30; print m }')"
-    grava_medida tt_inverso "$(tt_do_arquivo "$INV")"
-    psql "$LOCAL" -X -q -v ON_ERROR_STOP=1 -c "\copy ($PARC) to '$L/parcelas-depois-volta.csv' csv header" || exit 1
-    diff "$L/parcelas-antes-datar.csv" "$L/parcelas-depois-volta.csv" > "$L/parcelas-diff-volta.txt"
-    ND=$(grep -c '^[<>]' "$L/parcelas-diff-volta.txt"); grava_medida parcelas_diferencas "$ND"
-    echo "R9-a: volta com $N OC(s) datada(s) em ${TV}s (≈ $(medida s_por_oc)s por OC) → mínimo 5× = $(medida tt_minimo)s; o inverso tem $(medida tt_inverso)s"
-    echo "PARCELAS (sem id) antes do datar × depois da volta: $ND linha(s) diferente(s) — $L/parcelas-diff-volta.txt"
-    rm -f "$PEND"
-  fi
 fi
 psql "$LOCAL" -X -q -c "NOTIFY pgrst, 'reload schema'"
 DEPOIS=$(psql "$LOCAL" -X -q -A -t -F'|' -c "$CONT")
@@ -2432,9 +2514,9 @@ chmod +x .superpowers/nota/copia.sh .superpowers/nota/mig/*.sh
 for f in .superpowers/nota/copia.sh .superpowers/nota/mig/*.sh; do bash -n "$f" && echo "sintaxe ok $f"; done
 ```
 
-- [ ] **Step 2: Ensaio — pré-voo R4 → suítes R5 ANTES → ida (`aplica_v2`) → suítes DEPOIS → datar as OCs recebidas (R9-a) → volta MEDIDA → suíte com a migration na txn**
+- [ ] **Step 2: Ensaio — pré-voo R4 → suítes R5 ANTES → ida (`aplica_v2`) → suítes DEPOIS → volta → suíte com a migration na txn → laço do inverso MEDIDO numa txn desfeita (R9-a/R9-b)**
 
-Avisar o dono ANTES (texto do `prevoo-copia.sh`; ~15–20 min; o `:5188` congela nas OCs/Estoque/Financeiro em trechos; as OCs recebidas da cópia ganham a Data da Nota de Entrada durante o ensaio e a perdem na volta). Com o OK:
+Avisar o dono ANTES (texto do `prevoo-copia.sh`; ~15–20 min; o `:5188` congela nas OCs/Estoque/Financeiro em trechos — o mais longo é a medição do R9-b, uma transação que segura as 5 tabelas de OC da cópia pelo tempo dela e é DESFEITA no fim: nenhum dado da cópia muda). Com o OK:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/nota-entrada"
@@ -2450,23 +2532,31 @@ npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts 2>&1
 npx vitest run --no-file-parallelism $R5 > $L/r5-depois.log 2>&1; tail -4 $L/r5-depois.log; falhas $L/r5-depois.log > $L/r5-falhas-depois.txt
 comm -13 $L/r5-falhas-antes.txt $L/r5-falhas-depois.txt | sed 's/^/FALHA NOVA: /'; echo "r5-comparado ($(wc -l < $L/r5-falhas-antes.txt) herdadas)"
 bash -c 'source .superpowers/nota/mig/aplica.sh && confere_md5 "$LOCAL" .superpowers/nota/mig/md5-depois.txt "ensaio: 12 funções = Task 3"'
-bash .superpowers/nota/copia.sh datar || exit 1                        # R9-a: data as OCs recebidas (dia 1) + mede a ida de novo com elas
-NOTA_TT_VOLTA=120s bash .superpowers/nota/copia.sh volta || exit 1     # R9-a: volta MEDIDA com essas OCs (120 s só p/ a medição não estourar)
-cat .superpowers/nota/mig/volta-medida.txt
+bash .superpowers/nota/copia.sh volta || exit 1                        # volta REAL com 0 OC datada
 bash -c 'source .superpowers/nota/mig/aplica.sh && confere_md5 "$LOCAL" .superpowers/nota/mig/md5-antes.txt "cópia de volta ao texto de 24/set"'
 bash .superpowers/nota/prevoo-copia.sh t4-mig-txn && NOTA_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts 2>&1 | tail -5
+# R9-b: laço do inverso com VOLUME REAL numa transação DESFEITA (migration → datar as OCs recebidas → ida de novo → inverso
+# cronometrado por clock_timestamp() → ROLLBACK). Retrato SÓ LEITURA antes e depois: tem de sair igual (resíduo zero).
+bash .superpowers/nota/copia.sh retrato > $L/retrato-antes.txt || exit 1
+bash .superpowers/nota/prevoo-copia.sh t4-medir || exit 1
+NOTA_MIG_TXN=1 NOTA_MEDIR_VOLTA="$PWD/.superpowers/nota/mig/volta-medida.txt" \
+  npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts -t "R9-b" 2>&1 | grep -E "\[R9-b\]|Tests|FAIL|Error" | head -12
+bash .superpowers/nota/copia.sh retrato > $L/retrato-depois.txt || exit 1
+cmp -s $L/retrato-antes.txt $L/retrato-depois.txt && echo "RETRATO IDÊNTICO — resíduo zero" || { echo "RETRATO MUDOU"; diff $L/retrato-antes.txt $L/retrato-depois.txt; }
+cat .superpowers/nota/mig/volta-medida.txt
 cat .superpowers/nota/copia-estado.md
 unset DATABASE_URL NOTA_DONO_AVISADO
 ```
 
 Expected:
 - `ida`: `antes: funções|gatilhos = 458|263 · Nota = 0|0|f|f` (ou os números do T0), `PRÉ-VOO OK`, o `aplica_v2` com o tempo do arquivo (`real` — anotar: é o teto de quanto a migration segura as 5 tabelas de OC em produção; esperado < 1 s), `OK (5 colunas, 8 gatilhos, 2 funções novas)`, `OK (contagens +2 funções +8 gatilhos): 460|271`, `OK (internas …): 0`, `OK (as 12 funções no texto desta migration)`, `== CÓPIA: ida OK (458|263 → 460|271)`.
-- A suíte da Nota sem `NOTA_MIG_TXN` → `9 passed | 5 skipped`.
+- A suíte da Nota sem `NOTA_MIG_TXN` → `9 passed | 6 skipped`.
 - **R5:** nenhuma linha `FALHA NOVA:` — o conjunto de falhas dos 7 arquivos que já cobrem parcelas/OCs depois da ida é ⊆ o de antes (débito pré-existente conhecido; a comparação é por conjunto). Falha nova = PARE (a migration mudou comportamento fora do desenho) → revisor Opus.
 - `OK (ensaio: 12 funções = Task 3)`.
-- **R9-a, `datar`:** `OCs recebidas datadas (tecido|aviamento|insumo|p.acabado): a|b|c|d → total N em Ts` — no levantamento só-leitura de 24/set a cópia tinha **48** OCs recebidas das 3 famílias com parcela (Tecido 46, Aviamento 1, Insumo 1 — spec §10 D1); o P. Acabado recebido é o que a cópia tiver. OC com pedido no futuro fica de fora (a D7 recusaria). Depois, a IDA de novo com as OCs datadas: `OK (5 colunas, 8 gatilhos, 2 funções novas)`, `OK (contagens +2 funções +8 gatilhos): 460|271`, `OK (as 12 funções …)` e `R9-a: ida sem OC datada Xs · ida com N datada(s) Ys (limite da ida: 3s; folga 5× = até 0,6s)`. X e Y parecidos (a ida não tem DML fora de corpo de função — o gerador recusa); **X ou Y > 0,6 s = PARE** (os 3 s da ida ficam sem folga de 5×) → controlador; não subir o tempo da ida sem o guardião.
-- **R9-a, `volta` medida:** `laço do inverso: N OC(s) datada(s) (…)`, `== inverso com lock_timeout 500ms e transaction_timeout 120s`, o `real` do `aplica_v2`, `OK (a Nota saiu)`, `OK (contagens = antes da ida)`, `OK (as 10 funções de volta ao texto de 24/set)`, `R9-a: volta com N OC(s) datada(s) em Ts (≈ s por OC) → mínimo 5× = Ms; o inverso tem 30s` e `PARCELAS (sem id) antes do datar × depois da volta: k linha(s) diferente(s)`; `== CÓPIA: volta OK (460|271 → 458|263)`. `volta-medida.txt` com `n_familias`, `n_copia`, `t_ida`, `t_datar`, `t_ida_datada`, `t_volta`, `s_por_oc`, `tt_minimo` (= máx(30, ⌈5 × t_volta⌉)), `tt_inverso`, `parcelas_diferencas`. `k = 0` onde a OC tem data de entrega (a data usada é a própria base); diferença só em OC sem data de entrega (base = hoje), com vencimento ajustado à mão (D4) ou com a data limitada pela D7 — listar as OCs do `parcelas-diff-volta.txt` no registro e levar ao controlador (a cópia fica com as parcelas recalculadas, como em todo save; restaurar o backup da ida só com OK do dono). Se a volta medida bater nos 120 s: o `aplica_v2` repete e PARA com a Nota e as datas ainda na cópia → PARE, controlador (medir de novo com `NOTA_TT_VOLTA` maior). `OK (cópia de volta ao texto de 24/set)`; a suíte com `NOTA_MIG_TXN=1` → `13 passed | 1 skipped`; 3 linhas em `copia-estado.md` (ida, datar, volta).
-- `-- espera de trava/tempo` = alguém segurava as OCs da cópia; o `aplica_v2` repete sozinho (nada do arquivo ficou). Qualquer `FALHOU`/`PAROU`/`PARE`: não seguir; registrar e chamar o controlador (restauração do backup só com OK do dono).
+- `volta` → `laço do inverso: 0 OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = 0|0|0|0)`, `== inverso com lock_timeout 500ms e transaction_timeout 30s`, `OK (a Nota saiu)`, `OK (contagens = antes da ida)`, `OK (as 10 funções de volta ao texto de 24/set)`, `== CÓPIA: volta OK (460|271 → 458|263)`; `OK (cópia de volta ao texto de 24/set)`; a suíte com `NOTA_MIG_TXN=1` → `13 passed | 2 skipped` (a captura e a medição pulam sem as variáveis delas); 2 linhas em `copia-estado.md` (ida, volta).
+- **R9-b, medição numa txn DESFEITA:** `Tests 1 passed | 14 skipped` e a linha `[R9-b] N OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = a|b|c|d) · datar Xs · ida Ys / com datas Zs · volta Ts (≈ s por OC) → mínimo Ms; o inverso tem 30s`. No levantamento só-leitura do guardião (24/set) o alvo é **48** OCs de 3 lojas — `46|1|1|0` (Tecido: Ave Rara 38, Loja Teste 7, French 1), 162 parcelas não pagas e 4 pagas; outro número = a cópia mudou desde então (registrar, não é erro). `volta-medida.txt` com `modo=txn-desfeita`, `n_familias`, `n_copia`, `t_ida_txn`, `t_datar`, `t_ida_datada`, `t_volta`, `s_por_oc`, `tt_minimo` (= máx(30, ⌈5 × t_volta⌉)) e `tt_inverso`. A ida (`t_ida_txn`, `t_ida_datada`): parecidas e ≤ 0,6 s (a ida não tem DML fora de corpo de função — o gerador recusa); **mais que 0,6 s = PARE** (os 3 s da ida ficam sem folga de 5×) → controlador; não subir o tempo da ida sem o guardião. O teste grava o arquivo ANTES de conferir: se ele falhar em `retrato()` (Σ por OC ou pagas diferentes depois da volta), o tempo vale, mas há OC com parcelas que não fecham com o total dela desde antes — listar e levar ao controlador. `N = 0` = falha (sem volume a medição não vale).
+- **Resíduo zero:** `RETRATO IDÊNTICO — resíduo zero` (parcelas e as 5 OCs com as linhas INTEIRAS iguais — ids, vencimentos, `dias_offset`, `rev` — e o mesmo nº de linhas no `audit_log`). `RETRATO MUDOU` = PARE: conferir no `audit_log` quem escreveu entre os dois retratos; uso do dono no `:5188` nesse intervalo = repetir o par de retratos com a cópia parada; sem autoria = BLOQUEIO → controlador.
+- `-- espera de trava/tempo` = alguém segurava as OCs da cópia; o `aplica_v2` repete sozinho (nada do arquivo ficou). Qualquer `FALHOU`/`PAROU`/`PARE`: não seguir; registrar e chamar o controlador (restauração do backup só com OK do dono). A medição do R9-b bater no teto de 900 s = PARE (a txn é desfeita sozinha; nada fica) → controlador.
 
 - [ ] **Step 2b (R9-a): transaction_timeout do inverso pela medição**
 
@@ -2479,9 +2569,9 @@ if [ "$TTM" -gt "$TTI" ]; then
 fi
 ```
 
-Expected: `tt_minimo ≤ tt_inverso` → nada a fazer (o inverso fica com 30 s; registrar). Se `tt_minimo` for maior: o `git diff --stat` mostra SÓ o inverso, com 2 linhas trocadas (o comentário do cabeçalho com o `--tt-inverso` e o `SET LOCAL transaction_timeout`); a migration NÃO muda. Então: pré-voo R4 + a suíte do Task 3 Step 4 (`NOTA_MIG_TXN=1` → `13 passed | 1 skipped`), `bash .superpowers/nota/gates.sh` → `GATES NOTA: ok`, e `git commit --only -m "fix(nota-entrada): inverso com transaction_timeout de ${TTM}s (R9-a — volta medida no ensaio)" -m "Co-Authored-By: <seu modelo> <noreply@anthropic.com>" -- supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`; `grava_medida tt_inverso $TTM` (`bash -c 'source .superpowers/nota/mig/aplica.sh && grava_medida tt_inverso '"$TTM"`). Qualquer outra linha no diff = PARE. Um `tt_minimo` acima de 300 s = PARE e levar ao controlador (uma volta de emergência de minutos pede outro desenho, ex.: laço em lotes).
+Expected: `tt_minimo ≤ tt_inverso` → nada a fazer (o inverso fica com 30 s; registrar). Se `tt_minimo` for maior: o `git diff --stat` mostra SÓ o inverso, com 2 linhas trocadas (o comentário do cabeçalho com o `--tt-inverso` e o `SET LOCAL transaction_timeout`); a migration NÃO muda. Então: pré-voo R4 + a suíte do Task 3 Step 4 (`NOTA_MIG_TXN=1` → `13 passed | 2 skipped`), `bash .superpowers/nota/gates.sh` → `GATES NOTA: ok`, e `git commit --only -m "fix(nota-entrada): inverso com transaction_timeout de ${TTM}s (R9-a — volta medida no ensaio)" -m "Co-Authored-By: <seu modelo> <noreply@anthropic.com>" -- supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`; `grava_medida tt_inverso $TTM` (`bash -c 'source .superpowers/nota/mig/aplica.sh && grava_medida tt_inverso '"$TTM"`). Qualquer outra linha no diff = PARE. Um `tt_minimo` acima de 300 s = PARE e levar ao controlador (uma volta de emergência de minutos pede outro desenho, ex.: laço em lotes).
 
-- [ ] **Step 2c (registro):** colar a saída inteira (com o tempo do `aplica_v2`, as medições R9-a de `volta-medida.txt` e o resultado R5) no diário do guardião — o MESMO da campanha: `/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (append, seção "Nota de Entrada"). Sem commit.
+- [ ] **Step 2c (registro):** colar a saída inteira (com o tempo do `aplica_v2`, as medições de `volta-medida.txt`, o `RETRATO IDÊNTICO` e o resultado R5) no diário do guardião — o MESMO da campanha: `/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (append, seção "Nota de Entrada"). Sem commit.
 
 ---
 
@@ -4086,7 +4176,7 @@ Expected: 4× `OK`. `FALHOU (F1…)` ou `FALHOU (Aviso…)` ⇒ PARE (a ordem é
 - [ ] **Step 2: Guardião — G-migration**
 
 Rodar no Fable, avisando o dono antes; sem o Fable, 2 revisões Opus INDEPENDENTES (uma sem ver a outra) + aviso ao dono de que o portão rodou sem o Fable. Acionar o agente `guardiao-unificacao` (report-only) com: a spec, ESTE plano, o diário, as saídas das Tasks 3–4 e 12, e o checklist:
-1. UMA migration `20261002100000`, `BEGIN/COMMIT`, as 2 travas logo depois do `BEGIN;` e nenhuma DDL de policy (R9), idempotente (teste 11), gerada (não editada: `python3 gerar_sql.py --tt-inverso <o do cabeçalho do inverso>` reproduz os 2 arquivos commitados byte a byte — `git diff --exit-code` depois de regenerar); inverso com o `transaction_timeout` da medição (R9-a: ≥ 30 s e ≥ `tt_minimo` de `volta-medida.txt`), laço antes dos gatilhos/colunas;
+1. UMA migration `20261002100000`, `BEGIN/COMMIT`, as 2 travas logo depois do `BEGIN;` e nenhuma DDL de policy (R9), idempotente (teste 11), gerada (não editada: `python3 gerar_sql.py --tt-inverso <o do cabeçalho do inverso>` reproduz os 2 arquivos commitados byte a byte — `git diff --exit-code` depois de regenerar); inverso com o `transaction_timeout` da medição (R9-a: ≥ 30 s e ≥ `tt_minimo` de `volta-medida.txt`), laço antes dos gatilhos/colunas e repasse depois do DROP TRIGGER (R9-b);
 2. guarda de md5 EXATA (R2): antes = spec §3.1, depois = `md5-depois.txt`; teste 12 (função alterada que ainda contém a string → recusada pela migration e pelo inverso); diff antes → depois = `diff-esperado.txt` (Task 3 Steps 3 e 5); ensaio = `md5-depois.txt` (Task 4);
 3. ACL #9: `has_function_privilege` nas internas (pós-condição + teste 1 + `confere_ida_nota`) e ACL das 10 redefinidas igual à de antes (teste 11);
 4. dinheiro: paga intacta, Σ = total, só não pagas mudam, sem data = hoje byte a byte (teste 10), Importado idêntico (teste 8), OC encomendada sem parcela nova (teste 3); **R5:** nenhuma falha nova nos 7 arquivos que já cobrem parcelas/OCs (Task 4);
@@ -4248,7 +4338,7 @@ Com o OK do dono: `git worktree remove .claude/worktrees/nota-entrada` (depois d
 | Front antes do banco | Listas/Financeiro pedem `data_nota_entrada` | Merge só depois do Step 7; volta = front primeiro |
 | Aba/front antigo apagando a data | Saves gravam o cabeçalho coluna a coluna | `CASE WHEN ? 'data_nota_entrada'` — chave ausente mantém (teste 4) |
 | Cópia compartilhada | Outras frentes contam funções/gatilhos | `copia.sh` com backup, trava de QA, `volta` ao fim, registro |
-| Volta de emergência estoura o tempo (R9-a) | O inverso recalcula as não pagas de cada OC datada; o ensaio antigo voltava com 0 OC datada; um `SET LOCAL` maior depois dos 3 s não estende o relógio (provado na cópia) → 5×25P04 e o `aplica_v2` para | Inverso com `transaction_timeout` próprio (`--tt-inverso`, ≥ 30 s, ⌈5 × medido⌉) aplicado pelo `aplica_v2_inverso`; laço antes das travas exclusivas; ensaio mede a volta com as OCs recebidas datadas; `volta-producao.sh` mostra as OCs datadas e PARA sem folga de 5×; `lock_timeout` 500 ms igual |
+| Volta de emergência estoura o tempo (R9-a) | O inverso recalcula as não pagas de cada OC datada; o ensaio antigo voltava com 0 OC datada; um `SET LOCAL` maior depois dos 3 s não estende o relógio (provado na cópia) → 5×25P04 e o `aplica_v2` para | Inverso com `transaction_timeout` próprio (`--tt-inverso`, ≥ 30 s, ⌈5 × medido⌉) aplicado pelo `aplica_v2_inverso`; laço antes das travas exclusivas e repasse depois do DROP TRIGGER (R9-b); ensaio mede o laço com as OCs recebidas datadas numa txn DESFEITA (R9-b); `volta-producao.sh` mostra as OCs datadas e PARA sem folga de 5×; `lock_timeout` 500 ms igual |
 | Lock nas OCs (R3/R9) | `ADD COLUMN`/`DROP TRIGGER` = AccessExclusive nas 5 OCs até o COMMIT; as policies de outras tabelas que dependem delas ficam bloqueadas durante a transação — 5 na cópia: `enderecamento_tecido` (endtec_ins, endtec_upd), `ocs_tecido_itens`, `ocs_aviamento_itens`, `ocs_etiqueta_itens` (Estoque, Plan. Tecido, OCs, Financeiro ficam na fila). Sem DDL de policy → o hook `supautils.policy_grants` (24 tabelas de auth/storage/realtime) NÃO dispara: login/token/URL assinada/Realtime não esperam | travas NO arquivo (R9, vale até no `psql -f`) + `aplica_v2`: arquivo numa mensagem, 500 ms de trava/3 s de transação, nova tentativa só em 55P03/40P01/25P04 com ATIV; harness e pré-voo recusam DDL de policy; tempo medido no ensaio; horário calmo |
 | Volta da F1 deixa de fechar (R1) | Runbook v2 §9.2 espera 427\|219 e o retrato pré-F1; a Nota põe +2\|+8, 5 colunas e muda 10 md5 | `ref-volta-f1.sh` (Step 7b) grava a referência nova + CONT 429\|227 ao lado do runbook; supera a do Aviso |
 | Guarda frouxa (R2) | "contém a string" aceitaria uma função mudada por outra frente | md5 EXATO antes/depois na migration e no inverso + teste de recusa |
@@ -4294,4 +4384,5 @@ Com o OK do dono: `git worktree remove .claude/worktrees/nota-entrada` (depois d
 | **R7** portão do deploy: `src` limpo (inclusive não rastreados), só commits aprovados, pré-requisitos de banco | Task 13 Step 8c (`portao_deploy_nota`, `prereq_banco`) |
 | **R8** ida na cópia junto com o merge; referência 460\|271 avisada às frentes | Task 13 Steps 8b e 9 |
 | **R9** (coordenador, lição do Aviso) travas `SET LOCAL` 500 ms/3 s DENTRO do arquivo logo depois do `BEGIN;`; nenhuma DDL de policy (hook `supautils.policy_grants`); risco das 5 OCs e das policies que dependem delas | Global Constraints, `regras-nota.md` item 12, `gerar_sql.py` (cabeçalho + 2 linhas nos 2 arquivos), harness (`RE_TRAVAS_DO_ARQUIVO`, `RE_DDL_POLICY`), `aplica.sh` (`confere_arquivos_nota` no pré-voo), Task 3 Step 3, §4 Riscos |
-| **R9-a** (guardião) volta medida com as OCs datadas; `transaction_timeout` maior só no inverso; a ida conferida | (1) Task 4 Step 2 (`copia.sh datar` + volta medida; `volta-medida.txt`) e Step 2c (subir o `--tt-inverso` se `tt_minimo` > 30); (2) `volta-producao.sh` (OCs datadas + folga 5× ANTES da confirmação), Task 13 Step 10; (3) `gerar_sql.py --tt-inverso` (cabeçalho explica o porquê; laço antes dos gatilhos/colunas), `aplica.sh` (`aplica_v2_inverso`, `tt_do_arquivo`, `DATADAS`, `confere_arquivos_nota`), harness (ida 3 s / inverso ≥ 30 s), Global Constraints, regra 12, §4 Riscos; ida: gerador recusa DML fora de função + `t_ida`/`t_ida_datada` no ensaio |
+| **R9-a** (guardião) volta medida com as OCs datadas; `transaction_timeout` maior só no inverso; a ida conferida | (1) Task 4 Step 2 (medição do teste "R9-b" numa txn desfeita; `volta-medida.txt`) e Step 2b (subir o `--tt-inverso` se `tt_minimo` > 30); (2) `volta-producao.sh` (OCs datadas + folga 5× ANTES da confirmação), Task 13 Step 10; (3) `gerar_sql.py --tt-inverso` (cabeçalho explica o porquê; laço antes dos gatilhos/colunas), `aplica.sh` (`aplica_v2_inverso`, `tt_do_arquivo`, `DATADAS`, `confere_arquivos_nota`), harness (ida 3 s / inverso ≥ 30 s), Global Constraints, regra 12, §4 Riscos; ida: gerador recusa DML fora de função + `t_ida`/`t_ida_datada` no ensaio |
+| **R9-b** (guardião) medição sem resíduo; repasse depois do DROP TRIGGER; teste do inverso que distingue a ordem | (1) teste 15 "R9-b" (`NOTA_MEDIR_VOLTA`: migration → datar → ida de novo → inverso cronometrado por `clock_timestamp()` com `transaction_timeout` 900 s só nessa txn → ROLLBACK; grava `volta-medida.txt`) + `copia.sh retrato` só-leitura antes × depois (`RETRATO IDÊNTICO`: ids, vencimentos, `dias_offset`, `rev`, nº do `audit_log`) em Task 4 Step 2; `copia.sh datar` e a volta real com OCs datadas REMOVIDOS; o esperado "k = 0" saiu; (2) passo 4b `$repasse$` no `gerar_sql.py` (mesmo critério da captura EXCEPT `_nota_voltar`, com o AccessExclusive já pego; NOTICE com o nº); (3) teste 13: ordem do arquivo conferida, Aviamento e Insumo no laço, as 4 famílias com NF ≠ base antiga voltam à base ANTIGA, NOTICE `0 OC(s) repassada(s)`; Global Constraints, Task 3 Step 3, §4 Riscos |
