@@ -32,7 +32,8 @@ export function gateEnvioExplosao(i: {
 export type PendenciaEnvio = { label: string; secao: SecaoSheetKey };
 
 /**
- * "Para enviar, falta" (Dev :1576-1595, fluxo INTERNO — o Enviar só aparece p/ interno na F3.3). Cada pendência aponta
+ * "Para enviar, falta" (Dev :1576-1595). F3.4 (D2): comprado também — só exige o que a loja deixou VISÍVEL p/ comprado
+ * (`campoVisivel`, Dev :1583-1595) e a grade cor × tamanho (`secaoGrade`); os mínimos valem sempre. Cada pendência aponta
  * a seção do Sheet onde se resolve (o link abre a seção). `rotuloRef` = `useFieldLabels()("ref")`, como o Dev.
  */
 export function pendenciasEnvioExplosao(i: {
@@ -40,7 +41,12 @@ export function pendenciasEnvioExplosao(i: {
   blocks: TecidoBlock[];
   grades: GradeRow[];
   rotuloRef: string;
+  /** F3.4 — comprado: campo/seção visível p/ comprado (`revendaCampoVisivel`); ausente = interno (tudo exigido, como antes). */
+  campoVisivel?: (key: string) => boolean;
+  /** F3.4 — seção onde "grade preenchida" se resolve (comprado = "grade_revenda", a grade cor × tamanho). */
+  secaoGrade?: SecaoSheetKey;
 }): PendenciaEnvio[] {
+  const cv = i.campoVisivel ?? (() => true);
   const out: PendenciaEnvio[] = [];
   const d = i.draft;
   const vazio = (s: string | null | undefined) => (s ?? "").trim() === "";
@@ -48,16 +54,20 @@ export function pendenciasEnvioExplosao(i: {
   if (vazio(d.nome)) out.push({ label: "Nome", secao: "info" });
   if (!d.estilista_id) out.push({ label: "Estilista", secao: "info" });
   if (!d.categoria_principal_id) out.push({ label: "Categoria", secao: "info" });
-  const temTecidoComVariante = i.blocks.some((b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v));
-  const todosComVariante = i.blocks.filter((b) => !!b.artigo_id).every((b) => b.variantes.some((v) => !!v));
-  if (!temTecidoComVariante) out.push({ label: "ao menos 1 tecido com variante", secao: "tecidos" });
-  else if (!todosComVariante) out.push({ label: "1 variante em cada tecido/forro/entretela selecionado", secao: "tecidos" });
-  if (i.grades.reduce((s, g) => s + (g.grade_total || 0), 0) <= 0) out.push({ label: "grade preenchida", secao: "grade" });
-  if (vazio(d.data_desenho_tecnico)) out.push({ label: "Data Desenho Técnico", secao: "desenvolvimento" });
-  if (vazio(d.data_piloto1)) out.push({ label: "Data Piloto 1", secao: "desenvolvimento" });
+  // F3.4 — comprado afrouxa como o Dev (ModeloDetailPanel.tsx:1583-1595): tecido só com a seção "s2" visível, grade só
+  // com "s4", cada data só se o campo estiver visível. No interno `cv` é sempre true (regra de antes, intocada).
+  if (cv("s2")) {
+    const temTecidoComVariante = i.blocks.some((b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v));
+    const todosComVariante = i.blocks.filter((b) => !!b.artigo_id).every((b) => b.variantes.some((v) => !!v));
+    if (!temTecidoComVariante) out.push({ label: "ao menos 1 tecido com variante", secao: "tecidos" });
+    else if (!todosComVariante) out.push({ label: "1 variante em cada tecido/forro/entretela selecionado", secao: "tecidos" });
+  }
+  if (cv("s4") && i.grades.reduce((s, g) => s + (g.grade_total || 0), 0) <= 0) out.push({ label: "grade preenchida", secao: i.secaoGrade ?? "grade" });
+  if (cv("data_desenho_tecnico") && vazio(d.data_desenho_tecnico)) out.push({ label: "Data Desenho Técnico", secao: "desenvolvimento" });
+  if (cv("data_piloto1") && vazio(d.data_piloto1)) out.push({ label: "Data Piloto 1", secao: "desenvolvimento" });
   const piloto2Aberto = !!(d.piloteiro2_id || !vazio(d.data_piloto2));
   const piloto3Aberto = !!(d.piloteiro3_id || !vazio(d.data_piloto3));
-  if (piloto2Aberto && vazio(d.data_piloto2)) out.push({ label: "Data Piloto 2", secao: "desenvolvimento" });
-  if (piloto3Aberto && vazio(d.data_piloto3)) out.push({ label: "Data Piloto 3", secao: "desenvolvimento" });
+  if (cv("data_piloto2") && piloto2Aberto && vazio(d.data_piloto2)) out.push({ label: "Data Piloto 2", secao: "desenvolvimento" });
+  if (cv("data_piloto3") && piloto3Aberto && vazio(d.data_piloto3)) out.push({ label: "Data Piloto 3", secao: "desenvolvimento" });
   return out;
 }

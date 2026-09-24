@@ -73,3 +73,29 @@ describe("pendenciasEnvioExplosao", () => {
       .toEqual([{ label: "1 variante em cada tecido/forro/entretela selecionado", secao: "tecidos" }]);
   });
 });
+
+describe("pendenciasEnvioExplosao — F3.4 comprado (Dev ModeloDetailPanel.tsx:1577-1595, `campoVisivel`)", () => {
+  const minimos = (): Draft => ({ ...emptyDraft(), ref: "ONV0000001", nome: "Vestido", estilista_id: "e", categoria_principal_id: "c" });
+  const soVisivel = (vis: string[]) => (k: string) => vis.includes(k);
+  it("default do comprado (Tecidos e datas ocultos, Grade visível): só a grade cor × tamanho", () => {
+    expect(pendenciasEnvioExplosao({
+      draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF",
+      campoVisivel: soVisivel(["s3", "s3e", "s4", "s5", "s6"]), secaoGrade: "grade_revenda",
+    })).toEqual([{ label: "grade preenchida", secao: "grade_revenda" }]);
+  });
+  it("com a grade preenchida: nada falta", () => {
+    expect(pendenciasEnvioExplosao({
+      draft: minimos(), blocks: makeEmptyBlocks(), grades: [{ variante_numero: 1, grades: { "38|P": 1 }, grade_total: 1 }],
+      rotuloRef: "REF", campoVisivel: soVisivel(["s4"]), secaoGrade: "grade_revenda",
+    })).toEqual([]);
+  });
+  it("os mínimos (REF, Nome, Estilista, Categoria) valem sempre, mesmo com tudo oculto", () => {
+    expect(pendenciasEnvioExplosao({
+      draft: { ...minimos(), ref: "", estilista_id: null }, blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF", campoVisivel: () => false,
+    })).toEqual([{ label: "REF", secao: "desenvolvimento" }, { label: "Estilista", secao: "info" }]);
+  });
+  it("sem `campoVisivel`: o fluxo interno de sempre (F3.3)", () => {
+    expect(pendenciasEnvioExplosao({ draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF" }).map((p) => p.label))
+      .toEqual(["ao menos 1 tecido com variante", "grade preenchida", "Data Desenho Técnico", "Data Piloto 1"]);
+  });
+});
