@@ -79,6 +79,7 @@ import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/fic
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
+import { baseCustoPlanejamento, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
@@ -342,10 +343,9 @@ function PlanejamentoDetailConteudo({
     },
   });
 
-  // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
+  // Cálculo de preço (seção "Preço e Custos"). F3.2 (decisão F3 #6): o `precoInfo` foi para DEPOIS da estimativa
+  // — o custo-base agora é real › previsto do BOM › estimativa (ver `custoBase` mais abaixo).
   const custoReal = !!custoData?.confirmado;
-  const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
-    precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
 
   // Composição do custo — MESMA régua do card da lista (criacao.planejamento.tsx:548-567).
   //  • maoObraPlanejada = SEMPRE a M.O. PLANEJADA (Σ modelo_servico_mo = mao_obra_previsto). É o que
@@ -378,7 +378,6 @@ function PlanejamentoDetailConteudo({
     maoObraVivo: maoObraDevLive,
     travaDev: motivoTravaDev,
   });
-  const materiaisSetor = custo > 0 ? custo - maoObraSetor : 0;
   const linhaSetor = linhas.find((l) => l.id === draft.linha_id) ?? null;
   // Faixas de markup da Linha (Fase A — só leitura no Sheet). Ideal = `markup`.
   const linhaFaixas = linhaSetor
@@ -410,6 +409,16 @@ function PlanejamentoDetailConteudo({
     mao_obra: maoObraUsado,
   });
 
+  // F3.2 — decisão F3 #6: o markup e a tabela usam o MESMO custo-base, com selo de 3 estados. Previsto = o do BOM
+  // AO VIVO quando a ficha está carregada (e o BOM tem material); senão o salvo (custo_peca_previsto do Dev).
+  const previstoBase = ficha.carregado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
+  const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: custoData?.real, previsto: previstoBase, estimativa: simCalc.total });
+  const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
+    precoInfo(custoBase.valor, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
+  // M.O. embutida no custo-base: a real (Serviços ÷ grade) quando confirmado; senão a planejada ao vivo.
+  const moEmbutida = custoBase.selo === "real" ? maoObraSetor : maoObraDevLive;
+  const materiaisSetor = custo > 0 ? Math.max(0, custo - moEmbutida) : 0;
+
   // Fase B — M.O. que ainda CABE por faixa = precoBase/markup − materiais. Responde "quanto posso
   // pagar de mão de obra?". BASE = preço EFETIVO (`precoInfo.efetivo`): o preço de venda digitado
   // se houver, SENÃO o sugerido (custo×markup). Decisão do dono (set/2026): a coluna Preço de
@@ -422,7 +431,7 @@ function PlanejamentoDetailConteudo({
   // aviamento/consumo/M.O. sem salvar (P4, set/2026), em vez de ficar presa no 0 do custo real.
   const precoVendaDigitado = Number(draft.preco_venda) > 0 ? Number(draft.preco_venda) : 0;
   const precoBaseMO = precoEfetivo;
-  const materiaisParaFaixa = custoReal ? materiaisSetor : Math.max(0, simCalc.total - maoObraDevLive);
+  const materiaisParaFaixa = materiaisSetor; // F3.2 #6: mesma base do markup (real / previsto / estimado)
   const moMin = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.min);
   const moIdeal = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.ideal);
   const moMax = moPorFaixa(precoBaseMO, materiaisParaFaixa, linhaFaixas?.max);
@@ -1101,7 +1110,7 @@ function PlanejamentoDetailConteudo({
 
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {isEdit && (
-          <Secao titulo="Preço" defaultOpen={false}>
+          <Secao titulo="Preço e Custos" defaultOpen={false}>
             {!isRevenda ? (
               // MANUFATURADO — §K: custo/markup/preço vêm de OUTRA etapa (BOM/CAD +
               // Serviços; linha do Cadastro; cálculo de preco.ts) → tira de resumo + atalho
@@ -1121,16 +1130,26 @@ function PlanejamentoDetailConteudo({
                 markupReal={markupReal} precoSug={precoSug} precoBase={precoBaseMO} precoDigitado={precoVendaDigitado}
                 draftPrecoVenda={draft.preco_venda}
                 onPrecoVenda={(v) => setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null }))}
-                custoReal={custoReal}
+                seloCusto={custoBase.selo} custoBase={custo}
                 consumo={consumoOverride} consumoRealBOM={consumoRealBOM} precoTecidoM={precoTecidoM} tecidoEstimado={simCalc.tecido}
-                aviamento={draft.custo_simulado.aviamento ?? null} maoObraDev={maoObraDevLive} custoEstimado={simCalc.total}
+                aviamento={draft.custo_simulado.aviamento ?? null} maoObraDev={maoObraDevLive}
                 onConsumo={(v) => setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null })}
                 onAviamento={(v) => setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null })}
-                materiaisReal={materiaisSetor} custoRealTotal={custo} custoPrevisto={custoPrevisto}
+                materiaisBase={materiaisSetor} custoPrevisto={custoPrevisto}
                 linhaFaixas={linhaFaixas}
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
                 podeVerCustos={podeVerCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 onVerDev={modeloId ? () => setVerDevModeloId(modeloId) : undefined}
+                // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
+                // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
+                custosBom={ficha.habilitada && ficha.carregado && ficha.podeVerCustos ? {
+                  totais: ficha.totais,
+                  custosAdicionais: draft.custos_adicionais,
+                  onChange: (v) => setDraftTracked((d) => ({ ...d, custos_adicionais: v })),
+                  editavel: ficha.podeEditar,
+                  copiados: ficha.camposCopiados,
+                  onEditado: ficha.onCampoEditado,
+                } : null}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups

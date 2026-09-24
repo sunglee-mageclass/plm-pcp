@@ -5,6 +5,29 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { brl, fmtNum } from "@/lib/format";
+import { Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { SeloCusto } from "@/components/planejamento/planejamento-detail/custo-base";
+import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+
+/**
+ * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
+ * desta tabela — Tecido, Forro, Entretela, Aviamento, Insumos e os custos adicionais (descrição + valor por peça;
+ * "Adicionar custo") —, com os MESMOS dados que o `ModeloCustosSection` do Dev mostra. null = sem ficha carregada ou
+ * sem permissão de ver custos (as linhas não aparecem).
+ */
+export type CustosBomTabela = {
+  totais: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number };
+  custosAdicionais: CustoAdicional[];
+  onChange: (v: CustoAdicional[]) => void;
+  /** `ficha.podeEditar` (permissão do Dev + trava única). Sem isso: só leitura, sem adicionar/remover. */
+  editavel: boolean;
+  /** Destaque do "Importar dados" (o diálogo é da F3.3). */
+  copiados: Set<string>;
+  onEditado: (chave: string) => void;
+};
 
 // Seção Preço tabulada (reformulada): Descrição · Markup · Valores · Obs, em 3 partes. A coluna
 // Valores só tem números; contexto (selo previsto/real, badge de faixa da M.O., histórico, fórmula)
@@ -17,15 +40,18 @@ export function PrecoTabela(props: {
   // distingue, na Obs, se está usando o preço do usuário ou o sugerido.
   precoBase: number; precoDigitado: number;
   draftPrecoVenda: number | null | undefined; onPrecoVenda: (v: string) => void;
-  // custo: real (BOM confirmado) OU estimado (tecido + aviamento + M.O.). Selo previsto/real por modelo.
-  custoReal: boolean;
+  // F3.2 (decisão F3 #6): custo-base ÚNICO (o MESMO que o markup usa) + selo de 3 estados —
+  // real (CAD enviado ao corte) › previsto (BOM) › estimado (tecido + materiais + M.O.).
+  seloCusto: SeloCusto; custoBase: number;
   // estimado (editável): consumo de tecido × preço/m + aviamento manual + M.O. (dev)
   consumo: number | null; consumoRealBOM: number; precoTecidoM: number; tecidoEstimado: number;
-  aviamento: number | null; maoObraDev: number; custoEstimado: number;
+  aviamento: number | null; maoObraDev: number;
   onConsumo: (v: string) => void; onAviamento: (v: string) => void;
-  // real (BOM): materiais reais + total real; e o previsto p/ o histórico. (A M.O. exibida é
-  // SEMPRE a planejada `maoObraDev` — ver comentário na linha M.O. —, então não recebe a real.)
-  materiaisReal: number; custoRealTotal: number; custoPrevisto: number;
+  // materiais = custo-base − M.O. embutida; `custoPrevisto` = o previsto SALVO, p/ o histórico "antes (previsto)".
+  // (A M.O. exibida é SEMPRE a planejada `maoObraDev` — ver comentário na linha M.O.)
+  materiaisBase: number; custoPrevisto: number;
+  // F3.2 — linhas "Custos do BOM" (mockup): null/ausente = não aparecem.
+  custosBom?: CustosBomTabela | null;
   // faixas de M.O.
   linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
   moMin: { moMax: number; atingivel: boolean }; moIdeal: { moMax: number; atingivel: boolean }; moMax: { moMax: number; atingivel: boolean };
@@ -34,19 +60,44 @@ export function PrecoTabela(props: {
   onVerDev?: () => void;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
-    custoReal, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev, custoEstimado,
-    onConsumo, onAviamento, materiaisReal, custoRealTotal, custoPrevisto,
+    seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
+    onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn, onVerDev } = props;
 
-  // Quando confirmado (real), as linhas de custo mostram o REAL do BOM (leitura). Enquanto não,
-  // mostram a ESTIMATIVA editável (tecido calculado + aviamento manual + M.O.). Selo por modelo.
-  const custoTotal = custoReal ? custoRealTotal : custoEstimado;
+  // F3.2 (decisão F3 #6): o "Custo total" é o MESMO número que o markup usa (custo-base). Real → leitura do real;
+  // previsto → materiais do BOM (leitura); estimado → a ESTIMATIVA editável de sempre.
+  const custoReal = seloCusto === "real";
+  const custoTotal = custoBase;
   const temCusto = custoTotal > 0;
-  const seloCusto = custoReal
+  const seloBadge = seloCusto === "real"
     ? <StatusBadge tone="success">real</StatusBadge>
-    : <StatusBadge tone="warning">estimado</StatusBadge>;
-  // Histórico 1 nível: quando o real assume e diverge do previsto/estimado.
-  const divergePrevisto = custoReal && custoPrevisto > 0 && Math.abs(custoPrevisto - custoRealTotal) >= 0.01;
+    : seloCusto === "previsto"
+      ? <StatusBadge tone="info">previsto</StatusBadge>
+      : <StatusBadge tone="warning">estimado</StatusBadge>;
+  // Histórico 1 nível: quando o real assume e diverge do previsto salvo.
+  const divergePrevisto = custoReal && custoPrevisto > 0 && Math.abs(custoPrevisto - custoBase) >= 0.01;
+  // F3.2 — custos adicionais (linhas "Custos do BOM"): mesma edição do `ModeloCustosSection` do Dev (estado COMPLETO
+  // do array a cada mudança; marca o campo como editado p/ o destaque do Importar).
+  const linhasBom: [string, number][] = custosBom
+    ? [["Tecido", custosBom.totais.tecido], ["Forro", custosBom.totais.forro], ["Entretela", custosBom.totais.entretela],
+       ["Aviamento", custosBom.totais.aviamento], ["Insumos", custosBom.totais.etiqueta]]
+    : [];
+  const patchCusto = (i: number, p: Partial<CustoAdicional>) => {
+    if (!custosBom) return;
+    custosBom.onChange(custosBom.custosAdicionais.map((c, k) => (k === i ? { ...c, ...p } : c)));
+    custosBom.onEditado("custos_adicionais");
+  };
+  const adicionarCusto = () => {
+    if (!custosBom) return;
+    custosBom.onChange([...custosBom.custosAdicionais, { descricao: "", valor: 0 }]);
+    custosBom.onEditado("custos_adicionais");
+  };
+  const removerCusto = (i: number) => {
+    if (!custosBom) return;
+    custosBom.onChange(custosBom.custosAdicionais.filter((_, k) => k !== i));
+    custosBom.onEditado("custos_adicionais");
+  };
+  const realceCopiado = custosBom ? classeCopiado(custosBom.copiados, "custos_adicionais") : "";
   // Rótulos descrevem a FAIXA alcançada (não julgam) — "só no mínimo" soava alarmante mesmo a 10
   // centavos do ideal (feedback do dono set/2026). `no_minimo` = M.O. entre o teto do ideal e o do
   // mínimo → "entre ideal e mínimo" (âmbar, ainda vende com margem, só não bate o ideal).
@@ -95,7 +146,7 @@ export function PrecoTabela(props: {
             <td className="py-2 pr-3">Consumo de tecido</td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
             <td className="py-2 px-2 text-right">
-              {custoReal ? (
+              {seloCusto !== "estimado" ? (
                 <span className="tabular-nums">{consumoRealBOM > 0 ? `${fmtNum(consumoRealBOM)} m` : "—"}</span>
               ) : (
                 <NumberInput
@@ -114,22 +165,32 @@ export function PrecoTabela(props: {
 
           {/* ── PARTE 2: Custos ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos</td></tr>
-          {custoReal ? (
+          {seloCusto === "real" ? (
             <tr className="border-t">
               <td className="py-2 pr-3 whitespace-nowrap">Materiais <span className="text-[11px] italic text-muted-foreground">tecido + aviamentos</span></td>
               <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-              <td className="py-2 px-2 text-right tabular-nums">{brl(materiaisReal)}</td>
+              <td className="py-2 px-2 text-right tabular-nums">{brl(materiaisBase)}</td>
               <td className="py-2 pl-2 text-xs text-muted-foreground">
-                {seloCusto} {onVerDev ? <button type="button" onClick={onVerDev} className="text-primary hover:underline">ver no Desenvolvimento ⧉</button> : "do BOM"}
+                {seloBadge} {onVerDev ? <button type="button" onClick={onVerDev} className="text-primary hover:underline">ver no Desenvolvimento ⧉</button> : "do BOM"}
               </td>
             </tr>
+          ) : seloCusto === "previsto" ? (
+            // Com a ficha carregada, as linhas "Custos do BOM" (abaixo) já detalham os materiais — sem linha somada aqui.
+            custosBom ? null : (
+            <tr className="border-t">
+              <td className="py-2 pr-3 whitespace-nowrap">Materiais <span className="text-[11px] italic text-muted-foreground">do BOM + custos adicionais</span></td>
+              <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+              <td className="py-2 px-2 text-right tabular-nums">{brl(materiaisBase)}</td>
+              <td className="py-2 pl-2 text-xs text-muted-foreground">{seloBadge} do BOM (Custo de 1 Peça)</td>
+            </tr>
+            )
           ) : (
             <>
               <tr className="border-t">
                 <td className="py-2 pr-3">Tecido</td>
                 <td className="py-2 px-2 text-right text-muted-foreground">—</td>
                 <td className="py-2 px-2 text-right tabular-nums">{tecidoEstimado > 0 ? brl(tecidoEstimado) : "—"}</td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloCusto} consumo × preço/m</td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloBadge} consumo × preço/m</td>
               </tr>
               <tr className="border-t">
                 <td className="py-2 pr-3 whitespace-nowrap">Materiais <span className="text-[11px] italic text-muted-foreground">aviamentos &amp; insumos</span></td>
@@ -143,8 +204,67 @@ export function PrecoTabela(props: {
                     onChange={(e) => onAviamento(e.target.value)}
                   />
                 </td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloCusto} estimativa (real vem do BOM ao cadastrar)</td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{seloBadge} estimativa (real vem do BOM ao cadastrar)</td>
               </tr>
+            </>
+          )}
+          {/* F3.2 — custos do BOM como LINHAS da tabela (decisão F3 #2 + mockup Anotado, seção 10 — R9c). A trava é por
+              `disabled` em cada input (um <fieldset> não pode ficar dentro de <tbody>); sem `editavel` somem os botões. */}
+          {custosBom && (
+            <>
+              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos do BOM <span className="normal-case font-normal tracking-normal">— previsto, do Desenvolvimento</span></td></tr>
+              {linhasBom.map(([rotulo, valor]) => (
+                <tr key={rotulo} className="border-t">
+                  <td className="py-2 pr-3">{rotulo}</td>
+                  <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+                  <td className="py-2 px-2 text-right tabular-nums">{valor > 0 ? brl(valor) : "—"}</td>
+                  <td className="py-2 pl-2 text-xs text-muted-foreground">do BOM</td>
+                </tr>
+              ))}
+              {custosBom.custosAdicionais.map((c, i) => (
+                <tr key={`custo-adicional-${i}`} className={`border-t ${realceCopiado}`}>
+                  <td className="py-2 pr-3">
+                    <Input
+                      className="h-8 w-full"
+                      placeholder="Descrição do custo"
+                      value={c.descricao}
+                      disabled={!custosBom.editavel}
+                      onChange={(e) => patchCusto(i, { descricao: e.target.value })}
+                      data-colab-path={`custo-descricao:${c.descricao}`}
+                    />
+                  </td>
+                  <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+                  <td className="py-2 px-2 text-right">
+                    <NumberInput
+                      className="ml-auto h-8 w-28 text-right tabular-nums"
+                      placeholder="0,00"
+                      value={c.valor || ""}
+                      disabled={!custosBom.editavel}
+                      onChange={(e) => patchCusto(i, { valor: Number(e.target.value) || 0 })}
+                      data-colab-path={`custo-valor:${c.descricao}`}
+                    />
+                  </td>
+                  <td className="py-2 pl-2 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      custo adicional por peça
+                      {custosBom.editavel && (
+                        <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" aria-label="Remover custo" title="Remover" onClick={() => removerCusto(i)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {custosBom.editavel && (
+                <tr className="border-t">
+                  <td colSpan={4} className="py-1.5 px-2">
+                    <button type="button" onClick={adicionarCusto} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:min-h-11">
+                      <Plus className="h-3.5 w-3.5" /> Adicionar custo
+                    </button>
+                  </td>
+                </tr>
+              )}
             </>
           )}
           <tr className="border-t">
@@ -163,7 +283,7 @@ export function PrecoTabela(props: {
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
             <td className="py-2 px-2 text-right tabular-nums">{temCusto ? brl(custoTotal) : "—"}</td>
             <td className="py-2 pl-2 text-xs text-muted-foreground font-normal">
-              {seloCusto}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
+              {seloBadge}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
             </td>
           </tr>
 
