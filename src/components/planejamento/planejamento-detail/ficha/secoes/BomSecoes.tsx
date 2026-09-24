@@ -19,6 +19,7 @@ import { TecidosBomSecao } from "../TecidosBomSecao";
 import type { FichaTecnica } from "../useFichaTecnica";
 import { SecaoBom } from "./SecaoBom";
 import { SeloBadge } from "./SeloBadge";
+import type { SecaoSheetKey } from "../selos-secoes";
 
 // Avisos da trava ÚNICA (R2), IGUAIS aos da F3.1 (`AvisoCamposDev`): sem a trava interina "tem CAD", o "Editar" destrava
 // BOM e CAD como os demais campos do Dev (F3.3) — "enviado" usa a MESMA frase.
@@ -39,7 +40,7 @@ function Carregando({ erro }: { erro: boolean }) {
   );
 }
 
-export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }: {
+export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, numeros }: {
   ficha: FichaTecnica;
   modeloId: string;
   estoque: Record<string, EstoqueArtigo>;
@@ -53,6 +54,8 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
    * à mão (o `Draft` do Planejamento) sem precisar que o orquestrador o devolva. Ver task-9-report.md.
    */
   proporcoes: Record<string, number>;
+  /** F3.3 — numeração dinâmica do Sheet (selos-secoes.ts `numerarSecoes`). */
+  numeros?: Partial<Record<SecaoSheetKey, number>>;
 }) {
   if (!ficha.habilitada) return null;
   const { estado, handlers, dados } = ficha;
@@ -66,7 +69,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
 
   return (
     <>
-      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" selo={<SeloBadge selo={ficha.selos.tecidos} />}>
+      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" numero={numeros?.tecidos} selo={<SeloBadge selo={ficha.selos.tecidos} />}>
         {!carregando && !ordemEnviada && ficha.podeEditar && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -92,7 +95,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
         )}
       </SecaoBom>
 
-      <SecaoBom id="aviamentos" titulo="Aviamentos" selo={<SeloBadge selo={ficha.selos.aviamentos} />}>
+      <SecaoBom id="aviamentos" titulo="Aviamentos" numero={numeros?.aviamentos} selo={<SeloBadge selo={ficha.selos.aviamentos} />}>
         {corpo(
           <ModeloAviamentosSection
             rows={estado.aviamentos}
@@ -106,7 +109,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
         )}
       </SecaoBom>
 
-      <SecaoBom id="insumos" titulo="Insumos" selo={<SeloBadge selo={ficha.selos.insumos} />}>
+      <SecaoBom id="insumos" titulo="Insumos" numero={numeros?.insumos} selo={<SeloBadge selo={ficha.selos.insumos} />}>
         {corpo(
           <ModeloEtiquetasSection
             rows={estado.etiquetas}
@@ -121,7 +124,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
         )}
       </SecaoBom>
 
-      <SecaoBom id="grade" titulo="Grade" selo={<SeloBadge selo={ficha.selos.grade} />}>
+      <SecaoBom id="grade" titulo="Grade" numero={numeros?.grade} selo={<SeloBadge selo={ficha.selos.grade} />}>
         {corpo(
           <ModeloGradeSection
             tamanhos={dados.tamanhos}
@@ -142,7 +145,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes }
       {/* F3.3 — seção CAD (Dev :2881-2912): o MESMO `CadTecidosSection` (reusado SEM modificar — decisão 8), sem a coluna
           "a Separar/Enviar" (é da Explosão). Grava no MESMO Salvar do BOM (decisão F3 #7). Antes da Ordem de Criação e
           sem CAD fica só-leitura (D2 — o Planejamento não cria o CAD antes da Ordem). */}
-      <SecaoBom id="cad" titulo="CAD" selo={<SeloBadge selo={ficha.seloCad} />}>
+      <SecaoBom id="cad" titulo="CAD" numero={numeros?.cad} selo={<SeloBadge selo={ficha.seloCad} />}>
         {corpo(
           ficha.cad.linhas.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção Tecidos / Forros / Entretelas.</p>

@@ -78,6 +78,10 @@ import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planeja
 import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
+import { numerarSecoes, resumoColecao, selosSecoesSheet, type SecaoSheetKey } from "@/components/planejamento/planejamento-detail/ficha/selos-secoes";
+import { requisitosUniao } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
+import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
+import { SeloObservacoesBadge, SeloProvaBadge, SeloRelacionadoBadge } from "@/components/planejamento/planejamento-detail/SelosAuxiliares";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
 import { baseCustoPlanejamento, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
@@ -980,6 +984,52 @@ function PlanejamentoDetailConteudo({
     cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
   });
 
+  // ── F3.3 — numeração "N." e selos de TODAS as seções (adiados da F3.1 — plano F3.1 §7 T2) ─────────────────────────
+  // `vis` é a fonte ÚNICA de "a seção aparece?": o JSX abaixo usa ESTES booleanos, então a numeração nunca descola do
+  // que está na tela. Ordem/numeração: selos-secoes.ts (mockup gen_main.py:31-106; Dialog "Novo Modelo": gen_novo.py).
+  const fichaVisivel = isEdit && !!modeloId && ficha.habilitada;
+  const vis: Record<SecaoSheetKey, boolean> = {
+    info: true,
+    colecao: true,
+    desenvolvimento: isEdit && podeVerDev,
+    prova: isEdit && !!modeloId && podeVerDev && campoVisivelDev("prova"),
+    tecidos: fichaVisivel, aviamentos: fichaVisivel, insumos: fichaVisivel, grade: fichaVisivel, cad: fichaVisivel,
+    tecidos_novo: !isEdit && !isComprado,
+    preco: isEdit,
+    mao_obra: (!isComprado ? true : isEdit) && (podeVerCustos || (isEdit && podeAprovarMaoObra)),
+    produto_acabado: isEdit && isRevenda && paOn,
+    grade_revenda: isEdit && isRevenda && paOn && !!produtoRevenda,
+    anexos: true,
+    observacoes: isEdit && !!modeloId && podeVerDev,
+    lancamento: isEdit,
+    relacionado: isEdit && !!modeloId,
+  };
+  // R7 do G-plano F3.3 — segue o mockup: no Dialog "Novo Modelo" só "1. Informações" e "2. Coleção" (gen_novo.py:13-20).
+  const numeros = numerarSecoes(new Set((Object.keys(vis) as SecaoSheetKey[]).filter((k) => vis[k])), { dialogNovo: !isEdit });
+  const selos = selosSecoesSheet({
+    requeridas: requisitosUniao(isComprado ? kanbanCard.revendaCfg.requisitos : kanbanCard.kanbanCfg.kanban_requisitos),
+    satisfeitas: ficha.habilitada && ficha.dados.condicoesProntas ? ficha.dados.condicoes : null,
+    podeVerCustos,
+    infoCompleta: !!draft.nome.trim() && !!draft.estilista_id && !!draft.categoria_principal_id,
+    colecaoResumo: resumoColecao({
+      colecao: draft.colecao || null,
+      subcolecao: draft.subcolecao || null,
+      linha: linhas.find((l) => l.id === draft.linha_id)?.nome ?? null,
+      semana: draft.semana || null,
+      mes: meses.find((m) => m.id === draft.mes_id)?.nome ?? null,
+      ano: anos.find((x) => x.id === draft.ano_id)?.nome ?? null,
+    }),
+    desenvolvimentoCompleto: !!draft.modelista_id && !!draft.piloteiro1_id && !!draft.data_piloto1 && !!draft.data_desenho_tecnico,
+    preco: isRevenda ? null : { efetivo: precoEfetivo, markup: markupReal },
+    maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
+    anexos: { fotoModelo: draft.fotos_modelo.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
+    lancamento: { lancado, data: draft.data_lancamento },
+  });
+  const seloDe = (k: SecaoSheetKey) => {
+    const s = selos[k];
+    return s ? <SeloBadge selo={s} /> : undefined;
+  };
+
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
@@ -1082,7 +1132,7 @@ function PlanejamentoDetailConteudo({
             exige `!isEdit`. */}
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}
-          <InfoGeraisSecao
+          <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")}
             draft={draft} setDraftTracked={setDraftTracked}
             grupoSel={grupoSel} setGrupoSel={setGrupoSel}
             grupos={grupos} categorias={categorias} estilistas={estilistas}
@@ -1090,7 +1140,7 @@ function PlanejamentoDetailConteudo({
           />
 
           {/* SETOR 2 — Coleção */}
-          <Secao titulo="Coleção" defaultOpen={false}>
+          <Secao id="colecao" titulo="Coleção" numero={numeros.colecao} selo={seloDe("colecao")} defaultOpen={false}>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {otbOn ? (
                 <FieldSelect
@@ -1136,8 +1186,8 @@ function PlanejamentoDetailConteudo({
           {/* Desenvolvimento — equipe e cronograma (veio do Dev, F3.1). Sempre visível — independe da etapa —
               p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no card existente. O
               <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
-          {isEdit && podeVerDev && (
-            <Secao titulo="Desenvolvimento — equipe e cronograma" defaultOpen={false}>
+          {vis.desenvolvimento && (
+            <Secao id="desenvolvimento" titulo="Desenvolvimento — equipe e cronograma" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} chip="do Desenvolvimento" defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <DevEquipeSection
@@ -1153,8 +1203,8 @@ function PlanejamentoDetailConteudo({
 
           {/* Ajustes na Prova (veio do Dev — F3.1): fio de comentários que grava NA HORA (fora do Salvar). Comprado
               segue a seção "prova" do Fluxo de Revenda (default: escondida). Trava = fieldset, como no Dev. */}
-          {isEdit && modeloId && podeVerDev && campoVisivelDev("prova") && (
-            <Secao titulo="Ajustes na Prova" defaultOpen={false}>
+          {vis.prova && modeloId && (
+            <Secao id="prova" titulo="Ajustes na Prova" numero={numeros.prova} selo={<SeloProvaBadge modeloId={modeloId} />} chip="do Desenvolvimento" defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <ModeloAjustesProvaSection modeloId={modeloId} />
@@ -1165,9 +1215,10 @@ function PlanejamentoDetailConteudo({
           {/* F3.2 — seções vindas do Desenvolvimento: Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade (ordem
               do mockup aprovado). SEMPRE visíveis (recolhidas) p/ quem vê o Desenvolvimento; editáveis p/ quem o
               edita (decisão F3 #8); só produto interno (comprado = F3.4). Substituem o "Tecido Planejado". */}
-          {isEdit && modeloId && (
+          {vis.tecidos && modeloId && (
             <BomSecoes
               ficha={ficha}
+              numeros={numeros}
               modeloId={modeloId}
               estoque={estoqueMap}
               ordemEnviada={enviada}
@@ -1179,8 +1230,8 @@ function PlanejamentoDetailConteudo({
               antigo "Tecido Planejado" (preço/m + estoque) GRAVA o BOM como Tecido 1..N (só o artigo) logo após o
               INSERT. No card existente os tecidos moram na seção "Tecidos / Forros / Entretelas" (BOM, logo acima) e a
               lista `tecidos_planejados` é derivada. */}
-          {!isEdit && !isComprado && (
-          <Secao titulo="Tecidos" defaultOpen>
+          {vis.tecidos_novo && (
+          <Secao id="tecidos_novo" titulo="Tecidos" numero={numeros.tecidos_novo} defaultOpen>
             <MultiArtigosField
               label=""
               value={draft.tecidos_planejados}
@@ -1194,8 +1245,8 @@ function PlanejamentoDetailConteudo({
           )}
 
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
-          {isEdit && (
-          <Secao titulo="Preço e Custos" defaultOpen={false}>
+          {vis.preco && (
+          <Secao id="preco" titulo="Preço e Custos" numero={numeros.preco} selo={seloDe("preco")} defaultOpen={false}>
             {!isRevenda ? (
               // MANUFATURADO — §K: custo/markup/preço vêm de OUTRA etapa (BOM/CAD +
               // Serviços; linha do Cadastro; cálculo de preco.ts) → tira de resumo + atalho
@@ -1262,8 +1313,8 @@ function PlanejamentoDetailConteudo({
               segue recebendo `podeVerCustos` (page-level, INALTERADO) — essa prop também controla EDIÇÃO
               (digitar valor, adicionar/remover serviço), fora do escopo deste fix ("não mude permissões de
               EDIÇÃO"); aprovar/reprovar segue só com `producao_servico_aprovacao`, como hoje. */}
-          {(!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)) && (
-            <Secao titulo="Mão de obra" defaultOpen={false}>
+          {vis.mao_obra && (
+            <Secao id="mao_obra" titulo="Mão de obra" numero={numeros.mao_obra} selo={seloDe("mao_obra")} defaultOpen={false}>
               <MaoObraEditor
                 linhas={moLinhas}
                 categorias={catsServico}
@@ -1289,19 +1340,19 @@ function PlanejamentoDetailConteudo({
           )}
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
-          {isEdit && isRevenda && paOn && (
-            <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} />
+          {vis.produto_acabado && (
+            <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} numero={numeros.produto_acabado} />
           )}
 
           {/* Revenda (Task 7): grade cor×tamanho editável — por variante do produto (rótulo
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
-          {isEdit && isRevenda && paOn && produtoRevenda && (
-            <GradeRevendaSecao rv={revenda} />
+          {vis.grade_revenda && (
+            <GradeRevendaSecao rv={revenda} numero={numeros.grade_revenda} />
           )}
 
           {/* SETOR 5 — Anexos */}
-          <Secao titulo="Anexos" defaultOpen={false}>
+          <Secao id="anexos" titulo="Anexos" numero={numeros.anexos} selo={seloDe("anexos")} defaultOpen={false}>
             <div className="grid sm:grid-cols-2 gap-4">
               <SingleFileField
                 label="Foto do Croqui"
@@ -1345,8 +1396,8 @@ function PlanejamentoDetailConteudo({
           {/* Observações (veio do Dev — F3.1): blocos com a Composição automática, gravam NA HORA (fora do Salvar).
               Reuso DIRETO de `ModeloObservacoes` (o card dele tem título próprio "Observações" — aceito: o
               componente é compartilhado com o Sheet do Dev e não muda até a F5). */}
-          {isEdit && modeloId && podeVerDev && (
-            <Secao titulo="Observações" defaultOpen={false}>
+          {vis.observacoes && modeloId && (
+            <Secao id="observacoes" titulo="Observações" numero={numeros.observacoes} selo={<SeloObservacoesBadge modeloId={modeloId} />} chip="do Desenvolvimento" defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <ModeloObservacoes modeloId={modeloId} readOnly={devBloqueado} />
@@ -1355,8 +1406,8 @@ function PlanejamentoDetailConteudo({
           )}
 
           {/* SETOR 6 — Lançamento (gate: CAD + CQ liberado + valor de serviços aprovado) */}
-          {isEdit && (
-            <Secao titulo="Lançamento" defaultOpen={false}>
+          {vis.lancamento && (
+            <Secao id="lancamento" titulo="Lançamento" numero={numeros.lancamento} selo={seloDe("lancamento")} defaultOpen={false}>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="grid gap-1 flex-1 min-w-[180px]">
                   <Label>Data de Lançamento</Label>
@@ -1402,8 +1453,8 @@ function PlanejamentoDetailConteudo({
               {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
             </Secao>
           )}
-          {isEdit && modeloId && (
-            <Secao titulo="Produto Relacionado" defaultOpen={false}>
+          {vis.relacionado && modeloId && (
+            <Secao id="relacionado" titulo="Produto Relacionado" numero={numeros.relacionado} selo={<SeloRelacionadoBadge modeloId={modeloId} />} defaultOpen={false}>
               <ProdutoRelacionadoSetor modeloId={modeloId} />
             </Secao>
           )}

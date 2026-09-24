@@ -12,7 +12,7 @@ import { STATUS_OPTS, type Opt, type CatOpt, type SubOpt, type Draft } from "@/c
 import { Secao, FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 
 export function InfoGeraisSecao({
-  draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl,
+  draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -24,9 +24,12 @@ export function InfoGeraisSecao({
   sub1Opts: SubOpt[];
   sub2Opts: SubOpt[];
   fl: ReturnType<typeof useFieldLabels>;
+  /** F3.3 — numeração e selo da seção (orquestrador). */
+  numero?: number;
+  selo?: React.ReactNode;
 }) {
   return (
-          <Secao titulo="Informações Gerais do Produto">
+          <Secao id="info" titulo="Informações Gerais do Produto" numero={numero} selo={selo}>
             {/* Linha 1: Status · Nome · Estilista · Origem */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="grid gap-1">

@@ -123,13 +123,13 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
 }
 
 /** Seção "Produto Acabado" do card revenda: vínculo (atalho ⧉) ou "Criar produto acabado". */
-export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate }: {
+export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero }: {
   rv: RevendaPlanejamento; contexto: "planejamento" | "produto-acabado"; modeloId: string | null;
-  navigate: ReturnType<typeof useNavigate>;
+  navigate: ReturnType<typeof useNavigate>; numero?: number;
 }) {
   const { produtoRevenda, produtoRevendaLoading, criarProdutoAcabado } = rv;
   return (
-            <Secao titulo="Produto Acabado" defaultOpen={false}>
+            <Secao id="produto_acabado" titulo="Produto Acabado" numero={numero} defaultOpen={false}>
               {produtoRevendaLoading ? (
                 <p className="text-sm text-muted-foreground">Carregando…</p>
               ) : produtoRevenda ? (
@@ -161,13 +161,13 @@ export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate }: {
 }
 
 /** Seção "Grade" cor×tamanho do card revenda (lê/grava `modelo_grades` pelo Salvar da página). */
-export function GradeRevendaSecao({ rv }: { rv: RevendaPlanejamento }) {
+export function GradeRevendaSecao({ rv, numero }: { rv: RevendaPlanejamento; numero?: number }) {
   const {
     gradeRevenda, variantesRevenda, tamanhosRevenda,
     setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
   } = rv;
   return (
-            <Secao titulo="Grade" defaultOpen={false}>
+            <Secao id="grade_revenda" titulo="Grade" numero={numero} defaultOpen={false}>
               {variantesRevenda.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   O produto vinculado ainda não tem variantes de cor — cadastre-as no Produto Acabado.
