@@ -65,10 +65,10 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - os Sheets de Produto Acabado e Importado mostram e editam o do **modelo espelho** (1:1, invariante #13);
   - antes de existir o espelho, o produto guarda o valor e o passa ao espelho quando o card nasce.
 - **Tabela `modelo_skus`:**
-  - colunas: `(id, tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual boolean default false, gerado_em, rev)` (`ref` = REF do card na gravação);
-  - `variante_key` = chave derivada da COR da variante (cor base + cor apelido), igual no interno e no comprado *(G-plano R1: o id da linha de variante muda a cada Salvar — o do produto é apagado e regravado; o do interno muda ao trocar o tecido mantendo as cores)*;
+  - colunas: `(id, tenant_id, modelo_id, variante_key, tamanho_key, sku, manual boolean default false, gerado_em, rev)`;
+  - `variante_key` = chave derivada da COR da variante (cor base + cor apelido), igual no interno e no comprado *(G-plano R1: o id da linha de variante muda a cada Salvar — o do produto é apagado e regravado; o do interno muda ao trocar o tecido mantendo as cores)*. Duas variantes com a mesma cor + apelido no mesmo card (ex.: Bege em 2 tecidos) viram 1 linha e 1 SKU *(reconferência do G-plano, R1-a → D7 do plano, pendente do dono; variante B = um SKU por variante)*;
   - `tamanho_key` = a chave da grade ("34|PPP");
-  - SKU único na loja, EXCETO entre réplicas/versões do mesmo produto (mesma REF + mesma cor + mesmo tamanho), que reusam o SKU do original — garantido por gatilho, no lugar da UNIQUE `(tenant_id, sku)` *(G-plano R2 → D5 do plano, pendente do dono; variante B = unicidade estrita)*. `(modelo_id, variante_key, tamanho_key)` continua UNIQUE composta;
+  - SKU único na loja, EXCETO entre réplicas/versões do mesmo produto (mesma REF + mesma cor + mesmo tamanho), que reusam o SKU do original — garantido por gatilho, no lugar da UNIQUE `(tenant_id, sku)` *(G-plano R2 → D5 do plano, pendente do dono; variante B = unicidade estrita)*. "Mesma REF" = a REF ATUAL dos dois cards (`modelos.ref`, normalizada, não vazia), comparada na hora — não há cópia da REF no SKU; trocar a REF de um card faz o SKU dividido aparecer como conflito nos dois *(reconferência, R2-a)*. `(modelo_id, variante_key, tamanho_key)` continua UNIQUE composta;
   - RLS por tenant + modgate do módulo `criacao`;
   - `_core` com EXECUTE revogado dos três (invariante #9).
 - Inverso em `supabase/rollback/`. Aplicação: primeiro na cópia local; em produção só com o G-migration + OK do dono.

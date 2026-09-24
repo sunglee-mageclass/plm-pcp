@@ -38,18 +38,18 @@
 
 **UI** — `docs/design/ui-padroes.md` §Q (primitivos Button/Input/Select/AlertDialog; sem hex/oklch/hsl solto, sem `.toFixed(`; o anti-drift de UI está ATIVO); textos PT-BR; erros por `mensagemErro(e, "…")`; tema claro de fábrica; ação sensível com AlertDialog; `useUnsavedGuard` + `UnsavedIndicator` em todo bloco com "Salvar".
 
-**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). As decisões D1–D6 (§2; a D5 e a D6 vêm das ressalvas R2/R4 do G-plano e estão **pendentes do dono**) precisam de resposta ANTES da Task 1; o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
+**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). As decisões D1–D7 (§2; a D5, a D6 e a D7 vêm das ressalvas R2/R4/R1-a do G-plano e estão **pendentes do dono**) precisam de resposta ANTES da Task 1 (a D6 já está implementada no TS da Task 1 — resposta diferente dela = avisar o controlador ANTES de mexer no que a Task 1 exporta); o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
 
 ---
 
 ## 0. Ressalvas do G-plano (R1–R10) + lição supautils — onde entraram
 
-G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` ~1641–1763): **APROVA COM RESSALVAS**. Prazos do guardião: R4 antes da T1; R1, R2 e R3 antes da T2 (com re-check dele no trecho corrigido); R5 antes da T2 Step 4; R6 antes da T6; R7 antes da T12; R8 na T12 Step 4; R9 antes da T13 Step 4; R10 antes da T13 Step 6. Rulings do controlador (~19h): R2 e R4 = recomendação implementada e marcada "(pendente do dono)"; R8/R9 = cada frente regrava a referência da volta da F1 pelos OBJETOS, com números MEDIDOS.
+G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` ~1641–1763): **APROVA COM RESSALVAS**. Prazos do guardião: R4 antes da T1; R1, R2 e R3 antes da T2 (com re-check dele no trecho corrigido); R5 antes da T2 Step 4; R6 antes da T6; R7 antes da T12; R8 na T12 Step 4; R9 antes da T13 Step 4; R10 antes da T13 Step 6. Rulings do controlador (~19h): R2 e R4 = recomendação implementada e marcada "(pendente do dono)"; R8/R9 = cada frente regrava a referência da volta da F1 pelos OBJETOS, com números MEDIDOS. Reconferência do `1bce7ba`: R3–R10, supautils e as 3 sugestões FECHADAS; R2-a e R1-a antes da T2, R-PARE antes da T4 (linhas abaixo).
 
 | # | Ressalva | Onde entrou |
 |---|---|---|
 | R1 | `variante_key` do comprado não é estável (o Salvar do produto apaga e regrava as variantes) | `_sku_variante_key(cor, apelido)` (Task 3, parte A) usada nos 3 casos por `_skus_modelo_calc` (Task 5): a chave é a COR; variantes com a mesma cor viram 1 linha. §1 F9/F10, §3 T2, §4.1. Testes (Task 2): "R1 revenda" (salva o PRODUTO pelo `salvar_produto_acabado` REAL — ids novos — e confere as linhas `ok`/`manual`, regerar remove 0) e "R1 interno" (`salvar_modelo_bom` REAL trocando o tecido por outro com as mesmas cores) |
-| R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 (pendente do dono)**, com a variante B. Gatilho `fn_modelo_skus_unico` + coluna `modelo_skus.ref` (Task 4) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
+| R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 (pendente do dono)**, com a variante B. Gatilho `fn_modelo_skus_unico` (Task 4, REF viva — R2-a) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
 | R3 | Linha em conflito/falta não recebe SKU à mão | `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)`: `_id` NULL + a tripla cria a linha manual, validada contra `_skus_modelo_calc` (Task 5). §3 T8, §4.1, §10. Testes: "R3 …" e o caminho novo no teste de permissões |
 | R4 | Caracteres do SKU incoerentes | §2 **D6 (pendente do dono)**. SQL: `_sku_sem_acento`, `_sku_norm_sigla`, `_sku_norm_ref`, `_sku_norm_manual`, separador só `- . _ /` (Task 3). TS: `normalizarSigla`/`normalizarRefSku`/`normalizarSkuManual`/`ACENTOS_DE`/`SKU_SEP_CHARS` (Task 1). Fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` nos 2 lados; teste estático da lista de acentos; textos das Tasks 7–9 e o E1 do QA |
 | R5 | N3: o `:5188` congela | Global Constraints (N3) + `regras.md` §5 + `.superpowers/f35a/n3.sh` (Task 0 Step 4), chamado em T2 Step 4, T3 Step 3, T4 Step 2, T5 Step 2, dentro do `ensaio-local.sh` (T6) e do `copia-qa.sh ida\|volta` (T10, T13) e em T13 Step 2 |
@@ -59,6 +59,10 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 | R9 | A contagem da cópia muda de vez | Task 13 Steps 3–4: o `copia-qa.sh ida` MEDE antes → depois; aviso às frentes com os classificadores a atualizar (`n3-copia.sh` da F3.1 — só `427\|219\|*`/`458\|263\|*`; o `460\|271` fixo da Nota). O G-plano calculou 476\|268 (477\|271 com a Nota) com 18\|5; com 23\|6 a conta dá 481\|269 (483\|277 com a Nota em 460\|271) — vale o MEDIDO |
 | R10 | Deploy sem portão | Task 13 Step 6: `portao_deploy_f35a && npm run deploy` — `src/` limpo (inclusive não rastreado), lista dos commits de front, PARE se fase sem banco pronto, a F3.5a só com `OBJ_F35A = 23\|6\|1\|7` em produção |
 | supautils | `CREATE/DROP POLICY` trava auth/storage | Global Constraints "Travas em tabelas EXISTENTES"; cabeçalhos da migration e do inverso (não afirmam mais "sem trava"); policies por último na parte B e `DROP TABLE` por último no inverso; `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos (+ teste estático; o harness da suíte as tira com `semTravas`); horário calmo; §7 R3/R14 (login/refresh até ~3 s) |
+| R2-a | `modelo_skus.ref` ficava velha quando a REF do card muda (reconferência `1bce7ba`) | **REF VIVA**: a coluna `ref` SAIU de `modelo_skus`; o gatilho `fn_modelo_skus_unico` (Task 4) e a leitura `_skus_modelo_core` (Task 5) comparam `_sku_norm_ref(modelos.ref)` dos dois cards na hora (join por PK). A leitura marca `conflito` também no SKU já GRAVADO (`conflito_salvo`) — a troca de REF aparece nos DOIS cards na hora. "Mesma REF" definida na D5. Teste "R2-a" (troca a REF da réplica ⇒ conflito nos 2 cards, Regerar não esconde, SKU à mão resolve) + a linha "REF viva" do teste de unicidade (Task 4) |
+| R1-a | Mesma cor + apelido 2× no card (5 pares em 3 cards da Loja Teste) | §2 **D7 (pendente do dono)** — recomendado MESMO SKU (1 linha, menor ordem, quantidades somadas); variante B descrita. Comentário em `_skus_modelo_calc`; teste "R1-a/D7" (1 linha por tamanho, `38\|P` só com quantidade na 2ª variante, SKU à mão pela tripla, Regerar 0\|0\|0) |
+| R-PARE | O que fazer quando falha asserção de comportamento | T4 Step 2, T5 Step 2 (e T13 Step 2) + `regras.md` §7: PARE e reporte; NUNCA mudar a expectativa de teste que codifica decisão do dono |
+| NOTAs (reconf.) | Deadlock Regerar × SKU à mão; mensagem citando a réplica; 23505 da linha | `_salvar_sku_manual_core` pega `sku_modelo:<modelo>` ANTES de travar a linha — ordem única documentada (sku_modelo → linha → sku_unico) na parte B/C e no §3 T10; a busca da mensagem de conflito (geração e à mão) exclui a réplica permitida; sem outra pessoa no meio (a trava por modelo serializa), o 23505 da linha vira P0409 "gravada por outra pessoa" |
 | NOTAs | Sugestões do guardião | **adotadas as três:** 1 só `ALTER TABLE tenant_config` (2 colunas); CHECK `NOT VALID` em `modelos.tamanho_tipo` (e nos 2 produtos); `REVOKE ALL … FROM PUBLIC, anon, authenticated` + `GRANT SELECT` (tira o MAINTAIN do PG17) — parte B (Task 4), conferido no teste de ACL e no `ACL_F35A`. Também: `_sku_tamanhos_normaliza` × TS independentes da ordem das chaves (fixtures) |
 
 ## 1. Fatos verificados (24/set/2026, só leitura — cópia local e HEAD `a044759`)
@@ -73,7 +77,7 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 | F6 | `modelo_grades` sem `tenant_id`; chave = string inteira (`"34\|PPP"`); valores todos `number` (2979 células) | SELECT | ✅ |
 | F7 | `ref_config` (1 loja configurada), `FormatoRefCard` em `admin/configuracoes.tsx:484`; o save da Config é `upsert` com `...cfgRest` montado das chaves de `DEFAULTS` — **coluna nova fora de `DEFAULTS` nunca entra no upsert genérico** (a F2 troca esse save — RP3) | leitura `configuracoes.tsx:84-291` | ✅ o `FormatoSkuCard` grava a própria coluna, fora do `cfg` da página |
 | F8 | Gatilhos de REF `trg_modelo_ref_auto`/`trg_pa_ref`/`trg_pi_ref`; `fn_modelo_ref_auto` sai cedo com `ordem_criacao_enviada=false`; `fn_produto_acabado_ref` não mexe com `ref` preenchida | `pg_trigger` + `pg_get_functiondef` | ✅ (os testes criam cards com REF fora do padrão AUTO) |
-| F9 | Interno: grade `variante_numero` = `modelo_tecido_variantes.ordem` do Tecido 1 (`tipo='tecido' AND numero=1`) — `_estoque_tecido_core` (join `g.variante_numero = mv.ordem`); `salvar_modelo_bom` APAGA e regrava `modelo_tecido_variantes` (o `id` muda a cada Salvar) | `pg_get_functiondef('_estoque_tecido_core')` | ➕ nem `variantes_tecido.id` é estável: trocar o tecido do Tecido 1 mantendo as cores muda o id ⇒ `variante_key` = a COR (R1) — §3 T2 |
+| F9 | Interno: grade `variante_numero` = `modelo_tecido_variantes.ordem` do Tecido 1 (`tipo='tecido' AND numero=1`) — `_estoque_tecido_core` (join `g.variante_numero = mv.ordem`); `salvar_modelo_bom` APAGA e regrava `modelo_tecido_variantes` (o `id` muda a cada Salvar) | `pg_get_functiondef('_estoque_tecido_core')` | ➕ nem `variantes_tecido.id` é estável: trocar o tecido do Tecido 1 mantendo as cores muda o id ⇒ `variante_key` = a COR (R1) — §3 T2. ⚠️ Mesma cor + apelido 2× no Tecido 1 EXISTE: 5 pares em 3 cards da Loja Teste ("Blusa Teste": REF 1234, BL0001 e 1 sem REF), a mesma cor em 2 tecidos (Malha Tessa × 251803LCN, ex.: Bege nas ordens 2 e 3); revenda/importado: 0 ⇒ **D7** |
 | F10 | Revenda/importado: `produto_acabado_variantes`/`produto_importado_variantes(id, tenant_id, produto_*_id, ordem, cor_id, cor_apelido_id, …)`, UNIQUE `(produto, ordem)`; espelho por `produtos_*.modelo_id` (`enforce_unique_fk`); só `produtos_acabados` tem gatilho de loja do espelho (`trg_pa_modelo_tenant`). ⚠️ `_salvar_produto_acabado_core` (l.189) e `_salvar_produto_importado_core` (l.106) APAGAM e regravam as variantes a cada Salvar do Sheet (ids novos) | `\d` + `pg_trigger` + `pg_get_functiondef` (G-plano R1) | ➕ `variante_key` = a COR (R1); o handover do `tamanho_tipo` confere a loja (§3 T11) |
 | F11 | ⚠️ **A REF NÃO é única**: 7 pares / 14 cards com a mesma REF na cópia (8 pares em produção em 22/set). Origem (guardião, `audit_log`): 12 dos 14 REDIGITADOS à mão (Lara, 21/ago–22/set: 5 pares v1/v2 da sub "Repetições" — o Duplicar apaga a REF, `PlanejamentoDetail.tsx:702`, e ela redigita a do original; Elita, 15/set: `ACBO0142` em CLUTCH LILLY e CHIARA, produtos DIFERENTES — provável erro de digitação, card × produto divergem) + 1 par de teste; o pool `ref_sequencia` NÃO falhou; 0 réplicas do Replicar desde 8/set — e o Replicar MANTÉM a REF por regra do dono (`7c4486b`). A spec §6 ("impossíveis pela REF única") estava errada (corrigida) | `GROUP BY tenant_id, ref HAVING count(*)>1` + diário do guardião | ❗ vira a **D5 (§2)** |
 | F12 | `modgate_*` do módulo `criacao` = RESTRICTIVE só em INSERT/UPDATE/DELETE (`modelos`, `modelo_grades`, `modelo_tecidos`, …; sem SELECT) | `pg_policies` | ✅ `modelo_skus` segue igual |
@@ -93,29 +97,30 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 - **D2 — "Regerar SKUs" e linhas que saíram da grade.** Recomendado (implementado): **o Regerar APAGA os SKUs AUTOMÁTICOS de variante/tamanho que não estão mais na grade** (variante trocada/removida, tamanho zerado) ANTES de gerar — senão o SKU antigo barra o novo igual (ex.: trocar o tecido do Tecido 1 mantendo as cores); os editados à mão NUNCA saem (ficam como "órfã"); o "Gerar" sem Regerar não apaga nada. *Se "manter tudo":* tirar o bloco `IF _regerar THEN DELETE …` do `_gerar_skus_modelo_core` e o teste "regerar remove as AUTOMÁTICAS…" passa a esperar `removidos: 0` e a linha `orfa`.
 - **D3 — Onde fica o "Formato do SKU".** A spec diz "no card do Formato da REF, um bloco". Recomendado (implementado): **um card PRÓPRIO logo ABAIXO do "Formato da REF"**, com o seu botão "Salvar formato do SKU" — o card da REF grava pelo "Salvar" geral da página e misturar dois "Salvar" no mesmo card confunde; e assim `configuracoes.tsx` muda só 2 linhas (conflito mínimo com a F2). *Se "dentro do mesmo card":* o `FormatoRefCard` ganha a prop opcional `children` (renderizada ao fim do `CardContent`, com `border-t`) e a linha `<FormatoSkuCard />` vira filho do `<FormatoRefCard …>` (o `FormatoRefCard.tsx` entra no mapa §4 e o gate do `configuracoes.tsx` passa a `4|1`).
 - **D4 — Variante SEM apelido com "Cor apelido" no formato.** Recomendado (implementado): **a parte do apelido some, junto com o separador que a antecede** (ex.: `REF-AM/34`), igual ao exemplo da spec ("1 — Amarelo"); "Falta sigla" só quando o apelido EXISTE e não tem sigla. *Se "exigir apelido":* `resolverSku`/`_sku_resolver` devolvem `falta {cor_apelido, null, null}` ("Falta o apelido na variante") — pede refazer as fixtures 4, 13, 14 e os testes que usam a variante 1 (o planejador refaz o trecho).
-- **D5 — Réplica/versão do mesmo produto: MESMO SKU do original ou SKU próprio? (pendente do dono — R2 do G-plano)** Fato (F11): o Replicar do Plan. Tecido MANTÉM a REF por regra do dono, e as versões v1/v2 são feitas redigitando a REF. Recomendado (implementado): **mesmo SKU** — um SKU só pode repetir na loja entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor base + apelido + tamanho): a réplica gera exatamente o SKU do original (o ERP/e-commerce vê o mesmo produto). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, REF vazia) = conflito. Garantido pelo gatilho `fn_modelo_skus_unico` (lock consultivo por loja; 23505) no lugar da UNIQUE `(tenant_id, sku)` da spec (que não admite a exceção), com índice `(tenant_id, sku)` para a busca e `modelo_skus.ref` = REF normalizada na gravação. Efeito colateral: dois produtos DIFERENTES com a mesma REF por engano (ex.: `ACBO0142`) também dividem o SKU nas linhas de mesma cor/tamanho — o snapshot da Task 13 lista as REFs repetidas para o dono corrigir antes de gerar. *Variante B ("SKU próprio da versão"):* tirar o `AND NOT (NEW.ref <> '' AND …)` do gatilho e o `AND NOT (…)` do `conflito_com` em `_skus_modelo_core` (= unicidade estrita por loja; pode voltar a ser `UNIQUE (tenant_id, sku)`); o teste "D5 réplica" passa a esperar 2 `conflitos` e a linha "réplica" da unicidade da Task 4 passa a esperar 23505; a versão recebe SKU à mão (R3) ou outra REF.
+- **D5 — Réplica/versão do mesmo produto: MESMO SKU do original ou SKU próprio? (pendente do dono — R2 do G-plano)** Fato (F11): o Replicar do Plan. Tecido MANTÉM a REF por regra do dono, e as versões v1/v2 são feitas redigitando a REF. Recomendado (implementado): **mesmo SKU** — um SKU só pode repetir na loja entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor base + apelido + tamanho): a réplica gera exatamente o SKU do original (o ERP/e-commerce vê o mesmo produto). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, REF vazia) = conflito. Garantido pelo gatilho `fn_modelo_skus_unico` (lock consultivo por loja; 23505) no lugar da UNIQUE `(tenant_id, sku)` da spec (que não admite a exceção), com índice `(tenant_id, sku)` para a busca. **"Mesma REF" = a REF ATUAL (viva) dos dois cards em `modelos.ref`, normalizada como no SKU (`_sku_norm_ref`: sem acento, maiúsculas, só A–Z/0–9/`- . _ /` — `" sku-t1 "` = `SKU-T1`) e NÃO vazia, comparada no momento de cada gravação (gatilho) e de cada leitura da matriz** — não há cópia da REF no SKU (R2-a: uma cópia ficava velha quando a REF do card muda). Trocar a REF de um card não revalida sozinho os SKUs já gravados (não há gatilho em `modelos`: tabela quente, e travaria o Salvar do card), mas a matriz dos DOIS cards passa a mostrar `conflito` na hora e a próxima gravação daquela linha passa pelo gatilho com a REF viva; com o Formato COM a REF o Regerar do card resolve (o SKU muda junto); SEM a REF, resolve-se com o SKU à mão (R3) ou voltando a REF. *Por que REF viva e não "o Regerar atualiza a cópia":* a cópia continuaria velha em card que nunca é regerado e no SKU à mão, e o conflito só apareceria depois do Regerar do card que mudou; a REF viva não tem o que envelhecer e avisa nos dois cards na hora, pelo custo de 1 join por PK. Efeito colateral: dois produtos DIFERENTES com a mesma REF por engano (ex.: `ACBO0142`) também dividem o SKU nas linhas de mesma cor/tamanho — o snapshot da Task 13 lista as REFs repetidas para o dono corrigir antes de gerar. *Variante B ("SKU próprio da versão"):* tirar o `AND NOT (NEW.ref <> '' AND …)` do gatilho e o `AND NOT (…)` do `conflito_com` em `_skus_modelo_core` (= unicidade estrita por loja; pode voltar a ser `UNIQUE (tenant_id, sku)`); o teste "D5 réplica" passa a esperar 2 `conflitos`, a linha "réplica" da unicidade da Task 4 passa a esperar 23505 e o teste "R2-a" perde o sentido (sai); a versão recebe SKU à mão (R3) ou outra REF.
 - **D6 — Caracteres do SKU (pendente do dono — R4 do G-plano).** Recomendado (implementado): **o SKU só tem A–Z, 0–9 e `- . _ /`, em MAIÚSCULAS, sem acento nem espaço**, normalizado no servidor: siglas (cor base, apelido, lado do tamanho) = sem acento, só letras e números (`Off White`→`OFFWHITE`, `açaí`→`ACAI`, `a-m`→`AM`); a REF dentro do SKU = sem acento, só A–Z/0–9/`- . _ /` (o resto sai); separador = só `- . _ /` (até 3; `#` ou espaço = erro PT); SKU à mão = tira espaço e acento, maiúsculas e RECUSA outro caractere ("SKU inválido: use só letras, números e - . _ /.") — `abc-1` e `ABC-1` não convivem. O acento sai por uma lista FIXA (`translate` no SQL = `ACENTOS_DE/PARA` no TS; teste estático), sem depender do locale do banco. *Se o dono quiser manter acento/espaço:* `_sku_norm_sigla` volta a `trim + upper`, `_sku_norm_ref`/`_sku_norm_manual` perdem o filtro, o separador volta a só "sem espaço", e as fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` são refeitas (o planejador refaz o trecho).
+- **D7 — Mesma cor + apelido 2× no MESMO card (ex.: Bege em 2 tecidos do Tecido 1): MESMO SKU ou um SKU por variante? (pendente do dono — R1-a do G-plano)** Fato (F9): 5 pares em 3 cards da Loja Teste. Recomendado (implementado): **mesmo SKU** — para o cliente "Blusa Bege M" é o mesmo produto, seja qual for a malha: as duas variantes viram UMA linha (a chave é a cor), vale a menor ordem e as quantidades por tamanho somam; o SKU à mão (R3) vale para essa linha única. *Variante B ("um SKU por variante"):* a chave passa a incluir o tecido (`_sku_variante_key(cor, apelido, variantes_tecido.artigo_id)` no interno; no comprado não há tecido — segue a cor) e cada variante tem linha própria; como o Formato não tem parte "tecido", as duas linhas dariam o MESMO SKU ⇒ a 2ª cai em "repetido neste produto" e recebe SKU à mão (R3) — ou o Formato ganha uma parte "tecido" (fora do escopo). Muda o SQL das Tasks 3/5 e o teste "R1-a/D7" (o TS da Task 1 não tem a chave — não muda).
 - **Ciência (sem decisão) — F11:** com a D5 recomendada, os pares v1/v2 de mesma REF dividem o SKU (é o pedido); o par `ACBO0142` (produtos diferentes) também dividiria — conferir com o dono e corrigir a REF antes da 1ª geração (lista no snapshot da Task 13).
 
 ## 3. Decisões técnicas (o plano decide; revisão Opus confere)
 
 - **T1 Normalização no servidor por GATILHO** (e não por RPC): Cadastro › Atributos grava `cores`/`cores_apelido` DIRETO pela API (insert/update do `AttributeTab`), e a Grade/Config gravam `tenant_config` direto; só um gatilho cobre todos os caminhos (importação, SQL, telas futuras). O de `tenant_config` é `BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku` — o upsert genérico da Config não manda essas colunas, então nem dispara. Regra única (D6): sem acento pela lista FIXA `_sku_sem_acento` (= `ACENTOS_DE/PARA` do TS), só A–Z/0–9, maiúsculas, vazia = NULL (`_sku_norm_sigla`); o Formato e o mapa de tamanhos são validados/canonizados com as MESMAS mensagens PT do espelho TS (RAISE P0001 → `mensagemErro` mostra a própria mensagem).
-- **T2 `variante_key`** = `_sku_variante_key(cor_id, cor_apelido_id)` (uuid por md5 da cor base + apelido) nos 3 casos (R1): o id da linha de variante NÃO é estável — o Salvar do produto apaga e regrava `produto_*_variantes` (F10), o `salvar_modelo_bom` regrava `modelo_tecido_variantes` e trocar o tecido do Tecido 1 mantendo as cores muda `variantes_tecido.id` (F9). A cor é o que identifica a variante comercial. Duas variantes com a MESMA cor viram UMA linha (vale a menor `ordem`; as quantidades por tamanho somam).
+- **T2 `variante_key`** = `_sku_variante_key(cor_id, cor_apelido_id)` (uuid por md5 da cor base + apelido) nos 3 casos (R1): o id da linha de variante NÃO é estável — o Salvar do produto apaga e regrava `produto_*_variantes` (F10), o `salvar_modelo_bom` regrava `modelo_tecido_variantes` e trocar o tecido do Tecido 1 mantendo as cores muda `variantes_tecido.id` (F9). A cor é o que identifica a variante comercial. Duas variantes com a MESMA cor + apelido viram UMA linha (vale a menor `ordem`; as quantidades por tamanho somam) — **D7, pendente do dono**.
 - **T3 Separadores** `{"<a>|<b>": sep}` só entre partes VIZINHAS da lista; o separador ANDA COM A PARTE SEGUINTE — parte ausente na linha some com o separador que a antecede. Até 3 caracteres, só `- . _ /` (D6 — o SKU inteiro fica em A–Z, 0–9 e `- . _ /`; ERP/e-commerce).
 - **T4 `parseTamanho` por conteúdo:** "34|PPP" e "PPP|34" dão o mesmo (lado só-dígitos = número); dois números ou duas letras = posicional (esq = número); solto classificado; só o 1º "|" separa.
 - **T5 Sem o lado pedido** (solto ou "UN") usa o outro lado — um card "Tamanho em: Letra" com a grade `36, 38` sai com `36`/`38`.
 - **T6 3ª RPC `skus_modelo`** (leitura da matriz) + `_skus_modelo_calc`/`_skus_modelo_core` NESTA fase: a F3.5b precisa mostrar "Falta sigla", "conflito", "divergente" e o selo SEM gravar ao abrir o card; com a leitura pronta aqui, a F3.5b fica só front (sem migration) e sem reimplementar a regra no TS.
 - **T7 `_sku_guarda(tenant, editar)`** comum aos 3 wrappers: login → módulo `criacao` → loja do modelo (NULL = "Sem permissão", sem vazar existência) → `user_can_edit|view('criacao_planejamento')`. super_admin fura a loja como nos demais wrappers.
 - **T8 `salvar_sku_manual(_id, _sku, _rev_base DEFAULT NULL, _modelo_id DEFAULT NULL, _variante_key DEFAULT NULL, _tamanho_key DEFAULT NULL)`** — `_id` = linha JÁ gravada (troca o SKU); `_id` NULL + a tripla = linha AINDA sem SKU (em conflito, com falta de sigla ou pendente — R3): cria a linha manual, validada contra `_skus_modelo_calc` ("Esta variante/tamanho não está na grade do produto."); a tripla aponta linha gravada = atualiza ela. O `_rev_base` opcional é a trava otimista da linha (P0409, padrão colab). O SKU é normalizado (D6: sem espaço/acento, maiúsculas; outro caractere = "SKU inválido: …"); vazio = "Informe o SKU."
-- **T9 `modelo_skus`:** escrita SÓ pelas RPCs DEFINER (`REVOKE ALL` de PUBLIC/anon/authenticated + `GRANT SELECT` p/ authenticated, RLS por loja); `ref` = REF normalizada na gravação (base da D5); `modgate_*` RESTRICTIVE ins/upd/del iguais aos de `modelo_grades`; `rev` próprio (NÃO sobe `modelos.rev` — gerar SKU não pode dar P0409 no Sheet aberto); sem Realtime/auditoria nesta fase (a F3.5b decide).
-- **T10** `pg_advisory_xact_lock` por modelo na geração (duas abas no mesmo card esperam em fila); conflito de unicidade (23505 do gatilho D5 ou da UNIQUE da linha) capturado por linha (sub-bloco `EXCEPTION`) — a geração nunca derruba o resto.
+- **T9 `modelo_skus`:** escrita SÓ pelas RPCs DEFINER (`REVOKE ALL` de PUBLIC/anon/authenticated + `GRANT SELECT` p/ authenticated, RLS por loja); sem cópia da REF (a D5 compara a REF VIVA do card — R2-a); `modgate_*` RESTRICTIVE ins/upd/del iguais aos de `modelo_grades`; `rev` próprio (NÃO sobe `modelos.rev` — gerar SKU não pode dar P0409 no Sheet aberto); sem Realtime/auditoria nesta fase (a F3.5b decide).
+- **T10** `pg_advisory_xact_lock` por modelo na geração E na edição à mão (duas abas no mesmo card esperam em fila). **Ordem única de travas em toda escrita de SKU:** `sku_modelo:<modelo>` → a linha (`FOR UPDATE`/`INSERT`/`UPDATE`) → `sku_unico:<loja>` (no gatilho) — um Regerar e uma edição à mão no mesmo card não se travam em cruz (NOTA da reconferência: sem isso, a edição travava a linha e esperava a loja enquanto o Regerar tinha a loja e esperava a linha ⇒ 40P01), e duas criações da mesma linha não disputam a UNIQUE; conflito de unicidade (23505 do gatilho D5 ou da UNIQUE da linha) capturado por linha (sub-bloco `EXCEPTION`) — a geração nunca derruba o resto.
 - **T11 Handover do `tamanho_tipo`** por GATILHO nos produtos (`BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo`): com espelho, o valor passa ao modelo (só se o modelo não tem) e SAI do produto — fonte única; exige a mesma loja. Assim nenhuma função existente (`_criar_card_*`) é redefinida: **a migration não altera NENHUMA função pré-existente** (conferido por md5 no ensaio e em produção).
 - **T12 Front tolerante:** o `AttributeTab` só manda `sigla_sku` quando MUDOU (editar o nome de uma cor não depende da coluna existir) — defesa se a ordem "produção antes do merge" falhar.
 - **T13 Gravação por coluna (RP3):** `FormatoSkuCard` faz `update({sku_config})` depois de conferir que o valor no banco ainda é o que a tela carregou (senão "Outra pessoa mudou…"); o bloco de siglas da Grade relê o mapa ATUAL e aplica só as chaves que o usuário mudou (`mesclarSiglasTamanho`).
 - **T14 Harness** = `tests/integration/mig-txn.ts` da F3.1, cópia BYTE A BYTE (gate); `aplica_v2`/`espera`/`ativ_vazio`/`com_travas` = extraídos por awk do runbook v2 da F1 (hash conferido) — nada reescrito à mão.
 - **T15** `tamanho_padrao` ausente = `"letra"`; sem `sku_config` (ou sem partes) = a loja não gera SKU (`status: 'sem_formato'`).
 - **T16** `NOTIFY pgrst, 'reload schema'` dentro da txn (entregue no COMMIT; o `pgrst_ddl_watch` também recarrega).
-- **T17 Unicidade do SKU (D5) por GATILHO** `fn_modelo_skus_unico` (`BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref`): `pg_advisory_xact_lock` POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas); repete só entre cards diferentes com a MESMA REF não vazia e a MESMA linha; senão RAISE 23505 (o `EXCEPTION WHEN unique_violation` da geração e da edição captura igual). Não há `btree_gist` para um EXCLUDE, e UNIQUE parcial não expressa a exceção.
+- **T17 Unicidade do SKU (D5) por GATILHO** `fn_modelo_skus_unico` (`BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref`): `pg_advisory_xact_lock` POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas); repete só entre cards diferentes com a MESMA REF VIVA não vazia (`_sku_norm_ref(modelos.ref)` dos dois, na hora — R2-a) e a MESMA linha; senão RAISE 23505 (o `EXCEPTION WHEN unique_violation` da geração e da edição captura igual). Não há `btree_gist` para um EXCLUDE, e UNIQUE parcial não expressa a exceção.
 - **T18 Travas no PRÓPRIO arquivo + ordem (supautils):** `SET LOCAL lock_timeout = '500ms'; SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;` na migration e no inverso (o `aplica_v2` injeta as mesmas — repetir é inofensivo; a suíte as tira com `semTravas`, senão os 3 s limitariam a txn inteira do teste); DDL que trava no fim; policies por último; 1 só `ALTER TABLE tenant_config`; CHECKs `NOT VALID` (as linhas existentes são todas NULL — nada a varrer sob AccessExclusive).
 
 ## 4. Mapa de arquivos
@@ -127,7 +132,7 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 | `tests/fixtures/sku-casos.ts` | criar — casos do anti-drift (TS e SQL) | 1 |
 | `tests/unit/sku-montar.test.ts` | criar | 1 |
 | `tests/integration/mig-txn.ts` | criar — CÓPIA byte a byte do da F3.1 | 2 |
-| `tests/integration/sku-automatico.test.ts` | criar — 31 testes (1 estático sem banco + 30 só na cópia) | 2 |
+| `tests/integration/sku-automatico.test.ts` | criar — 33 testes (1 estático sem banco + 32 só na cópia) | 2 |
 | `supabase/migrations/20261003100000_sku_automatico.sql` | criar (A) e completar (B, C) | 3, 4, 5 |
 | `supabase/rollback/20261003100000_sku_automatico_down.sql` | criar (inteiro) | 3 |
 | `src/components/attribute-tab.tsx` | modificar — `extraText` | 7 |
@@ -140,8 +145,8 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 
 ### 4.1 Interfaces produzidas (a F3.5b consome)
 
-- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL, _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL, _tamanho_key text DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar; `_id` NULL + a tripla = cria a linha manual de uma linha ainda sem SKU — R3; devolve `{id, sku, manual, rev}`). `variante_key` = `_sku_variante_key(cor_id, cor_apelido_id)` — a COR (R1). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, conflito_com, estado }] }`, `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
-- **Dados:** `modelos.tamanho_tipo` (`letra|numero|NULL`=padrão da loja) · `produtos_acabados.tamanho_tipo` / `produtos_importados.tamanho_tipo` (só ANTES do espelho — o gatilho passa ao modelo) · `tenant_config.sku_config` (canônico) · `tenant_config.tamanhos_sku` · `cores.sigla_sku` · `cores_apelido.sigla_sku` · `modelo_skus` (SELECT por loja; `ref` = REF normalizada na gravação; SKU repetido só entre réplicas — D5).
+- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL, _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL, _tamanho_key text DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar; `_id` NULL + a tripla = cria a linha manual de uma linha ainda sem SKU — R3; devolve `{id, sku, manual, rev}`). `variante_key` = `_sku_variante_key(cor_id, cor_apelido_id)` — a COR (R1). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, conflito_com, estado }] }`, `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (`conflito` vale também para o SKU já GRAVADO que passou a dividir com um card que não é réplica — ex.: REF trocada; `conflito_com` diz com quem) (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
+- **Dados:** `modelos.tamanho_tipo` (`letra|numero|NULL`=padrão da loja) · `produtos_acabados.tamanho_tipo` / `produtos_importados.tamanho_tipo` (só ANTES do espelho — o gatilho passa ao modelo) · `tenant_config.sku_config` (canônico) · `tenant_config.tamanhos_sku` · `cores.sigla_sku` · `cores_apelido.sigla_sku` · `modelo_skus` (SELECT por loja; SKU repetido só entre réplicas — REF viva igual, D5; sem coluna de REF).
 - **TS:** `parseTamanho`, `ladoTamanho`, `TamanhoTipo` (`@/lib/tamanho`); `SkuConfig`, `SkuFalta`, `SkuParte`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, `SKU_SEP_CHARS`, `normalizarSkuConfig`, `normalizarSkuManual` (validar o SKU à mão antes de mandar — mesma mensagem do servidor), `normalizarRefSku`, `resolverSku`, `textoFalta`, `canonico` (`@/lib/sku-montar`); `AttributeTabConfig.extraText`; queryKeys `["tenant-config-sku", tenantId]`, `["tenant-config-tamanhos-sku", tenantId]`, `["tenant-sku-exemplo", tenantId]`.
 
 ### 4.2 Sobreposição com as frentes abertas e regra de rebase
@@ -294,7 +299,9 @@ Criar `.superpowers/f35a/regras.md` (todo executor lê antes de cada task):
 6. Leitura na cópia: `PGOPTIONS='-c default_transaction_read_only=on' psql …` (só SELECT).
 7. O SQL do plano não foi EXECUTADO pelo planejador (só parseado pelo parser do PG17): erro de SQL ⇒ corrigir o MÍNIMO e registrar em
    `.superpowers/f35a/desvios.md` (erro literal, causa, correção). Diferença de VALOR entre TS e SQL = drift de regra:
-   PARE e chame o controlador (a regra só muda com ele).
+   PARE e chame o controlador (a regra só muda com ele). R-PARE: falhou uma asserção de COMPORTAMENTO (o SQL roda,
+   mas o resultado não é o esperado) → PARE e reporte; NUNCA mude a expectativa de um teste que codifica decisão do
+   dono (D1–D7, Q1–Q4, R1/R3).
 8. Âncora que não bate (Task 0 Step 3): não adaptar por conta própria — registrar em
    `.superpowers/f35a/ancoras-divergentes.md` e reportar.
 9. Não subir/derrubar servidor (só o controlador, na Task 10); nunca `:5173`, `:5188`, `:5181`–`:5187`; nada de
@@ -1125,7 +1132,7 @@ Expected: `Tests  103 passed (103)` (planejador rodou num espelho em 24/set, dep
 
 **Interfaces:**
 - Consumes: `tests/integration/db.ts` (`hasDb`, `dbUrl`, `withTx`, `comoUsuario`, `semUsuario`, `um`, `TENANT_TESTE`, `ehBancoLocal`); Task 1.
-- Produces: 31 testes — estático (1, SEM banco: as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos + a lista de acentos do SQL = a do TS), anti-drift (7, parte A), colunas/gatilhos/tabela (5, parte B — inclui a unicidade D5), geração/leitura/manual (14, parte C — inclui R1 interno e R1 revenda pelas RPCs REAIS de salvar, D5 réplica e R3), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`). O harness aplica a migration pelo `aplicarSql` depois de tirar as 2 travas do arquivo (`semTravas` — o `transaction_timeout` de 3 s mataria a txn do teste).
+- Produces: 33 testes — estático (1, SEM banco: as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos + a lista de acentos do SQL = a do TS), anti-drift (7, parte A), colunas/gatilhos/tabela (5, parte B — inclui a unicidade D5), geração/leitura/manual (16, parte C — inclui R1 interno e R1 revenda pelas RPCs REAIS de salvar, R1-a/D7 mesma cor 2×, D5 réplica, R2-a troca de REF e R3), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`). O harness aplica a migration pelo `aplicarSql` depois de tirar as 2 travas do arquivo (`semTravas` — o `transaction_timeout` de 3 s mataria a txn do teste).
 
 - [ ] **Step 1: Pré-condições da cópia (um teste por vez)**
 
@@ -1534,31 +1541,34 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
     });
   });
 
-  it("modelo_skus: 1 SKU por linha (UNIQUE composta); SKU igual na loja SÓ entre réplicas (mesma REF não vazia + mesma linha — D5); CASCADE", async () => {
+  it("modelo_skus: 1 SKU por linha (UNIQUE composta); SKU igual na loja SÓ entre réplicas (REF VIVA igual e não vazia + mesma linha — D5); CASCADE", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
-      const ins = "INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref) VALUES ($1, $2, $3, $4, $5, $6)";
+      const ins = "INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku) VALUES ($1, $2, $3, $4, $5)";
       const emUso = { code: "23505", message: "O SKU X-1 já está em uso na loja." };
-      await c.query(ins, [T, k.interno, k.kAm, "34|PPP", "X-1", "SKU-T1"]);
-      expect(await falha(c, ins, [T, k.interno, k.kAmCan, "34|PPP", "X-1", "SKU-T1"])).toEqual(emUso); // outra linha do MESMO card
-      expect((await falha(c, ins, [T, k.interno, k.kAm, "34|PPP", "X-2", "SKU-T1"])).code).toBe("23505"); // mesma linha 2×
-      expect((await falha(c, ins, [T, k.interno, k.kAm, "36|PP", "  ", "SKU-T1"])).code).toBe("23514");
-      // réplica/versão (outro card, MESMA REF, MESMA cor + tamanho) reusa o SKU
-      const rep = await modelo(c, "SKU-T Blusa v2", "SKU-T1");
-      await c.query(ins, [T, rep, k.kAm, "34|PPP", "X-1", "SKU-T1"]);
-      expect(await falha(c, ins, [T, rep, k.kAmCan, "34|PPP", "X-1", "SKU-T1"])).toEqual(emUso); // réplica, outra linha
-      expect(await falha(c, "UPDATE public.modelo_skus SET ref = 'SKU-T9' WHERE modelo_id = $1", [rep])).toEqual(emUso); // vira outra REF
+      await c.query(ins, [T, k.interno, k.kAm, "34|PPP", "X-1"]);
+      expect(await falha(c, ins, [T, k.interno, k.kAmCan, "34|PPP", "X-1"])).toEqual(emUso); // outra linha do MESMO card
+      expect((await falha(c, ins, [T, k.interno, k.kAm, "34|PPP", "X-2"])).code).toBe("23505"); // mesma linha 2×
+      expect((await falha(c, ins, [T, k.interno, k.kAm, "36|PP", "  "])).code).toBe("23514");
+      // réplica/versão (outro card, MESMA REF viva — comparada normalizada —, MESMA cor + tamanho) reusa o SKU
+      const rep = await modelo(c, "SKU-T Blusa v2", " sku-t1 ");
+      await c.query(ins, [T, rep, k.kAm, "34|PPP", "X-1"]);
+      expect(await falha(c, ins, [T, rep, k.kAmCan, "34|PPP", "X-1"])).toEqual(emUso); // réplica, outra linha
+      expect(await falha(c, "UPDATE public.modelo_skus SET tamanho_key = '36|PP' WHERE modelo_id = $1", [rep])).toEqual(emUso);
       const outra = await modelo(c, "SKU-T Outra", "SKU-T9");
-      expect(await falha(c, ins, [T, outra, k.kAm, "34|PPP", "X-1", "SKU-T9"])).toEqual(emUso); // outra REF
-      // sem REF não conta como réplica
-      const s1 = await modelo(c, "SKU-T Sem REF 1", "SKU-T7");
-      const s2 = await modelo(c, "SKU-T Sem REF 2", "SKU-T8");
-      await c.query(ins, [T, s1, k.kAm, "38|P", "Y-1", ""]);
-      expect((await falha(c, ins, [T, s2, k.kAm, "38|P", "Y-1", ""])).code).toBe("23505");
+      expect(await falha(c, ins, [T, outra, k.kAm, "34|PPP", "X-1"])).toEqual(emUso); // outra REF
+      // vale a REF VIVA do card (R2-a): trocada a REF da réplica, a próxima gravação da linha dela é recusada
+      await c.query("UPDATE public.modelos SET ref = 'SKU-T8' WHERE id = $1", [rep]);
+      expect(await falha(c, "UPDATE public.modelo_skus SET sku = sku WHERE modelo_id = $1", [rep])).toEqual(emUso);
+      // card sem REF não conta como réplica
+      const s1 = await modelo(c, "SKU-T Sem REF 1", "");
+      const s2 = await modelo(c, "SKU-T Sem REF 2", "");
+      await c.query(ins, [T, s1, k.kAm, "38|P", "Y-1"]);
+      expect((await falha(c, ins, [T, s2, k.kAm, "38|P", "Y-1"])).code).toBe("23505");
       // outra loja pode ter o mesmo SKU
       const alheio = await um<{ id: string; tenant_id: string }>(c, "SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 ORDER BY id LIMIT 1", [T]);
-      await c.query(ins, [alheio.tenant_id, alheio.id, k.kAm, "34|PPP", "X-1", "ZZ"]);
+      await c.query(ins, [alheio.tenant_id, alheio.id, k.kAm, "34|PPP", "X-1"]);
       await c.query("DELETE FROM public.modelos WHERE id = $1", [k.interno]); // filhas em CASCADE (grades, tecidos, skus)
       expect((await um<{ n: number }>(c, "SELECT count(*)::int AS n FROM public.modelo_skus WHERE modelo_id = $1", [k.interno])).n).toBe(0);
     });
@@ -1682,6 +1692,31 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
     });
   });
 
+  it("R1-a/D7: duas variantes do Tecido 1 com a MESMA cor + apelido (tecidos diferentes) ⇒ UMA linha (menor ordem, quantidades somadas); o SKU à mão vale para ela", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      const artigo2 = await novoId(c, "INSERT INTO public.artigos (tenant_id, nome) VALUES ($1, 'SKU-T Tecido 2') RETURNING id", [T]);
+      const vtAm2 = await novoId(c,
+        "INSERT INTO public.variantes_tecido (tenant_id, artigo_id, cor_id, cor_apelido_id) VALUES ($1, $2, $3, NULL) RETURNING id", [T, artigo2, k.corAm]);
+      await tecido1(c, k.mt, [vtAm2], 4); // Amarelo de novo (outro tecido), na ordem 4
+      await grade(c, k.interno, 4, { "34|PPP": 3, "38|P": 2 }); // 38|P só tem quantidade na 2ª (na 1ª é 0)
+      const r = await gerar(c, k.interno);
+      expect([r.criados, r.conflitos]).toEqual([4, []]);
+      const doAmarelo = (r.linhas as any[]).filter((l) => l.variante_key === k.kAm);
+      expect(doAmarelo.map((l) => [l.tamanho_key, l.variante_ordem, l.sku])).toEqual([
+        ["34|PPP", 1, "SKU-T1-AM-34"], ["36|PP", 1, "SKU-T1-AM-36"], ["38|P", 1, "SKU-T1-AM-38"],
+      ]);
+      const m = (await um<{ v: any }>(c, "SELECT public.salvar_sku_manual(NULL, 'am-38', NULL, $1, $2, '38|P') AS v", [k.interno, k.kAm])).v;
+      expect(m).toMatchObject({ id: linha(r, k.kAm, "38|P").id, sku: "AM-38", manual: true });
+      const r2 = await gerar(c, k.interno, true);
+      expect([r2.criados, r2.atualizados, r2.removidos, r2.conflitos]).toEqual([0, 0, 0, []]);
+      expect(linha(r2, k.kAm, "38|P")).toMatchObject({ estado: "manual", sku: "AM-38" });
+      expect((r2.linhas as any[]).filter((l) => l.variante_key === k.kAm)).toHaveLength(3);
+    });
+  });
+
   it("D5 réplica: outro card com a MESMA REF e a mesma cor/tamanho gera o MESMO SKU, sem conflito (pendente do dono)", async () => {
     await withTx(async (c) => {
       await prepara(c);
@@ -1697,6 +1732,29 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
         { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
       ]);
       expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP").estado).toBe("ok"); // o original não vira "conflito"
+    });
+  });
+
+  it("R2-a: trocar a REF de um card que dividia o SKU (réplica, Formato SEM a REF) ⇒ o conflito APARECE nos dois cards (REF viva); o SKU à mão resolve", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      await gerar(c, k.interno);
+      const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm]);
+      await grade(c, rep, 1, { "34|PPP": 1 });
+      expect((await gerar(c, rep)).conflitos).toEqual([]); // réplica: os dois com AM-34
+      expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP").estado).toBe("ok");
+      await c.query("UPDATE public.modelos SET ref = 'SKU-T8' WHERE id = $1", [rep]); // a REF do card muda
+      const naRep = linha(await matriz(c, rep), k.kAm, "34|PPP");
+      expect(naRep).toMatchObject({ estado: "conflito", sku: "AM-34", conflito_com: { modelo_id: k.interno, nome: "SKU-T Blusa", ref: "SKU-T1" } });
+      expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP")).toMatchObject({ estado: "conflito", conflito_com: { modelo_id: rep, ref: "SKU-T8" } });
+      const r = await gerar(c, rep, true); // o Regerar não esconde: o SKU previsto é o mesmo e a linha segue em conflito
+      expect(linha(r, k.kAm, "34|PPP").estado).toBe("conflito");
+      await rpc(c, "salvar_sku_manual", [naRep.id, "am-34-v2"]);
+      expect(linha(await matriz(c, rep), k.kAm, "34|PPP")).toMatchObject({ estado: "manual", sku: "AM-34-V2" });
+      expect(linha(await matriz(c, k.interno), k.kAm, "34|PPP").estado).toBe("ok");
     });
   });
 
@@ -1853,7 +1911,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       expect(await falha(c, q, [a.id, "x#1", null])).toEqual({ code: "P0001", message: "SKU inválido: use só letras, números e - . _ /." });
       expect(await falha(c, q, [a.id, " sku-t1-am-36 ", null])).toEqual({ code: "P0001", message: "O SKU SKU-T1-AM-36 já está em outra linha deste produto." });
       const m2 = await modelo(c, "SKU-T Outro", "SKU-T9");
-      await c.query("INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref) VALUES ($1, $2, $3, '34|PPP', 'OUTRO-1', 'SKU-T9')", [T, m2, k.kAm]);
+      await c.query("INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku) VALUES ($1, $2, $3, '34|PPP', 'OUTRO-1')", [T, m2, k.kAm]);
       expect(await falha(c, q, [a.id, "OUTRO-1", null])).toEqual({ code: "P0001", message: "O SKU OUTRO-1 já existe em SKU-T Outro (REF SKU-T9). Escolha outro." });
       expect((await falha(c, q, [b.id, "NOVO-36", b.rev + 7])).code).toBe("P0409");
       const ok = (await um<{ v: any }>(c, q, [b.id, "novo 36", b.rev])).v;
@@ -2048,7 +2106,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- tests/i
 git show --stat HEAD | tail -4
 ```
 
-Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  31 failed (31)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe; o estático também); (2) `Tests  1 failed | 30 skipped (31)` — só o estático falha (ENOENT); os outros pulam sem a F3.5a na cópia e sem `SKU_MIG_TXN` (e NÃO conectam fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
+Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  33 failed (33)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe; o estático também); (2) `Tests  1 failed | 32 skipped (33)` — só o estático falha (ENOENT); os outros pulam sem a F3.5a na cópia e sem `SKU_MIG_TXN` (e NÃO conectam fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
 
 ---
 
@@ -2561,7 +2619,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t3s3 && \
 bash .superpowers/f35a/n3.sh depois t3s3
 ```
 
-Expected (dono avisado ANTES — R5): só `testes-checados`; `:1` nos 4 greps; `OK (N3): pode rodar t3s3`; `Tests  8 passed | 23 skipped (31)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
+Expected (dono avisado ANTES — R5): só `testes-checados`; `:1` nos 4 greps; `OK (N3): pode rodar t3s3`; `Tests  8 passed | 25 skipped (33)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
 
 - [ ] **Step 4: Gates + commit**
 
@@ -2583,7 +2641,7 @@ git show --stat HEAD | tail -4
 - Modify: `supabase/migrations/20261003100000_sku_automatico.sql` — inserir o bloco abaixo IMEDIATAMENTE ACIMA da linha `-- ==== [PARTE B] tabela, colunas, gatilhos e policies entram ACIMA desta linha (Task 4) ====` (deixa uma linha em branco entre o bloco e o marcador; o marcador fica).
 
 **Interfaces:**
-- Produces: `fn_sigla_sku_normaliza()`, `fn_tenant_config_sku_normaliza()`, `fn_produto_tamanho_tipo_handover()`, `fn_modelo_skus_unico()` (DEFINER, revogadas dos três); `modelo_skus` (+ coluna `ref`, UNIQUE composta da linha, índice `(tenant_id, sku)`, gatilho D5 `trg_modelo_skus_unico`, `REVOKE ALL` + `GRANT SELECT`, RLS; as 4 policies POR ÚLTIMO no arquivo); colunas `cores.sigla_sku`, `cores_apelido.sigla_sku`, `produtos_acabados.tamanho_tipo`, `produtos_importados.tamanho_tipo`, `modelos.tamanho_tipo` (CHECKs `NOT VALID`), `tenant_config.tamanhos_sku` + `tenant_config.sku_config` (1 só `ALTER`); gatilhos `trg_cores_sigla_sku`, `trg_cores_apelido_sigla_sku`, `trg_pa_tamanho_tipo`, `trg_pi_tamanho_tipo`, `trg_tenant_config_sku`.
+- Produces: `fn_sigla_sku_normaliza()`, `fn_tenant_config_sku_normaliza()`, `fn_produto_tamanho_tipo_handover()`, `fn_modelo_skus_unico()` (DEFINER, revogadas dos três); `modelo_skus` (sem coluna de REF — a D5 usa a REF viva; UNIQUE composta da linha, índice `(tenant_id, sku)`, gatilho D5 `trg_modelo_skus_unico`, `REVOKE ALL` + `GRANT SELECT`, RLS; as 4 policies POR ÚLTIMO no arquivo); colunas `cores.sigla_sku`, `cores_apelido.sigla_sku`, `produtos_acabados.tamanho_tipo`, `produtos_importados.tamanho_tipo`, `modelos.tamanho_tipo` (CHECKs `NOT VALID`), `tenant_config.tamanhos_sku` + `tenant_config.sku_config` (1 só `ALTER`); gatilhos `trg_cores_sigla_sku`, `trg_cores_apelido_sigla_sku`, `trg_pa_tamanho_tipo`, `trg_pi_tamanho_tipo`, `trg_tenant_config_sku`.
 
 - [ ] **Step 1: O bloco**
 
@@ -2643,10 +2701,16 @@ END
 $function$;
 
 -- Unicidade do SKU na loja (D5/R2 — PENDENTE DO DONO; implementada a recomendação do guardião): um SKU só pode
--- repetir entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor + tamanho) — é a réplica/versão do mesmo
--- produto, que o ERP/e-commerce vê como o mesmo SKU. Qualquer outro SKU igual (outra REF, outra linha, ou duas linhas
--- do mesmo card) = RAISE 23505 (unique_violation), que a geração captura como `conflitos[]` e a edição manual traduz
--- em PT. Um lock consultivo POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas).
+-- repetir entre cards DIFERENTES com a MESMA REF e a MESMA linha (cor + tamanho) — é a réplica/versão do mesmo
+-- produto, que o ERP/e-commerce vê como o mesmo SKU. "Mesma REF" = a REF VIVA dos dois cards (modelos.ref AGORA,
+-- normalizada por _sku_norm_ref) e não vazia — nunca uma cópia guardada no SKU (R2-a: cópia fica velha quando a REF
+-- do card muda). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, card sem REF) = RAISE
+-- 23505 (unique_violation), que a geração captura como `conflitos[]` e a edição manual traduz em PT.
+-- Travas (ordem única em toda escrita de SKU — sem deadlock): sku_modelo:<modelo> (geração/edição) → a linha →
+-- sku_unico:<loja> (AQUI, lock consultivo por loja: sem ele duas transações passariam juntas pela checagem).
+-- Trocar a REF de um card NÃO revalida os SKUs já gravados (sem gatilho em modelos — tabela quente; travaria o Salvar
+-- do card): a leitura (_skus_modelo_core) compara com a REF viva e marca `conflito` nos DOIS cards na hora, e a próxima
+-- gravação da linha passa por aqui de novo.
 -- Variante B da D5 ("SKU próprio da versão"): tirar a exceção `AND NOT (…)` abaixo = unicidade estrita por loja.
 CREATE OR REPLACE FUNCTION public.fn_modelo_skus_unico()
 RETURNS trigger
@@ -2654,14 +2718,19 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
+DECLARE
+  v_ref text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('sku_unico:' || NEW.tenant_id::text, 0));
+  SELECT public._sku_norm_ref(m.ref) INTO v_ref FROM public.modelos m WHERE m.id = NEW.modelo_id;
   PERFORM 1
      FROM public.modelo_skus o
+     JOIN public.modelos mo ON mo.id = o.modelo_id
     WHERE o.tenant_id = NEW.tenant_id
       AND o.sku = NEW.sku
       AND o.id <> NEW.id
-      AND NOT (NEW.ref <> '' AND o.modelo_id <> NEW.modelo_id AND o.ref = NEW.ref
+      AND NOT (coalesce(v_ref, '') <> '' AND o.modelo_id <> NEW.modelo_id
+               AND public._sku_norm_ref(mo.ref) = v_ref
                AND o.variante_key = NEW.variante_key AND o.tamanho_key = NEW.tamanho_key);
   IF FOUND THEN
     RAISE EXCEPTION 'O SKU % já está em uso na loja.', NEW.sku USING ERRCODE = '23505';
@@ -2679,8 +2748,8 @@ REVOKE EXECUTE ON FUNCTION
 
 -- SKUs gravados (1 linha por modelo × variante(cor) × tamanho). UNIQUE COMPOSTA (segura p/ o PostgREST — regra "O que
 -- NÃO fazer") em (modelo_id, variante_key, tamanho_key) = 1 SKU por linha (e índice por modelo_id). O SKU igual na
--- loja é barrado pelo gatilho acima (D5), com o índice (tenant_id, sku) para a busca. `ref` = REF do card (normalizada)
--- quando o SKU foi gravado. Escrita SÓ pelas RPCs DEFINER: `authenticated` só tem SELECT (RLS por loja).
+-- loja é barrado pelo gatilho acima (D5, REF viva), com o índice (tenant_id, sku) para a busca. SEM cópia da REF aqui
+-- (R2-a). Escrita SÓ pelas RPCs DEFINER: `authenticated` só tem SELECT (RLS por loja).
 CREATE TABLE IF NOT EXISTS public.modelo_skus (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id    uuid NOT NULL REFERENCES public.tenants(id),
@@ -2688,7 +2757,6 @@ CREATE TABLE IF NOT EXISTS public.modelo_skus (
   variante_key uuid NOT NULL,
   tamanho_key  text NOT NULL,
   sku          text NOT NULL CONSTRAINT modelo_skus_sku_chk CHECK (btrim(sku) <> ''),
-  ref          text NOT NULL DEFAULT '',
   manual       boolean NOT NULL DEFAULT false,
   gerado_em    timestamptz NOT NULL DEFAULT now(),
   rev          integer NOT NULL DEFAULT 0,
@@ -2696,9 +2764,9 @@ CREATE TABLE IF NOT EXISTS public.modelo_skus (
 );
 CREATE INDEX IF NOT EXISTS idx_modelo_skus_tenant_sku ON public.modelo_skus (tenant_id, sku);
 COMMENT ON TABLE public.modelo_skus IS
-  'SKU por modelo × variante × tamanho (F3.5a). Escrita só por gerar_skus_modelo/salvar_sku_manual. variante_key = _sku_variante_key(cor base, cor apelido) (R1: estável entre saves); tamanho_key = chave inteira da grade ("34|PPP"); ref = REF do card na gravação. manual=true nunca é sobrescrito. SKU repetido só entre réplicas (mesma REF e mesma linha) — gatilho fn_modelo_skus_unico (D5).';
+  'SKU por modelo × variante × tamanho (F3.5a). Escrita só por gerar_skus_modelo/salvar_sku_manual. variante_key = _sku_variante_key(cor base, cor apelido) (R1: estável entre saves; mesma cor no card = 1 linha, D7); tamanho_key = chave inteira da grade ("34|PPP"). manual=true nunca é sobrescrito. SKU repetido só entre réplicas (REF viva igual e mesma linha) — gatilho fn_modelo_skus_unico (D5).';
 DROP TRIGGER IF EXISTS trg_modelo_skus_unico ON public.modelo_skus;
-CREATE TRIGGER trg_modelo_skus_unico BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref
+CREATE TRIGGER trg_modelo_skus_unico BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku
   ON public.modelo_skus FOR EACH ROW EXECUTE FUNCTION public.fn_modelo_skus_unico();
 REVOKE ALL ON public.modelo_skus FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.modelo_skus TO authenticated;
@@ -2787,7 +2855,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t4s2 && \
 bash .superpowers/f35a/n3.sh depois t4s2
 ```
 
-Expected (dono avisado ANTES — R5): os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles (terminando nas 4 policies); `OK (N3): pode rodar t4s2`; `Tests  13 passed | 18 skipped (31)`.
+Expected (dono avisado ANTES — R5): os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles (terminando nas 4 policies); `OK (N3): pode rodar t4s2`; `Tests  13 passed | 20 skipped (33)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`.
 
 - [ ] **Step 3: Gates + commit**
 
@@ -2818,9 +2886,12 @@ git show --stat HEAD | tail -3
 -- permissão (`criacao_planejamento`: ver p/ ler, editar p/ gerar/regerar/editar) via _sku_guarda; os `_core`
 -- e o cálculo têm EXECUTE revogado dos TRÊS (PUBLIC, anon, authenticated).
 -- Unicidade do SKU (D5/R2 — PENDENTE DO DONO; implementada a recomendação): SKU igual só é aceito entre cards com a
--- MESMA REF e a MESMA linha (cor + tamanho) — a réplica/versão do produto reusa o SKU do original; qualquer outro
--- SKU igual na loja é conflito. Quem garante é o gatilho fn_modelo_skus_unico (parte B); a leitura abaixo espelha
--- a MESMA regra para marcar "conflito".
+-- MESMA REF VIVA (modelos.ref agora, normalizada, não vazia — R2-a) e a MESMA linha (cor + tamanho) — a réplica/versão
+-- do produto reusa o SKU do original; qualquer outro SKU igual na loja é conflito. Quem garante é o gatilho
+-- fn_modelo_skus_unico (parte B); a leitura abaixo espelha a MESMA regra para marcar "conflito" — inclusive no SKU já
+-- GRAVADO, quando a REF de um dos cards mudou depois (sem isso o conflito ficaria calado).
+-- Ordem de travas em TODA escrita de SKU (geração e edição à mão — sem deadlock entre elas): sku_modelo:<modelo> →
+-- a linha (FOR UPDATE / INSERT / UPDATE) → sku_unico:<loja> (no gatilho).
 
 -- Guarda comum dos 3 wrappers. _tenant = loja do modelo/SKU (NULL = não existe ⇒ "Sem permissão", sem vazar).
 CREATE OR REPLACE FUNCTION public._sku_guarda(_tenant uuid, _editar boolean)
@@ -2852,8 +2923,9 @@ $function$;
 -- As linhas (variante × tamanho com quantidade > 0) do modelo e o SKU PREVISTO de cada uma (ou as faltas).
 -- Variantes: interno = variantes do Tecido 1; revenda = produto_acabado_variantes; importado =
 -- produto_importado_variantes. A CHAVE da variante é a COR (_sku_variante_key(cor, apelido) — R1): o id da linha de
--- variante muda a cada Salvar do produto. Duas variantes com a MESMA cor viram UMA linha (menor ordem; tamanhos
--- somados). Grade: modelo_grades.variante_numero = ordem da variante; tamanho_key = a chave INTEIRA da grade
+-- variante muda a cada Salvar do produto. Duas variantes com a MESMA cor + apelido no mesmo card (ex.: Bege em 2
+-- tecidos) viram UMA linha e UM SKU (D7 — PENDENTE DO DONO: para o cliente é o mesmo produto): vale a menor ordem e
+-- as quantidades por tamanho somam. Grade: modelo_grades.variante_numero = ordem da variante; tamanho_key = a chave INTEIRA da grade
 -- ("34|PPP"). Sem sku_config: linhas com sku NULL (o chamador decide o status). Não lê modelo_skus.
 CREATE OR REPLACE FUNCTION public._skus_modelo_calc(_modelo_id uuid)
 RETURNS TABLE (variante_key uuid, variante_ordem integer, cor_nome text, apelido_nome text,
@@ -2950,8 +3022,9 @@ $function$;
 -- A MATRIZ do card (Variante × Tamanho) — leitura pura (a F3.5b mostra; nada é gravado aqui).
 -- status: 'sem_formato' (loja sem sku_config) | 'aguardando_ref' (card sem REF) | 'ok'.
 -- estado por linha: ok · manual · falta · pendente (ainda não gerado) · divergente (Regerar mudaria) ·
--- conflito (o SKU previsto já é de outra linha da loja — `conflito_com`; réplica com a mesma REF e a mesma linha NÃO
--- é conflito — D5) · vazio · orfa (gravado, fora da grade).
+-- conflito (o SKU GRAVADO ou o PREVISTO já é de outra linha da loja — `conflito_com`; réplica com a mesma REF VIVA e a
+-- mesma linha NÃO é conflito — D5; a REF de um card trocada depois de gravar aparece aqui nos DOIS cards — R2-a) ·
+-- vazio · orfa (gravado, fora da grade).
 CREATE OR REPLACE FUNCTION public._skus_modelo_core(_modelo_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -3006,13 +3079,24 @@ BEGIN
       FULL JOIN s ON s.variante_key = c.variante_key AND s.tamanho_key = c.tamanho_key
   ), k AS (
     SELECT j.*,
+           -- o SKU GRAVADO divide com outra linha que não é réplica (REF viva) — ex.: a REF de um card mudou (R2-a)
+           (SELECT jsonb_build_object('modelo_id', o.modelo_id, 'nome', mo.nome, 'ref', mo.ref)
+              FROM public.modelo_skus o
+              JOIN public.modelos mo ON mo.id = o.modelo_id
+             WHERE o.tenant_id = v_tenant AND o.sku = j.salvo AND o.id <> j.sid
+               AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
+                        AND o.variante_key = coalesce(j.c_vkey, j.s_vkey) AND o.tamanho_key = j.tkey)
+             ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
+             LIMIT 1) AS conflito_salvo,
+           -- o SKU PREVISTO (o que a geração gravaria) já é de outra linha que não é réplica
            (SELECT jsonb_build_object('modelo_id', o.modelo_id, 'nome', mo.nome, 'ref', mo.ref)
               FROM public.modelo_skus o
               JOIN public.modelos mo ON mo.id = o.modelo_id
              WHERE o.tenant_id = v_tenant AND o.sku = j.previsto AND o.id IS DISTINCT FROM j.sid
-               AND NOT (o.modelo_id <> _modelo_id AND o.ref = v_refn
+               AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
                         AND o.variante_key = j.c_vkey AND o.tamanho_key = j.tkey)
-             LIMIT 1) AS conflito_com
+             ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
+             LIMIT 1) AS conflito_prev
       FROM j
   )
   SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -3020,14 +3104,16 @@ BEGIN
            'cor_nome', k.cor_nome, 'apelido_nome', k.apelido_nome,
            'tamanho_key', k.tkey, 'tamanho_ordem', k.tordem,
            'id', k.sid, 'sku', k.salvo, 'manual', coalesce(k.manual, false), 'rev', k.rev,
-           'sku_previsto', k.previsto, 'faltas', k.faltas, 'conflito_com', k.conflito_com,
+           'sku_previsto', k.previsto, 'faltas', k.faltas,
+           'conflito_com', coalesce(k.conflito_salvo, k.conflito_prev),
            'estado', CASE
              WHEN k.c_vkey IS NULL THEN 'orfa'
+             WHEN k.conflito_salvo IS NOT NULL THEN 'conflito'
              WHEN k.manual IS TRUE THEN 'manual'
              WHEN jsonb_array_length(k.faltas) > 0 THEN 'falta'
              WHEN k.previsto IS NULL THEN 'vazio'
              WHEN k.salvo = k.previsto THEN 'ok'
-             WHEN k.conflito_com IS NOT NULL THEN 'conflito'
+             WHEN k.conflito_prev IS NOT NULL THEN 'conflito'
              WHEN k.salvo IS NULL THEN 'pendente'
              ELSE 'divergente'
            END)
@@ -3082,7 +3168,8 @@ BEGIN
     RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0001';
   END IF;
 
-  -- Uma geração por modelo de cada vez (duas abas/pessoas no mesmo card esperam em fila).
+  -- Uma geração/edição por modelo de cada vez (duas abas/pessoas no mesmo card esperam em fila). 1ª trava da ordem
+  -- única (sku_modelo → linha → sku_unico): a edição à mão pega a MESMA antes de travar a linha — sem deadlock.
   PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || _modelo_id::text, 0));
 
   IF v_cfg IS NOT NULL AND v_refn <> '' THEN
@@ -3110,11 +3197,11 @@ BEGIN
       CONTINUE WHEN v_id IS NOT NULL AND (NOT _regerar OR v_sku = l.sku);      -- fixo (Q2) ou já igual
       BEGIN
         IF v_id IS NULL THEN
-          INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual, gerado_em)
-          VALUES (v_tenant, _modelo_id, l.variante_key, l.tamanho_key, l.sku, v_refn, false, now());
+          INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
+          VALUES (v_tenant, _modelo_id, l.variante_key, l.tamanho_key, l.sku, false, now());
           v_criados := v_criados + 1;
         ELSE
-          UPDATE public.modelo_skus SET sku = l.sku, ref = v_refn, gerado_em = now(), rev = rev + 1 WHERE id = v_id;
+          UPDATE public.modelo_skus SET sku = l.sku, gerado_em = now(), rev = rev + 1 WHERE id = v_id;
           v_atualizados := v_atualizados + 1;
         END IF;
       EXCEPTION WHEN unique_violation THEN
@@ -3125,12 +3212,16 @@ BEGIN
           FROM public.modelo_skus o
           JOIN public.modelos mo ON mo.id = o.modelo_id
          WHERE o.tenant_id = v_tenant AND o.sku = l.sku
-         ORDER BY (o.modelo_id = _modelo_id) DESC
+           AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
+                    AND o.variante_key = l.variante_key AND o.tamanho_key = l.tamanho_key)
+         ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
          LIMIT 1;
         v_conflitos := v_conflitos || jsonb_build_array(jsonb_build_object(
           'variante_key', l.variante_key, 'tamanho_key', l.tamanho_key, 'sku', l.sku,
           'com_modelo_id', v_com_modelo, 'com_nome', v_com_nome, 'com_ref', v_com_ref,
           'mensagem', CASE
+            WHEN v_com_modelo IS NULL THEN
+              format('SKU %s não gravado: outra pessoa gravou esta linha agora. Gere de novo.', l.sku)
             WHEN v_com_modelo = _modelo_id THEN
               format('SKU %s repetido neste produto: duas linhas dão o mesmo SKU. Mude uma sigla ou edite um deles à mão.', l.sku)
             ELSE
@@ -3147,11 +3238,14 @@ BEGIN
 END
 $function$;
 
--- SKU à mão (R3): grava manual=true e aparado/normalizado (D6). Duas formas:
+-- SKU à mão (R3): grava manual=true e normalizado (D6). Duas formas:
 --   • `_id` = linha JÁ gravada (automática ou manual) → troca o SKU;
 --   • `_id` NULL + (`_modelo_id`, `_variante_key`, `_tamanho_key`) = linha AINDA SEM SKU (em conflito, com falta de
---     sigla ou só pendente) → cria a linha manual, validada contra a grade atual (_skus_modelo_calc).
--- Mesma unicidade da geração (D5). `_rev_base` (opcional, linha existente) = trava otimista (P0409).
+--     sigla ou só pendente) → cria a linha manual, validada contra a grade atual (_skus_modelo_calc); se a tripla já
+--     tem linha gravada, troca o SKU dela.
+-- Mesma unicidade da geração (D5, REF viva). `_rev_base` (opcional, linha existente) = trava otimista (P0409).
+-- Travas na MESMA ordem da geração (sku_modelo:<modelo> → a linha → sku_unico:<loja>): um Regerar e uma edição à mão
+-- no mesmo card fazem fila, sem deadlock (NOTA do guardião), e duas criações da mesma linha não disputam a UNIQUE.
 -- NÃO trava depois do envio à Explosão (spec §4.2: o SKU é identidade comercial do Planejamento).
 CREATE OR REPLACE FUNCTION public._salvar_sku_manual_core(_id uuid, _sku text, _rev_base integer,
                                                           _modelo_id uuid, _variante_key uuid, _tamanho_key text)
@@ -3165,6 +3259,8 @@ DECLARE
   v_id uuid := _id;
   v_tenant uuid;
   v_modelo uuid;
+  v_vkey uuid;
+  v_tkey text;
   v_refn text;
   v_rev integer;
   v_com_modelo uuid;
@@ -3176,6 +3272,15 @@ BEGIN
     IF _modelo_id IS NULL OR _variante_key IS NULL OR coalesce(btrim(_tamanho_key), '') = '' THEN
       RAISE EXCEPTION 'Informe a linha do SKU (modelo, variante e tamanho).' USING ERRCODE = 'P0001';
     END IF;
+    v_modelo := _modelo_id;
+  ELSE
+    SELECT s.modelo_id INTO v_modelo FROM public.modelo_skus s WHERE s.id = v_id;
+    IF v_modelo IS NULL THEN
+      RAISE EXCEPTION 'SKU não encontrado.' USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || v_modelo::text, 0));
+  IF v_id IS NULL THEN
     SELECT s.id INTO v_id
       FROM public.modelo_skus s
      WHERE s.modelo_id = _modelo_id AND s.variante_key = _variante_key AND s.tamanho_key = _tamanho_key;
@@ -3186,7 +3291,7 @@ BEGIN
     END IF;
   END IF;
   IF v_id IS NOT NULL THEN
-    SELECT s.tenant_id, s.modelo_id, s.rev INTO v_tenant, v_modelo, v_rev
+    SELECT s.tenant_id, s.rev, s.variante_key, s.tamanho_key INTO v_tenant, v_rev, v_vkey, v_tkey
       FROM public.modelo_skus s
      WHERE s.id = v_id
        FOR UPDATE;
@@ -3197,17 +3302,19 @@ BEGIN
       RAISE EXCEPTION 'conflito_versao: o SKU foi alterado por outra pessoa' USING ERRCODE = 'P0409';
     END IF;
   ELSE
-    SELECT mo.tenant_id, mo.id INTO v_tenant, v_modelo FROM public.modelos mo WHERE mo.id = _modelo_id;
+    SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = v_modelo;
+    v_vkey := _variante_key;
+    v_tkey := _tamanho_key;
   END IF;
   SELECT public._sku_norm_ref(mo.ref) INTO v_refn FROM public.modelos mo WHERE mo.id = v_modelo;
   BEGIN
     IF v_id IS NULL THEN
-      INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, ref, manual, gerado_em)
-      VALUES (v_tenant, v_modelo, _variante_key, _tamanho_key, v_sku, coalesce(v_refn, ''), true, now())
+      INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
+      VALUES (v_tenant, v_modelo, v_vkey, v_tkey, v_sku, true, now())
       RETURNING id, rev INTO v_id, v_rev;
     ELSE
       UPDATE public.modelo_skus s
-         SET sku = v_sku, ref = coalesce(v_refn, ''), manual = true, gerado_em = now(), rev = s.rev + 1
+         SET sku = v_sku, manual = true, gerado_em = now(), rev = s.rev + 1
        WHERE s.id = v_id
       RETURNING s.rev INTO v_rev;
     END IF;
@@ -3216,8 +3323,13 @@ BEGIN
       FROM public.modelo_skus o
       JOIN public.modelos mo ON mo.id = o.modelo_id
      WHERE o.tenant_id = v_tenant AND o.sku = v_sku AND o.id IS DISTINCT FROM v_id
-     ORDER BY (o.modelo_id = v_modelo) DESC
+       AND NOT (coalesce(v_refn, '') <> '' AND o.modelo_id <> v_modelo AND public._sku_norm_ref(mo.ref) = v_refn
+                AND o.variante_key = v_vkey AND o.tamanho_key = v_tkey)
+     ORDER BY (o.modelo_id = v_modelo) DESC, o.modelo_id
      LIMIT 1;
+    IF v_com_modelo IS NULL THEN
+      RAISE EXCEPTION 'conflito_versao: a linha do SKU foi gravada por outra pessoa' USING ERRCODE = 'P0409';
+    END IF;
     IF v_com_modelo = v_modelo THEN
       RAISE EXCEPTION 'O SKU % já está em outra linha deste produto.', v_sku USING ERRCODE = 'P0001';
     END IF;
@@ -3314,7 +3426,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t5s2 && \
 bash .superpowers/f35a/n3.sh depois t5s2
 ```
 
-Expected (dono avisado ANTES — R5): `23` funções, `6` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `OK (N3): pode rodar t5s2`; `Tests  31 passed (31)`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
+Expected (dono avisado ANTES — R5): `23` funções, `6` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `OK (N3): pode rodar t5s2`; `Tests  33 passed (33)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
 
 - [ ] **Step 3: Gates + commit**
 
@@ -3393,8 +3505,8 @@ espera "$LOCAL" "$ACL_F35A" "0|0|0" "IDA: ACL (#9)" || { volta; exit 1; }
 espera "$LOCAL" "$FN_PRE" "$FN0" "IDA: nenhuma função pré-existente mudou" || { volta; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts > "$S/logs/ensaio-suite.log" 2>&1
 tail -6 "$S/logs/ensaio-suite.log"
-grep -qE "Tests +30 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
-  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 30 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
+grep -qE "Tests +32 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
+  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 32 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
 viz depois
 NOVAS="$(comm -13 "$S/logs/r6-falhas-antes.txt" "$S/logs/r6-falhas-depois.txt")"
 TA="$(total "$S/logs/r6-antes.log")"; TD="$(total "$S/logs/r6-depois.log")"
@@ -3428,7 +3540,7 @@ SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee 
 
 R5: avisar o dono ANTES (texto do `n3.sh`; ~15–20 min — as suítes vizinhas 2×, a suíte da F3.5a e ida/volta 2×; o `:5188` congela nos trechos de DDL) e rodar SÓ com o OK.
 
-Expected: `OK (N3): pode rodar t6` → `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → `R6 antes: Tests … (<T>) · <k> falha(s)` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção, com auth/storage presos pelas policies; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 23|6|1|7` → `OK (IDA: contagens 458|263 → 481|269 = +23 funções +6 gatilhos, os da F3.5a)` (ou os números do T0) → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  30 passed | 1 skipped (31)` → `R6 depois: …` → `OK (R6): suítes vizinhas sem falha nova (<k> herdada(s)); <T> testes antes e depois` → VOLTA (anotar o `real` do inverso também: ele não faz trabalho por linha, só count + DROP) → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. `FALHA NOVA: …`/`FALHOU (R6)` = a migration mudou comportamento fora do desenho: o script já voltou; PARE e chame o revisor Opus. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
+Expected: `OK (N3): pode rodar t6` → `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → `R6 antes: Tests … (<T>) · <k> falha(s)` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção, com auth/storage presos pelas policies; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 23|6|1|7` → `OK (IDA: contagens 458|263 → 481|269 = +23 funções +6 gatilhos, os da F3.5a)` (ou os números do T0) → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  32 passed | 1 skipped (33)` → `R6 depois: …` → `OK (R6): suítes vizinhas sem falha nova (<k> herdada(s)); <T> testes antes e depois` → VOLTA (anotar o `real` do inverso também: ele não faz trabalho por linha, só count + DROP) → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. `FALHA NOVA: …`/`FALHOU (R6)` = a migration mudou comportamento fora do desenho: o script já voltou; PARE e chame o revisor Opus. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
 
 ---
 
@@ -4990,15 +5102,15 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
   1. arquivo único em `BEGIN…COMMIT`, idempotente (a suíte aplica 2× — teste "aplicar 2×"), número `20261003100000` > todas as migrations (inclusive F1 `…150000`, F3.1 `20260930180000`, Aviso `20261001100000` e Nota `20261002100000`);
   2. NENHUMA função pré-existente redefinida (ensaio: `FN_PRE` igual antes/depois);
   3. ACL #9: `_core`/cálculo/helpers/gatilhos sem EXECUTE p/ PUBLIC, anon e authenticated; RPCs só `authenticated`; `modelo_skus` sem escrita p/ clientes (`ACL_F35A = 0|0|0`; teste "como o PostgREST");
-  4. UNIQUE só composta `(modelo_id, variante_key, tamanho_key)` (nenhuma em coluna única embedada) + o gatilho D5 `fn_modelo_skus_unico` (SKU único na loja fora a réplica — ou estrito, conforme a resposta do dono) com lock consultivo por loja; FK `modelo_id` com CASCADE; `variante_key` = a cor (R1);
+  4. UNIQUE só composta `(modelo_id, variante_key, tamanho_key)` (nenhuma em coluna única embedada) + o gatilho D5 `fn_modelo_skus_unico` (SKU único na loja fora a réplica — ou estrito, conforme a resposta do dono) com lock consultivo por loja, comparando a REF VIVA dos cards (R2-a) e a ordem única de travas (§3 T10); FK `modelo_id` com CASCADE; `variante_key` = a cor (R1);
   5. RLS por loja + `modgate_*` RESTRICTIVE do `criacao` (padrão `modelo_grades`);
   6. ALTERs no FIM do arquivo e as policies POR ÚLTIMO (hook supautils); as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos; tempo medido no ensaio (lock em produção < 1 s); `aplica_v2` pronto (`producao.sh`); pré-voo por OBJETOS (R7);
   7. inverso DESTRUTIVO com guarda de confirmação + export antes (round-trip testado);
   8. anti-drift TS × SQL verde (7 testes + o estático da lista de acentos) e as mensagens PT idênticas; R1 (salvar produto/BOM pelas RPCs reais) e R3 (linha manual nova) verdes; R6 sem falha nova;
-  9. decisões D1–D6 do dono aplicadas como respondidas (D5/D6: variante B/alternativa refeita se o dono escolheu diferente);
+  9. decisões D1–D7 do dono aplicadas como respondidas (D5/D6/D7: variante B/alternativa refeita se o dono escolheu diferente); "mesma REF" = REF viva (R2-a);
   10. ordem de produção: F1 → Aviso → Nota → F3.5a; front só junta DEPOIS (Task 12 antes da Task 13).
   Veredito no diário. **BLOQUEIA ⇒ parar.** Ressalvas ⇒ resolver antes do Step 3.
-- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as respostas D1–D6, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
+- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as respostas D1–D7, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 ---
 
@@ -5249,7 +5361,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t13s2 && \
 bash .superpowers/f35a/n3.sh depois t13s2
 ```
 
-Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  31 passed (31)`. Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
+Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  33 passed (33)` (R-PARE vale aqui também). Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
 
 - [ ] **Step 3: A F3.5a na CÓPIA e o merge (fast-forward) NA MESMA HORA — só com a Task 12 OK**
 
@@ -5344,7 +5456,7 @@ Expected: `feature/plan-tecido-a1`; a lista `commits de front que vão ao ar`; `
 | R1 | SQL não executado no planejamento (semântica plpgsql) | regra da fase | sintaxe conferida pelo parser do PG17 (§9); TDD em txn na cópia (Tasks 3–5) antes de qualquer apply; `desvios.md`; revisão Opus por task; ensaio completo (Task 6) |
 | R2 | Front junto antes da migration em produção ⇒ Salvar das siglas/formato falha | o `:5173` grava em produção | Task 12 antes da 13; o `AttributeTab` só manda `sigla_sku` quando muda (editar nome segue funcionando) |
 | R3 | Lock em `tenant_config`/`modelos`/`cores`/`produtos_*` na aplicação trava as policies de todas as lojas | incidente 23/set | ALTERs no fim; travas no próprio arquivo + `aplica_v2` (500 ms/3 s, 5 tentativas); ATIV vazio; horário calmo |
-| R4 | REF repetida: réplica × erro de digitação | F11 (7 pares; `ACBO0142`) | D5: réplica reusa o SKU; REF igual por engano também dividiria — lista no snapshot (Task 13) ao dono antes da 1ª geração; variante B se o dono quiser estrito; SKU manual (R3) resolve caso a caso |
+| R4 | REF repetida: réplica × erro de digitação | F11 (7 pares; `ACBO0142`) | D5: réplica reusa o SKU; REF igual por engano também dividiria — lista no snapshot (Task 13) ao dono antes da 1ª geração; variante B se o dono quiser estrito; SKU manual (R3) resolve caso a caso; REF trocada DEPOIS de gerar: a D5 compara a REF VIVA, então o SKU dividido aparece como `conflito` nos 2 cards na hora (R2-a — nunca calado) |
 | R5 | Sigla repetida entre cores (ex.: Amarelo e Âmbar = AM) ⇒ SKU repetido no mesmo produto | teste "conflito DENTRO do produto" | a 2ª linha não grava e diz "repetido neste produto"; F3.5b mostra |
 | R6 | Mudança de sigla/formato NÃO muda SKUs gerados (Q2) — alguém pode esperar que mude | decisão Q2 | AlertDialog e textos dizem "só pelo Regerar"; `skus_modelo` marca `divergente` |
 | R7 | Tamanho solto classificado errado ("3M") | spec §6 | sigla editável; `ladoTamanho` cai no lado que existir |
@@ -5354,6 +5466,8 @@ Expected: `feature/plan-tecido-a1`; a lista `commits de front que vão ao ar`; `
 | R11 | Linha em conflito/falta sem jeito de receber SKU à mão | G-plano R3 | `salvar_sku_manual` cria a linha manual (validada contra a grade) |
 | R12 | O `:5188` do dono congela nas rodadas com DDL na cópia | G-plano R5 | N3: aviso no chat + `n3.sh antes/depois` em toda rodada |
 | R13 | Volta de emergência da F1 deixa de fechar com a F3.5a em produção; deploy de front sem banco pronto | G-plano R8/R10 | `ref-volta-f1.sh` (por objetos, contagem medida) no Task 12 Step 4; `portao_deploy_f35a` no Task 13 Step 6 |
+| R15 | Mesma cor + apelido 2× no card (tecidos diferentes) ⇒ 1 SKU para as duas | F9; R1-a (5 pares na Loja Teste) | D7 ao dono (recomendado: mesmo SKU); teste "R1-a/D7"; variante B descrita |
+| R16 | Regerar × SKU à mão ao mesmo tempo no mesmo card ⇒ deadlock | NOTA da reconferência | ordem única de travas (§3 T10): os dois pegam `sku_modelo:<modelo>` primeiro e fazem fila |
 | R14 | **Login/refresh de token esperam até ~3 s** durante a aplicação (as 4 policies acionam o hook `supautils.policy_grants`, que trava ~24 tabelas de auth/storage/realtime até o COMMIT) — em produção E na cópia | F21 (lição supautils) | policies POR ÚLTIMO (o hook segura o mínimo); `transaction_timeout` 3 s no próprio arquivo = teto; horário calmo; aviso ao dono no OK da Task 11 |
 
 ## 8. Fora de escopo (F3.5a)
@@ -5362,12 +5476,12 @@ Seção "REF e SKUs" e "Tamanho em" nos cards (F3.5b — §10); migrar os 17 `sp
 
 ## 9. Autorrevisão e o que o planejador EXECUTOU (24/set, sem tocar `src/`/`supabase/`/banco)
 
-- **TS (refeito depois das ressalvas):** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **103/103 verdes**, `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco não local: **1 passed (o estático) | 30 skipped, zero conexão**; com `SKU_MIG_TXN=1` fora da cópia ela recusa na coleta.
+- **TS (refeito depois das ressalvas):** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **103/103 verdes**, `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco não local: **1 passed (o estático) | 32 skipped, zero conexão**; com `SKU_MIG_TXN=1` fora da cópia ela recusa na coleta.
 - **Front:** as edições das Tasks 7 e 9 (todas as âncoras 1×) + os 2 arquivos novos aplicados num espelho do HEAD `a044759`: **tsc limpo**; unit do repo **859 passed / 2 failed** — as 2 falhas são as HERDADAS do anti-drift de UI (`DocPrintCasca`/`OcDocumentoPrint`), nenhuma dos arquivos da F3.5a. Spec de QA: tsc limpo.
 - **Merge com a F2:** `git merge-file` (base `a044759` × F3.5a × `f2/kanban-telas`) em `configuracoes.tsx`: **0 conflito**.
 - **SQL (não executado — nada foi aplicado em banco nenhum):** a montagem A → C → B foi feita por script exatamente como as Tasks 3–5 mandam (23 funções, 6 gatilhos, 1 `BEGIN;`/1 `COMMIT;`, as 2 travas logo depois do `BEGIN;`); **parser do Postgres 17** (libpg_query via `pglast` 8.4, num venv do scratchpad): migration (71 comandos) e inverso (41) parseiam, e os 18 corpos plpgsql + 5 corpos SQL + o `DO` também (controle negativo: um corpo com erro de sintaxe e um com SQL embutido quebrado são recusados); o `semTransacao` do harness da F3.1 **aceita** os 2 arquivos; as expressões de `_sku_norm_sigla`/`_sku_norm_ref`/`_sku_norm_manual` rodaram como SELECT só-leitura na cópia contra `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL` (todas batem) e a de `_sku_variante_key` devolve uuid; as consultas do `aplica.sh` (`OBJ_F35A`, `FN_PRE`, `CONT`) rodaram SÓ-LEITURA na cópia (`0|0|0|0`, `…|458`, `458|263`) e a `ACL_F35A` passou no `EXPLAIN`; as 3 consultas de objeto do pré-voo (R7) rodaram na cópia (`t|t|f` — a Nota ainda não está nela); a extração do `aplica_v2` do runbook da F1 foi conferida por hash; todos os scripts `bash -n` ok no `/bin/bash` 3.2.
 - **R6/R8 (scripts):** `falhas()`/`total()` do ensaio conferidos num log real do vitest (`861` e as 2 falhas herdadas); o padrão das chaves da F3.5a do `ref-volta-f1.sh` rodado sobre o retrato de fidelidade da cópia (3144 linhas, só leitura): **0 falso positivo**, e 22/22 chaves sintéticas da F3.5a (funções, gatilhos, colunas, índices, policies, `(rls)`) casam.
-- **Ressalvas:** R1–R10 + supautils + as 3 sugestões do guardião — mapa no §0.
+- **Ressalvas:** R1–R10 + supautils + as 3 sugestões do guardião, e da reconferência R2-a, R1-a, R-PARE e as NOTAs (deadlock, mensagem) — mapa no §0. Depois delas o SQL foi PARSEADO de novo (os 18 corpos plpgsql ok) e a suíte compilou (tsc) e carregou sem banco: 1 passed | 32 skipped.
 - **Cobertura do pedido:** §4.1 inteira (incl. `tamanho_tipo` do modelo e do produto antes do espelho, `modelo_skus`), §4.2 (wrapper + `_core`, `salvar_sku_manual`, `montarSku`/`parseTamanho` com anti-drift × SQL), §4.3 F3.5a (Atributos e Config), §4.4; UNIQUE composta da linha + unicidade do SKU por gatilho (D5), RLS + modgate, REVOKE dos três com `has_function_privilege`; inverso com aviso de perda; testes: sem REF, falta sigla, manual preservado com `_regerar=true`, regerar só automáticos, conflito PT, réplica (D5), linha manual nova (R3), Salvar do produto/BOM pelas RPCs reais (R1), interno × revenda × importado, soltos, ACL, travas no arquivo; suítes vizinhas antes/depois no ensaio (R6); backup antes de aplicar na cópia; QA `:5180` com guarda invertida; snapshot antes do merge; G-migration; produção pelo dono com `pg_dump` e depois da F1/Aviso/Nota (conferidas por objeto); referência nova da volta da F1 (R8); deploy só pelo portão (R10).
 
 ## 10. Esboço — F3.5b (depois da F3.4; meia página)
@@ -5375,7 +5489,7 @@ Seção "REF e SKUs" e "Tamanho em" nos cards (F3.5b — §10); migrar os 17 `sp
 **Objetivo:** mostrar e operar os SKUs no card e escolher "Tamanho em". **Sem migration** (tudo o que precisa já vem da F3.5a).
 
 - **Consome da F3.5a:** `skus_modelo` (matriz: `status`, `tamanho_tipo`, `tamanho_tipo_card`, `linhas[].estado/sku/sku_previsto/faltas/conflito_com/id/rev/manual`, `faltas`), `gerar_skus_modelo(_id, _regerar)`, `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)` (linha sem `id` — conflito/falta/pendente — recebe SKU à mão pela tripla; R3), `normalizarSkuManual` (mesma mensagem do servidor), `textoFalta`, `ladoTamanho`/`parseTamanho`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, as colunas `modelos.tamanho_tipo` e `produtos_*.tamanho_tipo` (com o handover por gatilho) e `tenant_config.sku_config.tamanho_padrao`.
-- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho (linha = cor base + apelido — R1) com o SKU editável em TODA linha, inclusive as sem `id` (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`) / falta sigla / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
+- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho (linha = cor base + apelido — R1; mesma cor 2× = 1 linha — D7) com o SKU editável em TODA linha, inclusive as sem `id`; `conflito` com `conflito_com` também em SKU já gravado (REF trocada — R2-a) (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`) / falta sigla / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
 - **1ª geração automática:** no fim do Salvar do Planejamento (`usePlanejamentoSave`), se o card tem REF, o formato existe e a matriz não tem nenhuma linha gravada ⇒ `gerar_skus_modelo(_id, false)` best-effort (nunca derruba o Salvar; toast de faltas/conflitos). Não roda a cada Salvar (Q2).
 - **"Tamanho em" nos cards:** Plan. Tecido (os cards são `modelos` — `update` com `rev`), Produto Acabado e Importado (com espelho: o do MODELO; sem espelho: o do produto — o gatilho passa ao modelo quando o card nasce); a grade exibida em todos segue `ladoTamanho(chave, tipo)`; a chave interna continua "34|PPP".
 - **A decidir na F3.5b:** Realtime de `modelo_skus` (hoje fora da publication), "voltar ao automático", auditoria.
