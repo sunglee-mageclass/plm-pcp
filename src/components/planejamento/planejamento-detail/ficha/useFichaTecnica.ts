@@ -116,12 +116,19 @@ export type FichaSave = {
    */
   invalidarBom: () => void;
   /**
-   * Item E (fix round 3, (a)) — "este save IA gravar o BOM?" = BOM tocado OU pré-preenchimento pendente
-   * (mesma condição de `gravar` em `capturar()`, sem depender de `podeEditar`/carga — lida direto das refs,
-   * vale fora do ciclo de render). Usada no `onError` do P0409 (`usePlanejamentoSave.ts`) para decidir se
-   * confere o BOM do servidor: com prefill pendente e `colecoesTouchadasRef=false`, o `bomConflito` de hoje
-   * ficava sempre `false` (só olhava `colecoesTouchadasRef`) — um P0409 nesse instante fazia o retry gravar o
-   * esqueleto Tecido 1..N por cima do BOM que outra pessoa completou nesse meio-tempo (cenário do bug).
+   * Item E (fix round 3, (a)) — "este save IA gravar o BOM (manufaturado)?" = BOM tocado OU pré-preenchimento
+   * pendente (mesma condição de `gravar` em `capturar()` PARA O BOM manufaturado, sem depender de
+   * `podeEditar`/carga — lida direto das refs, vale fora do ciclo de render). Usada no `onError` do P0409
+   * (`usePlanejamentoSave.ts`) para decidir se confere o BOM do servidor: com prefill pendente e
+   * `colecoesTouchadasRef=false`, o `bomConflito` de antes ficava sempre `false` (só olhava
+   * `colecoesTouchadasRef`) — um P0409 nesse instante fazia o retry gravar o esqueleto Tecido 1..N por cima do
+   * BOM que outra pessoa completou nesse meio-tempo (cenário do bug).
+   * Fix round 1 (I2) — NÃO cobre a grade cor × tamanho do comprado: o IMPORTADO grava essa grade POR ESTE
+   * MESMO BOM (`gradeCompradoPeloBom`/`gradeRevendaDirty`, fora deste hook — vivem em `usePlanejamentoSave`/
+   * `PlanejamentoDetail`), então uma grade editada SEM nenhum campo do BOM manufaturado tocado também faz
+   * `capturar().gravar` sair `true` (via `gravaPelaGrade`) sem que esta função saiba disso. `usePlanejamentoSave`
+   * soma essa condição por fora nos 2 pontos que chamam `bomPendenteDeGravar()`:
+   * `fichaRef.current.bomPendenteDeGravar() || (gradeCompradoPeloBom && gradeRevendaDirty)`.
    */
   bomPendenteDeGravar: () => boolean;
   etapas: { corte?: boolean; baixa_total?: number };
@@ -505,7 +512,22 @@ export function useFichaTecnica(a: {
       if (mudou && bom.colecoesTouchadasRef.current) setConflitoBomBoth(true);
     });
   };
-  /** "manter meu" → fecha o aviso (o próximo Salvar sobrescreve); "usar o novo" → descarta e recarrega. */
+  /**
+   * "manter meu" → fecha o aviso (o próximo Salvar sobrescreve); "usar o novo" → descarta e recarrega.
+   * Fix round 1 (I2, 3ª parte) — DECISÃO: `bom.descartarEdicoes()` só limpa o "tocado"/flags do BOM
+   * MANUFATURADO (`useFichaBom.ts`) — a grade cor × tamanho do comprado (`gradeRevenda`/`gradeRevendaDirty`)
+   * é estado de FORA deste hook (vive em `PlanejamentoDetail.tsx`/`usePlanejamentoSave.ts`, fora dos arquivos
+   * deste fix) e NÃO é descartada aqui. Cenário: importado com a grade editada (marca `colecoesTouchadasRef`
+   * via `marcarGradeExternaEditada`, que soma ao mesmo "tocado" do BOM) entra em conflito de seção e o usuário
+   * escolhe "usar o novo" — `descartarEdicoes()` limpa `colecoesTouchadasRef`/`tocado`, mas `gradeRevendaDirty`
+   * (fora daqui) permanece `true`: a grade editada pelo usuário CONTINUA na tela, só o marcador de "tocado" da
+   * ficha foi zerado. Escolhido MANTER A PENDÊNCIA (não tentar descartar/recarregar a grade por aqui, que exigiria
+   * acesso a `setGradeRevenda`/`gradeRevendaBaseRef`, fora do escopo desta função): `bomPendenteDeGravar()`
+   * sozinho voltaria a `false` depois deste "usar o novo", mas os 2 pontos de `usePlanejamentoSave.ts` que a
+   * chamam SOMAM `gradeCompradoPeloBom && gradeRevendaDirty` por fora (fix round 1, I2) — então a pendência da
+   * grade segue visível para o próximo guard/conflito mesmo com o "tocado" do BOM já limpo aqui. O próximo
+   * Salvar grava a grade normalmente (ela nunca foi perdida, só o "toque" da ficha resetou).
+   */
   const resolverConflitoBom = (manterMeu: boolean) => {
     setConflitoBomBoth(false);
     if (manterMeu) {
@@ -559,8 +581,10 @@ export function useFichaTecnica(a: {
     colecoesTouchadasRef: bom.colecoesTouchadasRef,
     setConflitoBom: setConflitoBomBoth,
     bomMudouNoServidor,
-    // Item E (fix round 3, (a)) — mesma condição de `gravar` em `capturar()` abaixo: tocado OU prefill
-    // pendente.
+    // Item E (fix round 3, (a)) — mesma condição de `gravar` em `capturar()` abaixo PARA O BOM MANUFATURADO:
+    // tocado OU prefill pendente. NÃO cobre a grade cor × tamanho do comprado (fix round 1, I2) — quem chama
+    // esta função soma `gradeCompradoPeloBom && gradeRevendaDirty` por fora (ver o tipo `FichaSave` acima, doc
+    // de `bomPendenteDeGravar`, e os 2 pontos de uso em `usePlanejamentoSave.ts`).
     // Fix round 4 (item 9, acréscimo do controlador) — soma `podeEditarRef.current`: o prefill
     // (`prefillPendenteRef`) é marcado na CARGA do BOM (useFichaBom.ts) pra QUALQUER um que veja o Dev, não só
     // quem edita — um usuário só-leitura (ex.: `canView` sem `canEdit`, ou card travado por "enviado"/"carregando")

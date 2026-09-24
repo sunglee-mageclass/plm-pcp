@@ -69,6 +69,35 @@ describe("opcoesOrigem / motivoTrocaOrigem (D1 + R3/R7 do G-plano F3.4)", () => 
   it("card novo (Dialog): sem regra de troca", () => {
     expect(opcoesOrigem({ ...base, isEdit: false, temTecidos: true, espelhos: null, edicaoPendente: true }).every((o) => !o.disabled)).toBe(true);
   });
+
+  // Fix round 1 (I3) — `produtos_acabados` TAMBÉM tem `modgate_sel` RESTRICTIVE (premissa da R3 estava errada); com o
+  // módulo Produto Acabado desligado, `acabado` fica INDETERMINADO (null), igual ao `importado`.
+  describe("I3 — acabado indeterminado (módulo Produto Acabado desligado)", () => {
+    const acabadoIndet = { acabado: null, importado: nenhum } as const;
+    it("nunca permite criar o Importado com o acabado indeterminado (falha fechada, mesmo sentido de 'espelhos null')", () => {
+      expect(motivoTrocaOrigem({ de: "interno", para: "importado", piOn: true, temTecidos: false, espelhos: acabadoIndet }))
+        .toMatch(/Produto Acabado.*desligado/);
+      expect(motivoTrocaOrigem({ de: "revenda", para: "importado", piOn: true, temTecidos: false, espelhos: acabadoIndet }))
+        .toMatch(/Produto Acabado.*desligado/);
+    });
+    it("trava a SAÍDA de um card revenda com o acabado indeterminado (Revenda → Interno e Revenda → Importado)", () => {
+      expect(motivoTrocaOrigem({ de: "revenda", para: "interno", piOn: true, temTecidos: false, espelhos: acabadoIndet }))
+        .toMatch(/Produto Acabado.*desligado/);
+    });
+    it("NÃO trava Interno → Revenda com o acabado indeterminado (card que nunca foi revenda não tem produto acabado por construção)", () => {
+      expect(motivoTrocaOrigem({ de: "interno", para: "revenda", piOn: true, temTecidos: false, espelhos: acabadoIndet })).toBeNull();
+    });
+    it("Importado → Revenda com o acabado indeterminado: trava (não dá pra confirmar que não há Produto Acabado vinculado)", () => {
+      const espelhos = { acabado: null, importado: { existe: true, temPedido: false } };
+      expect(motivoTrocaOrigem({ de: "importado", para: "revenda", piOn: true, temTecidos: false, espelhos }))
+        .toMatch(/Produto Importado/); // trava primeiro pela checagem de `importado.existe` (dois espelhos), mesma ordem de antes
+    });
+    it("opcoesOrigem propaga o motivo do acabado indeterminado para a opção 'Importado'", () => {
+      const out = opcoesOrigem({ ...base, salva: "interno", atual: "interno", espelhos: acabadoIndet });
+      expect(out.find((o) => o.value === "importado")?.motivo).toMatch(/Produto Acabado.*desligado/);
+      expect(out.find((o) => o.value === "importado")?.disabled).toBe(true);
+    });
+  });
 });
 
 describe("espelhosDoCard (R3 — invariante #13)", () => {
@@ -79,6 +108,14 @@ describe("espelhosDoCard (R3 — invariante #13)", () => {
       .toEqual({ acabado: { existe: false, temPedido: false }, importado: null });
     expect(espelhosDoCard({ acabados: [{ ocs: null }], importados: [{ ocs: [] }] }))
       .toEqual({ acabado: { existe: true, temPedido: false }, importado: { existe: true, temPedido: false } });
+  });
+  // Fix round 1 (I3) — `acabados: null` ganhou o MESMO tratamento de `importados: null`: `produtos_acabados` também
+  // tem policy RESTRICTIVE por módulo (`modgate_sel`), então sem `paOn` o SELECT some sem erro — indeterminado.
+  it("acabados null = INDETERMINADO (módulo Produto Acabado desligado); os dois null ao mesmo tempo", () => {
+    expect(espelhosDoCard({ acabados: null, importados: [] }))
+      .toEqual({ acabado: null, importado: { existe: false, temPedido: false } });
+    expect(espelhosDoCard({ acabados: null, importados: null }))
+      .toEqual({ acabado: null, importado: null });
   });
 });
 

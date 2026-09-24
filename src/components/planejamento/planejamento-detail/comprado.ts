@@ -17,22 +17,30 @@ export type OpcaoOrigem = { value: Origem; label: string; disabled: boolean; mot
 export type EspelhoProduto = { existe: boolean; temPedido: boolean };
 /**
  * Os DOIS espelhos do card, qualquer que seja a origem (um card interno pode já ter sido comprado — o produto continua
- * vinculado na tela dele). `importado: null` = INDETERMINADO: com o módulo Produto Importado desligado a RLS RESTRICTIVE
- * `modgate_pi_*` esconde as linhas — "vazio" não prova nada. `produtos_acabados` não tem modgate: sempre legível.
+ * vinculado na tela dele). `null` = INDETERMINADO — "vazio" não prova nada:
+ *  • `importado: null` — com o módulo Produto Importado desligado, a RLS RESTRICTIVE `modgate_pi_*` esconde as linhas.
+ *  • `acabado: null` (fix round 1, I3 — premissa da R3 estava errada) — `produtos_acabados` TAMBÉM tem policy
+ *    RESTRICTIVE (`modgate_sel`, módulo `produto_acabado`; `savepoints/.../policies.csv:559`): sem `paOn`, o SELECT
+ *    volta vazio SEM erro, igual ao importado. A R3 original assumia "`produtos_acabados` não tem modgate: sempre
+ *    legível" — falso; o caller (`PlanejamentoDetail.tsx`, query `plan-origem-espelhos`) só lê essa tabela quando
+ *    `paOn`, e a key inclui `paOn`.
  */
-export type EspelhosCard = { acabado: EspelhoProduto; importado: EspelhoProduto | null };
+export type EspelhosCard = { acabado: EspelhoProduto | null; importado: EspelhoProduto | null };
 export const SEM_ESPELHOS: EspelhosCard = { acabado: { existe: false, temPedido: false }, importado: { existe: false, temPedido: false } };
 /** R7 — texto do Select travado por edição pendente (a ficha projeta pela origem do RASCUNHO; a grade segue a SALVA). */
 export const MOTIVO_EDICAO_PENDENTE = "Salve (ou descarte) as edições de Tecidos/Aviamentos/Insumos/Grade antes de trocar a Origem.";
 
-/** Linhas lidas de cada tela (`ocs` = pedidos do produto) → espelhos. `importados: null` = módulo desligado (indeterminado). */
+/**
+ * Linhas lidas de cada tela (`ocs` = pedidos do produto) → espelhos. `acabados`/`importados: null` = módulo
+ * desligado (indeterminado — fix round 1, I3: `acabados` ganhou o mesmo tratamento de `importados`).
+ */
 export function espelhosDoCard(i: {
-  acabados: { ocs: { id: string }[] | null }[];
+  acabados: { ocs: { id: string }[] | null }[] | null;
   importados: { ocs: { id: string }[] | null }[] | null;
 }): EspelhosCard {
   const um = (rows: { ocs: { id: string }[] | null }[]): EspelhoProduto =>
     ({ existe: rows.length > 0, temPedido: rows.some((r) => (r.ocs ?? []).length > 0) });
-  return { acabado: um(i.acabados), importado: i.importados === null ? null : um(i.importados) };
+  return { acabado: i.acabados === null ? null : um(i.acabados), importado: i.importados === null ? null : um(i.importados) };
 }
 
 /**
@@ -40,11 +48,19 @@ export function espelhosDoCard(i: {
  *  • → Importado exige o módulo `produto_importado` ligado (logo, Revenda → Importado trava com ele desligado).
  *  • Espelhos ainda carregando ou com erro (`espelhos` null) ⇒ nenhuma troca no escuro.
  *  • NUNCA dois espelhos (invariante #13): ir p/ uma família com produto vinculado na OUTRA é barrado — vale também p/ o
- *    card interno que já foi comprado.
+ *    card interno que já foi comprado. Fix round 1 (I3) — com `acabado` indeterminado (módulo Produto Acabado
+ *    desligado), NUNCA cria o Importado (falha fechada: não dá pra confirmar que não há um Produto Acabado
+ *    vinculado — vale para QUALQUER `de`, inclusive interno, pela mesma razão da R3: "um card interno pode já ter
+ *    sido comprado").
  *  • Interno → comprado: só com a seção Tecidos VAZIA — tecido no BOM reserva estoque (`_estoque_tecido_core` não filtra
- *    origem) e, num comprado, ficaria escondido reservando.
- *  • Saída de um comprado: o produto DELE tem de ser legível (importado com o módulo desligado ⇒ indeterminado ⇒ trava —
- *    logo, Importado → Revenda também trava); D1 (i) — com pedido (OC) do produto, a Origem não muda mais.
+ *    origem) e, num comprado, ficaria escondido reservando. Interno → Revenda especificamente NÃO depende de `acabado`
+ *    (nem antes, nem agora): um card que NUNCA foi revenda não pode ter um Produto Acabado vinculado por construção — a
+ *    única forma de vincular um é pelo próprio fluxo de revenda (auto-criação no Salvar, que já exige `paOn`), então
+ *    "acabado indeterminado" não é um risco real aqui; travar interno→revenda por causa disso regrediria uma loja com o
+ *    módulo Produto Acabado momentaneamente desligado sem nenhum ganho de segurança.
+ *  • Saída de um comprado: o produto DELE tem de ser legível (o módulo da FAMÍLIA dele desligado ⇒ indeterminado ⇒
+ *    trava — Revenda → * trava sem `paOn`, Importado → * trava sem `piOn`); D1 (i) — com pedido (OC) do produto, a
+ *    Origem não muda mais.
  */
 export function motivoTrocaOrigem(i: {
   de: Origem; para: Origem; piOn: boolean; temTecidos: boolean;
@@ -55,17 +71,30 @@ export function motivoTrocaOrigem(i: {
   if (i.para === "importado" && !i.piOn) return "O módulo Produto Importado está desligado nesta loja.";
   if (!i.espelhos) return "Conferindo o produto vinculado…";
   const { acabado, importado } = i.espelhos;
-  if (i.para === "importado" && acabado.existe) {
-    return "Este card tem produto vinculado no Produto Acabado — para virar Importado, exclua o produto na tela dele.";
+  // Fix round 1 (I3) — `acabado === null` (módulo Produto Acabado desligado) trava a criação do Importado do
+  // MESMO jeito que `acabado.existe === true`: sem conferir, não dá para provar que não há um Produto Acabado
+  // vinculado (falha fechada — mesmo espírito de `!i.espelhos` acima, mas específico desta família).
+  if (i.para === "importado" && (acabado === null || acabado.existe)) {
+    return acabado === null
+      ? "O módulo Produto Acabado está desligado nesta loja — sem conferir o produto vinculado, não dá para virar Importado."
+      : "Este card tem produto vinculado no Produto Acabado — para virar Importado, exclua o produto na tela dele.";
   }
   if (i.para === "revenda" && importado?.existe) {
     return "Este card tem produto vinculado no Produto Importado — para virar Revenda, exclua o produto na tela dele.";
   }
   if (i.de === "interno") {
+    // Interno → Revenda não olha `acabado` (comentário do JSDoc acima) — só a seção Tecidos importa aqui.
     return i.temTecidos ? "Tire os tecidos da seção Tecidos / Forros / Entretelas e salve antes — tecido no BOM reserva estoque." : null;
   }
   const meu = i.de === "revenda" ? acabado : importado;
-  if (meu === null) return "O módulo Produto Importado está desligado nesta loja — sem conferir o produto vinculado, a Origem não muda.";
+  if (meu === null) {
+    // Fix round 1 (I3) — mensagem por FAMÍLIA (antes hard-coded só para "Produto Importado desligado"; agora
+    // `acabado` também pode ser `null`, então a saída de uma Revenda com `produto_acabado` desligado precisa do
+    // texto certo).
+    return i.de === "revenda"
+      ? "O módulo Produto Acabado está desligado nesta loja — sem conferir o produto vinculado, a Origem não muda."
+      : "O módulo Produto Importado está desligado nesta loja — sem conferir o produto vinculado, a Origem não muda.";
+  }
   // D1 (i) — DECIDIDO pelo dono em 24/set: comprado com OC não volta a Interno (Revenda↔Importado já trava pelo espelho).
   if (meu.temPedido) return "O produto deste card já tem pedido (OC) — a Origem não muda mais.";
   return null;

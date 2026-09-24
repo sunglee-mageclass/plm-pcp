@@ -277,8 +277,15 @@ function PlanejamentoDetailConteudo({
   // o fallback acima cai em `draft.origem` = `"interno"` (o `emptyDraft()`) — `isComprado=false` por
   // engano, mesmo sendo um card de revenda/importado. `isComprado` (acima) continua servindo o resto
   // do componente (JSX/gate do Duplicar) sem mudar; SÓ o valor que vai para `useFichaTecnica` fica
-  // mais estrito: "comprado OU indefinido (1ª carga, cache frio) ⇒ NÃO habilita" — a ficha só liga
-  // quando já dá pra confirmar que o modelo é interno (draft semeado OU `modeloData` já chegado).
+  // mais estrito: "comprado OU indefinido (1ª carga, cache frio) ⇒ trata como comprado" — a ficha só
+  // usa o comportamento INTERNO (grade/CAD do Tecido 1) quando já dá pra confirmar que o modelo é
+  // interno (draft semeado OU `modeloData` já chegado).
+  // Fix round 1 (M1) — comentário CORRIGIDO: o texto antigo dizia "⇒ NÃO habilita", mas isso ficou
+  // FALSO desde a Task 4/F3.4 (`useFichaTecnica.habilitada` não exclui mais `isComprado` — a ficha
+  // agora ABRE para o comprado, sem grade própria e sem CAD, conforme decisão F3 #4). `isCompradoParaFicha`
+  // não decide "habilita ou não"; decide se `useFichaTecnica` PROJETA o card como comprado (sem grade
+  // do Tecido 1, sem CAD gravável) mesmo antes do seed — evita um flash com o comportamento INTERNO
+  // (ex.: pré-preenchimento de Tecido 1..N) para um card que É comprado.
   // Card novo (Dialog, sem `modeloId`) não quebra: `useFichaTecnica.habilitada` já exige `isEdit`.
   const isCompradoParaFicha = isComprado || (isEdit && !baseRef.current && !modeloData);
   const navigate = useNavigate();
@@ -584,17 +591,23 @@ function PlanejamentoDetailConteudo({
     },
   });
   // R3 — os DOIS espelhos do card (invariante #13), QUALQUER que seja a origem (um card interno pode já ter sido comprado —
-  // o produto continua vinculado na tela dele). `produtos_acabados` não tem modgate: lido SEMPRE (não depende do `paOn`).
-  // `produtos_importados` tem `modgate_pi_*` RESTRICTIVE: com o módulo desligado as linhas SOMEM ⇒ INDETERMINADO (null),
-  // nunca "não tem". Key própria (forma diferente de `plan-comprado-produto`/`pa-produto-modelo`); `piOn` na key.
+  // o produto continua vinculado na tela dele).
+  // Fix round 1 (I3) — premissa errada corrigida: `produtos_acabados` TAMBÉM tem `modgate_sel` RESTRICTIVE (módulo
+  // `produto_acabado`; `savepoints/.../policies.csv:559`) — sem `paOn`, o SELECT volta vazio SEM erro, exatamente como
+  // `produtos_importados`. Lida SÓ com `paOn` (mesmo padrão do `piOn` abaixo); sem `paOn`, `acabado` fica INDETERMINADO
+  // (null) — `espelhosDoCard` já trata os dois lados assim. Key ganha `paOn` (prefixo de `piOn`, mesma convenção).
   const qEspelhos = useQuery({
-    queryKey: ["plan-origem-espelhos", modeloId, piOn],
+    queryKey: ["plan-origem-espelhos", modeloId, paOn, piOn],
     enabled: isEdit && !!modeloId,
     queryFn: async (): Promise<EspelhosCard> => {
-      const pa = await (supabase.from("produtos_acabados" as any) as any)
-        .select("id, ocs:ocs_p_acabado(id)")
-        .eq("modelo_id", modeloId);
-      if (pa.error) throw pa.error;
+      let acabados: { ocs: { id: string }[] | null }[] | null = null;
+      if (paOn) {
+        const pa = await (supabase.from("produtos_acabados" as any) as any)
+          .select("id, ocs:ocs_p_acabado(id)")
+          .eq("modelo_id", modeloId);
+        if (pa.error) throw pa.error;
+        acabados = pa.data ?? [];
+      }
       let pi: { ocs: { id: string }[] | null }[] | null = null;
       if (piOn) {
         const r = await (supabase.from("produtos_importados" as any) as any)
@@ -603,7 +616,7 @@ function PlanejamentoDetailConteudo({
         if (r.error) throw r.error;
         pi = r.data ?? [];
       }
-      return espelhosDoCard({ acabados: pa.data ?? [], importados: pi });
+      return espelhosDoCard({ acabados, importados: pi });
     },
   });
   const origemOpcoesLista = opcoesOrigem({

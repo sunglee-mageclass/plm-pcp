@@ -104,12 +104,25 @@ export function usePlanejamentoSave({
   // obs. técnicas — `CAMPOS_DEV_DRAFT`, helpers.ts), não só o BOM/colunas derivadas. Eles entram no payload
   // via `aplicarRegrasCamposDev` (só com `podeEditarDev`) — capturado do PRÓPRIO `payload` já montado, no
   // mesmo instante síncrono, sem lista paralela.
+  // Fix round 1 (I1) — `bom`/`moLinhas` viraram OPCIONAIS: a captura dos 3 campos síncronos (linhas abaixo)
+  // acontece ANTES do `await lerGradeServidorComprado`, então um erro lançado ali (P0409 da leitura da grade)
+  // ou logo depois (`bom.gradeConflito`) já encontra `enviadoRef.current` preenchido com uma captura VÁLIDA
+  // desses 3 campos — sem isso, o `onError` caía nos fallbacks `?? false` de `retryBloqueadoPorEnvio`, que são
+  // OTIMISTAS (tratam "não sei" como "nada do Dev seria gravado" e liberam o retry) quando deveriam ser
+  // CONSERVADORES (bloquear quando não sabe — cenário: outra pessoa envia o comprado à Explosão e eu salvo
+  // antes do Realtime chegar ⇒ o 1º Salvar precisa bloquear, com o toast da F3.2, mesmo tendo falhado ANTES de
+  // capturar o BOM).
   const enviadoRef = useRef<{
-    draft: Draft; moLinhas: MaoObraEditorLinha[]; bom: BomCapturado;
+    draft: Draft; moLinhas: MaoObraEditorLinha[] | null; bom: BomCapturado | null;
     enviadoCadNaCaptura: boolean; podeGravarColunasDevNaCaptura: boolean; temCamposDevNoPayloadNaCaptura: boolean;
   } | null>(null);
   const save = useMutation({
     mutationFn: async () => {
+      // Fix round 1 (I1) — zera a captura anterior LOGO NO INÍCIO de todo ciclo (1ª tentativa OU retry, que
+      // reentra aqui do zero): sem isto, um erro lançado ANTES da captura síncrona abaixo (linhas ~163-167)
+      // reaproveitaria `enviadoRef.current` de um ciclo ANTERIOR (ex.: o retry do P0409 herdando a captura da
+      // 1ª tentativa, já desatualizada) em vez de cair nos fallbacks conservadores do `onError`.
+      enviadoRef.current = null;
       // Item G (T11, I1; CONTADOR — fix round 3) — marca "save em voo" já no início (inclusive no retry do
       // P0409, que chama `mutationFn` de novo): enquanto em voo (contador > 0 — ver useFichaTecnica.ts), o
       // eco do UPDATE do header (bump de `rev`) do PRÓPRIO save não confere/acende "Tecidos & BOM" contra o
@@ -145,30 +158,94 @@ export function usePlanejamentoSave({
       // foco/abertura do card) e transformava em `toast.error` o retry do P0409 que devia retentar. Agora só
       // barra quando ESTE save IA GRAVAR o BOM (`bomPendenteDeGravar()` — mesma condição de `capturar().gravar`)
       // E as queries do BOM estão em refetch (`deveBarrarPorBomRecarregando`, save-ficha.ts).
-      if (
-        modeloId
+      // Fix round 1 (I2) — `bomPendenteDeGravar()` sozinho só cobre o BOM MANUFATURADO (tocado/prefill); o
+      // IMPORTADO grava a grade cor × tamanho POR ESTE BOM (`gradeCompradoPeloBom`, decisão F3 #4/§3), então
+      // uma grade editada (`gradeRevendaDirty`) SEM nenhum outro campo do BOM tocado também faz este Salvar
+      // GRAVAR o BOM (via `gravaPelaGrade` em `capturar()`) — sem somar essa condição aqui, um Salvar do
+      // importado com só a grade editada passava DESPROTEGIDO por cima de um BOM em refetch. `barradoPorBom`
+      // isola o resultado da chamada de `deveBarrarPorBomRecarregando(fichaRef.current.bomPendenteDeGravar(),
+      // ...)` — a chamada em si fica INTOCADA, linha a linha (preserva a âncora checada pelo gate
+      // F3.2/anti-drift, `gate-f32.sh`); `barradoPorGradeComprado` aplica a MESMA fórmula (`pendente &&
+      // recarregando`) para a grade, com sua própria checagem de `isFetching` (barato/sem efeito colateral
+      // repetir; `chavesBomServidor` é pura). O `if` final soma os dois com OR.
+      const barradoPorBom = !!modeloId
         && deveBarrarPorBomRecarregando(
           fichaRef.current.bomPendenteDeGravar(),
           bomRecarregando(chavesBomServidor(modeloId).map((k) => qc.isFetching({ queryKey: k }))),
-        )
-      )
+        );
+      const barradoPorGradeComprado = !!modeloId && gradeCompradoPeloBom && gradeRevendaDirty
+        && bomRecarregando(chavesBomServidor(modeloId).map((k) => qc.isFetching({ queryKey: k })));
+      if (barradoPorBom || barradoPorGradeComprado)
         throw new Error("O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.");
       // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix, receita do Dev — ver
       // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica). A F3.2 usa este MESMO `d`
       // (rascunho vivo) pra capturar o BOM/MO — não reimplementa o fix do retry (ruling do controlador).
       const d = draftParaSalvar(draftLiveRef.current, draft);
+      // Fix round 1 (C1, CRÍTICO) — `revCongelado` no MESMO ponto síncrono em que `d` é congelado. Antes, o
+      // `rev` só era lido dentro de `lerGradeServidorComprado` (`revDoCard()`, chamado DEPOIS do próprio await
+      // do SELECT) e de novo em `revParaHeader = revRef.current` (mais abaixo, também depois desse await). No
+      // meio desse GET, o merge do colab (`PlanejamentoDetail.tsx`, efeito de `[modeloData]`) pode avançar
+      // `revRef.current` para o rev de uma edição de OUTRA pessoa (B) que chegou por Realtime — sem isto, o
+      // header passaria com o rev de B (`.eq("rev", revDeB)` bate) mas gravaria o `d` congelado ANTES do GET,
+      // que não tem as mudanças de B: os campos dela voltariam ao valor antigo, SEM aviso (nem P0409, porque o
+      // rev bateu) — e, com a ficha tocada, o BOM de B também seria sobrescrito. `revCongelado` fixa o rev do
+      // INSTANTE em que `d` foi congelado; a leitura da grade e o header conferem esse MESMO rev — se B salvou
+      // no meio, `data.rev !== revCongelado` ⇒ P0409 de verdade (o retry existente relê tudo e faz o merge).
+      // No interno (sem await entre os dois pontos) `revRef.current === revCongelado` sempre — comportamento
+      // idêntico ao de antes. O retry (onError) continua funcionando: ele avança `revRef`/`draftLiveRef` e só
+      // então chama `save.mutate` de novo, que reentra no `mutationFn` e congela um `revCongelado` NOVO.
+      const revCongelado = revRef.current;
+      // Fix round 1 (I1) — os 3 campos do Item C (fix round 3/4) são SÍNCRONOS (não dependem de `bom`/
+      // `gradeServidor`) e passam a ser capturados AQUI, ANTES do `await lerGradeServidorComprado` abaixo —
+      // não mais só depois dele. `enviadoRef.current` já fica com uma captura VÁLIDA (mesmo com `bom`/
+      // `moLinhas` ainda `null`) antes de qualquer `await`: um erro lançado DURANTE a leitura da grade (P0409)
+      // ou logo depois (`bom.gradeConflito`, abaixo) encontra esses 3 campos corretos no `onError`, em vez dos
+      // fallbacks `?? false` de `retryBloqueadoPorEnvio` — que são OTIMISTAS (liberam o retry por "não sei") e
+      // não CONSERVADORES (bloquear quando não sabe, cenário do Item C).
+      // Item C (fix round 3, (a)) — `enviado_cad` REAL lido do cache da query `["modelo", modeloId]` (a
+      // MESMA que o PD já mantém populada — `PlanejamentoDetail.tsx:145-152`, `select("*")`), não da trava
+      // DERIVADA (`motivoSomenteLeitura`/`travaDev`), que colapsa "permissao"/"carregando"/"enviado" e perde se o
+      // card JÁ estava enviado quando "permissao" tem precedência ou o usuário está em "Editar". Sem query
+      // nova: `qc` já é o QueryClient do orquestrador, e a key já é lida do mesmo jeito no retry (linha ~551
+      // abaixo, `getQueryData<any>(["modelo", modeloId])`).
+      const enviadoCadNaCaptura = !!qc.getQueryData<any>(["modelo", modeloId])?.enviado_cad;
+      const podeGravarColunasDevNaCaptura = fichaRef.current.podeGravarColunasDev;
+      // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
+      // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
+      // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
+      // Depende só de `d`/`podeEditarDev`/`refEditavel` — nada de `bom`/`gradeServidor` — por isso já pode ser
+      // montado aqui, antes do await (fix round 1, I1).
+      const payload: any = aplicarRegrasCamposDev({
+        ...d,
+        croqui_url: d.croqui_url || null,
+        desenho_tecnico_url: d.desenho_tecnico_url || null,
+        data_lancamento: d.data_lancamento || null,
+        observacoes_mao_obra: d.observacoes_mao_obra || null,
+        custo_simulado: limparCustoSim(d.custo_simulado),
+        // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
+        descricao_produto: textoOuNull(d.descricao_produto),
+      }, d, { podeEditarDev, refEditavel });
+      // Fix round 4 (item 10, acréscimo do controlador) — "esta captura ia gravar algo do Dev" também cobre os
+      // CAMPOS SIMPLES do Dev da F3.1 (modelista, pilotos, datas, obs. técnicas…), que vão no payload por
+      // `podeEditarDev` via `aplicarRegrasCamposDev` acima — não só o BOM/colunas derivadas. Lê o PRÓPRIO
+      // `payload` já montado contra a lista ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts), sem lista paralela:
+      // `aplicarRegrasCamposDev` já fez o `delete` de cada chave sem `podeEditarDev`, então `in` reflete
+      // exatamente o que vai (ou não) ao servidor nesta captura.
+      const temCamposDevNoPayloadNaCaptura = CAMPOS_DEV_DRAFT.some((k) => k in payload);
+      // Fix round 1 (I1) — captura PARCIAL (bom/moLinhas ainda não existem): já é "válida" para o `onError`
+      // ler os 3 campos síncronos acima. Completada abaixo assim que `bom`/`moLinhasEnviadas` existirem.
+      enviadoRef.current = { draft: d, moLinhas: null, bom: null, enviadoCadNaCaptura, podeGravarColunasDevNaCaptura, temCamposDevNoPayloadNaCaptura };
       // F3.3 — a captura do CAD precisa saber se é o retry do P0409 (sem toque, o CAD local pode estar velho) e das
       // proporções ENVIADAS (o `salvar_cad_completo` grava `modelos.proporcoes`).
       // F3.4 — R1 do G-plano F3.4: num comprado, a grade do SERVIDOR que vai no BOM é LIDA AGORA, com o `rev`, numa
       // requisição só (`lerGradeServidorComprado`) — nunca o cache `plan-ficha-grades`: uma mudança alheia sem toque só
       // INVALIDA o cache e o merge já avançou o `revRef`; um Salvar nessa janela passaria no `.eq("rev")` e o
-      // `salvar_modelo_bom` (APAGA todas as grades) regravaria a grade VELHA. `rev` lido ≠ o do card ⇒ P0409 (o retry que já
-      // existe, abaixo no onError, relê o modelo e o BOM); erro ⇒ lança (nada grava). O `rev` é conferido DEPOIS do await
-      // (`() => revRef.current`) e daqui até o `let revParaHeader = revRef.current;` não há outro `await` — o header confere
-      // o MESMO rev da leitura. Origem do RASCUNHO = a que a ficha usa p/ projetar (com a trava R7, só difere da salva com a
-      // ficha intocada). `d` foi congelado antes do await: edição feita durante a leitura fica "não salva" (paridade F3.2).
+      // `salvar_modelo_bom` (APAGA todas as grades) regravaria a grade VELHA. `rev` lido ≠ o `revCongelado` ⇒ P0409 (o
+      // retry que já existe, abaixo no onError, relê o modelo e o BOM); erro ⇒ lança (nada grava). Origem do RASCUNHO =
+      // a que a ficha usa p/ projetar (com a trava R7, só difere da salva com a ficha intocada). `d`/`revCongelado`
+      // foram congelados antes do await: edição feita durante a leitura fica "não salva" (paridade F3.2).
       const gradeServidor = isEdit && modeloId && ehOrigemComprada(d.origem)
-        ? await lerGradeServidorComprado(modeloId, () => revRef.current)
+        ? await lerGradeServidorComprado(modeloId, () => revCongelado)
         : null;
       const bom = fichaRef.current.capturar(d.custos_adicionais, {
         retry: retryRef.current, proporcoes: d.proporcoes,
@@ -195,34 +272,10 @@ export function usePlanejamentoSave({
       // saem do MESMO BOM gravado — R5). Retry sem gravar o BOM: o BOM local (não tocado) pode estar velho.
       const incluirDerivados = !retryRef.current || bom.gravar;
       const moLinhasEnviadas = moLinhasRef.current;
-      // Item C (fix round 3, (a)) — `enviado_cad` REAL lido do cache da query `["modelo", modeloId]` (a
-      // MESMA que o PD já mantém populada — `PlanejamentoDetail.tsx:145-152`, `select("*")`), não da trava
-      // DERIVADA (`motivoSomenteLeitura`/`travaDev`), que colapsa "permissao"/"carregando"/"enviado" e perde se o
-      // card JÁ estava enviado quando "permissao" tem precedência ou o usuário está em "Editar". Sem query
-      // nova: `qc` já é o QueryClient do orquestrador, e a key já é lida do mesmo jeito no retry (linha ~551
-      // abaixo, `getQueryData<any>(["modelo", modeloId])`).
-      const enviadoCadNaCaptura = !!qc.getQueryData<any>(["modelo", modeloId])?.enviado_cad;
-      const podeGravarColunasDevNaCaptura = fichaRef.current.podeGravarColunasDev;
-      // F3.1: os campos vindos do Dev e a REF passam por `aplicarRegrasCamposDev` (helpers.ts): vazios → NULL,
-      // sem permissão do Dev → saem do payload, REF só quando editável (senão sai, como antes — a REF é do
-      // trigger fn_modelo_ref_auto, invariante #11). A etapa (`status_desenvolvimento`) não está no Draft.
-      const payload: any = aplicarRegrasCamposDev({
-        ...d,
-        croqui_url: d.croqui_url || null,
-        desenho_tecnico_url: d.desenho_tecnico_url || null,
-        data_lancamento: d.data_lancamento || null,
-        observacoes_mao_obra: d.observacoes_mao_obra || null,
-        custo_simulado: limparCustoSim(d.custo_simulado),
-        // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
-        descricao_produto: textoOuNull(d.descricao_produto),
-      }, d, { podeEditarDev, refEditavel });
-      // Fix round 4 (item 10, acréscimo do controlador) — "esta captura ia gravar algo do Dev" também cobre os
-      // CAMPOS SIMPLES do Dev da F3.1 (modelista, pilotos, datas, obs. técnicas…), que vão no payload por
-      // `podeEditarDev` via `aplicarRegrasCamposDev` acima — não só o BOM/colunas derivadas. Lê o PRÓPRIO
-      // `payload` já montado contra a lista ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts), sem lista paralela:
-      // `aplicarRegrasCamposDev` já fez o `delete` de cada chave sem `podeEditarDev`, então `in` reflete
-      // exatamente o que vai (ou não) ao servidor nesta captura.
-      const temCamposDevNoPayloadNaCaptura = CAMPOS_DEV_DRAFT.some((k) => k in payload);
+      // Fix round 1 (I1) — completa a captura (síncrona, sem `await` desde a linha acima) com `bom`/`moLinhas`
+      // agora disponíveis. Os 3 campos do Item C já estavam corretos desde ANTES do await — só reafirma o
+      // objeto inteiro (mesmos valores, `enviadoCadNaCaptura`/`podeGravarColunasDevNaCaptura`/
+      // `temCamposDevNoPayloadNaCaptura` não podem ter mudado: nada os reatribui entre os dois pontos).
       enviadoRef.current = { draft: d, moLinhas: moLinhasEnviadas, bom, enviadoCadNaCaptura, podeGravarColunasDevNaCaptura, temCamposDevNoPayloadNaCaptura };
       // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
       // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
@@ -274,7 +327,9 @@ export function usePlanejamentoSave({
         // header abaixo, que só sabe mesclar campos escalares do draft e nunca soube de
         // `gradeRevenda`; se caísse nesse retry, reenviaria a grade PARADA sem detectar que
         // ficou desatualizada.
-        let revParaHeader = revRef.current;
+        // Fix round 1 (C1) — `revCongelado` (não `revRef.current`, que pode ter avançado durante o await de
+        // `lerGradeServidorComprado` acima): o header tem de conferir o MESMO rev que a grade acabou de ler.
+        let revParaHeader = revCongelado;
         if (isRevenda && gradeRevendaDirty) {
           const { error: gradeErr } = await supabase.rpc("salvar_grade_revenda" as any, {
             _modelo_id: modeloId,
@@ -505,13 +560,28 @@ export function usePlanejamentoSave({
             .eq("modelo_id", savedId)
             .maybeSingle();
           if (existenteImpErr) throw existenteImpErr;
-          const { data: outroPa, error: outroPaErr } = await supabase
-            .from("produtos_acabados" as any)
-            .select("id")
-            .eq("modelo_id", savedId)
-            .maybeSingle();
-          if (outroPaErr) throw outroPaErr;
-          if (!existenteImp && !outroPa) {
+          // Fix round 1 (I3) — premissa errada corrigida: `produtos_acabados` tem `modgate_sel` RESTRICTIVE (módulo
+          // `produto_acabado`); sem `paOn`, este SELECT volta vazio SEM ERRO — `outroPa` daria `null` mesmo que exista
+          // um Produto Acabado vinculado de verdade, e o código abaixo criaria o 2º espelho (violação da invariante
+          // #13). Só lê (e só confia no resultado) com `paOn` ligado; sem ele, o espelho acabado é INDETERMINADO —
+          // NÃO auto-cria o Produto Importado (falha fechada, mesmo espírito de `motivoTrocaOrigem`/`opcoesOrigem` em
+          // `comprado.ts`) e avisa o usuário em PT (best-effort: nunca quebra o save do card, mesmo padrão do catch
+          // abaixo — só que aqui a "falha" é decidida ANTES do try interno, não por uma exceção).
+          let outroPa: unknown = null;
+          if (paOn) {
+            const { data, error: outroPaErr } = await supabase
+              .from("produtos_acabados" as any)
+              .select("id")
+              .eq("modelo_id", savedId)
+              .maybeSingle();
+            if (outroPaErr) throw outroPaErr;
+            outroPa = data;
+          } else if (!existenteImp) {
+            toast.warning("Não foi possível conferir o Produto Acabado deste card — o módulo Produto Acabado está desligado nesta loja. O Produto Importado não foi criado automaticamente; peça a um administrador para ligar o módulo ou crie manualmente depois de confirmar que não há duplicidade.");
+          }
+          // `&& paOn` é o guard REAL (não só decorativo): sem `paOn`, `outroPa` fica `null` só por construção
+          // (nunca lido acima), então precisa da condição explícita para não criar no escuro.
+          if (!existenteImp && !outroPa && paOn) {
             const catImp = categorias.find((c) => c.id === d.categoria_principal_id);
             const grupoImp = catImp?.grupo_id ?? null;
             if (grupoImp && d.categoria_principal_id && d.nome.trim()) {
@@ -616,8 +686,14 @@ export function usePlanejamentoSave({
       // no vivo). `baseRef.current` (a base do MERGE de colab, mais abaixo) CONTINUA usando `savedDraft`
       // normalizado — essa é a intenção original da F3.1: o merge não pode confundir o eco do PRÓPRIO
       // Salvar com "alguém mudou a REF" só porque o servidor devolveu ela aparada.
+      // Fix round 1 (I1, F3.4) — `enviadoRef.current.bom` é `BomCapturado | null` (a captura PARCIAL, sem
+      // `bom`, só existe ANTES do await de `lerGradeServidorComprado` — ver mutationFn); aqui em `onSuccess`
+      // o `mutationFn` só chega a `return` DEPOIS de completar a captura com `bom` (linha ~268) — na prática
+      // nunca é `null` neste ponto. `enviadoRef.current?.bom` no lugar de `enviadoRef.current!.bom` mantém o
+      // guard explícito (união com o fix I2: a fonte do draft muda de `savedDraft` pra `draftCruEnviado`, o
+      // guard do `bom` continua o mesmo).
       const draftCruEnviado = enviadoRef.current?.draft ?? savedDraft;
-      let enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(draftCruEnviado, enviadoRef.current.bom) : draftCruEnviado;
+      let enviadoEfetivo = enviadoRef.current?.bom ? draftEnviadoEfetivo(draftCruEnviado, enviadoRef.current.bom) : draftCruEnviado;
       // Fix final M1 (2ª parte) — `proporcoes`/`custos_adicionais` fora do payload (ficha travada no
       // meio do caminho — `podeGravarColunasDev=false`, ver `aplicarColunasFicha`) NÃO podem virar
       // "enviado" no baseline: o servidor NUNCA os recebeu, mas `savedDraft`/`draftCruEnviado` ainda
@@ -662,7 +738,7 @@ export function usePlanejamentoSave({
         setDraft((d) => (d.tecidos_planejados === enviadoEfetivo.tecidos_planejados ? d : { ...d, tecidos_planejados: enviadoEfetivo.tecidos_planejados }));
         draftLiveRef.current = { ...draftLiveRef.current, tecidos_planejados: enviadoEfetivo.tecidos_planejados };
       }
-      if (enviadoRef.current) {
+      if (enviadoRef.current?.bom) {
         const { edicoesPerdidas } = fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
         // Fix pós-T9 (item 1) — a ficha (Tecidos/Aviamentos/Insumos/Grade/CAD) estava tocada mas este Salvar não
         // gravou nem o BOM nem o CAD (a permissão/carga caiu no meio do caminho): o "não salvo" segue aceso
@@ -703,8 +779,10 @@ export function usePlanejamentoSave({
       // F3.2 — o BOM é o MESMO do Desenvolvimento: refresca o Sheet do Dev (mesma aba) e quem lê o BOM.
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       // F3.3 — o CAD gravado: Explosão, Ficha Técnica, Sheet do Dev e o CQ/Lançar deste card relêem.
-      if (enviadoRef.current?.bom.cad.gravar) invalidarAposGravarCad(qc, modeloId);
-      if (enviadoRef.current?.bom.gravar) {
+      // Fix round 1 (I1) — `?.bom?.` (optional chaining duplo): `bom` é `BomCapturado | null` no tipo agora,
+      // embora em `onSuccess` sempre esteja preenchido (mesma nota da linha ~647).
+      if (enviadoRef.current?.bom?.cad.gravar) invalidarAposGravarCad(qc, modeloId);
+      if (enviadoRef.current?.bom?.gravar) {
         for (const k of ["modelo-tecidos-consumo", "modelo-tecido-oc-links", "modelo-aviamentos", "modelo-etiquetas", "modelo-grades", "modelo-condicoes-kanban", "etapas-afetadas"])
           qc.invalidateQueries({ queryKey: [k, modeloId] });
         for (const k of ["estoque-tecidos", "estoque-tecido-por-artigo", "producao-terc-list", "producao-cq-list", "dir-list"])
@@ -806,7 +884,14 @@ export function usePlanejamentoSave({
         // chegar; dá P0409. `colecoesTouchadasRef=false` ⇒ `bomConflito` ficava sempre `false` ⇒ o retry
         // gravava o esqueleto Tecido 1..N por cima do BOM que B acabou de completar. `bomPendenteDeGravar()`
         // soma o prefill à condição de conferir (mesma fonte usada por `capturar().gravar`).
-        const bomConflito = fichaRef.current.bomPendenteDeGravar() ? await fichaRef.current.bomMudouNoServidor() : false;
+        // Fix round 1 (I2) — mesma soma do guard acima (linha ~161): `gradeCompradoPeloBom && gradeRevendaDirty`
+        // também faz ESTE Salvar gravar o BOM (a grade do importado, sem nenhum outro campo do BOM tocado). Este
+        // ramo só é alcançado quando o P0409 NÃO era de `gradeConflict` (esse já retornou antes, acima) — ou
+        // seja, o rev mudou por OUTRO motivo (campo escalar do draft, MO, etc.); se a grade do importado estava
+        // pendente de gravar, o retry vai tentar regravá-la junto do BOM e precisa saber se o BOM do servidor
+        // mudou de verdade antes de decidir se é conflito de SEÇÃO.
+        const bomConflito = (fichaRef.current.bomPendenteDeGravar() || (gradeCompradoPeloBom && gradeRevendaDirty))
+          ? await fichaRef.current.bomMudouNoServidor() : false;
         await qc.refetchQueries({ queryKey: ["modelo", modeloId] });
         const fresh = qc.getQueryData<any>(["modelo", modeloId]);
         if (fresh) {
@@ -817,11 +902,22 @@ export function usePlanejamentoSave({
           // e SÓ quando esta captura IA gravar algo do Dev (`bom.gravar || podeGravarColunasDev || campos
           // simples do Dev no payload` — fix round 4, item 10) — senão o payload já saiu sem nada do Dev e o
           // retry é seguro (não é este bug).
+          // Fix round 1 (I1) — os fallbacks NÃO são todos `?? false`: com a captura dos 3 campos síncronos
+          // agora ANTES do `await` (fix round 1 acima), `enviadoRef.current` só fica `null`/incompleto se o
+          // erro ocorreu ANTES da captura (os guards do início do mutationFn — conflito de seção,
+          // `verificandoBomRef`, `bomRecarregando`). Nesse "não sei" o `onError` precisa ser CONSERVADOR, e
+          // conservador tem sentido DIFERENTE por campo:
+          //  • `enviadoCadNaCaptura` — conservador = `false` ("eu não sabia que já tinha sido enviado"), porque
+          //    é isso que faz `passouAEnviado` poder ficar `true` (bloquear) quando `fresh.enviado_cad` é `true`.
+          //  • `gravaBom`/`podeGravarColunasDev`/`temCamposDevNoPayload` — conservador = `true` ("assuma que
+          //    esta captura IA gravar algo do Dev"), porque é isso que faz `iaGravarDoDev` (um OR dos três)
+          //    ficar `true` e permitir o bloqueio. Usar `?? false` aqui (como antes) fazia o "não sei" LIBERAR
+          //    o retry — o oposto de conservador.
           const bloqueadoPorEnvio = retryBloqueadoPorEnvio(fresh, {
             enviadoCadNaCaptura: enviadoRef.current?.enviadoCadNaCaptura ?? false,
-            gravaBom: enviadoRef.current?.bom.gravar ?? false,
-            podeGravarColunasDev: enviadoRef.current?.podeGravarColunasDevNaCaptura ?? false,
-            temCamposDevNoPayload: enviadoRef.current?.temCamposDevNoPayloadNaCaptura ?? false,
+            gravaBom: enviadoRef.current?.bom?.gravar ?? true,
+            podeGravarColunasDev: enviadoRef.current?.podeGravarColunasDevNaCaptura ?? true,
+            temCamposDevNoPayload: enviadoRef.current?.temCamposDevNoPayloadNaCaptura ?? true,
           });
           if (bloqueadoPorEnvio) {
             savingRef.current = false;
@@ -886,7 +982,9 @@ export function usePlanejamentoSave({
       // Salvar sem toque (aqui ou no Dev) devolve ao BOM o consumo do CAD em silêncio (paridade com o Dev — §6 R11).
       if (e?.etapaFalha === "cad") {
         const detalhe = mensagemErro(e, "erro desconhecido");
-        toast.error(enviadoRef.current?.bom.gravar
+        // `etapaFalha==="cad"` só é setado DEPOIS de `bom` já estar capturado (o CAD grava depois do BOM no
+        // mutationFn) — `enviadoRef.current.bom` sempre existe aqui; `?.bom?.` só satisfaz o tipo (fix round 1, I1).
+        toast.error(enviadoRef.current?.bom?.gravar
           ? `Os tecidos foram salvos, mas o CAD não — salve de novo antes de fechar. (${detalhe})`
           : `O CAD não foi salvo — salve de novo antes de fechar. (${detalhe})`);
         return;
