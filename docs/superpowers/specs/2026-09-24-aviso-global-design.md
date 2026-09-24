@@ -36,7 +36,7 @@ Deixar o super admin avisar, na hora, quem está usando o sistema. O caso princi
 | `criado_por` | uuid | `auth.uid()` (o cliente não grava nem lê esta coluna — R7) |
 | `created_at` | timestamptz | `now()` |
 
-A tabela é global de propósito: não tem `tenant_id`, e o destino fica em `todas_lojas`/`lojas`. "Ativo" quer dizer `encerrado_em IS NULL AND expira_em > now()`. Não há índice além da PK, porque a tabela é mínima. **Não há função, gatilho nem publicação.** Por isso a invariante #9 (`_core` com EXECUTE revogado) não se aplica, e nenhuma tabela existente é travada.
+A tabela é global de propósito: não tem `tenant_id`, e o destino fica em `todas_lojas`/`lojas`. "Ativo" quer dizer `encerrado_em IS NULL AND expira_em > now()`. Não há índice além da PK, porque a tabela é mínima. **Não há função, gatilho nem publicação.** Por isso a invariante #9 (`_core` com EXECUTE revogado) não se aplica. **Travas (corrigido 24/set, revisão da Task 1):** a aplicação NÃO é livre de trava — no Supabase, todo `CREATE/DROP POLICY` feito como `postgres` dispara o hook `supautils.policy_grants`, que pega AccessExclusiveLock em ~23 tabelas de auth/storage/realtime (`auth.users`, `auth.sessions`, `storage.objects`…) até o COMMIT (provado na cópia). Mitigação: `SET LOCAL lock_timeout='500ms'` + `transaction_timeout='3s'` dentro do arquivo, `aplica_v2` com nova tentativa e horário calmo. Nenhuma tabela de NEGÓCIO (`public`) é travada.
 
 ## 4. Segurança e entrega
 
@@ -101,7 +101,8 @@ Um `DO` no fim da migration confere RLS, policies e permissões na mesma transa�
 | Risco | Mitigação |
 |---|---|
 | Front no ar antes da tabela | A leitura engole o erro, a faixa some em silêncio e a tela Avisos mostra o erro. Ordem do plano: **migration em produção → merge → deploy**. |
-| Toque perdido (rede, aba em segundo plano) | Busca refeita no SUBSCRIBED/reconexão, na volta da aba, no online e no foco. A validade é conferida no cliente. |
+| Trava de auth/storage na aplicação (hook `supautils.policy_grants`) | Login, renovação de token, URL assinada e Realtime podem esperar até ~3 s enquanto a migration roda. `lock_timeout` 500 ms + `transaction_timeout` 3 s no arquivo, `aplica_v2` com nova tentativa, horário calmo (mesma janela da F1). Risco levado ao dono. |
+| Toque perdido (rede, aba em segundo plano) | Busca refeita no SUBSCRIBED/reconexão, na volta da aba, no online e no foco. A validade é conferida no cliente. Falha passageira na busca NÃO apaga a faixa: o `queryFn` lança e o TanStack mantém o último dado bom (revisão da Task 3). |
 | Relógio do aparelho errado | A contagem usa o relógio local (desvio típico < 1 s com NTP). A RLS usa o `now()` do servidor para o que é ativo. Aceito. |
 | Clique no cartão fechar o Sheet | 3 proteções (§5), um teste estático que as trava e o QA na cópia com o Sheet aberto, o foco num campo e o "Entendi". |
 | Toque forjado no canal público | Sem dado nenhum: causa no máximo 1 busca a cada 5 s por cliente, com trailing (R6 — `esperaParaBuscar`/`INTERVALO_BUSCA_MS`). |
