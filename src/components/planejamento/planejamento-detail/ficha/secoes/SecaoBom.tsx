@@ -1,0 +1,45 @@
+// F3.2 — cabeçalho de seção vinda do Desenvolvimento no Sheet do Planejamento (mockup Main/Anotado:
+// título + chip "do Desenvolvimento" + selo à direita). Recolhida por padrão (decisão travada 6). O botão de
+// abrir e o selo são IRMÃOS (o selo pode ter o "i" do CondicaoInfo, que é um <button> — botão dentro de
+// botão é HTML inválido). `open`/`onOpenChange` opcionais p/ a F3.3 abrir a seção por link.
+import { useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+
+export function SecaoBom({ id, titulo, selo, origemDev = true, defaultOpen = false, open: openProp, onOpenChange, children }: {
+  id: string;
+  titulo: string;
+  selo?: ReactNode;
+  origemDev?: boolean;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+  children: ReactNode;
+}) {
+  const [openLocal, setOpenLocal] = useState(defaultOpen);
+  const open = openProp ?? openLocal;
+  const alternar = () => {
+    const v = !open;
+    if (openProp === undefined) setOpenLocal(v);
+    onOpenChange?.(v);
+  };
+  return (
+    <section className="space-y-3" data-secao={id}>
+      <div className="flex items-center gap-2 border-b pb-1.5">
+        <button
+          type="button"
+          onClick={alternar}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-semibold text-foreground"
+        >
+          {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          <span className="truncate">{titulo}</span>
+          {origemDev && (
+            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground max-sm:hidden">do Desenvolvimento</span>
+          )}
+        </button>
+        {selo && <span className="ml-auto inline-flex shrink-0 items-center gap-1">{selo}</span>}
+      </div>
+      {open && children}
+    </section>
+  );
+}
