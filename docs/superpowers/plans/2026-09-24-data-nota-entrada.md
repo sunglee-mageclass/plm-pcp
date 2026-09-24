@@ -565,7 +565,7 @@ Cobertura (15 testes; 9 rodam nos dois modos, 6 só com `NOTA_MIG_TXN=1`). Datas
 12. (MIG_TXN) **R2:** uma função alterada por "outra frente" que AINDA contém `data_nota_entrada` é RECUSADA pela migration e pelo inverso (e nada fica pela metade).
 13. (MIG_TXN) inverso: a ORDEM do arquivo (funções → laço → DROP TRIGGER → repasse → DROP COLUMN — R9-a/R9-b); recusa sem confirmação (e não deixa nada pela metade); com ela, 10 funções no md5 de 24/set, gatilho do Acabado com as 3 colunas de antes, colunas fora, as não pagas das 4 famílias (Tecido, Aviamento, Insumo e P. Acabado, todas datadas com NF 05/09 ≠ base antiga) de volta à base ANTIGA — entrega 10/09 ou pedido 01/09: prova que o laço rodou com as funções JÁ restauradas —, paga intacta, Σ = total; o NOTICE do repasse diz `0 OC(s) repassada(s)` (o laço já pegou todas); reaplicar depois funciona. O harness tira as 2 travas da txn do teste; o TEMPO do inverso com volume é medido na Task 4.
 14. (MIG_TXN + `NOTA_CAPTURA_DEPOIS`) captura o texto DEPOIS (10 + 2 novas) para o diff da Task 3.
-15. (MIG_TXN + `NOTA_MEDIR_VOLTA`) **R9-b:** mede o laço do inverso com as OCs recebidas da cópia DATADAS numa txn DESFEITA — migration, datar (a própria base de hoje, dentro da D7), a ida de novo, o inverso cronometrado por `clock_timestamp()` com `transaction_timeout` de 900 s só nessa txn; grava `volta-medida.txt`; confere Σ por OC e as pagas iguais depois da volta; ROLLBACK (resíduo zero). Só roda na Task 4.
+15. (MIG_TXN + `NOTA_MEDIR_VOLTA`) **R9-b:** mede o laço do inverso com as OCs recebidas da cópia DATADAS numa txn DESFEITA — migration, datar (a própria base de hoje, dentro da D7), a ida de novo, o inverso cronometrado por `clock_timestamp()` com `transaction_timeout` de 180 s só nessa txn (teto da medição — R9-c); grava `volta-medida.txt`; confere Σ por OC e as pagas iguais depois da volta; ROLLBACK (resíduo zero). Só roda na Task 4.
 
 - [ ] **Step 1: Escrever a suíte** — `tests/integration/nota-entrada.test.ts`:
 
@@ -1105,9 +1105,15 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
 
   it.skipIf(!MIG_TXN)("inverso: recusa sem confirmação; com ela volta as 10 funções (md5 de 24/set) e a base ANTIGA das não pagas nas 4 famílias (R9-a/R9-b: funções → laço → gatilhos → repasse → colunas)", async () => {
     // R9-b: a ORDEM do arquivo (o laço antes das travas exclusivas; o repasse depois do DROP TRIGGER, antes das colunas)
-    const inv = readFileSync(ROOT + DOWN, "utf8");
-    const pos = ["-- 2) As 10 funções", "DO $volta$", "DROP TRIGGER IF EXISTS trg_nota_entrada_recalc", "DO $repasse$", "DROP COLUMN"]
-      .map((m) => inv.indexOf(m));
+    // R9-c: só CÓDIGO — as linhas de comentário saem antes (o cabeçalho do inverso cita "DROP TRIGGER/DROP COLUMN").
+    const inv = readFileSync(ROOT + DOWN, "utf8").split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+    const pos = [
+      "CREATE OR REPLACE FUNCTION public.gerar_parcelas_oc_tecido()", // passo 2 (a 1ª das 10 funções restauradas)
+      "DO $volta$",                                                    // passo 3 (laço)
+      "DROP TRIGGER IF EXISTS trg_nota_entrada_recalc ON public.ocs_tecido", // passo 4
+      "DO $repasse$",                                                  // passo 4b
+      "ALTER TABLE public.ocs_tecido DROP COLUMN",                     // passo 5
+    ].map((m) => inv.indexOf(m));
     expect(pos.every((p) => p > 0)).toBe(true);
     expect([...pos].sort((a, b) => a - b)).toEqual(pos);
     await withTx(async (c) => {
@@ -1180,12 +1186,12 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
   it.skipIf(!MIG_TXN || !MEDIR)("R9-b: mede o laço do inverso com as OCs recebidas da cópia DATADAS — numa txn DESFEITA (resíduo zero)", async () => {
     await withTx(async (c) => {
       exigeBancoLocal();
-      await c.query("SET LOCAL transaction_timeout = '900s'"); // 1º SET da txn: é ele que vale (teto ALTO só nesta medição)
+      await c.query("SET LOCAL transaction_timeout = '180s'"); // 1º SET da txn: é ele que vale — teto da medição (R9-c)
       const agora = async () => Number((await um<{ t: string }>(c, `select extract(epoch from clock_timestamp())::text t`)).t);
       const t0 = await agora();
       await prepara(c); // a migration na txn (sem BEGIN/COMMIT, nunca \i)
       const tIda = (await agora()) - t0;
-      await c.query("SET LOCAL statement_timeout = '900s'");
+      await c.query("SET LOCAL statement_timeout = '180s'");
       const hoje = `coalesce((select (now() at time zone coalesce(nullif(tc.timezone, ''), 'America/Sao_Paulo'))::date
                                 from public.tenant_config tc where tc.tenant_id = o.tenant_id), (now() at time zone 'America/Sao_Paulo')::date)`;
       // Alvo = o que acende no dia 1 (recebida, sem data), dentro da D7 (pedido ≤ hoje). Data = a PRÓPRIA base de hoje.
@@ -1243,7 +1249,7 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       expect(await colunas(c)).toBe(0);
       expect(await retrato()).toEqual(antes); // Σ por OC e as pagas iguais depois da volta (na txn; o ROLLBACK desfaz tudo)
     });
-  }, 15 * 60_000);
+  }, 5 * 60_000);
 });
 ```
 
@@ -2516,7 +2522,7 @@ for f in .superpowers/nota/copia.sh .superpowers/nota/mig/*.sh; do bash -n "$f" 
 
 - [ ] **Step 2: Ensaio — pré-voo R4 → suítes R5 ANTES → ida (`aplica_v2`) → suítes DEPOIS → volta → suíte com a migration na txn → laço do inverso MEDIDO numa txn desfeita (R9-a/R9-b)**
 
-Avisar o dono ANTES (texto do `prevoo-copia.sh`; ~15–20 min; o `:5188` congela nas OCs/Estoque/Financeiro em trechos — o mais longo é a medição do R9-b, uma transação que segura as 5 tabelas de OC da cópia pelo tempo dela e é DESFEITA no fim: nenhum dado da cópia muda). Com o OK:
+Avisar o dono ANTES (texto do `prevoo-copia.sh`; ~15–20 min; o `:5188` congela nas OCs/Estoque/Financeiro em trechos — o mais longo é a medição do R9-b, uma transação que segura as 5 tabelas de OC da cópia pelo tempo dela, **até 3 min** (teto de 180 s), e é DESFEITA no fim: nenhum dado da cópia muda). Com o OK:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/nota-entrada"
@@ -2540,7 +2546,7 @@ bash .superpowers/nota/prevoo-copia.sh t4-mig-txn && NOTA_MIG_TXN=1 npx vitest r
 bash .superpowers/nota/copia.sh retrato > $L/retrato-antes.txt || exit 1
 bash .superpowers/nota/prevoo-copia.sh t4-medir || exit 1
 NOTA_MIG_TXN=1 NOTA_MEDIR_VOLTA="$PWD/.superpowers/nota/mig/volta-medida.txt" \
-  npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts -t "R9-b" 2>&1 | grep -E "\[R9-b\]|Tests|FAIL|Error" | head -12
+  npx vitest run --no-file-parallelism tests/integration/nota-entrada.test.ts -t "R9-b: mede" 2>&1 | grep -E "\[R9-b\]|Tests|FAIL|Error" | head -12
 bash .superpowers/nota/copia.sh retrato > $L/retrato-depois.txt || exit 1
 cmp -s $L/retrato-antes.txt $L/retrato-depois.txt && echo "RETRATO IDÊNTICO — resíduo zero" || { echo "RETRATO MUDOU"; diff $L/retrato-antes.txt $L/retrato-depois.txt; }
 cat .superpowers/nota/mig/volta-medida.txt
@@ -2556,7 +2562,7 @@ Expected:
 - `volta` → `laço do inverso: 0 OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = 0|0|0|0)`, `== inverso com lock_timeout 500ms e transaction_timeout 30s`, `OK (a Nota saiu)`, `OK (contagens = antes da ida)`, `OK (as 10 funções de volta ao texto de 24/set)`, `== CÓPIA: volta OK (460|271 → 458|263)`; `OK (cópia de volta ao texto de 24/set)`; a suíte com `NOTA_MIG_TXN=1` → `13 passed | 2 skipped` (a captura e a medição pulam sem as variáveis delas); 2 linhas em `copia-estado.md` (ida, volta).
 - **R9-b, medição numa txn DESFEITA:** `Tests 1 passed | 14 skipped` e a linha `[R9-b] N OC(s) datada(s) (tecido|aviamento|insumo|p.acabado = a|b|c|d) · datar Xs · ida Ys / com datas Zs · volta Ts (≈ s por OC) → mínimo Ms; o inverso tem 30s`. No levantamento só-leitura do guardião (24/set) o alvo é **48** OCs de 3 lojas — `46|1|1|0` (Tecido: Ave Rara 38, Loja Teste 7, French 1), 162 parcelas não pagas e 4 pagas; outro número = a cópia mudou desde então (registrar, não é erro). `volta-medida.txt` com `modo=txn-desfeita`, `n_familias`, `n_copia`, `t_ida_txn`, `t_datar`, `t_ida_datada`, `t_volta`, `s_por_oc`, `tt_minimo` (= máx(30, ⌈5 × t_volta⌉)) e `tt_inverso`. A ida (`t_ida_txn`, `t_ida_datada`): parecidas e ≤ 0,6 s (a ida não tem DML fora de corpo de função — o gerador recusa); **mais que 0,6 s = PARE** (os 3 s da ida ficam sem folga de 5×) → controlador; não subir o tempo da ida sem o guardião. O teste grava o arquivo ANTES de conferir: se ele falhar em `retrato()` (Σ por OC ou pagas diferentes depois da volta), o tempo vale, mas há OC com parcelas que não fecham com o total dela desde antes — listar e levar ao controlador. `N = 0` = falha (sem volume a medição não vale).
 - **Resíduo zero:** `RETRATO IDÊNTICO — resíduo zero` (parcelas e as 5 OCs com as linhas INTEIRAS iguais — ids, vencimentos, `dias_offset`, `rev` — e o mesmo nº de linhas no `audit_log`). `RETRATO MUDOU` = PARE: conferir no `audit_log` quem escreveu entre os dois retratos; uso do dono no `:5188` nesse intervalo = repetir o par de retratos com a cópia parada; sem autoria = BLOQUEIO → controlador.
-- `-- espera de trava/tempo` = alguém segurava as OCs da cópia; o `aplica_v2` repete sozinho (nada do arquivo ficou). Qualquer `FALHOU`/`PAROU`/`PARE`: não seguir; registrar e chamar o controlador (restauração do backup só com OK do dono). A medição do R9-b bater no teto de 900 s = PARE (a txn é desfeita sozinha; nada fica) → controlador.
+- `-- espera de trava/tempo` = alguém segurava as OCs da cópia; o `aplica_v2` repete sozinho (nada do arquivo ficou). Qualquer `FALHOU`/`PAROU`/`PARE`: não seguir; registrar e chamar o controlador (restauração do backup só com OK do dono). A medição do R9-b bater no teto de 180 s = PARE (a txn é desfeita sozinha; nada fica) → controlador: acima de 60 s de volta o resultado já seria PARE (`tt_minimo` > 300 s), então medir mais longe não muda a decisão.
 
 - [ ] **Step 2b (R9-a): transaction_timeout do inverso pela medição**
 
@@ -4385,4 +4391,4 @@ Com o OK do dono: `git worktree remove .claude/worktrees/nota-entrada` (depois d
 | **R8** ida na cópia junto com o merge; referência 460\|271 avisada às frentes | Task 13 Steps 8b e 9 |
 | **R9** (coordenador, lição do Aviso) travas `SET LOCAL` 500 ms/3 s DENTRO do arquivo logo depois do `BEGIN;`; nenhuma DDL de policy (hook `supautils.policy_grants`); risco das 5 OCs e das policies que dependem delas | Global Constraints, `regras-nota.md` item 12, `gerar_sql.py` (cabeçalho + 2 linhas nos 2 arquivos), harness (`RE_TRAVAS_DO_ARQUIVO`, `RE_DDL_POLICY`), `aplica.sh` (`confere_arquivos_nota` no pré-voo), Task 3 Step 3, §4 Riscos |
 | **R9-a** (guardião) volta medida com as OCs datadas; `transaction_timeout` maior só no inverso; a ida conferida | (1) Task 4 Step 2 (medição do teste "R9-b" numa txn desfeita; `volta-medida.txt`) e Step 2b (subir o `--tt-inverso` se `tt_minimo` > 30); (2) `volta-producao.sh` (OCs datadas + folga 5× ANTES da confirmação), Task 13 Step 10; (3) `gerar_sql.py --tt-inverso` (cabeçalho explica o porquê; laço antes dos gatilhos/colunas), `aplica.sh` (`aplica_v2_inverso`, `tt_do_arquivo`, `DATADAS`, `confere_arquivos_nota`), harness (ida 3 s / inverso ≥ 30 s), Global Constraints, regra 12, §4 Riscos; ida: gerador recusa DML fora de função + `t_ida`/`t_ida_datada` no ensaio |
-| **R9-b** (guardião) medição sem resíduo; repasse depois do DROP TRIGGER; teste do inverso que distingue a ordem | (1) teste 15 "R9-b" (`NOTA_MEDIR_VOLTA`: migration → datar → ida de novo → inverso cronometrado por `clock_timestamp()` com `transaction_timeout` 900 s só nessa txn → ROLLBACK; grava `volta-medida.txt`) + `copia.sh retrato` só-leitura antes × depois (`RETRATO IDÊNTICO`: ids, vencimentos, `dias_offset`, `rev`, nº do `audit_log`) em Task 4 Step 2; `copia.sh datar` e a volta real com OCs datadas REMOVIDOS; o esperado "k = 0" saiu; (2) passo 4b `$repasse$` no `gerar_sql.py` (mesmo critério da captura EXCEPT `_nota_voltar`, com o AccessExclusive já pego; NOTICE com o nº); (3) teste 13: ordem do arquivo conferida, Aviamento e Insumo no laço, as 4 famílias com NF ≠ base antiga voltam à base ANTIGA, NOTICE `0 OC(s) repassada(s)`; Global Constraints, Task 3 Step 3, §4 Riscos |
+| **R9-b** (guardião) medição sem resíduo; repasse depois do DROP TRIGGER; teste do inverso que distingue a ordem | (1) teste 15 "R9-b" (`NOTA_MEDIR_VOLTA`: migration → datar → ida de novo → inverso cronometrado por `clock_timestamp()` com `transaction_timeout` 180 s só nessa txn → ROLLBACK; grava `volta-medida.txt`) + `copia.sh retrato` só-leitura antes × depois (`RETRATO IDÊNTICO`: ids, vencimentos, `dias_offset`, `rev`, nº do `audit_log`) em Task 4 Step 2; `copia.sh datar` e a volta real com OCs datadas REMOVIDOS; o esperado "k = 0" saiu; (2) passo 4b `$repasse$` no `gerar_sql.py` (mesmo critério da captura EXCEPT `_nota_voltar`, com o AccessExclusive já pego; NOTICE com o nº); (3) teste 13: ordem do arquivo conferida, Aviamento e Insumo no laço, as 4 famílias com NF ≠ base antiga voltam à base ANTIGA, NOTICE `0 OC(s) repassada(s)`; Global Constraints, Task 3 Step 3, §4 Riscos |
