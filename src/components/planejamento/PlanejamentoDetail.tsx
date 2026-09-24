@@ -89,7 +89,8 @@ import { requisitosUniao } from "@/components/planejamento/planejamento-detail/f
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
 import { SeloObservacoesBadge, SeloProvaBadge, SeloRelacionadoBadge } from "@/components/planejamento/planejamento-detail/SelosAuxiliares";
 import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
-import { baseCustoPlanejamento, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { baseCustoPlanejamento, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
@@ -440,7 +441,7 @@ function PlanejamentoDetailConteudo({
   // cadastro); consumo = override do usuário (`custo_simulado.consumo_tecido`), senão o consumo
   // REAL do BOM (editável na tabela Preço). Aviamento = manual (`custo_simulado.aviamento`, vira o
   // "Materiais" estimado). M.O. = `maoObraDevLive` (Σ do rascunho, ao vivo). `simCalc.total` =
-  // tecido + aviamento + M.O. = o "Custo total" estimado exibido na tabela.
+  // tecido + aviamento + M.O.; o "Custo total" estimado da tabela = isso + custos adicionais (`estimativaBase` abaixo).
   const tecidoMaisCaro = draft.tecidos_planejados
     .map((id) => artigos.find((a) => a.id === id))
     .filter((a): a is ArtigoOpt => !!a)
@@ -467,7 +468,10 @@ function PlanejamentoDetailConteudo({
   // `veCustos`: previsto e estimativa caem a 0 ⇒ `custoBase.valor` = 0 (real já vem mascarado do servidor) ⇒
   // `precoInfo` devolve custo/sugerido/markup = 0 ⇒ a tabela mostra "—" em tudo, exatamente como antes da T12.
   const previstoBase = !veCustos ? 0 : ficha.carregado ? previstoDaFicha(ficha.totais) : Number(custoData?.previsto) || 0;
-  const estimativaBase = veCustos ? simCalc.total : 0;
+  // Fix pós-rebase (item 7 — paridade com o Dev): a estimativa SOMA os custos adicionais (`estimativaComCustosAdicionais`,
+  // custo-base.ts — `preco.ts`/`custoSimulado` intocados, invariante #8). A tabela mostra as linhas "Custos adicionais"
+  // no estimado, então o Custo total fecha.
+  const estimativaBase = veCustos ? estimativaComCustosAdicionais(simCalc.total, draft.custos_adicionais) : 0;
   const custoBase = baseCustoPlanejamento({ confirmado: custoReal, realServidor: custoData?.real, previsto: previstoBase, estimativa: estimativaBase });
   const { custo, markupLinha: markup, preco, sugerido: precoSug, efetivo: precoEfetivo, markupReal } =
     precoInfo(custoBase.valor, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda, draft.markup_editado);
@@ -1324,6 +1328,8 @@ function PlanejamentoDetailConteudo({
                 onConsumo={(v) => setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null })}
                 onAviamento={(v) => setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null })}
                 materiaisBase={materiaisSetor} custoPrevisto={custoPrevisto}
+                // Fix pós-rebase (item 7) — Σ dos custos adicionais (entra no estimado): linha só-leitura quando não há a ficha.
+                custosAdicionaisSoma={veCustos ? somaCustosAdicionais(draft.custos_adicionais) : 0}
                 linhaFaixas={linhaFaixas}
                 moMin={moMin} moIdeal={moIdeal} moMax={moMax} moStatusFaixa={moStatusFaixa}
                 // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
@@ -1360,16 +1366,20 @@ function PlanejamentoDetailConteudo({
               e a MO entra na BASE do markup (banco: _pa/_imp_recomputar). Comprado só mostra com
               `isEdit` (o modelo espelho já existe p/ gravar; senão não há onde persistir). */}
           {/* Fix round 4 (item 2) — gate de EXIBIR a seção usa `veCustos` (união das 2 permissões, decisão F3
-              #2): quem só tem `criacao_desenvolvimento:custos` não perde a seção. Dentro dela, `MaoObraEditor`
-              segue recebendo `podeVerCustos` (page-level, INALTERADO) — essa prop também controla EDIÇÃO
-              (digitar valor, adicionar/remover serviço), fora do escopo deste fix ("não mude permissões de
-              EDIÇÃO"); aprovar/reprovar segue só com `producao_servico_aprovacao`, como hoje. */}
+              #2): quem só tem `criacao_desenvolvimento:custos` não perde a seção.
+              Fix pós-rebase (item 6 — paridade com o Dev, comparação item 70) — o `MaoObraEditor` também recebe
+              `veCustos` (ver valores + digitar/adicionar/remover serviço): no Dev quem tem `criacao_desenvolvimento:custos`
+              edita a M.O.; o Salvar (usePlanejamentoSave) aceita as 2 permissões. Servidor conferido: a RPC
+              `salvar_modelo_servico_mo` só checa módulo `criacao` + tenant (savepoint funcoes.sql:15695/:7723) — não
+              recusa quem só tem a permissão do Dev; e `modelo_mo_resumo` desmascara os valores p/ `_pode_ver_custos()`, que
+              inclui `criacao_desenvolvimento:custos` (invariante #12). Aprovar/reprovar segue SÓ com
+              `producao_servico_aprovacao` (`podeAprovar`, invariante #12 — intocado). */}
           {vis.mao_obra && (
             <Secao id="mao_obra" titulo="Mão de obra" numero={numeros.mao_obra} selo={seloDe("mao_obra")} defaultOpen={false}>
               <MaoObraEditor
                 linhas={moLinhas}
                 categorias={catsServico}
-                podeVerCustos={podeVerCustos}
+                podeVerCustos={veCustos}
                 podeAprovar={isEdit && podeAprovarMaoObra}
                 onChangeLinhas={(ls) => setMoLinhas(ls)}
                 onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
@@ -1686,23 +1696,41 @@ function PlanejamentoDetailConteudo({
         </AlertDialog>
 
         {/* Cancelar Ordem de Criação (menu ⋯, NEUTRO — R7): ação sensível, confirma antes de reverter.
-            Fix T9 I3 (ruling do controlador) — com CAD existente (`ficha.dados.cadExiste`) e o card ainda NÃO
-            enviado à Explosão (o item só aparece nesse caso — `enviadoCad` esconde o item por completo, ver
-            MenuMaisAcoes acima), o texto avisa que o CAD sobrevive ao cancelamento; sem CAD, mantém o texto de
-            sempre. */}
+            Fix T9 I3 (ruling do controlador) — com CAD existente e o card ainda NÃO enviado à Explosão (o item só
+            aparece nesse caso — `enviadoCad` esconde o item por completo, ver MenuMaisAcoes acima), o texto avisa que
+            o CAD sobrevive ao cancelamento; sem CAD, mantém o texto de sempre.
+            Fix pós-rebase (item 3) — "tem CAD?" não pode depender só da ficha: sem a ficha habilitada (sem `canView` do
+            Dev) `ficha.dados.cadExiste` é sempre false. Fonte extra SEM query nova: `cqInfo` (["plan-cq", modeloId],
+            ~:562) já lê `cad.id` do modelo para o Lançar, com `enabled: !!modeloId` — independe da ficha. */}
         <AlertDialog open={confirmCancelarOrdem} onOpenChange={setConfirmCancelarOrdem}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Cancelar a Ordem de Criação?</AlertDialogTitle>
               <AlertDialogDescription>
-                {ficha.dados.cadExiste
+                {ficha.dados.cadExiste || !!(cqInfo as { id?: string } | null | undefined)?.id
                   ? 'Este card já tem CAD: ao cancelar a Ordem, o CAD continua existindo e o card não poderá ser excluído. Ele sai do kanban do Desenvolvimento e poderá ser enviado de novo.'
                   : 'O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Voltar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { setConfirmCancelarOrdem(false); enviar.mutate(false); }}>Sim, cancelar</AlertDialogAction>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmCancelarOrdem(false);
+                  // Fix pós-rebase (item 2) — re-checa o envio à Explosão no CLIQUE (mesma ideia do "Sim, enviar", Fix T9
+                  // M5): o diálogo pode ficar aberto enquanto outra pessoa envia o card à Explosão (o Realtime atualiza
+                  // `["modelo", modeloId]`). Com `enviado_cad=true` o item nem aparece no menu (Fix T9 I3) — cancelar
+                  // agora voltaria o card ao Planejamento sem desfazer nada da Explosão. Lê o render atual E o cache.
+                  const enviadoAgora = enviadoCad || !!(qc.getQueryData(["modelo", modeloId]) as { enviado_cad?: boolean } | null | undefined)?.enviado_cad;
+                  if (enviadoAgora) {
+                    toast.error("Este card já foi enviado à Explosão — a Ordem de Criação não pode mais ser cancelada.");
+                    return;
+                  }
+                  enviar.mutate(false);
+                }}
+              >
+                Sim, cancelar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

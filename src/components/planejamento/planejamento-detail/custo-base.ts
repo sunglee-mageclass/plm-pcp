@@ -2,6 +2,7 @@
 // custo-base, com selo de 3 estados. Ordem: real (CAD enviado ao corte = `custo_unitario_modelos.
 // confirmado`) › previsto do BOM › estimativa (tecido × preço/m + materiais + M.O.). Puro; testado.
 import type { TotaisBom } from "./ficha/ficha-calc";
+import { somaCustosAdicionais } from "@/lib/custo";
 
 export type SeloCusto = "estimado" | "previsto" | "real";
 
@@ -16,4 +17,14 @@ export function baseCustoPlanejamento(i: { confirmado: boolean; realServidor: un
   if (prev > 0) return { valor: prev, selo: "previsto" };
   const est = Number(i.estimativa) || 0;
   return { valor: est > 0 ? est : 0, selo: "estimado" };
+}
+
+/**
+ * Fix pós-rebase (item 7 — paridade com o Dev): a ESTIMATIVA do custo-base soma os custos adicionais (descrição + valor
+ * por peça, lançados a qualquer momento — no Dev entram no custo SEMPRE, ModeloDetailPanel.tsx:1398). `simTotal` =
+ * `custoSimulado(...).total` (tecido + aviamento + M.O.) — `preco.ts` fica INTOCADO (invariante #8): a soma mora aqui,
+ * onde o custo-base é montado. Assim a tabela fecha no estimado (as linhas "Custos adicionais" aparecem e entram no total).
+ */
+export function estimativaComCustosAdicionais(simTotal: number, custosAdicionais: unknown): number {
+  return (Number(simTotal) || 0) + somaCustosAdicionais(custosAdicionais);
 }

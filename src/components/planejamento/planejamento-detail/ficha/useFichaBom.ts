@@ -31,6 +31,7 @@ import {
 import type { PatchBlocoCad } from "./ficha-cad";
 import type { FichaDados } from "./useFichaDados";
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
+import { patchCadDoImport } from "./importar-ficha";
 
 const MAPA_VAZIO: Record<string, string> = {};
 const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false };
@@ -465,11 +466,12 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       // `campos` (`tecido:${tipo}:${numero}:artigo|consumo|variantes` — importar-copia.ts ~:67-73). Propagar
       // ao CAD para TODOS os `novos` (como antes) sobrescrevia o CAD de blocos que o usuário NÃO marcou pra
       // importar — numa ficha legada com BOM≠CAD, isso apagava em silêncio uma divergência intencional.
+      // Fix pós-rebase (item 4) — e, dentro do bloco tocado, só os CAMPOS marcados (`patchCadDoImport`, importar-ficha.ts):
+      // `:artigo` leva só o artigo, `:consumo` leva consumo + %loss, e um bloco marcado só em `:variantes` não empurra
+      // nada (as variantes chegam ao CAD pelo `sincronizarCadComBlocos`).
       for (const b of novos) {
-        const tocouEsteBloco = campos.has(`tecido:${b.tipo}:${b.numero}:artigo`)
-          || campos.has(`tecido:${b.tipo}:${b.numero}:consumo`)
-          || campos.has(`tecido:${b.tipo}:${b.numero}:variantes`);
-        if (tocouEsteBloco) aoMudarBlocoRef.current?.(b.tipo, b.numero, { consumo: b.consumo, loss_percent: b.loss_percent, artigo_id: b.artigo_id });
+        const patchCad = patchCadDoImport(b, campos);
+        if (patchCad) aoMudarBlocoRef.current?.(b.tipo, b.numero, patchCad);
       }
       marcarFlag("consumo");
     }

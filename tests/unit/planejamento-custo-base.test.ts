@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { baseCustoPlanejamento, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
+import { baseCustoPlanejamento, estimativaComCustosAdicionais, previstoDaFicha } from "@/components/planejamento/planejamento-detail/custo-base";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 
 // F3.2 — decisão F3 #6: markup e tabela no MESMO custo-base (real › previsto do BOM › estimativa).
@@ -39,5 +39,21 @@ describe("previstoDaFicha", () => {
   });
   it("BOM com material → Custo de 1 Peça", () => {
     expect(previstoDaFicha(tot({ tecido: 57.17, materiaisBom: 79.79, terceirizados: 35, custosAdicionais: 3.5, peca: 118.29 }))).toBe(118.29);
+  });
+});
+
+// Fix pós-rebase (item 7) — no estimado, os custos adicionais entram no custo-base (paridade com o Dev; preco.ts intocado).
+describe("estimativaComCustosAdicionais", () => {
+  it("soma os custos adicionais à estimativa (tecido + aviamento + M.O.)", () => {
+    expect(estimativaComCustosAdicionais(80, [{ descricao: "Lavanderia", valor: 3.5 }, { descricao: "Bordado", valor: 2 }])).toBe(85.5);
+  });
+  it("só custos adicionais (sem tecido/aviamento/M.O.) ⇒ a estimativa é a soma deles — vira o custo-base estimado", () => {
+    const est = estimativaComCustosAdicionais(0, [{ descricao: "Etiqueta bordada", valor: 1.25 }]);
+    expect(est).toBe(1.25);
+    expect(baseCustoPlanejamento({ confirmado: false, realServidor: 0, previsto: 0, estimativa: est })).toEqual({ valor: 1.25, selo: "estimado" });
+  });
+  it("sem custos adicionais / formato inválido ⇒ a estimativa de sempre", () => {
+    expect(estimativaComCustosAdicionais(80, [])).toBe(80);
+    expect(estimativaComCustosAdicionais(80, null)).toBe(80);
   });
 });

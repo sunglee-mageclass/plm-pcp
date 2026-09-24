@@ -324,8 +324,9 @@ export function useFichaTecnica(a: {
   // excluiria mais). Sem CAD e sem Ordem, a seção CAD é só-leitura (o que se digitasse não seria gravado).
   const cadGravavel = podeEditar && (dados.cadExiste || a.ordemEnviada);
   // Fix T9 I2 — mesmo padrão de `podeEditarRef`: `capturar()` roda fora do ciclo de render (inclusive no
-  // retry do P0409) e precisa do `cadGravavel` de AGORA pra decidir se `guardaCad.dirty` conta como "devia
-  // ter gravado" (D2, antes da Ordem sem CAD, NÃO conta).
+  // retry do P0409) e precisa do `cadGravavel` de AGORA pra decidir se o CAD sujo (`cadSujo`, lido das refs —
+  // `cad.linhasRef`/`guardaCad.baselineRef`, não do `guardaCad.dirty` de STATE) conta como "devia ter gravado"
+  // (D2, antes da Ordem sem CAD, NÃO conta).
   const cadGravavelRef = useRef(false);
   cadGravavelRef.current = cadGravavel;
   const cadHandlers = cadGravavel ? { updateTec: cad.updateTec, updateVar: cad.updateVar, setAutoFolhas: cad.setAutoFolhas } : CAD_NOOP;

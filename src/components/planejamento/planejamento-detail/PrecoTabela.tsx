@@ -52,6 +52,10 @@ export function PrecoTabela(props: {
   materiaisBase: number; custoPrevisto: number;
   // F3.2 — linhas "Custos do BOM" (mockup): null/ausente = não aparecem.
   custosBom?: CustosBomTabela | null;
+  // Fix pós-rebase (item 7) — Σ dos custos adicionais do card: no ESTIMADO eles entram no custo total
+  // (custo-base.ts `estimativaComCustosAdicionais`). Só é usado quando `custosBom` é null (sem a ficha — ex.: sem
+  // `canView` do Dev): vira UMA linha só-leitura, p/ a tabela fechar. Com `custosBom`, as linhas editáveis já aparecem.
+  custosAdicionaisSoma?: number;
   // faixas de M.O.
   linhaFaixas: { min: number | null; ideal: number | null; max: number | null } | null;
   moMin: { moMax: number; atingivel: boolean }; moIdeal: { moMax: number; atingivel: boolean }; moMax: { moMax: number; atingivel: boolean };
@@ -63,7 +67,7 @@ export function PrecoTabela(props: {
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
-    onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom,
+    onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn } = props;
 
   // F3.2 (decisão F3 #6): o "Custo total" é o MESMO número que o markup usa (custo-base). Real → leitura do real;
@@ -212,23 +216,29 @@ export function PrecoTabela(props: {
           )}
           {/* F3.2 — custos do BOM como LINHAS da tabela (decisão F3 #2 + mockup Anotado, seção 10 — R9c). A trava é por
               `disabled` em cada input (um <fieldset> não pode ficar dentro de <tbody>); sem `editavel` somem os botões.
-              Fix round 4 (item 4, m1) — ESCONDE no estimado (`gen_anotado.py` §10 inacessível nesta worktree;
-              escolha registrada no relatório): sem material no BOM, `custoTotal` vem de `simCalc.total` (Tecido
-              da estimativa + aviamento manual + M.O.) — as linhas do BOM (todas "—", Σ=0) e os custos adicionais
-              não entram nessa soma, então mostrá-las junto do bloco "Tecido/Materiais" estimado (que já tem SEUS
-              próprios inputs) duplicava conceito e não fechava a conta. Esconder é reversível: assim que o BOM
-              ganha material, `seloCusto` vira "previsto" e o bloco reaparece com os valores certos. */}
-          {custosBom && seloCusto !== "estimado" && (
+              Fix round 4 (item 4, m1) — as linhas do BOM (Tecido/Forro/…) seguem ESCONDIDAS no estimado: sem material no
+              BOM elas são todas "—" (Σ=0) e o bloco "Tecido/Materiais" estimado acima já tem SEUS próprios inputs.
+              Fix pós-rebase (item 7 — paridade com o Dev, onde os custos adicionais são lançados a qualquer momento): no
+              estimado aparece SÓ a parte "Custos adicionais" (descrição + valor + "Adicionar custo", mesma trava
+              `editavel`), e o valor ENTRA no custo total estimado (`estimativaComCustosAdicionais`, custo-base.ts) —
+              a tabela fecha. Sem nada lançado e sem poder editar, o cabeçalho nem aparece. */}
+          {custosBom && (seloCusto !== "estimado" || custosBom.editavel || custosBom.custosAdicionais.length > 0) && (
             <>
-              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos do BOM <span className="normal-case font-normal tracking-normal">— previsto, do Desenvolvimento</span></td></tr>
-              {linhasBom.map(([rotulo, valor]) => (
-                <tr key={rotulo} className="border-t">
-                  <td className="py-2 pr-3">{rotulo}</td>
-                  <td className="py-2 px-2 text-right text-muted-foreground">—</td>
-                  <td className="py-2 px-2 text-right tabular-nums">{valor > 0 ? brl(valor) : "—"}</td>
-                  <td className="py-2 pl-2 text-xs text-muted-foreground">do BOM</td>
-                </tr>
-              ))}
+              {seloCusto !== "estimado" ? (
+                <>
+                  <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos do BOM <span className="normal-case font-normal tracking-normal">— previsto, do Desenvolvimento</span></td></tr>
+                  {linhasBom.map(([rotulo, valor]) => (
+                    <tr key={rotulo} className="border-t">
+                      <td className="py-2 pr-3">{rotulo}</td>
+                      <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{valor > 0 ? brl(valor) : "—"}</td>
+                      <td className="py-2 pl-2 text-xs text-muted-foreground">do BOM</td>
+                    </tr>
+                  ))}
+                </>
+              ) : (
+                <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos adicionais <span className="normal-case font-normal tracking-normal">— por peça, entram no custo total estimado</span></td></tr>
+              )}
               {custosBom.custosAdicionais.map((c, i) => (
                 <tr key={`custo-adicional-${i}`} className={`border-t ${realceCopiado}`}>
                   <td className="py-2 pr-3">
@@ -276,6 +286,17 @@ export function PrecoTabela(props: {
                 </tr>
               )}
             </>
+          )}
+          {/* Fix pós-rebase (item 7) — estimado SEM a ficha (`custosBom` null — ex.: sem `canView` do Dev) com custos
+              adicionais já lançados no Dev: eles entram no custo total estimado mesmo assim, então aparecem numa linha
+              só-leitura (Σ) p/ a tabela fechar. Editar continua sendo na ficha/no Dev. */}
+          {!custosBom && seloCusto === "estimado" && custosAdicionaisSoma > 0 && (
+            <tr className="border-t">
+              <td className="py-2 pr-3">Custos adicionais</td>
+              <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+              <td className="py-2 px-2 text-right tabular-nums">{brl(custosAdicionaisSoma)}</td>
+              <td className="py-2 pl-2 text-xs text-muted-foreground">{seloBadge} por peça, do Desenvolvimento</td>
+            </tr>
           )}
           <tr className="border-t">
             <td className="py-2 pr-3">Mão de obra</td>

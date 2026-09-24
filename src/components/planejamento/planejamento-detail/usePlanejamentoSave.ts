@@ -349,7 +349,11 @@ export function usePlanejamentoSave({
       // um estado vazio que apagaria as linhas existentes no servidor. `moLinhasRef` = leitura
       // síncrona (nenhuma edição feita durante o `await` acima se perde). Gated por
       // `podeVerCustos`: quem não vê custos tem os valores MASCARADOS (null) e não deve reescrevê-los.
-      if (podeVerCustos && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
+      // Fix pós-rebase (item 6 — paridade com o Dev): QUALQUER uma das 2 permissões de custos —
+      // `podeVerCustos` (page-level, `criacao_planejamento:custos`) OU `fichaRef.current.podeVerCustos` (a união com
+      // `criacao_desenvolvimento:custos`, useFichaTecnica.ts). Quem tem só a do Dev vê os valores DESMASCARADOS
+      // (`modelo_mo_resumo` usa `_pode_ver_custos()`, que a inclui) e a RPC não checa permissão de custos — seguro regravar.
+      if ((podeVerCustos || fichaRef.current.podeVerCustos) && savedId && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
           _linhas: moLinhasEnviadas.map((l) => ({

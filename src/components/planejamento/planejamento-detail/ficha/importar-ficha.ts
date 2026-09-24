@@ -4,6 +4,7 @@
 import type { PatchCopia } from "@/components/desenvolvimento/importar/importar-copia";
 import type { AviamentoRow, GradeRow, ModeloEtiquetaRow, TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import type { Draft } from "@/components/planejamento/modelo-shared";
+import type { PatchBlocoCad } from "./ficha-cad";
 
 /** Colunas de `modelos` que o Importar traz para o Draft (staging — o Salvar grava). */
 export function camposDoPatchNoDraft(p: PatchCopia): Partial<Pick<Draft, "observacoes_tecnicas" | "custos_adicionais" | "proporcoes">> {
@@ -38,4 +39,20 @@ export function itensSobrescritos(p: PatchCopia, atual: {
   }
   if (obsBloco) out.push("Observações (bloco)");
   return out;
+}
+
+/**
+ * Fix pós-rebase (item 4) — o que o Importar leva ao CAD de UM bloco, POR CAMPO marcado no diálogo (as chaves de
+ * `campos` são as de `construirCopia`, importar-copia.ts ~:67-73): `:artigo` → só `artigo_id`; `:consumo` → consumo E
+ * %loss (o `:consumo` do Dev copia os dois); bloco marcado SÓ em `:variantes` → `null` (sem patch: consumo/%loss/artigo
+ * do CAD ficam como estão — as variantes chegam ao CAD pelo `sincronizarCadComBlocos`, que roda na mudança dos blocos).
+ * Antes (b4cb4e4) qualquer um dos 3 campos empurrava os TRÊS valores ao CAD.
+ */
+export function patchCadDoImport(
+  b: Pick<TecidoBlock, "tipo" | "numero" | "consumo" | "loss_percent" | "artigo_id">, campos: ReadonlySet<string>,
+): PatchBlocoCad | null {
+  const p: PatchBlocoCad = {};
+  if (campos.has(`tecido:${b.tipo}:${b.numero}:artigo`)) p.artigo_id = b.artigo_id;
+  if (campos.has(`tecido:${b.tipo}:${b.numero}:consumo`)) { p.consumo = b.consumo; p.loss_percent = b.loss_percent; }
+  return Object.keys(p).length > 0 ? p : null;
 }
