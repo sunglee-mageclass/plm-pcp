@@ -98,6 +98,7 @@ import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
+import { espelhosDoCard, opcoesOrigem, type EspelhosCard } from "@/components/planejamento/planejamento-detail/comprado";
 import { AnexosDevCampos } from "@/components/planejamento/planejamento-detail/ficha/secoes/AnexosDevCampos";
 // Reuso DIRETO (sem modificar — decisão travada 8): fio de comentários da Prova e bloco de Observações do Dev.
 import { ModeloAjustesProvaSection } from "@/components/desenvolvimento/modelo-detail/ModeloAjustesProvaSection";
@@ -564,6 +565,50 @@ function PlanejamentoDetailConteudo({
   const {
     gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty, buildLinhasGradeRevenda,
   } = gradeComprado;
+  // ── F3.4 — Origem (decisão F3 #3 + D1; R3/R7 do G-plano F3.4): "Importado" com o módulo; a troca olha o que o card JÁ
+  // TEM no servidor. Tecido no BOM (servidor OU já na ficha carregada): tecido reserva estoque — num comprado ficaria
+  // escondido reservando.
+  const { data: temTecidosServidor = false } = useQuery({
+    queryKey: ["plan-origem-tem-tecidos", modeloId],
+    enabled: isEdit && !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("modelo_tecidos").select("id").eq("modelo_id", modeloId as string).limit(1);
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    },
+  });
+  // R3 — os DOIS espelhos do card (invariante #13), QUALQUER que seja a origem (um card interno pode já ter sido comprado —
+  // o produto continua vinculado na tela dele). `produtos_acabados` não tem modgate: lido SEMPRE (não depende do `paOn`).
+  // `produtos_importados` tem `modgate_pi_*` RESTRICTIVE: com o módulo desligado as linhas SOMEM ⇒ INDETERMINADO (null),
+  // nunca "não tem". Key própria (forma diferente de `plan-comprado-produto`/`pa-produto-modelo`); `piOn` na key.
+  const qEspelhos = useQuery({
+    queryKey: ["plan-origem-espelhos", modeloId, piOn],
+    enabled: isEdit && !!modeloId,
+    queryFn: async (): Promise<EspelhosCard> => {
+      const pa = await (supabase.from("produtos_acabados" as any) as any)
+        .select("id, ocs:ocs_p_acabado(id)")
+        .eq("modelo_id", modeloId);
+      if (pa.error) throw pa.error;
+      let pi: { ocs: { id: string }[] | null }[] | null = null;
+      if (piOn) {
+        const r = await (supabase.from("produtos_importados" as any) as any)
+          .select("id, ocs:ocs_importado(id)")
+          .eq("modelo_id", modeloId);
+        if (r.error) throw r.error;
+        pi = r.data ?? [];
+      }
+      return espelhosDoCard({ acabados: pa.data ?? [], importados: pi });
+    },
+  });
+  const origemOpcoesLista = opcoesOrigem({
+    isEdit, salva: origemComprado, atual: draft.origem, piOn,
+    temTecidos: temTecidosServidor || (ficha.carregado && ficha.estado.blocks.some((b) => !!b.artigo_id)),
+    // Carregando ou com erro ⇒ null ⇒ nenhuma troca no escuro (falha fechada).
+    espelhos: qEspelhos.data ?? null,
+    // R7 — a ficha projeta pela origem do RASCUNHO e a grade segue a SALVA: trocar com edição pendente deixaria a referência
+    // do BOM calculada com a OUTRA projeção ("Tecidos & BOM" falso). Sem edição, a referência re-baseia sozinha.
+    edicaoPendente: ficha.tocado || gradeComprado.gradeRevendaDirty,
+  });
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
@@ -1226,7 +1271,7 @@ function PlanejamentoDetailConteudo({
             draft={draft} setDraftTracked={setDraftTracked}
             grupoSel={grupoSel} setGrupoSel={setGrupoSel}
             grupos={grupos} categorias={categorias} estilistas={estilistas}
-            sub1Opts={sub1Opts} sub2Opts={sub2Opts} fl={fl}
+            sub1Opts={sub1Opts} sub2Opts={sub2Opts} fl={fl} origemOpcoes={origemOpcoesLista}
           />
 
           {/* SETOR 2 — Coleção */}

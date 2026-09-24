@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { STATUS_OPTS, type Opt, type CatOpt, type SubOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
+import type { OpcaoOrigem } from "@/components/planejamento/planejamento-detail/comprado";
 
 export function InfoGeraisSecao({
-  draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo,
+  draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -27,6 +28,8 @@ export function InfoGeraisSecao({
   /** F3.3 — numeração e selo da seção (orquestrador). */
   numero?: number;
   selo?: React.ReactNode;
+  /** F3.4 — opções do Select "Origem" (com "Importado" pelo módulo; troca travada pelas regras da D1 — `opcoesOrigem`). */
+  origemOpcoes: OpcaoOrigem[];
 }) {
   return (
           <Secao id="info" titulo="Informações Gerais do Produto" numero={numero} selo={selo}>
@@ -59,10 +62,15 @@ export function InfoGeraisSecao({
                 <Select value={draft.origem} onValueChange={(v) => setDraftTracked((d) => ({ ...d, origem: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="interno">Interno</SelectItem>
-                    <SelectItem value="revenda">Revenda</SelectItem>
+                    {origemOpcoes.map((o) => (
+                      <SelectItem key={o.value} value={o.value} disabled={o.disabled}>{o.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {/* F3.4 — D1: por que a troca está travada (item desabilitado do Radix não mostra `title`). */}
+                {origemOpcoes.some((o) => o.disabled && o.motivo) && (
+                  <p className="text-xs text-muted-foreground">{origemOpcoes.find((o) => o.disabled && o.motivo)?.motivo}</p>
+                )}
               </div>
             </div>
 
