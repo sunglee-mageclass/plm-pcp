@@ -786,5 +786,24 @@ export function usePlanejamentoSave({
     save.mutate(undefined, { onSettled: () => { savingRef.current = false; } });
   };
 
-  return { save, handleSave };
+  /**
+   * F3.3 — Salvar "por dentro" do Enviar à Explosão (Dev :2404-2405 `persistModelo()`): mesma guarda anti-duplo-clique do
+   * `handleSave`. Rejeita (marcando `salvarFalhou`) se já há Salvar em voo ou se o Salvar falhar; no P0409 o retry
+   * automático segue sozinho (onError) e quem chamou aborta.
+   */
+  const salvarAntes = async (): Promise<void> => {
+    if (savingRef.current || save.isPending) throw new Error("Aguarde o salvamento em andamento terminar.");
+    savingRef.current = true;
+    try {
+      await save.mutateAsync(undefined);
+    } catch (e) {
+      if (e && typeof e === "object") (e as any).salvarFalhou = true;
+      throw e;
+    } finally {
+      // No P0409 o onError já disparou o retry, que segura `savingRef` até o fim dele.
+      if (!retryRef.current) savingRef.current = false;
+    }
+  };
+
+  return { save, handleSave, salvarAntes };
 }

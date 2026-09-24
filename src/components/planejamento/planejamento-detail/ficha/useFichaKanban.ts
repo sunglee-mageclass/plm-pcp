@@ -18,6 +18,8 @@ export type FichaKanban = {
   kanbanCfg: KanbanAutoConfig;
   revendaCfg: RevendaConfig;
   refExibirStatus: string | null;
+  /** F3.3 — `tenant_config.explosao_envio_status` (etapa a partir da qual se envia à Explosão; ausente ⇒ "aprovado"). */
+  explosaoEnvioStatus: string | null;
   /** Condições do card (RPC avaliar_condicoes_kanban) — {} enquanto não carregou ou fora do kanban. */
   cond: Record<string, boolean>;
   /** Config da loja (`tenant_config`) carregada. */
@@ -59,6 +61,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   const kanbanCfg = useMemo(() => lerKanbanAutoConfig(cfgRow ?? null), [cfgRow]);
   const revendaCfg = useMemo(() => lerRevendaConfig(cfgRow ?? null), [cfgRow]);
   const refExibirStatus = (cfgRow?.ref_exibir_status as string | null | undefined) ?? null;
+  const explosaoEnvioStatus = (cfgRow?.explosao_envio_status as string | null | undefined) ?? null;
 
   const noKanban = !!modeloId && enviada && !lancado;
   const { data: condData, isSuccess: condOk, isError: condErro } = useQuery({
@@ -88,7 +91,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   // posição DERIVADA quando a chave está ligada (decisão 10) — aqui só trocamos a ENTRADA dele.
   const statusCru = enviada ? statusSalvo : null;
   return {
-    kanbanCfg, revendaCfg, refExibirStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
+    kanbanCfg, revendaCfg, refExibirStatus, explosaoEnvioStatus, cond, cfgPronta, condProntas, modeloKanban, statusSalvo, statusEfetivo, derivacao,
     refVisivel: refVisivelFicha({ cfg: kanbanCfg, refExibirStatus, statusEfetivo: statusCru, derivacao }),
     // M2 (fix round 1): modelo LANÇADO sai do fluxo normal (vai só pra coluna terminal
     // "Lançado" no board, criacao.desenvolvimento.tsx:538) — nunca é "Reprovado" mesmo que o

@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, ArrowLeft, Save, Pencil, Loader2 } from "lucide-react";
+import { Trash2, ArrowLeft, Save, Pencil, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -52,7 +52,6 @@ import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelaci
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
@@ -78,6 +77,11 @@ import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planeja
 import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
+import { PrintFicha } from "@/components/producao/PrintFicha";
+import { gateEnvioExplosao, pendenciasEnvioExplosao } from "@/components/planejamento/planejamento-detail/ficha/envio-explosao";
+import { PedidoSecaoContext, proximoPedido, type PedidoSecao } from "@/components/planejamento/planejamento-detail/secoes-abertas";
+import { MenuMaisAcoes } from "@/components/planejamento/planejamento-detail/MenuMaisAcoes";
+import { useEnviarExplosao } from "@/components/planejamento/planejamento-detail/useEnviarExplosao";
 import { numerarSecoes, resumoColecao, selosSecoesSheet, type SecaoSheetKey } from "@/components/planejamento/planejamento-detail/ficha/selos-secoes";
 import { requisitosUniao } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
@@ -231,9 +235,15 @@ function PlanejamentoDetailConteudo({
       return next;
     });
   const [confirmDel, setConfirmDel] = useState(false);
-  // "Ver no Desenvolvimento" (setor Preço, §K) — abre o ModeloDetailPanel INLINE por cima
-  // deste card (sem navegar), mesmo padrão sheet-sobre-sheet do ProdutoAcabadoSheet.
-  const [verDevModeloId, setVerDevModeloId] = useState<string | null>(null);
+  // F3.3 — o "Ver no Desenvolvimento" SAIU (abria um 2º editor do mesmo BOM por cima do card; o Sheet já tem as seções do
+  // Dev). Estado dos links "Para enviar, falta…", da impressão da Ficha Técnica e da confirmação do envio.
+  const [pedidoSecao, setPedidoSecao] = useState<PedidoSecao>(null);
+  const abrirSecao = (chave: string) => setPedidoSecao((p) => proximoPedido(p, chave));
+  const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
+  const [confirmEnviarExplosao, setConfirmEnviarExplosao] = useState(false);
+  // "Cancelar Ordem de Criação" é NEUTRO no menu ⋯ (R7, mockup — sem vermelho), mas é ação sensível:
+  // confirma por AlertDialog antes de reverter `ordem_criacao_enviada` (instrução do orquestrador da T9).
+  const [confirmCancelarOrdem, setConfirmCancelarOrdem] = useState(false);
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
   // Revenda (Produto Acabado, Task 7): card revenda ganha campo de preço atacado + grade
@@ -732,7 +742,7 @@ function PlanejamentoDetailConteudo({
 
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
-  const { save, handleSave } = usePlanejamentoSave({
+  const { save, handleSave, salvarAntes } = usePlanejamentoSave({
     modeloId, isEdit, isRevenda, paOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
     refEditavel,
     draft, setDraft, draftLiveRef,
@@ -741,6 +751,11 @@ function PlanejamentoDetailConteudo({
     moLinhasRef, moBaseRef, setMoLinhasBase,
     gradeRevenda, setGradeRevenda, gradeRevendaDirty, gradeRevendaBaseRef, gradeRevendaRevRef, buildLinhasGradeRevenda,
     qc, onSaved: aoSalvar, onCreated, ficha: ficha.save, resetDraftBaseline,
+  });
+  // F3.3 — Enviar à Explosão (Dev :2402-2433): Salvar + `enviar_modelo_para_cad`; pós-envio re-trava e avisa a lista.
+  const enviarExplosao = useEnviarExplosao({
+    modeloId, qc, salvarAntes, draftLiveRef,
+    onEnviado: () => { setEditandoDev(false); onSaved(); },
   });
 
   // Fix final (F3.1, item 3) — card NOVO: entre o clique em Salvar e o Sheet remontar com o id
@@ -1037,11 +1052,32 @@ function PlanejamentoDetailConteudo({
     return s ? <SeloBadge selo={s} /> : undefined;
   };
 
+  // ── F3.3 — Enviar à Explosão: gate pela ETAPA (posição DERIVADA com a chave ligada — decisão 10; Dev :1405-1413) +
+  // "Para enviar, falta" (Dev :1576-1598). Só produto interno com a ficha (comprado = F3.4), Ordem enviada, não enviado.
+  const gateEnvio = gateEnvioExplosao({
+    cfg: kanbanCard.kanbanCfg, explosaoEnvioStatus: kanbanCard.explosaoEnvioStatus,
+    statusCru: enviada ? kanbanCard.statusSalvo : null, derivacao: kanbanCard.derivacao, condProntas: kanbanCard.condProntas,
+  });
+  const mostraEnviarExplosao = fichaVisivel && enviada && !enviadoCad;
+  const pendenciasEnvio = mostraEnviarExplosao && gateEnvio.ok
+    ? pendenciasEnvioExplosao({ draft, blocks: ficha.estado.blocks, grades: ficha.estado.grades, rotuloRef: fl("ref") })
+    : [];
+  const mostraFaltas = pendenciasEnvio.length > 0;
+  const motivoEnvioBloqueado: string | null = !mostraEnviarExplosao ? null
+    : !ficha.carregado ? "Carregando a ficha…"
+      : !podeEditarDev ? "Sem permissão para editar o Desenvolvimento."
+        : gateEnvio.carregando ? "Conferindo a etapa do card…"
+          : !gateEnvio.ok ? `Disponível a partir da etapa "${gateEnvio.reqLabel}".`
+            : mostraFaltas ? "Preencha os itens pendentes para enviar."
+              : null;
+  const podeEnviarExplosaoAgora = mostraEnviarExplosao && motivoEnvioBloqueado === null && ficha.podeEditar
+    && !enviarExplosao.isPending && !save.isPending;
+
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
   const conteudo = (
-    <>
+    <PedidoSecaoContext.Provider value={pedidoSecao}>
         <div className="shrink-0 px-6 pt-4 pb-0">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Planejamento de Produto" }, { label: draft.nome || "Novo modelo" }]} />
         </div>
@@ -1284,7 +1320,6 @@ function PlanejamentoDetailConteudo({
                 // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
                 // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
                 podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
-                onVerDev={modeloId ? () => setVerDevModeloId(modeloId) : undefined}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
                 custosBom={ficha.habilitada && ficha.carregado && veCustos ? {
@@ -1465,9 +1500,25 @@ function PlanejamentoDetailConteudo({
               <ProdutoRelacionadoSetor modeloId={modeloId} />
             </Secao>
           )}
+
+          {/* F3.3 — "Para enviar, falta…" no MOBILE (Dev :3107-3119); no desktop fica no rodapé. */}
+          {mostraFaltas && (
+            <p className="sm:hidden text-xs text-amber-700 dark:text-amber-300">
+              Para enviar, falta:{" "}
+              {pendenciasEnvio.map((p, i) => (
+                <span key={p.label}>
+                  {i > 0 && " · "}
+                  <button type="button" className="font-medium underline underline-offset-2" onClick={() => abrirSecao(p.secao)}>{p.label}</button>
+                </span>
+              ))}
+            </p>
+          )}
         </fieldset>
         </div>
 
+        {/* F3.3 — rodapé do mockup (gen_main.py:118-124): Voltar · Excluir · [Para enviar, falta…] · ⋯ · [Enviar Ordem de
+            Criação | Enviar à Explosão] · [Editar] · Salvar. Duplicar / Importar dados / Ficha Técnica / Cancelar Ordem de
+            Criação moram no ⋯ (§L). */}
         <div className="shrink-0 border-t bg-background px-4 py-3 flex flex-wrap items-center gap-2">
           {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
           <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
@@ -1481,43 +1532,40 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Excluir</span>
             </Button>
           )}
-          {/* Grupo direito: ml-auto empurra para a direita.
-              Fix round 4 (item 7, T13 m2) — desabilita enquanto `ficha.habilitada && !ficha.carregado`: a
-              `mutationFn` do Duplicar lê `fichaRef.current.carregado`/`.estado.blocks` p/ montar o BOM da cópia
-              (item da Task 13); clicar ANTES de carregar caía no fallback `tecidos_planejados.slice(0,3)` em vez
-              dos artigos reais do BOM. Sem `canView` do Dev (`!ficha.habilitada`) o fallback segue igual a hoje
-              (a ficha nunca carrega nesse caso, então bloquear pra sempre seria pior). `title` num `<span>`
-              (não no `<button disabled>`) — mesmo padrão do tooltip "Enviar Ordem de Criação" acima: botão
-              desabilitado não dispara `title` nativo em todo navegador.
-              F3.2 micro-fix M1 — cache FRIO (`modeloData` ainda `undefined` no 1º render) faz `isCompradoParaFicha`
-              (~:254) ficar true por precaução, o que desabilita a ficha (`ficha.habilitada=false`) e destrava este
-              botão ANTES do draft ser semeado — clicar nesse instante copiaria o `emptyDraft()` em vez do BOM real.
-              `|| (isEdit && !modeloData)` cobre essa janela (mesma condição da `isCompradoParaFicha`, sem repetir o
-              cálculo); o `title` some assim que `modeloData` chega, igual ao caso `!ficha.carregado`. */}
-          {isEdit && (
-            <span title={(ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData) ? "Carregando a ficha…" : undefined} className="ml-auto shrink-0" style={{ display: "inline-flex" }}>
-              <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-                <Copy className="h-4 w-4 sm:mr-1" />
-                <span className="max-sm:sr-only">Duplicar</span>
-              </Button>
+          {/* "Para enviar, falta…" (Dev :3136-3147): cada item abre a seção onde se resolve. Trunca (1 linha). */}
+          {mostraFaltas && (
+            <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground max-sm:hidden" data-testid="para-enviar-falta">
+              Para enviar, falta:{" "}
+              {pendenciasEnvio.map((p, i) => (
+                <span key={p.label}>
+                  {i > 0 && ", "}
+                  <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => abrirSecao(p.secao)}>{p.label}</button>
+                </span>
+              ))}
             </span>
           )}
-          {isEdit && (enviada ? (
-            <Button variant="outline" onClick={() => enviar.mutate(false)} disabled={enviar.isPending}>
-              Cancelar Envio
-            </Button>
-          ) : (
+          {isEdit && (
+            <MenuMaisAcoes
+              className={mostraFaltas ? "max-sm:ml-auto" : "ml-auto"}
+              onDuplicar={handleDuplicate}
+              // Rebase F3.3→3adfbd3 — o Duplicar saiu do rodapé para o ⋯ e leva junto a condição da F3.2: round 4 (item 7,
+              // T13 m2: `ficha.habilitada && !ficha.carregado` — a `mutationFn` lê `fichaRef.current.carregado`/`.estado.blocks`;
+              // antes de carregar caía no fallback `tecidos_planejados.slice(0,3)`) + micro-fix M1 3adfbd3 (`isEdit && !modeloData`
+              // — cache FRIO: `isCompradoParaFicha` desabilita a ficha por precaução e destravaria o Duplicar antes do seed,
+              // copiando o `emptyDraft()`).
+              duplicando={duplicate.isPending || (ficha.habilitada && !ficha.carregado) || (isEdit && !modeloData)}
+              onFichaTecnica={enviadoCad ? () => setPrintTecnicaToken((t) => t + 1) : undefined}
+              onCancelarOrdem={enviada ? () => setConfirmCancelarOrdem(true) : undefined}
+              cancelandoOrdem={enviar.isPending}
+            />
+          )}
+          {isEdit && !enviada && (
             <TooltipProvider>
               <Tooltip>
-                {/* Botão desabilitado não dispara title nativo — o span recebe o hover
-                    e o tooltip lista o que falta para enviar. */}
+                {/* Botão desabilitado não dispara title nativo — o span recebe o hover e o tooltip lista o que falta. */}
                 <TooltipTrigger asChild>
-                  <span className={isEdit ? "" : "ml-auto"} style={{ display: "inline-flex" }}>
-                    <Button
-                      variant="secondary"
-                      onClick={() => enviar.mutate(true)}
-                      disabled={enviar.isPending || enviarBloqueios.length > 0}
-                    >
+                  <span className="inline-flex shrink-0">
+                    <Button variant="secondary" onClick={() => enviar.mutate(true)} disabled={enviar.isPending || enviarBloqueios.length > 0}>
                       <span className="sm:hidden">Enviar Ordem</span>
                       <span className="hidden sm:inline">Enviar Ordem de Criação</span>
                     </Button>
@@ -1533,8 +1581,29 @@ function PlanejamentoDetailConteudo({
                 )}
               </Tooltip>
             </TooltipProvider>
-          ))}
-          {/* Trava pós-Explosão (decisão F3 #1): "Editar" destrava SÓ os campos vindos do Dev; o Salvar re-trava. */}
+          )}
+          {mostraEnviarExplosao && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setConfirmEnviarExplosao(true)}
+                      disabled={!podeEnviarExplosaoAgora}
+                      aria-label="Enviar à Explosão"
+                      className="max-sm:aspect-square max-sm:px-0"
+                    >
+                      {enviarExplosao.isPending ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <Send className="h-4 w-4 sm:mr-1" />}
+                      <span className="max-sm:sr-only">Enviar à Explosão</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {motivoEnvioBloqueado && <TooltipContent className="max-w-[260px]">{motivoEnvioBloqueado}</TooltipContent>}
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* Trava pós-Explosão (decisão F3 #1): "Editar" destrava os campos vindos do Dev (BOM e CAD incluídos); o Salvar re-trava. */}
           {isEdit && enviadoCad && !editandoDev && podeEditarDev && (
             <Button
               variant="secondary"
@@ -1547,7 +1616,7 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Editar</span>
             </Button>
           )}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={save.isPending}>
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={save.isPending || enviarExplosao.isPending}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
@@ -1566,10 +1635,47 @@ function PlanejamentoDetailConteudo({
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* F3.3 — confirmação do envio (Dev :3202-3219). */}
+        <AlertDialog open={confirmEnviarExplosao} onOpenChange={setConfirmEnviarExplosao}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Enviar modelo para a Explosão?</AlertDialogTitle>
+              <AlertDialogDescription>
+                O card é salvo e vai para a Explosão (próxima etapa) com os tecidos, variantes, grade e CAD atuais. Na Explosão
+                você define a quantidade a enviar e autoriza a baixa do estoque. Depois de enviado, os campos vindos do
+                Desenvolvimento ficam travados — use "Editar" para alterá-los.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Não, quero revisar antes</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { setConfirmEnviarExplosao(false); enviarExplosao.mutate(); }}>Sim, enviar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Cancelar Ordem de Criação (menu ⋯, NEUTRO — R7): ação sensível, confirma antes de reverter. */}
+        <AlertDialog open={confirmCancelarOrdem} onOpenChange={setConfirmCancelarOrdem}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancelar a Ordem de Criação?</AlertDialogTitle>
+              <AlertDialogDescription>
+                O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Voltar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { setConfirmCancelarOrdem(false); enviar.mutate(false); }}>Sim, cancelar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste card." />
+        {/* F3.3 — Ficha Técnica (menu ⋯, "após Enviar"): a MESMA do Dev (PrintFicha — PrintArea em portal), montada oculta
+            e disparada pelo token (Dev :3261-3265). */}
+        {isEdit && modeloId && enviadoCad && <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />}
         {/* Ring de presença por campo AUTO-instrumentado (cobre todos os campos do sheet). */}
         <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
-    </>
+    </PedidoSecaoContext.Provider>
   );
 
   // Regra 3: EDITAR registro existente = Sheet lateral (side=right, ~70vw); NOVO = Dialog
@@ -1592,25 +1698,6 @@ function PlanejamentoDetailConteudo({
             {conteudo}
           </DialogContent>
         </Dialog>
-      )}
-
-      {/* "Ver no Desenvolvimento" (setor Preço, §K) → ModeloDetailPanel INLINE por cima deste
-          Sheet, sem navegar (mesmo precedente do ProdutoAcabadoSheet:745-752). onSaved invalida
-          as queries de custo/MO que o colab (canal `modelos`) não cobre — o próprio `["modelo",
-          modeloId]` já reconcilia via Realtime/merge 3-vias quando o Dev grava na mesma linha. */}
-      {verDevModeloId && (
-        <ModeloDetailPanel
-          modeloId={verDevModeloId}
-          onClose={() => setVerDevModeloId(null)}
-          onSaved={() => {
-            qc.invalidateQueries({ queryKey: ["plan-custo-unit", verDevModeloId] });
-            qc.invalidateQueries({ queryKey: ["mo-resumo", verDevModeloId] });
-            qc.invalidateQueries({ queryKey: ["modelo-tecidos-consumo", verDevModeloId] });
-            qc.invalidateQueries({ queryKey: ["modelo", verDevModeloId] });
-            qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-            qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
-          }}
-        />
       )}
     </>
   );

@@ -60,12 +60,11 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
-  onVerDev?: () => void;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom,
-    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn, onVerDev } = props;
+    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn } = props;
 
   // F3.2 (decisão F3 #6): o "Custo total" é o MESMO número que o markup usa (custo-base). Real → leitura do real;
   // previsto → materiais do BOM (leitura); estimado → a ESTIMATIVA editável de sempre.
@@ -174,7 +173,7 @@ export function PrecoTabela(props: {
               <td className="py-2 px-2 text-right text-muted-foreground">—</td>
               <td className="py-2 px-2 text-right tabular-nums">{brl(materiaisBase)}</td>
               <td className="py-2 pl-2 text-xs text-muted-foreground">
-                {seloBadge} {onVerDev ? <button type="button" onClick={onVerDev} className="text-primary hover:underline">ver no Desenvolvimento ⧉</button> : "do BOM"}
+                {seloBadge} do BOM
               </td>
             </tr>
           ) : seloCusto === "previsto" ? (
