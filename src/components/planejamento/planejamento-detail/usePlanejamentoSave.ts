@@ -14,7 +14,6 @@ import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
-import { syncTecidosToDesenvolvimento } from "@/components/planejamento/planejamento-detail/sync-tecidos";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";

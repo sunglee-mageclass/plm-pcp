@@ -78,6 +78,7 @@ import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planeja
 import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
+import { BomSecoes } from "@/components/planejamento/planejamento-detail/ficha/secoes/BomSecoes";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
@@ -484,7 +485,7 @@ function PlanejamentoDetailConteudo({
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
-  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty;
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
@@ -618,6 +619,11 @@ function PlanejamentoDetailConteudo({
     // diffs nessa passada (`draftMudou=false`) — NÃO sobrescreve `conflitos`/`ultimoMerge` aqui
     // (senão apagaria em silêncio um conflito real ainda não resolvido pelo usuário; mesmo
     // guard `semResultado` do piloto).
+    // F3.2 — o rev mudou (save de outra pessoa, eco do meu, ou ação MINHA que mexe em `modelos` — Mover para…, Ordem,
+    // Lançar, aprovar MO): sem BOM tocado ⇒ recarrega o BOM (o baseline acompanha); com BOM tocado ⇒ a ficha CONFERE se
+    // o BOM do servidor mudou de verdade e só então acende "Tecidos & BOM" (R5 — o eco das próprias ações é ignorado).
+    // Vale mesmo se o draft escalar não mudou (Dev :838-843).
+    ficha.colab.aoMudarNoServidor();
     if (!draftMudou) return;
 
     setDraft(md.valor);
@@ -716,6 +722,9 @@ function PlanejamentoDetailConteudo({
   // conflito ganha "manter meu · usar o novo" — sem isso o guard do save deadlockaria em
   // campos sem UI de resolução inline.
   const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    // F3.2 — conflito de SEÇÃO do BOM: "manter meu" fecha o aviso (o próximo Salvar sobrescreve); "usar o novo"
+    // descarta as edições do BOM e recarrega do servidor (Dev :1819-1838).
+    if (path === "secao:bom") { ficha.colab.resolverConflitoBom(escolha === "meu"); return; }
     const c = conflitos.find((x) => x.path === path);
     if (c) resolverConflito(c, escolha === "dele");
   };
@@ -943,7 +952,7 @@ function PlanejamentoDetailConteudo({
           <ColabBanner
             presentes={presentes}
             ultimoMerge={ultimoMerge}
-            conflitos={conflitos}
+            conflitos={ficha.colab.conflitoBom ? [...conflitos, { path: "secao:bom", meu: "minhas edições não salvas", dele: "recarregar do servidor" }] : conflitos}
             onResolver={resolverPorPath}
             rotulo={rotuloConflitoPlan}
           />
@@ -1058,21 +1067,35 @@ function PlanejamentoDetailConteudo({
             </Secao>
           )}
 
-          {/* ↓ F3.2: as seções do BOM (Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade) entram AQUI,
-              entre "Ajustes na Prova" e "Preço" (ordem do mockup aprovado). */}
+          {/* F3.2 — seções vindas do Desenvolvimento: Tecidos/Forros/Entretelas · Aviamentos · Insumos · Grade (ordem
+              do mockup aprovado). SEMPRE visíveis (recolhidas) p/ quem vê o Desenvolvimento; editáveis p/ quem o
+              edita (decisão F3 #8); só produto interno (comprado = F3.4). Substituem o "Tecido Planejado". */}
+          {isEdit && modeloId && (
+            <BomSecoes
+              ficha={ficha}
+              modeloId={modeloId}
+              estoque={estoqueMap}
+              ordemEnviada={enviada}
+              proporcoes={draft.proporcoes ?? {}}
+              onAbrirDev={() => setVerDevModeloId(modeloId)}
+            />
+          )}
 
-          {/* F3.1 — "Tecido Planejado" SUBIU para cá (mockup aprovado): no Dialog "Novo Modelo" fica ANTES da Mão de
-              obra (gen_novo.py) e no Sheet no lugar da seção 5 "Tecidos" (gen_anotado.py), que a F3.2 troca pelo BOM. */}
-          {/* SETOR 4 — Tecido Planejado (oculto p/ comprado — revenda/importado não têm tecido) */}
-          {!isComprado && (
-          <Secao titulo="Tecido Planejado" defaultOpen={false}>
+          {/* F3.2 / G-mockup R3 — só no Dialog "Novo Modelo", ANTES da Mão de obra (gen_novo.py): o mesmo seletor do
+              antigo "Tecido Planejado" (preço/m + estoque) GRAVA o BOM como Tecido 1..N (só o artigo) logo após o
+              INSERT. No card existente os tecidos moram na seção "Tecidos / Forros / Entretelas" (BOM, logo acima) e a
+              lista `tecidos_planejados` é derivada. */}
+          {!isEdit && !isComprado && (
+          <Secao titulo="Tecidos" defaultOpen>
             <MultiArtigosField
               label=""
               value={draft.tecidos_planejados}
               onChange={(v) => setDraftTracked((d) => ({ ...d, tecidos_planejados: v }))}
               artigos={artigos}
               estoque={estoqueMap}
+              max={3}
             />
+            <p className="text-xs text-muted-foreground">Ao salvar, cada tecido vira Tecido 1, 2 e 3 do BOM (só o tecido — cores, consumo e grade você completa no card).</p>
           </Secao>
           )}
 

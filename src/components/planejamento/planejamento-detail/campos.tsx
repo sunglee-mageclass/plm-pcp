@@ -48,11 +48,14 @@ export function CampoRO({ label, value }: { label: string; value: string }) {
 export type EstoqueArtigo = { fisico_m: number; reservado_m: number; disponivel_m: number };
 const fmtMetros = (n: number) => `${fmtNum(n)} m`;
 
-export function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
+export function MultiArtigosField({ label, value, onChange, artigos, estoque, max }: {
   label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];
   estoque: Record<string, EstoqueArtigo>;
+  /** F3.2 — limite de itens (o BOM tem Tecido 1..3; o 4º nunca aparecia no Desenvolvimento). */
+  max?: number;
 }) {
   const available = artigos.filter((a) => !value.includes(a.id));
+  const podeAdicionar = max === undefined || value.length < max;
   const byId = Object.fromEntries(artigos.map((a) => [a.id, a]));
   return (
     <div className="grid gap-1">
@@ -85,7 +88,7 @@ export function MultiArtigosField({ label, value, onChange, artigos, estoque }: 
           );
         })}
       </div>
-      {available.length > 0 && (
+      {available.length > 0 && podeAdicionar && (
         <Select value="" onValueChange={(v) => v && onChange([...value, v])}>
           <SelectTrigger><SelectValue placeholder="Adicionar tecido…" /></SelectTrigger>
           <SelectContent>
