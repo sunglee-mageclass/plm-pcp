@@ -5,8 +5,9 @@
 **Plano de implementação:** `docs/superpowers/plans/2026-09-24-data-nota-entrada.md`.
 **Frente:** paralela e independente da campanha do Planejamento; worktree própria. **Produção:** depois da F1 e do Aviso Global.
 **Revisão:** G-plano (guardião) APROVOU `05561ae` COM RESSALVAS R1–R8, aplicadas nesta versão (§4.6, §7, §8, §10); R9 =
-ponto do coordenador (travas no arquivo e hook `supautils.policy_grants`, lição do Aviso Global — §4.6 e §7). D6 e D7 (§10)
-estão **pendentes do dono**; o plano implementa a recomendação.
+ponto do coordenador (travas no arquivo e hook `supautils.policy_grants`, lição do Aviso Global — §4.6 e §7). Reconferência
+de `57c01b6`: R1–R8 fechadas; **R9-a** (volta medida com OCs datadas; tempo próprio do inverso; ida conferida) aplicada em
+§4.6, §7 e §8. D6 e D7 (§10) estão **pendentes do dono**; o plano implementa a recomendação.
 
 ---
 
@@ -253,8 +254,9 @@ UMA migration: `supabase/migrations/20261002100000_oc_data_nota_entrada.sql` (`B
 idempotente, GERADA a partir do texto vivo das funções — nunca editada à mão).
 
 - **Travas no arquivo (R9):** logo depois do `BEGIN;`, `SET LOCAL lock_timeout = '500ms';` e `SET LOCAL transaction_timeout =
-  '3s';` — valem mesmo no `psql -f`, que é o caminho padrão do CLAUDE.md. O harness de teste exige as 2 linhas e as tira da
-  transação do teste (senão os 3 s derrubariam a suíte).
+  '3s';` (no inverso, o tempo próprio dele — R9-a, abaixo) — valem mesmo no `psql -f`, que é o caminho padrão do CLAUDE.md.
+  O harness de teste exige as 2 linhas (ida 3 s; inverso ≥ 30 s) e as tira da transação do teste (senão o relógio derrubaria
+  a suíte).
 - **Aplicação (R3):** fora do harness, SÓ pelo `aplica_v2` do runbook v2 da F1 (igual ao Aviso e à F3.1): arquivo inteiro numa
   mensagem, as mesmas 2 travas reinjetadas depois do `BEGIN;` (repetidas, inofensivas), nova tentativa só em 55P03/40P01/25P04
   com o ATIV antes; qualquer outro erro PARA. Nada de `psql -1 -f`. Horário calmo.
@@ -272,11 +274,33 @@ idempotente, GERADA a partir do texto vivo das funções — nunca editada à m�
   TODA função redefinida registrado (§4.7).
 - **Contagens:** +2 funções | +8 gatilhos. A cópia vai de 458 | 263 para **460 | 271** (sem a D7: 459 | 266).
 
+- **A ida não cresce com os dados (R9-a):** não tem DML fora de corpo de função (o gerador recusa se entrar); `ADD COLUMN`
+  sem `DEFAULT` só mexe no catálogo; o resto é guarda, `CREATE OR REPLACE`, gatilho e ACL. Os 3 s valem com qualquer volume
+  de OCs; o ensaio mede a ida duas vezes (sem e com as OCs recebidas datadas) e para se passar de 0,6 s (folga de 5×).
+
 Inverso: `supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql` — **DESTRUTIVO: apaga as datas digitadas**; exige
-`SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'` (pelo `EXTRA_SQL` do `aplica_v2`, na mesma transação); mesmas 2
-travas no arquivo e a mesma guarda de md5 exata (as funções têm de estar no texto desta migration ou já no de 24/set); derruba
-os gatilhos novos, recria o do Acabado como era, restaura as 10 funções com o texto de 24/set (md5 conferido no fim),
-**recalcula as não pagas das OCs que tinham data** (voltam à base antiga) e só então dropa as colunas.
+`SET LOCAL app.confirmo_apagar_data_nota_entrada = 'sim'` (pelo `EXTRA_SQL`, na mesma transação); a mesma guarda de md5 exata
+(as funções têm de estar no texto desta migration ou já no de 24/set). Ordem (R9-a): captura as OCs datadas → restaura as 10
+funções com o texto de 24/set → **recalcula as não pagas das OCs que tinham data** (voltam à base antiga) → derruba os
+gatilhos novos e recria o do Acabado como era → dropa as colunas → confere o md5 no fim. O laço vem ANTES das travas
+exclusivas: enquanto ele roda só há trava de LINHA (parcelas e a OC do Acabado); o AccessExclusive nas 5 OCs (DROP
+TRIGGER/DROP COLUMN) fica no fim, curto.
+
+- **Tempo do inverso (R9-a):** o laço recalcula as não pagas de CADA OC datada, então o tempo cresce com o nº de OCs datadas
+  em produção (o ensaio antigo voltava com 0 OC datada — nunca tinha sido medido). Por isso o inverso tem `lock_timeout =
+  '500ms'` (igual à ida) e `transaction_timeout` PRÓPRIO, maior: `gerar_sql.py --tt-inverso N`, padrão e mínimo 30 s; o
+  ensaio data as OCs recebidas da cópia (o conjunto do dia 1), mede a volta com esse volume e sobe o valor para ⌈5 × medido⌉
+  se passar de 30 s. Um `SET LOCAL transaction_timeout` maior DEPOIS de um menor não estende o relógio (provado na cópia pelo
+  guardião): o 1º SET da transação é o que vale. Por isso o inverso vai pelo `aplica_v2_inverso`, que injeta o tempo DO
+  ARQUIVO antes dele (o `com_travas` literal do runbook injetaria 3 s); a ida segue no `aplica_v2` literal.
+- **Por que um tempo maior é aceitável só no inverso:** a volta é EMERGÊNCIA, decidida pelo dono, em horário calmo. O que
+  protege os outros usuários é o `lock_timeout` curto, que continua 500 ms: o arquivo nunca fica na fila de uma trava
+  segurando quem chega depois (desiste em 0,5 s e tenta de novo). Com o laço antes das travas exclusivas, as telas de OC só
+  ficam paradas no trecho final, curto.
+- **Antes da confirmação em produção:** o `volta-producao.sh` mostra quantas OCs estão datadas (por família), estima o tempo
+  pela medição do ensaio e PARA se o `transaction_timeout` não cobrir o laço com folga de 5×. O dono então regenera o inverso
+  com `--tt-inverso` maior ou roda com `NOTA_TT_VOLTA=Ns` (vale só naquela volta). Só depois pede a confirmação digitada
+  ("APAGAR AS DATAS").
 
 ### 4.7 Diff mínimo esperado das 10 funções (antes → depois)
 
@@ -366,9 +390,15 @@ UPDATE direto também é recusado.
    (Estoque, Plan. Tecido, OCs e Financeiro ficam na fila). Não há DDL de policy, então o hook `supautils.policy_grants` NÃO
    trava auth/storage/realtime (login, renovação de token, URL assinada e Realtime não esperam). Mitigação: travas no arquivo
    (500 ms / 3 s), `aplica_v2` com nova tentativa e ATIV antes, tempo medido no ensaio, horário calmo.
-9. **Ruído no dia 1:** 48 OCs antigas acendem (D1); com a D6, as recebidas sem parcela a pagar também.
-10. **Vencimento editado à mão** numa parcela não paga é sobrescrito ao mudar a data (já é hoje a cada save — D4).
-11. **Data digitada errada** (ex.: ano trocado) move todos os vencimentos não pagos. Com a D7: futura ou anterior ao pedido é
+9. **Volta de emergência estoura o tempo (R9-a):** o laço do inverso cresce com as OCs datadas, e um `SET LOCAL` maior depois
+   dos 3 s não estende o relógio → 25P04 ×5 e o `aplica_v2` para. Mitigação: `transaction_timeout` próprio do inverso (≥ 30 s,
+   ⌈5 × medido⌉) aplicado pelo `aplica_v2_inverso`; laço antes das travas exclusivas; o ensaio mede a volta com as OCs
+   recebidas da cópia datadas; o `volta-producao.sh` mostra as OCs datadas e PARA sem folga de 5× antes da confirmação. A
+   medição no ensaio recalcula as parcelas não pagas dessas OCs na cópia (id novo, como em todo save); o conteúdo é comparado
+   antes × depois e as diferenças vão ao controlador.
+10. **Ruído no dia 1:** 48 OCs antigas acendem (D1); com a D6, as recebidas sem parcela a pagar também.
+11. **Vencimento editado à mão** numa parcela não paga é sobrescrito ao mudar a data (já é hoje a cada save — D4).
+12. **Data digitada errada** (ex.: ano trocado) move todos os vencimentos não pagos. Com a D7: futura ou anterior ao pedido é
     recusada no banco e no front; um erro dentro da faixa plausível segue possível — a prévia/Financeiro mostram na hora.
 
 ## 8. Verificação
@@ -382,7 +412,11 @@ UPDATE direto também é recusado.
 - Pré-voo da cópia (R4) antes de TODA rodada com DDL nela (`NOTA_MIG_TXN=1`, `copia.sh`): nenhum vitest/playwright rodando,
   nenhuma sessão ativa, dono avisado de que o `:5188` congela.
 - Ensaio na cópia pelo `aplica_v2` (R3): ida → conferências (5 colunas, +2 | +8, ACL #9, 12 md5) → os 7 arquivos de integração
-  antes/depois comparados por conjunto de falhas (R5) → volta com confirmação → cópia igual ao antes.
+  antes/depois comparados por conjunto de falhas (R5) → **datar as OCs recebidas da cópia e medir a ida de novo (R9-a)** →
+  **volta MEDIDA com essas OCs** pelo `aplica_v2_inverso`, com confirmação → cópia sem a Nota; medições em
+  `volta-medida.txt` (nº de OCs, tempo da ida sem/com datas, tempo da volta, s por OC, tempo mínimo do inverso) e as
+  parcelas comparadas antes × depois. Se o mínimo passar de 30 s, o inverso é regenerado com `--tt-inverso` e recommitado.
+  A integração cobre o inverso com Tecido E P. Acabado datados (o laço roda antes de derrubar os gatilhos).
 - Gates: `tsc --noEmit`, `npm run build`, unit (sem falha nova), anti-drift de UI, arquivos só da lista permitida.
 - QA na cópia: variante do app de teste na porta **5181** (já reservada pelo controlador na linha `case "$PORTA"` do
   `criar-variante.sh` — esta frente só CONFERE, nunca edita essa linha), guarda de rede invertida (qualquer `*.supabase.co`
