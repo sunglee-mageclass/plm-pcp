@@ -59,6 +59,25 @@ export function bomSujoNaCaptura(tocado: boolean, snap: string, base: string | n
   return tocado && (base === null || snap !== base);
 }
 
+/**
+ * Fix pós-rebase I1 (IMPORTANTE) — "CAD sujo" NÃO pode depender de `podeEditar`. A versão anterior
+ * (`cadGravavelRef.current && bomSujoNaCaptura(...)`) usava `cadGravavel = podeEditar && (cadExiste ||
+ * ordemEnviada)` como gate — e `podeEditar` inclui a trava ÚNICA (permissão/enviado). Cenário: o usuário
+ * mexe só em folhas/metragem/tamanho da folha (campos que não passam pro BOM); ANTES do Salvar, outra
+ * pessoa envia à Explosão ou a permissão cai — `podeEditar` vira `false` NO MEIO do caminho.
+ * `cadGravavelRef.current` (lido DEPOIS) também vira `false`, então `cadSujo` saía `false` mesmo com o CAD
+ * tocado e divergente do baseline: `sujoNaCaptura=false` (se o BOM também não sujou), `limparTocado` roda, a
+ * recarga traz o CAD do servidor e a edição some com "Modelo salvo" — sem aviso e sem chance de tentar de
+ * novo (a mesma classe do bug que `deveLimparTocadoAposSalvar` já cobre pro BOM).
+ * Fix: o gate correto é só D2 — "o CAD era ESPERADO" (`cadExiste || ordemEnviada`, o MESMO predicado de
+ * `deveGravarCad` acima, sem o `podeEditar` dele) — não "pode editar AGORA". Antes da Ordem sem CAD
+ * existente, não há CAD pra sujar (D2: o Planejamento nem cria a seção); com CAD esperado, o toque conta
+ * mesmo que a trava tenha chegado depois — é exatamente o caso que o usuário precisa ser avisado.
+ */
+export function cadSujoNaCaptura(cadEsperado: boolean, tocado: boolean, snap: string, base: string | null): boolean {
+  return cadEsperado && bomSujoNaCaptura(tocado, snap, base);
+}
+
 // ── Decisão da carga (F3.2, fix round 1 — I1/I2) ─────────────────────────────────────────────
 /**
  * "Hidrata agora?" — extraída de `useFichaBom` (o efeito único de carga) p/ ser testável sem

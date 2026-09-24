@@ -20,7 +20,7 @@ import { useFichaBom } from "./useFichaBom";
 import { useFichaGuarda } from "./useFichaGuarda";
 import { contadorVoo, deveLimparTocadoAposSalvar } from "../save-ficha";
 import {
-  assinaturaBom, bomDivergeDaReferencia, bomSujoNaCaptura, estadoBomDoServidor,
+  assinaturaBom, bomDivergeDaReferencia, bomSujoNaCaptura, cadSujoNaCaptura, estadoBomDoServidor,
   paresComplementares, resumoBom, snapshotBom, tecido1VariantesInfo, tecidosPlanejadosDerivados, totaisBom,
   type AviamentoRowDb, type BomCapturado, type EstadoBom, type EtiquetaRowDb, type GradeRowDb, type OcLinkRowDb,
   type TecidoRowDb, type VarianteRowDb,
@@ -323,12 +323,6 @@ export function useFichaTecnica(a: {
   // F3.3 — D2: antes da Ordem de Criação o Planejamento NÃO cria o CAD (FK `cad.modelo_id` NO ACTION: o card não se
   // excluiria mais). Sem CAD e sem Ordem, a seção CAD é só-leitura (o que se digitasse não seria gravado).
   const cadGravavel = podeEditar && (dados.cadExiste || a.ordemEnviada);
-  // Fix T9 I2 — mesmo padrão de `podeEditarRef`: `capturar()` roda fora do ciclo de render (inclusive no
-  // retry do P0409) e precisa do `cadGravavel` de AGORA pra decidir se o CAD sujo (`cadSujo`, lido das refs —
-  // `cad.linhasRef`/`guardaCad.baselineRef`, não do `guardaCad.dirty` de STATE) conta como "devia ter gravado"
-  // (D2, antes da Ordem sem CAD, NÃO conta).
-  const cadGravavelRef = useRef(false);
-  cadGravavelRef.current = cadGravavel;
   const cadHandlers = cadGravavel ? { updateTec: cad.updateTec, updateVar: cad.updateVar, setAutoFolhas: cad.setAutoFolhas } : CAD_NOOP;
   // Espelho SÍNCRONO do que a captura do CAD precisa (mesma razão do `podeEditarRef`: o retry do P0409 roda fora do
   // ciclo de render).
@@ -564,12 +558,15 @@ export function useFichaTecnica(a: {
       const gravar = podeEditarRef.current && (bomSujo || bom.prefillPendenteRef.current);
       // Fix T9 I2 da F3.3 (rebase F3.3→3adfbd3: UM campo só, `sujoNaCaptura` = BOM sujo OU CAD sujo) — o CAD usa o
       // MESMO helper puro da F3.2 (`bomSujoNaCaptura(tocado, snap, base)` — a fórmula é genérica), lido DIRETO das refs
-      // (`cad.linhasRef`/`guardaCad.baselineRef`), não de `guardaCad.dirty` (STATE, só atualiza no próximo render). O
-      // CAD só conta quando é gravável/esperado (`cadGravavelRef.current` — D2, antes da Ordem sem CAD, não conta);
-      // `cadGravavelRef` (não o closure): `capturar()` também roda no retry do P0409, fora do ciclo de render.
+      // (`cad.linhasRef`/`guardaCad.baselineRef`), não de `guardaCad.dirty` (STATE, só atualiza no próximo render).
+      // Fix pós-rebase I1 — o gate NÃO é mais `cadGravavelRef.current` (que inclui `podeEditar`: a trava chegando
+      // ENTRE a edição e o Salvar apagava a edição em silêncio). O CAD só conta como "esperado" por D2
+      // (`cadCapturaRef.current.existe || .ordemEnviada` — o CAD era pra existir, com ou sem permissão de gravá-lo
+      // AGORA); ver `cadSujoNaCaptura` em ficha-calc.ts.
       const baseCad = guardaCad.baselineRef.current;
       const snapCad = snapshotCad(cad.linhasRef.current);
-      const cadSujo = cadGravavelRef.current && bomSujoNaCaptura(bom.colecoesTouchadasRef.current, snapCad, baseCad);
+      const cadEsperadoNaCaptura = cadCapturaRef.current.existe || cadCapturaRef.current.ordemEnviada;
+      const cadSujo = cadSujoNaCaptura(cadEsperadoNaCaptura, bom.colecoesTouchadasRef.current, snapCad, baseCad);
       return {
         estado: e,
         snapshot: snap,

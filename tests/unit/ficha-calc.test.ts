@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeEmptyBlocks, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import {
-  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, bomSujoNaCaptura, deveHidratarCarga, estadoBomDoServidor,
+  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, bomSujoNaCaptura, cadSujoNaCaptura, deveHidratarCarga, estadoBomDoServidor,
   herdarGrades, hidratarBlocos, hidratarGrades,
   montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
   relevantArtigoIds, resumoBom, roundNumeric, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
@@ -640,5 +640,23 @@ describe("bomSujoNaCaptura — tocado E (sem baseline OU snapshot difere do base
   });
   it("não tocado ⇒ false, mesmo com snap !== base", () => {
     expect(bomSujoNaCaptura(false, "y", "x")).toBe(false);
+  });
+});
+
+// Fix pós-rebase I1 — "CAD sujo" não pode depender de `podeEditar` (a trava chegando ENTRE a edição e o
+// Salvar não pode apagar em silêncio uma edição feita só em folhas/metragem/tamanho da folha). O gate é
+// só D2 ("o CAD era esperado" — existe OU a Ordem foi enviada), não "pode editar agora".
+describe("cadSujoNaCaptura — CAD esperado (D2) E sujo em relação ao baseline, sem depender de podeEditar", () => {
+  it("CAD sujo com ficha travada (cadEsperado=true, ex.: trava chegou depois do toque) ⇒ true", () => {
+    expect(cadSujoNaCaptura(true, true, "y", "x")).toBe(true);
+  });
+  it("CAD antes da Ordem, sem CAD existente (D2: cadEsperado=false) ⇒ false, mesmo tocado e divergente", () => {
+    expect(cadSujoNaCaptura(false, true, "y", "x")).toBe(false);
+  });
+  it("CAD igual ao baseline (snap === base) ⇒ false", () => {
+    expect(cadSujoNaCaptura(true, true, "x", "x")).toBe(false);
+  });
+  it("não tocado ⇒ false, mesmo esperado e divergente", () => {
+    expect(cadSujoNaCaptura(true, false, "y", "x")).toBe(false);
   });
 });

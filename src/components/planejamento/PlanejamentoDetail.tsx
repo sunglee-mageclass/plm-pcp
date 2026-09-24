@@ -569,7 +569,7 @@ function PlanejamentoDetailConteudo({
   const [lancado, setLancado] = useState(false);
 
   // CAD + status do CQ do modelo — habilita a Data de Lançamento / botão Lançar.
-  const { data: cqInfo } = useQuery({
+  const { data: cqInfo, isLoading: cqInfoCarregando } = useQuery({
     queryKey: ["plan-cq", modeloId],
     enabled: !!modeloId,
     queryFn: async () => {
@@ -835,11 +835,32 @@ function PlanejamentoDetailConteudo({
       const payload = send
         ? { ordem_criacao_enviada: true, ordem_criacao_enviada_at: new Date().toISOString(), status_planejamento: "planejado" }
         : { ordem_criacao_enviada: false, ordem_criacao_enviada_at: null };
-      const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
+      // Fix m1 (corrida no Cancelar Ordem) — o AlertDialog já re-checa `enviado_cad` no CLIQUE (acima), mas
+      // sobra a janela ENTRE esse re-check e este UPDATE (outra pessoa envia à Explosão bem no meio). Sem
+      // `.eq("enviado_cad", false)`, o UPDATE cancelaria a Ordem de um card que acabou de sair pro Desenvolvimento
+      // via Explosão — mesma classe de corrida que o P0409 cobre no Salvar, mas esta mutation não tem `rev`.
+      let query = supabase.from("modelos").update(payload).eq("id", modeloId);
+      if (!send) query = query.eq("enviado_cad", false);
+      const { data, error } = await query.select("id");
       if (error) throw error;
+      if (!send && (data ?? []).length === 0) {
+        // 0 linhas = o `.eq("enviado_cad", false)` não bateu: o card foi enviado à Explosão no meio do caminho.
+        // MESMO toast PT que o re-check do "Sim, cancelar" já usa (não duplicar mensagem).
+        throw new Error("ENVIADO_NO_MEIO");
+      }
     },
     onMutate: (send: boolean) => setEnviada(send),
-    onError: (e: any, send: boolean) => { setEnviada(!send); toast.error(mensagemErro(e, "Erro")); },
+    onError: (e: any, send: boolean) => {
+      setEnviada(!send);
+      // Fix m1 — 0 linhas afetadas pelo `.eq("enviado_cad", false)`: mesmo toast PT do re-check do "Sim,
+      // cancelar" + invalida o modelo (o card já está enviado; o card/menu precisam refletir isso).
+      if (e?.message === "ENVIADO_NO_MEIO") {
+        toast.error("Este card já foi enviado à Explosão — a Ordem de Criação não pode mais ser cancelada.");
+        qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro"));
+    },
     onSuccess: (_d, send: boolean) => {
       toast.success(send ? "Ordem de Criação enviada" : "Envio cancelado");
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
@@ -1701,20 +1722,27 @@ function PlanejamentoDetailConteudo({
             o CAD sobrevive ao cancelamento; sem CAD, mantém o texto de sempre.
             Fix pós-rebase (item 3) — "tem CAD?" não pode depender só da ficha: sem a ficha habilitada (sem `canView` do
             Dev) `ficha.dados.cadExiste` é sempre false. Fonte extra SEM query nova: `cqInfo` (["plan-cq", modeloId],
-            ~:562) já lê `cad.id` do modelo para o Lançar, com `enabled: !!modeloId` — independe da ficha. */}
+            ~:562) já lê `cad.id` do modelo para o Lançar, com `enabled: !!modeloId` — independe da ficha.
+            Fix m3 — enquanto `cqInfo` ainda não chegou (`cqInfoCarregando`), NÃO mostra a versão "sem CAD" do texto:
+            com CAD já existente mas a query ainda em voo, o texto errado prometia "pode enviar de novo depois" sem
+            avisar que o CAD sobrevive. Mostra um texto neutro ("Verificando o CAD…") e desabilita "Sim, cancelar"
+            até carregar — a ação sensível espera ter certeza do que vai avisar. */}
         <AlertDialog open={confirmCancelarOrdem} onOpenChange={setConfirmCancelarOrdem}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Cancelar a Ordem de Criação?</AlertDialogTitle>
               <AlertDialogDescription>
-                {ficha.dados.cadExiste || !!(cqInfo as { id?: string } | null | undefined)?.id
-                  ? 'Este card já tem CAD: ao cancelar a Ordem, o CAD continua existindo e o card não poderá ser excluído. Ele sai do kanban do Desenvolvimento e poderá ser enviado de novo.'
-                  : 'O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.'}
+                {cqInfoCarregando
+                  ? "Verificando o CAD…"
+                  : ficha.dados.cadExiste || !!(cqInfo as { id?: string } | null | undefined)?.id
+                    ? 'Este card já tem CAD: ao cancelar a Ordem, o CAD continua existindo e o card não poderá ser excluído. Ele sai do kanban do Desenvolvimento e poderá ser enviado de novo.'
+                    : 'O card volta para o Planejamento e sai do Desenvolvimento. Você pode enviar a Ordem de Criação de novo depois.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Voltar</AlertDialogCancel>
               <AlertDialogAction
+                disabled={cqInfoCarregando}
                 onClick={() => {
                   setConfirmCancelarOrdem(false);
                   // Fix pós-rebase (item 2) — re-checa o envio à Explosão no CLIQUE (mesma ideia do "Sim, enviar", Fix T9
