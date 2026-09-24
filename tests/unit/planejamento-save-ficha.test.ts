@@ -330,10 +330,13 @@ describe("deveLimparTocadoAposSalvar — fix pós-T9 (edições perdidas em sil�
 
 // Fix T9 I2 (IMPORTANTE) — `tocado` deixou de ser a ref crua de toque (`colecoesTouchadasRef.current`, que
 // fica `true` mesmo depois de "tocar e desfazer" — o snapshot volta a bater com o baseline, mas a ref de
-// toque não reseta) e passou a ser `sujoNaCaptura` = `guarda.dirty || (cadGravavel && guardaCad.dirty)`,
-// CONGELADO no início do Salvar (useFichaTecnica.ts, `capturar()`). Os 4 casos abaixo usam o `tocado` desta
-// função pura já como esse valor SEMÂNTICO (não a ref crua) — é o chamador (useFichaTecnica.ts `aposSalvar`)
-// que muda de fonte; a função em si não precisa mudar, só o que ela recebe.
+// toque não reseta) e passou a ser `sujoNaCaptura` = "tocado E snapshot ≠ baseline" pro BOM OU pro CAD (CAD só
+// quando gravável/esperado — `cadGravavel`, D2 não conta), CONGELADO no início do Salvar (useFichaTecnica.ts,
+// `capturar()`), na MESMA forma que `gravar` (BOM) já usa: `tocado && (base === null || snap !== base)` — lida
+// DIRETO das refs (`estadoRef`/`baselineRef`), não de `guarda.dirty`/`guardaCad.dirty` (valores de STATE que só
+// atualizam no PRÓXIMO render — ver os 2 casos extra abaixo, achados na revisão da F3.2). Os 4 casos (a)-(d)
+// abaixo usam o `tocado` desta função pura já como esse valor SEMÂNTICO — é o chamador que muda de fonte; a
+// função em si não precisa mudar, só o que ela recebe.
 describe("deveLimparTocadoAposSalvar — I2: tocado = sujoNaCaptura (não a ref crua de toque)", () => {
   it("(a) tocar e desfazer antes da Ordem: snapshot volta a bater com o baseline ⇒ sujoNaCaptura=false ⇒ sem aviso, tocado limpa", () => {
     expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
@@ -346,5 +349,26 @@ describe("deveLimparTocadoAposSalvar — I2: tocado = sujoNaCaptura (não a ref 
   });
   it("(d) sem toque: sujoNaCaptura=false ⇒ nada a fazer, sem aviso", () => {
     expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false, cadGravou: false })).toBe(true);
+  });
+  // Achados da revisão da F3.2 (mesma classe do I2, 2 gatilhos extras em useFichaBom.ts): `marcarTocado()`
+  // roda incondicional, mas o `setGrades(...)` que segue é um no-op quando a grade está zerada — o snapshot
+  // do BOM não muda de fato. Com `sujoNaCaptura` calculado ao vivo (`tocado && (base === null || snap !==
+  // base)`, não `guarda.dirty` de STATE), o snapshot igual ao baseline já resolve `sujoNaCaptura=false` — os
+  // 2 testes abaixo fixam essa fórmula isoladamente (a função pura em si já cobre o restante via (a)/(d)).
+  it("só proporção com grade zerada (updateProporcao, oldSum=0 ou grade_total<=0): snapshot não muda ⇒ sujoNaCaptura=false ⇒ sem aviso", () => {
+    const tocado = true; // marcarTocado() rodou
+    const base = '{"blocks":[]}';
+    const snap = '{"blocks":[]}'; // setGrades((gs) => gs.map(...)) foi no-op — grade_total<=0 em toda linha
+    const sujoNaCaptura = tocado && (base === null || snap !== base);
+    expect(sujoNaCaptura).toBe(false);
+    expect(deveLimparTocadoAposSalvar({ tocado: sujoNaCaptura, bomGravou: false, cadGravou: false })).toBe(true);
+  });
+  it("toggle grade auto sem mudança (toggleGradeAuto, sum>0 mas todo grade_total<=0): snapshot não muda ⇒ sujoNaCaptura=false ⇒ sem aviso", () => {
+    const tocado = true; // marcarTocado() rodou (sum > 0 passou do early-return)
+    const base = '{"grades":[{"variante_numero":1,"grade_total":0}]}';
+    const snap = '{"grades":[{"variante_numero":1,"grade_total":0}]}'; // total<=0 ⇒ .map devolveu a MESMA linha
+    const sujoNaCaptura = tocado && (base === null || snap !== base);
+    expect(sujoNaCaptura).toBe(false);
+    expect(deveLimparTocadoAposSalvar({ tocado: sujoNaCaptura, bomGravou: false, cadGravou: false })).toBe(true);
   });
 });
