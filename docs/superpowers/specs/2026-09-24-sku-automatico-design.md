@@ -23,7 +23,8 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 | Q1 | SKU gravado ou calculado na hora? | **Gerado automaticamente, mas editável.** Fica gravado. |
 | Q2 | Depois de gerado, acompanha mudanças de sigla, formato ou tamanho? | **Fica fixo.** Só muda pelo botão **"Regerar SKUs"**. O SKU **editado à mão nunca é sobrescrito**, nem pelo Regerar. |
 | Q3 | "Tamanho em: Letra \| Número" | **Um OU outro por card.** O card novo nasce com o **padrão da loja**, definido na Config. |
-| Q4 | Falta sigla (cor, apelido ou tamanho) | **Não gera o SKU daquela linha.** Mostra **"Falta sigla: \<atributo\> \<nome\>"** com link para o cadastro; depois de cadastrar, usa-se "Regerar". |
+| Q4 | Falta sigla (cor base ou tamanho) | **Não gera o SKU daquela linha.** Mostra **"Falta sigla: \<atributo\> \<nome\>"** com link para o cadastro; depois de cadastrar, usa-se "Regerar". *Cor apelido: ver D4 (24/set) — não bloqueia.* |
+| D4 (24/set) | Apelido ausente ou sem sigla | Dono: *"dizer que falta sigla na cor apelido, mas utilizar a cor base caso apelido não tenha sido cadastrado ou usado"*. **Gera com a cor base:** com a parte cor base no Formato, a parte apelido some (com o separador); com só a parte apelido, vai a sigla da cor base. Apelido que existe sem sigla ⇒ **aviso** "Falta sigla na cor apelido: \<nome\>" (não bloqueia); cadastrada a sigla, o "Regerar" atualiza o automático; o manual nunca muda. Apelidos diferentes sem sigla na mesma cor base dão o mesmo SKU ⇒ a 2ª linha fica em conflito até cadastrar a sigla ou editar à mão. |
 | — | Encaixe na campanha | Fase própria **F3.5**. A **F3.5a** (banco + cadastros + Config) roda em paralelo. A **F3.5b** (card do Planejamento + "Tamanho em" nos quatro cards) vem depois da F3.4, porque mexe nos mesmos arquivos. |
 
 ## 3. Estado atual (levantado em 24/set, na cópia local e no código)
@@ -79,7 +80,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - para cada **variante do produto** × **tamanho da grade com quantidade > 0**, monta o SKU pelas `partes`/`separadores`;
   - usa a REF (`modelos.ref`), as siglas de cor base/apelido da variante e a sigla do lado do tamanho escolhido pelo `tamanho_tipo`;
   - sem REF → não gera nada e devolve "aguardando REF";
-  - falta sigla → não gera aquela linha e devolve `faltas[] = {atributo, id, nome}`;
+  - falta sigla de cor base ou de tamanho → não gera aquela linha e devolve `faltas[] = {atributo, id, nome}` (bloqueiam); apelido ausente ou sem sigla → gera com a cor base e, se o apelido existe sem sigla, devolve `avisos[]` (não bloqueiam — D4);
   - linha `manual=true` → **nunca** é tocada;
   - `_regerar=false` → só cria as linhas que faltam;
   - `_regerar=true` → recalcula as automáticas;
@@ -102,7 +103,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - Salva só `sku_config`, sem upsert da linha inteira (lição RP3 da F2).
 - **Planejamento — seção "REF e SKUs" (F3.5b):**
   - REF, "Tamanho em" (Letra | Número) e uma tabela Variante × Tamanho: SKU editável, marcador "manual", linhas "Falta sigla: …" com link e "Regerar SKUs" (AlertDialog: "SKUs editados à mão não mudam").
-  - Selo da seção (completo / falta sigla / aguardando REF).
+  - Selo da seção (completo / falta sigla / aviso — só apelido sem sigla, SKU gerado com a cor base / aguardando REF).
 - **"Tamanho em" nos cards (F3.5b):** Plan. Tecido, Produto Acabado e Importado (checkbox/segmentado Letra | Número). A grade exibida em todos segue a escolha; a chave interna segue "34|PPP".
 
 ### 4.4 Permissões

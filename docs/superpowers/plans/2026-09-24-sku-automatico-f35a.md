@@ -38,7 +38,7 @@
 
 **UI** — `docs/design/ui-padroes.md` §Q (primitivos Button/Input/Select/AlertDialog; sem hex/oklch/hsl solto, sem `.toFixed(`; o anti-drift de UI está ATIVO); textos PT-BR; erros por `mensagemErro(e, "…")`; tema claro de fábrica; ação sensível com AlertDialog; `useUnsavedGuard` + `UnsavedIndicator` em todo bloco com "Salvar".
 
-**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). As decisões D1–D7 (§2; a D5, a D6 e a D7 vêm das ressalvas R2/R4/R1-a do G-plano e estão **pendentes do dono**) precisam de resposta ANTES da Task 1 (a D6 já está implementada no TS da Task 1 — resposta diferente dela = avisar o controlador ANTES de mexer no que a Task 1 exporta); o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
+**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). Decisões do §2: **D4 (MUDOU), D5 = A e D7 = A decididas pelo dono em 24/set**; D1, D2, D3 e D6 seguem **(pendente do dono)** com a recomendação implementada (a D6 já está no TS da Task 1 — resposta diferente dela = avisar o controlador ANTES de mexer no que a Task 1 exporta). ⚠️ **A Task 1 JÁ foi implementada (`155d814`) com a D4 antiga: precisa da RODADA DE AJUSTE da Task 1 Step 6 (delta `git apply`) antes da Task 2;** o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
 
 ---
 
@@ -46,10 +46,12 @@
 
 G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` ~1641–1763): **APROVA COM RESSALVAS**. Prazos do guardião: R4 antes da T1; R1, R2 e R3 antes da T2 (com re-check dele no trecho corrigido); R5 antes da T2 Step 4; R6 antes da T6; R7 antes da T12; R8 na T12 Step 4; R9 antes da T13 Step 4; R10 antes da T13 Step 6. Rulings do controlador (~19h): R2 e R4 = recomendação implementada e marcada "(pendente do dono)"; R8/R9 = cada frente regrava a referência da volta da F1 pelos OBJETOS, com números MEDIDOS. Reconferência do `1bce7ba`: R3–R10, supautils e as 3 sugestões FECHADAS; R2-a e R1-a antes da T2, R-PARE antes da T4 (linhas abaixo).
 
+> ⚠️ **Decisões do dono 24/set (depois do G-plano):** D5 = A e D7 = A (as recomendações, sem mudança de código); **D4 MUDOU** — apelido sem sigla (ou variante sem apelido) usa a COR BASE e o apelido sem sigla vira AVISO (não bloqueia). **A Task 1 já implementada (`155d814`, 103 testes) precisa de UMA RODADA DE AJUSTE: Task 1 Step 6** (delta: `src/lib/sku-montar.ts` — `resolverSku` devolve `avisos[]` + `textoAviso`; `tests/fixtures/sku-casos.ts` — `CasoResolver.esperado.avisos`, 3 casos mudados + 7 novos; `tests/unit/sku-montar.test.ts` — `textoAviso`; 111 testes). O SQL (`_sku_resolver` na Task 3; `_skus_modelo_calc`/`_skus_modelo_core` na Task 5) e a suíte de integração (Task 2: 35 testes) já estão com a D4 nova. D1, D2, D3 e D6: pendentes do dono.
+
 | # | Ressalva | Onde entrou |
 |---|---|---|
 | R1 | `variante_key` do comprado não é estável (o Salvar do produto apaga e regrava as variantes) | `_sku_variante_key(cor, apelido)` (Task 3, parte A) usada nos 3 casos por `_skus_modelo_calc` (Task 5): a chave é a COR; variantes com a mesma cor viram 1 linha. §1 F9/F10, §3 T2, §4.1. Testes (Task 2): "R1 revenda" (salva o PRODUTO pelo `salvar_produto_acabado` REAL — ids novos — e confere as linhas `ok`/`manual`, regerar remove 0) e "R1 interno" (`salvar_modelo_bom` REAL trocando o tecido por outro com as mesmas cores) |
-| R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 (pendente do dono)**, com a variante B. Gatilho `fn_modelo_skus_unico` (Task 4, REF viva — R2-a) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
+| R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 — decidido pelo dono 24/set: A (mesmo SKU)**; a variante B fica registrada. Gatilho `fn_modelo_skus_unico` (Task 4, REF viva — R2-a) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
 | R3 | Linha em conflito/falta não recebe SKU à mão | `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)`: `_id` NULL + a tripla cria a linha manual, validada contra `_skus_modelo_calc` (Task 5). §3 T8, §4.1, §10. Testes: "R3 …" e o caminho novo no teste de permissões |
 | R4 | Caracteres do SKU incoerentes | §2 **D6 (pendente do dono)**. SQL: `_sku_sem_acento`, `_sku_norm_sigla`, `_sku_norm_ref`, `_sku_norm_manual`, separador só `- . _ /` (Task 3). TS: `normalizarSigla`/`normalizarRefSku`/`normalizarSkuManual`/`ACENTOS_DE`/`SKU_SEP_CHARS` (Task 1). Fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` nos 2 lados; teste estático da lista de acentos; textos das Tasks 7–9 e o E1 do QA |
 | R5 | N3: o `:5188` congela | Global Constraints (N3) + `regras.md` §5 + `.superpowers/f35a/n3.sh` (Task 0 Step 4), chamado em T2 Step 4, T3 Step 3, T4 Step 2, T5 Step 2, dentro do `ensaio-local.sh` (T6) e do `copia-qa.sh ida\|volta` (T10, T13) e em T13 Step 2 |
@@ -60,7 +62,7 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 | R10 | Deploy sem portão | Task 13 Step 6: `portao_deploy_f35a && npm run deploy` — `src/` limpo (inclusive não rastreado), lista dos commits de front, PARE se fase sem banco pronto, a F3.5a só com `OBJ_F35A = 23\|6\|1\|7` em produção |
 | supautils | `CREATE/DROP POLICY` trava auth/storage | Global Constraints "Travas em tabelas EXISTENTES"; cabeçalhos da migration e do inverso (não afirmam mais "sem trava"); policies por último na parte B e `DROP TABLE` por último no inverso; `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos (+ teste estático; o harness da suíte as tira com `semTravas`); horário calmo; §7 R3/R14 (login/refresh até ~3 s) |
 | R2-a | `modelo_skus.ref` ficava velha quando a REF do card muda (reconferência `1bce7ba`) | **REF VIVA**: a coluna `ref` SAIU de `modelo_skus`; o gatilho `fn_modelo_skus_unico` (Task 4) e a leitura `_skus_modelo_core` (Task 5) comparam `_sku_norm_ref(modelos.ref)` dos dois cards na hora (join por PK). A leitura marca `conflito` também no SKU já GRAVADO (`conflito_salvo`) — a troca de REF aparece nos DOIS cards na hora. "Mesma REF" definida na D5. Teste "R2-a" (troca a REF da réplica ⇒ conflito nos 2 cards, Regerar não esconde, SKU à mão resolve) + a linha "REF viva" do teste de unicidade (Task 4) |
-| R1-a | Mesma cor + apelido 2× no card (5 pares em 3 cards da Loja Teste) | §2 **D7 (pendente do dono)** — recomendado MESMO SKU (1 linha, menor ordem, quantidades somadas); variante B descrita. Comentário em `_skus_modelo_calc`; teste "R1-a/D7" (1 linha por tamanho, `38\|P` só com quantidade na 2ª variante, SKU à mão pela tripla, Regerar 0\|0\|0) |
+| R1-a | Mesma cor + apelido 2× no card (5 pares em 3 cards da Loja Teste) | §2 **D7 — decidido pelo dono 24/set: A (mesmo SKU)** — 1 linha, menor ordem, quantidades somadas; variante B registrada. Comentário em `_skus_modelo_calc`; teste "R1-a/D7" (1 linha por tamanho, `38\|P` só com quantidade na 2ª variante, SKU à mão pela tripla, Regerar 0\|0\|0) |
 | R-PARE | O que fazer quando falha asserção de comportamento | T4 Step 2, T5 Step 2 (e T13 Step 2) + `regras.md` §7: PARE e reporte; NUNCA mudar a expectativa de teste que codifica decisão do dono |
 | NOTAs (reconf.) | Deadlock Regerar × SKU à mão; mensagem citando a réplica; 23505 da linha | `_salvar_sku_manual_core` pega `sku_modelo:<modelo>` ANTES de travar a linha — ordem única documentada (sku_modelo → linha → sku_unico) na parte B/C e no §3 T10; a busca da mensagem de conflito (geração e à mão) exclui a réplica permitida; sem outra pessoa no meio (a trava por modelo serializa), o 23505 da linha vira P0409 "gravada por outra pessoa" |
 | NOTAs | Sugestões do guardião | **adotadas as três:** 1 só `ALTER TABLE tenant_config` (2 colunas); CHECK `NOT VALID` em `modelos.tamanho_tipo` (e nos 2 produtos); `REVOKE ALL … FROM PUBLIC, anon, authenticated` + `GRANT SELECT` (tira o MAINTAIN do PG17) — parte B (Task 4), conferido no teste de ACL e no `ACL_F35A`. Também: `_sku_tamanhos_normaliza` × TS independentes da ordem das chaves (fixtures) |
@@ -93,20 +95,26 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 
 ## 2. Decisões para o dono (responder ANTES da Task 1)
 
-- **D1 — Grade única "UN" dos Acessórios (F4).** Recomendado (implementado): **"UN" sem sigla ⇒ o SKU sai SEM a parte do tamanho** (ex.: `REF00000001AM`); se a loja cadastrar "UN" na grade e der sigla, ela é usada. *Se a resposta for "exigir sigla":* `resolverSku`/`_sku_resolver` passam a devolver `falta {tamanho, UN}` também para "UN" (tirar `&& lado !== TAMANHO_UNICO` / `AND v_lado <> 'UN'`), a fixture 9 de `CASOS_RESOLVER` vira falta, o teste "importado" espera `faltas`, e o bloco "Siglas no SKU" da Grade mostra SEMPRE uma linha fixa "UN (Acessórios)".
-- **D2 — "Regerar SKUs" e linhas que saíram da grade.** Recomendado (implementado): **o Regerar APAGA os SKUs AUTOMÁTICOS de variante/tamanho que não estão mais na grade** (variante trocada/removida, tamanho zerado) ANTES de gerar — senão o SKU antigo barra o novo igual (ex.: trocar o tecido do Tecido 1 mantendo as cores); os editados à mão NUNCA saem (ficam como "órfã"); o "Gerar" sem Regerar não apaga nada. *Se "manter tudo":* tirar o bloco `IF _regerar THEN DELETE …` do `_gerar_skus_modelo_core` e o teste "regerar remove as AUTOMÁTICAS…" passa a esperar `removidos: 0` e a linha `orfa`.
-- **D3 — Onde fica o "Formato do SKU".** A spec diz "no card do Formato da REF, um bloco". Recomendado (implementado): **um card PRÓPRIO logo ABAIXO do "Formato da REF"**, com o seu botão "Salvar formato do SKU" — o card da REF grava pelo "Salvar" geral da página e misturar dois "Salvar" no mesmo card confunde; e assim `configuracoes.tsx` muda só 2 linhas (conflito mínimo com a F2). *Se "dentro do mesmo card":* o `FormatoRefCard` ganha a prop opcional `children` (renderizada ao fim do `CardContent`, com `border-t`) e a linha `<FormatoSkuCard />` vira filho do `<FormatoRefCard …>` (o `FormatoRefCard.tsx` entra no mapa §4 e o gate do `configuracoes.tsx` passa a `4|1`).
-- **D4 — Variante SEM apelido com "Cor apelido" no formato.** Recomendado (implementado): **a parte do apelido some, junto com o separador que a antecede** (ex.: `REF-AM/34`), igual ao exemplo da spec ("1 — Amarelo"); "Falta sigla" só quando o apelido EXISTE e não tem sigla. *Se "exigir apelido":* `resolverSku`/`_sku_resolver` devolvem `falta {cor_apelido, null, null}` ("Falta o apelido na variante") — pede refazer as fixtures 4, 13, 14 e os testes que usam a variante 1 (o planejador refaz o trecho).
-- **D5 — Réplica/versão do mesmo produto: MESMO SKU do original ou SKU próprio? (pendente do dono — R2 do G-plano)** Fato (F11): o Replicar do Plan. Tecido MANTÉM a REF por regra do dono, e as versões v1/v2 são feitas redigitando a REF. Recomendado (implementado): **mesmo SKU** — um SKU só pode repetir na loja entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor base + apelido + tamanho): a réplica gera exatamente o SKU do original (o ERP/e-commerce vê o mesmo produto). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, REF vazia) = conflito. Garantido pelo gatilho `fn_modelo_skus_unico` (lock consultivo por loja; 23505) no lugar da UNIQUE `(tenant_id, sku)` da spec (que não admite a exceção), com índice `(tenant_id, sku)` para a busca. **"Mesma REF" = a REF ATUAL (viva) dos dois cards em `modelos.ref`, normalizada como no SKU (`_sku_norm_ref`: sem acento, maiúsculas, só A–Z/0–9/`- . _ /` — `" sku-t1 "` = `SKU-T1`) e NÃO vazia, comparada no momento de cada gravação (gatilho) e de cada leitura da matriz** — não há cópia da REF no SKU (R2-a: uma cópia ficava velha quando a REF do card muda). Trocar a REF de um card não revalida sozinho os SKUs já gravados (não há gatilho em `modelos`: tabela quente, e travaria o Salvar do card), mas a matriz dos DOIS cards passa a mostrar `conflito` na hora e a próxima gravação daquela linha passa pelo gatilho com a REF viva; com o Formato COM a REF o Regerar do card resolve (o SKU muda junto); SEM a REF, resolve-se com o SKU à mão (R3) ou voltando a REF. *Por que REF viva e não "o Regerar atualiza a cópia":* a cópia continuaria velha em card que nunca é regerado e no SKU à mão, e o conflito só apareceria depois do Regerar do card que mudou; a REF viva não tem o que envelhecer e avisa nos dois cards na hora, pelo custo de 1 join por PK. Efeito colateral: dois produtos DIFERENTES com a mesma REF por engano (ex.: `ACBO0142`) também dividem o SKU nas linhas de mesma cor/tamanho — o snapshot da Task 13 lista as REFs repetidas para o dono corrigir antes de gerar. *Variante B ("SKU próprio da versão"):* tirar a exceção "mesma REF viva" (`AND NOT (_sku_norm_ref(m_novo.ref) <> '' AND …)`) do gatilho e o `AND NOT (…)` do `conflito_com` em `_skus_modelo_core` (= unicidade estrita por loja; pode voltar a ser `UNIQUE (tenant_id, sku)`); o teste "D5 réplica" passa a esperar 2 `conflitos`, a linha "réplica" da unicidade da Task 4 passa a esperar 23505 e o teste "R2-a" perde o sentido (sai); a versão recebe SKU à mão (R3) ou outra REF.
+- **D1 — Grade única "UN" dos Acessórios (F4). (pendente do dono)** Recomendado (implementado): **"UN" sem sigla ⇒ o SKU sai SEM a parte do tamanho** (ex.: `REF00000001AM`); se a loja cadastrar "UN" na grade e der sigla, ela é usada. *Se a resposta for "exigir sigla":* `resolverSku`/`_sku_resolver` passam a devolver `falta {tamanho, UN}` também para "UN" (tirar `&& lado !== TAMANHO_UNICO` / `AND v_lado <> 'UN'`), a fixture 9 de `CASOS_RESOLVER` vira falta, o teste "importado" espera `faltas`, e o bloco "Siglas no SKU" da Grade mostra SEMPRE uma linha fixa "UN (Acessórios)".
+- **D2 — "Regerar SKUs" e linhas que saíram da grade. (pendente do dono)** Recomendado (implementado): **o Regerar APAGA os SKUs AUTOMÁTICOS de variante/tamanho que não estão mais na grade** (variante trocada/removida, tamanho zerado) ANTES de gerar — senão o SKU antigo barra o novo igual (ex.: trocar o tecido do Tecido 1 mantendo as cores); os editados à mão NUNCA saem (ficam como "órfã"); o "Gerar" sem Regerar não apaga nada. *Se "manter tudo":* tirar o bloco `IF _regerar THEN DELETE …` do `_gerar_skus_modelo_core` e o teste "regerar remove as AUTOMÁTICAS…" passa a esperar `removidos: 0` e a linha `orfa`.
+- **D3 — Onde fica o "Formato do SKU". (pendente do dono)** A spec diz "no card do Formato da REF, um bloco". Recomendado (implementado): **um card PRÓPRIO logo ABAIXO do "Formato da REF"**, com o seu botão "Salvar formato do SKU" — o card da REF grava pelo "Salvar" geral da página e misturar dois "Salvar" no mesmo card confunde; e assim `configuracoes.tsx` muda só 2 linhas (conflito mínimo com a F2). *Se "dentro do mesmo card":* o `FormatoRefCard` ganha a prop opcional `children` (renderizada ao fim do `CardContent`, com `border-t`) e a linha `<FormatoSkuCard />` vira filho do `<FormatoRefCard …>` (o `FormatoRefCard.tsx` entra no mapa §4 e o gate do `configuracoes.tsx` passa a `4|1`).
+- **D4 — Cor apelido ausente ou sem sigla. (decidido pelo dono 24/set — MUDOU)** Palavras do dono: *"dizer que falta sigla na cor apelido, mas utilizar a cor base caso apelido não tenha sido cadastrado ou usado"*. Regra final (implementada):
+  - apelido COM sigla → entra no SKU (como antes);
+  - variante SEM apelido, OU apelido SEM sigla → o SKU é GERADO assim mesmo com a cor base: com a parte `cor_base` no Formato, a parte `cor_apelido` some junto com o separador dela (não repete a cor — ex.: `R1-AM/P`); com SÓ `cor_apelido` (sem `cor_base`), a SIGLA DA COR BASE vai nessa posição (ex.: `AM_R1-34`) — e então a cor base é exigida (sem ela: falta);
+  - apelido que EXISTE sem sigla (e o Formato usa `cor_apelido`) → além de gerar com a cor base, devolve um AVISO (não bloqueia) "Falta sigla na cor apelido: <nome>" com link para o cadastro; cadastrada a sigla, o "Regerar" atualiza o SKU AUTOMÁTICO (fica `divergente` até lá); o SKU manual nunca muda;
+  - Q4 continua para cor base e tamanho: sem a sigla deles a linha NÃO é gerada ("Falta sigla…");
+  - retorno separado: `faltas[]` (bloqueiam a linha) × `avisos[]` (não bloqueiam) — em `resolverSku`/`_sku_resolver`, em cada linha e no topo de `skus_modelo`/`gerar_skus_modelo`; a F3.5b mostra no selo "falta sigla" (há `faltas`) × "aviso" (só `avisos`) (§10).
+  - **Ciência (colisão):** apelidos DIFERENTES sem sigla na mesma cor base (ou um deles + a variante sem apelido) viram a MESMA string ⇒ o MESMO SKU. Comportamento: a 1ª linha na ordem das variantes grava; as outras caem em `conflito` "SKU … repetido neste produto" (não gravam) — resolve cadastrando a sigla do apelido (e "Regerar") ou editando o SKU à mão (R3). Teste "D4 (ciência)". (Mesma cor + MESMO apelido = 1 linha só — D7.)
+- **D5 — Réplica/versão do mesmo produto: MESMO SKU do original ou SKU próprio? (decidido pelo dono 24/set: A — mesmo SKU; R2 do G-plano)** Fato (F11): o Replicar do Plan. Tecido MANTÉM a REF por regra do dono, e as versões v1/v2 são feitas redigitando a REF. Decidido (implementado): **mesmo SKU** — um SKU só pode repetir na loja entre cards DIFERENTES com a MESMA REF (não vazia) e a MESMA linha (cor base + apelido + tamanho): a réplica gera exatamente o SKU do original (o ERP/e-commerce vê o mesmo produto). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, REF vazia) = conflito. Garantido pelo gatilho `fn_modelo_skus_unico` (lock consultivo por loja; 23505) no lugar da UNIQUE `(tenant_id, sku)` da spec (que não admite a exceção), com índice `(tenant_id, sku)` para a busca. **"Mesma REF" = a REF ATUAL (viva) dos dois cards em `modelos.ref`, normalizada como no SKU (`_sku_norm_ref`: sem acento, maiúsculas, só A–Z/0–9/`- . _ /` — `" sku-t1 "` = `SKU-T1`) e NÃO vazia, comparada no momento de cada gravação (gatilho) e de cada leitura da matriz** — não há cópia da REF no SKU (R2-a: uma cópia ficava velha quando a REF do card muda). Trocar a REF de um card não revalida sozinho os SKUs já gravados (não há gatilho em `modelos`: tabela quente, e travaria o Salvar do card), mas a matriz dos DOIS cards passa a mostrar `conflito` na hora e a próxima gravação daquela linha passa pelo gatilho com a REF viva; com o Formato COM a REF o Regerar do card resolve (o SKU muda junto); SEM a REF, resolve-se com o SKU à mão (R3) ou voltando a REF. *Por que REF viva e não "o Regerar atualiza a cópia":* a cópia continuaria velha em card que nunca é regerado e no SKU à mão, e o conflito só apareceria depois do Regerar do card que mudou; a REF viva não tem o que envelhecer e avisa nos dois cards na hora, pelo custo de 1 join por PK. Efeito colateral: dois produtos DIFERENTES com a mesma REF por engano (ex.: `ACBO0142`) também dividem o SKU nas linhas de mesma cor/tamanho — o snapshot da Task 13 lista as REFs repetidas para o dono corrigir antes de gerar. *Variante B ("SKU próprio da versão" — NÃO escolhida, fica registrada):* tirar o `AND NOT (…)` do gatilho e o `AND NOT (…)` do `conflito_com` em `_skus_modelo_core` (= unicidade estrita por loja; pode voltar a ser `UNIQUE (tenant_id, sku)`); o teste "D5 réplica" passa a esperar 2 `conflitos`, a linha "réplica" da unicidade da Task 4 passa a esperar 23505 e o teste "R2-a" perde o sentido (sai); a versão recebe SKU à mão (R3) ou outra REF.
 - **D6 — Caracteres do SKU (pendente do dono — R4 do G-plano).** Recomendado (implementado): **o SKU só tem A–Z, 0–9 e `- . _ /`, em MAIÚSCULAS, sem acento nem espaço**, normalizado no servidor: siglas (cor base, apelido, lado do tamanho) = sem acento, só letras e números (`Off White`→`OFFWHITE`, `açaí`→`ACAI`, `a-m`→`AM`); a REF dentro do SKU = sem acento, só A–Z/0–9/`- . _ /` (o resto sai); separador = só `- . _ /` (até 3; `#` ou espaço = erro PT); SKU à mão = tira espaço e acento, maiúsculas e RECUSA outro caractere ("SKU inválido: use só letras, números e - . _ /.") — `abc-1` e `ABC-1` não convivem. O acento sai por uma lista FIXA (`translate` no SQL = `ACENTOS_DE/PARA` no TS; teste estático), sem depender do locale do banco. *Se o dono quiser manter acento/espaço:* `_sku_norm_sigla` volta a `trim + upper`, `_sku_norm_ref`/`_sku_norm_manual` perdem o filtro, o separador volta a só "sem espaço", e as fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` são refeitas (o planejador refaz o trecho).
-- **D7 — Mesma cor + apelido 2× no MESMO card (ex.: Bege em 2 tecidos do Tecido 1): MESMO SKU ou um SKU por variante? (pendente do dono — R1-a do G-plano)** Fato (F9): 5 pares em 3 cards da Loja Teste. Recomendado (implementado): **mesmo SKU** — para o cliente "Blusa Bege M" é o mesmo produto, seja qual for a malha: as duas variantes viram UMA linha (a chave é a cor), vale a menor ordem, e um tamanho entra se a SOMA das quantidades das duas variantes for > 0 (só decide se a linha existe — nada é gravado nem devolvido; a grade NÃO muda, é só lida); o SKU à mão (R3) vale para essa linha única. *Variante B ("um SKU por variante"):* a chave passa a incluir o tecido (`_sku_variante_key(cor, apelido, variantes_tecido.artigo_id)` no interno; no comprado não há tecido — segue a cor) e cada variante tem linha própria; como o Formato não tem parte "tecido", as duas linhas dariam o MESMO SKU ⇒ a 2ª cai em "repetido neste produto" e recebe SKU à mão (R3) — ou o Formato ganha uma parte "tecido" (fora do escopo). Muda o SQL das Tasks 3/5 e o teste "R1-a/D7" (o TS da Task 1 não tem a chave — não muda).
-- **Ciência (sem decisão) — F11:** com a D5 recomendada, os pares v1/v2 de mesma REF dividem o SKU (é o pedido); o par `ACBO0142` (produtos diferentes) também dividiria — conferir com o dono e corrigir a REF antes da 1ª geração (lista no snapshot da Task 13).
+- **D7 — Mesma cor + apelido 2× no MESMO card (ex.: Bege em 2 tecidos do Tecido 1): MESMO SKU ou um SKU por variante? (decidido pelo dono 24/set: A — mesmo SKU; R1-a do G-plano)** Fato (F9): 5 pares em 3 cards da Loja Teste. Decidido (implementado): **mesmo SKU** — para o cliente "Blusa Bege M" é o mesmo produto, seja qual for a malha: as duas variantes viram UMA linha (a chave é a cor), vale a menor ordem e as quantidades por tamanho somam; o SKU à mão (R3) vale para essa linha única. *Variante B ("um SKU por variante" — NÃO escolhida, fica registrada):* a chave passa a incluir o tecido (`_sku_variante_key(cor, apelido, variantes_tecido.artigo_id)` no interno; no comprado não há tecido — segue a cor) e cada variante tem linha própria; como o Formato não tem parte "tecido", as duas linhas dariam o MESMO SKU ⇒ a 2ª cai em "repetido neste produto" e recebe SKU à mão (R3) — ou o Formato ganha uma parte "tecido" (fora do escopo). Muda o SQL das Tasks 3/5 e o teste "R1-a/D7" (o TS da Task 1 não tem a chave — não muda).
+- **Ciência (sem decisão) — F11:** com a D5 decidida, os pares v1/v2 de mesma REF dividem o SKU (é o pedido); o par `ACBO0142` (produtos diferentes) também dividiria — conferir com o dono e corrigir a REF antes da 1ª geração (lista no snapshot da Task 13).
 
 ## 3. Decisões técnicas (o plano decide; revisão Opus confere)
 
 - **T1 Normalização no servidor por GATILHO** (e não por RPC): Cadastro › Atributos grava `cores`/`cores_apelido` DIRETO pela API (insert/update do `AttributeTab`), e a Grade/Config gravam `tenant_config` direto; só um gatilho cobre todos os caminhos (importação, SQL, telas futuras). O de `tenant_config` é `BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku` — o upsert genérico da Config não manda essas colunas, então nem dispara. Regra única (D6): sem acento pela lista FIXA `_sku_sem_acento` (= `ACENTOS_DE/PARA` do TS), só A–Z/0–9, maiúsculas, vazia = NULL (`_sku_norm_sigla`); o Formato e o mapa de tamanhos são validados/canonizados com as MESMAS mensagens PT do espelho TS (RAISE P0001 → `mensagemErro` mostra a própria mensagem).
 - **T2 `variante_key`** = `_sku_variante_key(cor_id, cor_apelido_id)` (uuid por md5 da cor base + apelido) nos 3 casos (R1): o id da linha de variante NÃO é estável — o Salvar do produto apaga e regrava `produto_*_variantes` (F10), o `salvar_modelo_bom` regrava `modelo_tecido_variantes` e trocar o tecido do Tecido 1 mantendo as cores muda `variantes_tecido.id` (F9). A cor é o que identifica a variante comercial. Duas variantes com a MESMA cor + apelido viram UMA linha (vale a menor `ordem`; as quantidades por tamanho somam) — **D7, pendente do dono**.
-- **T3 Separadores** `{"<a>|<b>": sep}` só entre partes VIZINHAS da lista; o separador ANDA COM A PARTE SEGUINTE — parte ausente na linha some com o separador que a antecede. Até 3 caracteres, só `- . _ /` (D6 — o SKU inteiro fica em A–Z, 0–9 e `- . _ /`; ERP/e-commerce).
+- **T3 Separadores** `{"<a>|<b>": sep}` só entre partes VIZINHAS da lista; o separador ANDA COM A PARTE SEGUINTE — parte ausente na linha some com o separador que a antecede (é o que acontece com a parte `cor_apelido` quando o apelido não entra e o Formato tem `cor_base` — D4). Até 3 caracteres, só `- . _ /` (D6 — o SKU inteiro fica em A–Z, 0–9 e `- . _ /`; ERP/e-commerce).
 - **T4 `parseTamanho` por conteúdo:** "34|PPP" e "PPP|34" dão o mesmo (lado só-dígitos = número); dois números ou duas letras = posicional (esq = número); solto classificado; só o 1º "|" separa.
 - **T5 Sem o lado pedido** (solto ou "UN") usa o outro lado — um card "Tamanho em: Letra" com a grade `36, 38` sai com `36`/`38`.
 - **T6 3ª RPC `skus_modelo`** (leitura da matriz) + `_skus_modelo_calc`/`_skus_modelo_core` NESTA fase: a F3.5b precisa mostrar "Falta sigla", "conflito", "divergente" e o selo SEM gravar ao abrir o card; com a leitura pronta aqui, a F3.5b fica só front (sem migration) e sem reimplementar a regra no TS.
@@ -120,7 +128,8 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 - **T14 Harness** = `tests/integration/mig-txn.ts` da F3.1, cópia BYTE A BYTE (gate); `aplica_v2`/`espera`/`ativ_vazio`/`com_travas` = extraídos por awk do runbook v2 da F1 (hash conferido) — nada reescrito à mão.
 - **T15** `tamanho_padrao` ausente = `"letra"`; sem `sku_config` (ou sem partes) = a loja não gera SKU (`status: 'sem_formato'`).
 - **T16** `NOTIFY pgrst, 'reload schema'` dentro da txn (entregue no COMMIT; o `pgrst_ddl_watch` também recarrega).
-- **T17 Unicidade do SKU (D5) por GATILHO** `fn_modelo_skus_unico` (`BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku`): `pg_advisory_xact_lock` POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas); repete só entre cards diferentes com a MESMA REF VIVA não vazia (`_sku_norm_ref(modelos.ref)` dos dois, na hora — R2-a) e a MESMA linha; senão RAISE 23505 (o `EXCEPTION WHEN unique_violation` da geração e da edição captura igual). Não há `btree_gist` para um EXCLUDE, e UNIQUE parcial não expressa a exceção.
+- **T17 Unicidade do SKU (D5) por GATILHO** `fn_modelo_skus_unico` (`BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku, ref`): `pg_advisory_xact_lock` POR LOJA serializa as gravações de SKU (sem ele, duas transações passariam juntas); repete só entre cards diferentes com a MESMA REF VIVA não vazia (`_sku_norm_ref(modelos.ref)` dos dois, na hora — R2-a) e a MESMA linha; senão RAISE 23505 (o `EXCEPTION WHEN unique_violation` da geração e da edição captura igual). Não há `btree_gist` para um EXCLUDE, e UNIQUE parcial não expressa a exceção.
+- **T19 `faltas` × `avisos` (D4):** o resolvedor (TS e SQL) devolve `{ sku, faltas, avisos }`; `faltas` (cor base/tamanho sem sigla — Q4) deixam `sku = null`; `avisos` (apelido existente sem sigla, com `cor_apelido` no Formato) não mudam o `sku`. `_skus_modelo_calc` carrega os dois por linha; `_skus_modelo_core` põe `avisos` em cada linha e a união (DISTINCT) no topo, ao lado de `faltas`. O `estado` da linha não muda com aviso (a linha gerada é `ok`/`pendente`/…).
 - **T18 Travas no PRÓPRIO arquivo + ordem (supautils):** `SET LOCAL lock_timeout = '500ms'; SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;` na migration e no inverso (o `aplica_v2` injeta as mesmas — repetir é inofensivo; a suíte as tira com `semTravas`, senão os 3 s limitariam a txn inteira do teste); DDL que trava no fim; policies por último; 1 só `ALTER TABLE tenant_config`; CHECKs `NOT VALID` (as linhas existentes são todas NULL — nada a varrer sob AccessExclusive).
 
 ## 4. Mapa de arquivos
@@ -132,7 +141,7 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 | `tests/fixtures/sku-casos.ts` | criar — casos do anti-drift (TS e SQL) | 1 |
 | `tests/unit/sku-montar.test.ts` | criar | 1 |
 | `tests/integration/mig-txn.ts` | criar — CÓPIA byte a byte do da F3.1 | 2 |
-| `tests/integration/sku-automatico.test.ts` | criar — 33 testes (1 estático sem banco + 32 só na cópia) | 2 |
+| `tests/integration/sku-automatico.test.ts` | criar — 35 testes (1 estático sem banco + 34 só na cópia) | 2 |
 | `supabase/migrations/20261003100000_sku_automatico.sql` | criar (A) e completar (B, C) | 3, 4, 5 |
 | `supabase/rollback/20261003100000_sku_automatico_down.sql` | criar (inteiro) | 3 |
 | `src/components/attribute-tab.tsx` | modificar — `extraText` | 7 |
@@ -145,9 +154,9 @@ G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unific
 
 ### 4.1 Interfaces produzidas (a F3.5b consome)
 
-- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL, _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL, _tamanho_key text DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar; `_id` NULL + a tripla = cria a linha manual de uma linha ainda sem SKU — R3; devolve `{id, sku, manual, rev}`). `variante_key` = `_sku_variante_key(cor_id, cor_apelido_id)` — a COR (R1). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, conflito_com, estado }] }`, `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (`conflito` vale também para o SKU já GRAVADO que passou a dividir com um card que não é réplica — ex.: REF trocada; `conflito_com` diz com quem) (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
+- **RPCs:** `skus_modelo(_modelo_id uuid) → jsonb` (ler — `criacao_planejamento` ver) · `gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false) → jsonb` · `salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL, _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL, _tamanho_key text DEFAULT NULL) → jsonb` (editar — `criacao_planejamento` editar; `_id` NULL + a tripla = cria a linha manual de uma linha ainda sem SKU — R3; devolve `{id, sku, manual, rev}`). `variante_key` = `_sku_variante_key(cor_id, cor_apelido_id)` — a COR (R1). Resposta de `skus_modelo` (e de `gerar_…`, que acrescenta `criados`, `atualizados`, `removidos`, `conflitos[]`): `{ status: 'ok'|'sem_formato'|'aguardando_ref', tamanho_tipo, tamanho_tipo_card, faltas: [{atributo, id, nome}], avisos: [{atributo: 'cor_apelido', id, nome}], linhas: [{ variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, avisos, conflito_com, estado }] }` (`faltas` bloqueiam a linha; `avisos` não — D4), `estado ∈ ok · manual · falta · pendente · divergente · conflito · vazio · orfa` (`conflito` vale também para o SKU já GRAVADO que passou a dividir com um card que não é réplica — ex.: REF trocada; `conflito_com` diz com quem) (sem formato/REF: `salvo`/`manual`). `conflitos[]`: `{ variante_key, tamanho_key, sku, com_modelo_id, com_nome, com_ref, mensagem }`. Erros: 42501 (login/módulo/loja/permissão), P0001 (PT), P0409 (rev).
 - **Dados:** `modelos.tamanho_tipo` (`letra|numero|NULL`=padrão da loja) · `produtos_acabados.tamanho_tipo` / `produtos_importados.tamanho_tipo` (só ANTES do espelho — o gatilho passa ao modelo) · `tenant_config.sku_config` (canônico) · `tenant_config.tamanhos_sku` · `cores.sigla_sku` · `cores_apelido.sigla_sku` · `modelo_skus` (SELECT por loja; SKU repetido só entre réplicas — REF viva igual, D5; sem coluna de REF).
-- **TS:** `parseTamanho`, `ladoTamanho`, `TamanhoTipo` (`@/lib/tamanho`); `SkuConfig`, `SkuFalta`, `SkuParte`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, `SKU_SEP_CHARS`, `normalizarSkuConfig`, `normalizarSkuManual` (validar o SKU à mão antes de mandar — mesma mensagem do servidor), `normalizarRefSku`, `resolverSku`, `textoFalta`, `canonico` (`@/lib/sku-montar`); `AttributeTabConfig.extraText`; queryKeys `["tenant-config-sku", tenantId]`, `["tenant-config-tamanhos-sku", tenantId]`, `["tenant-sku-exemplo", tenantId]`.
+- **TS:** `parseTamanho`, `ladoTamanho`, `TamanhoTipo` (`@/lib/tamanho`); `SkuConfig`, `SkuFalta`, `SkuParte`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, `SKU_SEP_CHARS`, `normalizarSkuConfig`, `normalizarSkuManual` (validar o SKU à mão antes de mandar — mesma mensagem do servidor), `normalizarRefSku`, `resolverSku` (→ `{ sku, faltas, avisos }` — D4), `textoFalta`, `textoAviso` ("Falta sigla na cor apelido: <nome>"), `canonico` (`@/lib/sku-montar`); `AttributeTabConfig.extraText`; queryKeys `["tenant-config-sku", tenantId]`, `["tenant-config-tamanhos-sku", tenantId]`, `["tenant-sku-exemplo", tenantId]`.
 
 ### 4.2 Sobreposição com as frentes abertas e regra de rebase
 
@@ -532,7 +541,7 @@ export const CASOS_SKU_MANUAL: ({ entrada: string | null; esperado: string } | {
   { entrada: "açaí 34", esperado: "ACAI34" },
   { entrada: "a b/c.d_e", esperado: "AB/C.D_E" },
   { entrada: "x#1", erro: "SKU inválido: use só letras, números e - . _ /." },
-  { entrada: "\u00a0x", erro: "SKU inválido: use só letras, números e - . _ /." },
+  { entrada: " x", erro: "SKU inválido: use só letras, números e - . _ /." },
   { entrada: "   ", erro: "Informe o SKU." },
   { entrada: null, erro: "Informe o SKU." },
 ];
@@ -632,44 +641,64 @@ export type CasoResolver = {
     tipo: TamanhoTipo;
     tamanhosSku: Record<string, string> | null;
   };
-  esperado: { sku: string | null; faltas: SkuFalta[] };
+  esperado: { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] };
 };
 
 export const CASOS_RESOLVER: CasoResolver[] = [
   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "REF00000001AM34", faltas: [] } },
+    esperado: { sku: "REF00000001AM34", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "REF00000001AMPPP", faltas: [] } },
+    esperado: { sku: "REF00000001AMPPP", faltas: [], avisos: [] } },
   { entrada: { cfg: F_TODAS, ref: " R1 ", cor: AM, apelido: CAN, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1-AM.CAN/P", faltas: [] } },
+    esperado: { sku: "R1-AM.CAN/P", faltas: [], avisos: [] } },
   { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: null, tamanhoKey: "38|P", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1-AM/38", faltas: [] } },
+    esperado: { sku: "R1-AM/38", faltas: [], avisos: [] } },
+  // D4: apelido SEM sigla não bloqueia — vira aviso; aqui a linha para pela cor base e pelo tamanho (Q4)
   { entrada: { cfg: F_TODAS, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "40|M", tipo: "letra", tamanhosSku: TSKU },
     esperado: { sku: null, faltas: [
       { atributo: "cor_base", id: VD_SEM.id, nome: "Verde" },
-      { atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" },
       { atributo: "tamanho", id: null, nome: "M" },
-    ] } },
+    ], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: null, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }] } },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1AM36", faltas: [] } },
+    esperado: { sku: "R1AM36", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "PP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1AMPP", faltas: [] } },
+    esperado: { sku: "R1AMPP", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: "R1AM", faltas: [] } },
+    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: { UN: "U" } },
-    esperado: { sku: "R1AMU", faltas: [] } },
+    esperado: { sku: "R1AMU", faltas: [], avisos: [] } },
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
-    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }] } },
+    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }], avisos: [] } },
+  // o Formato não usa cor_apelido: apelido sem sigla não conta (nem falta, nem aviso)
   { entrada: { cfg: { partes: ["ref", "cor_base"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: MUS_SEM,
       tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
-    esperado: { sku: "R1AM", faltas: [] } },
+    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
+  // D4, Formato SEM cor_base: sem apelido ⇒ a sigla da cor base vai na posição do apelido — sem ela, falta (bloqueia)
   { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
-    esperado: { sku: "R1-34", faltas: [] } },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }], avisos: [] } },
   { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: null,
       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
-    esperado: { sku: null, faltas: [] } },
+    esperado: { sku: "AM", faltas: [], avisos: [] } },
+  // D4 (casos novos)
+  { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
+    esperado: { sku: "R1-AM/P", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "AM_R1-34", faltas: [], avisos: [] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "AM_R1-34", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: "CAN_R1-34", faltas: [], avisos: [] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }],
+      avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: null, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
+  // apelido COM sigla: a cor base não é exigida quando o Formato não tem cor_base
+  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: VD_SEM, apelido: CAN,
+      tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
+    esperado: { sku: "CAN", faltas: [], avisos: [] } },
 ];
 ```
 
@@ -680,7 +709,7 @@ import { describe, it, expect } from "vitest";
 import { aparar, ehNumeroTamanho, ladoTamanho, parseTamanho } from "@/lib/tamanho";
 import {
   ACENTOS_DE, ACENTOS_PARA, canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarRefSku, normalizarSigla,
-  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoFalta,
+  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
 } from "@/lib/sku-montar";
 import {
   CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
@@ -698,7 +727,7 @@ describe("tamanho.ts — parseTamanho / ladoTamanho (espelho _sku_tamanho_lados/
   }
   it("aparar só tira espaço/tab/CR/LF (igual ao btrim do SQL), não o espaço unicode", () => {
     expect(aparar(" \t a \r\n")).toBe("a");
-    expect(aparar("\u00a0a\u00a0")).toBe("\u00a0a\u00a0"); // NBSP fica (o btrim do SQL também não o tira)
+    expect(aparar(" a ")).toBe(" a "); // NBSP fica (o btrim do SQL também não o tira)
     expect(aparar(null)).toBe("");
   });
   it("ehNumeroTamanho: só dígitos ASCII", () => {
@@ -778,6 +807,9 @@ describe("sku-montar.ts — apoio às telas", () => {
     expect(textoFalta({ atributo: "cor_apelido", id: "y", nome: "Musgo" })).toBe("Falta sigla: Cor apelido Musgo");
     expect(textoFalta({ atributo: "tamanho", id: null, nome: "PPP" })).toBe("Falta sigla: Tamanho PPP");
     expect(textoFalta({ atributo: "cor_base", id: null, nome: null })).toBe("Falta a cor base na variante");
+  });
+  it("textoAviso (D4: apelido sem sigla não bloqueia)", () => {
+    expect(textoAviso({ atributo: "cor_apelido", id: "y", nome: "Musgo" })).toBe("Falta sigla na cor apelido: Musgo");
   });
   it("canonico ignora a ordem das chaves (o jsonb reordena)", () => {
     expect(canonico({ b: 1, a: { d: [2, { y: 1, x: 2 }], c: null } })).toBe(canonico({ a: { c: null, d: [2, { x: 2, y: 1 }] }, b: 1 }));
@@ -875,7 +907,7 @@ export function ladoTamanho(t: string | null | undefined, tipo: TamanhoTipo): st
 // Anti-drift: tests/fixtures/sku-casos.ts roda nos DOIS lados (tests/unit/sku-montar.test.ts e
 // tests/integration/sku-automatico.test.ts). Mudou a regra aqui? Mude o SQL (nova migration) e as fixtures.
 //
-// Regras (decisões do dono Q1–Q4, D1–D6 e plano F3.5a §3):
+// Regras (decisões do dono Q1–Q4, D1–D7 e plano F3.5a §3):
 //  - Caracteres do SKU (D6/R4 — pendente do dono): tudo MAIÚSCULO, sem acento (lista FIXA abaixo, igual ao
 //    `translate()` do SQL — independe do locale do banco), sem espaço. Sigla: só A–Z e 0–9 (o resto sai). REF no
 //    SKU: A–Z, 0–9 e - . _ / (o resto sai). SKU manual: A–Z, 0–9 e - . _ / (outro caractere = erro). Separador:
@@ -883,10 +915,14 @@ export function ladoTamanho(t: string | null | undefined, tipo: TamanhoTipo): st
 //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
 //    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). `tamanho_padrao` =
 //    "letra" (padrão) | "numero".
-//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (variante sem apelido — D4;
+//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (apelido que não entra — D4;
 //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
-//  - Falta sigla (Q4) ⇒ a linha NÃO gera SKU e devolve `faltas` na ordem cor_base → cor_apelido → tamanho.
-//    Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
+//  - Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra. Variante SEM apelido, ou apelido SEM
+//    sigla, usa a COR BASE: com a parte `cor_base` no Formato, a parte `cor_apelido` some (não repete a cor); com SÓ
+//    `cor_apelido` (sem `cor_base`), a sigla da cor base vai nessa posição. Apelido que EXISTE sem sigla (e o Formato
+//    usa `cor_apelido`) ⇒ `avisos` (NÃO bloqueia: o SKU sai com a cor base; cadastrada a sigla, o Regerar atualiza).
+//  - Falta sigla (Q4) de cor base (quando o SKU precisa dela) ou de tamanho ⇒ a linha NÃO gera SKU e devolve `faltas`
+//    (bloqueiam) na ordem cor_base → tamanho. Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
 import { aparar, ladoTamanho, parseTamanho, type TamanhoTipo } from "@/lib/tamanho";
 
 export type SkuParte = "ref" | "cor_base" | "cor_apelido" | "tamanho";
@@ -1027,7 +1063,8 @@ export function montarSku(cfg: SkuConfig, valores: Partial<Record<SkuParte, stri
   return out;
 }
 
-/** O SKU de UMA linha (variante × tamanho) — ou as faltas de sigla que impedem gerá-lo (Q4). */
+/** O SKU de UMA linha (variante × tamanho) — ou as `faltas` de sigla que impedem gerá-lo (Q4) — e os `avisos` (D4:
+ *  apelido sem sigla — o SKU sai com a cor base). */
 export function resolverSku(o: {
   cfg: SkuConfig;
   ref: string | null;
@@ -1036,19 +1073,27 @@ export function resolverSku(o: {
   tamanhoKey: string;
   tipo: TamanhoTipo;
   tamanhosSku: Record<string, string> | null;
-}): { sku: string | null; faltas: SkuFalta[] } {
+}): { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] } {
   const faltas: SkuFalta[] = [];
+  const avisos: SkuFalta[] = [];
   const usa = (p: SkuParte) => o.cfg.partes.includes(p);
   const valores: Partial<Record<SkuParte, string>> = {};
   if (usa("ref")) valores.ref = normalizarRefSku(o.ref);
-  if (usa("cor_base")) {
+  const siglaApelido = o.apelido?.sigla || null;
+  if (usa("cor_apelido") && o.apelido && !siglaApelido) {
+    avisos.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
+  }
+  // A cor base é exigida se o Formato tem `cor_base` — ou se tem `cor_apelido` e o apelido não entra (D4).
+  let siglaBase: string | null = null;
+  if (usa("cor_base") || (usa("cor_apelido") && !siglaApelido)) {
     if (!o.cor) faltas.push({ atributo: "cor_base", id: null, nome: null });
     else if (!o.cor.sigla) faltas.push({ atributo: "cor_base", id: o.cor.id, nome: o.cor.nome });
-    else valores.cor_base = o.cor.sigla;
+    else siglaBase = o.cor.sigla;
   }
-  if (usa("cor_apelido") && o.apelido) {
-    if (!o.apelido.sigla) faltas.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
-    else valores.cor_apelido = o.apelido.sigla;
+  if (usa("cor_base") && siglaBase) valores.cor_base = siglaBase;
+  if (usa("cor_apelido")) {
+    if (siglaApelido) valores.cor_apelido = siglaApelido;
+    else if (!usa("cor_base") && siglaBase) valores.cor_apelido = siglaBase; // só cor_apelido no Formato: a cor base no lugar
   }
   if (usa("tamanho")) {
     const lado = ladoTamanho(o.tamanhoKey, o.tipo);
@@ -1056,9 +1101,9 @@ export function resolverSku(o: {
     if (sig) valores.tamanho = sig;
     else if (lado && lado !== TAMANHO_UNICO) faltas.push({ atributo: "tamanho", id: null, nome: lado });
   }
-  if (faltas.length > 0) return { sku: null, faltas };
+  if (faltas.length > 0) return { sku: null, faltas, avisos };
   const sku = montarSku(o.cfg, valores);
-  return { sku: sku === "" ? null : sku, faltas };
+  return { sku: sku === "" ? null : sku, faltas, avisos };
 }
 
 // ─────────────────────────── apoio às telas (não têm espelho SQL) ───────────────────────────
@@ -1068,6 +1113,11 @@ export function textoFalta(f: SkuFalta): string {
   if (f.atributo === "cor_base" && f.nome === null) return "Falta a cor base na variante";
   const rotulo = f.atributo === "cor_base" ? "Cor base" : f.atributo === "cor_apelido" ? "Cor apelido" : "Tamanho";
   return `Falta sigla: ${rotulo} ${f.nome ?? ""}`.trimEnd();
+}
+
+/** "Falta sigla na cor apelido: Musgo" — o texto dos AVISOS (D4: não bloqueiam; o SKU sai com a cor base). */
+export function textoAviso(a: SkuFalta): string {
+  return `Falta sigla na cor apelido: ${a.nome ?? ""}`.trimEnd();
 }
 
 /** JSON com chaves ordenadas — compara o Formato/as siglas lidos do banco (jsonb reordena chaves). */
@@ -1121,7 +1171,232 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/lib
 git show --stat HEAD | tail -6
 ```
 
-Expected: `Tests  103 passed (103)` (planejador rodou num espelho em 24/set, depois das ressalvas: 103/103, tsc strict limpo); `GATES F3.5a: ok`; commit com os 4 arquivos.
+Expected: `Tests  111 passed (111)` (planejador rodou num espelho em 24/set, com a D4 decidida: 111/111, tsc strict limpo); `GATES F3.5a: ok`; commit com os 4 arquivos. (Os Steps 1–4 acima JÁ trazem a D4 nova — valem para quem ainda não fez a Task 1.)
+
+- [ ] **Step 6: RODADA DE AJUSTE D4 (decisão do dono 24/set) — a Task 1 JÁ foi implementada (`155d814`, 103 testes) com a D4 antiga**
+
+O delta (conferido pelo planejador: `git apply --check` limpo sobre os 3 arquivos do `155d814` e o resultado = os Steps 1–4 acima, byte a byte):
+- `src/lib/sku-montar.ts`: comentário das regras (D4); `resolverSku` passa a devolver `{ sku, faltas, avisos }` — apelido existente SEM sigla (com `cor_apelido` no Formato) vira `avisos` (não bloqueia); a cor base é exigida também quando o Formato só tem `cor_apelido` e o apelido não entra, e a sigla dela vai nessa posição; com `cor_base` no Formato, a parte `cor_apelido` some (com o separador); nova função `textoAviso`.
+- `tests/fixtures/sku-casos.ts`: `CasoResolver.esperado` ganha `avisos`; os 14 casos antigos ganham `avisos: []`, e mudam 3 — `F_TODAS`+Verde/Musgo (sai a falta do apelido, entra o aviso), `F_APELIDO_1O`+Verde sem apelido (vira falta de cor base) e `["cor_apelido"]`+Amarelo sem apelido (vira `AM`); 7 casos novos (apelido sem sigla com `cor_base`; `F_APELIDO_1O` sem apelido, com apelido sem sigla, com apelido com sigla, Verde+Musgo, sem cor; `["cor_apelido"]` com apelido com sigla e cor base sem sigla).
+- `tests/unit/sku-montar.test.ts`: import de `textoAviso` + 1 teste.
+
+Salvar o bloco abaixo em `.superpowers/f35a/t1-d4.diff` e aplicar na worktree:
+
+```diff
+--- a/src/lib/sku-montar.ts
++++ b/src/lib/sku-montar.ts
+@@ -11,7 +11,7 @@
+ // Anti-drift: tests/fixtures/sku-casos.ts roda nos DOIS lados (tests/unit/sku-montar.test.ts e
+ // tests/integration/sku-automatico.test.ts). Mudou a regra aqui? Mude o SQL (nova migration) e as fixtures.
+ //
+-// Regras (decisões do dono Q1–Q4, D1–D6 e plano F3.5a §3):
++// Regras (decisões do dono Q1–Q4, D1–D7 e plano F3.5a §3):
+ //  - Caracteres do SKU (D6/R4 — pendente do dono): tudo MAIÚSCULO, sem acento (lista FIXA abaixo, igual ao
+ //    `translate()` do SQL — independe do locale do banco), sem espaço. Sigla: só A–Z e 0–9 (o resto sai). REF no
+ //    SKU: A–Z, 0–9 e - . _ / (o resto sai). SKU manual: A–Z, 0–9 e - . _ / (outro caractere = erro). Separador:
+@@ -19,10 +19,14 @@
+ //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
+ //    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). `tamanho_padrao` =
+ //    "letra" (padrão) | "numero".
+-//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (variante sem apelido — D4;
++//  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (apelido que não entra — D4;
+ //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
+-//  - Falta sigla (Q4) ⇒ a linha NÃO gera SKU e devolve `faltas` na ordem cor_base → cor_apelido → tamanho.
+-//    Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
++//  - Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra. Variante SEM apelido, ou apelido SEM
++//    sigla, usa a COR BASE: com a parte `cor_base` no Formato, a parte `cor_apelido` some (não repete a cor); com SÓ
++//    `cor_apelido` (sem `cor_base`), a sigla da cor base vai nessa posição. Apelido que EXISTE sem sigla (e o Formato
++//    usa `cor_apelido`) ⇒ `avisos` (NÃO bloqueia: o SKU sai com a cor base; cadastrada a sigla, o Regerar atualiza).
++//  - Falta sigla (Q4) de cor base (quando o SKU precisa dela) ou de tamanho ⇒ a linha NÃO gera SKU e devolve `faltas`
++//    (bloqueiam) na ordem cor_base → tamanho. Variante sem cor base ⇒ falta { atributo: "cor_base", id: null, nome: null }.
+ import { aparar, ladoTamanho, parseTamanho, type TamanhoTipo } from "@/lib/tamanho";
+ 
+ export type SkuParte = "ref" | "cor_base" | "cor_apelido" | "tamanho";
+@@ -163,7 +167,8 @@
+   return out;
+ }
+ 
+-/** O SKU de UMA linha (variante × tamanho) — ou as faltas de sigla que impedem gerá-lo (Q4). */
++/** O SKU de UMA linha (variante × tamanho) — ou as `faltas` de sigla que impedem gerá-lo (Q4) — e os `avisos` (D4:
++ *  apelido sem sigla — o SKU sai com a cor base). */
+ export function resolverSku(o: {
+   cfg: SkuConfig;
+   ref: string | null;
+@@ -172,19 +177,27 @@
+   tamanhoKey: string;
+   tipo: TamanhoTipo;
+   tamanhosSku: Record<string, string> | null;
+-}): { sku: string | null; faltas: SkuFalta[] } {
++}): { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] } {
+   const faltas: SkuFalta[] = [];
++  const avisos: SkuFalta[] = [];
+   const usa = (p: SkuParte) => o.cfg.partes.includes(p);
+   const valores: Partial<Record<SkuParte, string>> = {};
+   if (usa("ref")) valores.ref = normalizarRefSku(o.ref);
+-  if (usa("cor_base")) {
++  const siglaApelido = o.apelido?.sigla || null;
++  if (usa("cor_apelido") && o.apelido && !siglaApelido) {
++    avisos.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
++  }
++  // A cor base é exigida se o Formato tem `cor_base` — ou se tem `cor_apelido` e o apelido não entra (D4).
++  let siglaBase: string | null = null;
++  if (usa("cor_base") || (usa("cor_apelido") && !siglaApelido)) {
+     if (!o.cor) faltas.push({ atributo: "cor_base", id: null, nome: null });
+     else if (!o.cor.sigla) faltas.push({ atributo: "cor_base", id: o.cor.id, nome: o.cor.nome });
+-    else valores.cor_base = o.cor.sigla;
++    else siglaBase = o.cor.sigla;
+   }
+-  if (usa("cor_apelido") && o.apelido) {
+-    if (!o.apelido.sigla) faltas.push({ atributo: "cor_apelido", id: o.apelido.id, nome: o.apelido.nome });
+-    else valores.cor_apelido = o.apelido.sigla;
++  if (usa("cor_base") && siglaBase) valores.cor_base = siglaBase;
++  if (usa("cor_apelido")) {
++    if (siglaApelido) valores.cor_apelido = siglaApelido;
++    else if (!usa("cor_base") && siglaBase) valores.cor_apelido = siglaBase; // só cor_apelido no Formato: a cor base no lugar
+   }
+   if (usa("tamanho")) {
+     const lado = ladoTamanho(o.tamanhoKey, o.tipo);
+@@ -192,9 +205,9 @@
+     if (sig) valores.tamanho = sig;
+     else if (lado && lado !== TAMANHO_UNICO) faltas.push({ atributo: "tamanho", id: null, nome: lado });
+   }
+-  if (faltas.length > 0) return { sku: null, faltas };
++  if (faltas.length > 0) return { sku: null, faltas, avisos };
+   const sku = montarSku(o.cfg, valores);
+-  return { sku: sku === "" ? null : sku, faltas };
++  return { sku: sku === "" ? null : sku, faltas, avisos };
+ }
+ 
+ // ─────────────────────────── apoio às telas (não têm espelho SQL) ───────────────────────────
+@@ -206,6 +219,11 @@
+   return `Falta sigla: ${rotulo} ${f.nome ?? ""}`.trimEnd();
+ }
+ 
++/** "Falta sigla na cor apelido: Musgo" — o texto dos AVISOS (D4: não bloqueiam; o SKU sai com a cor base). */
++export function textoAviso(a: SkuFalta): string {
++  return `Falta sigla na cor apelido: ${a.nome ?? ""}`.trimEnd();
++}
++
+ /** JSON com chaves ordenadas — compara o Formato/as siglas lidos do banco (jsonb reordena chaves). */
+ export function canonico(v: unknown): string {
+   const ordena = (x: unknown): unknown =>
+--- a/tests/fixtures/sku-casos.ts
++++ b/tests/fixtures/sku-casos.ts
+@@ -162,42 +162,62 @@
+     tipo: TamanhoTipo;
+     tamanhosSku: Record<string, string> | null;
+   };
+-  esperado: { sku: string | null; faltas: SkuFalta[] };
++  esperado: { sku: string | null; faltas: SkuFalta[]; avisos: SkuFalta[] };
+ };
+ 
+ export const CASOS_RESOLVER: CasoResolver[] = [
+   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+-    esperado: { sku: "REF00000001AM34", faltas: [] } },
++    esperado: { sku: "REF00000001AM34", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "REF00000001", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: "REF00000001AMPPP", faltas: [] } },
++    esperado: { sku: "REF00000001AMPPP", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_TODAS, ref: " R1 ", cor: AM, apelido: CAN, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: "R1-AM.CAN/P", faltas: [] } },
++    esperado: { sku: "R1-AM.CAN/P", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: null, tamanhoKey: "38|P", tipo: "numero", tamanhosSku: TSKU },
+-    esperado: { sku: "R1-AM/38", faltas: [] } },
++    esperado: { sku: "R1-AM/38", faltas: [], avisos: [] } },
++  // D4: apelido SEM sigla não bloqueia — vira aviso; aqui a linha para pela cor base e pelo tamanho (Q4)
+   { entrada: { cfg: F_TODAS, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "40|M", tipo: "letra", tamanhosSku: TSKU },
+     esperado: { sku: null, faltas: [
+       { atributo: "cor_base", id: VD_SEM.id, nome: "Verde" },
+-      { atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" },
+       { atributo: "tamanho", id: null, nome: "M" },
+-    ] } },
++    ], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: null, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }] } },
++    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "36", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: "R1AM36", faltas: [] } },
++    esperado: { sku: "R1AM36", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "PP", tipo: "numero", tamanhosSku: TSKU },
+-    esperado: { sku: "R1AMPP", faltas: [] } },
++    esperado: { sku: "R1AMPP", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: "R1AM", faltas: [] } },
++    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "UN", tipo: "letra", tamanhosSku: { UN: "U" } },
+-    esperado: { sku: "R1AMU", faltas: [] } },
++    esperado: { sku: "R1AMU", faltas: [], avisos: [] } },
+   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
+-    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }] } },
++    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }], avisos: [] } },
++  // o Formato não usa cor_apelido: apelido sem sigla não conta (nem falta, nem aviso)
+   { entrada: { cfg: { partes: ["ref", "cor_base"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: MUS_SEM,
+       tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
+-    esperado: { sku: "R1AM", faltas: [] } },
++    esperado: { sku: "R1AM", faltas: [], avisos: [] } },
++  // D4, Formato SEM cor_base: sem apelido ⇒ a sigla da cor base vai na posição do apelido — sem ela, falta (bloqueia)
+   { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
+-    esperado: { sku: "R1-34", faltas: [] } },
++    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }], avisos: [] } },
+   { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: null,
+       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
+-    esperado: { sku: null, faltas: [] } },
++    esperado: { sku: "AM", faltas: [], avisos: [] } },
++  // D4 (casos novos)
++  { entrada: { cfg: F_TODAS, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "38|P", tipo: "letra", tamanhosSku: TSKU },
++    esperado: { sku: "R1-AM/P", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
++  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
++    esperado: { sku: "AM_R1-34", faltas: [], avisos: [] } },
++  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
++    esperado: { sku: "AM_R1-34", faltas: [], avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
++  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: AM, apelido: CAN, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
++    esperado: { sku: "CAN_R1-34", faltas: [], avisos: [] } },
++  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: MUS_SEM, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
++    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }],
++      avisos: [{ atributo: "cor_apelido", id: MUS_SEM.id, nome: "Musgo" }] } },
++  { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: null, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
++    esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
++  // apelido COM sigla: a cor base não é exigida quando o Formato não tem cor_base
++  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: VD_SEM, apelido: CAN,
++      tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
++    esperado: { sku: "CAN", faltas: [], avisos: [] } },
+ ];
+--- a/tests/unit/sku-montar.test.ts
++++ b/tests/unit/sku-montar.test.ts
+@@ -2,7 +2,7 @@
+ import { aparar, ehNumeroTamanho, ladoTamanho, parseTamanho } from "@/lib/tamanho";
+ import {
+   ACENTOS_DE, ACENTOS_PARA, canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarRefSku, normalizarSigla,
+-  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoFalta,
++  normalizarSkuConfig, normalizarSkuManual, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
+ } from "@/lib/sku-montar";
+ import {
+   CASOS_CONFIG, CASOS_MONTAR, CASOS_REF, CASOS_RESOLVER, CASOS_SIGLA, CASOS_SKU_MANUAL, CASOS_TAMANHO, CASOS_TAMANHOS_SKU,
+@@ -101,6 +101,9 @@
+     expect(textoFalta({ atributo: "tamanho", id: null, nome: "PPP" })).toBe("Falta sigla: Tamanho PPP");
+     expect(textoFalta({ atributo: "cor_base", id: null, nome: null })).toBe("Falta a cor base na variante");
+   });
++  it("textoAviso (D4: apelido sem sigla não bloqueia)", () => {
++    expect(textoAviso({ atributo: "cor_apelido", id: "y", nome: "Musgo" })).toBe("Falta sigla na cor apelido: Musgo");
++  });
+   it("canonico ignora a ordem das chaves (o jsonb reordena)", () => {
+     expect(canonico({ b: 1, a: { d: [2, { y: 1, x: 2 }], c: null } })).toBe(canonico({ a: { c: null, d: [2, { x: 2, y: 1 }] }, b: 1 }));
+     expect(canonico(null)).toBe("null");
+```
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
+git log --oneline -1 -- src/lib/sku-montar.ts        # 155d814 (a Task 1); outro sha = alguém mexeu: PARE
+git apply --check .superpowers/f35a/t1-d4.diff && git apply .superpowers/f35a/t1-d4.diff
+env -u DATABASE_URL npx vitest run tests/unit/sku-montar.test.ts 2>&1 | tail -4
+bash .superpowers/f35a/gates.sh
+git commit --only -m "feat(sku): F3.5a (1b) — D4 decidida: cor base no lugar do apelido sem sigla; avisos[] × faltas[] no resolvedor
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/lib/sku-montar.ts tests/fixtures/sku-casos.ts tests/unit/sku-montar.test.ts
+git show --stat HEAD | tail -5
+```
+
+Expected: `git apply` sem erro; `Tests  111 passed (111)`; `GATES F3.5a: ok`; commit com os 3 arquivos. `git apply --check` falhou = os arquivos da Task 1 não são os do `155d814`: PARE e reporte (não aplicar à mão). Revisão Opus individual curta (o delta é a regra da D4 — conferir contra o §2).
 
 ---
 
@@ -1132,7 +1407,7 @@ Expected: `Tests  103 passed (103)` (planejador rodou num espelho em 24/set, dep
 
 **Interfaces:**
 - Consumes: `tests/integration/db.ts` (`hasDb`, `dbUrl`, `withTx`, `comoUsuario`, `semUsuario`, `um`, `TENANT_TESTE`, `ehBancoLocal`); Task 1.
-- Produces: 33 testes — estático (1, SEM banco: as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos + a lista de acentos do SQL = a do TS), anti-drift (7, parte A), colunas/gatilhos/tabela (5, parte B — inclui a unicidade D5), geração/leitura/manual (16, parte C — inclui R1 interno e R1 revenda pelas RPCs REAIS de salvar, R1-a/D7 mesma cor 2×, D5 réplica, R2-a troca de REF e R3), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`). O harness aplica a migration pelo `aplicarSql` depois de tirar as 2 travas do arquivo (`semTravas` — o `transaction_timeout` de 3 s mataria a txn do teste).
+- Produces: 35 testes — estático (1, SEM banco: as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos + a lista de acentos do SQL = a do TS), anti-drift (7, parte A), colunas/gatilhos/tabela (5, parte B — inclui a unicidade D5), geração/leitura/manual (18, parte C — inclui R1 interno e R1 revenda pelas RPCs REAIS de salvar, R1-a/D7 mesma cor 2×, D4 cor base no lugar do apelido + aviso, D4 colisão de apelidos sem sigla, D5 réplica, R2-a troca de REF e R3), permissões/ACL (3, parte C), inverso/idempotência (1, só `SKU_MIG_TXN=1`). O harness aplica a migration pelo `aplicarSql` depois de tirar as 2 travas do arquivo (`semTravas` — o `transaction_timeout` de 3 s mataria a txn do teste).
 
 - [ ] **Step 1: Pré-condições da cópia (um teste por vez)**
 
@@ -1593,7 +1868,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
     });
   });
 
-  it("gera por variante (COR) do Tecido 1 × tamanho com qtd > 0; falta sigla ⇒ a linha não gera e volta em faltas[]", async () => {
+  it("gera por variante (COR) do Tecido 1 × tamanho com qtd > 0; falta sigla de cor base ⇒ a linha não gera (faltas[]); apelido sem sigla = avisos[] (D4)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -1607,12 +1882,9 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
         { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
         { variante_key: k.kAmCan, tamanho_key: "34|PPP", sku: "SKU-T1-AMCAN-34", manual: false },
       ]);
-      expect(r.faltas).toHaveLength(2);
-      expect(r.faltas).toEqual(expect.arrayContaining([
-        { atributo: "cor_base", id: k.corVd, nome: "SKU-T Verde" },
-        { atributo: "cor_apelido", id: k.apeMus, nome: "SKU-T Musgo" },
-      ]));
-      expect(linha(r, k.kVdMus, "36|PP").estado).toBe("falta");
+      expect(r.faltas).toEqual([{ atributo: "cor_base", id: k.corVd, nome: "SKU-T Verde" }]);
+      expect(r.avisos).toEqual([{ atributo: "cor_apelido", id: k.apeMus, nome: "SKU-T Musgo" }]); // D4: não bloqueia
+      expect(linha(r, k.kVdMus, "36|PP")).toMatchObject({ estado: "falta", avisos: [{ atributo: "cor_apelido", id: k.apeMus, nome: "SKU-T Musgo" }] });
       expect(linha(r, k.kAm, "34|PPP").estado).toBe("ok");
       expect(linha(r, k.kAm, "38|P")).toBeUndefined(); // qtd 0 não entra
       expect((await matriz(c, k.interno)).linhas).toEqual(r.linhas); // leitura = o que a geração devolveu
@@ -1689,6 +1961,63 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       expect([r.criados, r.atualizados, r.removidos, r.conflitos]).toEqual([0, 0, 0, []]);
       expect(await skus(c, k.interno)).toEqual(antes);
       expect(linha(r, k.kAm, "34|PPP")).toMatchObject({ estado: "manual", sku: "MEU-34" });
+    });
+  });
+
+  it("D4: apelido SEM sigla ⇒ gera com a cor base + aviso; cadastrada a sigla, o Regerar atualiza o automático e o manual não muda; Formato só com cor_apelido usa a sigla da cor base", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await c.query("UPDATE public.cores SET sigla_sku = 'vd' WHERE id = $1", [k.corVd]); // Verde com sigla; Musgo segue SEM
+      await c.query("UPDATE public.modelo_grades SET grades = '{\"36|PP\": 1, \"38|P\": 1}'::jsonb WHERE modelo_id = $1 AND variante_numero = 3", [k.interno]);
+      let r = await gerar(c, k.interno);
+      const aviso = { atributo: "cor_apelido", id: k.apeMus, nome: "SKU-T Musgo" };
+      expect([r.criados, r.faltas, r.avisos, r.conflitos]).toEqual([5, [], [aviso], []]);
+      expect(linha(r, k.kVdMus, "36|PP")).toMatchObject({ estado: "ok", sku: "SKU-T1-VD-36", avisos: [aviso] });
+      await rpc(c, "salvar_sku_manual", [linha(r, k.kVdMus, "38|P").id, "VD-MAO"]);
+      await c.query("UPDATE public.cores_apelido SET sigla_sku = 'mus' WHERE id = $1", [k.apeMus]); // cadastrou a sigla
+      expect(linha(await matriz(c, k.interno), k.kVdMus, "36|PP")).toMatchObject({ estado: "divergente", sku_previsto: "SKU-T1-VDMUS-36", avisos: [] });
+      r = await gerar(c, k.interno, true);
+      expect([r.atualizados, r.avisos]).toEqual([1, []]);
+      expect(linha(r, k.kVdMus, "36|PP")).toMatchObject({ estado: "ok", sku: "SKU-T1-VDMUS-36" });
+      expect(linha(r, k.kVdMus, "38|P")).toMatchObject({ estado: "manual", sku: "VD-MAO" }); // o manual nunca muda
+      // Formato SÓ com cor_apelido (sem cor_base): sem apelido ⇒ a sigla da cor base no lugar
+      await lojaSku(c, { partes: ["ref", "cor_apelido", "tamanho"], separadores: { "ref|cor_apelido": "-", "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      const mz = await matriz(c, k.interno);
+      expect(linha(mz, k.kAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-34");
+      expect(linha(mz, k.kAmCan, "34|PPP").sku_previsto).toBe("SKU-T1-CAN-34");
+    });
+  });
+
+  it("D4 (ciência): apelidos DIFERENTES sem sigla na MESMA cor base dão o MESMO SKU ⇒ a 2ª linha cai em 'repetido neste produto'; cadastrar a sigla ou editar à mão resolve", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      const ape = (nome: string) =>
+        novoId(c, "INSERT INTO public.cores_apelido (tenant_id, nome, cor_base_id) VALUES ($1, $2, $3) RETURNING id", [T, nome, k.corAm]);
+      const apeLim = await ape("SKU-T Limão");
+      const apeOuro = await ape("SKU-T Ouro");
+      const vt = (a: string) =>
+        novoId(c, "INSERT INTO public.variantes_tecido (tenant_id, artigo_id, cor_id, cor_apelido_id) VALUES ($1, $2, $3, $4) RETURNING id", [T, k.artigo, k.corAm, a]);
+      await tecido1(c, k.mt, [await vt(apeLim), await vt(apeOuro)], 4);
+      await grade(c, k.interno, 4, { "34|PPP": 1 });
+      await grade(c, k.interno, 5, { "34|PPP": 1 });
+      const kLim = await chave(c, k.corAm, apeLim);
+      const kOuro = await chave(c, k.corAm, apeOuro);
+      let r = await gerar(c, k.interno);
+      expect(r.criados).toBe(3); // Amarelo (sem apelido) fica com SKU-T1-AM-34 — vem antes na ordem
+      expect(r.conflitos.map((x: any) => [x.variante_key, x.sku])).toEqual([[kLim, "SKU-T1-AM-34"], [kOuro, "SKU-T1-AM-34"]]);
+      expect(r.conflitos[0].mensagem).toMatch(/^SKU SKU-T1-AM-34 repetido neste produto/);
+      expect(r.avisos.map((a: any) => a.nome).sort()).toEqual(["SKU-T Limão", "SKU-T Musgo", "SKU-T Ouro"]); // + o Musgo do Verde
+      expect(linha(r, kLim, "34|PPP").estado).toBe("conflito");
+      await c.query("UPDATE public.cores_apelido SET sigla_sku = 'lim' WHERE id = $1", [apeLim]);
+      r = await gerar(c, k.interno, true);
+      expect(linha(r, kLim, "34|PPP")).toMatchObject({ estado: "ok", sku: "SKU-T1-AMLIM-34" });
+      expect(linha(r, kOuro, "34|PPP").estado).toBe("conflito");
+      await c.query("SELECT public.salvar_sku_manual(NULL, 'am-ouro-34', NULL, $1, $2, '34|PPP')", [k.interno, kOuro]);
+      expect(linha(await matriz(c, k.interno), kOuro, "34|PPP")).toMatchObject({ estado: "manual", sku: "AM-OURO-34" });
     });
   });
 
@@ -2106,7 +2435,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- tests/i
 git show --stat HEAD | tail -4
 ```
 
-Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  33 failed (33)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe; o estático também); (2) `Tests  1 failed | 32 skipped (33)` — só o estático falha (ENOENT); os outros pulam sem a F3.5a na cópia e sem `SKU_MIG_TXN` (e NÃO conectam fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
+Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  35 failed (35)` — todos param em `ENOENT … 20261003100000_sku_automatico.sql` (a migration ainda não existe; o estático também); (2) `Tests  1 failed | 34 skipped (35)` — só o estático falha (ENOENT); os outros pulam sem a F3.5a na cópia e sem `SKU_MIG_TXN` (e NÃO conectam fora da cópia); (3) o erro `DDL/migration só na cópia local …` já na coleta (a guarda funciona sem conectar); `GATES F3.5a: ok`.
 
 ---
 
@@ -2116,7 +2445,7 @@ Expected: (1) `OK (N3): pode rodar t2s4` e `Tests  33 failed (33)` — todos par
 - Create: `supabase/migrations/20261003100000_sku_automatico.sql`, `supabase/rollback/20261003100000_sku_automatico_down.sql`
 
 **Interfaces:**
-- Produces (SQL, IMMUTABLE, EXECUTE revogado dos três): `_sku_sem_acento(text)`, `_sku_norm_sigla(text)`, `_sku_norm_ref(text)`, `_sku_norm_manual(text)`, `_sku_variante_key(uuid, uuid)` (a chave da variante = a cor — R1), `_sku_tamanho_lados(text, OUT numero, OUT letra)`, `_sku_tamanho_lado(text, text)`, `_sku_config_normaliza(jsonb)`, `_sku_tamanhos_normaliza(jsonb)`, `_sku_montar(jsonb, jsonb)`, `_sku_resolver(jsonb, text, jsonb, jsonb, text, text, jsonb)` — espelhos byte a byte do Task 1. Os marcadores `-- ==== [PARTE C] …` e `-- ==== [PARTE B] …` ficam no arquivo (Tasks 5 e 4 inserem ACIMA de cada um). As 2 travas `SET LOCAL` ficam logo depois do `BEGIN;` (migration e inverso — supautils).
+- Produces (SQL, IMMUTABLE, EXECUTE revogado dos três): `_sku_sem_acento(text)`, `_sku_norm_sigla(text)`, `_sku_norm_ref(text)`, `_sku_norm_manual(text)`, `_sku_variante_key(uuid, uuid)` (a chave da variante = a cor — R1), `_sku_tamanho_lados(text, OUT numero, OUT letra)`, `_sku_tamanho_lado(text, text)`, `_sku_config_normaliza(jsonb)`, `_sku_tamanhos_normaliza(jsonb)`, `_sku_montar(jsonb, jsonb)`, `_sku_resolver(jsonb, text, jsonb, jsonb, text, text, jsonb)` (→ `{sku, faltas, avisos}` — D4) — espelhos byte a byte do Task 1 (com o ajuste do Step 6). Os marcadores `-- ==== [PARTE C] …` e `-- ==== [PARTE B] …` ficam no arquivo (Tasks 5 e 4 inserem ACIMA de cada um). As 2 travas `SET LOCAL` ficam logo depois do `BEGIN;` (migration e inverso — supautils).
 
 - [ ] **Step 1: Criar a migration com a parte A** — `supabase/migrations/20261003100000_sku_automatico.sql`:
 
@@ -2425,8 +2754,12 @@ BEGIN
 END
 $function$;
 
--- O SKU de UMA linha (variante × tamanho) ou as faltas de sigla (Q4), na ordem cor_base → cor_apelido → tamanho.
--- _cor/_apelido = {"id","nome","sigla"} ou NULL. Tamanho "UN" (grade única) sem sigla: a parte some (D1).
+-- O SKU de UMA linha (variante × tamanho), as `faltas` de sigla que o impedem (Q4 — bloqueiam; ordem cor_base →
+-- tamanho) e os `avisos` (não bloqueiam). _cor/_apelido = {"id","nome","sigla"} ou NULL. Tamanho "UN" (grade única)
+-- sem sigla: a parte some (D1). Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra; variante SEM
+-- apelido, ou apelido SEM sigla, usa a COR BASE — com a parte cor_base no Formato a parte cor_apelido some (não repete
+-- a cor); com SÓ cor_apelido, a sigla da cor base vai nessa posição. Apelido que existe sem sigla (e o Formato usa
+-- cor_apelido) ⇒ aviso "Falta sigla na cor apelido" (o SKU sai com a cor base; cadastrada a sigla, o Regerar atualiza).
 -- Espelho: resolverSku.
 CREATE OR REPLACE FUNCTION public._sku_resolver(_cfg jsonb, _ref text, _cor jsonb, _apelido jsonb,
                                                 _tamanho_key text, _tipo text, _tsku jsonb)
@@ -2439,31 +2772,44 @@ DECLARE
   v_usa jsonb;
   v_val jsonb := '{}'::jsonb;
   v_faltas jsonb := '[]'::jsonb;
+  v_avisos jsonb := '[]'::jsonb;
+  v_sig_apelido text;
+  v_sig_base text;
   v_lado text;
   v_sig text;
   v_sku text;
 BEGIN
   IF _cfg IS NULL THEN
-    RETURN jsonb_build_object('sku', NULL::text, 'faltas', '[]'::jsonb);
+    RETURN jsonb_build_object('sku', NULL::text, 'faltas', '[]'::jsonb, 'avisos', '[]'::jsonb);
   END IF;
   v_usa := coalesce(_cfg -> 'partes', '[]'::jsonb);
   IF v_usa ? 'ref' THEN
     v_val := v_val || jsonb_build_object('ref', public._sku_norm_ref(_ref));
   END IF;
-  IF v_usa ? 'cor_base' THEN
+  IF _apelido IS NOT NULL AND jsonb_typeof(_apelido) <> 'null' THEN
+    v_sig_apelido := nullif(_apelido ->> 'sigla', '');
+    IF v_usa ? 'cor_apelido' AND v_sig_apelido IS NULL THEN
+      v_avisos := v_avisos || jsonb_build_array(jsonb_build_object('atributo', 'cor_apelido', 'id', _apelido -> 'id', 'nome', _apelido -> 'nome'));
+    END IF;
+  END IF;
+  -- A cor base é exigida se o Formato tem cor_base — ou se tem cor_apelido e o apelido não entra (D4).
+  IF v_usa ? 'cor_base' OR (v_usa ? 'cor_apelido' AND v_sig_apelido IS NULL) THEN
     IF _cor IS NULL OR jsonb_typeof(_cor) = 'null' THEN
       v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('atributo', 'cor_base', 'id', NULL::text, 'nome', NULL::text));
     ELSIF coalesce(_cor ->> 'sigla', '') = '' THEN
       v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('atributo', 'cor_base', 'id', _cor -> 'id', 'nome', _cor -> 'nome'));
     ELSE
-      v_val := v_val || jsonb_build_object('cor_base', _cor ->> 'sigla');
+      v_sig_base := _cor ->> 'sigla';
     END IF;
   END IF;
-  IF v_usa ? 'cor_apelido' AND _apelido IS NOT NULL AND jsonb_typeof(_apelido) <> 'null' THEN
-    IF coalesce(_apelido ->> 'sigla', '') = '' THEN
-      v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('atributo', 'cor_apelido', 'id', _apelido -> 'id', 'nome', _apelido -> 'nome'));
-    ELSE
-      v_val := v_val || jsonb_build_object('cor_apelido', _apelido ->> 'sigla');
+  IF v_usa ? 'cor_base' AND v_sig_base IS NOT NULL THEN
+    v_val := v_val || jsonb_build_object('cor_base', v_sig_base);
+  END IF;
+  IF v_usa ? 'cor_apelido' THEN
+    IF v_sig_apelido IS NOT NULL THEN
+      v_val := v_val || jsonb_build_object('cor_apelido', v_sig_apelido);
+    ELSIF NOT (v_usa ? 'cor_base') AND v_sig_base IS NOT NULL THEN
+      v_val := v_val || jsonb_build_object('cor_apelido', v_sig_base);  -- só cor_apelido no Formato: a cor base no lugar
     END IF;
   END IF;
   IF v_usa ? 'tamanho' THEN
@@ -2479,10 +2825,10 @@ BEGIN
     END IF;
   END IF;
   IF jsonb_array_length(v_faltas) > 0 THEN
-    RETURN jsonb_build_object('sku', NULL::text, 'faltas', v_faltas);
+    RETURN jsonb_build_object('sku', NULL::text, 'faltas', v_faltas, 'avisos', v_avisos);
   END IF;
   v_sku := public._sku_montar(_cfg, v_val);
-  RETURN jsonb_build_object('sku', nullif(v_sku, ''), 'faltas', v_faltas);
+  RETURN jsonb_build_object('sku', nullif(v_sku, ''), 'faltas', v_faltas, 'avisos', v_avisos);
 END
 $function$;
 
@@ -2619,7 +2965,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t3s3 && \
 bash .superpowers/f35a/n3.sh depois t3s3
 ```
 
-Expected (dono avisado ANTES — R5): só `testes-checados`; `:1` nos 4 greps; `OK (N3): pode rodar t3s3`; `Tests  8 passed | 25 skipped (33)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
+Expected (dono avisado ANTES — R5): só `testes-checados`; `:1` nos 4 greps; `OK (N3): pode rodar t3s3`; `Tests  8 passed | 27 skipped (35)`. Falhou por erro de SQL: corrigir o mínimo + `desvios.md` (Global Constraints). Falhou por DIFERENÇA de valor TS × SQL: PARE — é drift de regra (controlador decide qual lado está certo, contra a spec).
 
 - [ ] **Step 4: Gates + commit**
 
@@ -2855,7 +3201,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t4s2 && \
 bash .superpowers/f35a/n3.sh depois t4s2
 ```
 
-Expected (dono avisado ANTES — R5): os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles (terminando nas 4 policies); `OK (N3): pode rodar t4s2`; `Tests  13 passed | 20 skipped (33)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`.
+Expected (dono avisado ANTES — R5): os 2 marcadores, o `[PARTE C]` ANTES do `[PARTE B]`, e o bloco B entre eles (terminando nas 4 policies); `OK (N3): pode rodar t4s2`; `Tests  13 passed | 22 skipped (35)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`.
 
 - [ ] **Step 3: Gates + commit**
 
@@ -2876,7 +3222,7 @@ git show --stat HEAD | tail -3
 - Modify: `supabase/migrations/20261003100000_sku_automatico.sql` — inserir o bloco abaixo IMEDIATAMENTE ACIMA da linha `-- ==== [PARTE C] cálculo, RPCs e ACL entram ACIMA desta linha (Task 5) ====` (linha em branco entre o bloco e o marcador).
 
 **Interfaces:**
-- Produces: `_sku_guarda(uuid, boolean)`, `_skus_modelo_calc(uuid)` (chave = a cor — R1), `_skus_modelo_core(uuid)`, `_gerar_skus_modelo_core(uuid, boolean)`, `_salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text)` (revogadas dos três); `skus_modelo(uuid)`, `gerar_skus_modelo(uuid, boolean DEFAULT false)`, `salvar_sku_manual(uuid, text, integer DEFAULT NULL, uuid DEFAULT NULL, uuid DEFAULT NULL, text DEFAULT NULL)` (só `authenticated`; cria a linha manual — R3). Contrato no §4.1.
+- Produces: `_sku_guarda(uuid, boolean)`, `_skus_modelo_calc(uuid)` (chave = a cor — R1; devolve `faltas` e `avisos` por linha — D4), `_skus_modelo_core(uuid)`, `_gerar_skus_modelo_core(uuid, boolean)`, `_salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text)` (revogadas dos três); `skus_modelo(uuid)`, `gerar_skus_modelo(uuid, boolean DEFAULT false)`, `salvar_sku_manual(uuid, text, integer DEFAULT NULL, uuid DEFAULT NULL, uuid DEFAULT NULL, text DEFAULT NULL)` (só `authenticated`; cria a linha manual — R3). Contrato no §4.1.
 
 - [ ] **Step 1: O bloco**
 
@@ -2920,7 +3266,8 @@ BEGIN
 END
 $function$;
 
--- As linhas (variante × tamanho com quantidade > 0) do modelo e o SKU PREVISTO de cada uma (ou as faltas).
+-- As linhas (variante × tamanho com quantidade > 0) do modelo e o SKU PREVISTO de cada uma (ou as faltas), com os
+-- avisos (D4: apelido sem sigla — o SKU sai com a cor base).
 -- Variantes: interno = variantes do Tecido 1; revenda = produto_acabado_variantes; importado =
 -- produto_importado_variantes. A CHAVE da variante é a COR (_sku_variante_key(cor, apelido) — R1): o id da linha de
 -- variante muda a cada Salvar do produto. Duas variantes com a MESMA cor + apelido no mesmo card (ex.: Bege em 2
@@ -2929,7 +3276,7 @@ $function$;
 -- ("34|PPP"). Sem sku_config: linhas com sku NULL (o chamador decide o status). Não lê modelo_skus.
 CREATE OR REPLACE FUNCTION public._skus_modelo_calc(_modelo_id uuid)
 RETURNS TABLE (variante_key uuid, variante_ordem integer, cor_nome text, apelido_nome text,
-               tamanho_key text, tamanho_ordem integer, sku text, faltas jsonb)
+               tamanho_key text, tamanho_ordem integer, sku text, faltas jsonb, avisos jsonb)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -3000,7 +3347,8 @@ BEGIN
                     ORDER BY o.n
                     LIMIT 1), 9999),
          r.res ->> 'sku',
-         r.res -> 'faltas'
+         r.res -> 'faltas',
+         r.res -> 'avisos'
     FROM m
     JOIN vs ON true
     JOIN tam ON tam.tvkey = vs.vkey
@@ -3020,7 +3368,8 @@ END
 $function$;
 
 -- A MATRIZ do card (Variante × Tamanho) — leitura pura (a F3.5b mostra; nada é gravado aqui).
--- status: 'sem_formato' (loja sem sku_config) | 'aguardando_ref' (card sem REF) | 'ok'.
+-- status: 'sem_formato' (loja sem sku_config) | 'aguardando_ref' (card sem REF) | 'ok'. `faltas` (bloqueiam a linha —
+-- Q4) × `avisos` (não bloqueiam — D4), por linha e somados no topo (a F3.5b usa no selo: "falta sigla" × "aviso").
 -- estado por linha: ok · manual · falta · pendente (ainda não gerado) · divergente (Regerar mudaria) ·
 -- conflito (o SKU GRAVADO ou o PREVISTO já é de outra linha da loja — `conflito_com`; réplica com a mesma REF VIVA e a
 -- mesma linha NÃO é conflito — D5; a REF de um card trocada depois de gravar aparece aqui nos DOIS cards — R2-a) ·
@@ -3041,6 +3390,7 @@ DECLARE
   v_status text;
   v_linhas jsonb;
   v_faltas jsonb;
+  v_avisos jsonb;
 BEGIN
   SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config, mo.tamanho_tipo
     INTO v_tenant, v_refn, v_cfg, v_tipo_card
@@ -3062,7 +3412,7 @@ BEGIN
       FROM public.modelo_skus s
      WHERE s.modelo_id = _modelo_id;
     RETURN jsonb_build_object('status', v_status, 'tamanho_tipo', v_tipo, 'tamanho_tipo_card', v_tipo_card,
-                              'linhas', v_linhas, 'faltas', '[]'::jsonb);
+                              'linhas', v_linhas, 'faltas', '[]'::jsonb, 'avisos', '[]'::jsonb);
   END IF;
 
   WITH c AS (
@@ -3074,7 +3424,7 @@ BEGIN
   ), j AS (
     SELECT c.variante_key AS c_vkey, s.variante_key AS s_vkey, c.variante_ordem AS vordem, c.cor_nome, c.apelido_nome,
            coalesce(c.tamanho_key, s.tamanho_key) AS tkey, c.tamanho_ordem AS tordem, c.sku AS previsto,
-           coalesce(c.faltas, '[]'::jsonb) AS faltas, s.id AS sid, s.sku AS salvo, s.manual, s.rev
+           coalesce(c.faltas, '[]'::jsonb) AS faltas, coalesce(c.avisos, '[]'::jsonb) AS avisos, s.id AS sid, s.sku AS salvo, s.manual, s.rev
       FROM c
       FULL JOIN s ON s.variante_key = c.variante_key AND s.tamanho_key = c.tamanho_key
   ), k AS (
@@ -3104,7 +3454,7 @@ BEGIN
            'cor_nome', k.cor_nome, 'apelido_nome', k.apelido_nome,
            'tamanho_key', k.tkey, 'tamanho_ordem', k.tordem,
            'id', k.sid, 'sku', k.salvo, 'manual', coalesce(k.manual, false), 'rev', k.rev,
-           'sku_previsto', k.previsto, 'faltas', k.faltas,
+           'sku_previsto', k.previsto, 'faltas', k.faltas, 'avisos', k.avisos,
            'conflito_com', coalesce(k.conflito_salvo, k.conflito_prev),
            'estado', CASE
              WHEN k.c_vkey IS NULL THEN 'orfa'
@@ -3127,8 +3477,13 @@ BEGIN
     CROSS JOIN LATERAL jsonb_array_elements(l.value -> 'faltas') AS f(value)
    WHERE l.value ->> 'estado' = 'falta';
 
+  SELECT coalesce(jsonb_agg(DISTINCT a.value ORDER BY a.value), '[]'::jsonb)
+    INTO v_avisos
+    FROM jsonb_array_elements(v_linhas) AS l(value)
+    CROSS JOIN LATERAL jsonb_array_elements(l.value -> 'avisos') AS a(value);
+
   RETURN jsonb_build_object('status', v_status, 'tamanho_tipo', v_tipo, 'tamanho_tipo_card', v_tipo_card,
-                            'linhas', v_linhas, 'faltas', v_faltas);
+                            'linhas', v_linhas, 'faltas', v_faltas, 'avisos', v_avisos);
 END
 $function$;
 
@@ -3426,7 +3781,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t5s2 && \
 bash .superpowers/f35a/n3.sh depois t5s2
 ```
 
-Expected (dono avisado ANTES — R5): `23` funções, `6` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `OK (N3): pode rodar t5s2`; `Tests  33 passed (33)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
+Expected (dono avisado ANTES — R5): `23` funções, `6` gatilhos, nenhum `\i`/`psql -f` (só `sem-\i-checado`); `OK (N3): pode rodar t5s2`; `Tests  35 passed (35)`. **R-PARE:** falhou uma asserção de COMPORTAMENTO → PARE e reporte ao controlador; NUNCA mude a expectativa de um teste que codifica decisão do dono (D1–D7, Q1–Q4, R1/R3) — só erro de SQL (sintaxe, nome, tipo) se corrige com o mínimo + `desvios.md`. A montagem final (A → C → B) é a que o planejador conferiu com script (§9).
 
 - [ ] **Step 3: Gates + commit**
 
@@ -3505,8 +3860,8 @@ espera "$LOCAL" "$ACL_F35A" "0|0|0" "IDA: ACL (#9)" || { volta; exit 1; }
 espera "$LOCAL" "$FN_PRE" "$FN0" "IDA: nenhuma função pré-existente mudou" || { volta; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts > "$S/logs/ensaio-suite.log" 2>&1
 tail -6 "$S/logs/ensaio-suite.log"
-grep -qE "Tests +32 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
-  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 32 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
+grep -qE "Tests +34 passed \| 1 skipped" "$S/logs/ensaio-suite.log" \
+  || { echo "FALHOU: com os objetos aplicados a suíte tem de dar 34 passed | 1 skipped (round-trip só no SKU_MIG_TXN=1)"; volta; exit 1; }
 viz depois
 NOVAS="$(comm -13 "$S/logs/r6-falhas-antes.txt" "$S/logs/r6-falhas-depois.txt")"
 TA="$(total "$S/logs/r6-antes.log")"; TD="$(total "$S/logs/r6-depois.log")"
@@ -3540,7 +3895,7 @@ SKU_DONO_AVISADO=sim /bin/bash .superpowers/f35a/mig/ensaio-local.sh 2>&1 | tee 
 
 R5: avisar o dono ANTES (texto do `n3.sh`; ~15–20 min — as suítes vizinhas 2×, a suíte da F3.5a e ida/volta 2×; o `:5188` congela nos trechos de DDL) e rodar SÓ com o OK.
 
-Expected: `OK (N3): pode rodar t6` → `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → `R6 antes: Tests … (<T>) · <k> falha(s)` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção, com auth/storage presos pelas policies; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 23|6|1|7` → `OK (IDA: contagens 458|263 → 481|269 = +23 funções +6 gatilhos, os da F3.5a)` (ou os números do T0) → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  32 passed | 1 skipped (33)` → `R6 depois: …` → `OK (R6): suítes vizinhas sem falha nova (<k> herdada(s)); <T> testes antes e depois` → VOLTA (anotar o `real` do inverso também: ele não faz trabalho por linha, só count + DROP) → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. `FALHA NOVA: …`/`FALHOU (R6)` = a migration mudou comportamento fora do desenho: o script já voltou; PARE e chame o revisor Opus. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
+Expected: `OK (N3): pode rodar t6` → `OK (cópia SEM a F3.5a): 0|0|0|0` → `backup: …/pre-f35a-ensaio-<data>.dump` → `R6 antes: Tests … (<T>) · <k> falha(s)` → a IDA (`real …` do `/usr/bin/time` — anotar: é o teto do lock em produção, com auth/storage presos pelas policies; alvo < 1 s) com os 2 avisos inofensivos de transação → `OK (IDA: objetos da F3.5a): 23|6|1|7` → `OK (IDA: contagens 458|263 → 481|269 = +23 funções +6 gatilhos, os da F3.5a)` (ou os números do T0) → `OK (IDA: ACL (#9)): 0|0|0` → `OK (IDA: nenhuma função pré-existente mudou): <md5>|<n>` → `Tests  34 passed | 1 skipped (35)` → `R6 depois: …` → `OK (R6): suítes vizinhas sem falha nova (<k> herdada(s)); <T> testes antes e depois` → VOLTA (anotar o `real` do inverso também: ele não faz trabalho por linha, só count + DROP) → contagens e funções = antes → REIDA → VOLTA 2 → `== ENSAIO F3.5a OK — cópia limpa; …`. `FALHA NOVA: …`/`FALHOU (R6)` = a migration mudou comportamento fora do desenho: o script já voltou; PARE e chame o revisor Opus. Qualquer `FALHOU`/`PAROU`: o script tenta a volta; PARE e reporte com o log (o backup está no caminho impresso; restaurar só com OK do dono). O revisor Opus lê o log inteiro e registra o veredito no diário do guardião.
 
 ---
 
@@ -3961,7 +4316,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- src/com
 git show --stat HEAD | tail -4
 ```
 
-Expected: `attribute-tab.tsx:28` e `cadastro.atributos.tsx:2`; `GATES F3.5a: ok` (o anti-drift de UI continua só com as 2 falhas herdadas — conferido pelo planejador num espelho depois das ressalvas: tsc limpo, 859 unit verdes + as 2 herdadas).
+Expected: `attribute-tab.tsx:28` e `cadastro.atributos.tsx:2`; `GATES F3.5a: ok` (o anti-drift de UI continua só com as 2 falhas herdadas — conferido pelo planejador num espelho com a D4 decidida: tsc limpo, 867 unit verdes + as 2 herdadas).
 
 ---
 
@@ -4258,7 +4613,7 @@ git show --stat HEAD | tail -3
 - Modify: `src/routes/_authenticated/admin/configuracoes.tsx` (+2 linhas — gate)
 
 **Interfaces:**
-- Consumes: `normalizarSkuConfig`, `normalizarTamanhosSku`, `resolverSku`, `textoFalta`, `canonico`, `chaveSeparador`, `SKU_PARTES`, `SKU_PARTE_LABEL`, `SKU_SEP_CHARS`, `SKU_SEP_MAX` (Task 1; o campo do separador só aceita `- . _ /` — D6). Produces: queryKeys `["tenant-config-sku", tenantId]` e `["tenant-sku-exemplo", tenantId]` (casam o prefixo "tenant" do mapa de Realtime e o `invalidateQueries` do Salvar geral — a semeadura só acontece SEM rascunho pendente); grava SÓ `tenant_config.sku_config` (conferência de conflito antes — RP3), com AlertDialog; prévia ao vivo com a REF mais recente da loja + a 1ª cor com sigla + um apelido dela + o 1º tamanho da grade (com e sem apelido). Ganchos de QA: `data-secao="formato-sku"`, `data-sku-previa`, `aria-label` nos separadores e no "Tamanho em".
+- Consumes: `normalizarSkuConfig`, `normalizarTamanhosSku`, `resolverSku`, `textoFalta`, `canonico`, `chaveSeparador`, `SKU_PARTES`, `SKU_PARTE_LABEL`, `SKU_SEP_CHARS`, `SKU_SEP_MAX`, `textoAviso` (Task 1 + Step 6; o campo do separador só aceita `- . _ /` — D6; a prévia mostra o aviso da D4 ao lado do SKU). Produces: queryKeys `["tenant-config-sku", tenantId]` e `["tenant-sku-exemplo", tenantId]` (casam o prefixo "tenant" do mapa de Realtime e o `invalidateQueries` do Salvar geral — a semeadura só acontece SEM rascunho pendente); grava SÓ `tenant_config.sku_config` (conferência de conflito antes — RP3), com AlertDialog; prévia ao vivo com a REF mais recente da loja + a 1ª cor com sigla + um apelido dela + o 1º tamanho da grade (com e sem apelido). Ganchos de QA: `data-secao="formato-sku"`, `data-sku-previa`, `aria-label` nos separadores e no "Tamanho em".
 
 - [ ] **Step 1: O componente** — criar `src/components/configuracoes/FormatoSkuCard.tsx`:
 
@@ -4284,7 +4639,7 @@ import {
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import {
-  canonico, chaveSeparador, normalizarSkuConfig, normalizarTamanhosSku, resolverSku, textoFalta,
+  canonico, chaveSeparador, normalizarSkuConfig, normalizarTamanhosSku, resolverSku, textoAviso, textoFalta,
   SKU_PARTES, SKU_PARTE_LABEL, SKU_SEP_CHARS, SKU_SEP_MAX,
   type SkuConfig, type SkuCor, type SkuParte,
 } from "@/lib/sku-montar";
@@ -4526,7 +4881,16 @@ export function FormatoSkuCard() {
                 <div key={e.rotulo} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground">{e.rotulo}</span>
                   {e.r?.sku ? (
-                    <span className="font-mono text-sm tabular-nums" data-sku-previa>{e.r.sku}</span>
+                    <span className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="font-mono text-sm tabular-nums" data-sku-previa>{e.r.sku}</span>
+                      {e.r.avisos.length > 0 && (
+                        // D4: apelido sem sigla não bloqueia — o SKU sai com a cor base; o aviso pede a sigla
+                        <span className="text-xs text-amber-700 dark:text-amber-300">
+                          {e.r.avisos.map(textoAviso).join(" · ")} —{" "}
+                          <Link to="/cadastro/atributos" className="underline">cadastrar</Link>
+                        </span>
+                      )}
+                    </span>
                   ) : (
                     <span className="text-xs text-amber-700 dark:text-amber-300">
                       {(e.r?.faltas ?? []).map(textoFalta).join(" · ") || "SKU vazio"} —{" "}
@@ -5107,10 +5471,10 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
   6. ALTERs no FIM do arquivo e as policies POR ÚLTIMO (hook supautils); as 2 travas `SET LOCAL` logo depois do `BEGIN;` nos 2 arquivos; tempo medido no ensaio (lock em produção < 1 s); `aplica_v2` pronto (`producao.sh`); pré-voo por OBJETOS (R7);
   7. inverso DESTRUTIVO com guarda de confirmação + export antes (round-trip testado);
   8. anti-drift TS × SQL verde (7 testes + o estático da lista de acentos) e as mensagens PT idênticas; R1 (salvar produto/BOM pelas RPCs reais) e R3 (linha manual nova) verdes; R6 sem falha nova;
-  9. decisões D1–D7 do dono aplicadas como respondidas (D5/D6/D7: variante B/alternativa refeita se o dono escolheu diferente); "mesma REF" = REF viva (R2-a);
+  9. D4 (nova), D5 = A e D7 = A aplicadas como decididas em 24/set (e o ajuste da Task 1 Step 6 feito); D1/D2/D3/D6 como o dono responder (alternativa refeita se diferente); "mesma REF" = REF viva (R2-a);
   10. ordem de produção: F1 → Aviso → Nota → F3.5a; front só junta DEPOIS (Task 12 antes da Task 13).
   Veredito no diário. **BLOQUEIA ⇒ parar.** Ressalvas ⇒ resolver antes do Step 3.
-- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as respostas D1–D7, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
+- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as decisões D4/D5/D7 (dadas em 24/set) e as respostas D1/D2/D3/D6, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 ---
 
@@ -5361,7 +5725,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t13s2 && \
 bash .superpowers/f35a/n3.sh depois t13s2
 ```
 
-Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  33 passed (33)` (R-PARE vale aqui também). Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
+Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  35 passed (35)` (R-PARE vale aqui também). Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
 
 - [ ] **Step 3: A F3.5a na CÓPIA e o merge (fast-forward) NA MESMA HORA — só com a Task 12 OK**
 
@@ -5467,6 +5831,7 @@ Expected: `feature/plan-tecido-a1`; a lista `commits de front que vão ao ar`; `
 | R12 | O `:5188` do dono congela nas rodadas com DDL na cópia | G-plano R5 | N3: aviso no chat + `n3.sh antes/depois` em toda rodada |
 | R13 | Volta de emergência da F1 deixa de fechar com a F3.5a em produção; deploy de front sem banco pronto | G-plano R8/R10 | `ref-volta-f1.sh` (por objetos, contagem medida) no Task 12 Step 4; `portao_deploy_f35a` no Task 13 Step 6 |
 | R15 | Mesma cor + apelido 2× no card (tecidos diferentes) ⇒ 1 SKU para as duas | F9; R1-a (5 pares na Loja Teste) | D7 ao dono (recomendado: mesmo SKU); teste "R1-a/D7"; variante B descrita |
+| R17 | D4: apelidos DIFERENTES sem sigla na mesma cor base dão o MESMO SKU | D4 decidida (cor base no lugar) | a 1ª linha grava, as outras caem em `conflito` "repetido neste produto" com o aviso "Falta sigla na cor apelido"; cadastrar a sigla + Regerar, ou SKU à mão (R3); teste "D4 (ciência)"; ciência ao dono (§2 D4) |
 | R16 | Regerar × SKU à mão ao mesmo tempo no mesmo card ⇒ deadlock | NOTA da reconferência | ordem única de travas (§3 T10): os dois pegam `sku_modelo:<modelo>` primeiro e fazem fila |
 | R14 | **Login/refresh de token esperam até ~3 s** durante a aplicação (as 4 policies acionam o hook `supautils.policy_grants`, que trava ~24 tabelas de auth/storage/realtime até o COMMIT) — em produção E na cópia | F21 (lição supautils) | policies POR ÚLTIMO (o hook segura o mínimo); `transaction_timeout` 3 s no próprio arquivo = teto; horário calmo; aviso ao dono no OK da Task 11 |
 
@@ -5476,12 +5841,12 @@ Seção "REF e SKUs" e "Tamanho em" nos cards (F3.5b — §10); migrar os 17 `sp
 
 ## 9. Autorrevisão e o que o planejador EXECUTOU (24/set, sem tocar `src/`/`supabase/`/banco)
 
-- **TS (refeito depois das ressalvas):** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **103/103 verdes**, `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco não local: **1 passed (o estático) | 32 skipped, zero conexão**; com `SKU_MIG_TXN=1` fora da cópia ela recusa na coleta.
-- **Front:** as edições das Tasks 7 e 9 (todas as âncoras 1×) + os 2 arquivos novos aplicados num espelho do HEAD `a044759`: **tsc limpo**; unit do repo **859 passed / 2 failed** — as 2 falhas são as HERDADAS do anti-drift de UI (`DocPrintCasca`/`OcDocumentoPrint`), nenhuma dos arquivos da F3.5a. Spec de QA: tsc limpo.
+- **TS (refeito depois das ressalvas):** `tamanho.ts`, `sku-montar.ts`, fixtures e unit rodaram num espelho descartável (scratchpad, `node_modules` por symlink): **111/111 verdes** (com a D4 decidida), `tsc --strict` limpo. A suíte de integração compilou (tsc) e carregou apontando para um banco não local: **1 passed (o estático) | 34 skipped, zero conexão**; com `SKU_MIG_TXN=1` fora da cópia ela recusa na coleta.
+- **Front:** as edições das Tasks 7 e 9 (todas as âncoras 1×) + os 2 arquivos novos aplicados num espelho do HEAD `a044759`: **tsc limpo**; unit do repo **867 passed / 2 failed** — as 2 falhas são as HERDADAS do anti-drift de UI (`DocPrintCasca`/`OcDocumentoPrint`), nenhuma dos arquivos da F3.5a. Spec de QA: tsc limpo.
 - **Merge com a F2:** `git merge-file` (base `a044759` × F3.5a × `f2/kanban-telas`) em `configuracoes.tsx`: **0 conflito**.
 - **SQL (não executado — nada foi aplicado em banco nenhum):** a montagem A → C → B foi feita por script exatamente como as Tasks 3–5 mandam (23 funções, 6 gatilhos, 1 `BEGIN;`/1 `COMMIT;`, as 2 travas logo depois do `BEGIN;`); **parser do Postgres 17** (libpg_query via `pglast` 8.4, num venv do scratchpad): migration (71 comandos) e inverso (41) parseiam, e os 18 corpos plpgsql + 5 corpos SQL + o `DO` também (controle negativo: um corpo com erro de sintaxe e um com SQL embutido quebrado são recusados); o `semTransacao` do harness da F3.1 **aceita** os 2 arquivos; as expressões de `_sku_norm_sigla`/`_sku_norm_ref`/`_sku_norm_manual` rodaram como SELECT só-leitura na cópia contra `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL` (todas batem) e a de `_sku_variante_key` devolve uuid; as consultas do `aplica.sh` (`OBJ_F35A`, `FN_PRE`, `CONT`) rodaram SÓ-LEITURA na cópia (`0|0|0|0`, `…|458`, `458|263`) e a `ACL_F35A` passou no `EXPLAIN`; as 3 consultas de objeto do pré-voo (R7) rodaram na cópia (`t|t|f` — a Nota ainda não está nela); a extração do `aplica_v2` do runbook da F1 foi conferida por hash; todos os scripts `bash -n` ok no `/bin/bash` 3.2.
 - **R6/R8 (scripts):** `falhas()`/`total()` do ensaio conferidos num log real do vitest (`861` e as 2 falhas herdadas); o padrão das chaves da F3.5a do `ref-volta-f1.sh` rodado sobre o retrato de fidelidade da cópia (3144 linhas, só leitura): **0 falso positivo**, e 22/22 chaves sintéticas da F3.5a (funções, gatilhos, colunas, índices, policies, `(rls)`) casam.
-- **Ressalvas:** R1–R10 + supautils + as 3 sugestões do guardião, e da reconferência R2-a, R1-a, R-PARE e as NOTAs (deadlock, mensagem) — mapa no §0. Depois delas o SQL foi PARSEADO de novo (os 18 corpos plpgsql ok) e a suíte compilou (tsc) e carregou sem banco: 1 passed | 32 skipped.
+- **Ressalvas:** R1–R10 + supautils + as 3 sugestões do guardião, e da reconferência R2-a, R1-a, R-PARE e as NOTAs (deadlock, mensagem) — mapa no §0. Depois delas o SQL foi PARSEADO de novo (os 18 corpos plpgsql ok) e a suíte compilou (tsc) e carregou sem banco: 1 passed | 34 skipped. Depois das decisões do dono (D4 nova), idem: SQL parseado (18 corpos plpgsql), TS 111/111, suíte 1 passed | 34 skipped, front 867 + 2 herdadas.
 - **Cobertura do pedido:** §4.1 inteira (incl. `tamanho_tipo` do modelo e do produto antes do espelho, `modelo_skus`), §4.2 (wrapper + `_core`, `salvar_sku_manual`, `montarSku`/`parseTamanho` com anti-drift × SQL), §4.3 F3.5a (Atributos e Config), §4.4; UNIQUE composta da linha + unicidade do SKU por gatilho (D5), RLS + modgate, REVOKE dos três com `has_function_privilege`; inverso com aviso de perda; testes: sem REF, falta sigla, manual preservado com `_regerar=true`, regerar só automáticos, conflito PT, réplica (D5), linha manual nova (R3), Salvar do produto/BOM pelas RPCs reais (R1), interno × revenda × importado, soltos, ACL, travas no arquivo; suítes vizinhas antes/depois no ensaio (R6); backup antes de aplicar na cópia; QA `:5180` com guarda invertida; snapshot antes do merge; G-migration; produção pelo dono com `pg_dump` e depois da F1/Aviso/Nota (conferidas por objeto); referência nova da volta da F1 (R8); deploy só pelo portão (R10).
 
 ## 10. Esboço — F3.5b (depois da F3.4; meia página)
@@ -5489,7 +5854,7 @@ Seção "REF e SKUs" e "Tamanho em" nos cards (F3.5b — §10); migrar os 17 `sp
 **Objetivo:** mostrar e operar os SKUs no card e escolher "Tamanho em". **Sem migration** (tudo o que precisa já vem da F3.5a).
 
 - **Consome da F3.5a:** `skus_modelo` (matriz: `status`, `tamanho_tipo`, `tamanho_tipo_card`, `linhas[].estado/sku/sku_previsto/faltas/conflito_com/id/rev/manual`, `faltas`), `gerar_skus_modelo(_id, _regerar)`, `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)` (linha sem `id` — conflito/falta/pendente — recebe SKU à mão pela tripla; R3), `normalizarSkuManual` (mesma mensagem do servidor), `textoFalta`, `ladoTamanho`/`parseTamanho`, `SKU_PARTE_LABEL`, `TAMANHO_UNICO`, as colunas `modelos.tamanho_tipo` e `produtos_*.tamanho_tipo` (com o handover por gatilho) e `tenant_config.sku_config.tamanho_padrao`.
-- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho (linha = cor base + apelido — R1; mesma cor 2× = 1 linha — D7) com o SKU editável em TODA linha, inclusive as sem `id`; `conflito` com `conflito_com` também em SKU já gravado (REF trocada — R2-a) (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`) / falta sigla / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
+- **Seção "REF e SKUs" no `PlanejamentoDetail`** (arquivos da F3.4 ⇒ nasce da ponta da F3.4): REF, "Tamanho em" (segmentado Letra | Número; NULL = "Padrão da loja (…)"), tabela Variante × Tamanho (linha = cor base + apelido — R1; mesma cor 2× = 1 linha — D7) com o SKU editável em TODA linha, inclusive as sem `id`; `conflito` com `conflito_com` também em SKU já gravado (REF trocada — R2-a) (linha `manual` marcada; P0409 pelo `mensagemErro`), linhas "Falta sigla: …" com link para Cadastro › Atributos, linhas `conflito`/`divergente`/`orfa` explicadas, botão "Regerar SKUs" com AlertDialog ("SKUs editados à mão não mudam"); selo: completo (tudo `ok|manual`, sem aviso) / falta sigla (há `faltas`: linha sem SKU) / **aviso** (só `avisos` — D4: SKU gerado com a cor base; "Falta sigla na cor apelido: <nome>" com link, e "Regerar" depois de cadastrar) / aguardando REF / sem formato. queryKey `["plan-skus", modeloId]` (sem "tenant"), invalidada depois de Salvar/Regerar/editar.
 - **1ª geração automática:** no fim do Salvar do Planejamento (`usePlanejamentoSave`), se o card tem REF, o formato existe e a matriz não tem nenhuma linha gravada ⇒ `gerar_skus_modelo(_id, false)` best-effort (nunca derruba o Salvar; toast de faltas/conflitos). Não roda a cada Salvar (Q2).
 - **"Tamanho em" nos cards:** Plan. Tecido (os cards são `modelos` — `update` com `rev`), Produto Acabado e Importado (com espelho: o do MODELO; sem espelho: o do produto — o gatilho passa ao modelo quando o card nasce); a grade exibida em todos segue `ladoTamanho(chave, tipo)`; a chave interna continua "34|PPP".
 - **A decidir na F3.5b:** Realtime de `modelo_skus` (hoje fora da publication), "voltar ao automático", auditoria.
