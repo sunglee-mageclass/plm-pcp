@@ -68,6 +68,7 @@ import { PrecoTabela } from "@/components/planejamento/planejamento-detail/Preco
 import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "@/components/planejamento/planejamento-detail/helpers";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
+import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { useFichaTecnica } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
@@ -252,6 +253,8 @@ function PlanejamentoDetailConteudo({
   // Revenda (Produto Acabado, Task 7): card revenda ganha campo de preço atacado + grade
   // cor×tamanho + atalhos pro planejador Produto Acabado — só quando o módulo está ligado.
   const paOn = isModuleEnabled("produto_acabado");
+  // F3.4 — Produto Importado (opt-in, `produto_importado`): Origem "Importado" no Select e a grade/seção do importado.
+  const piOn = isModuleEnabled("produto_importado");
   // isRevenda = ESPECÍFICO de revenda (edição de preço atacado/grade via `produtos_acabados`).
   // isComprado = revenda OU importado — a semântica "comprado vs fabricado" (esconder tecido/
   // custo/MO). Importado tem tela própria de edição (`criacao.produto-importado`), então aqui
@@ -544,13 +547,23 @@ function PlanejamentoDetailConteudo({
   // `planejamento-detail/useRevendaPlanejamento.ts` (texto movido). Chamado AQUI — antes dos effects
   // de seed de MO e de merge do colab, como antes (o seed da grade lê `revRef.current`).
   const revenda = useRevendaPlanejamento({
-    modeloId, isEdit, isRevenda, paOn, draft, baseRevendaMarkup, grupos, categorias,
-    tenantIdAtivo, revRef, qc, navigate, contexto, onClose,
+    modeloId, isEdit, isRevenda, paOn, draft, baseRevendaMarkup, categorias,
+    qc, navigate, contexto, onClose,
+  });
+  const { produtoRevenda } = revenda;
+  // F3.4 — grade cor × tamanho do COMPRADO (revenda E importado), fonte ÚNICA da grade do comprado (decisão F3 #4). Lê o
+  // produto da origem SALVA (a do servidor — a troca no Select só vale depois do Salvar). MESMA posição de antes (a grade
+  // saiu do `useRevendaPlanejamento`): antes dos effects de seed de MO e do merge do colab (o seed copia `revRef.current`).
+  // Nome `origemComprado` (não `origemSalva`) — rebase-cadeia F3.1 FINAL: evita colidir com o `origemSalva` do bloco
+  // "Mover para…" do kanban (F3.1 final, mais abaixo neste componente — mesmo nome, escopo/semântica diferentes).
+  const origemComprado = String((modeloData as any)?.origem ?? "interno");
+  const gradeComprado = useGradeComprado({
+    modeloId, isEdit, origem: origemComprado, moduloOn: origemComprado === "importado" ? piOn : paOn,
+    grupos, tenantIdAtivo, revRef,
   });
   const {
-    gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty,
-    produtoRevenda, buildLinhasGradeRevenda,
-  } = revenda;
+    gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty, buildLinhasGradeRevenda,
+  } = gradeComprado;
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
@@ -1430,7 +1443,7 @@ function PlanejamentoDetailConteudo({
               cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
               "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
           {vis.grade_revenda && (
-            <GradeRevendaSecao rv={revenda} numero={numeros.grade_revenda} />
+            <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} />
           )}
 
           {/* SETOR 5 — Anexos */}

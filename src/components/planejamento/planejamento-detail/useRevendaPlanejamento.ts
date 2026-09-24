@@ -1,20 +1,17 @@
-// Revenda (Produto Acabado) no detalhe do Planejamento: produto vinculado, markups e preços fixos,
-// grade cor×tamanho e "criar produto acabado". Extraído na F3.0 (set/2026) de `PlanejamentoDetail.tsx`
-// SEM mudança de comportamento: o corpo abaixo é o texto MOVIDO como estava (mesmas queryKeys,
-// mesmas RPCs, mesma ordem relativa de hooks). ORDEM IMPORTA: o orquestrador chama este hook ANTES
-// dos effects de seed de MO e de merge do colab — o seed da grade copia `revRef.current` (igual a
-// antes). A F3.4 (comprado / grade única) mexe aqui.
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+// Revenda (Produto Acabado) no detalhe do Planejamento: produto vinculado, markups e preços fixos e "criar produto
+// acabado". Extraído na F3.0 (set/2026) de `PlanejamentoDetail.tsx` SEM mudança de comportamento (mesmas queryKeys, mesmas
+// RPCs, mesma ordem relativa de hooks). F3.4: a GRADE cor×tamanho SAIU daqui para `useGradeComprado.ts` (texto movido —
+// agora vale p/ revenda E importado, decisão F3 #4); aqui ficou só o que é da REVENDA (preço atacado/varejo por
+// `produtos_acabados` e criar o produto).
+import { useRef, useState } from "react";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { markupDePreco } from "@/lib/preco-revenda";
 import { supabase } from "@/integrations/supabase/client";
-import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { erroValidacao } from "@/components/produto-acabado/shared";
-import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
-import { type Opt, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
+import { type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 
 export type UseRevendaPlanejamentoArgs = {
   modeloId: string | null;
@@ -24,11 +21,7 @@ export type UseRevendaPlanejamentoArgs = {
   draft: Draft;
   /** custo previsto + M.O. ao vivo (calculado no orquestrador, bloco de preço). */
   baseRevendaMarkup: number;
-  grupos: Opt[];
   categorias: CatOpt[];
-  tenantIdAtivo: string;
-  /** rev otimista do header (colab) — o seed da grade copia `revRef.current`. Passar o REF, não o valor. */
-  revRef: RefObject<number | null>;
   qc: QueryClient;
   navigate: ReturnType<typeof useNavigate>;
   contexto: "planejamento" | "produto-acabado";
@@ -36,30 +29,12 @@ export type UseRevendaPlanejamentoArgs = {
 };
 
 export function useRevendaPlanejamento({
-  modeloId, isEdit, isRevenda, paOn, draft, baseRevendaMarkup, grupos, categorias,
-  tenantIdAtivo, revRef, qc, navigate, contexto, onClose,
+  modeloId, isEdit, isRevenda, paOn, draft, baseRevendaMarkup, categorias,
+  qc, navigate, contexto, onClose,
 }: UseRevendaPlanejamentoArgs) {
-  // Grade cor×tamanho (revenda, Task 7) — declarado aqui (cedo) só o estado/refs, pra entrar
-  // no `dirty` combinado abaixo; a query/efeito de seed e os handlers ficam mais abaixo, perto
-  // do resto do cálculo de preço/produto vinculado (closures sobre o mesmo state, ordem de
-  // hooks não muda entre renders).
-  const [gradeRevenda, setGradeRevenda] = useState<Record<number, Record<string, number>>>({});
-  const gradeRevendaSeededRef = useRef(false);
-  const gradeRevendaBaseRef = useRef("{}");
-  // Trava otimista da grade (fast-follow, fecha o last-write-wins do antigo delete+insert cru):
-  // rev de `modelos` capturado no momento em que a grade foi LIDA do servidor (seed inicial OU
-  // recarga após P0409) — INDEPENDENTE de `revRef` (o rev do header, que o retry dele mesmo já
-  // resincroniza sozinho). O Salvar compara ESTE valor contra o rev atual dentro de
-  // `salvar_grade_revenda` — se comparasse com `revRef.current`, um retry automático do header
-  // (que não sabe nada de `gradeRevenda`) reenviaria a grade PARADA sem notar que ela ficou
-  // desatualizada (ver comentário no `save` mutation).
-  const gradeRevendaRevRef = useRef<number | null>(null);
-  const gradeRevendaDirty = gradeRevendaSeededRef.current && JSON.stringify(gradeRevenda) !== gradeRevendaBaseRef.current;
-
   // Produto Acabado vinculado a este modelo (revenda, Task 7) — embed REVERSO
-  // (`produtos_acabados.modelo_id`): rótulo de variante "cor · apelido" (mesmo padrão do
-  // planejador Produto Acabado, Task 6) + grade_proporcao (tamanhos ativos) + grupo (p/
-  // `ehGrupoAcessorio`, grade em coluna única "UN").
+  // (`produtos_acabados.modelo_id`): markups/preços fixos do produto. (F3.4: variantes/proporção/grupo da GRADE
+  // passaram a ser lidos por `useGradeComprado`, por origem.)
   const { data: produtoRevenda, isLoading: produtoRevendaLoading } = useQuery({
     queryKey: ["pa-produto-modelo", modeloId],
     enabled: isEdit && !!modeloId && isRevenda && paOn,
@@ -177,74 +152,6 @@ export function useRevendaPlanejamento({
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o preço.")),
   });
-  const grupoRevendaNome = grupos.find((g) => g.id === produtoRevenda?.grupo_id)?.nome ?? null;
-  const acessorioRevenda = ehGrupoAcessorio(grupoRevendaNome);
-  // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
-  // Produto Acabado (Task 6); colunas da grade = interseção com `grade_proporcao`.
-  const { data: tenantTamanhosRevenda = DEFAULT_TAMANHOS } = useQuery({
-    queryKey: ["tenant-config-tamanhos-planejamento", tenantIdAtivo],
-    enabled: !!tenantIdAtivo && isRevenda && paOn,
-    queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantIdAtivo).maybeSingle();
-      const raw = (data as any)?.tamanhos_grade;
-      return Array.isArray(raw) && raw.length > 0 ? raw.map(String) : DEFAULT_TAMANHOS;
-    },
-  });
-  const variantesRevenda = useMemo(
-    () => [...(produtoRevenda?.variantes ?? [])].sort((a, b) => a.ordem - b.ordem),
-    [produtoRevenda],
-  );
-  const tamanhosRevenda = useMemo(() => {
-    if (acessorioRevenda) return ["UN"];
-    const prop = produtoRevenda?.grade_proporcao ?? {};
-    return tenantTamanhosRevenda.filter((t) => Object.prototype.hasOwnProperty.call(prop, t));
-  }, [acessorioRevenda, produtoRevenda, tenantTamanhosRevenda]);
-
-  // Grade cor×tamanho (revenda, Task 7) — lê/grava `modelo_grades` (variante_numero=ordem).
-  // Estado/refs já declarados mais acima (perto do `dirty` combinado); aqui só a query de
-  // leitura + o efeito de seed (1× por abertura do card — o Dialog nasce/some por inteiro a
-  // cada abrir/fechar, ver render do pai — então nunca perde edição de um refetch em BG).
-  const { data: gradeModeloRows } = useQuery({
-    queryKey: ["modelo-grades-revenda", modeloId],
-    enabled: isEdit && !!modeloId && isRevenda && paOn,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("modelo_grades")
-        .select("variante_numero, grades, grade_total")
-        .eq("modelo_id", modeloId as string);
-      if (error) throw error;
-      return (data ?? []) as { variante_numero: number; grades: Record<string, number> | null; grade_total: number }[];
-    },
-  });
-  useEffect(() => {
-    if (!gradeModeloRows || gradeRevendaSeededRef.current) return;
-    const seeded: Record<number, Record<string, number>> = {};
-    for (const r of gradeModeloRows) seeded[r.variante_numero] = { ...(r.grades ?? {}) };
-    setGradeRevenda(seeded);
-    gradeRevendaBaseRef.current = JSON.stringify(seeded);
-    // Best-effort: `revRef` já deve estar semeado a essa altura (a query de `modelo` carrega
-    // em paralelo, sem dependência entre as duas) — se ainda estiver null (corrida rara), o
-    // 1º Salvar cai no bypass (`_rev_base: null`); qualquer conflito de verdade continua pego
-    // pelo retry do header, que dispara a recarga da grade via `gradeConflict`.
-    gradeRevendaRevRef.current = revRef.current;
-    gradeRevendaSeededRef.current = true;
-  }, [gradeModeloRows]);
-  const setCelulaGradeRevenda = (ordem: number, tam: string, v: number) =>
-    setGradeRevenda((prev) => ({ ...prev, [ordem]: { ...(prev[ordem] ?? {}), [tam]: Math.max(0, Math.trunc(v) || 0) } }));
-  const totalLinhaRevenda = (ordem: number) =>
-    Object.values(gradeRevenda[ordem] ?? {}).reduce((s, v) => s + (Number(v) || 0), 0);
-  const totalColunaRevenda = (tam: string) =>
-    variantesRevenda.reduce((s, v) => s + (Number(gradeRevenda[v.ordem]?.[tam]) || 0), 0);
-  const totalGeralRevenda = variantesRevenda.reduce((s, v) => s + totalLinhaRevenda(v.ordem), 0);
-  // Payload da grade p/ `salvar_grade_revenda` — estado COMPLETO (linha ausente = apagada no
-  // servidor); usado nos dois pontos de chamada (edição e criação) do `save` mutation abaixo.
-  const buildLinhasGradeRevenda = () =>
-    Object.entries(gradeRevenda).map(([ordem, grades]) => ({
-      variante_numero: Number(ordem),
-      grades,
-      grade_total: Object.values(grades).reduce((s, v) => s + (Number(v) || 0), 0),
-    }));
-
   // "criar produto acabado" (revenda sem produto vinculado, Task 7): INSERT em
   // produtos_acabados herdando identidade do modelo (grupo derivado de
   // categorias_produto.grupo_id — `modelos` não tem grupo_id próprio) + vincula
@@ -296,15 +203,12 @@ export function useRevendaPlanejamento({
   });
 
   return {
-    gradeRevenda, setGradeRevenda, gradeRevendaBaseRef, gradeRevendaRevRef, gradeRevendaDirty,
     produtoRevenda, produtoRevendaLoading,
     markupAtacadoInput, setMarkupAtacadoInput, markupVarejoInput, setMarkupVarejoInput,
     markupAtacadoBaseRef, markupVarejoBaseRef,
     precoAtacadoDraft, setPrecoAtacadoDraft, precoVarejoDraft, setPrecoVarejoDraft,
     salvarMarkupsRevenda, salvarPrecosFixoRevenda,
-    variantesRevenda, tamanhosRevenda,
-    setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
-    buildLinhasGradeRevenda, criarProdutoAcabado,
+    criarProdutoAcabado,
   };
 }
 

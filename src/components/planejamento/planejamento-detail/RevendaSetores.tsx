@@ -1,9 +1,8 @@
-// Blocos de REVENDA do detalhe do Planejamento (Produto Acabado): preço (markups + preços fixos),
-// seção "Produto Acabado" (vínculo / criar) e seção "Grade" cor×tamanho. Extraídos na F3.0 (set/2026)
-// de `PlanejamentoDetail.tsx` SEM mudança de comportamento: o JSX de cada bloco foi MOVIDO como
-// estava; o estado vem de `useRevendaPlanejamento` (prop `rv`) e é desestruturado com os MESMOS nomes
-// de antes. Componentes de nível de MÓDULO de propósito — declarados dentro do orquestrador, eles
-// remontariam a cada render e o input perderia o foco.
+// Blocos de PRODUTO COMPRADO do detalhe do Planejamento: preço da revenda (markups + preços fixos), seção "Produto
+// Acabado"/"Produto Importado" (vínculo) e seção "Grade" cor×tamanho. Extraídos na F3.0 de `PlanejamentoDetail.tsx` SEM
+// mudança de comportamento; F3.4: a grade passa a valer p/ revenda E importado (`useGradeComprado`, decisão F3 #4) e o
+// importado ganha a seção do produto. Componentes de nível de MÓDULO de propósito — declarados dentro do orquestrador,
+// eles remontariam a cada render e o input perderia o foco.
 import { ExternalLink, PackagePlus } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -16,6 +15,8 @@ import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/campos";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
+import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
+import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
 export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
@@ -160,62 +161,104 @@ export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero }
   );
 }
 
-/** Seção "Grade" cor×tamanho do card revenda (lê/grava `modelo_grades` pelo Salvar da página). */
-export function GradeRevendaSecao({ rv, numero }: { rv: RevendaPlanejamento; numero?: number }) {
-  const {
-    gradeRevenda, variantesRevenda, tamanhosRevenda,
-    setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
-  } = rv;
+/** F3.4 — Seção "Produto Importado" do card importado (espelho da "Produto Acabado"): vínculo + atalho ⧉. Sem botão de criar —
+ *  o Salvar cria o produto sozinho (plano F3.4 D1). MESMA chave de seção `produto_acabado` (numeração/abertura). */
+export function ProdutoImportadoSecao({ gc, numero, navigate }: {
+  gc: GradeComprado; numero?: number; navigate: ReturnType<typeof useNavigate>;
+}) {
   return (
-            <Secao id="grade_revenda" titulo="Grade" numero={numero} defaultOpen={false}>
-              {variantesRevenda.length === 0 ? (
+            <Secao id="produto_acabado" titulo="Produto Importado" numero={numero} defaultOpen={false}>
+              {gc.produtoLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando…</p>
+              ) : gc.produto ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-sm text-muted-foreground">Este modelo está vinculado a um produto importado.</p>
+                  <Button
+                    type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
+                    onClick={() => navigate({ to: "/criacao/produto-importado", search: gc.produto?.colecao_id ? ({ colecao: gc.produto.colecao_id } as any) : ({} as any) })}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> Ver no Produto Importado
+                  </Button>
+                </div>
+              ) : (
                 <p className="text-sm text-muted-foreground">
-                  O produto vinculado ainda não tem variantes de cor — cadastre-as no Produto Acabado.
+                  Nenhum produto importado vinculado ainda. Ao salvar (com Grupo e Categoria preenchidos), o sistema cria o produto no Produto Importado — câmbio, variantes e etapas você completa lá.
+                </p>
+              )}
+            </Secao>
+  );
+}
+
+/** Seção "Grade" cor×tamanho do card COMPRADO (revenda e importado — F3.4, decisão F3 #4: a fonte ÚNICA da grade do
+ *  comprado). Edita o rascunho de `useGradeComprado`; o Salvar grava (revenda: `salvar_grade_revenda`; importado: junto
+ *  com o BOM — plano F3.4 §3). `motivoSomenteLeitura`: texto do porquê de não editar (ou null = editável). */
+export function GradeRevendaSecao({ gc, numero, selo, motivoSomenteLeitura = null }: {
+  gc: GradeComprado; numero?: number; selo?: ReactNode; motivoSomenteLeitura?: string | null;
+}) {
+  const {
+    origem, produto, gradeRevenda, variantesRevenda, tamanhosRevenda,
+    setCelulaGradeRevenda, totalLinhaRevenda, totalColunaRevenda, totalGeralRevenda,
+  } = gc;
+  const tela = origem === "importado" ? "Produto Importado" : "Produto Acabado";
+  return (
+            <Secao id="grade_revenda" titulo="Grade" numero={numero} selo={selo} defaultOpen={false}>
+              {!produto ? (
+                <p className="text-sm text-muted-foreground">
+                  Este card ainda não tem produto vinculado. Salve o card (com Grupo e Categoria) para o sistema criá-lo no {tela}.
+                </p>
+              ) : variantesRevenda.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  O produto vinculado ainda não tem variantes de cor — cadastre-as no {tela}.
                 </p>
               ) : tamanhosRevenda.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Defina a proporção de tamanhos deste produto no Produto Acabado antes de preencher a grade.
+                  Defina a proporção de tamanhos deste produto no {tela} antes de preencher a grade.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 text-left">
-                      <tr>
-                        <th className="px-3 py-2">Variante</th>
-                        {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
-                        <th className="px-3 py-2 text-right font-semibold">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variantesRevenda.map((v) => (
-                        <tr key={v.ordem} className="border-t">
-                          <td className="px-3 py-2">{varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome })}</td>
-                          {tamanhosRevenda.map((t) => (
-                            <td key={t} className="px-3 py-1.5 text-right">
-                              <NumberInput
-                                integer
-                                blankZero
-                                placeholder="0"
-                                className="h-8 w-20 text-right ml-auto"
-                                value={gradeRevenda[v.ordem]?.[t] ?? 0}
-                                data-colab-path={`grade-revenda:${v.ordem}:${t}`}
-                                onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
-                              />
-                            </td>
+                <>
+                  {motivoSomenteLeitura && <p className="text-xs text-muted-foreground">{motivoSomenteLeitura}</p>}
+                  <fieldset disabled={!!motivoSomenteLeitura} className="contents">
+                    <div className="overflow-x-auto rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/50 text-left">
+                          <tr>
+                            <th className="px-3 py-2">Variante</th>
+                            {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
+                            <th className="px-3 py-2 text-right font-semibold">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {variantesRevenda.map((v) => (
+                            <tr key={v.ordem} className="border-t">
+                              <td className="px-3 py-2">{varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome })}</td>
+                              {tamanhosRevenda.map((t) => (
+                                <td key={t} className="px-3 py-1.5 text-right">
+                                  <NumberInput
+                                    integer
+                                    blankZero
+                                    placeholder="0"
+                                    className="h-8 w-20 text-right ml-auto"
+                                    value={gradeRevenda[v.ordem]?.[t] ?? 0}
+                                    data-colab-path={`grade-revenda:${v.ordem}:${t}`}
+                                    onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
+                                  />
+                                </td>
+                              ))}
+                              <td className="px-3 py-2 text-right font-medium tabular-nums">{totalLinhaRevenda(v.ordem)}</td>
+                            </tr>
                           ))}
-                          <td className="px-3 py-2 text-right font-medium tabular-nums">{totalLinhaRevenda(v.ordem)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t bg-muted/30 font-medium">
-                        <td className="px-3 py-2">Total</td>
-                        {tamanhosRevenda.map((t) => <td key={t} className="px-3 py-2 text-right tabular-nums">{totalColunaRevenda(t)}</td>)}
-                        <td className="px-3 py-2 text-right tabular-nums">{totalGeralRevenda}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t bg-muted/30 font-medium">
+                            <td className="px-3 py-2">Total</td>
+                            {tamanhosRevenda.map((t) => <td key={t} className="px-3 py-2 text-right tabular-nums">{totalColunaRevenda(t)}</td>)}
+                            <td className="px-3 py-2 text-right tabular-nums">{totalGeralRevenda}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </fieldset>
+                </>
               )}
             </Secao>
   );
