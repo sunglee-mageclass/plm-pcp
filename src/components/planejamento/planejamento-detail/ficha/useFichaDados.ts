@@ -119,6 +119,11 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
   });
 
   // ── BOM do modelo (Dev :433-514) ──
+  // `bomFetching` (I2, fix round 1): as 5 queries do BOM resolvem em commits separados; a carga da
+  // Ficha (`useFichaBom`) espera TODAS ficarem estáveis (nenhuma em refetch) antes de hidratar ou
+  // comparar — mesma receita do gate do CAD no Dev (`ModeloDetailPanel.tsx:1047-1054`,
+  // `cadRowDevFetching || tecidosDataFetching`). Sem isso, um refetch parcial re-hidrata coleções com
+  // o cache velho das outras (sem toque) ou compara um BOM MISTO (com toque, `aoRecarregarComTocado`).
   const qTecidos = useQuery({
     queryKey: ["plan-ficha-tecidos", modeloId],
     enabled: on,
@@ -202,6 +207,9 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
       return (data ?? []) as unknown as GradeRowDb[];
     },
   });
+  // I2 — em refetch (foco/invalidação) TODAS as 5 precisam assentar antes da carga mexer no estado.
+  const bomFetching = qTecidos.isFetching || qOcLinks.isFetching || qAviamentosModelo.isFetching
+    || qEtiquetasModelo.isFetching || qGrades.isFetching;
   // Condições do kanban no estado SALVO (selos por requisito — Dev :283-291).
   const qCondicoes = useQuery({
     queryKey: ["plan-ficha-condicoes", modeloId],
@@ -273,6 +281,7 @@ export function useFichaDados({ modeloId, habilitada }: { modeloId: string | nul
     etiquetasData: qEtiquetasModelo.data,
     etiquetasDataRef,
     gradesData: qGrades.data,
+    bomFetching,
     condicoes: qCondicoes.data ?? SEM_CONDICOES,
     cadExiste: !!qCad.data?.id,
     cadFetched: qCad.isSuccess,

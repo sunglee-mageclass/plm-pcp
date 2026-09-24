@@ -46,6 +46,31 @@ export function snapshotBom(e: EstadoBom): string {
   }
 }
 
+// ── Decisão da carga (F3.2, fix round 1 — I1/I2) ─────────────────────────────────────────────
+/**
+ * "Hidrata agora?" — extraída de `useFichaBom` (o efeito único de carga) p/ ser testável sem
+ * montar hooks. As 5 queries do BOM podem resolver em commits separados (`bomFetching`); com
+ * QUALQUER uma delas em refetch, a carga não deve mexer no estado (nem hidratar, nem comparar
+ * com `aoRecarregarComTocado`) — senão mistura o cache velho de umas com o novo de outra. Regras,
+ * em ordem: desabilitada ⇒ não; alguma query em refetch ⇒ não; algum dos 5 arrays de dados ainda
+ * não chegou (`undefined`, primeira carga) ⇒ não; senão ⇒ sim (o chamador decide comparar
+ * [tocado] ou hidratar [não tocado] — os dois ramos exigem o BOM estável).
+ */
+export function deveHidratarCarga(i: {
+  habilitada: boolean;
+  bomFetching: boolean;
+  tecidosData: unknown;
+  ocLinksData: unknown;
+  aviamentosData: unknown;
+  etiquetasData: unknown;
+  gradesData: unknown;
+}): boolean {
+  if (!i.habilitada) return false;
+  if (i.bomFetching) return false;
+  if (!i.tecidosData || !i.ocLinksData || !i.aviamentosData || !i.etiquetasData || !i.gradesData) return false;
+  return true;
+}
+
 // ── Carga (Dev :870-946, :948-957, :976-984, :1029-1038) ────────────────────────────────────
 export function hidratarBlocos(i: {
   tecidos: TecidoRowDb[];

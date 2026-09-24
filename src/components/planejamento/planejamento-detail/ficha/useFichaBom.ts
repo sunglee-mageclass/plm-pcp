@@ -13,7 +13,7 @@
 //    com a referência do usuário (`aoRecarregarComTocado` → o orquestrador acende "Tecidos & BOM" se divergir). O Dev só
 //    retorna — tem o mesmo buraco, que fica lá (decisão travada 8; aviso ao dono no plano, §7 D5).
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { distribuiAncora, distribuiTotal, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
 import {
@@ -23,7 +23,7 @@ import {
 } from "@/components/desenvolvimento/modelo-detail/types";
 import type { Draft } from "@/components/planejamento/modelo-shared";
 import {
-  estadoBomDoServidor, herdarGrades, hidratarAviamentos, hidratarBlocos, hidratarEtiquetas, hidratarGrades,
+  deveHidratarCarga, estadoBomDoServidor, herdarGrades, hidratarAviamentos, hidratarBlocos, hidratarEtiquetas, hidratarGrades,
   relevantArtigoIds, tecido1VarianteIds as calcTecido1VarianteIds,
   type EstadoBom, type FlagsBom,
 } from "./ficha-calc";
@@ -55,6 +55,9 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   const [gradeAuto, setGradeAuto] = useState(true);
   const [hidratado, setHidratado] = useState(false);
   const [hidratarTick, setHidratarTick] = useState(0);
+  // I1 (fix round 1) — incrementado a cada carga bem-sucedida; entra nas deps dos 3 efeitos de
+  // recálculo de preço (ver comentário na seção de Carga abaixo).
+  const [cargaSeq, setCargaSeq] = useState(0);
   // "Apagar grade preenchida?" — ação adiada até confirmar (Dev :659-661, :3221-3237).
   const [confirmGrade, setConfirmGrade] = useState<ConfirmGrade>(null);
   // Destaque do "Importar dados" (o diálogo é da F3.3; o estado já nasce aqui p/ as seções).
@@ -86,6 +89,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     colecoesTouchadasRef.current = false;
     setTocado(false);
     flagsRef.current = FLAGS_ZERO;
+    setCargaSeq(0);
   }, [modeloId]);
 
   // Variante → artigo dos pools (Dev :776-803): alimenta substitutos órfãos e o custo pelo maior preço.
@@ -100,6 +104,11 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   const qVarianteArtigo = useQuery({
     queryKey: ["plan-ficha-variante-artigo", relevantes.join(",")],
     enabled: habilitada && relevantes.length > 0,
+    // I3 (fix round 1): a key muda a cada artigo novo do bloco (`relevantes` deriva de `blocks`) e sem
+    // isto a query desmonta/remonta (isLoading) a cada troca — as seções que dependem do mapa somem por
+    // um instante ("Carregando…") e um Salvar nessa janela perde a edição. Mantém o mapa ANTERIOR
+    // visível enquanto o novo artigo resolve (TanStack v5).
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.from("variantes_tecido").select("id, artigo_id").in("artigo_id", relevantes);
       if (error) throw error;
@@ -113,11 +122,27 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   const varianteArtigoMapRef = useRef(varianteArtigoMap);
   varianteArtigoMapRef.current = varianteArtigoMap;
 
-  // ── Carga (Dev :870-957, :976-984, :1029-1038) ── só com as 5 queries prontas e NADA tocado.
+  // ── Carga (Dev :870-957, :976-984, :1029-1038) ── só com as 5 queries prontas, ESTÁVEIS e NADA tocado.
+  // `cargaSeq` (I1, fix round 1): incrementado a cada carga bem-sucedida (ramo sem toque). Entra nas
+  // deps dos 3 efeitos de recálculo de preço abaixo — sem ele, do 2º card em diante o recompute só
+  // dispara se a query da PRÓPRIA coleção mudou no MESMO commit da carga; se `artigoMap`/`aviamentoMap`/
+  // `etiquetaMap`/`frozenPrecos` já estavam quentes no cache (2º card do mesmo catálogo), a carga hidrata
+  // com `custo_previsto` CRU do banco e nenhum efeito recalcula. O Dev resolve isso fazendo hidratação e
+  // recálculo dependerem da MESMA query (`ModeloDetailPanel.tsx:959-965`, `:986-999`, `:1010-1017` — o
+  // próprio array de dados hidratado é a dependência); aqui a carga é 1 efeito único com 5 fontes, então
+  // um contador dedicado que muda toda vez que ela roda cobre o mesmo caso.
   const planejadosKey = JSON.stringify(tecidosPlanejados ?? []);
   useEffect(() => {
-    if (!habilitada) return;
+    // I2 (fix round 1) — as 5 queries do BOM resolvem em commits separados; com QUALQUER uma em
+    // refetch, a carga espera (mesma receita do gate do CAD no Dev, `:1047-1054`,
+    // `cadRowDevFetching || tecidosDataFetching`; extraída em `deveHidratarCarga`, ficha-calc.ts,
+    // p/ ser testável). Sem isto: (a) sem toque, um refetch parcial re-hidrata com o cache VELHO
+    // das outras 4 — a tela volta ao estado de antes por um instante, e uma edição nessa janela faz
+    // o Salvar seguinte gravar o dado velho; (b) com toque, `aoRecarregarComTocado` recebe um BOM
+    // MISTO (novo+velho) e acende um conflito "Tecidos & BOM" falso.
     const { tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData } = dados;
+    if (!deveHidratarCarga({ habilitada, bomFetching: dados.bomFetching, tecidosData, ocLinksData, aviamentosData, etiquetasData, gradesData })) return;
+    // Narrowing local p/ o TS (deveHidratarCarga já garante isto em runtime — ela é a fonte da decisão).
     if (!tecidosData || !ocLinksData || !aviamentosData || !etiquetasData || !gradesData) return;
     // Colab: com alguma coleção tocada NÃO sobrescreve — mas COMPARA (R5a do re-check do guardião). O `aoMudarNoServidor`
     // só confere quando o rev chega com o BOM JÁ tocado; se o rev chegou com o BOM INTOCADO (ele só invalidou) e o usuário
@@ -137,11 +162,13 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     setEtiquetasState(hidratarEtiquetas(etiquetasData));
     setGrades(hidratarGrades(gradesData));
     setHidratado(true);
+    setCargaSeq((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habilitada, dados.tecidosData, dados.ocLinksData, dados.aviamentosData, dados.etiquetasData, dados.gradesData, planejadosKey, hidratarTick]);
+  }, [habilitada, dados.bomFetching, dados.tecidosData, dados.ocLinksData, dados.aviamentosData, dados.etiquetasData, dados.gradesData, planejadosKey, hidratarTick]);
 
   // Preços chegam DEPOIS da carga (Dev :959-1027): recalcula SÓ custo_previsto. Guarda de mapa vazio +
-  // guarda de no-op (só troca o array se algum custo mudou) — sem ciclo.
+  // guarda de no-op (só troca o array se algum custo mudou) — sem ciclo. `cargaSeq` nas deps (I1): garante
+  // que TODA carga (inclusive quando o preço já estava em cache) dispara o recompute — ver comentário acima.
   useEffect(() => {
     if (Object.keys(dados.aviamentoMap).length === 0) return;
     setAviamentosState((rows) => {
@@ -149,7 +176,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       const next = rows.map((r) => recomputeAviamento(r, dados.aviamentoMap));
       return next.some((r, i) => r.custo_previsto !== rows[i].custo_previsto) ? next : rows;
     });
-  }, [dados.aviamentoMap, dados.aviamentosData, hidratarTick]);
+  }, [dados.aviamentoMap, dados.aviamentosData, cargaSeq, hidratarTick]);
   useEffect(() => {
     if (Object.keys(dados.etiquetaMap).length === 0) return;
     setEtiquetasState((rows) => {
@@ -157,7 +184,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       const next = rows.map((r) => recomputeEtiqueta(r, dados.etiquetaMap));
       return next.some((r, i) => r.custo_previsto !== rows[i].custo_previsto) ? next : rows;
     });
-  }, [dados.etiquetaMap, dados.etiquetasData, hidratarTick]);
+  }, [dados.etiquetaMap, dados.etiquetasData, cargaSeq, hidratarTick]);
   useEffect(() => {
     if (Object.keys(dados.artigoMap).length === 0) return;
     setBlocks((bs) => {
@@ -166,7 +193,7 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       const next = bs.map((b) => recomputeBlock(b, dados.artigoMap, varianteArtigoMap, dados.frozenPrecos));
       return next.some((b, i) => b.custo_previsto !== bs[i].custo_previsto) ? next : bs;
     });
-  }, [dados.artigoMap, varianteArtigoMap, dados.frozenPrecos, dados.tecidosData, hidratarTick]);
+  }, [dados.artigoMap, varianteArtigoMap, dados.frozenPrecos, dados.tecidosData, cargaSeq, hidratarTick]);
 
   // Herança de grade (Dev :1441-1468): variante nova do Tecido 1 herda a grade da 1ª. Monotônica.
   const tecido1VarianteIds = useMemo(() => calcTecido1VarianteIds(blocks), [blocks]);
@@ -205,7 +232,9 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       if (hasGrade) {
         setConfirmGrade({
           msg: "Trocar o Tecido 1 vai apagar a grade preenchida. Continuar?",
-          onConfirm: () => { setGrades([]); marcarFlag("grade"); applyPatch(); },
+          // m2 (fix round 1): reforça o tocado no próprio onConfirm — a confirmação roda depois,
+          // desacoplada do clique que abriu o diálogo; não confia só no marcarTocado() do topo do handler.
+          onConfirm: () => { marcarTocado(); setGrades([]); marcarFlag("grade"); applyPatch(); },
         });
         return;
       }
@@ -242,6 +271,8 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
       // Remover variante do Tecido 1 renumera as cores: a grade SEGUE a variante (v3 vira v2).
       const numeroRemovido = vIdx + 1;
       const remapEAplicar = () => {
+        // m2 (fix round 1): reforça o tocado — mesmo motivo do updateBlock acima.
+        marcarTocado();
         setGrades((gs) => remapGradesAposRemocao(gs, numeroRemovido));
         marcarFlag("grade");
         applyChange();

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeEmptyBlocks, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
 import {
-  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, estadoBomDoServidor,
+  artigosTecidoPrincipais, assinaturaBom, blocosTecidosIniciais, bomDivergeDaReferencia, deveHidratarCarga, estadoBomDoServidor,
   herdarGrades, hidratarBlocos, hidratarGrades,
   montarAviamentosPayload, montarGradesPayload, montarTecidosPayload, paresComplementares, pecaCom, planoEtiquetas,
   relevantArtigoIds, resumoBom, snapshotBom, tecido1VarianteIds, tecido1VariantesInfo,
@@ -355,5 +355,56 @@ describe("M1 — falso positivo pós-Salvar (referência = ENVIADO × eco normal
     const referencia = assinaturaBom(enviado);
     const outro: EstadoBom = { ...enviado, grades: [{ variante_numero: 1, grades: { P: 10 }, grade_total: 10 }, { variante_numero: 2, grades: { P: 4 }, grade_total: 4 }] };
     expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+
+  // Contraponto do caso (b) acima: lá o slot SEM variante escondia o multiplicador/casamento velhos
+  // (o RPC nunca os lê) e por isso não divergia. COM variante no slot, o RPC LÊ e grava os dois — uma
+  // mudança real neles tem que ser capturada pela assinatura (`slotsDoBloco`), senão o guardião perde
+  // um conflito de verdade.
+  it("mudança REAL de multiplicador num slot COM variante (complementar) continua divergindo", () => {
+    const fo: TecidoBlock = {
+      ...makeEmptyBlocks().find((b) => b.tipo === "forro" && b.numero === 1)!,
+      artigo_id: F, variantes: slots([VF], null), multiplicadores: slots([2], 1),
+    };
+    const enviado: EstadoBom = { blocks: [blocoT1([V1]), fo], aviamentos: [], etiquetas: [], grades: [] };
+    const referencia = assinaturaBom(enviado);
+    const outro: EstadoBom = { ...enviado, blocks: [enviado.blocks[0], { ...fo, multiplicadores: slots([5], 1) }] };
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+
+  it("mudança REAL de casamento num slot COM variante (complementar) continua divergindo", () => {
+    const fo: TecidoBlock = {
+      ...makeEmptyBlocks().find((b) => b.tipo === "forro" && b.numero === 1)!,
+      artigo_id: F, variantes: slots([VF], null), complementas: slots<string[] | null>([[V1]], null),
+    };
+    const enviado: EstadoBom = { blocks: [blocoT1([V1, V2]), fo], aviamentos: [], etiquetas: [], grades: [] };
+    const referencia = assinaturaBom(enviado);
+    const outro: EstadoBom = { ...enviado, blocks: [enviado.blocks[0], { ...fo, complementas: slots<string[] | null>([[V2]], null) }] };
+    expect(bomDivergeDaReferencia(referencia, ecoDoServidor(outro))).toBe(true);
+  });
+});
+
+// I1/I2 (fix round 1) — "hidrata agora?" extraída de useFichaBom p/ ser testável sem montar hooks.
+describe("deveHidratarCarga — só com as 5 queries prontas, ESTÁVEIS e a Ficha habilitada", () => {
+  const prontas = { tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] };
+
+  it("tudo pronto e estável ⇒ hidrata", () => {
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas })).toBe(true);
+  });
+  it("desabilitada ⇒ não hidrata, mesmo com tudo pronto", () => {
+    expect(deveHidratarCarga({ habilitada: false, bomFetching: false, ...prontas })).toBe(false);
+  });
+  it("I2: QUALQUER uma das 5 em refetch (bomFetching) ⇒ não hidrata, mesmo com dados prontos", () => {
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: true, ...prontas })).toBe(false);
+  });
+  it("1ª carga: algum dos 5 arrays ainda undefined ⇒ não hidrata", () => {
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas, gradesData: undefined })).toBe(false);
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas, tecidosData: undefined })).toBe(false);
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas, ocLinksData: undefined })).toBe(false);
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas, aviamentosData: undefined })).toBe(false);
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, ...prontas, etiquetasData: undefined })).toBe(false);
+  });
+  it("array vazio (BOM sem nada salvo ainda) NÃO é 'undefined' ⇒ hidrata", () => {
+    expect(deveHidratarCarga({ habilitada: true, bomFetching: false, tecidosData: {}, ocLinksData: [], aviamentosData: [], etiquetasData: [], gradesData: [] })).toBe(true);
   });
 });
