@@ -57,6 +57,28 @@ export function draftEnviadoEfetivo<T extends { tecidos_planejados: string[] }>(
   return { ...savedDraft, tecidos_planejados: bom.tecidosPlanejados };
 }
 
+/**
+ * Fix final M1 (2ª parte) — `proporcoes`/`custos_adicionais` fora do payload NÃO podem virar "enviado" no
+ * baseline. Cenário: a ficha (BOM) está travada no meio do caminho (`podeGravarColunasDev=false` — a trava
+ * "cad"/"enviado" chegou ENTRE a captura e o Salvar, ou o usuário nunca teve permissão de gravar colunas do
+ * Dev) — `aplicarColunasFicha` (acima) faz `delete payload.proporcoes; delete payload.custos_adicionais`, e o
+ * mesmo vale por `aplicarRegrasCamposDev` quando `!podeEditarDev`. O servidor NUNCA recebe esses 2 campos, mas
+ * `savedDraft` (o `d` congelado no início do `mutationFn`) ainda carrega o valor EDITADO localmente — sem este
+ * fix, `resetDraftBaseline(enviadoEfetivo)` adotaria esse valor como "o que está salvo", e o selo "não salvo"
+ * apagaria mesmo com o servidor guardando o valor ANTIGO. Fix: quando `podeGravarColunasDev` é false, o
+ * baseline mantém `proporcoes`/`custos_adicionais` do valor do SERVIDOR (`servidor`, o draft ainda carregado
+ * ANTES deste save — `baseRef.current.draft`/`draftFromModeloRow(modeloData)`), não o do draft enviado.
+ */
+export function draftEnviadoComColunasDev<T extends { proporcoes: Record<string, number>; custos_adicionais: unknown[] }>(
+  enviadoEfetivo: T, servidor: Pick<T, "proporcoes" | "custos_adicionais">, podeGravarColunasDev: boolean,
+): T {
+  if (podeGravarColunasDev) return enviadoEfetivo;
+  if (igual(enviadoEfetivo.proporcoes, servidor.proporcoes) && igual(enviadoEfetivo.custos_adicionais, servidor.custos_adicionais)) {
+    return enviadoEfetivo;
+  }
+  return { ...enviadoEfetivo, proporcoes: servidor.proporcoes, custos_adicionais: servidor.custos_adicionais };
+}
+
 /** Depois do save: segue "tocado" só o campo que mudou DEPOIS do envio (tecla digitada em voo). */
 export function tocadosAposSalvar<T extends Record<string, any>>(o: { touched: ReadonlySet<string>; live: T; enviado: T }): Set<string> {
   const out = new Set<string>();
@@ -119,6 +141,23 @@ export function retryBloqueadoPorEnvio(
 }
 
 /**
+ * Fix final I1 (IMPORTANTE) — o prefill sobrescreve o BOM de outra pessoa sem P0409. Cenário: A abre um card
+ * com o BOM do servidor vazio (fica com o prefill PENDENTE — Tecido 1..N a partir de `tecidos_planejados`,
+ * sem marcar tocado). B salva o BOM completo pelo Dev — o merge de A avança `revRef` e o `aoMudarNoServidor`
+ * do ramo SEM toque (`!bom.colecoesTouchadasRef.current`) só invalida (não confere/não espera). A clica
+ * Salvar ANTES de o refetch do BOM (disparado por essa invalidação) chegar — as 5 queries de
+ * `chavesBomServidor` ainda estão em voo (`isFetching`), mas nada no `mutationFn` aguarda isso: o `.eq("rev")`
+ * passa (o `rev` de A já está atualizado pelo merge) com `capturar().gravar=true` (prefill pendente), e o
+ * esqueleto Tecido 1..N é gravado por cima do BOM que B acabou de completar.
+ * Fix: `usePlanejamentoSave.mutationFn` chama isto logo depois da checagem de `verificandoBomRef` (R5) que já
+ * existe — se QUALQUER key de `chavesBomServidor` está em refetch, lança a MESMA mensagem PT ("BOM sendo
+ * conferido") do fix round 2 item F (já passa no `mensagemErro`), e o Salvar não segue.
+ */
+export function bomRecarregando(isFetchingPorKey: number[]): boolean {
+  return isFetchingPorKey.some((n) => n > 0);
+}
+
+/**
  * Item G (menor, fix round 3) — "save em voo" como CONTADOR, não booleano. Extraído p/ ser testável sem
  * montar hooks (mesmo espírito de `retryBloqueadoPorEnvio`). No TanStack Query 5.x, o `mutationFn` do RETRY
  * de um P0409 roda ANTES do `onSettled` do 1º ciclo — com um booleano simples (`marcarSaveEmVoo(true/false)`
@@ -131,4 +170,22 @@ export function retryBloqueadoPorEnvio(
  */
 export function contadorVoo(atual: number, marcar: boolean): number {
   return Math.max(0, atual + (marcar ? 1 : -1));
+}
+
+/**
+ * Fix final M1 (1ª parte) — trava que chega ENTRE editar e salvar descarta a edição em silêncio. Porta de
+ * `save-ficha.ts` da F3.3 (commit `5e32951`, worktree `f33-cad-acoes`, sem a parte do CAD — a F3.2 não tem
+ * CAD, só BOM). Cenário: B toca o BOM (Tecidos/Aviamentos/Insumos/Grade); ENTRE a captura e o Salvar, o card é
+ * enviado à Explosão por outra pessoa e a ficha destrava→trava ("cad"/"enviado") — `capturar().gravar` fica
+ * `false` mesmo com o toque (`useFichaTecnica.capturar` exige `podeEditarRef.current` ANTES de olhar
+ * `colecoesTouchadasRef`). `aposSalvar` (useFichaTecnica.ts) chamava `bom.limparTocado()` incondicional quando
+ * `!bomMudouEmVoo` — e como `bomMudouEmVoo` também exige `tocado` (aqui É true, mas nada foi de fato enviado
+ * ao servidor), o "não salvo" apagava e as edições do BOM somem com o toast "Modelo salvo".
+ * Regra: NÃO limpe o tocado (nem rebaseie, nem mova a referência) quando havia BOM tocado que DEVERIA ter
+ * sido gravado e este Salvar NÃO gravou. Só quando o que estava tocado FOI gravado (ou nunca houve toque) é
+ * seguro limpar — aí `bomMudouEmVoo` decide se rebaseia no ENVIADO ou limpa de vez (como já fazia).
+ */
+export function deveLimparTocadoAposSalvar(i: { tocado: boolean; bomGravou: boolean }): boolean {
+  if (!i.tocado) return true;
+  return i.bomGravou;
 }

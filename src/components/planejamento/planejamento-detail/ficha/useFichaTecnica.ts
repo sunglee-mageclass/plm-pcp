@@ -18,7 +18,7 @@ import type { MotivoTravaDev } from "./secoes/AvisoCamposDev";
 import { chavesBomServidor, chavesFichaBom, useFichaDados } from "./useFichaDados";
 import { useFichaBom } from "./useFichaBom";
 import { useFichaGuarda } from "./useFichaGuarda";
-import { contadorVoo } from "../save-ficha";
+import { contadorVoo, deveLimparTocadoAposSalvar } from "../save-ficha";
 import {
   assinaturaBom, bomDivergeDaReferencia, estadoBomDoServidor,
   paresComplementares, resumoBom, snapshotBom, tecido1VariantesInfo, tecidosPlanejadosDerivados, totaisBom,
@@ -74,8 +74,13 @@ export type FichaSave = {
   bomMudouNoServidor: () => Promise<boolean>;
   /** Congela o BOM no início do Salvar (lê refs — vale mesmo no retry, fora do ciclo de render). */
   capturar: (custosAdicionais: unknown) => BomCapturado;
-  /** Pós-save: re-baseia (edição em voo segue "não salva"), a referência vira o ENVIADO, limpa marcadores, invalida o BOM. */
-  aposSalvar: (a: { bomEnviado: BomCapturado }) => { bomMudouEmVoo: boolean };
+  /**
+   * Pós-save: re-baseia (edição em voo segue "não salva"), a referência vira o ENVIADO, limpa marcadores,
+   * invalida o BOM. Fix final M1 — `edicoesPerdidas`: havia BOM tocado que DEVERIA ter sido gravado
+   * (`bomEnviado.gravar`) e este Salvar NÃO gravou (a trava chegou entre a captura e o save) — o "não salvo"
+   * NÃO foi limpo (ver `deveLimparTocadoAposSalvar`); o chamador (`usePlanejamentoSave`) avisa o usuário.
+   */
+  aposSalvar: (a: { bomEnviado: BomCapturado }) => { bomMudouEmVoo: boolean; edicoesPerdidas: boolean };
   /**
    * Fix T10 m1 — falha DEPOIS do `persistirBom` (etiqueta, MO, `custo_peca`) deixava a referência do BOM
    * velha: com o BOM já gravado no servidor mas o `aposSalvar` sem rodar (o save inteiro lançou antes de
@@ -199,9 +204,20 @@ export function useFichaTecnica(a: {
    * qualquer `aoMudarNoServidor` via `rev`) passaria batido — o próximo Salvar sobrescreveria o BOM de outra
    * pessoa sem aviso (buraco descrito em ficha-calc :147-159). Lê `bom.colecoesTouchadasRef.current` DIRETO
    * (a ref viva) — não um espelho por render, que ficaria um render atrasado.
+   *
+   * Fix final M2 — "Tecidos & BOM" falso durante o PRÓPRIO save pelo caminho R5a. `persistirBom` grava e o
+   * `salvar_modelo_bom` bumpa `modelos.rev`; o refetch/eco disparado por esse bump pode chegar por ESTE
+   * caminho (a carga, `useFichaBom`) ANTES de `bomGravado`/`aposSalvar` (que só rodam depois do
+   * `persistirBom` retornar) moverem a `referenciaRef` para o ENVIADO — nessa janela, o servidor já tem o BOM
+   * novo mas a referência local ainda é a VELHA, e a comparação abaixo acenderia o aviso contra o PRÓPRIO
+   * write. Enquanto "em voo" (contador > 0 — mesmo sinal que `aoMudarNoServidor` já usa), só atualiza
+   * `ultimaAssinaturaServidorRef` (fica pronta caso um conflito de verdade precise dela) e retorna sem
+   * acender — `aposSalvar` cobre o resto (move a referência e invalida; a recarga seguinte compara com a
+   * referência NOVA).
    */
   aoRecarregarComTocadoRef.current = (servidor) => {
     ultimaAssinaturaServidorRef.current = assinaturaBom(servidor);
+    if (saveEmVooContadorRef.current > 0) return;
     if (bom.colecoesTouchadasRef.current && bomDivergeDaReferencia(referenciaRef.current, servidor)) {
       setConflitoBomBoth(true);
     }
@@ -457,8 +473,16 @@ export function useFichaTecnica(a: {
     aposSalvar: ({ bomEnviado }) => {
       const vivo = snapshotBom(bom.estadoRef.current);
       const bomMudouEmVoo = bom.colecoesTouchadasRef.current && vivo !== bomEnviado.snapshot;
-      if (bomMudouEmVoo) guarda.rebasear(bomEnviado.snapshot);
-      else bom.limparTocado();
+      // Fix final M1 — a trava pode ter chegado ENTRE a captura (que marcou `bomEnviado.gravar`) e este
+      // ponto (a mesma captura é reusada aqui — `enviadoRef.current.bom` no orquestrador). Só limpa o
+      // "tocado"/rebaseia quando o toque de fato FOI gravado (ou nunca houve toque) — senão a edição do
+      // usuário sumiria sem aviso e sem chance de tentar de novo (`deveLimparTocadoAposSalvar`).
+      const podeLimpar = deveLimparTocadoAposSalvar({ tocado: bom.colecoesTouchadasRef.current, bomGravou: bomEnviado.gravar });
+      const edicoesPerdidas = !podeLimpar;
+      if (podeLimpar) {
+        if (bomMudouEmVoo) guarda.rebasear(bomEnviado.snapshot);
+        else bom.limparTocado();
+      }
       // R5 — o servidor passa a ter o que foi ENVIADO: é a nova referência (o eco do meu save não acende conflito).
       if (bomEnviado.gravar) referenciaRef.current = assinaturaBom(bomEnviado.estado);
       // NOTA do re-check do guardião — a conferência disparada pelo eco do 1º write (UPDATE) pode ter lido o BOM DEPOIS do
@@ -472,7 +496,7 @@ export function useFichaTecnica(a: {
       bom.limparCopiados();
       setConflitoBomBoth(false);
       invalidarBom();
-      return { bomMudouEmVoo };
+      return { bomMudouEmVoo, edicoesPerdidas };
     },
     etapas,
   };

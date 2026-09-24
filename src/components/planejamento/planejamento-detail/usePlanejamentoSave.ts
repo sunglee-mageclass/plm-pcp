@@ -17,9 +17,13 @@ import { ehOrigemComprada } from "@/lib/origem";
 import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, persistirBom } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
+import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
 import { pecaCom, type BomCapturado } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import type { FichaSave } from "@/components/planejamento/planejamento-detail/ficha/useFichaTecnica";
-import { aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio } from "@/components/planejamento/planejamento-detail/save-ficha";
+import {
+  aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, draftEnviadoComColunasDev,
+  retryBloqueadoPorEnvio, bomRecarregando,
+} from "@/components/planejamento/planejamento-detail/save-ficha";
 
 export type UsePlanejamentoSaveArgs = {
   modeloId: string | null;
@@ -123,6 +127,15 @@ export function usePlanejamentoSave({
       // de novo em instantes.") não tinha acento nem palavra da lista `PARECE_PT` (erro-mensagem.ts) — o
       // `mensagemErro` a trocava pelo fallback genérico "Erro". Reescrita em PT com acento.
       if (fichaRef.current.verificandoBomRef.current)
+        throw new Error("O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.");
+      // Fix final I1 (IMPORTANTE) — o prefill sobrescreve o BOM de outra pessoa sem P0409 (ver save-ficha.ts,
+      // `bomRecarregando`): o ramo SEM toque do `aoMudarNoServidor` invalida as 5 queries do BOM mas não
+      // espera o refetch chegar — um Salvar disparado nessa janela passaria o `.eq("rev")` (já atualizado
+      // pelo merge) com `capturar().gravar=true` (prefill pendente) e gravaria o esqueleto Tecido 1..N por
+      // cima do BOM que outra pessoa completou nesse meio-tempo. Mesma mensagem PT do guard acima (já passa
+      // no `mensagemErro`) — as queries só rodam quando a ficha está habilitada (`enabled`), então checar as
+      // keys sozinho já cobre "habilitada e em refetch" sem precisar de um sinal extra.
+      if (modeloId && bomRecarregando(chavesBomServidor(modeloId).map((k) => qc.isFetching({ queryKey: k }))))
         throw new Error("O BOM ainda está sendo conferido com o servidor — aguarde um instante e salve de novo.");
       // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix, receita do Dev — ver
       // `draftParaSalvar` em helpers.ts para o porquê e o teste da semântica). A F3.2 usa este MESMO `d`
@@ -448,7 +461,18 @@ export function usePlanejamentoSave({
       // valor de origem. Sem isto, `baseRef`/`resetDraftBaseline`/`tocadosAposSalvar` comparam com um
       // baseline desatualizado e o refetch de `["modelo"]` (já com a lista NOVA) soa como "alguém salvou
       // agora — 1 campo atualizado" contra o PRÓPRIO write.
-      const enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(savedDraft, enviadoRef.current.bom) : savedDraft;
+      let enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(savedDraft, enviadoRef.current.bom) : savedDraft;
+      // Fix final M1 (2ª parte) — `proporcoes`/`custos_adicionais` fora do payload (ficha travada no
+      // meio do caminho — `podeGravarColunasDev=false`, ver `aplicarColunasFicha`) NÃO podem virar
+      // "enviado" no baseline: o servidor NUNCA os recebeu, mas `savedDraft` ainda carrega o valor
+      // editado localmente. `baseRef.current?.draft` (o "draft do servidor" ANTES deste save, LIDO
+      // ANTES de ser sobrescrito abaixo) é a fonte de verdade a preservar. Usa
+      // `podeGravarColunasDevNaCaptura` (não `fichaRef.current.podeGravarColunasDev` — o valor de AGORA,
+      // que pode já ter mudado durante o `await`): o que decide se o payload levou os 2 campos é o valor
+      // do INSTANTE da captura, síncrono, mesmo já usado por `retryBloqueadoPorEnvio` acima.
+      if (baseRef.current && enviadoRef.current) {
+        enviadoEfetivo = draftEnviadoComColunasDev(enviadoEfetivo, baseRef.current.draft, enviadoRef.current.podeGravarColunasDevNaCaptura);
+      }
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
       // (`enviadoEfetivo` — já é o `d` congelado no mutationFn, mesma fonte de `enviadoRef.current.draft`,
       // com `tecidos_planejados` corrigido pelo fix I1 acima); campo editado durante o voo SEGUE tocado e o
@@ -472,7 +496,16 @@ export function usePlanejamentoSave({
         setDraft((d) => (d.tecidos_planejados === enviadoEfetivo.tecidos_planejados ? d : { ...d, tecidos_planejados: enviadoEfetivo.tecidos_planejados }));
         draftLiveRef.current = { ...draftLiveRef.current, tecidos_planejados: enviadoEfetivo.tecidos_planejados };
       }
-      if (enviadoRef.current) fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
+      if (enviadoRef.current) {
+        const { edicoesPerdidas } = fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
+        // Fix final M1 (1ª parte) — a ficha (Tecidos/Aviamentos/Insumos/Grade) estava tocada mas este
+        // Salvar não gravou o BOM (a trava chegou entre a captura e o save): o "não salvo" segue aceso
+        // (useFichaTecnica.aposSalvar já NÃO limpou), mas sem este aviso o usuário só veria "Modelo
+        // salvo" e acharia que tudo foi. Mesmo padrão de `toast.warning` do aviso "#Erro"/conflito.
+        if (edicoesPerdidas) {
+          toast.warning("As alterações da Ficha (Tecidos/Aviamentos/Insumos/Grade) NÃO foram salvas — a ficha está travada. Recarregue o card e tente de novo.");
+        }
+      }
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);

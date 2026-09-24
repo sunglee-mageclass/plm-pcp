@@ -239,8 +239,16 @@ function PlanejamentoDetailConteudo({
   // isComprado = revenda OU importado — a semântica "comprado vs fabricado" (esconder tecido/
   // custo/MO). Importado tem tela própria de edição (`criacao.produto-importado`), então aqui
   // só herda o ESCONDER; nunca entra nos blocos de edição de revenda (`produtos_acabados`).
+  // Fix final M4 — card comprado dispara ~14 queries `plan-ficha-*` e pisca "Carregando…" por um instante.
+  // Causa: no 1º render o draft é `emptyDraft()` (origem "interno" — modelo-shared.ts), então `isComprado`
+  // saía `false` até o `useEffect` de seed (~:603-621) semear `draft` a partir de `modeloData`. `useFichaTecnica`
+  // já roda com esse `isComprado` errado ANTES do seed — `habilitada=true` dispara as 5 queries do BOM
+  // (`plan-ficha-*`) para um card que É comprado, pisando o "Carregando…" das seções do BOM. Fix: enquanto o
+  // draft ainda não foi semeado (`!baseRef.current` — a MESMA flag que o efeito de seed usa pra saber se é a
+  // 1ª carga), deriva `isComprado` direto de `modeloData?.origem` (já disponível, sem query nova); depois do
+  // seed, `draft.origem` já É o do servidor e os dois caminhos coincidem.
   const isRevenda = draft.origem === "revenda";
-  const isComprado = ehOrigemComprada(draft.origem);
+  const isComprado = ehOrigemComprada(baseRef.current ? draft.origem : ((modeloData as any)?.origem ?? draft.origem));
   const navigate = useNavigate();
   const orc = useOrcamento();
   const { data: colecoes = [] } = useQuery({

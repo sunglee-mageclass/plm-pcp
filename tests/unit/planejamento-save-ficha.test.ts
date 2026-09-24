@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio, contadorVoo,
+  bomRecarregando, deveLimparTocadoAposSalvar, draftEnviadoComColunasDev,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -177,5 +178,51 @@ describe("contadorVoo — item G: contador com piso 0, sobrevive ao retry do P04
   });
   it("piso 0: um -1 sem +1 correspondente não fica negativo", () => {
     expect(contadorVoo(0, false)).toBe(0);
+  });
+});
+
+// Fix final I1 (IMPORTANTE) — o prefill sobrescreve o BOM de outra pessoa sem P0409: o Salvar precisa esperar
+// o BOM recarregar (as 5 queries de `chavesBomServidor`) antes de gravar o esqueleto Tecido 1..N do prefill.
+describe("bomRecarregando — fix final I1 (o Salvar espera o BOM recarregar)", () => {
+  it("nenhuma key em refetch → false (Salvar segue)", () => {
+    expect(bomRecarregando([0, 0, 0, 0, 0])).toBe(false);
+  });
+  it("qualquer key em refetch (mesmo só 1 das 5) → true (Salvar espera)", () => {
+    expect(bomRecarregando([0, 1, 0, 0, 0])).toBe(true);
+  });
+  it("lista vazia (modeloId nulo, sem keys) → false", () => {
+    expect(bomRecarregando([])).toBe(false);
+  });
+});
+
+// Fix final M1 (1ª parte) — trava que chega ENTRE editar e salvar não pode descartar a edição em silêncio.
+// Porta de save-ficha.ts da F3.3 (5e32951), sem CAD (a F3.2 não tem CAD).
+describe("deveLimparTocadoAposSalvar — fix final M1 (edições perdidas em silêncio)", () => {
+  it("sem toque: sempre pode limpar (nada a perder)", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: false, bomGravou: false })).toBe(true);
+  });
+  it("tocado e o BOM gravou: pode limpar", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: true })).toBe(true);
+  });
+  it("tocado e o BOM NÃO gravou (trava chegou no meio do caminho): NÃO limpa — a edição sumiria sem aviso", () => {
+    expect(deveLimparTocadoAposSalvar({ tocado: true, bomGravou: false })).toBe(false);
+  });
+});
+
+// Fix final M1 (2ª parte) — `proporcoes`/`custos_adicionais` fora do payload (ficha travada,
+// `podeGravarColunasDev=false`) não podem virar "enviado" no baseline: o servidor não os recebeu.
+describe("draftEnviadoComColunasDev — fix final M1 (proporcoes/custos_adicionais fora do payload)", () => {
+  const enviado = { nome: "X", proporcoes: { P: 2 }, custos_adicionais: [{ descricao: "Editado", valor: 9 }] };
+  const servidor = { proporcoes: { P: 1 }, custos_adicionais: [{ descricao: "Antigo", valor: 3.5 }] };
+  it("podeGravarColunasDev=true: o payload foi de fato gravado — mantém o ENVIADO", () => {
+    expect(draftEnviadoComColunasDev(enviado, servidor, true)).toBe(enviado);
+  });
+  it("podeGravarColunasDev=false: proporcoes/custos_adicionais fora do payload → baseline mantém o valor do SERVIDOR", () => {
+    const out = draftEnviadoComColunasDev(enviado, servidor, false);
+    expect(out).toEqual({ nome: "X", proporcoes: { P: 1 }, custos_adicionais: [{ descricao: "Antigo", valor: 3.5 }] });
+  });
+  it("podeGravarColunasDev=false mas os valores já são iguais aos do servidor → mesma referência (sem objeto novo à toa)", () => {
+    const igualServidor = { nome: "X", proporcoes: servidor.proporcoes, custos_adicionais: servidor.custos_adicionais };
+    expect(draftEnviadoComColunasDev(igualServidor, servidor, false)).toBe(igualServidor);
   });
 });
