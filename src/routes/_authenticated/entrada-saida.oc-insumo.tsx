@@ -791,6 +791,31 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       if (conflitosRef.current.length > 0)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       { const erroNota = validarNota(dataNota, dataPedido); if (erroNota) throw new Error(erroNota); } // D7
+
+      // OC Insumo RECEBIDA: caminho ESTREITO — grava SÓ a Data da Nota, sem remontar a OC a
+      // partir da tela (ruling do controlador, 2026-09-25). O save completo (`salvar_oc_etiqueta`)
+      // manda o payload inteiro reconstruído dos states soltos; numa OC recebida isso arrisca apagar
+      // itens (ex.: se o Fornecedor foi trocado, `blocks` fica vazio) e refazer as parcelas não pagas
+      // com dado estipulado pela tela (preço nulo→cadastro, `data_entrega` recalculada, `cancelado`
+      // sempre false). O gatilho `trg_nota_entrada_recalc` do servidor já recalcula os vencimentos.
+      if (isEdit && isReadOnlyRecebimento) {
+        const { data: rows, error } = await supabase
+          .from("ocs_etiqueta" as any)
+          .update({ data_nota_entrada: payloadDataNota(dataNota) } as any)
+          .eq("id", ocId as string)
+          .eq("rev", revRef.current as any)
+          .select("id, rev");
+        if (error) throw error;
+        if (!rows || rows.length === 0) {
+          // 0 linhas = alguém salvou no meio (mesmo tratamento/mensagem do P0409 do save completo).
+          const err: any = new Error("Outra pessoa salvou este registro agora há pouco.");
+          err.code = "P0409";
+          throw err;
+        }
+        revRef.current = (rows[0] as any).rev ?? revRef.current;
+        return;
+      }
+
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
       const itens = blocks.flatMap((b) => {
         const etq = etqMap[b.etiquetaId];
@@ -933,21 +958,25 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           <OcSecTitle n={1}>Pedido</OcSecTitle>
           <AvisoFaltaNota show={faltaNotaEntrada("etiqueta", { status, data_nota_entrada: dataNota })} familia="etiqueta" ocId={ocId} />
           <div className="grid sm:grid-cols-2 gap-3">
-            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => { marcarHeadTouched("numero_pedido"); onNumeroChange(e.target.value); }} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => { marcarHeadTouched("numero_pedido"); onNumeroChange(e.target.value); }} placeholder={numeroPlaceholder} disabled={readOnly || isReadOnlyRecebimento} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
               {/* Trocar de EMPRESA limpa os blocos (insumos são por empresa; itens de outra empresa
-                  virariam órfãos). Trocar só o representante mantém os blocos. */}
-              <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { marcarHeadTouched("empresa_id"); marcarHeadTouched("representante_id"); if (emp !== empresaId) { blocks.forEach((b) => b.rows.forEach(marcarRowTouched)); setBlocks([]); } setEmpresaId(emp); setRepId(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
+                  virariam órfãos). Trocar só o representante mantém os blocos. Travado com a OC
+                  recebida (fix 2026-09-25): sem isso, o Salvar completo mandaria itens=[] e o servidor
+                  apagaria os itens recebidos + as parcelas não pagas (não é mais alcançável de qualquer
+                  forma agora que o Salvar da OC recebida usa o caminho estreito — trava mantida por
+                  clareza e paridade com Aviamento). */}
+              <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { marcarHeadTouched("empresa_id"); marcarHeadTouched("representante_id"); if (emp !== empresaId) { blocks.forEach((b) => b.rows.forEach(marcarRowTouched)); setBlocks([]); } setEmpresaId(emp); setRepId(rep); }} disabled={readOnly || isReadOnlyRecebimento} placeholder="Sem fornecedor" />
             </div>
             <div className="grid gap-1"><Label>Responsável</Label>
-              <ResponsavelSelect nome={respNome} onChange={(n) => { marcarHeadTouched("responsavel_nome"); setRespNome(n ?? ""); }} disabled={readOnly} />
+              <ResponsavelSelect nome={respNome} onChange={(n) => { marcarHeadTouched("responsavel_nome"); setRespNome(n ?? ""); }} disabled={readOnly || isReadOnlyRecebimento} />
             </div>
             <div className="grid gap-1"><Label>Prazo de Pagamento</Label>
-              <Input value={prazo} placeholder="Ex: 30/60/90" disabled={readOnly}
+              <Input value={prazo} placeholder="Ex: 30/60/90" disabled={readOnly || isReadOnlyRecebimento}
                 onChange={(e) => { const v = e.target.value; const parts = v.split("/").map((s) => s.trim()).filter(Boolean); marcarHeadTouched("prazo_pagamento"); marcarHeadTouched("quantidade_prazos"); setPrazo(v); setQtdPrazos(Math.max(1, Math.min(6, parts.length || 1))); }} />
             </div>
-            <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly} /></div>
-            <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly} /></div>
+            <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly || isReadOnlyRecebimento} /></div>
+            <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly || isReadOnlyRecebimento} /></div>
             {/* col-span-2 evita o desalinhamento da dica sob o campo (revisão Opus) — mesma solução do Tecido.
                 Posição "ao lado do Prazo" (spec §5) exigiria ficar em índice par da lista e abriria buraco no
                 grid (col-span-2 sempre pula pra própria linha); mantido no fim, como já estava. */}
@@ -1050,7 +1079,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
               <OcSecTitle n={3}>Anexos</OcSecTitle>
               <div className="grid gap-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notas Fiscais</Label>
-                <NfList value={nfs} onChange={(v) => { marcarHeadTouched("nfs"); setNfs(v); }} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly} />
+                <NfList value={nfs} onChange={(v) => { marcarHeadTouched("nfs"); setNfs(v); }} uploadFn={(f) => uploadFile(f, "nf")} readOnly={readOnly || isReadOnlyRecebimento} />
               </div>
             </section>
           )}
@@ -1100,8 +1129,10 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             )}
             {/* Salvar sempre aparece, mesmo com a OC recebida — paridade com OC Tecido/Aviamento (achado S3 do
                 QA da Task 12): sem ele, a Data da Nota de Entrada (que continua editável) não tinha como gravar
-                depois de receber. Itens/parcelas de recebimento continuam travados por `isReadOnlyRecebimento`
-                nos próprios campos; o servidor mantém o status ao salvar com `status: 'recebido'`. */}
+                depois de receber. Com a OC recebida, este botão roda o caminho ESTREITO (acima, no `save`):
+                grava SÓ `data_nota_entrada`, sem remontar cabeçalho/itens/parcelas — todo o resto do
+                formulário já está `disabled` por `isReadOnlyRecebimento`. Com a OC NÃO recebida, roda o save
+                completo de sempre. */}
             <Button onClick={() => doSave(false)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Salvar</Button>
           </div>
         </div>

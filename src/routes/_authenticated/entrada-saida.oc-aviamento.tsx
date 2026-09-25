@@ -1110,6 +1110,7 @@ function OcDialog({
                   if (empresa_id !== draft.empresa_id) setItemsTracked(() => []);
                   setDraftTracked((d) => ({ ...d, empresa_id, representante_id }));
                 }}
+                disabled={isReadOnlyRecebimento}
               />
             </div>
 
