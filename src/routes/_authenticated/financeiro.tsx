@@ -33,7 +33,7 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addM
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { parcelaProvisoria, TEXTO_PARCELA_PROVISORIA, type OcNotaInfo } from "@/lib/nota-entrada";
+import { COLUNA_PARCELA_POR_FAMILIA, parcelaProvisoria, TEXTO_PARCELA_PROVISORIA, type OcNotaInfo } from "@/lib/nota-entrada";
 import { TagParcelaProvisoria } from "@/components/shared/NotaEntrada";
 import { useAuth } from "@/hooks/useAuth";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -305,11 +305,18 @@ function FinanceiroPage() {
           return its.length > 0 && its.every((it: any) => it.cancelado) ;
         }).map((o: any) => o.id),
       );
-      // Data da Nota de Entrada: status + data de cada OC (4 famílias) → parcela provisória (regra única em nota-entrada.ts).
-      const notaPorOc = new Map<string, OcNotaInfo>(
-        [...(tecidoRes.data ?? []), ...(aviamentoRes.data ?? []), ...etqData, ...pAcData].map((o: any) =>
-          [o.id as string, { status: o.status ?? null, data_nota_entrada: o.data_nota_entrada ?? null }]),
-      );
+      // Data da Nota de Entrada: status + data de cada OC → parcela provisória (regra única em nota-entrada.ts).
+      // Um Map POR FAMÍLIA (não um único casado pela cadeia `??`): a chave é o UUID da respectiva
+      // tabela, e a família da parcela (`tipo_oc`) escolhe qual Map + qual coluna ler
+      // (`COLUNA_PARCELA_POR_FAMILIA`) — resistente a uma linha legada com FK trocado (nit N-1).
+      const notaFn = (o: any): OcNotaInfo => ({ status: o.status ?? null, data_nota_entrada: o.data_nota_entrada ?? null });
+      const notaPorOcTecido = new Map<string, OcNotaInfo>((tecidoRes.data ?? []).map((o: any) => [o.id as string, notaFn(o)]));
+      const notaPorOcAviamento = new Map<string, OcNotaInfo>((aviamentoRes.data ?? []).map((o: any) => [o.id as string, notaFn(o)]));
+      const notaPorOcEtiqueta = new Map<string, OcNotaInfo>(etqData.map((o: any) => [o.id as string, notaFn(o)]));
+      const notaPorOcPAcabado = new Map<string, OcNotaInfo>(pAcData.map((o: any) => [o.id as string, notaFn(o)]));
+      const notaPorOcPorFamilia: Readonly<Record<string, Map<string, OcNotaInfo>>> = {
+        tecido: notaPorOcTecido, aviamento: notaPorOcAviamento, etiqueta: notaPorOcEtiqueta, p_acabado: notaPorOcPAcabado,
+      };
 
       return list
         .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
@@ -333,7 +340,11 @@ function FinanceiroPage() {
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
         ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
         ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
-        provisoria: parcelaProvisoria(p, notaPorOc.get(p.oc_tecido_id ?? p.oc_aviamento_id ?? p.oc_etiqueta_id ?? p.oc_p_acabado_id ?? "")),
+        provisoria: parcelaProvisoria(p, (() => {
+          const coluna = p.tipo_oc ? COLUNA_PARCELA_POR_FAMILIA[p.tipo_oc] : undefined;
+          const mapa = p.tipo_oc ? notaPorOcPorFamilia[p.tipo_oc] : undefined;
+          return coluna && mapa ? mapa.get((p as any)[coluna] ?? "") : undefined;
+        })()),
         };
       });
     },
@@ -553,18 +564,31 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
                       const { tone, Icon, fill } = VIS_META[parcelaVis(p, hoje, today)];
                       const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
                       return (
-                        <span key={p.id} data-qa={p.provisoria ? "parcela-provisoria" : undefined} title={p.provisoria ? TEXTO_PARCELA_PROVISORIA : undefined} className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", TONE_SURFACE[tone], p.provisoria && "border border-dashed border-[var(--tone-warning-fg)]")}>
+                        <span key={p.id} data-qa={p.provisoria ? "parcela-provisoria" : undefined} title={p.provisoria ? TEXTO_PARCELA_PROVISORIA : undefined} className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", TONE_SURFACE[tone], p.provisoria && "outline outline-1 outline-dashed outline-[var(--tone-warning-fg)] -outline-offset-1")}>
                           <Icon className={cn("h-3.5 w-3.5 shrink-0", fill && "fill-current")} aria-hidden />
                           <span className="min-w-0 flex-1 truncate font-normal">{nome}</span>
                           <span className="shrink-0 tabular-nums font-semibold">{brlAbrev(Number(p.valor))}</span>
+                          {p.provisoria && <span className="sr-only">{TEXTO_PARCELA_PROVISORIA}</span>}
                         </span>
                       );
                     })}
-                    {items.length > 2 && (
-                      <div className="pl-1 text-[11px] font-medium text-muted-foreground">
-                        +{items.length - 2} · dia {brlAbrev(total)}
-                      </div>
-                    )}
+                    {items.length > 2 && (() => {
+                      // M-1: se alguma das parcelas "escondidas" no +N é provisória, o chip do resumo
+                      // ganha o mesmo sinal (contorno tracejado + title) — senão a célula não avisa nada.
+                      const escondidasTemProvisoria = items.slice(2).some((p) => p.provisoria);
+                      return (
+                        <div
+                          title={escondidasTemProvisoria ? TEXTO_PARCELA_PROVISORIA : undefined}
+                          className={cn(
+                            "pl-1 text-[11px] font-medium text-muted-foreground",
+                            escondidasTemProvisoria && "inline-flex items-center gap-1 rounded-md outline outline-1 outline-dashed outline-[var(--tone-warning-fg)] -outline-offset-1 px-1.5 py-0.5",
+                          )}
+                        >
+                          +{items.length - 2} · dia {brlAbrev(total)}
+                          {escondidasTemProvisoria && <span className="sr-only">{TEXTO_PARCELA_PROVISORIA}</span>}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </button>
               </PopoverTrigger>
@@ -1269,7 +1293,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalheId(p.id); }
                     }}
                     data-qa={p.provisoria ? "parcela-provisoria" : undefined}
-                    className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : p.provisoria ? "bg-[var(--tone-warning-bg)]" : ""}`}
+                    className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : p.provisoria ? "!bg-[var(--tone-warning-bg)]" : ""}`}
                   >
                     <td className="py-2 pr-3">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3" data-label="Nº Pedido">
@@ -1288,14 +1312,14 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right tabular-nums" data-label="Valor">{brl(Number(p.valor))}</td>
-                    <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
+                    <td className="py-2 pr-3 max-lg:flex-wrap" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
                         value={p.data_vencimento}
                         onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
                         disabled={st === "pago"}
                       />
                       <OffsetTag dias={(p as any).dias_offset} />
-                      <TagParcelaProvisoria show={!!p.provisoria} className="mt-1" />
+                      <TagParcelaProvisoria show={!!p.provisoria} className="mt-1 max-lg:basis-full max-lg:justify-end" />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
                       <StatusParcelaBadge st={st} />
