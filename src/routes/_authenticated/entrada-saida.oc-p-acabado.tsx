@@ -7,6 +7,8 @@ import { OcDocumentoPrint, type OcDocModelo, type OcDocGrade } from "@/component
 import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
+import { AvisoFaltaNota, BolinhaFaltaNota, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { supabase } from "@/integrations/supabase/client";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
@@ -103,7 +105,7 @@ function OcPaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_p_acabado" as any)
-        .select("id, numero, nome_produto, produto_acabado_id, empresa_id, data_pedido, data_prevista, data_entrega, qtd_total, valor_total_desconto, status")
+        .select("id, numero, nome_produto, produto_acabado_id, empresa_id, data_pedido, data_prevista, data_entrega, data_nota_entrada, qtd_total, valor_total_desconto, status")
         .eq("status", tab as OcPaStatus)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -364,7 +366,7 @@ function OcPaListaTable({
           <Card key={o.id} className="p-3 cursor-pointer active:bg-muted/50" onClick={() => onRowClick(o.id)}>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium">{o.numero ?? "—"}</span>
+                <span className="font-medium">{o.numero ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("p_acabado", o)} />
                 <OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} />
               </div>
               <div className="text-sm text-muted-foreground truncate mt-0.5">{o.nome_produto}</div>
@@ -397,7 +399,7 @@ function OcPaListaTable({
             )}
             {ocs.map((o) => (
               <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
-                <TableCell className="font-medium">{o.numero ?? "—"}</TableCell>
+                <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("p_acabado", o)} /></span></TableCell>
                 <TableCell className="max-w-[16rem] truncate" title={o.nome_produto}>{o.nome_produto}</TableCell>
                 <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                 <TableCell>{dataCol.get(o)}</TableCell>
@@ -540,6 +542,7 @@ function draftFromOc(oc: any): Draft {
     qtd_total: oc.qtd_total ?? 0,
     valor_unitario: Number(oc.valor_unitario ?? 0),
     desconto_pct: Number(oc.desconto_pct ?? 0),
+    data_nota_entrada: oc.data_nota_entrada ?? "",
     data_entrega: oc.data_entrega ?? "",
     nota_fiscal: oc.nota_fiscal ?? "",
     responsavel_recebimento_id: oc.responsavel_recebimento_id ?? null,
@@ -560,6 +563,7 @@ function OcPaDialog({
   onDelete: (oc: OcPaRow) => void;
 }) {
   const isEdit = !!ocId;
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
   const qc = useQueryClient();
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
@@ -735,7 +739,7 @@ function OcPaDialog({
     data_pedido: "Data do Pedido", data_prevista: "Data Prevista", prazo_pagamento: "Prazo de Pagamento",
     parcelas_entrega: "Nº de parcelas", grade_proporcao: "Proporção da grade", variantes: "Variantes",
     qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
-    data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
+    data_nota_entrada: ROTULO_DATA_NOTA, data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
     revisao: "Revisão", anexo_pedido_url: "Anexo do pedido", anexo_nf_url: "Anexo da NF",
   };
   const rotuloConflito = (path: string) => {
@@ -859,6 +863,7 @@ function OcPaDialog({
     data_pedido: draft.data_pedido || null,
     data_prevista: draft.data_prevista || null,
     prazo_pagamento: draft.prazo_pagamento || null,
+    data_nota_entrada: payloadDataNota(draft.data_nota_entrada), // chave SEMPRE presente: "" limpa
     parcelas_entrega: draft.parcelas_entrega,
     grade_proporcao: draft.grade_proporcao,
     variantes: draft.variantes,
@@ -905,6 +910,7 @@ function OcPaDialog({
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
       const { data: savedId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, {
         _id: isEdit ? ocId : null,
         _dados: montarDados(),
@@ -917,6 +923,7 @@ function OcPaDialog({
     onSuccess: (savedId) => {
       toast.success("OC salva.");
       markClean();
+      invalidarVencimentos(qc); // o save regenera as parcelas do Acabado (gatilho) — antes não invalidava o Financeiro
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
       qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
       // Paridade com OC Tecido (L1227, review R2): editar data_prevista aqui muda se a OC
@@ -941,6 +948,7 @@ function OcPaDialog({
       // Guard SÍNCRONO: não receber com conflito pendente (senão o save intermediário sobrescreveria).
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
       // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste
       // TODO o rascunho, inclusive edições de seção 2 ainda não gravadas) e então
       // aplica a transição (materializa cad/cad_grades/CQ + parcelas — Task 3).
@@ -976,6 +984,7 @@ function OcPaDialog({
       toast.success("OC marcada como recebida.");
       setConfirmReceber(false);
       markClean();
+      invalidarVencimentos(qc);
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
       qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
       qc.invalidateQueries({ queryKey: ["estoque_p_acabado"] });
@@ -1063,6 +1072,7 @@ function OcPaDialog({
             onBlurCapture={() => setCampoFocadoColab(null)}
           >
             <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
+            <AvisoFaltaNota show={faltaNotaEntrada("p_acabado", { status, data_nota_entrada: draft.data_nota_entrada })} familia="p_acabado" ocId={ocId} />
             <OcPaForm
               draft={draft}
               setDraft={setDraft}

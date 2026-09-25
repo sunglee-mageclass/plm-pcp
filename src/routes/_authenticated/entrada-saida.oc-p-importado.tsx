@@ -7,6 +7,8 @@ import { OcDocumentoPrint, type OcDocModelo } from "@/components/shared/OcDocume
 import { OcImprimirLinhaButton } from "@/components/shared/OcImprimirLinhaButton";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
+import { useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { supabase } from "@/integrations/supabase/client";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
@@ -515,6 +517,7 @@ function draftFromOc(oc: any): Draft {
     desconto_pct: Number(oc.desconto_pct ?? 0),
     cotacao_final: Number(oc.cotacao_final ?? 0),
     etapas: [],
+    data_nota_entrada: oc.data_nota_entrada ?? "",
     data_entrega: oc.data_entrega ?? "",
     nota_fiscal: oc.nota_fiscal ?? "",
     responsavel_recebimento_id: oc.responsavel_recebimento_id ?? null,
@@ -535,6 +538,7 @@ function OcImpDialog({
   onDelete: (oc: OcImportadoRow) => void;
 }) {
   const isEdit = !!ocId;
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
   const qc = useQueryClient();
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);
@@ -787,7 +791,7 @@ function OcImpDialog({
     moeda_intermediaria: "Moeda intermediária", valor_unitario_m1: "Valor unitário (M1)",
     cotacao_ref: "Cotação ref.", peso_kg: "Peso (kg)", transporte_m2: "Transporte (m²)",
     desconto_pct: "Desconto (%)", cotacao_final: "Cotação final", etapas: "Etapas de pagamento",
-    data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
+    data_nota_entrada: ROTULO_DATA_NOTA, data_entrega: "Data de Entrega", nota_fiscal: "Nota Fiscal", devolucao: "Devolução",
     revisao: "Revisão", anexo_pedido_url: "Anexo do pedido", anexo_nf_url: "Anexo da NF",
   };
   const rotuloConflito = (path: string) => {
@@ -874,6 +878,7 @@ function OcImpDialog({
     transporte_m2: draft.transporte_m2,
     desconto_pct: draft.desconto_pct,
     cotacao_final: draft.cotacao_final,
+    data_nota_entrada: payloadDataNota(draft.data_nota_entrada), // só registro (spec D2)
     nota_fiscal: draft.nota_fiscal || null,
     responsavel_recebimento_id: draft.responsavel_recebimento_id,
     devolucao: draft.devolucao || null,
@@ -891,6 +896,7 @@ function OcImpDialog({
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
       const { data: savedId, error } = await supabase.rpc("salvar_oc_importado" as any, {
         _id: isEdit ? ocId : null,
         _dados: montarDados(),
@@ -904,6 +910,7 @@ function OcImpDialog({
     onSuccess: (savedId) => {
       toast.success("OC salva.");
       markClean();
+      invalidarVencimentos(qc);
       qc.invalidateQueries({ queryKey: ["ocs_importado"] });
       qc.invalidateQueries({ queryKey: ["oc-importado", savedId] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
@@ -922,6 +929,7 @@ function OcImpDialog({
       // Guard SÍNCRONO: não receber com conflito pendente (senão o save intermediário sobrescreveria).
       if (conflitosRef.current.length > 0)
         throw erroValidacao("Resolva os conflitos listados no aviso no topo antes de receber.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw erroValidacao(erroNota); } // D7
       // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste TODO o
       // rascunho, inclusive edições ainda não gravadas) e então aplica a transição
       // (materializa cad/cad_grades/CQ — espelha receber_oc_p_acabado).
@@ -954,6 +962,7 @@ function OcImpDialog({
       toast.success("OC marcada como recebida.");
       setConfirmReceber(false);
       markClean();
+      invalidarVencimentos(qc);
       qc.invalidateQueries({ queryKey: ["ocs_importado"] });
       qc.invalidateQueries({ queryKey: ["oc-importado", savedId] });
       qc.invalidateQueries({ queryKey: ["estoque_p_importado"] });

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DateField } from "@/components/shared/DateField";
+import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
+import { DICA_CAMPO_NOTA_IMPORTADO } from "@/lib/nota-entrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
@@ -336,6 +338,12 @@ export function OcImpForm({
             <Label>Data prevista de entrega</Label>
             <DateField value={draft.data_prevista} disabled={disabled} onChange={(e) => setDraft((d) => ({ ...d, data_prevista: e.target.value }))} />
           </div>
+          <CampoDataNotaEntrada
+            value={draft.data_nota_entrada}
+            disabled={disabled}
+            dica={DICA_CAMPO_NOTA_IMPORTADO}
+            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
+          />
         </div>
 
         <InfoStrip

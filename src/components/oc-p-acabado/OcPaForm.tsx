@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DateField } from "@/components/shared/DateField";
+import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
@@ -286,6 +287,11 @@ export function OcPaForm({
             <Label>Parcelas a pagar (derivado)</Label>
             <NumberInput type="number" integer value={draft.parcelas_entrega} readOnly disabled />
           </div>
+          <CampoDataNotaEntrada
+            value={draft.data_nota_entrada}
+            disabled={disabled}
+            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
+          />
         </div>
 
         <InfoStrip

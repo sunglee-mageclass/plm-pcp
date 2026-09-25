@@ -39,6 +39,7 @@ export type OcPaRow = {
   data_pedido: string | null;
   data_prevista: string | null;
   data_entrega: string | null;
+  data_nota_entrada?: string | null;
   qtd_total: number | null;
   valor_total_desconto: number | null;
   status: OcPaStatus;
@@ -68,6 +69,8 @@ export type Draft = {
   qtd_total: number;
   valor_unitario: number;
   desconto_pct: number;
+  // Data da Nota de Entrada (spec 2026-09-24): base do vencimento — no cabeçalho, editável mesmo com a OC recebida.
+  data_nota_entrada: string;
   // Recebimento (seção 4 — locked até salvar).
   data_entrega: string;
   nota_fiscal: string;
@@ -100,6 +103,7 @@ export function emptyDraft(): Draft {
     qtd_total: 0,
     valor_unitario: 0,
     desconto_pct: 0,
+    data_nota_entrada: "",
     data_entrega: "",
     nota_fiscal: "",
     responsavel_recebimento_id: null,

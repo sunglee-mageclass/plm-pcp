@@ -84,6 +84,8 @@ export type Draft = {
   cotacao_final: number;
   // Etapas de pagamento (substitui prazo_pagamento/parcelas_entrega da revenda).
   etapas: EtapaDraft[];
+  // Data da Nota de Entrada (spec 2026-09-24): no Importado SÓ registro (vencimentos = etapas de câmbio).
+  data_nota_entrada: string;
   // Recebimento (seção 4 — locked até salvar).
   data_entrega: string;
   nota_fiscal: string;
@@ -121,6 +123,7 @@ export function emptyDraft(): Draft {
     desconto_pct: 0,
     cotacao_final: 0,
     etapas: [],
+    data_nota_entrada: "",
     data_entrega: "",
     nota_fiscal: "",
     responsavel_recebimento_id: null,
