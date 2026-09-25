@@ -387,7 +387,7 @@ export function PrecoTabela(props: {
           {blocoMaoObra && (
             <tr className="border-t">
               <td colSpan={4} className="py-2 px-2">
-                <div className="max-md:sticky max-md:left-0 max-md:w-[calc(100vw-3rem)]">{blocoMaoObra}</div>
+                <div className="max-md:sticky max-md:left-0 max-sm:w-[calc(100vw-4rem)] sm:max-md:w-[calc(70vw-4rem)]">{blocoMaoObra}</div>
               </td>
             </tr>
           )}
@@ -402,7 +402,7 @@ export function PrecoTabela(props: {
           {obsMaoObra && (
             <tr className="border-t">
               <td colSpan={4} className="py-2 px-2">
-                <div className="max-md:sticky max-md:left-0 max-md:w-[calc(100vw-3rem)]">{obsMaoObra}</div>
+                <div className="max-md:sticky max-md:left-0 max-sm:w-[calc(100vw-4rem)] sm:max-md:w-[calc(70vw-4rem)]">{obsMaoObra}</div>
               </td>
             </tr>
           )}

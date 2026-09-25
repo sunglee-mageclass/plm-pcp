@@ -198,4 +198,33 @@ describe("selosSecoesSheet — F3.6: requisitos de Mão de obra no selo de Preç
     });
     expect(s.preco?.condicaoUnica?.key).toBe("servico_aprovado");
   });
+  // RODADA DE CORREÇÃO 1 (I1) — um requisito do kanban CUMPRIDO não pode mais esconder o aviso de MO.
+  it("(a) preco_venda_preenchido cumprido + MO pendente ⇒ aviso pendente", () => {
+    const s = selosSecoesSheet({
+      ...base, maoObraAviso: "pendente",
+      requeridas: new Set(["preco_venda_preenchido"]), satisfeitas: { preco_venda_preenchido: true },
+    });
+    expect(s.preco).toEqual({ tone: "warn", texto: "MO pendente" });
+  });
+  it("(b) servico_mo_decidido cumprido + MO reprovada ⇒ aviso reprovada", () => {
+    const s = selosSecoesSheet({
+      ...base, maoObraAviso: "reprovada",
+      requeridas: new Set(["servico_mo_decidido"]), satisfeitas: { servico_mo_decidido: true },
+    });
+    expect(s.preco).toEqual({ tone: "warn", texto: "MO reprovada" });
+  });
+  it("(c) requisito NÃO cumprido + MO pendente ⇒ o requisito (warn)", () => {
+    const s = selosSecoesSheet({
+      ...base, maoObraAviso: "pendente",
+      requeridas: new Set(["preco_venda_preenchido"]), satisfeitas: { preco_venda_preenchido: false },
+    });
+    expect(s.preco?.tone).toBe("warn");
+    expect(s.preco?.condicaoUnica?.key).toBe("preco_venda_preenchido");
+  });
+  it("(d) sem aviso de MO ⇒ o selo normal", () => {
+    // sem requisito configurado nesta seção (`r("preco")` null): o selo normal é o informativo de preço.
+    const s = selosSecoesSheet({ ...base, maoObraAviso: null });
+    expect(s.preco?.texto).toMatch(/^Preço de venda/);
+    expect(s.preco?.tone).not.toBe("warn");
+  });
 });

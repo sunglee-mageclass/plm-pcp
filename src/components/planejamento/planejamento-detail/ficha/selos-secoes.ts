@@ -141,13 +141,14 @@ export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoShee
   const precoInformativo = e.podeVerCustos && e.preco && e.preco.efetivo > 0
     ? { tone: "muted" as const, texto: `Preço de venda ${brl(e.preco.efetivo)}${e.preco.markup > 0 ? ` · markup ${fmtNum(e.preco.markup)}×` : ""}` }
     : undefined;
-  // F3.6 (R15, revisto no G-plano — item 13): a MO mora na tabela de Preço; com a seção FECHADA o cabeçalho ainda avisa
-  // MO pendente/reprovada p/ TODO card (interno e comprado). Ordem: requisito do kanban (r("preco") — agora com as 3
-  // chaves de MO) > aviso de MO > informativo de preço.
+  // F3.6 (R15, revisto no G-plano — item 13; RODADA DE CORREÇÃO 1, I1): a MO mora na tabela de Preço; com a seção
+  // FECHADA o cabeçalho ainda avisa MO pendente/reprovada p/ TODO card (interno e comprado). Ordem CORRIGIDA: o
+  // requisito do kanban NÃO cumprido (tone "warn") sempre vence; só quando ele NÃO está em "warn" (ok/vazio/sem
+  // requisito) é que o aviso de MO pode aparecer — um requisito CUMPRIDO não pode mais esconder o aviso de MO.
   const moAviso: SeloSecao | undefined = e.maoObraAviso
     ? { tone: "warn", texto: e.maoObraAviso === "reprovada" ? "MO reprovada" : "MO pendente" }
     : undefined;
-  out.preco = seloDeSecao(!moAviso && (!e.preco || e.preco.efetivo <= 0), r("preco"), moAviso ?? precoInformativo);
+  out.preco = moAviso && r("preco")?.tone !== "warn" ? moAviso : seloDeSecao(!e.preco || e.preco.efetivo <= 0, r("preco"), precoInformativo);
   out.anexos = seloDeSecao(
     e.anexos.fotoModelo === false && e.anexos.fotoReferencia === false && e.anexos.desenho === false && e.anexos.croqui === false,
     r("anexos"), seloAnexos(e.anexos),

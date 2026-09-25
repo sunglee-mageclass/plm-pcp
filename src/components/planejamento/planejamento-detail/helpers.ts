@@ -17,7 +17,7 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   tecidos_planejados: "Tecido Planejado", status_planejamento: "Status",
   croqui_url: "Foto do Croqui", desenho_tecnico_url: "Desenho Técnico",
   fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
-  observacoes_gerais: "Observações Gerais", observacoes_mao_obra: "Obs. Mão de obra",
+  observacoes_gerais: "Observações Gerais", observacoes_mao_obra: "Observação de mão de obra",
   versao: "Versão", modelo_base_id: "Modelo base", custo_simulado: "Simulação de custo",
   // F3.1 — campos vindos do Desenvolvimento + Descrição do produto (rótulos do Dev,
   // ModeloDetailPanel.tsx:145-160, e do mockup aprovado).

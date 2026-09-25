@@ -1575,7 +1575,8 @@ function PlanejamentoDetailConteudo({
               // Dev; migra o `custo_simulado.consumo_tecido`). Custos: enquanto o BOM não confirma
               // (estimado), Tecido = consumo×preço/m + Materiais editável (= aviamento, migra
               // `custo_simulado.aviamento`) + M.O. do Dev; quando confirma (real), vira Materiais
-              // real + M.O. real do BOM. A seção "Mão de obra" (MaoObraEditor) fica logo ABAIXO.
+              // real + M.O. real do BOM. F3.6: a Mão de obra (MaoObraEditor) mora DENTRO desta tabela — não é mais
+              // seção própria (slots `blocoMaoObra`/`obsMaoObra`, logo abaixo da linha "Mão de obra"/"Custo total").
               <PrecoTabela
                 markupReal={markupReal} precoSug={precoSug} precoBase={precoBaseMO} precoDigitado={precoVendaDigitado}
                 draftPrecoVenda={draft.preco_venda}

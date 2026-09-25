@@ -35,7 +35,10 @@ describe("Mão de obra DENTRO de Preço e Custos (fonte)", () => {
     expect(iTotal).toBeGreaterThan(iBloco);
     expect(iObs).toBeGreaterThan(iTotal);
     expect(s).not.toContain("na seção Mão de obra abaixo");
-    expect(s).toContain("max-md:sticky max-md:left-0 max-md:w-[calc(100vw-3rem)]");
+    // RODADA DE CORREÇÃO 1 (I2/M1): o Sheet só é tela cheia abaixo de 640px (max-sm); de 640-767px ele é 70vw
+    // (size="editor" do SheetContent) — a largura do bloco sticky precisa refletir os DOIS breakpoints, com
+    // -4rem (Sheet px-6 = 3rem + célula px-2 = 1rem) em vez do -3rem antigo (que só contava o px-6 do Sheet).
+    expect(s).toContain("max-md:sticky max-md:left-0 max-sm:w-[calc(100vw-4rem)] sm:max-md:w-[calc(70vw-4rem)]");
   });
   it("Revenda: o bloco de preço recebe a MO (opção A do dono)", () => {
     expect(fonte(RS)).toMatch(/export function PrecoRevendaBloco\(\{[^}]*blocoMaoObra[^}]*obsMaoObra/);
