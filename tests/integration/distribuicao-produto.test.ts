@@ -677,26 +677,31 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     });
   });
 
-  it("T4 fix1 · F1(e) — card SEM distribuição: aplicar mantém a reserva REAL (#4, _estoque_tecido_core: 20 → 20) e o BOM inteiro idênticos aos de antes da migration", async () => {
+  it("T4 fix1 · F1(e) — card SEM distribuição: aplicar mantém a reserva REAL (#4, _estoque_tecido_core) e o BOM inteiro idênticos aos de antes da migration (comparado com a função VIVA)", async () => {
     if (!MIG_TXN) return;
     await withTx(async (c) => {
-      // T4 fix2 · G2 (revisor 2 M-b): chama `prepara` (as 2 travas SET LOCAL) como os demais testes — sem isso o
-      // ALTER de plan_tecido_variantes espera sem limite atrás de uma trava do :5188 e pode congelar o app do dono.
-      await prepara(c);
+      // T4 fix3 (revisor 2, checagem): `prepara(c)` no modo txn JÁ aplica a migration (`if (MIG_TXN) await
+      // aplica(c, MIG)`) — chamá-la aqui faria a fase "ANTES" rodar a função NOVA, e as comparações
+      // "antes/depois" ficariam tautológicas (comparando a função nova com ela mesma). Em vez de `prepara`, só
+      // as 2 travas SET LOCAL (sem aplicar nada) — o "antes" roda o `_plan_tecido_gravar_bom_core` VIVO da
+      // cópia; a migration só é aplicada 1× depois de capturar o "antes".
+      exigeBancoLocal();
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await c.query("SET LOCAL statement_timeout = '60s'");
       await lojaComModulos(c, true);
       const k = await cena(c);
       const m = await um<{ id: string }>(c, "insert into modelos (tenant_id, nome, origem) values ($1, 'ITEST-DIST SemDist', 'interno') returning id", [TENANT_TESTE]);
-      // T1 grade_total 10 (consumo 1) + forro SEM casamento (consumo 1, cai no ramo ELSE g(ordem) de
-      // reserva_mod em _estoque_tecido_core) — cenário do revisor 2: 10 (T1) + 10 (forro sem par) = 20.
-      await c.query("insert into modelo_grades (modelo_id, variante_numero, grades, grade_total) values ($1, 1, '{}'::jsonb, 10)", [m.id]);
+      // T4 fix3 · item 2: `multiplicador` e `ordem` DIFERENTES de 1 em cada linha (T1 ordem 2 × mult 3; forro
+      // ordem 5 × mult 4) — se o INSERT trocasse `ordem`↔`multiplicador` (ou entre as 2 linhas), a reserva e o
+      // BOM comparado mudariam; com os dois em 1 (valor da versão anterior deste teste) essa troca era invisível.
       // ANTES da migration: grava um payload SEM casamento com o gravar_bom VIVO (sem as colunas novas, sem
       // distribuição) — é o caso mais comum: modelo novo ou loja sem o módulo (materiaisParaAplicar(slot,false)
       // nunca manda 'complementa_variante_ids').
       const payloadSemCasamento = () => JSON.stringify([
         { tipo: "tecido", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [
-          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: { "38|P": 10 }, grade_total: 10 },
+          { variante_tecido_id: k.vtMarrom, ordem: 2, multiplicador: 3, grades: { "38|P": 10 }, grade_total: 10 },
         ] },
-        { tipo: "forro", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1 }] },
+        { tipo: "forro", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: k.vtMarrom, ordem: 5, multiplicador: 4 }] },
       ]);
       // T4 fix2 · G3 (revisor 2 M-a): o BOM inteiro (não só `complementa`) — tipo, ordem, multiplicador,
       // variante_tecido_id de CADA linha de modelo_tecido_variantes do card, na ordem tipo desc, ordem.
@@ -710,19 +715,29 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       const reservado = async () => (await um<{ r: string }>(c,
         "select coalesce((select round(reservado)::text from public._estoque_tecido_core($1) where variante_tecido_id = $2), '0') r",
         [TENANT_TESTE, k.vtMarrom])).r;
+      // T4 fix3: `_plan_tecido_gravar_bom_core` faz `delete from modelo_grades where modelo_id = _modelo` no
+      // INÍCIO e só REGRAVA a grade do Tecido 1 (variante_numero = ordem do T1) — a grade do forro (a que
+      // alimenta o ramo "g(ordem)" de reserva_mod pelo SEU PRÓPRIO ordem=5) precisa ser semeada DEPOIS de CADA
+      // chamada ao gravar (senão o gravar apaga o que foi semeado antes dele).
+      const semeiaGradeForro = () => c.query(
+        "insert into modelo_grades (modelo_id, variante_numero, grades, grade_total) values ($1, 5, '{}'::jsonb, 2)", [m.id]);
 
+      // "ANTES" roda contra a função VIVA da cópia (a migration ainda não foi aplicada nesta txn).
       await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payloadSemCasamento()]);
+      await semeiaGradeForro();
       const bomAntes = await bomInteiro(m.id);
       expect(bomAntes.find((l) => l.tipo === "forro")?.comp).toBeNull(); // sem casamento prévio: NULL, como hoje
       const reservaAntes = await reservado();
-      expect(reservaAntes).toBe("20"); // T1 (1×10) + forro sem par, g(ordem) (1×10) — o cenário do revisor 2
+      expect(reservaAntes).toBe("38"); // T1: 1×10×3=30; forro sem par, g(ordem=5)=2: 1×2×4=8; total 38
 
+      // Só agora a migration é aplicada — 1× — e o "DEPOIS" roda contra a função NOVA.
       await aplica(c, MIG);
       await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payloadSemCasamento()]);
+      await semeiaGradeForro();
       const bomDepois = await bomInteiro(m.id);
       expect(bomDepois, "BOM inteiro (tipo/ordem/multiplicador/variante/casamento) idêntico ao de antes da migration").toEqual(bomAntes);
       const reservaDepois = await reservado();
-      expect(reservaDepois).toBe(reservaAntes); // 20 → 20: idêntico (a reserva #4 só muda para quem PREENCHE o casamento)
+      expect(reservaDepois).toBe(reservaAntes); // 38 → 38: idêntico (a reserva #4 só muda para quem PREENCHE o casamento)
 
       // Com casamento REAL (populando modelo_grades, o que _grade_soma_pares de fato lê): a soma é igual antes e
       // depois da migration para a MESMA função/dados — a migration não redefine _grade_soma_pares (prova estática
