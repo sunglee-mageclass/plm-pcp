@@ -14,7 +14,7 @@
 
 **Repositório, worktree e ordem**
 - Worktree própria `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a`, branch `f35a/sku-banco-cadastros`, criada do HEAD de `feature/plan-tecido-a1` no início da Task 0 (o sha fica em `.superpowers/f35a/BASE`). Caminhos relativos neste plano = raiz da worktree.
-- A F3.5a roda EM PARALELO com a F3.4 (não tocam os mesmos arquivos — §4.2). Ordem de produção (dono): **F1 → Aviso Global (`20261001100000`) → Data da Nota de Entrada (`20261002100000`) → F3.5a (`20261003100000`)**. A F3.5a só junta na branch principal DEPOIS da migration dela em produção (Task 12 antes da Task 13): o `:5173` do dono lê/grava produção e o front novo manda `sigla_sku`/`sku_config`/`tamanhos_sku`. O pré-voo de produção confere F1/Aviso/Nota pelos OBJETOS (R7), nunca por `schema_migrations` (o Aviso não se registra).
+- A F3.5a roda EM PARALELO com a F3.4 (não tocam os mesmos arquivos — §4.2). **Ordem de produção NOVA (dono, 24/set ~22h; confirmada 25/set): F1 → Data da Nota de Entrada (`20261002100000`) → F3.5a (`20261003100000`), com o Aviso Global (`20261001100000`) em STANDBY** (o dono decidiu deixá-lo por último — diário 25/set ~11h40). A F3.5a só junta na branch principal DEPOIS da migration dela em produção (Task 12 antes da Task 13): o `:5173` do dono lê/grava produção e o front novo manda `sigla_sku`/`sku_config`/`tamanhos_sku`. O pré-voo de produção confere F1 + Nota pelos OBJETOS (R7) — o Aviso NÃO é mais exigido; nenhum dos três é conferido por `schema_migrations` (nem a F3.5a se registra lá — ruling da F1, RM1).
 - Se a branch principal andar (F2, F3.1–F3.4) antes do merge: `git rebase --onto feature/plan-tecido-a1 "$(cat .superpowers/f35a/BASE)" f35a/sku-banco-cadastros` (Task 13 Step 2 — regra de rebase no §4.2).
 - Commit: `git add -- <SÓ os arquivos NOVOS da task>` + `git commit --only -m "…" -- <todos os arquivos da task>` + `git show --stat HEAD` (o `commit --only` sozinho falha com arquivo não rastreado). Nunca `git add .`/`-A`/`commit -a`; ⛔ **nunca `git stash`** (pilha compartilhada entre worktrees); sem push. Toda mensagem termina com a linha `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` (o executor põe o nome do SEU modelo).
 - `src/routeTree.gen.ts` é regerado pelo build: nunca entra em commit (`git checkout -- src/routeTree.gen.ts`).
@@ -38,7 +38,7 @@
 
 **UI** — `docs/design/ui-padroes.md` §Q (primitivos Button/Input/Select/AlertDialog; sem hex/oklch/hsl solto, sem `.toFixed(`; o anti-drift de UI está ATIVO); textos PT-BR; erros por `mensagemErro(e, "…")`; tema claro de fábrica; ação sensível com AlertDialog; `useUnsavedGuard` + `UnsavedIndicator` em todo bloco com "Salvar".
 
-**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). Decisões do §2: **D4 (MUDOU), D5 = A e D7 = A decididas pelo dono em 24/set**; D1, D2, D3 e D6 seguem **(pendente do dono)** com a recomendação implementada (a D6 já está no TS da Task 1 — resposta diferente dela = avisar o controlador ANTES de mexer no que a Task 1 exporta). ⚠️ **A Task 1 JÁ foi implementada (`155d814`) com a D4 antiga: precisa da RODADA DE AJUSTE da Task 1 Step 6 (delta `git apply`) antes da Task 2;** o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
+**Modelos e comunicação** — Sonnet implementa; Opus revisa (§6). Não despachar subagentes dentro de uma task. Avisos ao dono por CHAT (nunca `ExitPlanMode`). Decisões do §2: **D1, D2, D3, D4 (MUDOU), D5 = A, D6 e D7 = A — TODAS decididas pelo dono em 24/set** (D1/D2/D3/D6 = a recomendação implementada; a D6 já está no TS da Task 1). ⚠️ **A Task 1 JÁ foi implementada (`155d814`) com a D4 antiga: precisa da RODADA DE AJUSTE da Task 1 Step 6 (delta `git apply`) antes da Task 2;** o plano implementa a RECOMENDADA — resposta diferente = aplicar a variante indicada.
 
 ---
 
@@ -46,14 +46,14 @@
 
 G-plano de 24/set (commit `6d898b1`, diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` ~1641–1763): **APROVA COM RESSALVAS**. Prazos do guardião: R4 antes da T1; R1, R2 e R3 antes da T2 (com re-check dele no trecho corrigido); R5 antes da T2 Step 4; R6 antes da T6; R7 antes da T12; R8 na T12 Step 4; R9 antes da T13 Step 4; R10 antes da T13 Step 6. Rulings do controlador (~19h): R2 e R4 = recomendação implementada e marcada "(pendente do dono)"; R8/R9 = cada frente regrava a referência da volta da F1 pelos OBJETOS, com números MEDIDOS. Reconferência do `1bce7ba`: R3–R10, supautils e as 3 sugestões FECHADAS; R2-a e R1-a antes da T2, R-PARE antes da T4 (linhas abaixo).
 
-> ⚠️ **Decisões do dono 24/set (depois do G-plano):** D5 = A e D7 = A (as recomendações, sem mudança de código); **D4 MUDOU** — apelido sem sigla (ou variante sem apelido) usa a COR BASE e o apelido sem sigla vira AVISO (não bloqueia). **A Task 1 já implementada (`155d814`, 103 testes) precisa de UMA RODADA DE AJUSTE: Task 1 Step 6** (delta: `src/lib/sku-montar.ts` — `resolverSku` devolve `avisos[]` + `textoAviso`; `tests/fixtures/sku-casos.ts` — `CasoResolver.esperado.avisos`, 3 casos mudados + 7 novos; `tests/unit/sku-montar.test.ts` — `textoAviso`; 111 testes). O SQL (`_sku_resolver` na Task 3; `_skus_modelo_calc`/`_skus_modelo_core` na Task 5) e a suíte de integração (Task 2: 35 testes) já estão com a D4 nova. D1, D2, D3 e D6: pendentes do dono.
+> ⚠️ **Decisões do dono 24/set (depois do G-plano):** D5 = A e D7 = A (as recomendações, sem mudança de código); **D4 MUDOU** — apelido sem sigla (ou variante sem apelido) usa a COR BASE e o apelido sem sigla vira AVISO (não bloqueia). **A Task 1 já implementada (`155d814`, 103 testes) precisa de UMA RODADA DE AJUSTE: Task 1 Step 6** (delta: `src/lib/sku-montar.ts` — `resolverSku` devolve `avisos[]` + `textoAviso`; `tests/fixtures/sku-casos.ts` — `CasoResolver.esperado.avisos`, 3 casos mudados + 7 novos; `tests/unit/sku-montar.test.ts` — `textoAviso`; 111 testes). O SQL (`_sku_resolver` na Task 3; `_skus_modelo_calc`/`_skus_modelo_core` na Task 5) e a suíte de integração (Task 2: 35 testes) já estão com a D4 nova. **D1, D2, D3 e D6: decididas pelo dono em 24/set (a recomendação, sem mudança de código)** — ver as linhas D1/D2/D3/D6 no §2 abaixo.
 
 | # | Ressalva | Onde entrou |
 |---|---|---|
 | R1 | `variante_key` do comprado não é estável (o Salvar do produto apaga e regrava as variantes) | `_sku_variante_key(cor, apelido)` (Task 3, parte A) usada nos 3 casos por `_skus_modelo_calc` (Task 5): a chave é a COR; variantes com a mesma cor viram 1 linha. §1 F9/F10, §3 T2, §4.1. Testes (Task 2): "R1 revenda" (salva o PRODUTO pelo `salvar_produto_acabado` REAL — ids novos — e confere as linhas `ok`/`manual`, regerar remove 0) e "R1 interno" (`salvar_modelo_bom` REAL trocando o tecido por outro com as mesmas cores) |
 | R2 | REF repetida é REGRA do dono (réplica), não legado | §2 **D5 — decidido pelo dono 24/set: A (mesmo SKU)**; a variante B fica registrada. Gatilho `fn_modelo_skus_unico` (Task 4, REF viva — R2-a) no lugar da UNIQUE `(tenant_id, sku)`; mesma regra no `conflito_com` de `_skus_modelo_core` (Task 5). Testes: unicidade da Task 4, "D5 réplica", "conflito com OUTRO produto (REF diferente)". §1 F11 com a origem apurada; spec §4.1/§6 corrigida |
 | R3 | Linha em conflito/falta não recebe SKU à mão | `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)`: `_id` NULL + a tripla cria a linha manual, validada contra `_skus_modelo_calc` (Task 5). §3 T8, §4.1, §10. Testes: "R3 …" e o caminho novo no teste de permissões |
-| R4 | Caracteres do SKU incoerentes | §2 **D6 (pendente do dono)**. SQL: `_sku_sem_acento`, `_sku_norm_sigla`, `_sku_norm_ref`, `_sku_norm_manual`, separador só `- . _ /` (Task 3). TS: `normalizarSigla`/`normalizarRefSku`/`normalizarSkuManual`/`ACENTOS_DE`/`SKU_SEP_CHARS` (Task 1). Fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` nos 2 lados; teste estático da lista de acentos; textos das Tasks 7–9 e o E1 do QA |
+| R4 | Caracteres do SKU incoerentes | §2 **D6 — decidida pelo dono em 24/set (a recomendação)**. SQL: `_sku_sem_acento`, `_sku_norm_sigla`, `_sku_norm_ref`, `_sku_norm_manual`, separador só `- . _ /` (Task 3). TS: `normalizarSigla`/`normalizarRefSku`/`normalizarSkuManual`/`ACENTOS_DE`/`SKU_SEP_CHARS` (Task 1). Fixtures `CASOS_SIGLA`/`CASOS_REF`/`CASOS_SKU_MANUAL`/`CASOS_CONFIG` nos 2 lados; teste estático da lista de acentos; textos das Tasks 7–9 e o E1 do QA |
 | R5 | N3: o `:5188` congela | Global Constraints (N3) + `regras.md` §5 + `.superpowers/f35a/n3.sh` (Task 0 Step 4), chamado em T2 Step 4, T3 Step 3, T4 Step 2, T5 Step 2, dentro do `ensaio-local.sh` (T6) e do `copia-qa.sh ida\|volta` (T10, T13) e em T13 Step 2 |
 | R6 | O ensaio só roda a suíte nova | `ensaio-local.sh` (Task 6): as 9 suítes vizinhas ANTES e DEPOIS da ida REAL, com o `DATABASE_URL` da cópia; conjunto de falhas depois ⊆ antes E mesmo total de testes (senão volta e PARA) |
 | R7 | Pré-voo de produção por registro | `prevoo_prod` (Task 12): `to_regprocedure('public.kanban_mover(uuid,text)')`, `to_regclass('public.avisos_globais')`, coluna `ocs_tecido.data_nota_entrada`; sem `NOTA`/`schema_migrations` |
@@ -5472,9 +5472,9 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
   7. inverso DESTRUTIVO com guarda de confirmação + export antes (round-trip testado);
   8. anti-drift TS × SQL verde (7 testes + o estático da lista de acentos) e as mensagens PT idênticas; R1 (salvar produto/BOM pelas RPCs reais) e R3 (linha manual nova) verdes; R6 sem falha nova;
   9. D4 (nova), D5 = A e D7 = A aplicadas como decididas em 24/set (e o ajuste da Task 1 Step 6 feito); D1/D2/D3/D6 como o dono responder (alternativa refeita se diferente); "mesma REF" = REF viva (R2-a);
-  10. ordem de produção: F1 → Aviso → Nota → F3.5a; front só junta DEPOIS (Task 12 antes da Task 13).
+  10. ordem de produção (NOVA, dono 24/set ~22h): F1 → Nota → F3.5a, Aviso Global em STANDBY; front só junta DEPOIS (Task 12 antes da Task 13).
   Veredito no diário. **BLOQUEIA ⇒ parar.** Ressalvas ⇒ resolver antes do Step 3.
-- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as decisões D4/D5/D7 (dadas em 24/set) e as respostas D1/D2/D3/D6, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step 5). Resposta literal + data no diário. Sem "sim" ⇒ parar.
+- [ ] **Step 3: OK explícito do dono** — em PT-BR simples: o que a migration faz (só acrescenta; nenhuma loja muda até alguém cadastrar siglas e o formato), o resultado do ensaio e do QA, o veredito do guardião, as decisões D4/D5/D7 (dadas em 24/set) e as respostas D1/D2/D3/D6, a ciência das REFs repetidas (F11 — o par `ACBO0142`), o aviso de que login/refresh podem esperar até ~3 s na aplicação (horário calmo) e o plano de volta (Task 12 Step V3, vigente). Resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 ---
 
@@ -5483,13 +5483,13 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
 > ⚠️ **ORDEM NOVA do dono (24/set ~22h): F1 → Data da Nota de Entrada → SKU (esta frente) → Aviso Global.** O texto
 > abaixo (Steps 1–5) e os blocos de código embutidos SÃO HISTÓRICOS: escritos quando a ordem era "F1 → Aviso →
 > Nota" e o backup era um `pg_dump` único do banco inteiro. Os **scripts VIGENTES** (25/set, aplicando as lições
-> do G-migration da Data da Nota de Entrada — `scripts-producao-brief.md`/`scripts-producao-report.md`) são os
-> arquivos reais em `.superpowers/f35a/mig/` (não versionados — `.gitignore`), com sha256 (16 primeiros) do dia da
-> revisão:
+> do G-migration da Data da Nota de Entrada — `scripts-producao-brief.md`/`scripts-producao-report.md`, rodadas 2
+> e 3 — `scripts-producao-fix2-brief.md`/`-report.md`, `scripts-producao-fix3-brief.md`) são os arquivos reais em
+> `.superpowers/f35a/mig/` (não versionados — `.gitignore`), com sha256 (16 primeiros) do dia da revisão:
 > - `aplica.sh` `688c1d43a7aa0bae`
-> - `ida-producao.sh` `293bf9fcfb2eb13a`
-> - `volta-producao.sh` `667d431d6565807d`
-> - `ref-volta-f1.sh` `546f96b987bd0751`
+> - `ida-producao.sh` `1dbfee57b512181f` (rodada 2 RM1: tirou o `INSERT INTO schema_migrations`; rodada 3 Q2: exige os 2 arquivos pós-Nota ANTES do backup)
+> - `volta-producao.sh` `32098b2f22313816` (rodada 2 — RM2: +2 `\copy`/contagens de `produtos_acabados`/`produtos_importados.tamanho_tipo`)
+> - `ref-volta-f1.sh` `923106b479bff7b5` (rodada 2 RM3: voltou a conferência "só a F3.5a mudou o schema desde a Nota"; rodada 3 RM3 menor: retrato ausente da Nota também PARA, não só INFO)
 >
 > Mudanças em relação ao texto histórico abaixo:
 > - **Pré-voo exige F1 E a Data da Nota de Entrada** (detectada por `fn_oc_nota_entrada_recalc()` + `ocs_tecido.
@@ -5511,9 +5511,29 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
 >   ensaio, Task 6); `unset EXTRA_SQL` no topo dos 2 scripts de escrita; `"IDA OK"` só depois das pós-condições
 >   (`confere_ida_f35a`); a volta termina com uma linha clara `"VOLTA OK"` ou `"VOLTA NÃO CONCLUÍDA"`; uma nova
 >   tentativa de ida é permitida se a F3.5a seguir ausente (lição Q1 do G-migration da Nota — não bloquear retry
->   legítimo por causa de um `cont-antes-f35a.txt` de tentativa anterior que não chegou a aplicar); **não registra
->   em `schema_migrations`** só por ORNAMENTO (o `ida-producao.sh` ainda tenta o INSERT, mas o gate real de "F3.5a
->   em produção" é sempre por OBJETOS — ruling F1/Nota, nunca `schema_migrations`).
+>   legítimo por causa de um `cont-antes-f35a.txt` de tentativa anterior que não chegou a aplicar).
+> - **NÃO registra em `schema_migrations` (RM1, rodada 2 de 25/set)**: o `ida-producao.sh` da rodada 1 ainda tinha
+>   um `INSERT INTO supabase_migrations.schema_migrations` "de ornamento" — os 2 G-migration independentes (A e B)
+>   apontaram que isso contraria o ruling da F1 (diário :2156, "quadro parcial enganoso") e o item 6 do brief
+>   original. Removido: o gate de "F3.5a em produção" é SEMPRE por OBJETOS (`OBJ_F35A`/`F1_OK`/`NOTA_OK`), nunca
+>   por essa tabela — igual F1/F3.1/Nota. O `DELETE` da volta (inerte, 0 linhas) foi mantido.
+> - **`volta-producao.sh` exporta/conta TAMBÉM `produtos_acabados.tamanho_tipo`/`produtos_importados.tamanho_tipo`
+>   (RM2, rodada 2)**: essas 2 colunas são apagadas pelo inverso (down :79-80) e a guarda dele já as conta, mas a
+>   volta rodada 1 só cobria `modelos.tamanho_tipo` — corrigido com +2 `\copy` e a contagem somando os 2 campos.
+>   Hoje inerte (nenhuma tela grava ainda — chega na F3.5b).
+> - **`ref-volta-f1.sh` volta a conferir "só a F3.5a mudou o schema desde a Nota" (RM3, rodada 2 — é a R8 do
+>   G-plano)**: a rodada 1 tinha perdido esse diff (comparava só a base da Nota × as linhas do PAT da F3.5a, sem
+>   checar se algo MAIS mudou fora do PAT desde o retrato da Nota). Restaurado: compara
+>   `fidelidade_prod_pos_nota_detalhe.txt` (gravado pelo Step 7b da Nota) × o retrato atual, fora do PAT da F3.5a —
+>   linhas `OUTRAS` ⇒ PARE com a lista (sem essa checagem a referência nova sairia errada em silêncio se outra
+>   fase tivesse ido a produção no meio). **Ausência do arquivo de referência da Nota (rodada 3, Q2/RM3 menor):
+>   também PARA** (não mais um "INFO" que deixa passar) — sem aquele retrato não há como confirmar "só a F3.5a
+>   mudou", então o script se recusa a gerar a referência nova.
+> - **Pré-voo do SKU exige os 2 arquivos pós-Nota (rodada 3, Q2)**: `ida-producao.sh` agora confere, ANTES do
+>   backup, que `fidelidade_ref_volta_f1_pos_nota_detalhe.txt` E `cont_volta_f1_pos_nota.txt` existem em
+>   `savepoints/pre-apply-f1-kanban-auto/` — ausentes ⇒ PARE com "rode primeiro o Step 7b da Data da Nota de
+>   Entrada", ANTES de qualquer backup/pg_dump/apply (o `RODAR-SKU.md` já dizia que o pré-voo conferia isso, mas
+>   até a rodada 2 ele só conferia os OBJETOS da Nota no banco, não esses 2 arquivos — corrigido).
 > - A migration da F3.5a **CRIA uma tabela nova** (`modelo_skus`) e por isso, diferente da Nota, TEM DDL de
 >   policy — mas segue a regra do G-migration (item 6 do checklist): "policies POR ÚLTIMO" (confirmado no arquivo:
 >   as 4 policies de `modelo_skus` são a última DDL antes de `NOTIFY`/`COMMIT`); o hook `supautils.policy_grants`
@@ -5521,20 +5541,90 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
 >   continua obrigatório.
 >
 > ⛔ Pré-condições: Task 11 inteira (G-migration APROVA + OK do dono); **F1 e Data da Nota de Entrada JÁ em
-> produção** (o pré-voo confere pelos OBJETOS — R7; o Aviso Global NÃO é mais exigido, ordem nova); HORÁRIO CALMO,
-> fora do uso das lojas (a migration cria `modelo_skus` com policies — hook supautils trava auth/storage; login/
-> refresh podem esperar alguns segundos). O plano Supabase NÃO tem PITR: o backup (por schema, `public`+`auth`) é
-> obrigatório e vem primeiro, dentro do próprio `ida-producao.sh`. O agente NÃO roda nada contra produção.
+> produção** (o pré-voo confere pelos OBJETOS — R7; o Aviso Global NÃO é mais exigido, ordem nova) **E os 2
+> arquivos pós-Nota (`fidelidade_ref_volta_f1_pos_nota_detalhe.txt`/`cont_volta_f1_pos_nota.txt`, Step 7b da
+> Nota)** — o pré-voo do SKU confere os dois; HORÁRIO CALMO, fora do uso das lojas (a migration cria `modelo_skus`
+> com policies — hook supautils trava auth/storage; login/refresh podem esperar alguns segundos). O plano Supabase
+> NÃO tem PITR: o backup (por schema, `public`+`auth`) é obrigatório e vem primeiro, dentro do próprio
+> `ida-producao.sh`. O agente NÃO roda nada contra produção.
 
 **Files:** nenhum no git (`.superpowers/f35a/mig/` — `.gitignore`). Scripts vigentes: `aplica.sh`, `ida-producao.sh`,
 `volta-producao.sh`, `ref-volta-f1.sh` (sha256 acima); saída em `/Users/sunglee/PLM + Criação/savepoints/
 pre-apply-f35a-sku/` (FORA do repo; dados de lojas — nunca commitar). **Os blocos de código dos Steps 1–5 abaixo
 são o texto HISTÓRICO** (ordem antiga F1 → Aviso → Nota, backup único do banco inteiro) — mantidos por rastreio;
-não rodar como estão.
+não rodar como estão. **Rodar em vez disso os "Steps VIGENTES" logo abaixo.**
 
-> **HISTÓRICO — Steps 1–5 abaixo (`producao.sh` + `ref-volta-f1.sh` originais).** Superados pelos scripts vigentes
-> `.superpowers/f35a/mig/{aplica.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh}` (sha256 no aviso acima).
-> Mantidos só para rastreio de como a Task foi originalmente desenhada.
+### Steps VIGENTES (25/set — RC3/B-3 do `g-sku-A.md`/`g-sku-B.md`; rodada 3 = `scripts-producao-fix3-brief.md`) — o roteiro real do dia
+
+> Pré-requisito único, além do OK do dono (Task 11 Step 3): **a Data da Nota de Entrada JÁ em produção E o Step 7b
+> do `ref-volta-f1.sh` DELA já rodado** — grava `savepoints/pre-apply-f1-kanban-auto/fidelidade_ref_volta_f1_pos_
+> nota_detalhe.txt` + `cont_volta_f1_pos_nota.txt`. Sem os dois, o `ida-producao.sh` do SKU (Step V1 abaixo) PARA
+> ANTES de qualquer backup/apply (rodada 3, Q2 — o pré-voo confere os 2 arquivos, não só os objetos da Nota no
+> banco); o `ref-volta-f1.sh` (Step V2) também PARA se faltarem. Roteiro completo para o dono: `RODAR-SKU.md`
+> (gerado ao lado deste plano, fora do repo — ver Step V0).
+
+- [ ] **Step V0: gerar o roteiro do dia para o dono** (controlador) — `/Users/sunglee/PLM + Criação/savepoints/
+  pre-apply-sku/RODAR-SKU.md` (Step 6 desta Task, abaixo).
+
+- [ ] **Step V1: IDA em produção (dono, bash)**
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
+bash .superpowers/f35a/mig/ida-producao.sh 2>&1 | tee -a .superpowers/f35a/logs/prod-ida.log
+```
+
+Expected: a guarda de URL não imprime nada se OK (só `PARE` se a URL for errada/ausente); `PARE: faltam …
+fidelidade_ref_volta_f1_pos_nota_detalhe.txt e/ou … cont_volta_f1_pos_nota.txt — rode primeiro o Step 7b da Data
+da Nota de Entrada` se esses 2 arquivos faltarem (rodada 3 — pára ANTES do backup); `contagens antes
+(funções|gatilhos): <N>` (medido, não fixo); 2× `OK (backup public/auth): … tabelas com dados`; `== pré-voo F3.5a
+(SKU automático) — só leitura`; `OK (PG >= 17 …): t`; `OK (F1 …): t`; `OK (Data da Nota de Entrada …): t`; `OK
+(objetos da F3.5a ainda NÃO existem): 0|0|0|0`; `OK (ATIV): nenhuma transação longa`; `AVISO (pré-voo): … DDL de
+policy … risco aceito pelo dono`; `== PRÉ-VOO OK`; a aplicação da migration (`== supabase/migrations/…sql`); `OK
+(IDA: objetos da F3.5a): 23|6|1|7`; `OK (IDA: ACL (#9)): 0|0|0`; `OK (IDA: nenhuma função pré-existente mudou)`;
+`OK (IDA: contagens <antes> → <antes+23> = +23 funções +6 gatilhos)`; `== IDA OK — agora rode o ref-volta-f1.sh`;
+`== PostgREST recarregado`. Qualquer `FALHOU`/`PARE`/`PAROU`: NÃO seguir — avisar o controlador.
+
+- [ ] **Step V2: referência nova da volta de emergência da F1 (dono, só leitura, logo depois do V1)**
+
+```bash
+/bin/bash --noprofile --norc "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a/.superpowers/f35a/mig/ref-volta-f1.sh" 2>&1 | tee -a "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a/.superpowers/f35a/logs/prod-ref-volta-f1.log"
+```
+
+Expected: `OK (referência nova p/ a volta da F1): …/fidelidade_ref_volta_f1_pos_f35a_detalhe.txt — base da Nota sem
+os objetos da F3.5a + <n> linha(s) atuais dela; CONT esperado da volta: <CV> (= <CONT da Nota, ex. 429|227> + delta
+medido da F3.5a: <antes> → <depois>)` (conta de referência: 429\|227 da Nota + 23\|6 = **452\|233** — vale o
+MEDIDO); `Gravado ao lado do runbook da F1: …/VOLTA-F1-POS-F35A.md`. Se aparecerem linhas `OUTRAS` (RM3): PARE —
+algo além da F3.5a mudou o schema desde o retrato da Nota; avisar o controlador ANTES de prosseguir. `PARE: faltam
+…` (referência da Nota ausente, `NOTA_REF`/`NOTA_CONT`) ⇒ rodar o Step 7b da Nota primeiro. `PARE: falta
+fidelidade_prod_pos_nota_detalhe.txt` (rodada 3 — retrato da Nota ausente, usado pela checagem `OUTRAS`) ⇒ mesma
+causa — o Step 7b da Nota não gravou esse arquivo; NÃO segue com a checagem pulada. Registrar no diário do
+guardião a saída inteira dos Steps V1–V2 e na memória da campanha (`project_sku_automatico`: "F3.5a aplicada em
+produção em <data>").
+
+- [ ] **Step V3: Volta (SÓ com OK do dono; NÃO faz parte do fluxo normal)** — ordem: (1) tirar do ar o front que
+  grava as colunas (se a Task 13 já juntou, reverter o merge no branch/deploy); (2) OK explícito do dono para
+  APAGAR siglas/formato/SKUs; (3) o dono roda:
+
+```bash
+cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-f35a"
+bash .superpowers/f35a/mig/volta-producao.sh 2>&1 | tee -a .superpowers/f35a/logs/prod-volta.log
+```
+
+Expected: contagem do que será apagado (`dado(s) digitado(s)/gerado(s) …: <N>`); prompt "Digite APAGAR OS SKUS
+para seguir" (dono digita literal); export de 7 CSVs (cores, cores_apelido, tenant_config, modelos, produtos_
+acabados, produtos_importados, modelo_skus — RM2); 2× `OK (backup public/auth)`; `contagens imediatamente antes da
+volta: <N>`; a aplicação do inverso; `OK (a F3.5a saiu): 0|0|0|0`; `OK (contagens = antes da volta − 23 funções −
+6 gatilhos)`; `OK (funções pré-existentes = antes da volta)`; `== VOLTA OK — a referência da volta da F1
+'pos_f35a' deixou de valer; ver LEIA-volta-f1-pos-f35a.txt`. Qualquer falha na cadeia final: `== VOLTA NÃO
+CONCLUÍDA` — avisar o controlador/dono (conferir até onde chegou: ATIV, inverso, conferência, DELETE, NOTIFY).
+Desfeita a F3.5a, a referência `pos_f35a` da volta da F1 deixa de valer — volta a valer a da Nota (o
+`LEIA-volta-f1-pos-f35a.txt` confirma). Última rede: os backups `producao-pre-volta-f35a-{public,auth}-*.dump`.
+
+---
+
+> **HISTÓRICO — Steps 1–5 abaixo (`producao.sh` + `ref-volta-f1.sh` originais).** Superados pelos Steps VIGENTES
+> acima (V0–V3) e pelos scripts `.superpowers/f35a/mig/{aplica.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh}`
+> (sha256 no aviso do topo). Mantidos só para rastreio de como a Task foi originalmente desenhada.
 
 - [ ] **Step 1: O script** (o controlador cria; o dono roda) — `.superpowers/f35a/mig/producao.sh`:
 
@@ -5777,7 +5867,7 @@ SKU_DONO_AVISADO=sim bash .superpowers/f35a/n3.sh antes t13s2 && \
 bash .superpowers/f35a/n3.sh depois t13s2
 ```
 
-Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  35 passed (35)` (R-PARE vale aqui também). Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
+Expected (dono avisado ANTES — R5): `BASE na principal: ok`; rebase limpo (conflito: regra do §4.2 — ficar com a principal e reaplicar a MESMA intenção; registrar em `.superpowers/f35a/rebase.md`); `GATES F3.5a: ok`; `Tests  36 passed (36)` (RC1, 25/set: 35 originais + 1 novo — fonte `fix-lote-report.md:38`, confirmado por `g-sku-A.md:51/:84` e `g-sku-B.md:53/:107`; R-PARE vale aqui também). Se `configuracoes.tsx` mudou na principal (F2 entrou): re-revisão Opus do trecho com o diff.
 
 - [ ] **Step 3: A F3.5a na CÓPIA e o merge (fast-forward) NA MESMA HORA — só com a Task 12 OK**
 
