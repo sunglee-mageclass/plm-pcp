@@ -80,7 +80,7 @@ export function GradeTamanhosCard({ readOnly }: { readOnly?: boolean } = {}) {
     <div className="space-y-6">
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Formato <b>Número|Sigla</b> (ex.: <code>38|P</code>). A <b>ordem</b> define as colunas das grades.
+          Formato <b>Número|Letra</b> (ex.: <code>38|P</code>). A <b>ordem</b> define as colunas das grades.
         </p>
         {/* readOnly (sem permissão de editar Grade): esconde adicionar/reordenar/remover. */}
         {!readOnly && (
@@ -151,12 +151,14 @@ function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: b
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
 
   // Semeia do servidor só SEM edição pendente (um refetch/realtime não apaga o que você digitou).
+  // `dirty` entra nas deps: ao desfazer a edição à mão (rascunho volta a bater com `base`), o efeito
+  // roda de novo e resincroniza com o valor atual do servidor (sem isso, ficava preso ao rascunho antigo).
   const servidorCanon = canonico(servidor);
   useEffect(() => {
     if (!isSuccess || dirty) return;
     setRascunho({ ...(servidor ?? {}) });
     setBase(servidor);
-  }, [servidorCanon, isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [servidorCanon, isSuccess, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const linhas = ladosDaGrade(itens);
   const lados = [...new Set(linhas.flatMap((l) => [l.numero, l.letra]).filter((x): x is string => !!x))];
@@ -195,7 +197,7 @@ function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: b
         onChange={(e) => setRascunho((r) => ({ ...r, [lado]: e.target.value }))}
         placeholder="—"
         maxLength={10}
-        disabled={readOnly}
+        disabled={readOnly || salvar.isPending}
         aria-label={`Sigla SKU do tamanho ${lado}`}
         className="h-8 w-20 uppercase max-md:h-11"
       />
@@ -237,6 +239,7 @@ function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: b
           <Button
             type="button"
             variant="outline"
+            className="max-sm:w-full max-sm:h-auto max-sm:whitespace-normal"
             disabled={semSigla.length === 0}
             onClick={() => setRascunho((r) => {
               const n = { ...r };
@@ -244,7 +247,9 @@ function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: b
               return n;
             })}
           >
-            <Wand2 className="h-4 w-4 mr-1" /> Preencher vazias com o próprio tamanho
+            <Wand2 className="h-4 w-4 mr-1 shrink-0" />
+            <span className="sm:hidden">Preencher vazias</span>
+            <span className="hidden sm:inline">Preencher vazias com o próprio tamanho</span>
           </Button>
           <Button type="button" className="ml-auto" disabled={!dirty || salvar.isPending} onClick={() => salvar.mutate()}>
             {salvar.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}

@@ -137,8 +137,8 @@ export function AttributeTab({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   // Edição inline unificada do DESKTOP: o lápis liga a linha inteira (Nome + extra +
-  // extraNumber + extraEnum + toggle) num único rascunho local — espelha os states do
-  // Sheet mobile (sheetExtra/sheetNum/sheetEnum/sheetAtivo), só que renderizado na td
+  // extraNumber + extraText + extraEnum + toggle) num único rascunho local — espelha os states do
+  // Sheet mobile (sheetExtra/sheetNum/sheetText/sheetEnum/sheetAtivo), só que renderizado na td
   // em vez de num Sheet. Nada salva sem clicar ✓ (save atômico único).
   const [editExtra, setEditExtra] = useState("");
   const [editNum, setEditNum] = useState("");
@@ -295,7 +295,7 @@ export function AttributeTab({
   });
 
   // Save atômico da linha (DESKTOP) — o lápis liga a edição da linha inteira; ✓ grava
-  // Nome + extra + extraNumber + extraEnum + toggle NUM SÓ UPDATE. Substitui as antigas
+  // Nome + extra + extraNumber + extraText + extraEnum + toggle NUM SÓ UPDATE. Substitui as antigas
   // updateExtraMut/updateExtraNumMut/updateEnumMut/updateToggleMut (salvavam no ato a
   // cada mudança direta na linha em modo leitura — removidas; nada mais as chama, e
   // grep confirmou que não há uso fora deste arquivo). Espelha `sheetSaveMut` (mobile).
@@ -319,8 +319,8 @@ export function AttributeTab({
       }
       if (config.extraText) {
         // Só manda a coluna se MUDOU (editar o nome sem mexer na sigla não depende da coluna existir no banco).
-        const v = editText.trim() === "" ? null : editText;
-        if (v !== (row[config.extraText.field] ?? null)) payload[config.extraText.field] = v;
+        const vExtraText = editText.trim() === "" ? null : editText;
+        if (vExtraText !== (row[config.extraText.field] ?? null)) payload[config.extraText.field] = vExtraText;
       }
       if (config.extraEnum) payload[config.extraEnum.field] = editEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = editAtivo;
@@ -462,8 +462,8 @@ export function AttributeTab({
         payload[config.extraNumber.field] = num;
       }
       if (config.extraText) {
-        const v = sheetText.trim() === "" ? null : sheetText;
-        if (v !== (sheetRow[config.extraText.field] ?? null)) payload[config.extraText.field] = v;
+        const vExtraText = sheetText.trim() === "" ? null : sheetText;
+        if (vExtraText !== (sheetRow[config.extraText.field] ?? null)) payload[config.extraText.field] = vExtraText;
       }
       if (config.extraEnum) payload[config.extraEnum.field] = sheetEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = sheetAtivo;
@@ -650,7 +650,7 @@ export function AttributeTab({
                   {/* MOBILE: card de leitura — .card-table-atrib esconde as demais td; editar = lápis → Sheet.
                       `items-start` + a PRIMEIRA linha (checkbox/nome/ações) com h-11: o checkbox e os
                       botões ficam alinhados com o NOME (não com o centro do card), então não desalinham
-                      quando há sublinha (ex.: Cor apelido) nem quando não há (ex.: Cores base). A
+                      quando há sublinha (ex.: Cor apelido, via extraText) nem quando não há (ex.: Cores base). A
                       sublinha, quando existe, cai ABAIXO dessa linha. */}
                   <TableCell data-label="card" className="md:hidden">
                     <div className="flex items-start gap-1">
