@@ -3,6 +3,7 @@ import {
   aplicarColunasFicha, prepararRetryP0409, tocadosAposSalvar, draftEnviadoEfetivo, retryBloqueadoPorEnvio, contadorVoo,
   bomRecarregando, deveLimparTocadoAposSalvar, draftEnviadoComColunasDev, deveBarrarPorBomRecarregando,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
+import { normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
 import type { TotaisBom } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { mensagemErro } from "@/lib/erro-mensagem";
 
@@ -73,6 +74,40 @@ describe("tocadosAposSalvar — fix do save-em-voo", () => {
       enviado: { nome: "Novo", semana: "2" },
     });
     expect([...out]).toEqual(["nome"]);
+  });
+
+  // Fix I2 (revisão Opus, rodada 1 pós-rebase-cadeia F3.1 FINAL) — a fusão F3.1 final × F3.2 fazia
+  // `tocadosAposSalvar`/o baseline do "não salvo" nascerem do `savedDraft` NORMALIZADO
+  // (`normalizarDraftSalvo`, F3.1 final: ref.trim(), descricao_produto trim-ou-NULL). Como o rascunho
+  // VIVO segue CRU (o que o usuário digitou, ex. " ABC "), a comparação NUNCA batia e `ref`/
+  // `descricao_produto` ficavam tocados pra sempre — "não salvo" aceso mesmo logo após salvar.
+  // Ruling do controlador: `tocadosAposSalvar` (e o baseline `resetDraftBaseline`, no orquestrador)
+  // usam o rascunho CRU enviado, NÃO o normalizado — só o `baseRef` do merge usa o normalizado.
+  it("com o CRU enviado (não o normalizado): ref/descricao_produto NÃO ficam tocados mesmo com espaços", () => {
+    const dCru = { ref: " ABC ", descricao_produto: "   ", nome: "x" };
+    // Simula o vivo IDÊNTICO ao que foi enviado (nenhuma tecla digitada durante o voo do save).
+    const out = tocadosAposSalvar({
+      touched: new Set(["ref", "descricao_produto"]),
+      live: dCru,
+      enviado: dCru, // CRU — não normalizarDraftSalvo(dCru)
+    });
+    expect([...out]).toEqual([]);
+  });
+  it("com o NORMALIZADO por engano (regressão que este fix evita): ref/descricao_produto ficam tocados pra sempre", () => {
+    const dCru = { ref: " ABC ", descricao_produto: "   ", nome: "x" };
+    const enviadoErrado = normalizarDraftSalvo(dCru as any);
+    const out = tocadosAposSalvar({
+      touched: new Set(["ref", "descricao_produto"]),
+      live: dCru,
+      enviado: enviadoErrado, // NORMALIZADO — o bug da fusão I2
+    });
+    expect([...out].sort()).toEqual(["descricao_produto", "ref"]);
+  });
+  it("o baseline do MERGE (baseRef) usa o normalizado — ref/descricao_produto do banco, não os digitados com espaço", () => {
+    const dCru = { ref: " ABC ", descricao_produto: "   ", nome: "x" };
+    const baseDoMerge = normalizarDraftSalvo(dCru as any);
+    expect(baseDoMerge.ref).toBe("ABC");
+    expect(baseDoMerge.descricao_produto).toBe("");
   });
 });
 

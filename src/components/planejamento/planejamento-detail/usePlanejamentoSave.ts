@@ -471,12 +471,24 @@ export function usePlanejamentoSave({
       // valor de origem. Sem isto, `baseRef`/`resetDraftBaseline`/`tocadosAposSalvar` comparam com um
       // baseline desatualizado e o refetch de `["modelo"]` (já com a lista NOVA) soa como "alguém salvou
       // agora — 1 campo atualizado" contra o PRÓPRIO write.
-      let enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(savedDraft, enviadoRef.current.bom) : savedDraft;
+      // Fix I2 (revisão Opus, rodada 1) — `savedDraft` passa por `normalizarDraftSalvo` (fusão com a F3.1
+      // final: `ref.trim()`/`descricao_produto` trim-ou-NULL, ver acima), mas o rascunho VIVO segue CRU
+      // ("  ABC  " digitado). Se `enviadoEfetivo` (baseline de "não salvo" + `tocadosAposSalvar`) nascesse
+      // do normalizado, `ref`/`descricao_produto` ficariam PARA SEMPRE em `touchedRef` (o vivo nunca bate
+      // com o normalizado) — "não salvo" aceso pra sempre e o guard de saída pedindo pra descartar. Ruling
+      // do controlador (ver o brief da rodada 1): o baseline do "não salvo"/`tocadosAposSalvar` usa o
+      // rascunho CRU enviado (`enviadoRef.current.draft`, o MESMO `d` que gerou o payload) — paridade com
+      // a F3.1 final sozinha (que fazia `markClean()` + `touchedRef=new Set()`, sem qualquer normalização
+      // no vivo). `baseRef.current` (a base do MERGE de colab, mais abaixo) CONTINUA usando `savedDraft`
+      // normalizado — essa é a intenção original da F3.1: o merge não pode confundir o eco do PRÓPRIO
+      // Salvar com "alguém mudou a REF" só porque o servidor devolveu ela aparada.
+      const draftCruEnviado = enviadoRef.current?.draft ?? savedDraft;
+      let enviadoEfetivo = enviadoRef.current ? draftEnviadoEfetivo(draftCruEnviado, enviadoRef.current.bom) : draftCruEnviado;
       // Fix final M1 (2ª parte) — `proporcoes`/`custos_adicionais` fora do payload (ficha travada no
       // meio do caminho — `podeGravarColunasDev=false`, ver `aplicarColunasFicha`) NÃO podem virar
-      // "enviado" no baseline: o servidor NUNCA os recebeu, mas `savedDraft` ainda carrega o valor
-      // editado localmente. `baseRef.current?.draft` (o "draft do servidor" ANTES deste save, LIDO
-      // ANTES de ser sobrescrito abaixo) é a fonte de verdade a preservar. Usa
+      // "enviado" no baseline: o servidor NUNCA os recebeu, mas `savedDraft`/`draftCruEnviado` ainda
+      // carrega o valor editado localmente. `baseRef.current?.draft` (o "draft do servidor" ANTES deste
+      // save, LIDO ANTES de ser sobrescrito abaixo) é a fonte de verdade a preservar. Usa
       // `podeGravarColunasDevNaCaptura` (não `fichaRef.current.podeGravarColunasDev` — o valor de AGORA,
       // que pode já ter mudado durante o `await`): o que decide se o payload levou os 2 campos é o valor
       // do INSTANTE da captura, síncrono, mesmo já usado por `retryBloqueadoPorEnvio` acima.
@@ -484,19 +496,29 @@ export function usePlanejamentoSave({
         enviadoEfetivo = draftEnviadoComColunasDev(enviadoEfetivo, baseRef.current.draft, enviadoRef.current.podeGravarColunasDevNaCaptura);
       }
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
-      // (`enviadoEfetivo` — já é o `d` congelado no mutationFn, mesma fonte de `enviadoRef.current.draft`,
-      // com `tecidos_planejados` corrigido pelo fix I1 acima); campo editado durante o voo SEGUE tocado e o
-      // selo segue aceso até o próximo Salvar (o eco do meu UPDATE não reverte nem vira conflito comigo
-      // mesmo). Mesmo tick síncrono do `ficha.aposSalvar` abaixo — sem `await` entre o rebase do draft e o
-      // rebase do BOM (nota do controlador, revisão T7).
+      // (`enviadoEfetivo` — o `d` CRU congelado no mutationFn, com `tecidos_planejados` corrigido pelo fix
+      // I1 acima); campo editado durante o voo SEGUE tocado e o selo segue aceso até o próximo Salvar (o
+      // eco do meu UPDATE não reverte nem vira conflito comigo mesmo). Mesmo tick síncrono do
+      // `ficha.aposSalvar` abaixo — sem `await` entre o rebase do draft e o rebase do BOM (nota do
+      // controlador, revisão T7).
       resetDraftBaseline(enviadoEfetivo);
+      touchedRef.current = tocadosAposSalvar({ touched: touchedRef.current, live: draftLiveRef.current, enviado: enviadoEfetivo });
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime (meu
       // próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev real
       // (bumpado no servidor) chega no próximo refetch — o merge effect processa em silêncio
-      // (base≈fresh, sem conflitos) e avança `revRef`. `enviadoEfetivo` (não o `draft` do closure,
-      // que pode ter avançado durante o `await`) é a verdade do que está no servidor agora.
-      baseRef.current = { draft: enviadoEfetivo };
-      touchedRef.current = tocadosAposSalvar({ touched: touchedRef.current, live: draftLiveRef.current, enviado: enviadoEfetivo });
+      // (base≈fresh, sem conflitos) e avança `revRef`. Fix I2 — AQUI (só aqui) usa `savedDraft`
+      // NORMALIZADO (não `enviadoEfetivo`/cru): é a intenção original da F3.1 final — o merge compara
+      // contra o que o BANCO de fato guarda (ref aparada, descrição trim-ou-NULL), senão o refetch
+      // seguinte via Realtime mostraria o eco do PRÓPRIO Salvar como "alguém salvou agora" nesses 2
+      // campos. `tecidos_planejados`/colunas do Dev do `enviadoEfetivo` entram por cima (mesma correção
+      // dos fixes acima), já que `savedDraft` sozinho não passa por elas.
+      const baseDoMerge: Draft = {
+        ...savedDraft,
+        tecidos_planejados: enviadoEfetivo.tecidos_planejados,
+        proporcoes: enviadoEfetivo.proporcoes,
+        custos_adicionais: enviadoEfetivo.custos_adicionais,
+      };
+      baseRef.current = { draft: baseDoMerge };
       // Fix T10 I1 — o draft VIVO também adota a lista derivada do BOM, SEM marcar como tocado: senão o
       // campo "Tecido Planejado" na tela mostraria o valor VELHO enquanto o baseline (acima) já é o novo,
       // o que acenderia o selo "não salvo" sozinho logo após o Salvar. Só quando o usuário NÃO editou a
