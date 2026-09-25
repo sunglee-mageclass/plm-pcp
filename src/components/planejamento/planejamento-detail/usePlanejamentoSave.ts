@@ -13,7 +13,7 @@ import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { moLinhasEqual } from "@/lib/mao-obra";
 import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
-import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo } from "@/components/planejamento/planejamento-detail/helpers";
 import { syncTecidosToDesenvolvimento } from "@/components/planejamento/planejamento-detail/sync-tecidos";
 
 export type UsePlanejamentoSaveArgs = {
@@ -276,8 +276,13 @@ export function usePlanejamentoSave({
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
       // o `onSuccess` abaixo usa este (não o `draft` do closure do render que chamou
       // `save.mutate`) pra fixar `baseRef`/decidir invalidations, mesma razão do `d` acima.
+      // Fix final (F3.1, item 2): passa por `normalizarDraftSalvo` — o payload real mandou
+      // `ref` aparada e `descricao_produto` trim-ou-NULL (via `aplicarRegrasCamposDev`/
+      // `textoOuNull` acima), mas `d` cru ainda guarda os valores DIGITADOS (com espaço).
+      // Sem isto, `baseRef` (o "base" do próximo merge) divergia do que o banco de fato tem,
+      // e o refetch seguinte via Realtime mostrava o eco do PRÓPRIO Salvar como conflito.
       // `savedId` (F3.1): id do card — usado no onSuccess pra disparar `onCreated` no card NOVO.
-      return { autoProduto, savedDraft: d, savedId };
+      return { autoProduto, savedDraft: normalizarDraftSalvo(d), savedId };
     },
     onSuccess: (result) => {
       toast.success("Modelo salvo");

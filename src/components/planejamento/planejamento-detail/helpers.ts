@@ -147,3 +147,17 @@ export function camposParaDuplicar(draft: Draft): Record<string, unknown> {
 export function draftParaSalvar(draftLiveRefCurrent: Draft | null | undefined, draft: Draft): Draft {
   return draftLiveRefCurrent ?? draft;
 }
+
+/**
+ * Fix final (F3.1, item 2 — "eco do próprio Salvar"): normaliza o `Draft` com as MESMAS regras
+ * que `usePlanejamentoSave` aplica ao montar o payload (`ref.trim()` e `descricao_produto` via
+ * `textoOuNull`) — nenhuma outra regra de `aplicarRegrasCamposDev`, que depende de
+ * permissão/etapa e não faz parte do "o que o servidor gravou". Usado para construir o
+ * `savedDraft` que vira `baseRef` após o Salvar: sem isto, `baseRef` guardava o valor CRU
+ * (ex.: `" ABC "` ou `"   "`) enquanto o banco gravou o normalizado (`"ABC"` ou `NULL`); no
+ * próximo refetch, o merge via `mergeDraft` comparava base≠fresh nesses 2 campos e mostrava
+ * "Alguém salvou agora — 1 campo" para o PRÓPRIO save de quem acabou de clicar Salvar.
+ */
+export function normalizarDraftSalvo(d: Draft): Draft {
+  return { ...d, ref: (d.ref ?? "").trim(), descricao_produto: textoOuNull(d.descricao_produto) ?? "" };
+}

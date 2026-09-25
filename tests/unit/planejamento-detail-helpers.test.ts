@@ -8,6 +8,7 @@ import {
   aplicarRegrasCamposDev,
   camposParaDuplicar,
   draftParaSalvar,
+  normalizarDraftSalvo,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -211,5 +212,36 @@ describe("draftParaSalvar (fix round 1 — retry do P0409 usa o rascunho vivo)",
     // O retry (save.mutate() dentro do onError) chama a MESMA mutationFn de novo, ainda
     // fechada sobre o draft do 1º render — mas o payload tem que refletir o pós-merge.
     expect(mutationFn().nome).toBe("pós-merge (adotado do outro usuário)");
+  });
+});
+
+// Fix final (F3.1, item 2) — "eco do próprio Salvar": o `savedDraft` que vira `baseRef` tem que
+// refletir os MESMOS valores normalizados que o payload de fato gravou (ref.trim(), descricao_produto
+// trim-ou-NULL), senão o merge do refetch seguinte compara base≠fresh nesses 2 campos e mostra o
+// PRÓPRIO save de quem clicou Salvar como "Alguém salvou agora".
+describe("normalizarDraftSalvo (fix final — base do merge sem eco do próprio Salvar)", () => {
+  it("apara a REF, igual ao que o payload manda (ref.trim())", () => {
+    const d: Draft = { ...emptyDraft(), ref: "  QA1234  " };
+    expect(normalizarDraftSalvo(d).ref).toBe("QA1234");
+  });
+  it("descricao_produto só-espaço vira string vazia (equivalente ao NULL gravado)", () => {
+    const d: Draft = { ...emptyDraft(), descricao_produto: "   " };
+    expect(normalizarDraftSalvo(d).descricao_produto).toBe("");
+  });
+  it("descricao_produto preenchida passa como está", () => {
+    const d: Draft = { ...emptyDraft(), descricao_produto: "Camiseta gola V" };
+    expect(normalizarDraftSalvo(d).descricao_produto).toBe("Camiseta gola V");
+  });
+  it("não muta os demais campos do draft", () => {
+    const d: Draft = { ...emptyDraft(), nome: "M", ref: " R ", preco_venda: 10 };
+    const out = normalizarDraftSalvo(d);
+    expect(out.nome).toBe("M");
+    expect(out.preco_venda).toBe(10);
+  });
+  it("é pura: não muta o objeto recebido", () => {
+    const d: Draft = { ...emptyDraft(), ref: " R " };
+    const antes = { ...d };
+    normalizarDraftSalvo(d);
+    expect(d).toEqual(antes);
   });
 });

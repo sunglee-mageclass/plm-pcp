@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Copy, ArrowLeft, Save, Pencil } from "lucide-react";
+import { Trash2, Copy, ArrowLeft, Save, Pencil, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -668,6 +668,14 @@ function PlanejamentoDetailConteudo({
     qc, onSaved: aoSalvar, onCreated,
   });
 
+  // Fix final (F3.1, item 3) — card NOVO: entre o clique em Salvar e o Sheet remontar com o id
+  // criado (`onCreated`, key nova no `PlanejamentoDetail` acima), o que se digita no formulário
+  // é perdido — o componente inteiro desmonta/remonta. Trava o formulário com `<fieldset
+  // disabled>` SÓ nesta janela (card NOVO + 1º save em voo) e mostra "Salvando…" — evita a
+  // digitação perdida em vez de tentar preservá-la através da remontagem. Não afeta o card
+  // existente: `isEdit` já é `true` ali, então `salvandoNovo` nunca liga.
+  const salvandoNovo = !isEdit && save.isPending;
+
   // Resolve um conflito de campo escalar: "usar o novo" aplica `dele` no rascunho e tira o
   // campo do `touched` (senão o próximo merge o trataria como editado por mim de novo);
   // "manter meu" só descarta o aviso — o valor local prevalece e SEGUE touched.
@@ -699,11 +707,17 @@ function PlanejamentoDetailConteudo({
   // Colab: canal por modelo — o registroId vai DENTRO do canal (nunca ler old_record).
   // Qualquer UPDATE na linha `modelos` (inclusive um save de outro usuário) dispara
   // `onMudancaServidor`, que invalida a query e deixa o useEffect de merge acima reconciliar.
+  // Fix final (F3.1): também invalida `["plan-kanban-cond", modeloId]` (key do
+  // `useFichaKanban.ts:65`) — sem isso, as condições do "Mover para…" e o gate da REF ficavam
+  // com o cache velho até um refetch manual quando OUTRA pessoa salvava o modelo.
   const { presentes } = useColabRegistro({
     canal: modeloId ? `colab:modelo:${modeloId}` : null,
     tabela: "modelos",
     registroId: modeloId,
-    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["modelo", modeloId] }),
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
+    },
     campoFocado,
   });
   // Presença por campo com NOME + COR (estilo Sheets, set/2026): o anel/rótulo sai do
@@ -871,7 +885,15 @@ function PlanejamentoDetailConteudo({
               <DialogTitle className="flex flex-wrap items-center gap-2">
                 <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
                 {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
-                <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+                {/* Fix final (F3.1, item 3): indicador discreto do 1º Salvar do card NOVO — o
+                    formulário está travado (fieldset abaixo) enquanto isto aparece. */}
+                {salvandoNovo && (
+                  <span className="ml-auto shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Salvando…
+                  </span>
+                )}
+                {!salvandoNovo && <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />}
               </DialogTitle>
               {/* REF logo abaixo do nome — read-only, discreta. Só aparece quando já existe (gerada no
                   Desenvolvimento, invariante #11); vazia no Planejamento pré-Dev fica oculta (mais clean). */}
@@ -920,6 +942,12 @@ function PlanejamentoDetailConteudo({
           }}
           onBlurCapture={() => setCampoFocado(null)}
         >
+        {/* Fix final (F3.1, item 3): card NOVO + 1º Salvar em voo — trava TODO o formulário
+            (mesmo padrão `<fieldset disabled className="contents">` já usado acima pro
+            Motivo do Cancelamento/Observações do Dev, `className="contents"` não interfere no
+            grid/space-y do container). Não mexe no card EXISTENTE: `salvandoNovo` exige
+            `!isEdit`. */}
+        <fieldset disabled={salvandoNovo} className="contents">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <InfoGeraisSecao
             draft={draft} setDraftTracked={setDraftTracked}
@@ -1216,6 +1244,7 @@ function PlanejamentoDetailConteudo({
               <ProdutoRelacionadoSetor modeloId={modeloId} />
             </Secao>
           )}
+        </fieldset>
         </div>
 
         <div className="shrink-0 border-t bg-background px-4 py-3 flex flex-wrap items-center gap-2">
