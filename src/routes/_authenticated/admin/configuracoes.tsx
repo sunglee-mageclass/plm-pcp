@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -58,6 +59,7 @@ import { REVENDA_COND_NA, requisitosHerdados } from "@/lib/kanban-condicoes";
 import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } from "@/lib/revenda-config";
 import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
+import { keywordsDoServidor, keywordsParaPayload } from "@/lib/config-keywords";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
 import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
@@ -154,6 +156,8 @@ const DEFAULTS = {
   // Formato da REF (montagem + siglas + dígitos/início do número) — ver src/lib/ref-montar.ts.
   // null = loja não configurou; usa o comportamento HISTÓRICO do banco (fallback derivado).
   ref_config: null as RefConfig | null,
+  // F3.6 (dono 25/set, R39): Keywords da loja — texto livre (`tenant_config.keywords`); p/ uma tela FUTURA do super admin.
+  keywords: "" as string,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -307,6 +311,7 @@ function ConfiguracoesLojaPage() {
         (r as any).ref_config && typeof (r as any).ref_config === "object" && !Array.isArray((r as any).ref_config)
           ? ((r as any).ref_config as RefConfig)
           : DEFAULTS.ref_config,
+      keywords: keywordsDoServidor((r as any).keywords),
     };
     // Fix round 2: enquanto PROTEGIDO (save em voo OU falha parcial pendente — `kanbanProtegidoRef`,
     // lido aqui FORA das deps do efeito), este eco — inclusive o do Realtime disparado pelo PRÓPRIO
@@ -327,7 +332,8 @@ function ConfiguracoesLojaPage() {
       // campos_editaveis (janela Nomenclaturas), tamanhos_grade e etapas_acabamento
       // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
       // foi editado nesses outros lugares.
-      const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, ...cfgRest } = cfg;
+      // F3.6 (R39): `keywords` fica FORA do spread geral — entra só se o usuário a mudou nesta tela (keywordsParaPayload).
+      const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, keywords: _kw, ...cfgRest } = cfg;
       // ref_config "vazio" (usuário não marcou nenhuma parte da montagem) → null, mesmo
       // espírito do "" → null abaixo: sem configuração explícita, a loja usa o comportamento
       // HISTÓRICO (fallback derivado no banco), sem gravar um objeto vazio/inerte.
@@ -338,6 +344,7 @@ function ConfiguracoesLojaPage() {
         explosao_envio_status: cfg.explosao_envio_status || null,
         ref_exibir_status: cfg.ref_exibir_status || null,
         ref_config: refConfigVazio ? null : cfg.ref_config,
+        ...keywordsParaPayload(cfg.keywords, (data?.cfg as any)?.keywords),
       };
       // RP3: as colunas de kanban SAEM do upsert genérico (uma aba velha regravaria requisitos/ordem de outro
       // admin e, com a chave ligada, o gatilho recalcularia a loja sem prévia). Vão SÓ as que o usuário mudou,
@@ -861,6 +868,27 @@ function ConfiguracoesLojaPage() {
         </CardHeader>
         <CardContent>
           <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
+        </CardContent>
+      </Card>
+
+      {/* F3.6 (dono 25/set, R39) — Keywords da loja: texto livre, no Salvar do rodapé (mesma guarda de alterações não
+          salvas). Visível p/ quem já abre a Config (admin da loja e super admin). Uso: tela FUTURA do super admin, por loja. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Keywords</CardTitle>
+          <CardDescription>Palavras-chave da loja, em texto livre. Salvas com o botão "Salvar alterações".</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-1">
+            <Label htmlFor="cfg-keywords">Keywords</Label>
+            <Textarea
+              id="cfg-keywords"
+              rows={4}
+              placeholder="Ex.: moda feminina, vestidos de festa, linho…"
+              value={cfg.keywords}
+              onChange={(e) => setCfg((c) => ({ ...c, keywords: e.target.value }))}
+            />
+          </div>
         </CardContent>
       </Card>
 
