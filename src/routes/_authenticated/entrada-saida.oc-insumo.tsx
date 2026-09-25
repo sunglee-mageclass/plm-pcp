@@ -5,6 +5,8 @@ import { Plus, Trash2, ArrowLeft, Package, X, Printer } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
+import { AvisoFaltaNota, BolinhaFaltaNota, CampoDataNotaEntrada, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { empresaTemCategoria, ETIQUETA_TOKENS } from "@/lib/fornecedor-categoria";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -86,6 +88,7 @@ type DraftHead = {
   representante_id: string | null;
   data_pedido: string;
   data_prevista_entrega: string;
+  data_nota_entrada: string; // ISO ou "" (spec 2026-09-24)
   prazo_pagamento: string;
   quantidade_prazos: number;
   nfs: { url: string; data?: string }[];
@@ -292,7 +295,7 @@ function OcInsumoPage() {
               <Card key={o.id} className="p-3 cursor-pointer active:bg-muted/50" onClick={() => { setOpenNew(false); setOpenId(o.id); }}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("etiqueta", o)} />
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status={o.status} />
                   </div>
                   <div className="text-sm text-muted-foreground truncate mt-0.5">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</div>
@@ -325,7 +328,7 @@ function OcInsumoPage() {
                 )}
                 {ocs.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setOpenNew(false); setOpenId(o.id); }}>
-                    <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
+                    <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("etiqueta", o)} /></span></TableCell>
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell>{fmtDate(tab === "encomendado" ? o.data_prevista_entrega : o.data_entrega)}</TableCell>
                     <TableCell>{fmtMoney((totals as any)[o.id]?.[tab === "encomendado" ? "previsto" : "real"] ?? 0)}</TableCell>
@@ -391,6 +394,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const readOnly = useReadOnly();
   const qc = useQueryClient();
   const isEdit = !!ocId;
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
   const etqMap = useMemo(() => Object.fromEntries(etiquetas.map((e) => [e.id, e])), [etiquetas]);
 
   // ── Colaboração em tempo real (merge 3-vias, clone da OC Aviamento) ──────────
@@ -414,6 +418,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [respNome, setRespNome] = useState("");
   const [dataPedido, setDataPedido] = useState(format(new Date(), "yyyy-MM-dd"));
   const [dataPrevista, setDataPrevista] = useState("");
+  const [dataNota, setDataNota] = useState(""); // Data da Nota de Entrada (ISO ou "")
   const [prazo, setPrazo] = useState("");
   const [qtdPrazos, setQtdPrazos] = useState(1);
   const [nfs, setNfs] = useState<{ url: string; data?: string }[]>([]);
@@ -433,6 +438,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     representante_id: repId,
     data_pedido: dataPedido,
     data_prevista_entrega: dataPrevista,
+    data_nota_entrada: dataNota,
     prazo_pagamento: prazo,
     quantidade_prazos: qtdPrazos,
     nfs,
@@ -447,6 +453,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     if (d.representante_id !== repId) setRepId(d.representante_id);
     if (d.data_pedido !== dataPedido) setDataPedido(d.data_pedido);
     if (d.data_prevista_entrega !== dataPrevista) setDataPrevista(d.data_prevista_entrega);
+    if (d.data_nota_entrada !== dataNota) setDataNota(d.data_nota_entrada);
     if (d.prazo_pagamento !== prazo) setPrazo(d.prazo_pagamento);
     if (d.quantidade_prazos !== qtdPrazos) setQtdPrazos(d.quantidade_prazos);
     if (d.nfs !== nfs) setNfs(d.nfs);
@@ -528,7 +535,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
 
   // Guarda de "alterações não salvas": snapshot de TODO o estado editável (cabeçalho +
   // parcelas + NFs + blocos de insumo). Re-baseline ao semear (query async) e após salvar.
-  const formState = { numero, empresaId, repId, respNome, dataPedido, dataPrevista, prazo, qtdPrazos, nfs, parcelas, blocks };
+  const formState = { numero, empresaId, repId, respNome, dataPedido, dataPrevista, dataNota, prazo, qtdPrazos, nfs, parcelas, blocks };
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formState);
 
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
@@ -572,6 +579,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     representante_id: oc.representante_id ?? null,
     data_pedido: oc.data_pedido ?? "",
     data_prevista_entrega: oc.data_prevista_entrega ?? "",
+    data_nota_entrada: oc.data_nota_entrada ?? "",
     prazo_pagamento: oc.prazo_pagamento ?? "",
     quantidade_prazos: oc.quantidade_prazos ?? 1,
     nfs: (oc.nfs ?? []) as { url: string; data?: string }[],
@@ -651,7 +659,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       baseRef.current = { draft: freshHead, items: freshItens };
       setNumero(freshHead.numero_pedido); setRespNome(freshHead.responsavel_nome);
       setEmpresaId(freshHead.empresa_id); setRepId(freshHead.representante_id);
-      setDataPedido(freshHead.data_pedido); setDataPrevista(freshHead.data_prevista_entrega);
+      setDataPedido(freshHead.data_pedido); setDataPrevista(freshHead.data_prevista_entrega); setDataNota(freshHead.data_nota_entrada);
       setPrazo(freshHead.prazo_pagamento); setQtdPrazos(freshHead.quantidade_prazos);
       setNfs(freshHead.nfs); setParcelas(freshHead.parcelas_recebimento);
       setStatus((oc.status as OCStatus) ?? "encomendado");
@@ -663,7 +671,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
       resetBaseline({
         numero: freshHead.numero_pedido, empresaId: freshHead.empresa_id, repId: freshHead.representante_id,
-        respNome: freshHead.responsavel_nome, dataPedido: freshHead.data_pedido, dataPrevista: freshHead.data_prevista_entrega,
+        respNome: freshHead.responsavel_nome, dataPedido: freshHead.data_pedido, dataPrevista: freshHead.data_prevista_entrega, dataNota: freshHead.data_nota_entrada,
         prazo: freshHead.prazo_pagamento, qtdPrazos: freshHead.quantidade_prazos, nfs: freshHead.nfs,
         parcelas: freshHead.parcelas_recebimento, blocks: bs,
       });
@@ -696,7 +704,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const ROTULO_CONFLITO_INS: Record<string, string> = {
     numero_pedido: "Número do Pedido", empresa_id: "Fornecedor", representante_id: "Representante",
     responsavel_nome: "Responsável", data_pedido: "Data do Pedido", data_prevista_entrega: "Data Prevista de Entrega",
-    prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
+    data_nota_entrada: ROTULO_DATA_NOTA, prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
     parcelas_recebimento: "Parcelas de recebimento", nfs: "Notas Fiscais",
   };
   const rotuloConflito = (path: string) =>
@@ -782,6 +790,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       // edição do outro no campo em conflito (lição da Onda 2, espelhada da OC Aviamento).
       if (conflitosRef.current.length > 0)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      { const erroNota = validarNota(dataNota, dataPedido); if (erroNota) throw new Error(erroNota); } // D7
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
       const itens = blocks.flatMap((b) => {
         const etq = etqMap[b.etiquetaId];
@@ -800,6 +809,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         data_pedido: dataPedido || null, data_prevista_entrega: dataPrevista || null,
         data_entrega: finalStatus === "recebido" ? lastDate : null,
         prazo_pagamento: prazo || null, quantidade_prazos: qtdPrazos, nf_url: nfs[0]?.url ?? null, nfs,
+        data_nota_entrada: payloadDataNota(dataNota), // chave SEMPRE presente: "" limpa
         parcelas_recebimento: parcelas, status: finalStatus,
       };
       const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, {
@@ -808,7 +818,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("OC salva"); markClean(); onSaved(); },
+    onSuccess: () => { toast.success("OC salva"); markClean(); invalidarVencimentos(qc); onSaved(); },
     onError: async (e: any) => {
       if (e?.code === "P0409") {
         // Alguém salvou no meio: recarrega o servidor e faz o merge 3-vias (mantém minhas edições,
@@ -921,6 +931,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <section id="oci-sec-pedido" className="scroll-mt-2 space-y-4">
           <OcSecTitle n={1}>Pedido</OcSecTitle>
+          <AvisoFaltaNota show={faltaNotaEntrada("etiqueta", { status, data_nota_entrada: dataNota })} familia="etiqueta" ocId={ocId} />
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => { marcarHeadTouched("numero_pedido"); onNumeroChange(e.target.value); }} placeholder={numeroPlaceholder} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
@@ -937,6 +948,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             </div>
             <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly} /></div>
+            <CampoDataNotaEntrada value={dataNota} onChange={(v) => { marcarHeadTouched("data_nota_entrada"); setDataNota(v); }} disabled={readOnly} />
             <div className="grid gap-1"><Label>Qtd. Parcelas de Recebimento</Label>
               <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => { marcarHeadTouched("parcelas_recebimento"); setNumParcelas(parseInt(e.target.value, 10)); }} disabled={isReadOnlyRecebimento || readOnly} />
             </div>
