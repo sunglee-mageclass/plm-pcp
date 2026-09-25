@@ -567,12 +567,21 @@ e verifique** — o repo muda rápido.
     `previewRefProduto`/`previewNumeroOc` — os `preview*` só a SIGLA, número sequencial sempre
     vem do banco; `norm3` TS espelha `_norm3` SQL byte-a-byte, só a lista fixa de acentos PT-BR
     do `translate()`, não um NFD genérico — acento fora da lista, ex. ä/ö/ü/ñ, é DESCARTADO
-    nos dois lados). ⚠️ **Gap conhecido/aceito**: nenhuma das 3 tabelas novas tem policy
-    `modgate_*` RESTRICTIVE de `tenant_module_enabled('produto_acabado')` (RLS é só
-    tenant-scoped, igual `otb`) — módulo OFF é enforçado nos WRAPPERS de escrita (invariante 9)
-    e por empty-state na UI (leitura direta via REST/embed não é bloqueada no banco se alguém
-    montar a query à mão); decisão registrada 3× (Tasks 1/5/8), mesmo padrão do `otb`, não é
-    regressão desta feature.
+    nos dois lados). **Gap FECHADO (`20260811110000_modgate_produto_acabado.sql`, FF2):** as
+    TRÊS tabelas (`produtos_acabados`, `produto_acabado_variantes`, `ocs_p_acabado`) TÊM policy
+    `modgate_*` **RESTRICTIVE** de `tenant_module_enabled('produto_acabado')` (confirmado na
+    cópia local, `pg_policies`) — módulo OFF bloqueia leitura direta via REST/embed, não só a
+    escrita dos WRAPPERS (invariante 9). ⚠️ **Assimetria entre as 3**: `produtos_acabados` e
+    `produto_acabado_variantes` têm as 4 (`modgate_sel/ins/upd/del`); **`ocs_p_acabado` só tem 3**
+    (`modgate_ins/upd/del` — **SEM** `modgate_sel`). O `modgate_sel` de `ocs_p_acabado` (e de
+    `ocs_importado`) foi **DROPADO** depois (`20260916140000_fix_rls_ocs_pacabado_importado.sql`,
+    lição do merge colaborativo): o Realtime lê como `authenticated` **sem** contexto de tenant,
+    então um RESTRICTIVE de SELECT fazia o canal `postgres_changes` nunca ficar SUBSCRIBED
+    (mesmo padrão de `controle_qualidade`/`ocs_tecido`/`ocs_aviamento`/`ocs_etiqueta`/
+    `direcionamento_controle`, que também só têm `tenant_select` PERMISSIVE, nunca modgate no
+    SELECT). Ou seja: escrita das 3 tabelas SEMPRE gated por módulo; leitura direta gated nas
+    2 primeiras, mas NÃO em `ocs_p_acabado` (decisão registrada, não é regressão — uniformiza
+    com o resto do sistema).
     ⚠️ **Fluxo de Revenda CONFIGURÁVEL por loja (ago/2026, `a342618..efdeea0`, review opus SHIP):**
     3 colunas jsonb novas em `tenant_config` (migração `20260826130000`): `revenda_kanban_colunas`
     (keys de colunas por onde a revenda passa; `[]`=todas), `revenda_kanban_requisitos` (mapa
@@ -593,6 +602,23 @@ e verifique** — o repo muda rápido.
     display, NÃO trava). ⚠️ O `ModeloDetailPanel` lê tenant_config sob key PRÓPRIA
     `["modelo-tenant-config-grade"]` (NÃO a `tenant-config-grade` do `GradeTamanhosCard`, que
     retorna `string[]` — colisão de shape corrigida em `efdeea0`). Ver memória `project_fluxo_revenda_config`.
+    **Comprado no Sheet do Planejamento (F3.4, set/2026):** grade cor×tamanho do comprado (revenda
+    E importado) tem **fonte ÚNICA** = `useGradeComprado` (`planejamento-detail/useGradeComprado.ts`)
+    — mora em `modelo_grades` com `variante_numero` = `ordem` da variante do produto espelho
+    (`produtos_acabados` na revenda, `produtos_importados` no importado); lê a origem **SALVA**
+    (servidor), não o `draft.origem` ainda não gravado. Grava por `salvar_grade_revenda`
+    (revenda) ou pelo `salvar_modelo_bom` (importado — a grade dele grava JUNTO com o BOM, não
+    por RPC própria); `salvar_produto_importado` cria/atualiza o produto importado a partir do
+    Planejamento (auto-criação). **Enviar à Explosão do comprado (D2 = A)** usa a **MESMA** RPC do
+    interno, `enviar_modelo_para_cad` — `_enviar_modelo_para_cad_core` não olha `origem`,
+    gate de etapa por `_kanban_status_gate` igual. **`_receber_oc_p_acabado_core` REUSA o `cad`
+    já existente** (upsert) em vez de criar um novo — se o comprado já foi enviado à Explosão
+    antes de a OC ser recebida, o recebimento não duplica `cad`/`cad_grades`. **`origemComprado`
+    × `origemSalva`**: são o MESMO conceito (a origem gravada no servidor, `modeloData?.origem`/
+    `kanbanCard.modeloKanban.origem` — nunca o `draft.origem` tocado e ainda não salvo) com
+    **nomes DIFERENTES em dois blocos do mesmo componente** (`PlanejamentoDetail.tsx`) só para
+    não colidir: `origemComprado` no bloco da grade/BOM do comprado, `origemSalva` no bloco
+    "Mover para…" do kanban — não são dois conceitos opostos, é o mesmo valor lido 2×.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
@@ -665,6 +691,70 @@ CAD com ≥1 folha/metragem → true; sem CAD → false. **Rótulos revisados co
 "Confirmar CQ Pós" e as abas "Pré (costura)"/"Pós (acabamento)" — sem mudança. `direcionamento_feito`
 (key mantida) teve o label trocado p/ **"Direcionamento — separado"**, alinhado ao badge "Separado"/
 toast "Direcionamento confirmado — Separado" de `expedicao.direcionamento.$modeloId.tsx`.
+
+**Kanban AUTOMÁTICO (F1/F2, set/2026, `supabase/migrations/2026093*_kanban_auto_*`):** chave
+POR LOJA `tenant_config.kanban_automatico` (default `false`) — a **ÚNICA** porta de escrita é a
+RPC `kanban_definir_automatico(_ligar)` (retorna `{ligado,mudou,lote_id,snapshot,cards_movidos}`);
+qualquer outro UPDATE de `tenant_config` que tente mudar essa coluna é barrado pelo gatilho
+**BEFORE INSERT/UPDATE `trg_kanban_chave_protegida`/`fn_kanban_chave_protegida`**, que só deixa
+passar com a GUC de transação `app.kanban_chave='rpc'` (setada pela própria RPC). Com a chave
+LIGADA, **coluna do board COM requisito configurado em `kanban_requisitos[status_key]` =
+AUTOMÁTICA; SEM requisito (lista vazia) = MANUAL** — `Reprovado` é **SEMPRE manual**, mesmo com
+requisito configurado nela (ignorado na cascata). **Derivação = caminha as colunas automáticas do
+fluxo, na ordem, e PARA na 1ª que falha** (`_kanban_derivar_puro` no SQL, espelho puro
+`statusDerivado` em `src/lib/kanban-auto.ts` — mesmas fixtures dos dois lados, anti-drift em
+`tests/integration/kanban-auto.test.ts`); "fixado" = o card está numa coluna MANUAL diferente da
+entrada do fluxo (parado de propósito numa etapa manual, não por falta de requisito). O recálculo
+NÃO é síncrono: qualquer UPDATE nas ~26 colunas de `modelos` (ou tabelas-filhas do BOM/CAD que
+alimentam condições) que possa mudar a derivação enfileira o modelo em
+**`kanban_recalculo_fila`**, e um **CONSTRAINT TRIGGER `trg_kanban_processar_fila` `DEFERRABLE
+INITIALLY DEFERRED`** processa a fila só no **COMMIT** da transação (`fn_kanban_processar_fila` →
+`_kanban_aplicar(...,'auto',...)`; erro no recálculo vira só `WARNING`, nunca derruba o COMMIT que
+o disparou). Movimentos manuais (arraste, "Mover para…") vão por `kanban_mover(_modelo_id,_para)`
+(chave desligada → `P0001`); a prévia "N cards vão mudar" (+ REFs reveladas) é
+`kanban_previa_recalculo(_cfg)`, sem gravar. **Histórico** (`modelo_kanban_historico`) ganhou
+`origem` (`manual|auto|config|restauracao`) e `lote_id`; escritas `'auto'` dentro de **10 s** da
+anterior (mesmo modelo) **colapsam** — um recuo/avanço transitório dentro da janela não deixa
+rastro (D13/D14 do plano F1). **Com a chave ligada, o recuo automático NUNCA acende `#Erro`**
+(decisão do dono, 23/set) — ele só devolve o card à coluna a que pertence; `#Erro` LEGADO
+pré-existente não é apagado pelo motor (só por ação manual, como hoje). **Gates por POSIÇÃO** (REF
+automática — invariante #11 — e Enviar à Explosão/`enviar_modelo_para_cad`) usam, com a chave
+ligada, a posição **DERIVADA** (`alvo`), não o status gravado — `statusParaGate` em
+`kanban-auto.ts` / `_kanban_status_gate` no SQL (G-inicial #6, decisão 10). Desligar restaura via
+`kanban_previa_restauracao`/`kanban_restaurar` (lê `kanban_snapshot`, guardado ao ligar/mudar
+config); ambas as tabelas novas (`kanban_snapshot`, `kanban_recalculo_fila`) são
+RLS-ligada-sem-policy + `REVOKE ALL` de PUBLIC/anon/authenticated — só RPC `SECURITY DEFINER` lê.
+Revenda/comprado usa fluxo e requisitos PRÓPRIOS (`revenda_kanban_colunas`/
+`revenda_kanban_requisitos`, sem exceções). ⚠️ **ARMADILHA:** com a chave ligada e
+`revenda_kanban_requisitos` **vazio**, TODA coluna do fluxo da revenda vira manual (sem requisito
+configurado nela) — a derivação nunca avança além da entrada, então REF/Enviar à Explosão nunca
+liberam por derivação, nem "Mover para…" ajuda (o motor ainda governa o gate por posição).
+**Configurar os requisitos da revenda ANTES de ligar a chave numa loja que usa Produto
+Acabado/Importado.**
+
+## Sheet unificado do Planejamento (F3, set/2026)
+
+O Sheet do Planejamento de Produto (`src/components/planejamento/PlanejamentoDetail.tsx`, seções
+em `src/components/planejamento/planejamento-detail/` + `ficha/`) passou a editar TUDO do
+Desenvolvimento: equipe/cronograma, Ajustes na Prova, BOM (tecidos/aviamentos/insumos/grade),
+**CAD** (seção nova, reusa `CadTecidosSection` do Dev sem modificar), **Enviar à Explosão**
+(`enviar_modelo_para_cad`), **Ficha Técnica** (imprime `PrintFicha` do Dev), **Importar dados**
+(staging no rascunho/BOM/CAD — só o Salvar grava; Observações do bloco grava na hora), menu **⋯**
+(Duplicar/Importar/Ficha Técnica/Cancelar Ordem) e as seções de revenda/importado. "Ver no
+Desenvolvimento" **SAIU** (abria um 2º editor do mesmo BOM por cima do card — o Sheet já tem as
+seções do Dev). **O Sheet do Dev (`src/components/desenvolvimento/`, `ModeloDetailPanel.tsx`) fica
+INTACTO até a F5** (decisão 8 travada da campanha) — gate reproduzível: `git diff --name-only
+savepoint-pre-unificacao-2026-09-22 -- src/components/desenvolvimento/
+src/components/producao/cad/CadTecidosSection.tsx` dá vazio. Com **2 editores do mesmo BOM**
+agora possíveis (Sheet do Planejamento e Sheet do Dev, cada um aberto por uma pessoa), a proteção
+é a de sempre: `modelos.rev` otimista (P0409 se o outro salvou primeiro) + **conflito de SEÇÃO**
+(ex.: `secao:bom` — "manter meu" fecha o aviso, "usar o novo" descarta e recarrega do servidor).
+⚠️ **Regra operacional (não é travada pelo código): não editar o mesmo card nas duas telas ao
+mesmo tempo** — o canal Realtime do Sheet do Planejamento escuta UPDATE em `modelos`, mas as
+edições da Explosão/CAD feitas ali só bumpam o `rev` do `cad` (`trg_colab_rev_cad`), que o Sheet
+do Dev aberto em paralelo não escuta; o Dev não recarrega o CAD sozinho. A etapa do kanban
+("Mover para…") fica **FORA do Salvar** — muda na hora, direto pela RPC do kanban. Campo novo
+`modelos.descricao_produto` (seção 1, migration `20260930180000`) editável nos dois Sheets.
 
 ## O que NÃO fazer
 
