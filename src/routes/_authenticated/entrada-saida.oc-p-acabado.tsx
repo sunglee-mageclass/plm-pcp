@@ -563,7 +563,7 @@ function OcPaDialog({
   onDelete: (oc: OcPaRow) => void;
 }) {
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set; trava do pedido REVOGADA 25/set): só não futura
   const qc = useQueryClient();
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLDivElement>(null);

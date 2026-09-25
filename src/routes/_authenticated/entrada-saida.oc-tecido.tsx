@@ -653,7 +653,7 @@ function OcDialog({
   onDelete?: () => void;
 }) {
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set; trava do pedido REVOGADA 25/set): só não futura
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);

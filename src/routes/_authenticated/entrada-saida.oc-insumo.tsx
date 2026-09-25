@@ -394,7 +394,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const readOnly = useReadOnly();
   const qc = useQueryClient();
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set; trava do pedido REVOGADA 25/set): só não futura
   const etqMap = useMemo(() => Object.fromEntries(etiquetas.map((e) => [e.id, e])), [etiquetas]);
 
   // ── Colaboração em tempo real (merge 3-vias, clone da OC Aviamento) ──────────
