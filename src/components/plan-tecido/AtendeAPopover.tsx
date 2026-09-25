@@ -10,6 +10,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { fmtMetros, varKey } from "@/lib/plan-tecido/calc";
 import { alternarAtende, type Atendimento } from "@/lib/plan-tecido/atendimento";
 import type { PtVariante } from "@/lib/plan-tecido/types";
+import { useReadOnly } from "@/components/RequirePermission";
 
 /** Path de presença do "atende a" (gatilho e opções — o anel dos outros cai no gatilho; as opções são portal). */
 export const pathAtende = (materialKey: string, corKey: string): string => `pt-atende:${materialKey}:${corKey}`;
@@ -26,6 +27,9 @@ export function AtendeAPopover({ materialKey, cor, bloco, t1, at, consumo, rotul
   readOnly: boolean;
   onChange: (atende: string[] | null) => void;
 }) {
+  // M1 (T5 fix1): proteção extra — mesmo se o popover for aberto por outro caminho (bug de prop), a
+  // permissão de EDITAR ainda é checada aqui, direto do contexto de permissão da tela.
+  const bloqueado = readOnly || useReadOnly();
   const kb = varKey(cor);
   const servidas = at.porCor.get(kb) ?? [];
   const path = pathAtende(materialKey, kb);
@@ -68,10 +72,10 @@ export function AtendeAPopover({ materialKey, cor, bloco, t1, at, consumo, rotul
               <label key={kt} className={`flex items-center gap-2 rounded px-1 py-1 ${deOutra ? "opacity-55" : "hover:bg-muted"}`}>
                 <Checkbox
                   checked={minha}
-                  disabled={readOnly || deOutra}
+                  disabled={bloqueado || deOutra}
                   data-colab-path={path}
                   aria-label={nomeCor(v)}
-                  onCheckedChange={() => onChange(alternarAtende(at, kb, kt))}
+                  onCheckedChange={() => { if (!bloqueado) onChange(alternarAtende(at, kb, kt)); }}
                 />
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
                 <span className="min-w-0 flex-1">
@@ -95,7 +99,7 @@ export function AtendeAPopover({ materialKey, cor, bloco, t1, at, consumo, rotul
         <p className="mt-1 text-[10px] text-muted-foreground">
           Padrão: a mesma cor base. Mudar aqui só troca a amarração — a metragem segue o consumo do {rotulo} ({fmtMetros(consumo)} m/pç).
         </p>
-        {at.manual.has(kb) && !readOnly && (
+        {at.manual.has(kb) && !bloqueado && (
           <Button variant="ghost" size="sm" className="mt-1 h-7 gap-1 text-[11px]" onClick={() => onChange(null)}>
             <RotateCcw className="h-3 w-3" />padrão (mesma cor base)
           </Button>

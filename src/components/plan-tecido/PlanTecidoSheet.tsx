@@ -55,6 +55,11 @@ import { DroppableLane, DroppableLaneHeader, DraggableCard, type DragHandle } fr
 
 type Nome = { id: string; nome: string };
 
+// M2 (T5 fix1): default estável do array de tamanhos — um `[]` literal no default do useQuery cria
+// uma referência NOVA a cada render; como `tamanhos` entra em `distOpts` (useMemo), isso reentraria o
+// memo (e a fonte "mudou") a cada render enquanto a query estiver vazia/erro. Módulo = 1 referência só.
+const TAMANHOS_VAZIO: string[] = [];
+
 // Chave estável por slot (prefere o id do banco, senão usa índices)
 function chaveSlot(slotId: string | undefined, si: number, li: number, sli: number): string {
   return slotId ?? `${si}-${li}-${sli}`;
@@ -471,7 +476,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   });
 
   // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
-  const { data: tamanhos = [], isFetched: tamanhosProntos } = useQuery({
+  const { data: tamanhos = TAMANHOS_VAZIO, isFetched: tamanhosProntos } = useQuery({
     queryKey: ["plan-tecido-tamanhos"],
     queryFn: async () => {
       const raw = ((await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data as any)?.tamanhos_grade;
@@ -658,6 +663,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             cor_nome: (v.variante?.cor?.nome ?? null) as string | null,
             label: corApelidoLabel(v.variante?.cor?.nome ?? null, v.variante?.apelido?.nome ?? null),
             cor_id: (v.variante?.cor_id ?? null) as string | null,
+            cor_apelido_id: (v.variante?.cor_apelido_id ?? null) as string | null,
             complementa_variante_ids: Array.isArray(v.complementa_variante_ids) ? (v.complementa_variante_ids as string[]) : null,
           });
         }
@@ -780,6 +786,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // auto-upgrade de cor re-sujaria = loop de "alterações não salvas"; item 12).
   const srcRef = useRef<{ seed: unknown; models: unknown; dist?: unknown } | null>(null);
 
+  // C1 (T5 fix1, Critical): liga no `onSuccess` do Salvar ANTES de invalidar a árvore, desliga só DEPOIS
+  // que o auto-aplicar + `invalidarBomVivo` terminarem e os modelos novos chegarem (ver `salvarMut`).
+  // Enquanto ligada, a carga que roda nesse intervalo é o ECO do próprio save (modelos ainda com o BOM
+  // velho) — sem isto ela sujava/tocava o slot com o valor VELHO e um 2º Salvar gravava esse valor velho.
+  const ecoDoSaveRef = useRef(false);
+  // C1(b): true quando o `dirty` atual veio SÓ da carga (efeitoDaCarga), nunca de uma edição do usuário.
+  // `patch` (funil de edição do usuário) zera esta ref; com ela ligada, o ramo `dirty` do effect abaixo
+  // PODE re-semear quando a fonte mudar — não há edição de verdade a perder.
+  const sujoSoDaCargaRef = useRef(false);
+
   // Colab: `colecoes.plan_rev` espelhado num ref (lido de forma síncrona no save/retry).
   useEffect(() => { if (colecao) revRef.current = (colecao as any).plan_rev ?? null; }, [colecao]);
 
@@ -789,7 +805,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais || srcRef.current.dist !== distOpts; // PR15: grade/módulos que chegam ou mudam RE-SEMEIAM
     const salvoNovo = salvo !== salvoConsumidoRef.current;
 
-    if (dirty) {
+    // C1(b) (T5 fix1): `dirty` só por causa da carga anterior (`sujoSoDaCargaRef`, nenhuma edição do
+    // usuário a perder) + a fonte mudou (ex.: os modelos chegaram depois do eco do save) → trata como
+    // limpo nesta passada, para o ramo de baixo poder re-semear em vez de ficar preso no ramo `dirty`
+    // (que pausa a reseed enquanto há edição de verdade — comportamento certo quando HÁ edição).
+    const tratarComoLimpo = !dirty || (sujoSoDaCargaRef.current && fonteMudou);
+
+    if (dirty && !tratarComoLimpo) {
       // Não sobrescreve a edição em andamento. OTB/BOM mudando enquanto edito segue FORA do
       // escopo do colab (como antes — a reseed correspondente fica pausada até `dirty` cair).
       if (fonteMudou) return;
@@ -809,16 +831,22 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       return;
     }
 
-    // Não-dirty: recarrega sempre que a fonte (OTB/BOM) OU o `salvo` mudou — inclui agora o
+    // Tratado como limpo: recarrega sempre que a fonte (OTB/BOM) OU o `salvo` mudou — inclui agora o
     // salvo-só-mudou (alguém salvou enquanto eu olhava sem editar; antes do colab isso era
     // ignorado). Reprocessar o eco do MEU PRÓPRIO save aqui é seguro/idempotente (dirty já caiu
     // antes do refetch resolver) e mantém `planBaseRef`/conflitos em dia.
-    if (arvore !== null && !fonteMudou && !salvoNovo) return;
+    if (arvore !== null && !fonteMudou && !salvoNovo && !(dirty && tratarComoLimpo)) return;
     salvoConsumidoRef.current = salvo;
     srcRef.current = { seed, models: modelosReais, dist: distOpts };
+    // C1 (T5 fix1): enquanto durar o eco do PRÓPRIO save (ver `ecoDoSaveRef`/`salvarMut.onSuccess`) OU
+    // pra slot travado/lançado (I2 — o card só EXIBE o derivado, não pode escrever no BOM), a carga NÃO
+    // suja nem toca nem mostra o aviso PR12/M5 — `decidirEfeitoDaCarga` (dentro de `efeitoDaCarga`).
     // PR12: a base do merge colab = o que o BANCO tem; se a normalização MUDOU algum slot (pç derivado ≠ gravado), ele entra
     // "não salvo" (tocado) + aviso no topo — depois do 1º Salvar o número do card = o do Resumo/Modo Plano/Fazer pedido.
-    const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura);
+    const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura, {
+      ecoDoSave: ecoDoSaveRef.current,
+      travado: (s) => !!s.modelo_id && (lancadoSet.has(s.modelo_id) || enviadoCadSet.has(s.modelo_id)),
+    });
     const merged = carga.arvore;
     planBaseRef.current = carga.base;
     touchedSlotIdsRef.current = new Set(carga.tocados);
@@ -828,8 +856,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     setConflitosSlot([]);
     setUltimoMergeSlot(null);
     setArvore(merged);
-    if (carga.sujo) setDirty(true);
-  }, [seed, salvo, modelosReais, modelosDb, dirty, arvore, tamanhosProntos, modulosProntos, distOpts, paginaSoLeitura]);
+    if (carga.sujo) {
+      sujoSoDaCargaRef.current = true; // C1(b): esta sujeira é SÓ da carga — patch() zera ao 1º toque do usuário
+      setDirty(true);
+    } else if (tratarComoLimpo) {
+      sujoSoDaCargaRef.current = false;
+    }
+  }, [seed, salvo, modelosReais, modelosDb, dirty, arvore, tamanhosProntos, modulosProntos, distOpts, paginaSoLeitura, lancadoSet, enviadoCadSet]);
 
   // Presença + reage ao UPDATE em `colecoes` (QUALQUER save da árvore bumpa plan_rev — Task 1).
   // Ring por campo (set/2026): o foco é derivado no container (pathDoElemento); as células da árvore
@@ -883,8 +916,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
 
   // Invalida o BOM VIVO da coleção (é a fonte da EXIBIÇÃO do card via merge) + caches do Dev, p/ o
   // resultado do auto-aplicar aparecer na hora (senão o card seguiria mostrando o BOM antigo).
+  // C1 (T5 fix1): devolve a Promise de `["plan-tecido-modelos", colecaoId]` — o `onSuccess` do Salvar
+  // ESPERA por ela antes de desligar `ecoDoSaveRef` (só então os modelos novos chegaram de verdade).
   const invalidarBomVivo = (modeloIds: string[]) => {
-    void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+    const pModelos = qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
     void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
     // O auto-aplicar (aplicar_ao_modelo) SINCRONIZA os hints de slot em modelo_tecido_oc_links, que
     // É fonte de COBERTURA da prévia (has_card=true). Como esse write acontece DEPOIS da invalidação
@@ -897,6 +932,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       void qc.invalidateQueries({ queryKey: ["modelo-tecidos", mid] });
       void qc.invalidateQueries({ queryKey: ["modelo-grades", mid] });
     }
+    return pModelos;
   };
 
   // Espelha 1 slot pré-explosão no BOM do modelo — MESMA RPC do botão "Aplicar ao modelo".
@@ -936,7 +972,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         else toast.error(mensagemErro(err, `Não foi possível espelhar "${a.nome}" no modelo.`));
       }
     }
-    invalidarBomVivo(alvos.map((a) => a.modeloId));
+    // C1 (T5 fix1): ESPERA os modelos novos chegarem antes de devolver — o `onSuccess` do Salvar
+    // encadeia essa espera para só então desligar o eco (ver `ecoDoSaveRef`).
+    await invalidarBomVivo(alvos.map((a) => a.modeloId));
     if (pendentes.length > 0) setSobrescritaPendentes(pendentes);
   }
 
@@ -973,7 +1011,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)
       // usa exatamente esse conjunto (dirty por card; NUNCA a coleção inteira em massa).
       const touched = new Set(touchedSlotIdsRef.current);
+      // C1 (T5 fix1, Critical): liga o eco ANTES de qualquer invalidação. Sequência real: invalida a
+      // árvore → auto-aplicar (grava no BOM) → invalidarBomVivo → os modelos novos chegam. Entre o 1º
+      // passo e o último, um refetch da árvore roda `efeitoDaCarga` com os modelos AINDA VELHOS (o
+      // auto-aplicar não terminou) — sem a ref, isso sujava/tocava o slot com o valor velho, e um 2º
+      // Salvar gravava esse valor velho de volta no BOM. Só desliga (abaixo) depois que
+      // `invalidarBomVivo` (dentro de `autoAplicarDirty`) confirma que os modelos novos chegaram.
+      ecoDoSaveRef.current = true;
       setDirty(false);
+      sujoSoDaCargaRef.current = false; // salvou: a sujeira anterior (se só da carga) já foi persistida
       // O que acabei de salvar já É a base "servidor" — evita que o eco do Realtime (meu próprio
       // UPDATE) apareça como conflito ou "alguém atualizou N slots" no banner.
       planBaseRef.current = arvore;
@@ -987,9 +1033,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo
-      // Espelha as edições pré-explosão no BOM vivo (fim do "reverteu"). Fire-and-forget: o save já
-      // committou; o auto-aplicar refaz o BOM vivo e invalida a query que alimenta a exibição do card.
-      void autoAplicarDirty(touched);
+      // Espelha as edições pré-explosão no BOM vivo (fim do "reverteu"). O save já committou; o
+      // auto-aplicar refaz o BOM vivo e invalida a query que alimenta a exibição do card. C1: SÓ desliga
+      // o eco (e re-semeia com dado limpo, `srcRef.current = null`) depois que essa cadeia termina —
+      // `autoAplicarDirty` agora ESPERA `invalidarBomVivo` (a invalidação de `["plan-tecido-modelos",
+      // colecaoId]`) antes de retornar.
+      void autoAplicarDirty(touched).finally(() => {
+        ecoDoSaveRef.current = false;
+        srcRef.current = null; // força a re-semeadura com os modelos NOVOS na próxima passada do effect
+      });
     },
     onError: async (e: any) => {
       // Colab: conflito de versão (P0409) — outra pessoa salvou entre a última carga e agora.
@@ -1049,6 +1101,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     if (!planBaseRef.current) return;
     setArvore(planBaseRef.current);
     setDirty(false);
+    sujoSoDaCargaRef.current = false; // C1(b): "Descartar" some com qualquer sujeira (da carga ou do usuário)
     srcRef.current = null; // PR12: re-deriva na próxima passada (a base é a árvore crua)
     touchedSlotIdsRef.current = new Set();
     conflitosSlotRef.current = [];
@@ -1073,6 +1126,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     }
     setArvore(next);
     setDirty(true);
+    sujoSoDaCargaRef.current = false; // C1(b): a partir daqui há edição REAL do usuário a preservar
   };
 
   // solta o card numa lane → muda a categoria de tecido (lane:) OU o mix (mixlane:) do slot.
@@ -1620,12 +1674,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             rotulo={rotuloDoConflitoSlot}
           />
           {recalculadas > 0 && (
-            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               {recalculadas} cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar
             </p>
           )}
           {recalculadas === 0 && recalculadasT1 > 0 && (
-            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               Distribuição recalculada — salve para gravar
             </p>
           )}

@@ -404,7 +404,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                           onChange={(a) => setAtende(v, a)} />
                       )}
                       {!fantasma && atendimento && servidas.length === 0 && (
-                        <span className="shrink-0 text-amber-600" title="Não atende nenhuma cor do Tecido 1" aria-label="Não atende nenhuma cor do Tecido 1">
+                        <span role="img" className="shrink-0 text-amber-600" title="Não atende nenhuma cor do Tecido 1" aria-label="Não atende nenhuma cor do Tecido 1">
                           <AlertTriangle className="h-3 w-3" />
                         </span>
                       )}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  alternarAtende, atendimentoDoBloco, complementaReal, efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao,
-  normalizarSlotDistribuicao, pcAtendido, resolverChaveT1,
+  alternarAtende, atendimentoDoBloco, complementaReal, decidirEfeitoDaCarga, efeitoDaCarga, materiaisParaAplicar,
+  normalizarArvoreDistribuicao, normalizarSlotDistribuicao, pcAtendido, resolverChaveT1,
 } from "@/lib/plan-tecido/atendimento";
 import { definirBase, definirCelula, type Distribuicao } from "@/lib/distribuicao-produto";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
@@ -159,6 +159,45 @@ describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar
     // idempotência (normalizar o já-reordenado devolve o MESMO objeto)
     const s2 = reordenado.subcolecoes[0].linhas[0].slots[0];
     expect(normalizarSlotDistribuicao(s2, LIG)).toBe(s2);
+  });
+
+  describe("decidirEfeitoDaCarga (T5 fix1 · C1 Critical + I2 Important — decisão PURA por slot)", () => {
+    it("caso normal (sem eco, sem travado, pode editar) ⇒ suja + toca + conta", () => {
+      expect(decidirEfeitoDaCarga({ ecoDoSave: false, travado: false, podeEditar: true })).toEqual({ suja: true, toca: true, conta: true });
+    });
+    it("sem permissão de editar ⇒ toca + conta (mostra o aviso) mas NÃO suja", () => {
+      expect(decidirEfeitoDaCarga({ ecoDoSave: false, travado: false, podeEditar: false })).toEqual({ suja: false, toca: true, conta: true });
+    });
+    it("C1: eco do próprio Salvar ⇒ NÃO suja, NÃO toca, NÃO conta — mesmo podendo editar", () => {
+      expect(decidirEfeitoDaCarga({ ecoDoSave: true, travado: false, podeEditar: true })).toEqual({ suja: false, toca: false, conta: false });
+    });
+    it("I2: slot travado (enviado à Explosão/lançado) ⇒ NÃO suja, NÃO toca, NÃO conta — mesmo podendo editar", () => {
+      expect(decidirEfeitoDaCarga({ ecoDoSave: false, travado: true, podeEditar: true })).toEqual({ suja: false, toca: false, conta: false });
+    });
+    it("eco E travado juntos ⇒ mesmo resultado (não soma efeito, o slot simplesmente não entra)", () => {
+      expect(decidirEfeitoDaCarga({ ecoDoSave: true, travado: true, podeEditar: true })).toEqual({ suja: false, toca: false, conta: false });
+    });
+  });
+
+  describe("efeitoDaCarga com opts (T5 fix1 · C1 + I2)", () => {
+    it("C1: com opts.ecoDoSave, um slot que a normalização mudou NÃO fica sujo/tocado e NÃO conta pro aviso", () => {
+      const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
+      const e = efeitoDaCarga(cru, LIG, true, { ecoDoSave: true });
+      expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
+      // a árvore exibida SEGUE derivada (o usuário vê o pç certo, só não suja/toca)
+      expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes[0].grade_total).toBe(71);
+    });
+    it("I2: com opts.travado marcando o slot, ele NÃO fica sujo/tocado e NÃO conta — mas o derivado aparece igual", () => {
+      const s = slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]);
+      const cru = arvDe(s);
+      const e = efeitoDaCarga(cru, LIG, true, { travado: (slotArg) => slotArg.id === s.id });
+      expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
+      expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes[0].grade_total).toBe(71);
+    });
+    it("sem opts (retrocompat): comportamento idêntico ao de antes (assinatura de 3 argumentos continua válida)", () => {
+      const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
+      expect(efeitoDaCarga(cru, LIG, true)).toMatchObject({ tocados: ["s1"], recalculadasForaT1: 1, sujo: true });
+    });
   });
 });
 

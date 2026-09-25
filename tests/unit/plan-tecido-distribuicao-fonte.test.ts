@@ -23,13 +23,37 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(ler("src/hooks/useTenantModules.ts")).toContain("return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };");
   });
   it("PR12 (G-plano R3 + P-31): carga que recalcula ⇒ 'não salvo' + aviso no topo; base = árvore CRUA; descartar re-deriva", () => {
-    expect(sheet).toContain("const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura);");
+    expect(sheet).toContain("const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura, {");
     expect(sheet).toContain("planBaseRef.current = carga.base;");
     expect(sheet).toContain("touchedSlotIdsRef.current = new Set(carga.tocados);");
-    expect(sheet).toContain("if (carga.sujo) setDirty(true);");
     expect(sheet).toContain("cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar");
     expect(sheet).toContain("srcRef.current = null; // PR12");
+    expect(sheet).toContain("if (carga.sujo) {");
     expect(conta(sheet, ", distOpts)")).toBeGreaterThanOrEqual(2); // os 2 merges (dirty e retry P0409) seguem normalizando
+  });
+  it("T5 fix1 · C1 (Critical): eco do próprio Salvar não suja/toca/avisa; liga ANTES de invalidar, desliga só depois do auto-aplicar+invalidarBomVivo (modelos novos)", () => {
+    expect(sheet).toContain("const ecoDoSaveRef = useRef(false);");
+    expect(sheet).toContain("const sujoSoDaCargaRef = useRef(false);");
+    // liga ANTES de qualquer invalidação de query no onSuccess
+    const onSuccessIdx = sheet.indexOf("onSuccess: () => {");
+    const ecoLigaIdx = sheet.indexOf("ecoDoSaveRef.current = true;", onSuccessIdx);
+    const primeiraInvalidacaoIdx = sheet.indexOf('qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });', onSuccessIdx);
+    expect(ecoLigaIdx).toBeGreaterThan(onSuccessIdx);
+    expect(ecoLigaIdx).toBeLessThan(primeiraInvalidacaoIdx);
+    // desliga só DEPOIS que autoAplicarDirty (que agora ESPERA invalidarBomVivo) termina
+    expect(sheet).toContain("void autoAplicarDirty(touched).finally(() => {\n        ecoDoSaveRef.current = false;\n        srcRef.current = null;");
+    // invalidarBomVivo devolve a Promise de ["plan-tecido-modelos", colecaoId] e autoAplicarDirty a ESPERA
+    expect(sheet).toContain("const pModelos = qc.invalidateQueries({ queryKey: [\"plan-tecido-modelos\", colecaoId] });");
+    expect(sheet).toContain("return pModelos;");
+    expect(sheet).toContain("await invalidarBomVivo(alvos.map((a) => a.modeloId));");
+    // ecoDoSave entra no efeitoDaCarga
+    expect(sheet).toContain("ecoDoSave: ecoDoSaveRef.current,");
+    // C1(b): patch() (edição do usuário) e reverterArvore() (Descartar) zeram a ref de "sujo só da carga"
+    expect(sheet).toContain("sujoSoDaCargaRef.current = false; // C1(b): a partir daqui há edição REAL do usuário a preservar");
+    expect(sheet).toContain('sujoSoDaCargaRef.current = false; // C1(b): "Descartar" some com qualquer sujeira (da carga ou do usuário)');
+  });
+  it("T5 fix1 · I2 (Important): slot travado (enviado à Explosão) ou lançado não suja/toca/avisa na carga — só exibe o derivado", () => {
+    expect(sheet).toContain("travado: (s) => !!s.modelo_id && (lancadoSet.has(s.modelo_id) || enviadoCadSet.has(s.modelo_id)),");
   });
   it("payload do aplicar/criar card com casamento só com o módulo (R3/R4); nada de buildMateriaisAplicar cru", () => {
     expect(conta(sheet, "materiaisParaAplicar(slot, distribOn)")).toBe(2);
@@ -68,5 +92,25 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(pop).toContain("mesma cor base (automático)");
     expect(pop).toContain("escolhida à mão");
     expect(pop).toContain("padrão (mesma cor base)");
+  });
+  it("T5 fix1 · M1: AtendeAPopover checa useReadOnly() além da prop readOnly (proteção extra contra outro caminho de abrir editável)", () => {
+    expect(pop).toContain('import { useReadOnly } from "@/components/RequirePermission";');
+    expect(pop).toContain("const bloqueado = readOnly || useReadOnly();");
+    expect(pop).toContain("disabled={bloqueado || deOutra}");
+    expect(pop).toContain("{at.manual.has(kb) && !bloqueado && (");
+  });
+  it("T5 fix1 · M2: default de `tamanhos` é uma constante de MÓDULO (não um [] literal a cada render)", () => {
+    expect(sheet).toContain("const TAMANHOS_VAZIO: string[] = [];");
+    expect(sheet).toContain("data: tamanhos = TAMANHOS_VAZIO");
+  });
+  it("T5 fix1 · M4: banner âmbar do PR12/M5 usa a variante escura (mesmos tokens do banner de RequirePermission)", () => {
+    expect(conta(sheet, "dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200")).toBe(2);
+  });
+  it("T5 fix1 · M5: ícone âmbar de 'não atende' tem role=img junto do aria-label", () => {
+    expect(bloco).toContain('role="img"');
+    expect(bloco).toContain('aria-label="Não atende nenhuma cor do Tecido 1"');
+  });
+  it("I1: o mapeamento do ModeloReal preenche cor_apelido_id na variante do BOM (não só o texto do select)", () => {
+    expect(sheet).toContain("cor_apelido_id: (v.variante?.cor_apelido_id ?? null) as string | null,");
   });
 });

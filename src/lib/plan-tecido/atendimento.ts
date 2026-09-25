@@ -160,22 +160,50 @@ export function normalizarArvoreDistribuicao(arv: PtArvore, o: OpcoesDist): PtAr
 // quando só o T1 mudou (sem nenhuma cor de forro/Tecido 2 afetada).
 export type EfeitoCarga = { arvore: PtArvore; base: PtArvore; tocados: string[]; recalculadasForaT1: number; recalculadasT1: number; sujo: boolean };
 
-/** Carga do Plan. Tecido (G-plano R3 — PR12). Normaliza a árvore CRUA (o que o banco tem). Se a normalização MUDOU algum
- *  slot (pç derivado da distribuição ou do "atende a" ≠ o gravado), o slot fica "não salvo": a base do merge colab segue
- *  a CRUA, os slots mudados entram como tocados e o Sheet mostra o aviso — assim, depois do 1º Salvar, o número do card é
- *  o mesmo que o Resumo/Modo Plano/Fazer pedido (servidor) leem. Sem mudança ⇒ nada sujo. Sem permissão ⇒ só o aviso. */
-export function efeitoDaCarga(cru: PtArvore, o: OpcoesDist, podeEditar: boolean): EfeitoCarga {
+// T5 fix1 (revisão Opus — C1 Critical + I2 Important): decisão PURA por slot de "o que a carga faz" com o slot que a
+// normalização mudou. 3 casos, cada um com sua própria razão:
+//   · ecoDoSave — a carga corre logo após o MEU PRÓPRIO Salvar (o refetch da árvore chegou ANTES do auto-aplicar/
+//     invalidarBomVivo terem espelhado o valor novo no BOM vivo — ver `efeitoDaCarga`/PlanTecidoSheet). O slot que
+//     a normalização "mudou" aqui é só o ECO do save (os modelos ainda estão com o BOM velho) — sujar de novo faria
+//     um 2º Salvar gravar esse valor velho. NÃO suja, NÃO toca, NÃO conta pro aviso.
+//   · travado — card enviado à Explosão (BOM travado) ou lançado: o card só EXIBE o derivado (o pç mostrado na tela
+//     já é o certo), mas o BOM não pode ser tocado por aqui (mesma trava do "Aplicar ao modelo"/auto-aplicar) — então
+//     marcar como "não salvo" seria um aviso de divergência falso (P-10 revista: "sem aviso de divergência" pra esses).
+//     NÃO suja, NÃO toca, NÃO conta pro aviso.
+//   · caso normal — sujar/tocar/contar como sempre (sujeira real: o servidor tem um pç desatualizado).
+export type DecisaoCarga = { suja: boolean; toca: boolean; conta: boolean };
+export function decidirEfeitoDaCarga({ ecoDoSave, travado, podeEditar }: { ecoDoSave: boolean; travado: boolean; podeEditar: boolean }): DecisaoCarga {
+  if (ecoDoSave || travado) return { suja: false, toca: false, conta: false };
+  return { suja: podeEditar, toca: true, conta: true };
+}
+
+/** Carga do Plan. Tecido (G-plano R3 — PR12; T5 fix1 — C1/I2). Normaliza a árvore CRUA (o que o banco tem). Se a
+ *  normalização MUDOU algum slot (pç derivado da distribuição ou do "atende a" ≠ o gravado), o slot fica "não salvo":
+ *  a base do merge colab segue a CRUA, os slots mudados entram como tocados e o Sheet mostra o aviso — assim, depois
+ *  do 1º Salvar, o número do card é o mesmo que o Resumo/Modo Plano/Fazer pedido (servidor) leem. Sem mudança ⇒ nada
+ *  sujo. Sem permissão ⇒ só o aviso. `opts.ecoDoSave` (C1) e `opts.travado` (I2, por slot — enviado à Explosão OU
+ *  lançado) suprimem sujo/tocado/aviso desse slot (via `decidirEfeitoDaCarga`) — o card segue exibindo o derivado. */
+export function efeitoDaCarga(
+  cru: PtArvore,
+  o: OpcoesDist,
+  podeEditar: boolean,
+  opts?: { ecoDoSave?: boolean; travado?: (slot: PtSlot) => boolean },
+): EfeitoCarga {
   const arvore = normalizarArvoreDistribuicao(cru, o);
   if (arvore === cru) return { arvore, base: cru, tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false };
+  const ecoDoSave = !!opts?.ecoDoSave;
+  const travado = opts?.travado ?? (() => false);
   const tocados: string[] = [];
-  let slotsMudados = 0;
+  let algumSujo = false;
   let foraT1 = 0;
   let t1Mudou = 0;
   cru.subcolecoes.forEach((sub, i) => sub.linhas.forEach((ln, j) => ln.slots.forEach((s, k) => {
     const n = arvore.subcolecoes[i].linhas[j].slots[k];
     if (n === s) return;
-    slotsMudados++;
-    if (s.id) tocados.push(s.id);
+    const decisao = decidirEfeitoDaCarga({ ecoDoSave, travado: travado(s), podeEditar });
+    if (decisao.suja) algumSujo = true;
+    if (decisao.toca && s.id) tocados.push(s.id);
+    if (!decisao.conta) return;
     s.materiais.forEach((m, mi) => {
       if (ehTecido1(m)) {
         const nm = n.materiais[mi];
@@ -188,7 +216,7 @@ export function efeitoDaCarga(cru: PtArvore, o: OpcoesDist, podeEditar: boolean)
       });
     });
   })));
-  return { arvore, base: cru, tocados, recalculadasForaT1: foraT1, recalculadasT1: t1Mudou, sujo: podeEditar && slotsMudados > 0 };
+  return { arvore, base: cru, tocados, recalculadasForaT1: foraT1, recalculadasT1: t1Mudou, sujo: algumSujo };
 }
 
 /** Payload de `plan_tecido_aplicar_ao_modelo`/`plan_tecido_criar_card(s)` = o de sempre (`buildMateriaisAplicar`, fonte
