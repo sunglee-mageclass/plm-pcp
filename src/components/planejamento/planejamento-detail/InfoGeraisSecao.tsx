@@ -13,14 +13,19 @@ import { Secao, FieldText, FieldSelect } from "@/components/planejamento/planeja
 import type { OpcaoOrigem } from "@/components/planejamento/planejamento-detail/comprado";
 import { InfoHover } from "@/components/shared/InfoHover";
 
-/** "i" ao lado de "Origem" com o motivo de cada opção travada. Sem opção travada ⇒ não renderiza nada. */
+/** "i" ao lado de "Origem" com o motivo de cada opção travada — opções com o MESMO motivo (ex.: edição pendente)
+ *  saem numa linha só ("Revenda, Importado: …"). Sem opção travada ⇒ não renderiza nada. */
 function MotivosOrigemInfo({ opcoes }: { opcoes: OpcaoOrigem[] }) {
-  const travadas = opcoes.filter((o) => o.disabled && o.motivo);
-  if (travadas.length === 0) return null;
+  const porMotivo = new Map<string, string[]>();
+  for (const o of opcoes) {
+    if (!o.disabled || !o.motivo) continue;
+    porMotivo.set(o.motivo, [...(porMotivo.get(o.motivo) ?? []), o.label]);
+  }
+  if (porMotivo.size === 0) return null;
   return (
     <InfoHover ariaLabel="Por que algumas origens estão travadas?">
-      {travadas.map((o) => (
-        <p key={o.value}><span className="font-semibold">{o.label}:</span> {o.motivo}</p>
+      {[...porMotivo].map(([motivo, labels]) => (
+        <p key={motivo}><span className="font-semibold">{labels.join(", ")}:</span> {motivo}</p>
       ))}
     </InfoHover>
   );

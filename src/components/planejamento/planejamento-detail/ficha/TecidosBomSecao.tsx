@@ -780,7 +780,7 @@ function OcLinksField({
 /**
  * F3.2 (decisão F3 #10) — seletor do artigo principal do bloco com preço/m e estoque/disponível, no
  * formato do antigo "Tecido Planejado" (MultiArtigosField). O TRIGGER mostra só o nome (children do
- * SelectValue); as 2 linhas extras aparecem na lista e numa legenda abaixo do campo (mockup Anotado).
+ * SelectValue); as 2 linhas extras aparecem na lista e, do tecido escolhido, no "i" ao lado do rótulo (dono 25/set).
  */
 function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disabled = false }: {
   label: string;
@@ -799,7 +799,7 @@ function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disa
       <div className="flex items-center gap-1.5">
         <Label className="text-xs">{label}</Label>
         {sel && (
-          <InfoHover ariaLabel={`Preço e estoque do ${label}`}>
+          <InfoHover ariaLabel={`Preço e estoque — ${label}`}>
             <p>Preço/m: {sel.preco_por_metro != null ? brl(sel.preco_por_metro) : "—"}</p>
             {eSel && (
               <p>
