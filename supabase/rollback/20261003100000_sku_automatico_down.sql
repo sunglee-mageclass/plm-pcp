@@ -6,7 +6,7 @@
 -- os SKUs gerados E os editados à mão (tabela modelo_skus). Não há como recuperar sem o backup/export.
 -- Com dado presente, RECUSA sem a confirmação explícita (só com OK do dono, DEPOIS do export — Task 12 Step 5):
 --   export EXTRA_SQL="SET LOCAL app.confirmo_apagar_skus = 'sim';"   (o aplica_v2 injeta logo depois do BEGIN)
--- Idempotente (IF EXISTS em tudo) e válido em qualquer estágio da migration (parte A, A+C ou A+C+B).
+-- Idempotente (IF EXISTS em tudo) e válido em qualquer estágio da migration (parte A, A+B ou A+B+C).
 -- TRAVA tabelas EXISTENTES até o COMMIT: AccessExclusive nas tabelas das colunas (cores, cores_apelido, produtos_*,
 -- modelos, tenant_config — lida pelas policies de TODAS as lojas) e, no DROP da tabela (por último), as policies dela
 -- (hook supautils.policy_grants ⇒ auth/storage presos: login/refresh esperam). Não faz trabalho por linha (só count +

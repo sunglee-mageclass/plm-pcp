@@ -61,6 +61,7 @@ export const CASOS_SKU_MANUAL: ({ entrada: string | null; esperado: string } | {
   { entrada: " abc-1 ", esperado: "ABC-1" },
   { entrada: "açaí 34", esperado: "ACAI34" },
   { entrada: "a b/c.d_e", esperado: "AB/C.D_E" },
+  { entrada: "a\tb\r\nc", esperado: "ABC" },
   { entrada: "x#1", erro: "SKU inválido: use só letras, números e - . _ /." },
   { entrada: " x", erro: "SKU inválido: use só letras, números e - . _ /." },
   { entrada: "   ", erro: "Informe o SKU." },
@@ -220,4 +221,8 @@ export const CASOS_RESOLVER: CasoResolver[] = [
   { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: VD_SEM, apelido: CAN,
       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
     esperado: { sku: "CAN", faltas: [], avisos: [] } },
+  // tamanhoKey = nome de propriedade do protótipo ("constructor"): tamanhosSku[lado] em JS puro devolveria a
+  // função Object (herdada do protótipo, truthy) em vez de "sem sigla" — Object.hasOwn/->> devolvem falta nos dois.
+  { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "constructor", tipo: "letra", tamanhosSku: TSKU },
+    esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "constructor" }], avisos: [] } },
 ];

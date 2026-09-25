@@ -356,6 +356,17 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect(e2.code).toBe("23514");
       const e3 = await falha(c, "INSERT INTO public.produtos_importados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T y', 'SKU-PIY', 'm')", [T]);
       expect(e3.code).toBe("23514");
+      // NOT VALID de verdade (não só "vale para escrita nova" por acaso): confere no catálogo que os 3 CHECKs
+      // nasceram convalidated=false (senão o ADD CONSTRAINT teria varrido a tabela inteira sob AccessExclusive).
+      const { rows: nv } = await c.query<{ conname: string; convalidated: boolean }>(
+        `SELECT conname, convalidated FROM pg_constraint
+          WHERE conname IN ('modelos_tamanho_tipo_chk', 'produtos_acabados_tamanho_tipo_chk', 'produtos_importados_tamanho_tipo_chk')
+          ORDER BY conname`);
+      expect(nv).toEqual([
+        { conname: "modelos_tamanho_tipo_chk", convalidated: false },
+        { conname: "produtos_acabados_tamanho_tipo_chk", convalidated: false },
+        { conname: "produtos_importados_tamanho_tipo_chk", convalidated: false },
+      ]);
     });
   });
 
@@ -613,7 +624,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
     });
   });
 
-  it("D5 réplica: outro card com a MESMA REF e a mesma cor/tamanho gera o MESMO SKU, sem conflito (pendente do dono)", async () => {
+  it("D5 réplica: outro card com a MESMA REF e a mesma cor/tamanho gera o MESMO SKU, sem conflito (decidido pelo dono: A)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -686,6 +697,50 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       expect(r.conflitos[0]).toMatchObject({ variante_key: k.kAmb, sku: "SKU-T1-AM-34", com_modelo_id: k.interno });
       expect(r.conflitos[0].mensagem).toMatch(/^SKU SKU-T1-AM-34 repetido neste produto/);
       expect(linha(r, k.kAmb, "34|PPP").estado).toBe("conflito");
+    });
+  });
+
+  it("Regerar com troca de siglas A↔B no MESMO produto: a regra de unicidade barra as duas trocas (F3.5b decide), mas a mensagem não afirma 'duas linhas dão o mesmo SKU' — a outra linha também está mudando neste Regerar", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await lojaSku(c);
+      // Card ISOLADO com só 2 cores (A e B), 1 tamanho: sem outras linhas que pudessem confundir o resultado.
+      const corA = await novoId(c, "INSERT INTO public.cores (tenant_id, nome, sigla_sku) VALUES ($1, 'SKU-T Cor A', 'AA') RETURNING id", [T]);
+      const corB = await novoId(c, "INSERT INTO public.cores (tenant_id, nome, sigla_sku) VALUES ($1, 'SKU-T Cor B', 'BB') RETURNING id", [T]);
+      const artigo = await novoId(c, "INSERT INTO public.artigos (tenant_id, nome) VALUES ($1, 'SKU-T Tecido AB') RETURNING id", [T]);
+      const vt = (cor: string) =>
+        novoId(c, "INSERT INTO public.variantes_tecido (tenant_id, artigo_id, cor_id) VALUES ($1, $2, $3) RETURNING id", [T, artigo, cor]);
+      const vtA = await vt(corA);
+      const vtB = await vt(corB);
+      const m = await internoCom(c, artigo, "SKU-T AB", "SKU-TAB", [vtA, vtB]);
+      await grade(c, m, 1, { "34|PPP": 1 });
+      await grade(c, m, 2, { "34|PPP": 1 });
+      await comoUsuario(c);
+      const kA = await chave(c, corA, null);
+      const kB = await chave(c, corB, null);
+      let r = await gerar(c, m);
+      expect(r.conflitos).toEqual([]);
+      expect(linha(r, kA, "34|PPP")).toMatchObject({ estado: "ok", sku: "SKU-TAB-AA-34" });
+      expect(linha(r, kB, "34|PPP")).toMatchObject({ estado: "ok", sku: "SKU-TAB-BB-34" });
+      // Troca A↔B: a cor A passa a usar a sigla que era da cor B, e vice-versa.
+      await c.query("UPDATE public.cores SET sigla_sku = 'BB' WHERE id = $1", [corA]);
+      await c.query("UPDATE public.cores SET sigla_sku = 'AA' WHERE id = $1", [corB]);
+      r = await gerar(c, m, true);
+      expect(r.atualizados).toBe(0); // a UNIQUE barra as duas trocas (regra mantida — F3.5b decide o caso)
+      expect(r.conflitos).toHaveLength(2);
+      for (const conf of r.conflitos) {
+        expect(conf.com_modelo_id).toBe(m);
+        expect(conf.mensagem).toBe(
+          `SKU ${conf.sku} não gravado: esta linha colide com outra deste produto que também muda de SKU neste Regerar. Ajuste um SKU à mão e rode o Regerar de novo.`,
+        );
+      }
+      // as linhas continuam com o SKU ANTIGO (nada foi gravado) e aparecem como conflito na matriz
+      expect(await skus(c, m)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ variante_key: kA, tamanho_key: "34|PPP", sku: "SKU-TAB-AA-34" }),
+        expect.objectContaining({ variante_key: kB, tamanho_key: "34|PPP", sku: "SKU-TAB-BB-34" }),
+      ]));
+      expect(linha(r, kA, "34|PPP")).toMatchObject({ estado: "conflito" });
+      expect(linha(r, kB, "34|PPP")).toMatchObject({ estado: "conflito" });
     });
   });
 

@@ -201,7 +201,7 @@ export function resolverSku(o: {
   }
   if (usa("tamanho")) {
     const lado = ladoTamanho(o.tamanhoKey, o.tipo);
-    const sig = lado && o.tamanhosSku ? o.tamanhosSku[lado] || null : null;
+    const sig = lado && o.tamanhosSku && Object.hasOwn(o.tamanhosSku, lado) ? o.tamanhosSku[lado] || null : null;
     if (sig) valores.tamanho = sig;
     else if (lado && lado !== TAMANHO_UNICO) faltas.push({ atributo: "tamanho", id: null, nome: lado });
   }

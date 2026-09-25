@@ -681,19 +681,26 @@ DECLARE
   v_com_modelo uuid;
   v_com_nome text;
   v_com_ref text;
+  v_com_vkey uuid;
+  v_com_tkey text;
+  v_com_sku_atual text;
+  v_com_sku_novo text;
 BEGIN
-  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config
-    INTO v_tenant, v_refn, v_cfg
-    FROM public.modelos mo
-    LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
-   WHERE mo.id = _modelo_id;
-  IF v_tenant IS NULL THEN
+  IF NOT EXISTS (SELECT 1 FROM public.modelos mo WHERE mo.id = _modelo_id) THEN
     RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0001';
   END IF;
 
   -- Uma geração/edição por modelo de cada vez (duas abas/pessoas no mesmo card esperam em fila). 1ª trava da ordem
   -- única (sku_modelo → linha → sku_unico): a edição à mão pega a MESMA antes de travar a linha — sem deadlock.
+  -- Trava com o MÍNIMO (só _modelo_id, igual _salvar_sku_manual_core); REF e Formato só são lidos DEPOIS da trava,
+  -- já sob a garantia de que ninguém mais gera/edita este modelo ao mesmo tempo.
   PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || _modelo_id::text, 0));
+
+  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config
+    INTO v_tenant, v_refn, v_cfg
+    FROM public.modelos mo
+    LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
+   WHERE mo.id = _modelo_id;
 
   IF v_cfg IS NOT NULL AND v_refn <> '' THEN
     IF _regerar THEN
@@ -731,7 +738,12 @@ BEGIN
         v_com_modelo := NULL;
         v_com_nome := NULL;
         v_com_ref := NULL;
-        SELECT o.modelo_id, mo.nome, mo.ref INTO v_com_modelo, v_com_nome, v_com_ref
+        v_com_vkey := NULL;
+        v_com_tkey := NULL;
+        v_com_sku_atual := NULL;
+        v_com_sku_novo := NULL;
+        SELECT o.modelo_id, mo.nome, mo.ref, o.variante_key, o.tamanho_key, o.sku
+          INTO v_com_modelo, v_com_nome, v_com_ref, v_com_vkey, v_com_tkey, v_com_sku_atual
           FROM public.modelo_skus o
           JOIN public.modelos mo ON mo.id = o.modelo_id
          WHERE o.tenant_id = v_tenant AND o.sku = l.sku
@@ -739,12 +751,24 @@ BEGIN
                     AND o.variante_key = l.variante_key AND o.tamanho_key = l.tamanho_key)
          ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
          LIMIT 1;
+        -- Caso especial (troca de siglas A↔B no mesmo produto): a linha conflitante é OUTRA linha deste
+        -- MESMO card que também vai mudar de SKU neste Regerar (ela ainda não passou pelo loop, ou o SKU
+        -- novo dela é diferente do que está gravado hoje). Não são "duas linhas com o mesmo SKU" — é a
+        -- ORDEM do Regerar que ainda não trocou a outra; a regra de unicidade continua barrando a troca
+        -- (fica para a F3.5b), mas o texto não deve afirmar uma colisão de configuração que não existe.
+        IF v_com_modelo = _modelo_id THEN
+          SELECT c.sku INTO v_com_sku_novo
+            FROM public._skus_modelo_calc(_modelo_id) AS c
+           WHERE c.variante_key = v_com_vkey AND c.tamanho_key = v_com_tkey;
+        END IF;
         v_conflitos := v_conflitos || jsonb_build_array(jsonb_build_object(
           'variante_key', l.variante_key, 'tamanho_key', l.tamanho_key, 'sku', l.sku,
           'com_modelo_id', v_com_modelo, 'com_nome', v_com_nome, 'com_ref', v_com_ref,
           'mensagem', CASE
             WHEN v_com_modelo IS NULL THEN
               format('SKU %s não gravado: outra pessoa gravou esta linha agora. Gere de novo.', l.sku)
+            WHEN v_com_modelo = _modelo_id AND v_com_sku_novo IS NOT NULL AND v_com_sku_novo IS DISTINCT FROM v_com_sku_atual THEN
+              format('SKU %s não gravado: esta linha colide com outra deste produto que também muda de SKU neste Regerar. Ajuste um SKU à mão e rode o Regerar de novo.', l.sku)
             WHEN v_com_modelo = _modelo_id THEN
               format('SKU %s repetido neste produto: duas linhas dão o mesmo SKU. Mude uma sigla ou edite um deles à mão.', l.sku)
             ELSE
