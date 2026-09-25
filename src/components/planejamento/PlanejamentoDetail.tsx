@@ -52,6 +52,7 @@ import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelaci
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useTenantBranding } from "@/hooks/useTenantBranding";
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
@@ -551,6 +552,9 @@ function PlanejamentoDetailConteudo({
   );
 
   const tenantIdAtivo = useActiveTenantId();
+  // F3.6 (ruling 1) — a MARCA da loja (`tenants.nome`, não o WISH360) p/ o Título automático da seção 1; mesma query cacheada
+  // dos relatórios (useTenantBranding).
+  const { nome: nomeLoja } = useTenantBranding();
   // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
   // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
   const { data: markupFaixaOn = false } = useQuery({
@@ -1384,6 +1388,7 @@ function PlanejamentoDetailConteudo({
             grupoSel={grupoSel} setGrupoSel={setGrupoSel}
             grupos={grupos} categorias={categorias} estilistas={estilistas}
             sub1Opts={sub1Opts} sub2Opts={sub2Opts} fl={fl} origemOpcoes={origemOpcoesLista}
+            nomeLoja={nomeLoja}
           />
 
           {/* SETOR 2 — Coleção */}

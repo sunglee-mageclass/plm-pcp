@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { CASOS_TITULO } from "../fixtures/titulo-pagina-casos";
 import {
-  TITULO_CONECTIVOS, TITULO_MAIUSC, TITULO_MINUSC, nomeEmTitulo, tituloAoDigitar, tituloExibido, tituloPaginaCalculado,
+  TITULO_CONECTIVOS, TITULO_MAIUSC, TITULO_MINUSC, nomeEmTitulo, tituloAoDigitar, tituloAoSair, tituloExibido, tituloPaginaCalculado,
 } from "@/lib/titulo-pagina";
 
 describe("tituloPaginaCalculado — espelho de _titulo_pagina_calculado (as MESMAS fixtures rodam no SQL)", () => {
@@ -38,5 +38,12 @@ describe("apoio à tela (sem espelho SQL)", () => {
     expect(tituloAoDigitar("Saia | L", "Saia | L")).toBeNull();
     expect(tituloAoDigitar("Saia | L!", "Saia | L")).toBe("Saia | L!");
     expect(tituloAoDigitar("", "Saia | L")).toBe(""); // vazio vira NULL no blur/Salvar (R6)
+  });
+  it("tituloAoSair (ruling do controlador — Task 8): vazio, só espaço e calculado+espaço no fim viram NULL; manual diferente fica como está", () => {
+    expect(tituloAoSair(null, "Saia | L")).toBeNull();
+    expect(tituloAoSair("", "Saia | L")).toBeNull();
+    expect(tituloAoSair("   ", "Saia | L")).toBeNull();
+    expect(tituloAoSair("Saia | L ", "Saia | L")).toBeNull();
+    expect(tituloAoSair("Saia | L!", "Saia | L")).toBe("Saia | L!");
   });
 });

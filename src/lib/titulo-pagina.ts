@@ -56,3 +56,11 @@ export function tituloExibido(fixado: string | null | undefined, calculado: stri
 export function tituloAoDigitar(digitado: string, calculado: string): string | null {
   return digitado === calculado ? null : digitado;
 }
+/** Ruling do controlador (achado do Lote B1, parte da Task 8): sair do campo (onBlur) com um título manual que só tem
+ *  espaço nas pontas, ou que — aparado — bate com o calculado, volta a ser AUTOMÁTICO (NULL); senão mantém o digitado
+ *  (`v` já cru, sem aparar — R5: um manual "diferente de verdade" fica exatamente como a pessoa digitou). Sem isso, quem
+ *  digita o calculado + um espaço no fim gravava um manual indistinguível do automático que já não acompanha o Nome (R5). */
+export function tituloAoSair(v: string | null, calculado: string): string | null {
+  if (v === null) return null;
+  return v.trim() === "" || v.trim() === calculado ? null : v;
+}
