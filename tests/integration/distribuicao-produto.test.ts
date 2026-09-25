@@ -19,6 +19,10 @@ import { fileURLToPath } from "node:url";
 import { hasDb, dbUrl, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE, ehBancoLocal } from "./db";
 import { aplicarSql, exigeBancoLocal } from "./mig-txn";
 
+// T4 fix1 (G-migration A, rodada de correção 1) — caminho para .superpowers/distribuicao/mig/trocas.json,
+// gerado pelo gerar_sql.py na MESMA rodada (F1(a)): as TROCAS reais, exportadas, não retranscritas à mão.
+const TROCAS_JSON = ".superpowers/distribuicao/mig/trocas.json";
+
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261006100000_distribuicao_por_produto.sql";
 const INV = "supabase/rollback/20261006100000_distribuicao_por_produto_down.sql";
@@ -77,17 +81,30 @@ const guardas = (rel: string) =>
   [...ler(rel).matchAll(/v_md5 NOT IN \('([0-9a-f]{32})', '([0-9a-f]{32})'\)/g)].map((r) => ({ antes: r[1], depois: r[2] }));
 /** Guardas das NOVAS (só na migration): md5 do texto novo. */
 const guardasNovas = (rel: string) => [...ler(rel).matchAll(/<> '([0-9a-f]{32})' THEN -- nova/g)].map((r) => r[1]);
+/** T4 fix1 · F1(a): as TROCAS reais do gerador, exportadas para JSON na mesma rodada — [arq]: [[velho, novo], …]. */
+const trocas = (): Record<string, [string, string][]> => JSON.parse(ler(TROCAS_JSON));
 
 describe("Distribuição A — arquivos (estático, sem banco)", () => {
-  it("5 redefinidas: migration = inverso (texto vivo) com SÓ as trocas; âncoras 1×; guarda md5 EXATA nos 2 arquivos", () => {
+  it("5 redefinidas: migration = inverso (texto vivo) COM SÓ AS TROCAS EXATAS (reconstrução, T4 fix1 F1(a)); âncoras 1×; guarda md5 EXATA nos 2 arquivos", () => {
     const gM = guardas(MIG), gI = guardas(INV);
     expect(gM).toHaveLength(5);
     expect(gI).toEqual(gM);
+    const T = trocas();
     REDEF.forEach((f, i) => {
       const antes = corpo(INV, f.cria), depois = corpo(MIG, f.cria);
       for (const a of ANCORAS[f.arq]) expect(antes.split(a).length - 1, `${f.arq}: ${a.slice(0, 50)}`).toBe(1);
       expect(depois, f.arq).not.toBe(antes);
       expect(gM[i], f.arq).toEqual({ antes: md5(antes + "\n"), depois: md5(depois + "\n") });
+      // F1(a): reaplica as TROCAS reais (exportadas do gerador) sobre o "antes" e exige IGUALDADE EXATA com o
+      // "depois" — prova "SÓ as trocas", não só md5+toContain (que passaria numa edição acidental fora delas).
+      const trocasArq = T[f.arq];
+      expect(trocasArq, f.arq).toBeDefined();
+      let reconstruido = antes;
+      for (const [velho, novo] of trocasArq) {
+        expect(reconstruido.split(velho).length - 1, `${f.arq}: âncora da troca ausente/duplicada: ${velho.slice(0, 50)}`).toBe(1);
+        reconstruido = reconstruido.split(velho).join(novo);
+      }
+      expect(reconstruido, `${f.arq}: reconstrução (antes + TROCAS) ≠ depois`).toBe(depois);
     });
     expect(corpo(MIG, REDEF[0].cria)).toContain("w.grade_total, w.distribuicao, w.atende");
     expect(corpo(MIG, REDEF[1].cria)).toContain("complementa_variante_ids");
@@ -154,6 +171,25 @@ describe("Distribuição A — arquivos (estático, sem banco)", () => {
     expect(iAlter).toBeGreaterThan(iDrop);
     expect(v.slice(iAlter, v.indexOf("DO $pos$")).replace(/--[^\n]*/g, "").trim()).toBe(
       "ALTER TABLE public.plan_tecido_variantes\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_atende_array,\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_distribuicao_objeto,\n  DROP COLUMN IF EXISTS atende,\n  DROP COLUMN IF EXISTS distribuicao;");
+  });
+  it("T4 fix1 · F3: o $pos$ da IDA confere colunas/CHECKs POR TIPO (format_type/attnotnull/default/pg_get_constraintdef), não só pelo nome", () => {
+    const m = ler(MIG);
+    const bloco = m.slice(m.indexOf("DO $pos$"), m.indexOf("END $pos$;"));
+    expect(bloco).toContain("format_type(a.atttypid, a.atttypmod) = 'jsonb'");
+    expect(bloco).toContain("a.attname = 'distribuicao'");
+    expect(bloco).toContain("a.attnotnull");
+    expect(bloco).toContain("pg_get_expr(d.adbin, d.adrelid) = '''{}''::jsonb'");
+    expect(bloco).toContain("a.attname = 'atende'");
+    expect(bloco).toContain("NOT a.attnotnull");
+    expect(bloco).toContain("pg_get_constraintdef(oid) LIKE '%jsonb_typeof(distribuicao) = ''object''%'");
+    expect(bloco).toContain("pg_get_constraintdef(oid) LIKE '%jsonb_typeof(atende) = ''array''%'");
+    // não regrediu para a checagem só por nome (count(*)... IN (...))
+    expect(bloco).not.toMatch(/column_name IN \('distribuicao', 'atende'\)\) <> 2/);
+  });
+  it("T4 fix1 · F2: a grade saneada da RPC nova limita o valor a 9 dígitos (cabe em int4) antes do ::int", () => {
+    const m = ler(MIG);
+    expect(m).toContain("WHERE g.value ~ '^[0-9]{1,9}([.][0-9]+)?$'");
+    expect(m).not.toContain("WHERE g.value ~ '^[0-9]+([.][0-9]+)?$'");
   });
 });
 
@@ -234,11 +270,19 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
         { nome: "atende", tipo: "jsonb", nn: false, def: null },
         { nome: "distribuicao", tipo: "jsonb", nn: true, def: "'{}'::jsonb" },
       ]);
-      const pv = await um<{ id: string }>(c, "select id from plan_tecido_variantes limit 1");
-      if (pv) {
-        expect((await falha(c, "update plan_tecido_variantes set distribuicao = '[]'::jsonb where id = $1", [pv.id])).code).toBe("23514");
-        expect((await falha(c, "update plan_tecido_variantes set atende = '{}'::jsonb where id = $1", [pv.id])).code).toBe("23514");
-      }
+      // T4 fix1 · F1(b): o CHECK não pode depender de já existir linha na cópia (revisor 2 M3 — "if (pv)" pulava em
+      // silêncio) — cria a PRÓPRIA linha via a cena/fixture padrão da suíte, sem depender de dado pré-existente.
+      await lojaComModulos(c, true);
+      const k = await cena(c);
+      await c.query("select public.salvar_plan_tecido($1, $2::jsonb)", [k.col, JSON.stringify(arvore([{ modelo_id: null, slot_index: 0, nome: "ITEST", materiais: [
+        { artigo_id: k.artigo, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: {}, grade_total: 1 },
+        ] },
+      ] }]))]);
+      const pv = await um<{ id: string }>(c, "select pv.id from plan_tecido_variantes pv join plan_tecido_materiais pm on pm.id = pv.material_id where pv.variante_tecido_id = $1 order by pv.id desc limit 1", [k.vtMarrom]);
+      expect(pv, "a linha recém-gravada por salvar_plan_tecido tem de existir").toBeDefined();
+      expect((await falha(c, "update plan_tecido_variantes set distribuicao = '[]'::jsonb where id = $1", [pv.id])).code).toBe("23514");
+      expect((await falha(c, "update plan_tecido_variantes set atende = '{}'::jsonb where id = $1", [pv.id])).code).toBe("23514");
     });
   });
 
@@ -328,7 +372,10 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       await lojaComModulos(c, true);
       const k = await cena(c);
       const m = await um<{ id: string }>(c, "insert into modelos (tenant_id, nome, origem) values ($1, 'ITEST-DIST BOM', 'interno') returning id", [TENANT_TESTE]);
+      // T4 fix1 · F1(b) (revisor 2 M3): não pula em silêncio — a cópia SEMPRE tem alguma variante de OUTRO tenant
+      // (é multi-tenant por natureza); se não tiver, o teste tem de FALHAR, não passar vazio.
       const outro = await um<{ id: string } | undefined>(c, "select id from variantes_tecido where tenant_id <> $1 limit 1", [TENANT_TESTE]);
+      expect(outro, "a cópia precisa de ao menos 1 variante de OUTRO tenant (multi-tenant) para provar o filtro").toBeDefined();
       const payload = (forro: Record<string, unknown>) => JSON.stringify([
         { tipo: "tecido", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [
           { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: { "38|P": 5 }, grade_total: 5, complementa_variante_ids: [k.vtPreto] },
@@ -395,9 +442,11 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       expect(r.plano.sem_correspondencia).toEqual([{ cor_nome: "ITEST-DIST Vinho", apelido_nome: null, total: 2 }]);
       expect(r.plano.lojas.map((l: any) => l.loja_id)).toEqual([L1, L2]);
       expect(r.plano.tamanho_tipo).toBe("letra");
-      // IDOR: modelo de outra loja
+      // IDOR: modelo de outra loja. T4 fix1 · F1(b)/F1(c) (revisor 1 e 2): não pula em silêncio — a cópia
+      // multi-tenant SEMPRE tem algum modelo de outro tenant; se faltar, o teste tem de FALHAR, não passar vazio.
       const alheio = await um<{ id: string } | undefined>(c, "select id from modelos where tenant_id <> $1 limit 1", [TENANT_TESTE]);
-      if (alheio) expect((await falha(c, "select public.direcionamento_plano_modelo($1)", [alheio.id])).code).toBe("P0001");
+      expect(alheio, "a cópia precisa de ao menos 1 modelo de OUTRO tenant (multi-tenant) para provar o IDOR").toBeDefined();
+      expect((await falha(c, "select public.direcionamento_plano_modelo($1)", [alheio!.id])).code).toBe("P0001");
       // motivos
       await c.query("update modelos set origem = 'revenda' where id = $1", [mo.id]);
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [mo.id])).r.motivo_sem_plano).toBe("comprado");
@@ -405,6 +454,35 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [irmao.id])).r).toMatchObject({ plano: null, motivo_sem_plano: "sem_plano_tecido", direcionados: 1 });
       await c.query("update tenant_config set modules = modules || '{\"distribuicao\":false}'::jsonb where tenant_id = $1", [TENANT_TESTE]);
       expect((await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [mo.id])).r).toMatchObject({ plano: null, motivo_sem_plano: "modulo_desligado", direcionados: 1 });
+    });
+  });
+
+  it("T4 fix1 · F2: célula da distribuição com valor ≥ 2³¹ gravado direto no jsonb NÃO derruba direcionamento_plano_modelo", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await lojaComModulos(c, true);
+      const k = await cena(c);
+      const [L1] = k.lojas;
+      const mo = await um<{ id: string }>(c,
+        "insert into modelos (tenant_id, nome, colecao_id, colecao, subcolecao, origem) values ($1, 'ITEST-DIST Estouro', $2, 'ITEST-DIST', 'Drop 1', 'interno') returning id", [TENANT_TESTE, k.col]);
+      const mt = await um<{ id: string }>(c, "insert into modelo_tecidos (modelo_id, artigo_id, numero, tipo) values ($1, $2, 1, 'tecido') returning id", [mo.id, k.artigo]);
+      await c.query("insert into modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem) values ($1, $2, 1)", [mt.id, k.vtMarrom]);
+      await c.query("select public.salvar_plan_tecido($1, $2::jsonb)", [k.col, JSON.stringify(arvore([{ modelo_id: mo.id, slot_index: 0, materiais: [
+        { artigo_id: k.artigo, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: {}, grade_total: 3, distribuicao: dist(L1, 3, { "38|P": 3 }) },
+        ] },
+      ] }]))]);
+      // grava direto no jsonb um valor MAIOR que int4 (2^31 = 2147483648), simulando o self-DoS via REST (M6):
+      // a UI nunca produz isso (o grade_total estoura antes), mas a RPC não pode cair por causa disso.
+      await c.query(
+        `update plan_tecido_variantes pv set distribuicao = jsonb_set(pv.distribuicao, ARRAY[$2, 'grades', '38|P'], '9999999999999'::jsonb)
+           from plan_tecido_materiais pm where pm.id = pv.material_id and pm.tipo = 'tecido' and pm.numero = 1 and pv.variante_tecido_id = $1`,
+        [k.vtMarrom, L1]);
+      const r = (await um<{ r: any }>(c, "select public.direcionamento_plano_modelo($1) r", [mo.id])).r;
+      expect(r.motivo_sem_plano).toBeNull();
+      // a célula estourada é IGNORADA (regex de 9 dígitos não casa) — grade some da célula, não derruba a RPC.
+      const celula = r.plano.celulas.find((x: any) => x.loja_id === L1 && x.variante_numero === 1);
+      expect(celula?.grades ?? {}).toEqual({});
     });
   });
 
@@ -458,6 +536,93 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       expect((await um<{ n: number }>(c, "select count(*)::int n from information_schema.columns where table_name = 'plan_tecido_variantes' and column_name in ('distribuicao','atende')")).n).toBe(0);
       expect((await um<{ n: boolean }>(c, "select to_regprocedure('public.direcionamento_plano_modelo(uuid)') is null n")).n).toBe(true);
       await aplica(c, INV); // inverso 2× também não falha
+    });
+  });
+
+  it("T4 fix1 · F1(d) — LIFO: sem a tabela antiga (distribuicao_tabelas), o inverso RECUSA (P0001) e não desfaz nada", async () => {
+    if (!MIG_TXN) return;
+    await withTx(async (c) => {
+      await prepara(c);
+      // simula a remoção (20261006110000) já ter voltado a tabela antiga PRA FORA — LIFO exige que ela exista
+      await c.query("ALTER TABLE public.distribuicao_tabelas RENAME TO _distribuicao_tabelas_fora_lifo");
+      await c.query("SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'");
+      let erro = "";
+      try { await aplica(c, INV); } catch (e) { erro = String((e as Error).message); }
+      expect(erro).toMatch(/LIFO/);
+      // nada foi desfeito: as 5 ainda estão no texto "depois" (a migration segue aplicada)
+      const g = guardas(MIG);
+      for (const [i, f] of REDEF.entries()) expect(md5((await def(c, f.fn))!), f.arq).toBe(g[i].depois);
+      await c.query("ALTER TABLE public._distribuicao_tabelas_fora_lifo RENAME TO distribuicao_tabelas");
+    });
+  });
+
+  it("T4 fix1 · F1(d) — PR10 pós-condição da VOLTA: md5 'antes' adulterado no inverso ⇒ a volta RECUSA e desfaz TUDO (RPCs/colunas continuam)", async () => {
+    if (!MIG_TXN) return;
+    await withTx(async (c) => {
+      await prepara(c);
+      await c.query("SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'");
+      const inv = ler(INV);
+      const real = guardas(INV)[2].antes; // _plan_tecido_snapshot — a volta recria com o texto real; só o $pos$ exige outro
+      const falso = real.slice(0, -1) + (real.at(-1) === "0" ? "1" : "0");
+      const alvo = `IF v_md5 IS DISTINCT FROM '${real}' THEN\n    RAISE EXCEPTION 'distribuicao_produto (volta): pós-condição falhou`;
+      expect(inv.split(alvo).length - 1).toBe(1);
+      const forjada = inv.replace(alvo, alvo.replace(real, falso));
+      let erro = "";
+      try { await aplicarSql(c, semTravas(forjada, "inverso forjado"), "inverso forjado"); } catch (e) { erro = String((e as Error).message); }
+      expect(erro).toMatch(/pós-condição falhou/);
+      // desfeito por completo: as 5 continuam no texto "depois" (a volta não vingou) e a RPC/colunas continuam
+      const g = guardas(MIG);
+      for (const [i, f] of REDEF.entries()) expect(md5((await def(c, f.fn))!), f.arq).toBe(g[i].depois);
+      expect((await um<{ n: number }>(c, "select count(*)::int n from information_schema.columns where table_name = 'plan_tecido_variantes' and column_name in ('distribuicao','atende')")).n).toBe(2);
+      expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.direcionamento_plano_modelo(uuid)') is null ok")).ok).toBe(false);
+    });
+  });
+
+  it("T4 fix1 · F1(e) — card SEM distribuição: aplicar mantém a reserva (#4, _grade_soma_pares) e o BOM idênticos aos de antes da migration", async () => {
+    if (!MIG_TXN) return;
+    await withTx(async (c) => {
+      // ANTES da migration: grava um payload SEM casamento com o gravar_bom VIVO (sem as colunas novas, sem
+      // distribuição) — é o caso mais comum: modelo novo ou loja sem o módulo (materiaisParaAplicar(slot,false)
+      // nunca manda 'complementa_variante_ids').
+      await lojaComModulos(c, true);
+      const k = await cena(c);
+      const m = await um<{ id: string }>(c, "insert into modelos (tenant_id, nome, origem) values ($1, 'ITEST-DIST SemDist', 'interno') returning id", [TENANT_TESTE]);
+      const payloadSemCasamento = () => JSON.stringify([
+        { tipo: "tecido", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [
+          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: { "38|P": 10 }, grade_total: 10 },
+        ] },
+        { tipo: "forro", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1 }] },
+      ]);
+      const forroComp = async (modeloId: string) => (await um<{ c: string[] | null }>(c,
+        `select mtv.complementa_variante_ids c from modelo_tecido_variantes mtv
+           join modelo_tecidos mt on mt.id = mtv.modelo_tecido_id where mt.modelo_id = $1 and mt.tipo = 'forro'`, [modeloId])).c;
+      // Cenário do revisor 2 ("reserva 12 → 12"): _grade_soma_pares soma modelo_grades das variantes casadas —
+      // sem casamento (complementa_variante_ids NULL/vazio), o próprio helper devolve 0 tanto ANTES quanto DEPOIS
+      // da migration (BOM idêntico: casamento continua NULL, a soma continua 0 — nada muda em silêncio, #4).
+      await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payloadSemCasamento()]);
+      expect(await forroComp(m.id)).toBeNull(); // sem casamento prévio: NULL, como hoje
+      const reservaAntes = (await um<{ s: string }>(c, "select public._grade_soma_pares($1, ARRAY[]::uuid[])::text s", [m.id])).s;
+      expect(reservaAntes).toBe("0");
+      await aplica(c, MIG);
+      await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payloadSemCasamento()]);
+      expect(await forroComp(m.id)).toBeNull(); // continua NULL — nada de casamento surgindo do nada
+      const reservaDepois = (await um<{ s: string }>(c,
+        `select public._grade_soma_pares($1, mtv.complementa_variante_ids)::text s from modelo_tecido_variantes mtv
+           join modelo_tecidos mt on mt.id = mtv.modelo_tecido_id where mt.modelo_id = $1 and mt.tipo = 'forro'`, [m.id])).s;
+      expect(reservaDepois).toBe(reservaAntes); // 0 → 0: idêntico
+      // Com casamento REAL (populando modelo_grades, o que _grade_soma_pares de fato lê): a soma é igual antes e
+      // depois da migration para a MESMA função/dados — a migration não redefine _grade_soma_pares (prova estática
+      // no checklist do G-migration A item 6); confere aqui, no banco, que o comportamento realmente não mudou.
+      const m2 = await um<{ id: string }>(c, "insert into modelos (tenant_id, nome, origem) values ($1, 'ITEST-DIST SemDist2', 'interno') returning id", [TENANT_TESTE]);
+      await c.query("insert into modelo_grades (modelo_id, variante_numero, grades, grade_total) values ($1, 1, '{}'::jsonb, 12)", [m2.id]);
+      await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m2.id, JSON.stringify([
+        { tipo: "tecido", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [
+          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: { "38|P": 12 }, grade_total: 12, complementa_variante_ids: [k.vtMarrom] }] },
+        { tipo: "forro", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, complementa_variante_ids: [k.vtMarrom] }] },
+      ])]);
+      expect((await um<{ s: string }>(c,
+        `select public._grade_soma_pares($1, mtv.complementa_variante_ids)::text s from modelo_tecido_variantes mtv
+           join modelo_tecidos mt on mt.id = mtv.modelo_tecido_id where mt.modelo_id = $1 and mt.tipo = 'forro'`, [m2.id])).s).toBe("12");
     });
   });
 });

@@ -59,7 +59,7 @@ BEGIN
     RAISE EXCEPTION 'distribuicao_produto: _plan_tecido_arvore_core mudou desde o planejamento (md5 %) — outra frente mexeu; refazer dump + gerar', v_md5 USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._direcionamento_plano_modelo_core(uuid,uuid)') IS NOT NULL
-     AND md5(pg_get_functiondef(to_regprocedure('public._direcionamento_plano_modelo_core(uuid,uuid)'))) <> '77a2b82a3c63ccc3f3029d34c07b33a3' THEN -- nova
+     AND md5(pg_get_functiondef(to_regprocedure('public._direcionamento_plano_modelo_core(uuid,uuid)'))) <> 'f7d64d00d6219b56e2caec24252e3590' THEN -- nova
     RAISE EXCEPTION 'distribuicao_produto: _direcionamento_plano_modelo_core já existe com OUTRO texto — PARE' USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public.direcionamento_plano_modelo(uuid)') IS NOT NULL
@@ -493,13 +493,14 @@ BEGIN
     LEFT JOIN cores_apelido a2 ON a2.id = pv.cor_apelido_id
     WHERE pm.slot_id = v_slot AND pm.tipo = 'tecido' AND pm.numero = 1
       AND jsonb_typeof(pv.distribuicao) = 'object' AND pv.distribuicao <> '{}'::jsonb
-  ), cel AS (   -- 1 linha por (cor × loja), grade saneada (inteiro >= 0)
+  ), cel AS (   -- 1 linha por (cor × loja), grade saneada (inteiro >= 0, T4 fix1 · F2: até 9 dígitos —
+                 -- cabe em int4 com folga; um valor MAIOR na célula é IGNORADO em vez de estourar a RPC inteira)
     SELECT t1.variante_numero, t1.ordem, t1.cor_nome, t1.apelido_nome,
            CASE WHEN d.key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (d.key)::uuid END AS loja_id, -- PR18/N3
            COALESCE((SELECT jsonb_object_agg(g.key, round((g.value)::numeric)::int)
                        FROM jsonb_each_text(CASE WHEN jsonb_typeof(d.value -> 'grades') = 'object'
                                                  THEN d.value -> 'grades' ELSE '{}'::jsonb END) g
-                      WHERE g.value ~ '^[0-9]+([.][0-9]+)?$'), '{}'::jsonb) AS grades
+                      WHERE g.value ~ '^[0-9]{1,9}([.][0-9]+)?$'), '{}'::jsonb) AS grades
     FROM t1
     CROSS JOIN LATERAL jsonb_each(t1.distribuicao) d
     WHERE d.key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -680,18 +681,34 @@ BEGIN
     RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — _plan_tecido_arvore_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._direcionamento_plano_modelo_core(uuid,uuid)')));
-  IF v_md5 IS DISTINCT FROM '77a2b82a3c63ccc3f3029d34c07b33a3' THEN
+  IF v_md5 IS DISTINCT FROM 'f7d64d00d6219b56e2caec24252e3590' THEN
     RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — _direcionamento_plano_modelo_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public.direcionamento_plano_modelo(uuid)')));
   IF v_md5 IS DISTINCT FROM '734f015d27ccebbe4da028d6005a70e7' THEN
     RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — direcionamento_plano_modelo não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
-  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'plan_tecido_variantes'
-        AND column_name IN ('distribuicao', 'atende')) <> 2
-     OR (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.plan_tecido_variantes'::regclass
-        AND conname IN ('plan_tecido_variantes_distribuicao_objeto', 'plan_tecido_variantes_atende_array')) <> 2 THEN
-    RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — colunas/CHECKs de plan_tecido_variantes incompletos — desfazendo tudo' USING ERRCODE = 'P0001';
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_attribute a
+     WHERE a.attrelid = 'public.plan_tecido_variantes'::regclass AND a.attname = 'distribuicao' AND NOT a.attisdropped
+       AND format_type(a.atttypid, a.atttypmod) = 'jsonb' AND a.attnotnull
+       AND EXISTS (SELECT 1 FROM pg_attrdef d WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum
+                    AND pg_get_expr(d.adbin, d.adrelid) = '''{}''::jsonb')
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_attribute a
+     WHERE a.attrelid = 'public.plan_tecido_variantes'::regclass AND a.attname = 'atende' AND NOT a.attisdropped
+       AND format_type(a.atttypid, a.atttypmod) = 'jsonb' AND NOT a.attnotnull
+       AND NOT EXISTS (SELECT 1 FROM pg_attrdef d WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum)
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid = 'public.plan_tecido_variantes'::regclass
+       AND conname = 'plan_tecido_variantes_distribuicao_objeto'
+       AND pg_get_constraintdef(oid) LIKE '%jsonb_typeof(distribuicao) = ''object''%'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid = 'public.plan_tecido_variantes'::regclass
+       AND conname = 'plan_tecido_variantes_atende_array'
+       AND pg_get_constraintdef(oid) LIKE '%jsonb_typeof(atende) = ''array''%'
+  ) THEN
+    RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — colunas/CHECKs de plan_tecido_variantes incompletos ou com outra definição — desfazendo tudo' USING ERRCODE = 'P0001';
   END IF;
 END $pos$;
 
