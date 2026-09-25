@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reorganizar o Sheet do Planejamento de Produto conforme o mockup aprovado pelo dono (25/set): seção 1 ganha NCM, Título para a página (automático/editável/↺) e Peso/medidas; a REF sai da seção 3 ("Desenvolvimento") para a seção nova "4. Códigos" (REF + "Tamanho em" + SKUs por variante × tamanho — a F3.5b do SKU); a Mão de obra deixa de ser seção e entra na tabela de "Preço e Custos", que ganha a linha "Preço anterior" — com a migration das 7 colunas novas testada só na cópia e aplicada em produção pelo dono, com backup, ANTES do merge do front. Acréscimos do dono (25/set, TRAVADOS): o "Tamanho em" passa a NÃO ter padrão da loja (obrigatório para gerar os SKUs — as 4 funções do SKU da F3.5a são redefinidas e a Config perde o campo), o "Replicar" leva também o "Tamanho em" e a Config da Loja ganha o campo "Keywords" (`tenant_config.keywords`), tudo no MESMO roteiro de produção.
+**Goal:** Reorganizar o Sheet do Planejamento de Produto conforme o mockup aprovado pelo dono (25/set): seção 1 ganha NCM, Título para a página (automático/editável/↺) e Peso/medidas; a REF sai da seção 3 ("Desenvolvimento") para a seção nova "4. Códigos" (REF + "Tamanho em" + SKUs por variante × tamanho — a F3.5b do SKU); a Mão de obra deixa de ser seção e entra na tabela de "Preço e Custos", que ganha a linha "Preço anterior" — com a migration das 7 colunas novas testada só na cópia e aplicada em produção pelo dono, com backup, ANTES do merge do front. Acréscimos do dono (25/set, TRAVADOS): o "Tamanho em" passa a NÃO ter padrão da LOJA (as 4 funções do SKU da F3.5a são redefinidas e a Config perde o campo) e, pela P-25 (14:57), todo produto NASCE marcado em Letra (DEFAULT `'letra'` em `modelos.tamanho_tipo` + backfill dos NULL existentes na mesma migration), o "Replicar" leva também o "Tamanho em" e a Config da Loja ganha o campo "Keywords" (`tenant_config.keywords`), tudo no MESMO roteiro de produção.
 
 **Architecture:** Parte A+C (sem banco novo — usa o F3.5a já em produção): regras puras da seção Códigos em `planejamento-detail/codigos/sku-card.ts`, hook `useSkusModelo` sobre as RPCs `skus_modelo`/`gerar_skus_modelo`/`salvar_sku_manual`, componente `CodigosSecao`, e a MO passada por *slot* (`ReactNode`) para dentro de `PrecoTabela`/`PrecoRevendaBloco`; a ordem/numeração/selos continuam derivadas de `selos-secoes.ts`. Parte B: UMA migration aditiva `20261005100000` (7 colunas em `modelos`, 4 CHECKs nomeados, função pura `_titulo_pagina_calculado` espelhada byte a byte por `src/lib/titulo-pagina.ts`, `_replicar_cards_plan_tecido_core` redefinida com as mesmas 2 linhas do INSERT da F3.1 — 8 campos: os 7 + `tamanho_tipo`, D4 —, as 4 funções do SKU da F3.5a redefinidas por âncoras exatas SEM o padrão da loja do "Tamanho em" — status novo `sem_tamanho` — e, por último, `tenant_config.keywords text`) GERADA a partir do texto VIVO da cópia com guarda de md5 exata p/ as 5 funções redefinidas; no front, `Draft`/payload/Duplicar/rótulos de conflito + telas; o espelho TS do SKU (`sku-montar.ts`, card "Formato do SKU" da Config, fixtures) perde o `tamanho_padrao` (Task 5b) e a Config da Loja ganha o card "Keywords" (Task 9b).
 
@@ -25,7 +25,7 @@
 - ⛔ NUNCA `\i` de migration dentro de transação de teste (o `COMMIT;` do arquivo fecha o `BEGIN` do teste e VAZA — incidente 15/set). ⛔ NUNCA DDL em transação de teste contra produção (incidente 23/set).
 - TODO vitest — unit (inclusive nos gates) E integração — com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` EXPLÍCITO; NUNCA `env -u DATABASE_URL` (`tests/unit/db-eh-banco-local.test.ts` importa `tests/integration/db.ts`, cujo fallback sem a variável é o `/tmp/dburl.txt` = PRODUÇÃO — incidente 24/set; R31) e com caminhos de arquivo LITERAIS (no zsh, uma lista vazia roda a suíte inteira).
 - Migration: `supabase/migrations/20261005100000_modelo_titulo_peso_ncm_preco_anterior.sql`; inverso `supabase/rollback/20261005100000_modelo_titulo_peso_ncm_preco_anterior_down.sql`. `20261004100000` é da frente "Nota sem a trava do pedido" (em curso). Os dois arquivos são GERADOS por `.superpowers/sheet/mig/gerar_sql.py` a partir do texto VIVO (dump só-leitura da cópia) — nunca editados à mão. Cada um: 1 `BEGIN;` e 1 `COMMIT;` em linha própria, com `SET LOCAL lock_timeout = '500ms';` e `SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;` (o `psql -f` é o caminho padrão do CLAUDE.md; o `aplica_v2` reinjeta as mesmas, inofensivo); guarda de md5 EXATA de `_replicar_cards_plan_tecido_core` e das 4 funções do SKU da F3.5a (`_sku_config_normaliza`, `_skus_modelo_calc`, `_skus_modelo_core`, `_gerar_skus_modelo_core` — R10/R23–R26) — o md5 VIVO da cópia, lido na Task 6 (o plano NÃO crava valor), ou o md5 do texto novo; `ADD COLUMN IF NOT EXISTS`; o `ALTER TABLE public.modelos` POR ÚLTIMO (ACCESS EXCLUSIVE só no fim); NENHUMA DDL de policy (o hook `supautils.policy_grants` trava ~24 tabelas de auth/storage até o COMMIT); ACL das 6 funções internas conferida com `has_function_privilege` (invariante #9: `REVOKE … FROM PUBLIC, anon, authenticated`). `tenant_config`: SÓ o `ADD COLUMN IF NOT EXISTS keywords text` — a ÚLTIMA DDL do arquivo, logo antes do `COMMIT` (R38) — e NENHUM DML nem COMMENT nela (incidente 23/set; a chave legada `sku_config.tamanho_padrao` fica no jsonb e é IGNORADA — R25). Inverso destrutivo com confirmação (`SET LOCAL app.confirmo_apagar_campos_sheet = 'sim'`) avisando que o `DROP COLUMN` apaga o que foi digitado (os 7 campos de `modelos` E as Keywords); ele devolve as 4 funções do SKU ao texto da F3.5a byte a byte ANTES dos `DROP COLUMN`.
-- Contagem (funções|gatilhos) hoje em produção e na cópia: **483|277** (a Nota sem trava não muda). Esta frente: **+1 função (`_titulo_pagina_calculado`), +0 gatilhos → 484|277** (`_replicar` e as 4 do SKU são REDEFINIDAS — não mudam a contagem); 7 colunas em `modelos` + `tenant_config.keywords`; 4 CHECKs.
+- Contagem (funções|gatilhos) hoje em produção e na cópia: **483|277** (a Nota sem trava não muda). Esta frente: **+1 função (`_titulo_pagina_calculado`), +0 gatilhos → 484|277** (`_replicar` e as 4 do SKU são REDEFINIDAS — não mudam a contagem); 7 colunas em `modelos` + `tenant_config.keywords`; 4 CHECKs; P-25: `modelos.tamanho_tipo` ganha `DEFAULT 'letra'` e os NULL existentes viram `'letra'` (backfill — R41–R45).
 - ORDEM OBRIGATÓRIA: (1) Nota sem a trava do pedido em produção; (2) esta migration em produção (dono); (3) referência nova da volta de emergência da F1 (dono, só leitura); (4) merge do front na `feature/plan-tecido-a1` JUNTO com a ida na cópia; (5) QA no `:5173`; (6) deploy pelo portão. As colunas vão para a produção ANTES de juntar qualquer tela que as grave: o vite local do dono (`:5173`) aponta para a PRODUÇÃO (todo Salvar do Planejamento manda os 7 campos — sem as colunas cairia com PGRST204).
 
 **Front**
@@ -34,10 +34,10 @@
 - Editar = Sheet (este card); nada vira Dialog novo (o AlertDialog do "Regerar SKUs" é confirmação).
 - Colaboração: todo campo novo do `Draft` ganha `data-colab-path="<chave>"` e entrada em `ROTULO_CONFLITO_PLAN`; o merge 3-vias (`mergeDraft`), `rev`/`_rev_base`/P0409 do Sheet continuam os de hoje (sem código novo de merge). SKU à mão = RPC imediata com `_rev_base` (fora do Salvar), `data-colab-path={`sku:${variante}:${tamanho}`}`.
 - Mobile 360/390 sem estouro horizontal (medido na QA).
-- Textos EXATOS (mockup/spec): seção "Desenvolvimento" (sem "— equipe e cronograma"); seção "Códigos"; "SKUs por variante e tamanho"; "Regerar SKUs"; "SKUs editados à mão não mudam"; hint da seção Códigos "As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' pede confirmação e nunca muda os editados à mão."; "NCM do Produto" (placeholder "0000.00.00"); "Título para a página" + hint "Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺."; "Peso (kg)", "Comprimento (cm)", "Largura (cm)", "Altura (cm)"; "Preço anterior" + obs "acompanha o preço de venda até ser editado · ↺ volta ao automático" (selo "automático" na 1ª coluna e ↺ ANTES do input — R34); "Tamanho em" + "· obrigatório p/ gerar os SKUs (começa sem escolha)" (rádio Letra | Número, sem pré-seleção); rótulo da variante "Variante N · Cor (SIGLA) · apelido Apelido (SIGLA)" / "sem apelido" (sigla ausente = só o nome — R11); "Observação de mão de obra"; card "Keywords" na Config da Loja.
+- Textos EXATOS (mockup/spec): seção "Desenvolvimento" (sem "— equipe e cronograma"); seção "Códigos"; "SKUs por variante e tamanho"; "Regerar SKUs"; "SKUs editados à mão não mudam"; hint da seção Códigos "As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' pede confirmação e nunca muda os editados à mão."; "NCM do Produto" (placeholder "0000.00.00"); "Título para a página" + hint "Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺."; "Peso (kg)", "Comprimento (cm)", "Largura (cm)", "Altura (cm)"; "Preço anterior" + obs "acompanha o preço de venda até ser editado · ↺ volta ao automático" (selo "automático" na 1ª coluna e ↺ ANTES do input — R34); "Tamanho em" + "· nasce em Letra; troque para Número se o produto usa numeração" (rádio Letra | Número pré-marcado conforme o Draft — nasce em Letra; decisão P-25); estado `sem_tamanho` (só card legado/NULL explícito) "Este card é de antes da migração do “Tamanho em” — salve o card para atualizá-lo e gerar os SKUs." e, com SKU gravado, "Card de antes da migração do “Tamanho em” — salve o card para gerar ou regerar os SKUs."; status `desconhecido` "Não foi possível ler a situação dos SKUs — recarregue a página."; selos "aguardando migração do Tamanho em" / "não foi possível ler o status" (P-25; textos da T2 em `9dfdb000`); rótulo da variante "Variante N · Cor (SIGLA) · apelido Apelido (SIGLA)" / "sem apelido" (sigla ausente = só o nome — R11); "Observação de mão de obra"; card "Keywords" na Config da Loja.
 
 **QA**
-- Playwright SÓ com `E2E_BASE_URL=http://localhost:5173` (o default do Playwright é PRODUÇÃO na nuvem), DEPOIS do merge e ANTES do deploy. Sem semear dado (nenhum card novo); grava só num card EXISTENTE da Loja Teste combinado com o dono e RESTAURA — exceto os passos do D3 (SKU à mão, Regerar confirmado, MO adicionar/aprovar/remover), que rodam SÓ depois que o controlador avisar o dono no chat e deixam resíduo listado (Task 10 Step 7 — R13). NUNCA troca a loja ativa do usuário compartilhado `teste@teste.com` (nada de `selectStore`); se algo trocar, restaurar e avisar. NUNCA matar/subir no lugar do `:5173` nem do `:5188`.
+- Playwright SÓ com `E2E_BASE_URL=http://localhost:5173` (o default do Playwright é PRODUÇÃO na nuvem), DEPOIS do merge e ANTES do deploy. Sem semear dado (nenhum card novo — exceto o teste da P-25 `E2E_SHEET_CARD_NOVO=1`, que cria e APAGA 1 card, SÓ com OK do dono — Q4); grava só num card EXISTENTE da Loja Teste combinado com o dono e RESTAURA — exceto os passos do D3 (SKU à mão, Regerar confirmado, MO adicionar/aprovar/remover), que rodam SÓ depois que o controlador avisar o dono no chat e deixam resíduo listado (Task 10 Step 7 — R13). NUNCA troca a loja ativa do usuário compartilhado `teste@teste.com` (nada de `selectStore`); se algo trocar, restaurar e avisar. NUNCA matar/subir no lugar do `:5173` nem do `:5188`.
 
 **Processo**
 - SDD: implementador Sonnet por tarefa (não despacha subagente); revisor Opus por tarefa/lote (§4); o `code-reviewer` roda sem pedir. Task 6 (banco): 2 revisões Opus INDEPENDENTES (G-migration A e B, uma sem ver a outra) + guardião `guardiao-unificacao`. O guardião acompanha TODOS os portões (§4) e registra no diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (checkout principal). Avisos e OKs do dono SÓ por chat (nunca `ExitPlanMode`).
@@ -57,6 +57,7 @@
 - `Draft`/`emptyDraft`/`draftFromModeloRow` em `src/components/planejamento/modelo-shared.ts:76-202`; `ROTULO_CONFLITO_PLAN`, `textoOuNull`, `aplicarRegrasCamposDev`, `camposParaDuplicar`, `normalizarDraftSalvo` em `planejamento-detail/helpers.ts`; o payload do Salvar nasce de `aplicarRegrasCamposDev({...d, …})` em `usePlanejamentoSave.ts:219-228` e o preço em `:282-303` (`podeEditarPreco`). Só `PlanejamentoDetail.tsx` e `usePlanejamentoSave.ts` consomem esse `Draft`.
 - F3.5a (em produção): RPCs `skus_modelo(_modelo_id)`, `gerar_skus_modelo(_modelo_id, _regerar)` e `salvar_sku_manual(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key)` (`supabase/migrations/20261003100000_sku_automatico.sql:891-935`) — guarda `_sku_guarda`: módulo `criacao`, loja, `user_can_view('criacao_planejamento')` p/ ler e `user_can_edit(...)` p/ gerar/editar. `skus_modelo` devolve `{status: ok|sem_formato|aguardando_ref, tamanho_tipo, tamanho_tipo_card, linhas[], faltas[], avisos[]}` (a Task 6 acrescenta `sem_tamanho` — R23); cada linha `{variante_key, variante_ordem, cor_nome, apelido_nome, tamanho_key, tamanho_ordem, id, sku, manual, rev, sku_previsto, faltas, avisos, conflito_com, estado}` com `estado ∈ ok|manual|falta|pendente|divergente|conflito|vazio|orfa` (e `salvo` quando `status ≠ ok`, com só id/chaves/sku/manual/rev/estado). `gerar_skus_modelo` devolve a matriz + `{criados, atualizados, removidos, conflitos[{…, mensagem}]}`. **Não devolve as siglas nem os ids** das cores: a `variante_key` é `md5('sku-variante|' || cor_id || '|' || coalesce(apelido_id::text,'-'))::uuid` (`20261003100000:86-93`) — a tela lê as siglas por consulta própria, casando pelo NOME (Ruling R11). Coluna `modelos.tamanho_tipo` (`letra|numero|NULL`) já existe; HOJE o NULL cai no padrão da loja por fallback (`coalesce(mo.tamanho_tipo, tc.sku_config ->> 'tamanho_padrao', 'letra')` em `_skus_modelo_calc` `:460`, `coalesce(v_tipo_card, v_cfg ->> 'tamanho_padrao', 'letra')` em `_skus_modelo_core` `:571`; `_sku_config_normaliza` `:217-221` valida e devolve `tamanho_padrao`) — a Task 6 tira os três (dono 25/set: sem padrão; NULL = sem escolha, obrigatório p/ gerar — R10). Helpers TS: `src/lib/sku-montar.ts` (`normalizarSkuManual`, `textoFalta`, `textoAviso`, `SkuFalta`) e `src/lib/tamanho.ts` (`ladoTamanho`, `TamanhoTipo`). Link de cadastro de sigla usado pela F3.5a: `<Link to="/cadastro/atributos">`.
 - Cores (conferido na cópia, só leitura): `cores(id, nome, sigla_sku, tenant_id)` com único `cores_tenant_id_nome_key (tenant_id, nome)`; `cores_apelido(id, cor_base_id, nome, sigla_sku, tenant_id)` com único `cores_apelido_tenant_base_nome_key (tenant_id, cor_base_id, nome)`. O `cor_nome`/`apelido_nome` da matriz é o `nome` exato (`c.nome::text`/`a.nome::text` em `_skus_modelo_calc`). md5 VIVOS das 4 funções do SKU na cópia = os do retrato de produção pós-sem-trava: `_sku_config_normaliza` `a32359d0…`, `_skus_modelo_calc` `b4a8716d…`, `_skus_modelo_core` `a0d3bf29…`, `_gerar_skus_modelo_core` `42d6bec5…`; `proacl` `{postgres=X/postgres,service_role=X/postgres}`; as âncoras da Task 6 casam 1× cada no texto vivo (conferido no planejamento, só leitura). `tenant_config.sku_config` é NULL em todas as lojas da cópia.
+- P-25 (medido na cópia, 25/set ~15:20): `modelos.tamanho_tipo` NULL em TODAS as 272 linhas (Ave Rara 250, Loja Teste 17, French 3, Ark Store 2; 260 com `ordem_criacao_enviada`); sem DEFAULT hoje. Gatilhos de `modelos` num `UPDATE … SET tamanho_tipo` (só a coluna): `trg_colab_rev` (rev+1 sempre, sem GUC), `audit_modelos`/`fn_audit` (1 linha por card com o diff; sem GUC), `trg_modelo_mo_flag` (re-deriva o flag — muda só se já houver deriva), `trg_modelo_ref_auto` (só age com `ordem_criacao_enviada` e categoria/sub/status mudando ou `ref_auto` vazio), `trg_modelo_markup_congela`/`trg_modelo_preco_venda_gate` (inertes: linha/markup/preço não mudam); `trg_kanban_fila_upd` tem `WHEN` SEM `tamanho_tipo` (só enfileira se o flag de MO mudar); `trg_kanban_historico`/`trg_kanban_status_guard`/`trg_kanban_regredir_modelos` são `UPDATE OF` outras colunas; NÃO há gatilho de SKU em `modelos` (`fn_modelo_skus_unico` é de `modelo_skus`; `fn_produto_tamanho_tipo_handover` é de `produtos_acabados/importados`). Deriva hoje: flag de MO ≠ `_mo_liberada` = 0; enviados com `ref_auto` vazio = 0. `UPDATE … WHERE tamanho_tipo IS NULL` numa txn REVERTIDA (lock 500 ms, statement 3 s): 272 linhas em **131 ms** de execução (135 ms de relógio; `audit_modelos` 81 ms = 0,30 ms/card; demais gatilhos < 3 ms); efeitos: 272 linhas no `audit_log`, rev+1 em 272, 0 na fila do kanban, 0 REF/ref_auto, 0 flag de MO, 0 status. Caminhos que gravam `modelos` SEM o Draft (até a Task 6 gravam NULL; com o DEFAULT, `'letra'`): `_criar_card_produto_acabado_core`, `_criar_card_produto_importado_core`, `_plan_tecido_criar_card_core`, `_replicar_cards_plan_tecido_core` (copia `o.tamanho_tipo` — D4), `_replicar_produtos_acabados_core`, `_replicar_produtos_importados_core`, `criar_card_simulacao` (legado), `importar_modelo_linha` (importação em massa), a criação em lote por categoria do Planejamento (`criacao.planejamento.tsx:1649`); o `otb_confirmar*` vivo NÃO cria card (só marca status — conferido no texto vivo); Duplicar e o Salvar de card novo passam pelo Draft (`'letra'` desde a T2).
 - `tenant_config` (cópia, só leitura): 6 linhas; `authenticated` tem privilégio de TABELA (`arwdDxtm` — coluna nova já nasce acessível, sem GRANT); gatilhos `audit_tenant_config` (AFTER, diff), `set_tenant_id_trg` (BEFORE INSERT), `trg_kanban_chave_protegida` (BEFORE INSERT/UPDATE — só mexe em `kanban_automatico`), `trg_kanban_config` (AFTER UPDATE `WHEN` 7 colunas de kanban — `keywords` fora) e `trg_tenant_config_sku` (`UPDATE OF sku_config, tamanhos_sku`). O Salvar da Config (`admin/configuracoes.tsx:386-388`) é `upsert(geral, { onConflict: "tenant_id" })` — o PostgREST só faz `DO UPDATE SET` das colunas ENVIADAS (upsert sem a chave não toca a coluna).
 - Base nova (`adb57add`): `InfoGeraisSecao.tsx` tem `MotivosOrigemInfo` (o "i" com hover ao lado de "Origem", `shared/InfoHover.tsx`) no lugar do `<p>` do motivo; `ficha/TecidosBomSecao.tsx` (`ArtigoComEstoqueSelect`) mostra preço/estoque num `InfoHover`. A Task 8 edita a seção 1 por trocas PONTUAIS (R28); nenhuma task toca `TecidosBomSecao.tsx`.
 - `_replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)`: última definição em `20260930180000_modelo_descricao_produto.sql:27-206` (a F3.5a e a Nota não a redefinem); âncoras no texto vivo da cópia (conferidas 1× cada): `      versao, modelo_base_id, mix_id, ref, ref_auto, descricao_produto\n` e `      v_versao, v_root, o.mix_id, o.ref, o.ref_auto, o.descricao_produto\n`; `proacl` vivo `{postgres=X/postgres,service_role=X/postgres}`.
@@ -78,11 +79,11 @@
 | R7 | `_titulo_pagina_calculado`: nome vazio ⇒ `''`; loja vazia/NULL ⇒ só o nome (sem " \| " solto); loja só com as pontas aparadas; maiúscula/minúscula por **lista FIXA** (`translate` — A–Z + 25 acentos PT) nos dois lados; EXECUTE revogado de PUBLIC/anon/authenticated (service_role/postgres mantêm — ERP). | Independe do locale do banco (cópia en_US.UTF-8; produção pode ser C); padrão `_norm3`/`_sku_sem_acento`. | Letra fora da lista (ex. Ø) fica como está — igual nos dois lados. |
 | R8 | Sem CHECK em `preco_anterior`; CHECKs nomeados `modelos_<col>_nao_negativo` nos 4 de peso/medidas. | A lista SQL da spec §5.2 não tem CHECK em preço (sem precedente); nomes explícitos facilitam conferir. | Nenhum. |
 | R9 | Permissão do Preço anterior (`criacao_planejamento:preco_venda`) SÓ no cliente (payload só com a permissão, como o preço de venda); `fn_modelo_preco_venda_gate` NÃO é estendida. | A spec não pede trava no servidor; redefinir outro gatilho de `modelos` amplia o risco da migration. **D1 decidido pelo dono (25/set): a trava no servidor vai para a frente "Reforço de segurança no banco".** | Quem não tem a permissão pode gravar via API crua até aquela frente. |
-| R10 | "Tamanho em" entra no `Draft` (`modelos.tamanho_tipo`) e grava no Salvar, SEM padrão da loja (**dono 25/set, TRAVADO:** "sim, porque é um toggle obrigatório para definir sku"): rádio Letra \| Número que nasce SEM escolha (NULL), obrigatório só para GERAR os SKUs — o Salvar do card continua livre; a Config da Loja perde o campo e a prévia mostra as 2 formas (Task 5b); o banco perde o fallback (Task 6 — R23–R26). "Tamanho em" nos cards do Plan. Tecido/Produto Acabado/Importado e a grade exibida seguindo a escolha ficam FORA (**D2 decidido: frente separada**; aqui só muda a parte do padrão). | Decisão travada do dono + D2. | A frente separada herda a regra (os 3 cards também nascem sem escolha). |
+| R10 | "Tamanho em" entra no `Draft` (`modelos.tamanho_tipo`) e grava no Salvar, SEM padrão da loja (**dono 25/set, TRAVADO:** "sim, porque é um toggle obrigatório para definir sku"): rádio Letra \| Número — **P-25 (dono 25/set 14:57): todo produto NASCE marcado em Letra** (Draft/`emptyDraft` = `"letra"`, NULL legado vira Letra na carga — T2 `9dfdb000`; no banco `DEFAULT 'letra'` + backfill dos NULL — R41), trocável p/ Número; o NULL só sobra em gravação explícita e segue barrado pela rede do banco (R23); a Config da Loja perde o campo e a prévia mostra as 2 formas (Task 5b); o banco perde o fallback (Task 6 — R23–R26). "Tamanho em" nos cards do Plan. Tecido/Produto Acabado/Importado e a grade exibida seguindo a escolha ficam FORA (**D2 decidido: frente separada**; aqui só muda a parte do padrão). | Decisão travada do dono + D2. | A frente separada herda a regra (os 3 cards também nascem em Letra — P-25; ver R46 sobre o handover). |
 | R11 | Rótulo da variante COM as siglas do mockup ("Variante 1 · Marrom (MAR) · apelido Canela (CAN)") SEM tocar a RPC: a tela lê `cores` e `cores_apelido` DA LOJA por consulta própria (`useSiglasCores`, queryKey `["plan-skus-siglas", loja]`, `.eq("tenant_id", loja)`) e casa pelo NOME que a matriz traz — exato pelos únicos `(tenant_id, nome)` e `(tenant_id, cor_base_id, nome)`; sigla ausente (ou apelido de outra cor base) = só o nome. | Ruling do coordenador (G-plano #7): mudar o `RETURNS TABLE` de `_skus_modelo_calc` = DROP+CREATE arriscado. A matriz não traz os ids (a `variante_key` é md5 de cor+apelido — sem md5 no browser); o nome casa exato. | Sigla cadastrada com o card aberto só aparece ao reabrir (cosmético). |
 | R12 | 1ª geração automática: depois de TODO Salvar bem-sucedido de card existente, lê a matriz fresca e gera (`_regerar=false`) SÓ se `status=ok`, NENHUM SKU gravado e há linha `pendente`. | Spec SKU §4.2 ("depois do Salvar que deixa o card com REF e sem SKUs"; SKU gravado nunca muda). | Nenhum. |
 | R13 | QA em produção (Loja Teste via `:5173`, card EXISTENTE combinado com o dono — nenhum card novo): Título/NCM/Peso/Preço anterior são editados e RESTAURADOS. **D3 decidido (dono 25/set):** pode gravar SKU à mão, confirmar o "Regerar" e aprovar/remover serviço de MO, desfazendo no fim — esses passos rodam SÓ depois que o controlador avisa o dono no chat, com a lista de resíduos (Task 10 Step 7). | Não desfazível pela tela: o SKU à mão fica `manual=true` (`_salvar_sku_manual_core`, `20261003100000:797-889`); a 1ª geração/Regerar cria linhas em `modelo_skus` que a UI não apaga; o "Tamanho em" não tem opção "nenhum". A MO volta ao original (remover + Salvar). | Resíduo no card da Loja Teste (listado ao dono ANTES). |
-| R14 | `_replicar` leva `tamanho_tipo` junto dos 7 (8 campos nas MESMAS 2 linhas do INSERT). | **D4 decidido pelo dono (25/set).** Sem padrão da loja, a réplica sem o valor nasceria sem escolha (SKU bloqueado até escolher). | Nenhum. |
+| R14 | `_replicar` leva `tamanho_tipo` junto dos 7 (8 campos nas MESMAS 2 linhas do INSERT). | **D4 decidido pelo dono (25/set).** Com o DEFAULT (P-25) a réplica sem o valor nasceria em Letra — levar preserva o Número de quem trocou. | Nenhum. |
 | R15 | Selo de "Preço e Custos": o REQUISITO das 3 chaves de MO entra (âmbar) E, com a seção fechada, o cabeçalho mostra "MO pendente"/"MO reprovada" (âmbar) p/ TODO card — interno E comprado — quando o bloco de MO é visível (`moBlocoVisivel`). Ordem: requisito do kanban > aviso de MO > informativo de preço. `EntradaSelosSheet.maoObra` vira `maoObraAviso: "pendente" \| "reprovada" \| null`. | G-plano #9 / item 13: o comprado perdia o sinal (as `satisfeitas` são null sem a ficha); o estado da MO JÁ está carregado no orquestrador a custo zero (`moLinhas` → `estadoMO`, `PlanejamentoDetail.tsx:683`). | Nenhum (o aviso some quando toda linha está aprovada). |
 | R16 | A MO entra na tabela por **slot** (`blocoMaoObra`/`obsMaoObra: ReactNode`) montado no orquestrador (o MESMO `MaoObraEditor`, sem mudança), numa linha `colSpan`; no mobile o conteúdo fica `sticky left-0` com a largura visível. Obs da linha "Mão de obra" vira "serviços logo abaixo". | A spec aceita "ou renderizá-lo por dentro"; evita repassar 9 props e não duplica estado/mutations. | Nenhum. |
 | R17 | Revenda: Preço anterior em linha própria ANTES do par "Preço atacado/Preço varejo"; MO no fim do bloco de preço. Importado ganha tudo pela `PrecoTabela`. | O bloco da revenda não tem parte "Custos" depois dos preços. | Layout. |
@@ -91,7 +92,7 @@
 | R20 | Migration GERADA do texto vivo com guarda de md5 exata; md5 NÃO cravado no plano (lido da cópia na Task 6). | Instrução do controlador + padrão da Nota. | Nenhum. |
 | R21 | QA roda DEPOIS do merge (o `:5173` serve o checkout principal) e ANTES do deploy; toda edição da QA é restaurada. | Instrução do controlador (`E2E_BASE_URL=http://localhost:5173`). | Achado de QA vira correção na branch + novo ff antes do deploy. |
 | R22 | Referência da volta da F1: o script descobre a MAIS NOVA (`ls -t fidelidade_ref_volta_f1_*_detalhe.txt`), confere que ela bate com produção FORA das chaves da F1 e desta frente (o que prova que nenhuma frente ficou sem referência) e PARA se não bater — no pré-voo da ida (antes de aplicar) e de novo depois. | Instrução do controlador ("descobrir a mais nova e PARAR se houver diferença inesperada, sem cravar nome"). | Se a Nota sem trava não gravar referência própria, a ida PARA antes de aplicar — o controlador decide com o dono. |
-| R23 | Precedência do status da matriz: `sem_formato` → `aguardando_ref` → `sem_tamanho` → `ok` (o 1º que vale). Com `sem_tamanho` a matriz devolve só os SKUs GRAVADOS (como os outros 2 status) e `tamanho_tipo` NULL; a geração (1ª ou Regerar) não roda — o `tamanho_tipo` é lido DEPOIS da trava do modelo. Tela: estado vazio "Escolha “Tamanho em” (Letra ou Número) e salve o card para gerar os SKUs."; com SKU gravado, selo cinza "escolha Tamanho em"; seção sem linha nenhuma = sem selo. | G-plano (delta). Formato e REF são pré-condições da loja/etapa; o "Tamanho em" é escolha do card. | Nenhum. |
+| R23 | Precedência do status da matriz: `sem_formato` → `aguardando_ref` → `sem_tamanho` → `ok` (o 1º que vale). Com `sem_tamanho` a matriz devolve só os SKUs GRAVADOS (como os outros 2 status) e `tamanho_tipo` NULL; a geração (1ª ou Regerar) não roda — o `tamanho_tipo` é lido DEPOIS da trava do modelo. P-25: `sem_tamanho` passa a ser só REDE (card legado antes da Task 6 ou NULL gravado explicitamente); textos da T2 (`9dfdb000`): vazio "Este card é de antes da migração do “Tamanho em” — salve o card para atualizá-lo e gerar os SKUs.", com SKU gravado "Card de antes da migração do “Tamanho em” — salve o card para gerar ou regerar os SKUs.", selo cinza "aguardando migração do Tamanho em"; status ausente/desconhecido = `desconhecido` (fail-closed, "Não foi possível ler a situação dos SKUs — recarregue a página."); seção sem linha nenhuma = sem selo. | G-plano (delta). Formato e REF são pré-condições da loja/etapa; o "Tamanho em" é escolha do card. | Nenhum. |
 | R24 | `_sku_config_normaliza` IGNORA a chave `tamanho_padrao` (sem RAISE, fora da saída); `normalizarSkuConfig` (TS) idem — `CASOS_CONFIG` passa a dizer isso nos 2 lados. | Entre a ida em produção e o merge, o `:5173` (principal) ainda manda a chave ao salvar o Formato — um RAISE quebraria a Config. | Nenhum. |
 | R25 | NENHUM DML nem COMMENT em `tenant_config`: a chave legada fica no `sku_config` das lojas e é ignorada; some na próxima gravação do Formato (o gatilho canoniza sem ela). O COMMENT de `tenant_config.sku_config` (cita `tamanho_padrao`) fica desatualizado de propósito. | Incidente 23/set (AccessExclusive em `tenant_config` travou as policies de todas as lojas). | Comentário velho no catálogo (só documentação). |
 | R26 | `_skus_modelo_calc` com `mo.tamanho_tipo` NULL devolveria o lado "letra" (`_sku_tamanho_lado(_t, NULL)`, `20261003100000:136-144`) — nunca persistido: o core devolve `sem_tamanho` sem chamar o cálculo e a geração não roda; `_salvar_sku_manual_core` (intocado) só usa o cálculo p/ saber se a variante × tamanho está na grade (independe do lado). Comentário na própria função. | Não mudar `RETURNS TABLE`/assinatura (R11). | Nenhum. |
@@ -108,7 +109,14 @@
 | R37 | Task 5b nova (depois da 5, antes da 6): `sku-montar.ts` (`SkuConfig` sem `tamanho_padrao`; `normalizarSkuConfig` ignora a chave), card "Formato do SKU" (sem o campo; prévia nas 2 formas), `sku-casos.ts`, `sku-montar.test.ts` e a spec do SKU (§2 Q3, §3, §4.2, §4.3, §6). Revisada JUNTO com o G-migration A/B (é o espelho TS do `_sku_config_normaliza`). | G-plano (delta). | Nenhum. |
 | R38 | Keywords (dono 25/set): `ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS keywords text;` na MESMA migration `20261005100000`, como a ÚLTIMA DDL (depois do `ALTER` de `modelos` e dos `COMMENT`), sem DML/COMMENT/GRANT em `tenant_config` (o `authenticated` já tem privilégio de tabela). Inverso: `DROP COLUMN IF EXISTS keywords` por último, sob a mesma guarda de dado + confirmação (e o export da volta inclui as Keywords). `OBJ_SHEET` ganha a 4ª parte (`0\|0\|0\|0` ↔ `1\|7\|4\|1`); `PAT_SHEET` ganha `colunas:public.tenant_config.keywords` (N 13 → 14; referência nova = base + 9 linhas); contagens NÃO mudam. | Uma transação só: a coluna existe se e só se o resto existe (pré/pós-condições, volta e ensaio num lugar só — nenhum script novo); `ADD COLUMN` nullable sem default = só catálogo (sem varredura); a trava em `tenant_config` vai do último comando ao COMMIT, com `lock_timeout` 500 ms (fila curta — o incidente de 23/set foi AccessExclusive LONGO) e a nova tentativa do `aplica_v2` em 55P03; os gatilhos de `tenant_config` não olham a coluna (provado na suíte). | Falha de trava em `tenant_config` desfaz TAMBÉM as colunas de `modelos` (tudo ou nada) e o `aplica_v2` tenta de novo — sem estado parcial. |
 | R39 | Tela das Keywords = Task 9b (depois da 9): card "Keywords" com `<Textarea>` em `admin/configuracoes.tsx`, no `cfg` GERAL da página (mesmo Salvar do rodapé, mesma guarda de alterações não salvas, mesmo AlertDialog); visível p/ quem já abre a Config (admin da loja e super admin), sem permissão nova. `keywords` só entra no upsert se o usuário a MUDOU nesta tela (`keywordsParaPayload`, `src/lib/config-keywords.ts`): aba velha que não mexeu nas Keywords não regrava o texto de outra pessoa, e o upsert sem a chave não toca a coluna (PostgREST: `DO UPDATE SET` só das colunas enviadas — provado na suíte). Só espaços = NULL. | A T5b mexe em `FormatoSkuCard.tsx`, não na rota ⇒ task separada e curta, menor risco de conflito. | Duas abas EDITANDO as Keywords ao mesmo tempo: vale a última (como os outros campos gerais da página). |
-| R40 | As provas dos scripts de produção foram RODADAS no planejamento (repositório de rascunho, `psql`/`docker` falsos, URL sintética, a cadeia REAL pós-sem-trava só lida): 21 `OK (prova)`. Dois defeitos da versão anterior do plano saíram: o log do `psql` falso cortava o apply em 140 caracteres (a conferência "ida sem apply" falhava à toa) e a comparação de linhas usava o `wc -l` com espaços do macOS. Também ensaiados no rascunho: o gerador contra o dump SÓ LEITURA da cópia; a suíte `sheet-reorg-campos` do plano contra esse SQL (7 passed \| 18 skipped — o esperado sem a migration na cópia); Tasks 1, 5b e 9b (unit verdes: 20 + 115). | Evidência antes do G-plano de novo. | Nenhum. |
+| R40 | As provas dos scripts de produção foram RODADAS no planejamento (repositório de rascunho, `psql`/`docker` falsos, URL sintética, a cadeia REAL pós-sem-trava só lida): 21 `OK (prova)`. Dois defeitos da versão anterior do plano saíram: o log do `psql` falso cortava o apply em 140 caracteres (a conferência "ida sem apply" falhava à toa) e a comparação de linhas usava o `wc -l` com espaços do macOS. Também ensaiados no rascunho: o gerador contra o dump SÓ LEITURA da cópia; a suíte `sheet-reorg-campos` do plano contra esse SQL (7 passed \| 18 skipped — o esperado sem a migration na cópia); Tasks 1, 5b e 9b (unit verdes: 20 + 115). Com a P-25 (R41–R45) as provas passam a 26 `OK (prova)` e a suíte a 7 passed \| 19 skipped (26) — rodadas de novo no rascunho. | Evidência antes do G-plano de novo. | Nenhum. |
+| R41 | P-25 no banco, na MESMA migration `20261005100000`: o `ALTER TABLE public.modelos` ganha `ALTER COLUMN tamanho_tipo SET DEFAULT 'letra'` e, LOGO DEPOIS dele (dentro da janela de ACCESS EXCLUSIVE, antes dos COMMENT), o backfill `UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE tamanho_tipo IS NULL;`. A rede do banco (NULL ⇒ `sem_tamanho`, sem SKU) FICA. | Ruling do controlador (existentes NULL também viram Letra). Depois do ALTER nenhuma transação concorrente insere NULL entre o UPDATE e o DEFAULT (tudo atômico); na cópia a janela cresce ~135 ms. | Se o backfill ficar grande, a janela de trava cresce — por isso o limite do R43. |
+| R42 | Backfill = `UPDATE` SIMPLES (sem GUC, sem `session_replication_role`, sem desligar gatilho): efeitos aceitos por ser 1 vez — rev+1 e 1 linha de `audit_log` por card (autor vazio: roda como `postgres`); `fn_audit` e `fn_colab_touch_rev` NÃO têm GUC de desvio (conferido no texto vivo), e desligar gatilho seria DDL que tira guardas. Os gatilhos de REF/MO/kanban ficam inertes SE não houver deriva (R43). Aba aberta do Sheet recebe o UPDATE pelo Realtime (merge por campo) — a que não recebeu pode dar P0409 no próximo Salvar (recarregar resolve); o RODAR pede para salvar/fechar os cards antes. | Medido na cópia: 272 linhas, 131 ms, 0 efeito em REF/MO/kanban/status. | 272 linhas de auditoria "Editou Modelo … tamanho_tipo: null → letra" (ruído aceito). |
+| R43 | Pré-voo do backfill (PARA antes do backup/apply): (a) deriva = 0 — flag de MO ≠ `_mo_liberada` = 0 e enviados com `ref_auto` vazio = 0 (senão o backfill arrastaria REF/MO/kanban e a fila do kanban rodaria no COMMIT dentro dos 3 s); (b) NULL a converter ≤ 2000 (medido 0,48 ms/card ⇒ ~1 s — acima disso o controlador decide lote em rodada própria ou `transaction_timeout` maior SÓ nesse passo); (c) lojas com `sku_config->>'tamanho_padrao' = 'numero'` × SKUs gravados nelas = 0 (esperado 0 — não havia tela de geração; senão o backfill p/ Letra trocaria o lado do tamanho e os SKUs viriam \"divergentes\": decisão do dono). Informa ainda os NULL por loja (o que muda) e grava em `$DS`. `transaction_timeout` do arquivo segue 3 s (272 linhas cabem com folga). | Pedido do coordenador + medição. | Um PARE a mais no dia se a produção tiver deriva/SKU em loja \"número\" — é o comportamento desejado. |
+| R44 | O inverso NÃO desfaz o backfill (não há como saber quem era NULL): só `ALTER COLUMN tamanho_tipo DROP DEFAULT`, no MESMO `ALTER TABLE` dos `DROP COLUMN`; o cabeçalho do inverso diz isso. O ensaio da Task 7 deixa, portanto, os NULL da cópia em `'letra'` (irreversível, igual à produção; +1 rev e 1 audit por card) — o N3 avisa o dono. | Pedido do coordenador. | Voltar a frente não devolve o NULL — sem efeito prático: a F3.5a sem esta frente usa o padrão da loja só p/ NULL. |
+| R45 | Fidelidade: o DEFAULT muda a linha `colunas:public.modelos.tamanho_tipo` (4º campo `-` → `'letra'::text`) ⇒ ela entra no `PAT_SHEET`; N da `ref-volta-f1.sh` 14 → 15 (a referência nova segue base + 9). Pós-condições da ida: `TT_DEFAULT = 'letra'::text` e `TT_NULOS = 0`; da volta: `TT_DEFAULT = -`. | Formato do `FIDEL_DET` (`pg_get_expr` do default). | Nenhum. |
+| R46 | O DEFAULT cobre quem grava `modelos` sem o Draft (lista no §1: criar card de Produto Acabado/Importado, Plan. Tecido, Replicar ×3, simulação legada, importação em massa, criação em lote por categoria); o teste \"INSERT sem a coluna ⇒ 'letra'\" da Task 6 prova o caminho comum a todos. Nota p/ a frente do D2: com o DEFAULT, o `fn_produto_tamanho_tipo_handover` (passa o valor do produto ao modelo só se o modelo estiver NULL) deixa de transferir — a frente do D2 grava direto em `modelos.tamanho_tipo`. | Item 2 do coordenador. | Nenhum nesta frente (nenhuma tela grava o `tamanho_tipo` do produto hoje). |
+| R47 | Tasks 1 e 2 já executadas (`2d464ea2`, `92447eaa`, fix P-25 `9dfdb000`, rodada 2 `ba92c478`): o código vigente é o da branch; o texto delas abaixo é o original (antes da P-25) e fica como registro — não re-executar. Os textos exatos da P-25 valem nas Global Constraints, na spec (§5.1/§10) e na QA da Task 10. | Instrução do coordenador (não mexer na T2). | Nenhum. |
 
 ## 3. Mapa de arquivos
 
@@ -411,6 +419,8 @@ Expected: `Up … (healthy)`; `483 277 0 t t t` (outra frente pode ter mudado as
 
 ---
 ## Task 1: `codigos/sku-card.ts` — regras puras da seção "4. Códigos"  *(Lote C — revisão junto com a Task 2)*
+
+> **EXECUTADA** (`2d464ea2`; fix P-25 em `9dfdb000`: status `desconhecido` fail-closed, selo "aguardando migração do Tamanho em"). O texto abaixo é o original, anterior à P-25 — vale o código da branch (R47).
 
 **Files:**
 - Create: `src/components/planejamento/planejamento-detail/codigos/sku-card.ts`
@@ -849,6 +859,8 @@ git show --stat HEAD
 
 ---
 ## Task 2: Seção "4. Códigos" no Sheet — a REF sai da seção 3, "Tamanho em" e SKUs  *(Lote C)*
+
+> **EXECUTADA** (`92447eaa`; fix P-25 em `9dfdb000`: Draft `"letra"|"numero"`, NULL legado ⇒ Letra na carga, rádio pré-marcado, frase "· nasce em Letra; troque para Número se o produto usa numeração", textos de `sem_tamanho`/`desconhecido`). O texto abaixo é o original, anterior à P-25 — vale o código da branch (R47).
 
 **Files:**
 - Modify: `src/components/planejamento/planejamento-detail/ficha/selos-secoes.ts` (chave `codigos`)
@@ -2421,12 +2433,12 @@ const TIPOS_PREVIA: { tipo: TamanhoTipo; rotulo: string }[] = [{ tipo: "letra", 
 
 - [ ] **Step 6: spec do SKU — `docs/superpowers/specs/2026-09-24-sku-automatico-design.md` (registro da decisão)**
 
-1. §2 Q3 (`:25`): trocar `**Um OU outro por card.** O card novo nasce com o **padrão da loja**, definido na Config.` por `**Um OU outro por card.** *(Revisto pelo dono em 25/set — F3.6: SEM padrão da loja. O card nasce sem escolha e o "Tamanho em" é obrigatório para gerar os SKUs; a Config perde o campo e a prévia mostra as duas formas.)*`
+1. §2 Q3 (`:25`): trocar `**Um OU outro por card.** O card novo nasce com o **padrão da loja**, definido na Config.` por `**Um OU outro por card.** *(Revisto pelo dono em 25/set — F3.6: SEM padrão da loja. P-25 (14:57): o card nasce em Letra (DEFAULT 'letra') e pode trocar para Número; sem "Tamanho em" (NULL legado) não se geram SKUs; a Config perde o campo e a prévia mostra as duas formas.)*`
 2. §3 (`:61`): acrescentar ao fim da linha do `sku_config` ` *(F3.6: `tamanho_padrao` é legado — ignorado pelo normalizador, sem erro.)*`
 3. §3 (`:64`): `onde null = padrão da loja.` → `onde null = sem escolha (F3.6: obrigatório para gerar; sem padrão da loja).`
 4. §4.2: logo depois da linha `  - sem REF → não gera nada e devolve "aguardando REF";` acrescentar `  - sem "Tamanho em" no card → não gera nada e devolve "sem_tamanho" (F3.6, 25/set; precedência: sem formato → aguardando REF → sem tamanho);`
 5. §4.3 (`:101`): `  - "Tamanho em (padrão)";` → `  - ~~"Tamanho em (padrão)"~~ — removido na F3.6 (25/set): a prévia mostra Letra e Número;`
-6. §6 (`:126`): `- **`tamanho_tipo` em cards antigos:** null = padrão da loja. Nenhum dado existente muda.` → `- **`tamanho_tipo` em cards antigos:** null = sem escolha desde a F3.6 (25/set). Nenhum dado muda: SKU já gravado fica; gerar/Regerar só depois de escolher o "Tamanho em" no card.`
+6. §6 (`:126`): `- **`tamanho_tipo` em cards antigos:** null = padrão da loja. Nenhum dado existente muda.` → `- **`tamanho_tipo` em cards antigos:** a F3.6 (P-25, 25/set) leva os NULL a 'letra' (backfill 1× na migration 20261005100000; a volta não desfaz); SKU já gravado fica. NULL só por gravação explícita = sem escolha: gerar/Regerar só depois de escolher o "Tamanho em" no card.`
 
 - [ ] **Step 7: Rodar e ver passar**
 
@@ -2689,8 +2701,13 @@ describe("F3.6 — arquivos da migration (estático, sem banco)", () => {
     expect(iAlter).toBeGreaterThan(iAcl);
     expect(iTc).toBeGreaterThan(m.lastIndexOf("COMMENT ON COLUMN"));
     const depois = m.slice(iAlter).replace(/--[^\n]*/g, "");
-    // ALTER de modelos; 8× COMMENT (7 + tamanho_tipo); ALTER de tenant_config; COMMIT; — nada mais segura as travas
-    expect(depois.match(/;/g)).toHaveLength(11);
+    // ALTER de modelos (com o DEFAULT 'letra' — P-25); o backfill; 8× COMMENT (7 + tamanho_tipo); ALTER de tenant_config; COMMIT;
+    expect(depois.match(/;/g)).toHaveLength(12);
+    expect(m).toContain("  ALTER COLUMN tamanho_tipo SET DEFAULT 'letra';\n"); // última cláusula do ALTER de modelos
+    const iBackfill = m.indexOf("UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE tamanho_tipo IS NULL;");
+    expect(iBackfill).toBeGreaterThan(iAlter); // R41: dentro da janela da trava (nenhum NULL entra no meio)
+    expect(iBackfill).toBeLessThan(m.indexOf("COMMENT ON COLUMN"));
+    expect(m.split("UPDATE public.modelos").length - 1).toBe(1);
     expect(m.slice(iTc).replace(/--[^\n]*/g, "").trim()).toBe("ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS keywords text;\n\nCOMMIT;");
     expect(m).not.toMatch(/COMMENT ON COLUMN public\.tenant_config|(UPDATE|INSERT INTO|DELETE FROM) public\.tenant_config/); // R25
     for (const f of SKU_FNS) expect(m).toContain(`REVOKE EXECUTE ON FUNCTION ${f.acl} FROM PUBLIC, anon, authenticated;`);
@@ -2719,6 +2736,9 @@ describe("F3.6 — arquivos da migration (estático, sem banco)", () => {
     expect(v.slice(iDropCol).replace(/--[^\n]*/g, "").replace(/'(?:[^']|'')*'/g, "''").match(/;/g)).toHaveLength(4);
     expect(v).toContain("ALTER TABLE public.tenant_config DROP COLUMN IF EXISTS keywords;");
     for (const col of COLUNAS) expect(v).toContain(`DROP COLUMN IF EXISTS ${col}`);
+    expect(v).toContain("  ALTER COLUMN tamanho_tipo DROP DEFAULT;\n"); // R44: só o DEFAULT sai…
+    expect(v).not.toMatch(/UPDATE\s+public\.modelos/i); // …o backfill NÃO é desfeito
+    expect(v).toContain("o backfill (NULL → letra) NÃO é desfeito");
     expect(v).toContain("app.confirmo_apagar_campos_sheet");
     expect(v).toContain("DROP COLUMN apaga");
   });
@@ -2771,6 +2791,11 @@ const contagens = async (c: Client) => (await um<{ v: string }>(c,
   `select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public') || '|' ||
           (select count(*) from pg_trigger t join pg_class k on k.oid = t.tgrelid join pg_namespace n on n.oid = k.relnamespace
             where n.nspname = 'public' and not t.tgisinternal) v`)).v;
+/** P-25: o DEFAULT de modelos.tamanho_tipo ("-" = sem) e quantos NULL há. */
+const ttDefault = async (c: Client) => (await um<{ d: string }>(c,
+  `select coalesce((select pg_get_expr(d.adbin, d.adrelid) from pg_attrdef d join pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum
+     where d.adrelid = 'public.modelos'::regclass and a.attname = 'tamanho_tipo'), '-') d`)).d;
+const ttNulos = async (c: Client) => (await um<{ n: number }>(c, "select count(*)::int n from public.modelos where tamanho_tipo is null")).n;
 const temKeywords = async (c: Client) => (await um<{ n: number }>(c,
   "select count(*)::int n from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'keywords'")).n;
 const comentarioTamanhoTipo = async (c: Client) => (await um<{ d: string | null }>(c,
@@ -2880,7 +2905,8 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       expect(await um(c, q, [novo(com.id)])).toEqual({
         titulo_pagina: "Título à mão (ITEST)", peso: "0.350", comp: "60.00", larg: "40.00", alt: "2.50", ncm: "6204.43.00", pa: "199.90", tt: "numero",
       });
-      expect(await um(c, q, [novo(sem.id)])).toEqual({ titulo_pagina: null, peso: null, comp: null, larg: null, alt: null, ncm: null, pa: null, tt: null });
+      // P-25: o `sem` nasceu sem a coluna ⇒ DEFAULT 'letra', e a réplica leva o valor (D4)
+      expect(await um(c, q, [novo(sem.id)])).toEqual({ titulo_pagina: null, peso: null, comp: null, larg: null, alt: null, ncm: null, pa: null, tt: "letra" });
     });
   });
 
@@ -2937,7 +2963,8 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       const vt = await um<{ id: string }>(c,
         "insert into public.variantes_tecido (tenant_id, artigo_id, cor_id) values ($1, $2, $3) returning id", [T, art.id, cor.id]);
       const m = await um<{ id: string }>(c,
-        "insert into public.modelos (tenant_id, nome, ref, origem) values ($1, 'ITEST-SHEET SKU', '', 'interno') returning id", [T]);
+        // P-25: NULL EXPLÍCITO (com o DEFAULT, sem a coluna o card já nasceria em 'letra') — é a REDE do banco que se prova aqui
+        "insert into public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) values ($1, 'ITEST-SHEET SKU', '', 'interno', null) returning id", [T]);
       const mt = await um<{ id: string }>(c,
         "insert into public.modelo_tecidos (modelo_id, artigo_id, numero, tipo) values ($1, $2, 1, 'tecido') returning id", [m.id, art.id]);
       await c.query("insert into public.modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem) values ($1, $2, 1)", [mt.id, vt.id]);
@@ -3007,6 +3034,20 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     });
   });
 
+  it("P-25 — nasce em Letra: DEFAULT 'letra' (INSERT SEM a coluna — o caminho de PA/importado/Plan. Tecido/importação/lote, R46); nenhum NULL depois do backfill; NULL explícito segue possível (rede R23)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      expect(await ttDefault(c)).toBe("'letra'::text");
+      expect(await ttNulos(c)).toBe(0);
+      const semColuna = await um<{ tt: string | null }>(c,
+        "insert into public.modelos (tenant_id, nome) values ($1, 'ITEST-SHEET-TT') returning tamanho_tipo tt", [TENANT_TESTE]);
+      expect(semColuna.tt).toBe("letra");
+      const explicito = await um<{ tt: string | null }>(c,
+        "insert into public.modelos (tenant_id, nome, tamanho_tipo) values ($1, 'ITEST-SHEET-TT2', null) returning tamanho_tipo tt", [TENANT_TESTE]);
+      expect(explicito.tt).toBeNull();
+    });
+  });
+
   it.skipIf(!MIG_TXN)("antes/depois: inverso = texto VIVO; +1 função, +0 gatilhos; _replicar = antes com SÓ as 2 linhas; 4 do SKU = antes com SÓ as trocas; ACL igual; keywords", async () => {
     await withTx(async (c) => {
       await timeouts(c);
@@ -3020,8 +3061,25 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       SKU_FNS.forEach((s, i) => expect(skuAntes[i], s.arq).toBe(corpoSku(INV, s.cria) + "\n"));
       expect(await colunas(c)).toEqual([]);
       expect(await temKeywords(c)).toBe(0);
+      expect(await ttDefault(c)).toBe("-");
+      const nulosAntes = await ttNulos(c); // na cópia de 25/set: 272 (depois do ensaio da Task 7: 0 — R44)
+      await c.query(`create temp table _tt_antes on commit drop as
+        select id, rev, ref, ref_auto, custo_terceirizados_aprovado, status_desenvolvimento, tamanho_tipo from public.modelos`);
+      const auditAntes = (await um<{ n: number }>(c, "select count(*)::int n from public.audit_log where tabela = 'modelos'")).n;
+      const filaAntes = (await um<{ n: number }>(c, "select count(*)::int n from public.kanban_recalculo_fila")).n;
       await aplica(c, MIG);
       expect(await contagens(c)).toBe(`${f + 1}|${g}`);
+      // P-25 (R41–R42): DEFAULT + backfill; o backfill muda SÓ tamanho_tipo (+rev e 1 audit por card) — nada de REF/MO/status/kanban
+      expect(await ttDefault(c)).toBe("'letra'::text");
+      expect(await ttNulos(c)).toBe(0);
+      expect(await um(c, `select count(*) filter (where m.tamanho_tipo is distinct from a.tamanho_tipo)::int mudou,
+          count(*) filter (where a.tamanho_tipo is null and m.rev = a.rev + 1)::int rev,
+          count(*) filter (where m.ref is distinct from a.ref or m.ref_auto is distinct from a.ref_auto
+            or m.custo_terceirizados_aprovado is distinct from a.custo_terceirizados_aprovado
+            or m.status_desenvolvimento is distinct from a.status_desenvolvimento)::int outros
+        from public.modelos m join _tt_antes a using (id)`)).toEqual({ mudou: nulosAntes, rev: nulosAntes, outros: 0 });
+      expect((await um<{ n: number }>(c, "select count(*)::int n from public.audit_log where tabela = 'modelos'")).n - auditAntes).toBe(nulosAntes);
+      expect((await um<{ n: number }>(c, "select count(*)::int n from public.kanban_recalculo_fila")).n).toBe(filaAntes);
       expect(await def(c)).toBe(antes.replace(COL_ANTES, COL_DEPOIS).replace(VAL_ANTES, VAL_DEPOIS));
       expect(await acl(c)).toBe(aclAntes);
       for (const [i, s] of SKU_FNS.entries()) {
@@ -3048,6 +3106,7 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       expect(await contagens(c)).toBe(n1);
       expect(await Promise.all(SKU_FNS.map((s) => def(c, s.fn)))).toEqual(s1);
       expect(await temKeywords(c)).toBe(1);
+      expect([await ttDefault(c), await ttNulos(c)]).toEqual(["'letra'::text", 0]);
     });
   });
 
@@ -3132,6 +3191,8 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       expect(await def(c)).toBe(antes);
       expect(await Promise.all(SKU_FNS.map((s) => def(c, s.fn)))).toEqual(skuAntes);
       expect(await comentarioTamanhoTipo(c)).toBe(comAntes);
+      expect(await ttDefault(c)).toBe("-"); // R44: só o DEFAULT sai…
+      expect(await ttNulos(c)).toBe(0); // …o backfill (NULL → letra) NÃO é desfeito
       expect(await def(c, FN_TITULO)).toBeNull();
       expect(await acl(c)).toBe(aclAntes);
       expect(await contagens(c)).toBe(contAntes);
@@ -3282,8 +3343,12 @@ TROCAS_SKU = {
          "  IF v_cfg IS NOT NULL AND v_refn <> '' AND v_tipo_card IS NOT NULL THEN\n"),
     ],
 }
-COMENTARIO_TAMANHO_TIPO = ('"Tamanho em" do card: letra | numero. NULL = sem escolha - obrigatório para gerar os SKUs, SEM padrão '
-                           'da loja (F3.6, dono 25/set).')
+COMENTARIO_TAMANHO_TIPO = ('"Tamanho em" do card: letra | numero. DEFAULT letra - todo produto nasce em Letra (P-25, dono 25/set). '
+                           'NULL só em card legado ou gravado à mão - sem SKU (sem_tamanho). Sem padrão da loja (F3.6).')
+# P-25 (dono 25/set 14:57; R41–R43): backfill 1× dos NULL existentes, LOGO DEPOIS do ALTER (na janela de ACCESS EXCLUSIVE).
+BACKFILL = ("-- P-25 (dono 25/set, R41–R43): todo produto nasce em Letra - os NULL existentes viram letra (1 vez; rev+1 e 1 linha\n"
+            "-- de auditoria por card; o pré-voo garante deriva 0 de REF/MO/kanban e no máximo 2000 linhas).\n"
+            "UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE tamanho_tipo IS NULL;\n")
 
 
 def md5(s: str) -> str:
@@ -3474,7 +3539,9 @@ cabecalho_mig = """-- F3.6 (Parte B) — reorganização do Sheet do Planejament
 --     (precedência: sem_formato → aguardando_ref → sem_tamanho) com só os SKUs gravados; _gerar_skus_modelo_core não gera
 --     sem o "Tamanho em" (lido depois da trava). Nenhum DML/COMMENT em tenant_config (a chave legada fica, ignorada);
 --  4. POR ÚLTIMO (ACCESS EXCLUSIVE só no fim): 7 colunas ADITIVAS em modelos (nullable, sem default, sem backfill), os 4
---     CHECK (>= 0) nomeados de peso/medidas (varrem a tabela uma vez — tudo NULL) e os COMMENT; e, a ÚLTIMA DDL, a coluna
+--     CHECK (>= 0) nomeados de peso/medidas (varrem a tabela uma vez — tudo NULL), o DEFAULT 'letra' de tamanho_tipo (P-25)
+--     e, logo depois, o backfill dos NULL existentes para letra (1 vez: rev+1 e 1 linha de auditoria por card; sem efeito
+--     em REF/MO/kanban — o pré-voo exige deriva 0 e no máximo 2000 linhas), os COMMENT; e, a ÚLTIMA DDL, a coluna
 --     keywords (text, nullable) em tenant_config — só catálogo, sem DML/COMMENT/GRANT (o authenticated já tem privilégio de
 --     tabela); os gatilhos de tenant_config não a olham. Sem CHECK em ncm (validação no cliente — ruling 3) nem em
 --     preco_anterior (sem precedente em preço — R8).
@@ -3495,6 +3562,8 @@ cabecalho_inv = """-- INVERSO da 20261005100000_modelo_titulo_peso_ncm_preco_ant
 -- Ordem: guarda (md5 das 5 funções + confirmação) → _replicar e as 4 funções do SKU voltam ao texto vivo de 25/set byte a
 -- byte (o SKU volta a ter o padrão da loja) → REVOKE/ACL → DROP da função do título → DROP das colunas de modelos → o
 -- COMMENT antigo de modelos.tamanho_tipo → DROP de keywords POR ÚLTIMO. Idempotente. Travas no arquivo (500 ms / 3 s).
+-- P-25: tira SÓ o DEFAULT 'letra' de tamanho_tipo — o backfill (NULL → letra) NÃO é desfeito: não há como saber quem
+-- era NULL (R44).
 -- Voltar a F3.5a (SKU) DEPOIS desta frente exige rodar ESTE inverso antes (R36).
 """
 
@@ -3506,6 +3575,7 @@ colunas_sql = ",\n".join([
     "  ADD COLUMN IF NOT EXISTS altura_cm numeric(10,2) CONSTRAINT modelos_altura_cm_nao_negativo CHECK (altura_cm >= 0)",
     "  ADD COLUMN IF NOT EXISTS ncm text",
     "  ADD COLUMN IF NOT EXISTS preco_anterior numeric(12,2)",
+    "  ALTER COLUMN tamanho_tipo SET DEFAULT 'letra'",  # P-25 (R41)
 ])
 comentarios_sql = "".join(
     f"COMMENT ON COLUMN public.modelos.{c} IS '{COMENTARIOS[c]}';\n" for c in COLUNAS)
@@ -3531,6 +3601,7 @@ mig = "".join([
     acl(True), "\n",
     "-- POR ÚLTIMO: ACCESS EXCLUSIVE em `modelos` só daqui até o COMMIT.\n",
     "ALTER TABLE public.modelos\n", colunas_sql, ";\n",
+    BACKFILL,
     comentarios_sql,
     f"COMMENT ON COLUMN public.modelos.tamanho_tipo IS {sql_lit(COMENTARIO_TAMANHO_TIPO)};\n\n",
     "-- Keywords da loja (dono 25/set, R38): a ÚLTIMA DDL — trava em tenant_config só daqui até o COMMIT; sem DML/COMMENT.\n",
@@ -3547,7 +3618,8 @@ inv = "".join([
     "DROP FUNCTION IF EXISTS public._titulo_pagina_calculado(text, text);\n\n",
     "-- POR ÚLTIMO: ACCESS EXCLUSIVE em `modelos` (e, no fim, em tenant_config) só daqui até o COMMIT.\n",
     "ALTER TABLE public.modelos\n",
-    ",\n".join(f"  DROP COLUMN IF EXISTS {c}" for c in COLUNAS), ";\n",
+    ",\n".join([*(f"  DROP COLUMN IF EXISTS {c}" for c in COLUNAS),
+               "  ALTER COLUMN tamanho_tipo DROP DEFAULT"]), ";\n",  # R44: o backfill NÃO é desfeito
     f"COMMENT ON COLUMN public.modelos.tamanho_tipo IS {sql_lit(comentario_tt_antes)};\n\n",
     "ALTER TABLE public.tenant_config DROP COLUMN IF EXISTS keywords;\n\n",
     "COMMIT;\n",
@@ -3587,7 +3659,7 @@ bash .superpowers/sheet/n3.sh depois t6s5
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/sheet-reorg-campos.test.ts 2>&1 | tail -8
 ```
 
-Expected: modo `SHEET_MIG_TXN=1` → **25 passed** (7 estáticos + 11 de banco + 7 só no modo txn). `sku-automatico` com `SKU_MIG_TXN=1` (F3.5a + esta migration na txn) → 0 failed (R27; o total é o da suíte da F3.5a). Modo sem a variável (cópia SEM a migration) → 7 passed, 18 skipped. `n3.sh depois` mostra `483|277|f` (nada vazou: a cópia continua sem a função). (Sem a variável, `sku-automatico` FALHA na cópia sem esta migration — esperado, R27; ele é vizinha do ensaio da Task 7.) Falhas previsíveis e o que fazer:
+Expected: modo `SHEET_MIG_TXN=1` → **26 passed** (7 estáticos + 12 de banco + 7 só no modo txn). `sku-automatico` com `SKU_MIG_TXN=1` (F3.5a + esta migration na txn) → 0 failed (R27; o total é o da suíte da F3.5a). Modo sem a variável (cópia SEM a migration) → 7 passed, 19 skipped. `n3.sh depois` mostra `483|277|f` (nada vazou: a cópia continua sem a função). (Sem a variável, `sku-automatico` FALHA na cópia sem esta migration — esperado, R27; ele é vizinha do ensaio da Task 7.) Falhas previsíveis e o que fazer:
 - A guarda recusa uma das 4 do SKU no modo `SKU_MIG_TXN=1` da `sku-automatico` ("outra frente mudou") ⇒ o texto do arquivo da F3.5a reaplicado na txn ≠ o texto vivo da cópia: PARE e avise o controlador (a F3.5a da cópia não é a do arquivo).
 - "texto canônico do PG" ≠ `corpoTitulo(MIG)+"\n"` ⇒ o template `TITULO` do gerador não bate com o formato do `pg_get_functiondef`: copiar a forma do texto impresso na mensagem para o template, regerar (Step 4) e repetir — registrar em `desvios.md`. Nunca "consertar" o teste.
 - `Replicar` falhando por módulo/assinatura ⇒ conferir `replicar_cards_plan_tecido` na cópia (mesma chamada do `modelo-descricao-produto.test.ts`) e registrar.
@@ -3661,6 +3733,17 @@ DADOS_SHEET="select (select count(*) from public.modelos where $TEM_DADO_SHEET) 
 # INFORMATIVO p/ o dono (não bloqueia): lojas com Formato do SKU | cards com SKU gravado e SEM "Tamanho em" (depois da ida
 # eles mostram os SKUs gravados e pedem a escolha antes de gerar/regerar — R23).
 INFO_SKU="select (select count(*) from public.tenant_config where sku_config is not null) || '|' || (select count(distinct s.modelo_id) from public.modelo_skus s join public.modelos m on m.id = s.modelo_id where m.tamanho_tipo is null)"
+# P-25 (R41–R45) — o "Tamanho em" nasce em Letra: DEFAULT de modelos.tamanho_tipo ("-" = sem) e NULL a converter.
+TT_DEFAULT="select coalesce((select pg_get_expr(d.adbin, d.adrelid) from pg_attrdef d join pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum where d.adrelid = 'public.modelos'::regclass and a.attname = 'tamanho_tipo'), '-')"
+TT_NULOS="select count(*) from public.modelos where tamanho_tipo is null"
+LIMITE_BACKFILL=2000   # R43: medido 0,48 ms/card na cópia ⇒ ~1 s; acima disso o controlador decide (lote/timeout)
+# INFORMATIVO: NULL por loja = o que o backfill leva a 'letra'.
+INFO_TT="select coalesce(string_agg(t.nome || ' ' || x.n, ', ' order by t.nome), 'nenhum') from (select tenant_id, count(*) n from public.modelos where tamanho_tipo is null group by tenant_id) x join public.tenants t on t.id = x.tenant_id"
+# R43 (a): deriva que o backfill arrastaria — flag de MO ≠ _mo_liberada | enviados com ref_auto vazio. Esperado 0|0.
+DERIVA_SHEET="select (select count(*) from public.modelos where custo_terceirizados_aprovado is distinct from public._mo_liberada(id)) || '|' || (select count(*) from public.modelos where coalesce(ordem_criacao_enviada, false) and coalesce(ref_auto, '') = '')"
+# R43 (c): lojas com o padrão ANTIGO 'numero' | SKUs já gravados nelas. Esperado N|0 (sem tela de geração ainda) — SKU ali
+# viraria "divergente" com o backfill p/ Letra: decisão do dono.
+NUMERO_SKUS="select (select count(*) from public.tenant_config where sku_config ->> 'tamanho_padrao' = 'numero') || '|' || (select count(*) from public.modelo_skus s join public.tenant_config tc on tc.tenant_id = s.tenant_id where tc.sku_config ->> 'tamanho_padrao' = 'numero')"
 # Pré-requisitos por OBJETO (nunca schema_migrations — ruling da F1). Ordem do dono: F1 → Nota → SKU → Nota sem trava → esta.
 F1_OK="select to_regprocedure('public.kanban_mover(uuid,text)') is not null"
 NOTA_OK="select to_regprocedure('public.fn_oc_nota_entrada_recalc()') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ocs_tecido' and column_name = 'data_nota_entrada')"
@@ -3723,7 +3806,7 @@ backup_copia() {  # uso: backup_copia rótulo — pg_dump -Fc da CÓPIA inteira 
 }
 # ── Cadeia da referência da VOLTA DE EMERGÊNCIA da F1 (R22: descobrir a MAIS NOVA, sem cravar nome; PARAR se não bater) ──
 # Chaves (categoria:objeto) que ESTA frente cria/muda no retrato de fidelidade (FIDEL_DET do bloco de apoio v2 da F1).
-PAT_SHEET='^colunas:public[.]modelos[.](titulo_pagina|peso_kg|comprimento_cm|largura_cm|altura_cm|ncm|preco_anterior)$|^colunas:public[.]tenant_config[.]keywords$|^funcoes:public[.](_replicar_cards_plan_tecido_core|_titulo_pagina_calculado|_sku_config_normaliza|_skus_modelo_calc|_skus_modelo_core|_gerar_skus_modelo_core)[(]'
+PAT_SHEET='^colunas:public[.]modelos[.](titulo_pagina|peso_kg|comprimento_cm|largura_cm|altura_cm|ncm|preco_anterior|tamanho_tipo)$|^colunas:public[.]tenant_config[.]keywords$|^funcoes:public[.](_replicar_cards_plan_tecido_core|_titulo_pagina_calculado|_sku_config_normaliza|_skus_modelo_calc|_skus_modelo_core|_gerar_skus_modelo_core)[(]'
 ref_mais_nova() {  # imprime a referência MAIS NOVA (mtime) — nunca a desta frente
   local r; r=$(ls -t "$BF1"/fidelidade_ref_volta_f1_*_detalhe.txt 2>/dev/null | grep -v '_pos_sheet_detalhe[.]txt$' | head -1)
   [ -n "$r" ] && [ -s "$r" ] || { echo "PARE: nenhuma fidelidade_ref_volta_f1_*_detalhe.txt em $BF1" >&2; return 1; }
@@ -3757,6 +3840,19 @@ confere_cadeia_ref() {  # $1 = retrato de produção AGORA → a referência mai
   fi
   echo "OK (cadeia da volta da F1): a referência mais nova ($(basename "$r")) bate com a produção fora da F1 e desta frente"
 }
+# P-25 (R43) — pré-voo do backfill do "Tamanho em": sem DEFAULT ainda; deriva 0|0; NULL ≤ limite; SKU em loja "número" = 0.
+confere_backfill_tt() {  # uso: confere_backfill_tt URL — SÓ LEITURA
+  local n ns
+  espera "$1" "$TT_DEFAULT" "-" "tamanho_tipo ainda SEM DEFAULT" &&
+  espera "$1" "$DERIVA_SHEET" "0|0" "backfill sem arrastar REF/MO/kanban (flag de MO ≠ _mo_liberada | enviados sem ref_auto)" || return 1
+  n=$(psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -c "$TT_NULOS") || return 1
+  echo "INFO (pré-voo): modelos com 'Tamanho em' NULL que o backfill leva a 'letra' = $n — por loja: $(psql "$1" -X -q -A -t -c "$INFO_TT")"
+  [ "$n" -le "$LIMITE_BACKFILL" ] || { echo "PARE (pré-voo): $n linhas p/ o backfill > $LIMITE_BACKFILL — avisar o controlador (lote/timeout — R43)"; return 1; }
+  ns=$(psql "$1" -X -q -A -t -v ON_ERROR_STOP=1 -c "$NUMERO_SKUS") || return 1
+  echo "INFO (pré-voo): lojas com o padrão antigo 'numero' | SKUs gravados nelas = $ns"
+  [ "${ns#*|}" = 0 ] || { echo "PARE (pré-voo): há SKU gravado em loja com padrão 'numero' — o backfill p/ Letra os deixaria divergentes; decisão do dono (R43)"; return 1; }
+  echo "OK (pré-voo): backfill do 'Tamanho em' liberado ($n linhas)"
+}
 prevoo_sheet() {  # uso: prevoo_sheet URL RETRATO_ATUAL — SÓ LEITURA
   echo "== pré-voo da reorganização do Sheet — só leitura $(date '+%F %T')"
   git ls-files --error-unmatch "$MIG" "$INV" > /dev/null 2>&1 || { echo "FALHOU (arquivos): SQL não commitado"; return 1; }
@@ -3772,6 +3868,7 @@ prevoo_sheet() {  # uso: prevoo_sheet URL RETRATO_ATUAL — SÓ LEITURA
   espera "$1" "$MD5_REPLICAR" "$(md5_de "$M/md5-replicar-antes.txt")" "_replicar no texto que a guarda espera" &&
   espera "$1" "$MD5_SKU" "$(md5_de "$M/md5-sku-antes.txt")" "as 4 funções do SKU no texto que a guarda espera" &&
   echo "INFO (pré-voo, não bloqueia): lojas com Formato do SKU | cards com SKU gravado e SEM 'Tamanho em' = $(psql "$1" -X -q -A -t -c "$INFO_SKU")" &&
+  confere_backfill_tt "$1" &&
   confere_cadeia_ref "$2" &&
   ativ_vazio "$1" &&
   echo "== PRÉ-VOO OK $(date '+%T')"
@@ -3782,6 +3879,8 @@ confere_ida_sheet() {  # uso: confere_ida_sheet URL CONT_ANTES FN_PRE_ANTES
   espera "$1" "$MD5_REPLICAR" "$(md5_de "$M/md5-replicar-depois.txt")" "IDA: _replicar no texto desta migration" &&
   espera "$1" "$MD5_SKU" "$(md5_de "$M/md5-sku-depois.txt")" "IDA: as 4 do SKU no texto desta migration (sem padrão da loja)" &&
   espera "$1" "$ACL_SHEET" "0|0|1|0" "IDA: ACL (#9) — internas fechadas p/ PUBLIC/anon/authenticated (inclusive as 4 do SKU); service_role no título" &&
+  espera "$1" "$TT_DEFAULT" "'letra'::text" "IDA: tamanho_tipo com DEFAULT 'letra' (P-25)" &&
+  espera "$1" "$TT_NULOS" "0" "IDA: backfill — nenhum 'Tamanho em' NULL" &&
   espera "$1" "$FN_PRE" "$3" "IDA: nenhuma outra função mudou" &&
   espera "$1" "$CONT" "$((f + 1))|$g" "IDA: contagens = antes + 1 função, + 0 gatilhos"
 }
@@ -3791,6 +3890,7 @@ confere_volta_sheet() {  # uso: confere_volta_sheet URL CONT_ANTES_DA_VOLTA FN_P
   espera "$1" "$OBJ_SHEET" "0|0|0|0" "VOLTA: a frente saiu" &&
   espera "$1" "$MD5_REPLICAR" "$(md5_de "$M/md5-replicar-antes.txt")" "VOLTA: _replicar de volta ao texto de antes" &&
   espera "$1" "$MD5_SKU" "$(md5_de "$M/md5-sku-antes.txt")" "VOLTA: as 4 do SKU de volta ao texto de antes (com o padrão da loja)" &&
+  espera "$1" "$TT_DEFAULT" "-" "VOLTA: tamanho_tipo sem DEFAULT (o backfill NÃO é desfeito — R44)" &&
   espera "$1" "$FN_PRE" "$3" "VOLTA: outras funções = antes da volta" &&
   espera "$1" "$CONT" "$((f - 1))|$g" "VOLTA: contagens = antes da volta − 1 função"
 }
@@ -3857,6 +3957,7 @@ if [ "$1" = ida ]; then
   [ "$EST" = "0|0|0|0" ] || { echo "a cópia JÁ tem a frente ($EST) — nada a fazer"; bash .superpowers/sheet/n3.sh depois "copia-$1"; exit 0; }
   espera "$LOCAL" "$MD5_REPLICAR" "$(md5_de "$M/md5-replicar-antes.txt")" "_replicar no texto que a guarda espera" || exit 1
   espera "$LOCAL" "$MD5_SKU" "$(md5_de "$M/md5-sku-antes.txt")" "as 4 do SKU no texto que a guarda espera" || exit 1
+  espera "$LOCAL" "$DERIVA_SHEET" "0|0" "backfill sem arrastar REF/MO/kanban" || exit 1
   confere_arquivos_sheet || exit 1
   backup_copia ida || exit 1
   ativ_vazio "$LOCAL" && aplica_v2 "$LOCAL" "$MIG" && confere_ida_sheet "$LOCAL" "$ANTES" "$FN0" || exit 1
@@ -3894,6 +3995,7 @@ git diff --quiet HEAD -- "$MIG" "$INV" || { echo "PARE: SQL com alteração não
 espera "$LOCAL" "$OBJ_SHEET" "0|0|0|0" "cópia SEM a frente" || exit 1
 espera "$LOCAL" "$MD5_REPLICAR" "$(md5_de "$M/md5-replicar-antes.txt")" "_replicar no texto que a guarda espera" || exit 1
 espera "$LOCAL" "$MD5_SKU" "$(md5_de "$M/md5-sku-antes.txt")" "as 4 do SKU no texto que a guarda espera" || exit 1
+confere_backfill_tt "$LOCAL" || exit 1   # P-25: na 1ª vez a cópia tem 272 NULL; depois do ensaio, 0 (R44)
 confere_arquivos_sheet || exit 1
 ativ_vazio "$LOCAL" || exit 1
 CONT0="$(psql "$LOCAL" -X -A -t -c "$CONT")"; FN0="$(psql "$LOCAL" -X -A -t -c "$FN_PRE")"
@@ -3921,8 +4023,8 @@ aplica_v2 "$LOCAL" "$MIG" || exit 1
 confere_ida_sheet "$LOCAL" "$CONT0" "$FN0" || { volta; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sheet-reorg-campos.test.ts > "$S/logs/ensaio-suite.log" 2>&1
 tail -6 "$S/logs/ensaio-suite.log"
-grep -qE "Tests +18 passed \| 7 skipped" "$S/logs/ensaio-suite.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite.log" \
-  || { echo "FALHOU: com a migration aplicada a suíte tem de dar 18 passed (7 estáticos + 11 de banco) | 7 skipped (os do 'antes', só em SHEET_MIG_TXN=1)"; volta; exit 1; }
+grep -qE "Tests +19 passed \| 7 skipped" "$S/logs/ensaio-suite.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite.log" \
+  || { echo "FALHOU: com a migration aplicada a suíte tem de dar 19 passed (7 estáticos + 12 de banco) | 7 skipped (os do 'antes', só em SHEET_MIG_TXN=1)"; volta; exit 1; }
 viz depois
 NOVAS="$(comm -13 "$S/logs/viz-falhas-antes.txt" "$S/logs/viz-falhas-depois.txt")"
 TA="$(total "$S/logs/viz-antes.log")"; TD="$(total "$S/logs/viz-depois.log")"
@@ -3943,7 +4045,7 @@ bash "$S/n3.sh" depois t7
 echo "== ENSAIO OK — cópia limpa ($CONT0); md5 migration $(cat "$M/md5-mig.txt") · inverso $(cat "$M/md5-inv.txt")"
 ```
 
-> Nota sobre a contagem da suíte no modo "aplicada": 7 estáticos + 11 de banco que não dependem do "antes" = **18 passed** e os 7 `it.skipIf(!MIG_TXN)` = **7 skipped** (total 25). O vitest imprime `Tests  18 passed | 7 skipped (25)`; se o formato da linha for outro, conferir à mão e ajustar SÓ o `grep` (registrar em `desvios.md`). Vizinhas: `sku-automatico.test.ts` FALHA no "antes" (cópia sem esta migration — regra nova, R27) e passa no "depois"; a regra "falhas depois ⊆ falhas antes, mesmo total" aceita isso.
+> Nota sobre a contagem da suíte no modo "aplicada": 7 estáticos + 12 de banco que não dependem do "antes" = **19 passed** e os 7 `it.skipIf(!MIG_TXN)` = **7 skipped** (total 26). O vitest imprime `Tests  19 passed | 7 skipped (26)`; o ensaio deixa a cópia com os NULL de `tamanho_tipo` já em `'letra'` (o inverso não desfaz o backfill — R44); se o formato da linha for outro, conferir à mão e ajustar SÓ o `grep` (registrar em `desvios.md`). Vizinhas: `sku-automatico.test.ts` FALHA no "antes" (cópia sem esta migration — regra nova, R27) e passa no "depois"; a regra "falhas depois ⊆ falhas antes, mesmo total" aceita isso.
 
 - [ ] **Step 5: `.superpowers/sheet/mig/ida-producao.sh` (roda o DONO)**
 
@@ -3974,6 +4076,8 @@ FN_ANTES=$(psql "$PROD" -X -q -A -t -v ON_ERROR_STOP=1 -c "$FN_PRE") || exit 1
 echo "$CONT_ANTES" > "$DS/cont-antes-sheet.txt"; echo "$FN_ANTES" > "$DS/fn-pre-antes-sheet.txt"
 echo "contagens antes (funções|gatilhos): $CONT_ANTES"
 retrato_producao "$PROD" "$DS/fidelidade_prod_pre_sheet_detalhe.txt" || exit 1
+# P-25 (R43): o que o backfill vai mudar, por loja (fica no diário da ida)
+psql "$PROD" -X -q -A -t -v ON_ERROR_STOP=1 -c "$INFO_TT" > "$DS/backfill-tamanho-tipo-por-loja.txt" || exit 1
 prevoo_sheet "$PROD" "$DS/fidelidade_prod_pre_sheet_detalhe.txt" || { echo "== PAROU no pré-voo — nada foi aplicado"; exit 1; }
 backup_banco "$PROD" "$DS" producao-pre-sheet || { echo "== PAROU no backup — nada foi aplicado"; exit 1; }
 ativ_vazio "$PROD" && espera "$PROD" "$OBJ_SHEET" "0|0|0|0" "ainda ausente logo antes do apply" && aplica_v2 "$PROD" "$MIG" \
@@ -4037,7 +4141,7 @@ ativ_vazio "$PROD" && EXTRA_SQL="SET LOCAL app.confirmo_apagar_campos_sheet = 's
 # sua (com_f31 → pos_nota → pos_f35a → pos_sem_trava → …). Esta NÃO crava o nome da anterior (R22): usa a MAIS NOVA por mtime em $BF1 e,
 # ANTES de gravar, prova que (1) desde o pré-voo SÓ esta frente mudou o schema, (2) a referência mais nova bate com a
 # produção FORA das chaves da F1 e desta frente (senão alguma frente ficou sem referência ⇒ PARE), (3) a F1 e esta frente
-# não mexem nas mesmas chaves. Referência nova = a mais nova SEM as 14 chaves desta frente + as linhas ATUAIS delas; CONT
+# não mexem nas mesmas chaves. Referência nova = a mais nova SEM as 15 chaves desta frente + as linhas ATUAIS delas; CONT
 # da volta = nº de linhas funcoes:|gatilhos: da nova, conferido com base + delta medido pelo ida-producao.sh.
 # SÓ LEITURA no banco. Roda o DONO:  /bin/bash --noprofile --norc .superpowers/sheet/mig/ref-volta-f1.sh
 set -uo pipefail
@@ -4077,7 +4181,7 @@ CRUZ=$(grep -E "$PAT_SHEET" "$KF1" || true); rm -f "$KF1"
 [ -z "$CRUZ" ] || { echo "$CRUZ"; echo "PARE: chaves desta frente também mudadas pela F1 — avisar o controlador"; exit 1; }
 # (4) referência nova
 N=$(awk -F'=' -v pat="$PAT_SHEET" '$1 ~ pat' "$POS" | grep -c .)
-[ "$N" = 14 ] || { echo "PARE: esperava 14 linhas desta frente no retrato (7 colunas de modelos + keywords + título + _replicar + as 4 do SKU), achei $N"; exit 1; }
+[ "$N" = 15 ] || { echo "PARE: esperava 15 linhas desta frente no retrato (7 colunas de modelos + tamanho_tipo com o DEFAULT + keywords + título + _replicar + as 4 do SKU), achei $N"; exit 1; }
 { awk -F'=' -v pat="$PAT_SHEET" '!($1 ~ pat)' "$R"; awk -F'=' -v pat="$PAT_SHEET" '$1 ~ pat' "$POS"; } | LC_ALL=C sort > "$REF_NOVA"
 # (5) CONT da volta = funções|gatilhos da referência nova = base + delta MEDIDO desta frente
 CR="$(grep -c '^funcoes:' "$R")|$(grep -c '^gatilhos:' "$R")"
@@ -4100,7 +4204,7 @@ echo "$CV" > "$BF1/cont_volta_f1_pos_sheet.txt"
   echo "# Se esta frente for DESFEITA (volta-producao.sh), apagar/renomear fidelidade_ref_volta_f1_pos_sheet_detalhe.txt e"
   echo "# cont_volta_f1_pos_sheet.txt: a referência volta a ser $(basename "$R")."
 } | tee "$DS/LEIA-volta-f1-pos-sheet.txt" > "$RB/VOLTA-F1-POS-SHEET.md"
-echo "OK (referência nova p/ a volta da F1): $REF_NOVA — base $(basename "$R") sem as 14 chaves desta frente + as atuais; CONT esperado da volta: $CV"
+echo "OK (referência nova p/ a volta da F1): $REF_NOVA — base $(basename "$R") sem as 15 chaves desta frente + as atuais; CONT esperado da volta: $CV"
 ```
 
 - [ ] **Step 8: `.superpowers/sheet/mig/prova-scripts.sh` — provas SEM banco nenhum**
@@ -4158,6 +4262,12 @@ case "$sql" in
   *"to_regclass('public.modelo_skus')"*) r t;;
   *"96ef34c2bb9014ad92dedfbfa40dc932"*) r "${FAKE_SEM_TRAVA:-t}";;
   *"sku_config is not null"*) r "0|0";;
+  # P-25 (R43): backfill do "Tamanho em" — NULL por loja | NULL | DEFAULT | deriva | lojas "número" × SKUs
+  *"group by tenant_id) x join public.tenants"*) r "Ark Store 2, Ave Rara 250, French 3, Loja Teste 17";;
+  *"count(*) from public.modelos where tamanho_tipo is null"*) if [ "$est" = antes ]; then r "${FAKE_NULOS:-272}"; else r 0; fi;;
+  *"pg_attrdef d join pg_attribute"*) if [ "$est" = antes ]; then r "-"; else r "'letra'::text"; fi;;
+  *"_mo_liberada(id)"*) r "${FAKE_DERIVA:-0|0}";;
+  *"tamanho_padrao' = 'numero'"*) r "${FAKE_NUMERO:-0|0}";;
   *"modelos_peso_kg_nao_negativo"*) if [ "$est" = antes ]; then r "${FAKE_OBJ_ANTES:-0|0|0|0}"; else r "1|7|4|1"; fi;;
   *"md5(pg_get_functiondef('public._replicar"*) if [ "$est" = antes ]; then r "$(cat "$SC/md5-antes")"; else r "$(cat "$SC/md5-depois")"; fi;;
   *"has_function_privilege"*) r "0|0|1|0";;
@@ -4189,11 +4299,11 @@ tr -d '[:space:]' < "$M/md5-replicar-antes.txt" > "$SC/md5-antes"; tr -d '[:spac
 tr -d '[:space:]' < "$M/md5-sku-antes.txt" > "$SC/md5-sku-antes"; tr -d '[:space:]' < "$M/md5-sku-depois.txt" > "$SC/md5-sku-depois"
 # retratos: F1 (pré/pós) e a cadeia REAL pós-sem-trava (R33 — cópias, só leitura): referência `pos_sem_trava` (CONT 452|233)
 # e o retrato de produção da mesma hora (13:08) como "antes"; "depois" = o mesmo com _replicar e as 4 do SKU trocadas + a
-# função do título + as 7 colunas de modelos + keywords.
+# função do título + as 7 colunas de modelos + keywords + o DEFAULT 'letra' do tamanho_tipo (P-25).
 cp "$BF1_REAL/fidelidade_prod_pre_detalhe.txt" "$BF1_REAL/fidelidade_prod_pos_detalhe.txt" "$BF1_REAL/bloco_apoio_v2.sh" "$SC/bf1/"
 cp "$BF1_REAL/fidelidade_ref_volta_f1_pos_sem_trava_detalhe.txt" "$BF1_REAL/cont_volta_f1_pos_sem_trava.txt" "$SC/bf1/"
 cp "$BF1_REAL/fidelidade_prod_pos_sem_trava_detalhe.txt" "$SC/retrato-antes.txt"
-{ awk -F'=' '$1 !~ /^funcoes:public[.](_replicar_cards_plan_tecido_core|_sku_config_normaliza|_skus_modelo_calc|_skus_modelo_core|_gerar_skus_modelo_core)[(]/' "$SC/retrato-antes.txt"
+{ awk -F'=' '$1 !~ /^funcoes:public[.](_replicar_cards_plan_tecido_core|_sku_config_normaliza|_skus_modelo_calc|_skus_modelo_core|_gerar_skus_modelo_core)[(]/ && $1 != "colunas:public.modelos.tamanho_tipo"' "$SC/retrato-antes.txt"
   cat <<'L'
 funcoes:public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)=prova-md5-novo|t|search_path=public|f|f|t|f
 funcoes:public._sku_config_normaliza(jsonb)=prova-md5-sku1|f|search_path=public|f|f|t|f
@@ -4208,6 +4318,7 @@ colunas:public.modelos.largura_cm=r|numeric(10,2)|f|-||
 colunas:public.modelos.altura_cm=r|numeric(10,2)|f|-||
 colunas:public.modelos.ncm=r|text|f|-||
 colunas:public.modelos.preco_anterior=r|numeric(12,2)|f|-||
+colunas:public.modelos.tamanho_tipo=r|text|f|'letra'::text||
 colunas:public.tenant_config.keywords=r|text|f|-||
 L
 } > "$SC/retrato-depois.txt"
@@ -4219,12 +4330,17 @@ grep -q "== IDA OK" "$SC/out.txt" && ok "ida: IDA OK" || { tail -15 "$SC/out.txt
 [ "$(grep -n 'pg_dump' "$SC/docker.log" | head -1 | cut -d: -f1)" != "" ] && ok "ida: backup (public+auth) rodou" || ruim "ida sem backup"
 grep -q "ALTER TABLE public.modelos" "$SC/psql.log" && ok "ida: apply rodou" || ruim "ida sem apply"
 grep -q "ALTER TABLE public.tenant_config" "$SC/psql.log" && ok "ida: o apply leva a coluna Keywords (R38)" || ruim "ida sem o ALTER de tenant_config"
+grep -q "backfill leva a 'letra' = 272 — por loja: Ark Store 2" "$SC/out.txt" && grep -q "OK (IDA: backfill — nenhum 'Tamanho em' NULL): 0" "$SC/out.txt" \
+  && [ -s "$SC/ds/backfill-tamanho-tipo-por-loja.txt" ] && ok "ida: backfill informado por loja, gravado no diário e conferido (0 NULL, DEFAULT 'letra')" || ruim "ida: informativo/pós-condição do backfill (P-25)"
 roda "$M/ref-volta-f1.sh"
 grep -q "CONT esperado da volta: 453|233" "$SC/out.txt" && ok "ref-volta-f1: 452|233 + 1|0 = 453|233" || { tail -15 "$SC/out.txt"; ruim "ref-volta-f1"; }
 [ "$(( $(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_sheet_detalhe.txt") ))" = "$(( $(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_sem_trava_detalhe.txt") + 9 ))" ] \
-  && ok "referência nova = base + 9 linhas (7 colunas + keywords + título; _replicar e as 4 do SKU trocadas)" || ruim "linhas da referência nova"
+  && ok "referência nova = base + 9 linhas (7 colunas + keywords + título; _replicar, as 4 do SKU e o tamanho_tipo trocados)" || ruim "linhas da referência nova"
 grep -q '^funcoes:public._skus_modelo_core(uuid)=prova-md5-sku3' "$SC/bf1/fidelidade_ref_volta_f1_pos_sheet_detalhe.txt" \
   && ok "referência nova com as 4 do SKU no texto NOVO" || ruim "as 4 do SKU na referência nova"
+grep -qx "colunas:public.modelos.tamanho_tipo=r|text|f|'letra'::text||" "$SC/bf1/fidelidade_ref_volta_f1_pos_sheet_detalhe.txt" \
+  && [ "$(grep -c '^colunas:public.modelos.tamanho_tipo=' "$SC/bf1/fidelidade_ref_volta_f1_pos_sheet_detalhe.txt")" = 1 ] \
+  && ok "referência nova com o tamanho_tipo COM o DEFAULT 'letra' (1 linha só — P-25)" || ruim "tamanho_tipo na referência nova"
 roda "$M/ref-volta-f1.sh"
 grep -q "já existe — rodou 2×" "$SC/out.txt" && ok "ref-volta-f1 2× ⇒ PARE" || ruim "ref-volta-f1 2× não parou"
 
@@ -4241,6 +4357,16 @@ echo antes > "$SC/estado"; roda "$M/ida-producao.sh"
 grep -q "NÃO bate com a produção" "$SC/out.txt" && ! grep -q "ALTER TABLE" "$SC/psql.log" && [ ! -s "$SC/docker.log" ] \
   && ok "cadeia da volta da F1 quebrada ⇒ PARE antes do backup/apply" || ruim "cadeia quebrada não barrou"
 mv "$SC/retrato-antes.bak" "$SC/retrato-antes.txt"
+# P-25 (R43): backfill grande demais / deriva / SKU em loja "número" ⇒ PARE antes do backup/apply
+echo antes > "$SC/estado"; FAKE_NULOS=2001 roda "$M/ida-producao.sh"
+grep -q "PARE (pré-voo): 2001 linhas p/ o backfill > 2000" "$SC/out.txt" && ! grep -q "ALTER TABLE" "$SC/psql.log" && [ ! -s "$SC/docker.log" ] \
+  && ok "backfill > 2000 linhas ⇒ PARE antes do backup/apply" || ruim "limite do backfill não barrou"
+echo antes > "$SC/estado"; FAKE_DERIVA="1|0" roda "$M/ida-producao.sh"
+grep -q "FALHOU (backfill sem arrastar REF/MO/kanban" "$SC/out.txt" && ! grep -q "ALTER TABLE" "$SC/psql.log" && [ ! -s "$SC/docker.log" ] \
+  && ok "deriva de MO/REF ⇒ PARE antes do backup/apply" || ruim "deriva não barrou"
+echo antes > "$SC/estado"; FAKE_NUMERO="1|3" roda "$M/ida-producao.sh"
+grep -q "há SKU gravado em loja com padrão 'numero'" "$SC/out.txt" && ! grep -q "ALTER TABLE" "$SC/psql.log" && [ ! -s "$SC/docker.log" ] \
+  && ok "SKU gravado em loja 'número' ⇒ PARE (decisão do dono) antes do backup/apply" || ruim "loja 'número' com SKU não barrou"
 printf '%s\n' "postgresql://postgres:postgres@127.0.0.1:54422/postgres" > "$SC/url.txt"
 echo antes > "$SC/estado"; roda "$M/ida-producao.sh"
 grep -q "não aponta p/ o banco sisTrama" "$SC/out.txt" && [ ! -s "$SC/psql.log" ] && ok "URL fora do padrão ⇒ PARE antes de qualquer psql" || ruim "guarda de URL"
@@ -4274,17 +4400,21 @@ Quem roda: o DONO, num Terminal NOVO (nada de variável SHEET_* exportada). Past
    (`fidelidade_ref_volta_f1_pos_sem_trava_detalhe.txt`, 13:08). O pré-voo confere pelo md5 de `fn_oc_nota_entrada_valida`
    (`96ef34c2…`) e pela cadeia — divergência = PARA, de propósito.
 2. O controlador avisou no chat "pode rodar o Sheet" (G-migration + G-scripts aprovados; seu OK registrado).
-3. Horário calmo (a trava em `modelos` dura < 1 s, no fim).
+3. Horário calmo (a trava em `modelos` dura < 1 s, no fim) e a equipe avisada para SALVAR e FECHAR os cards abertos do
+   Planejamento/Desenvolvimento: o backfill da P-25 sobe a `rev` dos cards sem "Tamanho em" — um card aberto com edição
+   pendente cai no aviso de conflito ao salvar (R42).
 4. Conferir os scripts: `cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg" && shasum -a 256 .superpowers/sheet/mig/{aplica,ida-producao,volta-producao,ref-volta-f1}.sh | cut -c1-16`
    Tem de dar: aplica `<sha>` · ida-producao `<sha>` · volta-producao `<sha>` · ref-volta-f1 `<sha>`.
 
 ## Passo 1 — ida (o backup completo public + auth é feito DENTRO do script, antes de aplicar)
     cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg"
     bash .superpowers/sheet/mig/ida-producao.sh 2>&1 | tee -a .superpowers/sheet/logs/prod-ida.log
-Esperado no fim: `== IDA OK … contagens 483|277 → 484|277` (ou o antes do dia + 1 função). No pré-voo aparece a linha
-`INFO (pré-voo, não bloqueia): lojas com Formato do SKU | cards com SKU gravado e SEM 'Tamanho em' = N|M` — mandar no chat
-(esses M cards passam a pedir o "Tamanho em" antes de gerar/regerar). Qualquer PARE/FALHOU/NÃO CONCLUÍDA: parar e mandar
-o log no chat. NÃO rodar a volta sem o controlador.
+Esperado no fim: `== IDA OK … contagens 483|277 → 484|277` (ou o antes do dia + 1 função). No pré-voo aparecem 3 linhas
+INFO — mandar no chat: `lojas com Formato do SKU | cards com SKU gravado e SEM 'Tamanho em' = N|M` (P-25: o backfill leva
+esses M cards a Letra); `modelos com 'Tamanho em' NULL que o backfill leva a 'letra' = K — por loja: …` (fica também em
+`backfill-tamanho-tipo-por-loja.txt`); `lojas com o padrão antigo 'numero' | SKUs gravados nelas = X|0`. `PARE (pré-voo)`
+por SKU em loja 'numero' = decisão SUA; por mais de 2000 linhas = o controlador decide (lote/timeout). Qualquer
+PARE/FALHOU/NÃO CONCLUÍDA: parar e mandar o log no chat. NÃO rodar a volta sem o controlador.
 
 ## Passo 2 — referência nova da volta de emergência da F1 (SÓ LEITURA)
     /bin/bash --noprofile --norc .superpowers/sheet/mig/ref-volta-f1.sh 2>&1 | tee -a .superpowers/sheet/logs/prod-ref-volta-f1.log
@@ -4297,13 +4427,14 @@ Esperado: `OK (referência nova p/ a volta da F1): … CONT esperado da volta: <
 1. Primeiro o FRONT: revert na branch principal + deploy do revert NO AR + recarregar as abas (inclusive o :5173).
 2. Depois: `bash .superpowers/sheet/mig/volta-producao.sh 2>&1 | tee -a .superpowers/sheet/logs/prod-volta.log`
    (pede para digitar APAGAR OS CAMPOS NOVOS; exporta os 7 campos e as Keywords antes; ao fim a referência da volta da F1
-   volta a ser a anterior — ver LEIA-volta-f1-pos-sheet.txt).
+   volta a ser a anterior — ver LEIA-volta-f1-pos-sheet.txt). A volta tira SÓ o DEFAULT 'letra' do "Tamanho em": os cards
+   que o backfill levou a Letra CONTINUAM em Letra (não há como saber quais eram NULL — R44).
 3. Se um dia a F3.5a (SKU) também tiver de voltar: ESTA volta PRIMEIRO (R36).
 ```
 
 - [ ] **Step 10: N3 + ENSAIO na cópia**
 
-Pré-condição: G-migration (Task 6 Step 7) APROVADO (o md5 gravado no fim do ensaio é o do SQL revisado). Com o OK do dono:
+Pré-condição: G-migration (Task 6 Step 7) APROVADO (o md5 gravado no fim do ensaio é o do SQL revisado). O aviso do N3 ao dono ganha, pela P-25 (R44): "o ensaio aplica o backfill do 'Tamanho em' na cópia — os cards sem escolha (272 hoje) viram Letra, com `rev`+1 e 1 linha de auditoria cada, e a VOLTA do ensaio NÃO desfaz isso; no :5188 esses cards passam a aparecer em Letra". Com o OK do dono:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg"
@@ -4311,7 +4442,7 @@ chmod +x .superpowers/sheet/copia.sh .superpowers/sheet/mig/*.sh
 SHEET_DONO_AVISADO=sim /bin/bash .superpowers/sheet/mig/ensaio-local.sh 2>&1 | tee .superpowers/sheet/logs/ensaio.log | tail -40
 ```
 
-Expected: `OK (IDA: …)` ×6, `18 passed | 7 skipped`, `OK (vizinhas): nenhuma falha nova …` (a `sku-automatico` falha no "antes" e passa no "depois" — R27), as voltas `OK (VOLTA: …)` e `== ENSAIO OK — cópia limpa (483|277)`. Qualquer FALHOU ⇒ o script já devolveu a cópia (volta) — PARE e reporte.
+Expected: `OK (IDA: …)` ×8, `19 passed | 7 skipped`, `OK (vizinhas): nenhuma falha nova …` (a `sku-automatico` falha no "antes" e passa no "depois" — R27), as voltas `OK (VOLTA: …)` e `== ENSAIO OK — cópia limpa (483|277)`. Qualquer FALHOU ⇒ o script já devolveu a cópia (volta) — PARE e reporte.
 
 - [ ] **Step 11: Provas dos scripts de produção + sha256 no RODAR**
 
@@ -4322,7 +4453,7 @@ bash .superpowers/sheet/mig/prova-scripts.sh 2>&1 | tee .superpowers/sheet/logs/
 shasum -a 256 .superpowers/sheet/mig/{aplica,ida-producao,volta-producao,ref-volta-f1}.sh | cut -c1-16
 ```
 
-Expected: `sintaxe ok`; `== PROVAS OK` (21 `OK (prova)` — conferido no planejamento num repositório de rascunho com os mesmos fakes; rodar SEM terminal interativo — o teste da volta lê `/dev/tty` e, sem ele, cancela; num Terminal de verdade, responder só Enter); as 4 sha256 → copiar para o item 4 do `RODAR-sheet-reorg.md`. `FALHOU (prova)` ⇒ corrigir o SCRIPT (nunca a prova), regerar o `aplica.sh` se foi o `extra.sh`, repetir.
+Expected: `sintaxe ok`; `== PROVAS OK` (26 `OK (prova)` — conferido no planejamento num repositório de rascunho com os mesmos fakes; rodar SEM terminal interativo — o teste da volta lê `/dev/tty` e, sem ele, cancela; num Terminal de verdade, responder só Enter); as 4 sha256 → copiar para o item 4 do `RODAR-sheet-reorg.md`. `FALHOU (prova)` ⇒ corrigir o SCRIPT (nunca a prova), regerar o `aplica.sh` se foi o `extra.sh`, repetir.
 
 - [ ] **Step 12: G-scripts — revisão Opus + guardião**
 
@@ -4978,7 +5109,7 @@ git rebase feature/plan-tecido-a1 && git log --oneline -14
 bash .superpowers/sheet/gates.sh
 ```
 
-Repetir o Task 0 Step 8 (sobreposição) — `SOBREPOE-BANCO` ⇒ PARE (Task 6 de novo). Se o rebase trouxe algo, com o OK do dono (N3): `SHEET_DONO_AVISADO=sim bash .superpowers/sheet/n3.sh antes t10s1` e as suítes `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SHEET_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sheet-reorg-campos.test.ts` → 25 passed e `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts` → 0 failed; `bash .superpowers/sheet/n3.sh depois t10s1`. Conferir `md5 -q` dos 2 SQL = `.superpowers/sheet/mig/md5-{mig,inv}.txt` (o rebase não pode ter mudado o SQL ensaiado).
+Repetir o Task 0 Step 8 (sobreposição) — `SOBREPOE-BANCO` ⇒ PARE (Task 6 de novo). Se o rebase trouxe algo, com o OK do dono (N3): `SHEET_DONO_AVISADO=sim bash .superpowers/sheet/n3.sh antes t10s1` e as suítes `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SHEET_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sheet-reorg-campos.test.ts` → 26 passed e `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres SKU_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts` → 0 failed; `bash .superpowers/sheet/n3.sh depois t10s1`. Conferir `md5 -q` dos 2 SQL = `.superpowers/sheet/mig/md5-{mig,inv}.txt` (o rebase não pode ter mudado o SQL ensaiado).
 
 - [ ] **Step 2: G-commit (guardião)**
 
@@ -4986,19 +5117,19 @@ Entregar ao `guardiao-unificacao`: `git log --oneline "$(cat .superpowers/sheet/
 
 - [ ] **Step 3: OK EXPLÍCITO do dono (chat, sem popup)**
 
-Apresentar em PT-BR simples: o que muda na tela (seção 1 com NCM/Título/Peso-medidas; seção 3 "Desenvolvimento" sem a REF; seção 4 "Códigos" com REF, "Tamanho em" e SKUs; Mão de obra dentro de "Preço e Custos"; "Preço anterior"; numeração 1–15); o que muda no banco (7 colunas vazias em `modelos`, 1 função, "Replicar" leva os campos e o "Tamanho em", as 4 funções do SKU SEM padrão da loja — card sem "Tamanho em" não gera SKU —, a coluna Keywords da loja; nada existente muda de valor); o card "Keywords" na Config; a ordem (Nota sem trava ANTES); o plano de volta (Step 11); as decisões D1–D4 já tomadas (§6) e a pergunta Q1 (§6); e, do D3, a LISTA DE RESÍDUOS da QA (Step 7) — os passos de SKU/MO só rodam depois desse aviso. Registrar a resposta literal + data no diário. Sem "sim" ⇒ parar.
+Apresentar em PT-BR simples: o que muda na tela (seção 1 com NCM/Título/Peso-medidas; seção 3 "Desenvolvimento" sem a REF; seção 4 "Códigos" com REF, "Tamanho em" e SKUs; Mão de obra dentro de "Preço e Custos"; "Preço anterior"; numeração 1–15); o que muda no banco (7 colunas vazias em `modelos`, 1 função, "Replicar" leva os campos e o "Tamanho em", as 4 funções do SKU SEM padrão da loja, a coluna Keywords da loja e — P-25 — o "Tamanho em" que nasce em Letra (DEFAULT `'letra'`) com os cards sem escolha levados a Letra UMA vez (backfill: na cópia 272 cards em 131 ms; cada um ganha `rev`+1 e 1 linha na Auditoria; a volta NÃO desfaz — R44); fora o backfill, nada existente muda de valor); o card "Keywords" na Config; a ordem (Nota sem trava ANTES); o aviso para salvar e fechar os cards abertos antes da ida (R42); o plano de volta (Step 11); as decisões D1–D4 e P-25 já tomadas (§6) e as perguntas Q2–Q4 (§6); e, do D3, a LISTA DE RESÍDUOS da QA (Step 7) — os passos de SKU/MO só rodam depois desse aviso. Registrar a resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 - [ ] **Step 4: PRODUÇÃO — o DONO, no Terminal, pelo `RODAR-sheet-reorg.md`**
 
-Pré-condição: a Nota sem trava está em produção com a referência dela (`…_pos_sem_trava_detalhe.txt`, 25/set 13:08 — R33). O dono segue o `RODAR-sheet-reorg.md` (Task 7 Step 9): confere as sha256, roda o `ida-producao.sh` (Passo 1) e o `ref-volta-f1.sh` (Passo 2). O controlador NÃO roda nada disso. Qualquer PARE do pré-voo (inclusive "cadeia da volta da F1 … NÃO bate") ⇒ o controlador leva ao dono com o log; NUNCA contornar a checagem por conta própria. A linha `INFO (pré-voo …)` (lojas com Formato do SKU | cards com SKU e sem "Tamanho em") vai ao dono no chat e ao diário (Q1 do §6).
+Pré-condição: a Nota sem trava está em produção com a referência dela (`…_pos_sem_trava_detalhe.txt`, 25/set 13:08 — R33). O dono segue o `RODAR-sheet-reorg.md` (Task 7 Step 9): confere as sha256, roda o `ida-producao.sh` (Passo 1) e o `ref-volta-f1.sh` (Passo 2). O controlador NÃO roda nada disso. Qualquer PARE do pré-voo (inclusive "cadeia da volta da F1 … NÃO bate") ⇒ o controlador leva ao dono com o log; NUNCA contornar a checagem por conta própria. As linhas `INFO (pré-voo …)` (lojas com Formato do SKU | cards com SKU e sem "Tamanho em"; o backfill por loja; lojas "número" × SKUs) vão ao dono no chat e ao diário (P-25/R43). `PARE` por SKU gravado em loja "número" ⇒ decisão do dono; por mais de 2000 linhas ⇒ o controlador propõe lote/timeout num Ruling novo (nada é aplicado até lá).
 
 - [ ] **Step 5: G-produção (guardião) — logs do dono**
 
-O guardião lê `.superpowers/sheet/logs/prod-ida.log` e `prod-ref-volta-f1.log`: backup public+auth com TABLE DATA>0; pré-voo OK (ordem, md5, cadeia); `aplica_v2` sem nova tentativa ou com nova tentativa só em 55P03/40P01/25P04; `== IDA OK` com `483|277 → 484|277` (ou antes+1|+0); as 4 do SKU e `OBJ_SHEET` `1|7|4|1` conferidos; a linha INFO do SKU registrada; referência nova com o CONT esperado (`453|233` sobre `pos_sem_trava`) e base + 9 linhas. Registrar no diário. Falhou a conferência ⇒ PARE (volta só com OK do dono — Step 11).
+O guardião lê `.superpowers/sheet/logs/prod-ida.log` e `prod-ref-volta-f1.log`: backup public+auth com TABLE DATA>0; pré-voo OK (ordem, md5, cadeia); `aplica_v2` sem nova tentativa ou com nova tentativa só em 55P03/40P01/25P04; `== IDA OK` com `483|277 → 484|277` (ou antes+1|+0); as 4 do SKU, `OBJ_SHEET` `1|7|4|1`, o DEFAULT `'letra'::text` e 0 NULL em `tamanho_tipo` conferidos (P-25); as linhas INFO (SKU e backfill por loja) e o `backfill-tamanho-tipo-por-loja.txt` registrados; referência nova com o CONT esperado (`453|233` sobre `pos_sem_trava`), base + 9 linhas e o `tamanho_tipo` com o DEFAULT. Registrar no diário. Falhou a conferência ⇒ PARE (volta só com OK do dono — Step 11).
 
 - [ ] **Step 6: Merge do front + ida na CÓPIA na mesma hora (controlador)**
 
-Avisar o dono por chat: salvar e fechar cards abertos no `:5173` E no `:5188` (o código novo vale no reload; a cópia congela alguns segundos na ida). Com o OK — um comando só, ida na cópia e fast-forward em sequência (sem janela em que o `:5188` peça coluna a uma cópia sem ela):
+Avisar o dono por chat: salvar e fechar cards abertos no `:5173` E no `:5188` (o código novo vale no reload; a cópia congela alguns segundos na ida; o backfill da P-25 na cópia já rodou no ensaio — aqui converte só os NULL criados depois dele). Com o OK — um comando só, ida na cópia e fast-forward em sequência (sem janela em que o `:5188` peça coluna a uma cópia sem ela):
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg"
@@ -5014,10 +5145,9 @@ Expected: `== CÓPIA: ida OK (483|277 → 484|277)` (ou `a cópia JÁ tem a fren
 
 - [ ] **Step 7: QA Playwright no `:5173` (depois do merge, antes do deploy)**
 
-Pré-condições: o `:5173` do dono no ar e recarregado (NÃO subir/matar nada; se estiver fora do ar, PEDIR ao dono); `E2E_SHEET_MODELO_ID` = id de UM card INTERNO **EXISTENTE** da Loja Teste (nenhum card novo), com REF, grade e Tecido 1 com cores, combinado com o dono por chat (o dono copia da URL `?modelo=`).
+Pré-condições: o `:5173` do dono no ar e recarregado (NÃO subir/matar nada; se estiver fora do ar, PEDIR ao dono); `E2E_SHEET_MODELO_ID` = id de UM card INTERNO **EXISTENTE** da Loja Teste (nenhum card novo, salvo o teste da P-25 abaixo), com REF, grade e Tecido 1 com cores, combinado com o dono por chat (o dono copia da URL `?modelo=`). P-25: o card combinado estava SEM "Tamanho em" antes da ida (na cópia, todos os 272 estavam) ⇒ depois do backfill aparece em Letra, sem o aviso de card legado. Card NOVO só no teste `E2E_SHEET_CARD_NOVO=1` (Q4 do §6, SÓ com OK do dono): cria "QA P-25 <hora> (apagar)" pelo "Novo Modelo", confere que nasce em Letra e o APAGA pelo "Excluir" do Sheet (resíduo: as linhas de INSERT/DELETE no `audit_log`).
 
 **D3 (decidido pelo dono em 25/set — R13):** os passos de SKU à mão / "Regerar" confirmado / serviço de MO rodam SÓ com `E2E_SHEET_ESCREVE_SKU=1` / `E2E_SHEET_ESCREVE_MO=1`, que o controlador liga DEPOIS de avisar o dono no chat com esta lista de **resíduos no card da Loja Teste** (a tela não desfaz):
-- **"Tamanho em" escolhido** (Letra), se o card estava sem escolha — a tela não tem "nenhum";
 - **SKUs gerados** (1ª geração pós-Salvar, se o card não tinha nenhum) — linhas em `modelo_skus` que a tela não apaga;
 - **1 SKU editado à mão** (o 1º da tabela, com o sufixo `-QA`) — fica `manual=true` para sempre (só outro SKU à mão troca o texto);
 - "Regerar" confirmado — recalcula os SKUs automáticos pelas siglas de hoje (nunca o manual);
@@ -5032,7 +5162,8 @@ import { doLogin } from "./_helpers";
 
 // QA da reorganização do Sheet do Planejamento (plano 2026-09-25, Task 10 Step 7). NÃO VERSIONAR.
 // Alvo: o :5173 do dono (checkout principal JÁ com o merge) = PRODUÇÃO. Travada na Loja Teste (NUNCA troca de loja — nada de
-// selectStore). Grava SÓ no card EXISTENTE E2E_SHEET_MODELO_ID e RESTAURA cada campo dentro do próprio teste. SKU à mão /
+// selectStore). Grava SÓ no card EXISTENTE E2E_SHEET_MODELO_ID e RESTAURA cada campo dentro do próprio teste (exceção: com
+// E2E_SHEET_CARD_NOVO=1 cria e APAGA 1 card novo — P-25, OK do dono). SKU à mão /
 // Regerar confirmado / serviço de MO só com E2E_SHEET_ESCREVE_SKU=1 / E2E_SHEET_ESCREVE_MO=1 (D3 do dono, 25/set: ligadas pelo
 // controlador DEPOIS de avisar o dono com a lista de resíduos — R13); Keywords só com E2E_SHEET_KEYWORDS=1.
 const BASE_OK = /^http:\/\/(localhost|127\.0\.0\.1):5173\/?$/.test(process.env.E2E_BASE_URL ?? "");
@@ -5149,18 +5280,47 @@ test.describe("Sheet reorganizado — desktop", () => {
     if (origAuto) await expect(reverter).toBeDisabled(); else await expect(pa).toHaveValue(origPa);
   });
 
-  test("Códigos: 'Tamanho em' em rádio Letra | Número SEM 'Padrão da loja'; sem escolha ⇒ nada marcado e o aviso (R10/R23)", async ({ page }) => {
+  test("Códigos: 'Tamanho em' em rádio Letra | Número SEM 'Padrão da loja'; card existente em Letra depois do backfill (P-25)", async ({ page }) => {
     await entrar(page);
     await abrir(page, "codigos");
     const cod = secao(page, "codigos");
-    await expect(cod.getByText("· obrigatório p/ gerar os SKUs (começa sem escolha)")).toBeVisible();
+    await expect(cod.getByText("· nasce em Letra; troque para Número se o produto usa numeração")).toBeVisible();
     await expect(cod.getByText("Padrão da loja")).toHaveCount(0);
     const letra = cod.getByRole("radio", { name: "Letra" });
     const numero = cod.getByRole("radio", { name: "Número" });
     await expect(letra).toHaveCount(1);
     await expect(numero).toHaveCount(1);
-    if (!(await letra.isChecked()) && !(await numero.isChecked())) {
-      await expect(cod.getByText(/Escolha “Tamanho em”/).first()).toBeVisible();
+    await expect(letra).toBeChecked(); // o card combinado estava sem escolha antes da ida ⇒ Letra (backfill)
+    await expect(numero).not.toBeChecked();
+    await expect(cod.getByText(/antes da migração do “Tamanho em”/)).toHaveCount(0); // backfill: o servidor não o vê como legado
+  });
+
+  test("P-25 — card NOVO nasce em Letra (cria pelo 'Novo Modelo' e APAGA)", async ({ page }) => {
+    test.skip(process.env.E2E_SHEET_CARD_NOVO !== "1", "Q4: cria e apaga 1 card na Loja Teste — só com OK do dono");
+    await doLogin(page);
+    await exigirLojaTeste(page);
+    const nome = `QA P-25 ${Date.now()} (apagar)`;
+    await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Novo Modelo" }).first().click();
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.getByText("Novo Modelo").first()).toBeVisible();
+    await secao(page, "info").locator('[data-colab-path="nome"]').fill(nome);
+    await salvar(page);
+    try {
+      await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+      await page.getByText(nome).first().click();
+      await abrir(page, "codigos");
+      const cod = secao(page, "codigos");
+      await expect(cod.getByRole("radio", { name: "Letra" })).toBeChecked();
+      await expect(cod.getByRole("radio", { name: "Número" })).not.toBeChecked();
+    } finally {
+      // limpeza SEMPRE (inclusive se a asserção falhar): o card aberto no Sheet → Excluir → confirmar
+      await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+      await page.getByText(nome).first().click();
+      await page.getByRole("button", { name: "Excluir" }).first().click();
+      await page.getByRole("alertdialog").getByRole("button", { name: "Excluir", exact: true }).click();
+      await expect(page.getByText("Modelo excluído").first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(nome)).toHaveCount(0, { timeout: 15_000 });
     }
   });
 
@@ -5169,15 +5329,13 @@ test.describe("Sheet reorganizado — desktop", () => {
     await entrar(page);
     await abrir(page, "codigos");
     const cod = secao(page, "codigos");
-    const letra = cod.getByRole("radio", { name: "Letra" });
-    const numero = cod.getByRole("radio", { name: "Número" });
-    if (!(await letra.isChecked()) && !(await numero.isChecked())) {
-      await letra.check(); // RESÍDUO: "Tamanho em" = Letra (a tela não tem "nenhum")
-      await salvar(page); // o Salvar dispara a 1ª geração (R12) — RESÍDUO: linhas em modelo_skus
+    const sku1 = cod.locator('[data-colab-path^="sku:"]').first();
+    if ((await sku1.count()) === 0) {
+      // P-25: o card já está em Letra (backfill) — o Salvar (sempre habilitado) dispara a 1ª geração (R12).
+      await salvar(page); // RESÍDUO: linhas em modelo_skus
       await page.reload({ waitUntil: "networkidle" });
       await abrir(page, "codigos");
     }
-    const sku1 = cod.locator('[data-colab-path^="sku:"]').first();
     test.skip((await sku1.count()) === 0, "sem linhas de SKU (Formato do SKU / REF / grade da Loja Teste) — registrar o motivo");
     await expect(sku1).not.toHaveValue("");
     const original = await sku1.inputValue();
@@ -5302,6 +5460,7 @@ prereq_banco_sheet() {  # SÓ LEITURA — o que a branch exige TEM de existir em
   chk "Reorganização do Sheet (7 colunas em modelos)" "select count(*) = 7 from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name in ('titulo_pagina','peso_kg','comprimento_cm','largura_cm','altura_cm','ncm','preco_anterior')" &&
   chk "SKU F3.5a (modelo_skus + tamanho_tipo)" "select to_regclass('public.modelo_skus') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'modelos' and column_name = 'tamanho_tipo')" &&
   chk "SKU sem padrão da loja (status sem_tamanho — R23)" "select position('sem_tamanho' in pg_get_functiondef('public._skus_modelo_core(uuid)'::regprocedure)) > 0" &&
+  chk "P-25 — 'Tamanho em' nasce em Letra (DEFAULT de modelos.tamanho_tipo)" "select coalesce((select pg_get_expr(d.adbin, d.adrelid) = '''letra''::text' from pg_attrdef d join pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum where d.adrelid = 'public.modelos'::regclass and a.attname = 'tamanho_tipo'), false)" &&
   chk "Keywords da loja (tenant_config.keywords — R38)" "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'keywords')" &&
   chk "Data da Nota (5 colunas)" "select count(*) = 5 from information_schema.columns where table_schema = 'public' and column_name = 'data_nota_entrada'" &&
   chk "F1/F2 (kanban_automatico)" "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenant_config' and column_name = 'kanban_automatico')" &&
@@ -5325,7 +5484,7 @@ Expected: `feature/plan-tecido-a1`, `OK (deploy): pré-requisitos…`, `OK (depl
 
 - [ ] **Step 9: Docs e memória (docs-keeper; o controlador aplica com o OK do dono)**
 
-`CLAUDE.md` (bloco "Sheet unificado do Planejamento (F3)"): seções 1–15, a REF em "4. Códigos" (com o SKU), o "Tamanho em" SEM padrão da loja (NULL = sem escolha, obrigatório p/ gerar; status `sem_tamanho`; a Config não tem mais o campo), a MO dentro de "Preço e Custos", os 7 campos novos (`modelos.titulo_pagina` NULL = automático via `_titulo_pagina_calculado`; peso/medidas/NCM; `preco_anterior` NULL = acompanha o efetivo), o "Replicar" levando o "Tamanho em" e `tenant_config.keywords` (card "Keywords" da Config) — **o CONTROLADOR edita e commita o `CLAUDE.md` NA PRINCIPAL** (`feature/plan-tecido-a1`, no checkout principal, depois do merge do Step 6; fora da worktree e do `permitidos.txt` — R35): `git -C "/Users/sunglee/PLM + Criação/plm-pcp" commit --only -m "docs(claude-md): …" -- CLAUDE.md`. (A spec do SKU já foi atualizada na Task 5b.) Docs locais (gitignored): `docs/api-integracao-erp.md` — "título da página = `coalesce(modelos.titulo_pagina, public._titulo_pagina_calculado(modelos.nome, tenants.nome))`; nunca a coluna crua"; `docs/mapeamento-campos-calculos.md` (7 campos + regra do Preço anterior). Memória: `project_sheet_planejamento_reorganizacao.md` + linha no `MEMORY.md`; `project_sku_automatico.md` ("Tamanho em" sem padrão da loja — F3.6; o resto da F3.5b nos 3 cards = frente separada, D2); `project_reforco_seguranca.md` (+ trava do Preço anterior no servidor — D1); painel AO VIVO da campanha (ArtifactData) — frente "Sheet reorg" concluída.
+`CLAUDE.md` (bloco "Sheet unificado do Planejamento (F3)"): seções 1–15, a REF em "4. Códigos" (com o SKU), o "Tamanho em" SEM padrão da loja (P-25: nasce em Letra — DEFAULT `'letra'` em `modelos.tamanho_tipo` + Draft — e troca p/ Número; os NULL legados foram a Letra no backfill da migration; NULL só por gravação à mão ⇒ status `sem_tamanho`, a rede; a Config não tem mais o campo), a MO dentro de "Preço e Custos", os 7 campos novos (`modelos.titulo_pagina` NULL = automático via `_titulo_pagina_calculado`; peso/medidas/NCM; `preco_anterior` NULL = acompanha o efetivo), o "Replicar" levando o "Tamanho em" e `tenant_config.keywords` (card "Keywords" da Config) — **o CONTROLADOR edita e commita o `CLAUDE.md` NA PRINCIPAL** (`feature/plan-tecido-a1`, no checkout principal, depois do merge do Step 6; fora da worktree e do `permitidos.txt` — R35): `git -C "/Users/sunglee/PLM + Criação/plm-pcp" commit --only -m "docs(claude-md): …" -- CLAUDE.md`. (A spec do SKU já foi atualizada na Task 5b.) Docs locais (gitignored): `docs/api-integracao-erp.md` — "título da página = `coalesce(modelos.titulo_pagina, public._titulo_pagina_calculado(modelos.nome, tenants.nome))`; nunca a coluna crua"; `docs/mapeamento-campos-calculos.md` (7 campos + regra do Preço anterior). Memória: `project_sheet_planejamento_reorganizacao.md` + linha no `MEMORY.md`; `project_sku_automatico.md` ("Tamanho em" sem padrão da loja e nascendo em Letra — F3.6/P-25; backfill dos NULL; o resto da F3.5b nos 3 cards = frente separada, D2); `project_reforco_seguranca.md` (+ trava do Preço anterior no servidor — D1); painel AO VIVO da campanha (ArtifactData) — frente "Sheet reorg" concluída.
 
 - [ ] **Step 10: Avisar as outras frentes**
 
@@ -5353,7 +5512,8 @@ Copiar `.superpowers/sheet/{copia.sh,n3.sh,mig/,logs/}` para `…/savepoints/pre
 | Título diverge TS × SQL | Locale do banco (cópia en_US.UTF-8; produção pode ser C) | Lista FIXA via `translate` nos 2 lados; 21 fixtures nos 2 lados (conferidas no planejamento: 21/21 TS e 21/21 SQL só-leitura) |
 | Cadeia da volta de emergência da F1 | Cada frente precisa gravar a sua referência; a da Nota sem trava existe (`pos_sem_trava`, 13:08) | `ref_mais_nova` + `confere_cadeia_ref` no pré-voo (antes de aplicar) e depois; `SEM_TRAVA_OK` pelo md5 do contrato (R33); PARA e o dono decide |
 | Selo de MO some ao fechar a seção (spec §6) | A seção própria deixa de existir | Requisitos de MO no selo de Preço + aviso "MO pendente/reprovada" p/ interno E comprado (R15) |
-| "Tamanho em" sem padrão muda cards que já têm SKU | SKUs da F3.5a foram gerados pelo padrão da loja; sem ele, o card pede a escolha antes de gerar/regerar | SKU gravado fica e aparece (R23); INFO no pré-voo conta os cards; Q1 ao dono (§6) |
+| Backfill p/ Letra em card com SKU gerado pelo padrão "número" da loja (P-25) | SKUs da F3.5a gerados com 'numero' ficariam divergentes do "Tamanho em" | Pré-voo conta lojas 'numero' × SKUs gravados — ≠ 0 ⇒ PARE e decisão do dono (R43); na cópia `0\|0` (nenhuma loja com Formato do SKU) |
+| Backfill (UPDATE em `modelos`, P-25) | Na cópia: 272 linhas em 131 ms (auditoria 81 ms); `rev`+1 e 1 linha de auditoria por card; nenhum efeito em REF/MO/kanban | UPDATE simples logo depois do `ALTER`, na mesma transação (R41/R42); pré-voo com deriva `0\|0` e limite de 2000 linhas (R43); aviso para salvar/fechar cards (RODAR); volta não desfaz e diz isso (R44) |
 | As 4 funções do SKU redefinidas divergirem da F3.5a | Corpo inteiro repetido | Geradas do texto VIVO com trocas exatas 1× cada + guarda md5 exata (antes/depois) + suíte `sku-automatico` com `SKU_MIG_TXN=1` (F3.5a + esta) + teste "outra frente" do SKU |
 | Trava em `tenant_config` (Keywords — incidente 23/set) | AccessExclusive em `tenant_config` para as policies de todas as lojas | ÚLTIMA DDL do arquivo, só catálogo, `lock_timeout` 500 ms + nova tentativa do `aplica_v2`; gatilhos quietos provados (R38); N3 avisa que o :5188 congela inteiro |
 | Voltar a F3.5a depois desta frente | O `_replicar` novo grava `tamanho_tipo`; o inverso da F3.5a derruba as 4 do SKU | LIFO: esta volta antes (R36 — RODAR e Task 10 Step 11) |
@@ -5362,7 +5522,7 @@ Copiar `.superpowers/sheet/{copia.sh,n3.sh,mig/,logs/}` para `…/savepoints/pre
 | ERP lendo `titulo_pagina` cru (spec §6) | NULL = automático | Comentário na coluna + nota no `api-integracao-erp.md` (Step 9) + função com EXECUTE p/ service_role |
 | Preço anterior confundido com histórico (spec §6) | Automático acompanha o atual | Texto da obs verbatim + selo "automático"/"editado" na 1ª coluna (R34) |
 | MO na tabela estoura no mobile | A tabela rola na horizontal | Bloco `sticky left-0` com a largura visível; QA mede 360/390 |
-| QA grava em produção | O `:5173` é produção | Card EXISTENTE combinado com o dono, restauração dentro de cada teste; SKU/MO (D3) só depois do aviso com a lista de resíduos (R13); Keywords só com OK; nunca troca de loja |
+| QA grava em produção | O `:5173` é produção | Card EXISTENTE combinado com o dono, restauração dentro de cada teste; SKU/MO (D3) só depois do aviso com a lista de resíduos (R13); Keywords só com OK; card NOVO da P-25 só com OK (Q4) e apagado no `finally`; nunca troca de loja |
 | Conflito com outra frente no mesmo arquivo | Várias frentes no Sheet | Lista permitida + sobreposição (Task 0 Step 8 e Task 10 Step 1) + regra de rebase |
 
 ## 6. Decisões do dono (25/set) e o que ainda só ele responde
@@ -5373,16 +5533,18 @@ Copiar `.superpowers/sheet/{copia.sh,n3.sh,mig/,logs/}` para `…/savepoints/pre
 | D2 | "Tamanho em" nos cards do Plan. Tecido / Produto Acabado / Importado e a grade seguindo a escolha | Frente separada — aqui só muda a parte do padrão | R10 |
 | D3 | QA em produção pode gravar SKU à mão, confirmar "Regerar" e aprovar/remover serviço de MO? | Sim, desfazendo no fim; o controlador avisa o dono dos resíduos ANTES | R13; Task 10 Step 7 |
 | D4 | "Replicar card(s)" leva o "Tamanho em"? | Sim | R14; Task 6 (8 campos) |
-| — | "Tamanho em" com padrão da loja? | NÃO: toggle obrigatório para gerar o SKU; a Config perde o campo (prévia nas 2 formas); o card nasce sem escolha; o Salvar segue livre; o banco não tem fallback | R10, R23–R26; Tasks 1, 2, 5b, 6, 7, 10 |
+| — | "Tamanho em" com padrão da loja? | NÃO: a Config perde o campo (prévia nas 2 formas); o Salvar segue livre; o banco não tem fallback de LOJA. (O "card nasce sem escolha" foi SUPERADO pela P-25, abaixo.) | R10, R23–R26; Tasks 1, 2, 5b, 6, 7, 10 |
+| P-25 | Como o "Tamanho em" nasce? (dono 25/set 14:57) | Marcado em **Letra**, troca p/ Número; continua SEM padrão da loja (T5b igual). Os NULL existentes viram Letra (backfill — decisão do controlador); a trava do NULL fica como rede | R10, R14, R23, R41–R47; Tasks 2 (executada), 6, 7, 10 |
 | — | Campo "Keywords" na Config da Loja | Texto longo; admin da loja e super admin; mesmo roteiro de produção | R38, R39; Tasks 6, 7, 9b, 10 |
 
 Perguntas ainda abertas (levar por chat antes da Task 10 Step 3; o plano segue a recomendação):
 
 | # | Pergunta | Recomendação implementada | Se o dono disser outra coisa |
 |---|---|---|---|
-| Q1 | Se o pré-voo mostrar cards com SKU JÁ gravado e SEM "Tamanho em" (gerados pelo padrão da loja antes desta frente), eles ficam assim (o card mostra os SKUs e pede a escolha antes de gerar/regerar) ou quer um preenchimento único do "Tamanho em" deles com o padrão antigo da loja? | Ficam assim — decisão "banco sem fallback" e nenhum DML nesta migration; 1 clique + Salvar no card resolve. | Um UPDATE único, revisado e com backup, em rodada própria DEPOIS desta (nunca dentro desta migration). |
-| Q2 | Qual card EXISTENTE da Loja Teste a QA usa (id da URL `?modelo=`)? No D3, se o card estiver sem escolha, a QA marca "Letra" — ok? | O dono escolhe o card; "Letra". | Trocar `letra.check()` por `numero.check()` no spec da QA. |
+| Q1 | ~~Cards com SKU já gravado e sem "Tamanho em"~~ — **RESOLVIDA pela P-25**: o backfill os leva a Letra. Se a loja deles tinha o padrão antigo 'numero', o pré-voo PARA (SKUs ficariam divergentes) e o dono decide ali (R43). | — | — |
+| Q2 | Qual card EXISTENTE da Loja Teste a QA usa (id da URL `?modelo=`)? | O dono escolhe (um que estava sem "Tamanho em" antes da ida ⇒ Letra). | — |
 | Q3 | A QA pode salvar a Config da Loja Teste (os mesmos valores + as Keywords, depois restauradas) para provar as Keywords em produção? | Sim, com `E2E_SHEET_KEYWORDS=1` só depois do OK. | O teste fica `skipped`; a prova fica só na integração da cópia (upsert sem a chave não apaga). |
+| Q4 | A QA pode CRIAR e APAGAR 1 card na Loja Teste ("QA P-25 <hora> (apagar)") para provar que o card novo nasce em Letra? (resíduo: 2 linhas no `audit_log`) | Sim, com `E2E_SHEET_CARD_NOVO=1` só depois do OK. | O teste fica `skipped`; a prova fica na integração (INSERT sem a coluna ⇒ 'letra') e no unit do Draft. |
 
 ## 7. Autorrevisão (cobertura da spec e do brief)
 
@@ -5413,7 +5575,7 @@ Perguntas ainda abertas (levar por chat antes da Task 10 Step 3; o plano segue a
 | Brief: tela (build + tsc, anti-drift, DateField/MoneyInput/token, Sheet, colab, mobile, QA :5173 sem semear e sem trocar loja; não matar :5173/:5188) | Global Constraints, `gates.sh`, Task 10 |
 | Brief: git `--only`, sem stash/add ./pkill/push | Global Constraints, `regras.md` |
 | Brief: SDD Sonnet + Opus; banco com 2 Opus independentes + guardião | §4, Tasks 6–7, 10 |
-| G-plano #1 + dono 25/set: "Tamanho em" SEM padrão da loja (Config sem o campo, card sem escolha, obrigatório p/ gerar, Salvar livre, banco sem fallback; precedência; chave ignorada sem RAISE; sem DML/COMMENT em `tenant_config`; tipo NULL nunca persistido) | R10, R23–R27, R37; Tasks 1, 2, 5b, 6, 7, 10; spec :351-352/§5.2/§8/§10 |
+| G-plano #1 + dono 25/set: "Tamanho em" SEM padrão da loja (Config sem o campo, card sem escolha — SUPERADO pela P-25: nasce em Letra —, obrigatório p/ gerar, Salvar livre, banco sem fallback; precedência; chave ignorada sem RAISE; sem DML/COMMENT em `tenant_config`; tipo NULL nunca persistido) | R10, R23–R27, R37; Tasks 1, 2, 5b, 6, 7, 10; spec :351-352/§5.2/§8/§10 |
 | G-plano #2: nenhuma task reverte `adb57add` (Task 8 pontual; `<MotivosOrigemInfo` exigido; `TecidosBomSecao` intocado) | R28; Global Constraints; Task 8 |
 | G-plano #3: comentário da T2 sem "refVisivel" | Task 2 Step 5 |
 | G-plano #4 / D3: passos de SKU/MO na QA + lista de resíduos + card existente | R13; Task 10 Steps 3 e 7 |
@@ -5428,3 +5590,9 @@ Perguntas ainda abertas (levar por chat antes da Task 10 Step 3; o plano segue a
 | G-plano #13: `CLAUDE.md` na principal pelo controlador | R35; Task 10 Step 9 |
 | D4: Replicar leva `tamanho_tipo` | R14; Task 6 |
 | Keywords (dono 25/set): coluna na MESMA migration (última DDL), inverso, pós-condição, fidelidade (N 14, base + 9), tela no Salvar geral sem regravar de aba velha, testes (integração + unit/fonte), QA e mobile | R38, R39; Tasks 6, 7, 9b, 10 |
+| P-25 (dono 25/set 14:57): nasce em Letra, troca p/ Número; sem padrão da loja (T5b igual); NULL legado ⇒ Letra no banco; a trava do NULL fica como rede | R10, R14, R23, R41–R47; Tasks 2 (executada — `9dfdb000`), 6, 7, 10; spec §2/§5.1/§5.2/§10 |
+| P-25 textos EXATOS (dica do rádio, `sem_tamanho` ×2, `desconhecido`, selos) = os da T2 no HEAD | Global Constraints; Task 10 Step 7; spec §5.1 |
+| P-25 DEFAULT `'letra'` + backfill na MESMA migration (logo depois do `ALTER`), UPDATE simples, sem GUC/`session_replication_role`; medido na cópia (272 linhas, 131 ms) | R41, R42; Task 6 (gerador + testes DEFAULT/backfill/contagem) |
+| P-25 caminhos que gravam `modelos` sem o Draft (OTB, produto acabado, importação, replicar, duplicar) cobertos pelo DEFAULT + teste INSERT sem a coluna ⇒ 'letra' | R46; Task 6 |
+| P-25 pré-voo: deriva `0\|0`, limite 2000, lojas 'numero' × SKUs = 0 senão PARE, INFO por loja; pós-condições DEFAULT/0 NULL; fidelidade N 14 → 15; inverso só tira o DEFAULT e diz isso | R43–R45; Task 7 (`confere_backfill_tt`, `confere_ida/volta_sheet`, `PAT_SHEET`, `ref-volta-f1.sh`, 26 provas) |
+| P-25 QA: card existente em Letra (sem aviso de legado) + card NOVO nasce em Letra (gated, Q4) | Task 10 Step 7 |
