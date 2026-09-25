@@ -739,7 +739,7 @@ function ConfiguracoesLojaPage() {
         value={cfg.ref_config}
         onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
       />
-      <FormatoSkuCard />
+      <FormatoSkuCard paginaSuja={dirty} />
 
       {modules.produto_acabado && (
         <FluxoRevendaCard

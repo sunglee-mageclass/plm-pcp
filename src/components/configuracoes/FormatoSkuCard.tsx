@@ -39,12 +39,12 @@ const rascunhoDe = (cfg: SkuConfig | null): Rascunho =>
 
 type Exemplo = { ref: string | null; cor: SkuCor | null; apelido: SkuCor | null };
 
-export function FormatoSkuCard() {
+export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const chave = ["tenant-config-sku", tenantId];
 
-  const { data, isSuccess } = useQuery({
+  const { data, isSuccess, isError, refetch, isRefetching } = useQuery({
     queryKey: chave,
     enabled: !!tenantId,
     queryFn: async () => {
@@ -90,6 +90,9 @@ export function FormatoSkuCard() {
   const norm = normalizarSkuConfig(rascunho);
   const dirty = isSuccess && canonico(norm.ok ? norm.valor : rascunho) !== canonico(base);
   const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+  // Sem isSuccess ainda (carregando OU erro), os controles ficam travados: evita `dirty` prematuro
+  // contra um rascunho vazio (e o falso "Outra pessoa mudou o Formato do SKU..." que isso geraria no save).
+  const travado = !isSuccess;
 
   // Semeia do servidor só SEM edição pendente (o salvar geral da página invalida esta query — não pode apagar o rascunho).
   const servidorCanon = canonico(data?.cfg ?? null);
@@ -146,22 +149,30 @@ export function FormatoSkuCard() {
   });
 
   // Prévia ao vivo (mesma função do servidor, em TS): com apelido e sem apelido.
+  // Quando a loja não tem grade cadastrada, o tamanho é FICTÍCIO ("34|PPP") — nesse caso as siglas
+  // também têm de ser fictícias (não as `tamanhosSku` REAIS da loja, que não têm entrada pra ele; senão
+  // a prévia de uma loja sem grade mostraria "Falta sigla: Tamanho PPP" por engano).
+  const usaGradeFicticia = !data?.grade?.length;
   const grade0 = data?.grade?.[0] ?? "34|PPP";
+  const tamanhosSkuPrevia = usaGradeFicticia ? { "34": "34", PPP: "PPP" } : (data?.tamanhosSku ?? null);
+  const corExemploFicticia: SkuCor = { id: "exemplo", nome: "Amarelo", sigla: "AM" };
+  const corPrevia = ex?.cor ?? corExemploFicticia;
+  const corRotulo = ex?.cor ? corPrevia.nome : `${corPrevia.nome} (cor de exemplo)`;
   const previa = (apelido: SkuCor | null) =>
     norm.ok && norm.valor
       ? resolverSku({
           cfg: norm.valor,
           ref: ex?.ref ?? "REF00000001",
-          cor: ex?.cor ?? { id: "exemplo", nome: "Amarelo", sigla: "AM" },
+          cor: corPrevia,
           apelido,
           tamanhoKey: grade0,
           tipo: rascunho.tamanho_padrao,
-          tamanhosSku: data?.tamanhosSku ?? null,
+          tamanhosSku: tamanhosSkuPrevia,
         })
       : null;
   const exemplos = [
-    { rotulo: `${ex?.cor?.nome ?? "Amarelo"}${ex?.apelido ? ` · ${ex.apelido.nome}` : ""} · ${grade0}`, r: previa(ex?.apelido ?? null) },
-    ...(ex?.apelido ? [{ rotulo: `${ex?.cor?.nome ?? "Amarelo"} (sem apelido) · ${grade0}`, r: previa(null) }] : []),
+    { rotulo: `${corRotulo}${ex?.apelido ? ` · ${ex.apelido.nome}` : ""} · ${grade0}`, r: previa(ex?.apelido ?? null) },
+    ...(ex?.apelido ? [{ rotulo: `${corRotulo} (sem apelido) · ${grade0}`, r: previa(null) }] : []),
   ];
 
   return (
@@ -177,6 +188,15 @@ export function FormatoSkuCard() {
           gera SKU.
         </CardDescription>
       </CardHeader>
+      {isError ? (
+        <CardContent className="space-y-3">
+          <p className="text-sm text-destructive">Não foi possível carregar o formato do SKU.</p>
+          <Button type="button" variant="outline" disabled={isRefetching} onClick={() => refetch()}>
+            {isRefetching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+            Tentar de novo
+          </Button>
+        </CardContent>
+      ) : (
       <CardContent className="space-y-6">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Montagem do SKU</p>
@@ -188,13 +208,18 @@ export function FormatoSkuCard() {
             {rascunho.partes.map((p, i) => (
               <li key={p} className="space-y-1.5">
                 <div className="flex items-center gap-3 rounded-md border bg-card p-2">
-                  <Checkbox checked onCheckedChange={(v) => alternar(p, !!v)} aria-label={`Usar "${SKU_PARTE_LABEL[p]}" no SKU`} />
-                  <span className="flex-1 text-sm">{SKU_PARTE_LABEL[p]}</span>
-                  <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0}
+                  <Checkbox checked disabled={travado} onCheckedChange={(v) => alternar(p, !!v)} aria-label={`Usar "${SKU_PARTE_LABEL[p]}" no SKU`} />
+                  <span
+                    className={`flex-1 text-sm ${travado ? "" : "cursor-pointer select-none"}`}
+                    onClick={() => { if (!travado) alternar(p, false); }}
+                  >
+                    {SKU_PARTE_LABEL[p]}
+                  </span>
+                  <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={travado || i === 0}
                     onClick={() => mover(i, -1)} aria-label={`Mover "${SKU_PARTE_LABEL[p]}" para cima`}>
                     <ArrowUp className="h-3.5 w-3.5" />
                   </Button>
-                  <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={i === rascunho.partes.length - 1}
+                  <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={travado || i === rascunho.partes.length - 1}
                     onClick={() => mover(i, 1)} aria-label={`Mover "${SKU_PARTE_LABEL[p]}" para baixo`}>
                     <ArrowDown className="h-3.5 w-3.5" />
                   </Button>
@@ -208,7 +233,8 @@ export function FormatoSkuCard() {
                       className="h-8 w-16 font-mono max-md:h-11"
                       aria-label={`Separador entre ${SKU_PARTE_LABEL[p]} e ${SKU_PARTE_LABEL[rascunho.partes[i + 1]]}`}
                       maxLength={SKU_SEP_MAX}
-                      placeholder="nenhum"
+                      placeholder="—"
+                      disabled={travado}
                       value={rascunho.separadores[chaveSeparador(p, rascunho.partes[i + 1])] ?? ""}
                       onChange={(e) => setSep(chaveSeparador(p, rascunho.partes[i + 1]), e.target.value)}
                     />
@@ -218,8 +244,13 @@ export function FormatoSkuCard() {
             ))}
             {SKU_PARTES.filter((p) => !marcadas.has(p)).map((p) => (
               <li key={p} className="flex items-center gap-3 rounded-md border border-dashed p-2">
-                <Checkbox checked={false} onCheckedChange={(v) => alternar(p, !!v)} aria-label={`Usar "${SKU_PARTE_LABEL[p]}" no SKU`} />
-                <span className="flex-1 text-sm text-muted-foreground">{SKU_PARTE_LABEL[p]}</span>
+                <Checkbox checked={false} disabled={travado} onCheckedChange={(v) => alternar(p, !!v)} aria-label={`Usar "${SKU_PARTE_LABEL[p]}" no SKU`} />
+                <span
+                  className={`flex-1 text-sm text-muted-foreground ${travado ? "" : "cursor-pointer select-none"}`}
+                  onClick={() => { if (!travado) alternar(p, true); }}
+                >
+                  {SKU_PARTE_LABEL[p]}
+                </span>
               </li>
             ))}
           </ul>
@@ -234,6 +265,7 @@ export function FormatoSkuCard() {
           <Label className="text-xs text-muted-foreground">Tamanho em (padrão da loja)</Label>
           <Select
             value={rascunho.tamanho_padrao}
+            disabled={travado}
             onValueChange={(v) => setRascunho((r) => ({ ...r, tamanho_padrao: v as TamanhoTipo }))}
           >
             <SelectTrigger className="h-8 max-md:h-11" aria-label="Tamanho em (padrão da loja)"><SelectValue /></SelectTrigger>
@@ -248,8 +280,8 @@ export function FormatoSkuCard() {
         <div className="space-y-2 border-t pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prévia</p>
           <p className="text-xs text-muted-foreground">
-            Exemplo com {ex?.ref ? `a REF ${ex.ref}` : "uma REF de exemplo"}, a cor {ex?.cor?.nome ?? "de exemplo"} e o
-            1º tamanho da grade ({grade0}).
+            Exemplo com {ex?.ref ? `a REF ${ex.ref}` : "uma REF de exemplo"}, {ex?.cor ? `a cor ${ex.cor.nome}` : `a cor de exemplo (${corPrevia.nome})`}
+            {" "}e {usaGradeFicticia ? "um tamanho de exemplo" : "o 1º tamanho da grade"} ({grade0}).
           </p>
           {!norm.ok ? (
             <p className="text-sm text-destructive">{norm.erro}</p>
@@ -283,14 +315,19 @@ export function FormatoSkuCard() {
           )}
         </div>
 
-        <div className="flex items-center gap-2 border-t pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <p className="text-xs text-muted-foreground">
             Os SKUs já gerados não mudam sozinhos: só pelo "Regerar SKUs" do card (os editados à mão nunca mudam).
           </p>
+          {paginaSuja && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Salve ou descarte as outras alterações da página antes.
+            </p>
+          )}
           <Button
             type="button"
             className="ml-auto shrink-0"
-            disabled={!dirty || !norm.ok || salvar.isPending}
+            disabled={travado || !dirty || !norm.ok || salvar.isPending || !!paginaSuja}
             onClick={() => setConfirmar(true)}
           >
             {salvar.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
@@ -298,6 +335,7 @@ export function FormatoSkuCard() {
           </Button>
         </div>
       </CardContent>
+      )}
 
       {confirmar && (
         <AlertDialog open onOpenChange={(o) => { if (!o && !salvar.isPending) setConfirmar(false); }}>

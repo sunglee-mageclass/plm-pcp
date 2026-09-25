@@ -240,7 +240,7 @@ function SiglasTamanhoBloco({ itens, readOnly }: { itens: string[]; readOnly?: b
             type="button"
             variant="outline"
             className="max-sm:w-full max-sm:h-auto max-sm:whitespace-normal"
-            disabled={semSigla.length === 0}
+            disabled={readOnly || salvar.isPending || semSigla.length === 0}
             onClick={() => setRascunho((r) => {
               const n = { ...r };
               for (const lado of semSigla) n[lado] = lado;
