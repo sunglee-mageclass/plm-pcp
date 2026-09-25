@@ -489,48 +489,43 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
     });
   });
 
-  it("D7 (decidida pelo dono 24/set; trava do pedido REVOGADA 25/set — DECISÃO NOVA): futura recusada, anterior ao pedido ACEITA — pela RPC e por UPDATE direto", async () => {
-    // ⚠️ Esta cópia JÁ tem a migration 20261004100000 aplicada PARA FICAR (.superpowers/nota/copia-estado.md,
-    // 25/set 11:33) — `prepara(c)` reflete esse estado atual, não precisa aplicar SEM_TRAVA aqui. A recusa "anterior
-    // à data do pedido" que este teste provava até 24/set foi TIRADA a pedido do dono (chat 25/set: "está me
-    // barrando a entrada da data da nota de entrada porque é uma data anterior a data do pedido, deixe sem essa
-    // trava"); "não pode ser no futuro" segue intacta (não foi pedido tirar).
+  it("caminho 0c36→96ef DENTRO da txn: aplica a sem-trava a partir do texto puro da Nota, determinístico", async () => {
+    // Normaliza para o texto da Nota PRIMEIRO (o inverso aceita ambos os pontos de partida — idempotente),
+    // garantindo o ponto de partida 0c36… independente do estado real da cópia, e só então aplica a migration
+    // pra frente — prova determinística do caminho 0c36→96ef, sem depender de qual estado a cópia está agora.
     await withTx(async (c) => {
       await prepara(c);
-      const fx = await fixtures(c);
-      const futura = (await um<{ d: string }>(c, `select to_char(current_date + 400, 'YYYY-MM-DD') d`)).d;
-      const recusa = async (fn: () => Promise<unknown>, re: RegExp) => {
-        await c.query("SAVEPOINT nota_d7");
-        let msg = "(aceitou)";
-        try { await fn(); } catch (e) { msg = String((e as Error).message); }
-        await c.query("ROLLBACK TO SAVEPOINT nota_d7");
-        expect(msg).toMatch(re);
-      };
-      await recusa(() => ocAviamento(c, fx, { data_nota_entrada: futura }), /não pode ser no futuro/);
-      // NOVO (25/set): anterior ao pedido (01/09) já não é recusado — aceita, pela RPC.
-      const idAnt = await ocAviamento(c, fx, { data_nota_entrada: "2026-08-31" });
-      expect(await notaDe(c, "ocs_aviamento", idAnt)).toBe("2026-08-31");
-      const idPa = await ocPAcabado(c, fx, { data_nota_entrada: "2026-08-31" });
-      expect(await notaDe(c, "ocs_p_acabado", idPa)).toBe("2026-08-31");
-      const id = await ocAviamento(c, fx, { data_nota_entrada: "2026-09-01" }); // = data do pedido: sempre aceitou
-      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01");
-      await recusa(() => c.query(`update public.ocs_aviamento set data_nota_entrada = $2::date where id = $1`, [id, futura]),
-        /não pode ser no futuro/);
-      // M1 (mantido, agora inofensivo): mover o PEDIDO pra depois da nota já gravada não é mais recusado — a trava
-      // que M1 fechava sumiu de vez com a trava do pedido.
-      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-09-01' where id = $1`, [id]);
-      await c.query(`update public.ocs_aviamento set data_pedido = '2026-09-02' where id = $1`, [id]);
-      expect((await um<{ d: string }>(c, `select to_char(data_pedido, 'YYYY-MM-DD') d from public.ocs_aviamento where id = $1`, [id])).d)
-        .toBe("2026-09-02");
-      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01"); // a nota não mudou (só a checagem sumiu)
+      await aplicarArquivo(c, SEM_TRAVA_DOWN);
+      const md5Antes = (await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m;
+      expect(md5Antes).toBe(MD5_ANTES_TRAVA);
+      await aplicarArquivo(c, SEM_TRAVA);
+      const md5Depois = (await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m;
+      expect(md5Depois).toBe(MD5_SEM_TRAVA);
     });
   });
 
   it("D7 sem a trava do pedido (decisão NOVA do dono, 25/set): anterior ao pedido é ACEITA; futura continua recusada", async () => {
+    // Aplica a SEM_TRAVA na PRÓPRIA transação — não depende do estado atual da cópia (a Nota já vem aplicada
+    // por `prepara`; SEM_TRAVA é aplicada aqui dentro, sempre, revertida no fim pelo withTx→ROLLBACK).
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixtures(c);
+      // Ponto de partida: a cópia pode já estar com a Nota pura (0c36…) OU já com a sem-trava aplicada PARA
+      // FICAR (96ef…, .superpowers/nota/copia-estado.md) — a guarda da migration aceita os dois (idempotente).
+      // Se o ponto de partida já é 0c36…, este bloco PROVA o caminho 0c36→96ef dentro da txn; se já é 96ef…,
+      // prova a reaplicação idempotente (fica 96ef…) — os dois são cobertos pela mesma migration/guarda.
+      const md5Antes = (await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m;
+      expect([MD5_ANTES_TRAVA, MD5_SEM_TRAVA]).toContain(md5Antes);
       await aplicarArquivo(c, SEM_TRAVA); // migration desta frente, na MESMA txn (nunca \i)
+      // Depois de aplicar, SEMPRE o md5 desta migration — provando o caminho 0c36→96ef quando o ponto de
+      // partida era 0c36…, ou a reaplicação idempotente quando já era 96ef….
+      const md5Depois = (await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m;
+      expect(md5Depois).toBe(MD5_SEM_TRAVA);
+      if (md5Antes === MD5_ANTES_TRAVA) {
+        // ponto de partida ERA o texto puro da Nota: prova explícita do caminho 0c36→96ef nesta rodada.
+        expect(md5Antes).not.toBe(md5Depois);
+      }
+
       const futura = (await um<{ d: string }>(c, `select to_char(current_date + 400, 'YYYY-MM-DD') d`)).d;
       const recusa = async (fn: () => Promise<unknown>, re: RegExp) => {
         await c.query("SAVEPOINT nota_sem_trava");
@@ -553,13 +548,48 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       await recusa(() => ocAviamento(c, fx, { data_nota_entrada: futura }), /não pode ser no futuro/);
       await recusa(() => c.query(`update public.ocs_aviamento set data_nota_entrada = $2::date where id = $1`, [id, futura]),
         /não pode ser no futuro/);
-      // ACL segue igual (invariante #9) e md5 = o esperado desta migration.
+      // N3 (recuperada, adaptada à regra nova): dado LEGADO gravado com o gatilho desligado (grandfather data) —
+      // um UPDATE de coluna que NÃO é nota/pedido não revalida (mesmo comportamento de antes; a regra que sumiu
+      // era só a checagem "anterior ao pedido" em si, não a condição de quando o gatilho revalida).
+      await c.query(`ALTER TABLE public.ocs_aviamento DISABLE TRIGGER trg_nota_entrada_valida`);
+      const idLegado = await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90003", data_pedido: "2026-09-10", data_nota_entrada: futura });
+      await c.query(`ALTER TABLE public.ocs_aviamento ENABLE TRIGGER trg_nota_entrada_valida`);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe(futura); // nota futura: já inválida mesmo sem a trava do pedido
+      await c.query(`update public.ocs_aviamento set responsavel_nome = 'legado ok' where id = $1`, [idLegado]);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe(futura); // segue lá — não revalidou, não recusou
+      // re-salvar pela RPC sem tocar nota/pedido também não revalida
+      await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90003", data_pedido: "2026-09-10", data_nota_entrada: futura }, idLegado);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe(futura);
+      // ACL segue igual (invariante #9).
       const acl = await um<{ a: boolean; u: boolean }>(c,
         `select has_function_privilege('anon', 'public.fn_oc_nota_entrada_valida()', 'EXECUTE') a,
                 has_function_privilege('authenticated', 'public.fn_oc_nota_entrada_valida()', 'EXECUTE') u`);
       expect(acl).toEqual({ a: false, u: false });
-      expect((await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m)
-        .toBe(MD5_SEM_TRAVA);
+    });
+  });
+
+  it("guarda de md5 da migration sem-trava: função num texto estranho → RAISE (não aplica)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      // Corrompe o texto vivo da função (fora dos 2 textos aceitos: o da Nota ou o desta migration) ANTES de
+      // tentar aplicar SEM_TRAVA — a guarda dela tem de recusar.
+      await c.query(`create or replace function public.fn_oc_nota_entrada_valida() returns trigger
+        language plpgsql security definer set search_path to 'public' as $f$
+        begin return new; end; $f$`);
+      await expect(aplicarArquivo(c, SEM_TRAVA)).rejects.toThrow(/não está nem no texto da Nota.*nem no desta migration/);
+    });
+  });
+
+  it("guarda de md5 do inverso sem-trava: função num texto estranho → RAISE (não aplica)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await aplicarArquivo(c, SEM_TRAVA);
+      // Corrompe DEPOIS de aplicar a sem-trava (fora dos 2 textos aceitos pelo inverso: o da Nota ou o desta
+      // migration) — o inverso tem de recusar.
+      await c.query(`create or replace function public.fn_oc_nota_entrada_valida() returns trigger
+        language plpgsql security definer set search_path to 'public' as $f$
+        begin return new; end; $f$`);
+      await expect(aplicarArquivo(c, SEM_TRAVA_DOWN)).rejects.toThrow(/foi mudada por outra frente depois da migration/);
     });
   });
 

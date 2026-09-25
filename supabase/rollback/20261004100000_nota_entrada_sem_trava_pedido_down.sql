@@ -1,7 +1,8 @@
 -- INVERSO de supabase/migrations/20261004100000_nota_entrada_sem_trava_pedido.sql
 -- Recria public.fn_oc_nota_entrada_valida() byte a byte como estava em 20261002100000 (com a trava "anterior à data
 -- do pedido" de volta). NÃO destrutivo em dado (nenhuma coluna/tabela é tocada) — só o texto da função volta.
--- ARQUIVO GERADO por .superpowers/nota/mig/gerar_sql.py — NÃO editar à mão.
+-- Escrito à mão (`.superpowers/nota/mig/gerar_sql.py` gera as migrations da Nota original — não conhece esta
+-- migration nova; não usá-lo aqui).
 -- transaction_timeout 30s por convenção de TODO inverso desta frente (R9-a) — este inverso não tem laço (é só
 -- CREATE OR REPLACE de 1 função), mas segue o mesmo padrão do aplica_v2_inverso/harness de teste.
 BEGIN;

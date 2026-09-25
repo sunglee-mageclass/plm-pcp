@@ -2,10 +2,11 @@
 -- dono em 25/set/2026: "está me barrando a entrada da data da nota de entrada porque é uma data anterior a data do
 -- pedido, deixe sem essa trava"). A regra "não pode ser no FUTURO" CONTINUA (não foi pedido tirar).
 -- Spec/plano: .superpowers/sdd/2026-09-25-nota-sem-trava-pedido/brief.md
--- ARQUIVO GERADO por .superpowers/nota/mig/gerar_sql.py a partir do texto VIVO de fn_oc_nota_entrada_valida()
--- (migration 20261002100000, aplicada em produção em 25/set) — o mesmo texto MENOS o bloco:
+-- Escrito à mão a partir do texto VIVO de fn_oc_nota_entrada_valida() (migration 20261002100000, aplicada em
+-- produção em 25/set) — o mesmo texto MENOS o bloco:
 --   IF NEW.data_pedido IS NOT NULL AND NEW.data_nota_entrada < NEW.data_pedido THEN … END IF;
--- e comentário atualizado. NÃO editar à mão — regenerar.
+-- e comentário atualizado. (`.superpowers/nota/mig/gerar_sql.py` gera as migrations da Nota original —
+-- não conhece esta migration nova; não usá-lo aqui.)
 -- Os gatilhos `trg_nota_entrada_valida` (BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido) continuam
 -- escutando as DUAS colunas — inofensivo agora (a função não usa mais data_pedido, mas não há necessidade de
 -- recriar os 5 gatilhos por uma coluna a mais no OF; menos DDL, menos trava). ACL igual (invariante #9): função
