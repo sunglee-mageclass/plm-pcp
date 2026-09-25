@@ -4,8 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DateField } from "@/components/shared/DateField";
-import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
-import { DICA_CAMPO_NOTA_IMPORTADO } from "@/lib/nota-entrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { InfoStrip } from "@/components/shared/InfoStrip";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
@@ -584,13 +582,6 @@ export function OcImpForm({
             disabled={disabled}
             onChange={(f) => handleUpload(f, "anexo_nf_url")}
             onClear={() => setDraft((d) => ({ ...d, anexo_nf_url: null }))}
-          />
-          {/* Data da Nota de Entrada (spec 2026-09-24): ao lado do anexo da Nota Fiscal. */}
-          <CampoDataNotaEntrada
-            value={draft.data_nota_entrada}
-            disabled={disabled}
-            dica={DICA_CAMPO_NOTA_IMPORTADO}
-            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
           />
         </div>
       </section>

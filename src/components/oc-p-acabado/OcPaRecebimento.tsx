@@ -2,6 +2,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DateField } from "@/components/shared/DateField";
+import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
 import { InfoStrip } from "@/components/shared/InfoStrip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
@@ -41,6 +42,14 @@ export function OcPaRecebimento({
   return (
     <section id="ocpa-sec-recebimento" className="scroll-mt-2 space-y-4">
       <OcSecTitle n={4}>Recebimento</OcSecTitle>
+
+      {/* Data da Nota de Entrada (ajuste do dono 25/set): topo da seção — é
+          quando se recebe. */}
+      <CampoDataNotaEntrada
+        value={draft.data_nota_entrada}
+        disabled={readOnly}
+        onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
+      />
 
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">
