@@ -82,7 +82,7 @@
 | PR13 | **Casamento preservado só com as cores ATUAIS do Tecido 1 (G-plano R4):** no `_plan_tecido_gravar_bom_core`, o ramo "chave ausente" também filtra `x.id = any(v_t1_ids)`; teste: a cor casada sai do T1 ⇒ sai do casamento e a reserva (`_grade_soma_pares`) segue com as que ficaram (não zera em silêncio — #4). | Antes o bug "apaga sempre" escondia isso. | Nenhum. |
 | PR14 | **R20 liga a presença também nos 10 `SelectTrigger` de Produto Acabado/Importado (G-plano R5) — ACEITO**, alinhado ao roadmap "ring de presença em todas as telas editáveis"; a QA a 2 confere o anel nesses selects. | É o efeito natural do `data-colab-path` explícito; restringir exigiria um filtro por tag sem ganho. | Anel aparece onde antes não aparecia (desejável). |
 | PR15 | **Espera dos módulos por `isFetched` (G-plano R6 / PR3):** `useTenantModules` passa a devolver também `isFetched` (aditivo); o Plan. Tecido semeia só com `tamanhosProntos && modulosProntos`; `distOpts` entra na "fonte" da semeadura (`srcRef`), então grade/módulos que chegam ou mudam depois RE-SEMEIAM (limpo) — o efeito de carga não sai cedo em silêncio. Teste de fonte. | Com a query desabilitada (tenant ainda não resolvido) `isLoading` é false e a 1ª carga leria o módulo como desligado (DEFAULTS). | Meio segundo a mais na 1ª carga. |
-| PR16 | **P-09 no celular (G-plano R7):** o ponto da célula à mão abre um balão (Popover; toque/clique abre, mouse vê o `title`) com "Editado à mão · calculado seria N" e um botão ↺ "Voltar ao calculado" SEPARADO; tocar no ponto NUNCA volta sozinho. Legenda ajustada. | O `title` nativo não aparece no toque e o ponto voltava direto. | Nenhum. |
+| PR16 | **P-09 no celular (G-plano R7):** o ponto da célula à mão abre um balão (Popover; toque/clique abre, mouse vê o `title`) com "Editado à mão · calculado seria N" e um botão ↺ "Voltar ao calculado" SEPARADO; tocar no ponto NUNCA volta sozinho. Legenda ajustada. O dialog perde o `<fieldset disabled>` (o só leitura vem de `readOnly` em cada campo), para o balão e o nome abreviado abrirem também no só leitura (P-22 "ver"). | O `title` nativo não aparece no toque e o ponto voltava direto. | Nenhum. |
 | PR17 | **N3 pelo PAINEL (G-plano R8):** o texto do `n3.sh` manda avisar no PAINEL; `DIST_DONO_AVISADO=sim` só depois do aviso publicado pelo controlador; cada aviso tem o id registrado no ledger `.superpowers/distribuicao/avisos.md` e o `n3.sh` recusa sem a linha do passo. P-37 (pergunta do controlador): a autorização P-30 B (N3 só com aviso) vale para esta frente? Se não, o aviso passa a exigir OK — o script é o mesmo. | Feedback do dono 25/set ("comunicar pelo painel"); rastro de cada aviso (nota 7 da reorg). | Um passo a mais por rodada na cópia. |
 | PR18 | **Notas baratas do G-plano:** N2 — a RPC nova resolve `colecao_id` pela coleção-texto quando falta (como a antiga); N3 — `loja_id` por `CASE WHEN d.key ~* <uuid> THEN d.key::uuid END` (chave que não é uuid não derruba a RPC) + fixture "lixo" no teste; N4 — o checklist do G-scripts diz "frase na remoção e na volta da aditiva; a volta da remoção só recria (sem frase)"; N8 — nota nos fatos (§1). Registrados sem mudança: N1 (a P-31 também muda o forro do PLANO de card já enviado à Explosão — o BOM não muda porque o auto-aplicar pula os enviados; levado ao dono no Task 11 Step 3), N5 (já no Step 3(b)), N6 (derivas justificadas: R33 e R14), N7 (aba antiga pós-deploy — "abas recarregadas" já no RODAR). | Custo baixo, sem risco. | Nenhum. |
 | PR19 | **Respostas do dono (25/set):** P-31 = A (todos os cards; sem amarração mantém o pç digitado + aviso âmbar); **P-32 = B** (o semi-preenchimento do Direcionamento NÃO conta como não salvo: `resetBaseline(p ? p.obj : obj)` na Task 7 (g), `touched` mantido); P-33 = A; P-34 = A; **P-35 = A** (o controlador escolhe card/modelo da QA na cópia, publica os ids no painel e espera o OK — Task 11 Step 7); **P-36 = B** (Imprimir só no desktop: `max-sm:hidden` no botão; a `PrintArea` fica). | Decisões do dono (spec §2). | — |
@@ -3207,6 +3207,7 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     expect(tab).toContain("function PontoManual(");
     expect(tab).toContain("onClick={() => { onVoltar(); setAberto(false); }}");
     expect(tab).not.toContain("clique para voltar ao calculado");
+    expect(dlg).not.toContain("<fieldset disabled"); // só leitura (P-22) ainda abre o balão do calculado e o nome completo
     expect(conta(tab, "onVoltar(")).toBe(1);
   });
   it("P-36 = B: Imprimir só no desktop (a PrintArea fica)", () => {
@@ -3649,9 +3650,9 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           <div ref={corpoRef} className="min-h-0 space-y-3 overflow-y-auto py-2">
             <p className="text-xs text-muted-foreground">{TEXTO_AJUDA_DIST}</p>
             <p className="text-xs text-muted-foreground md:hidden">Por loja · deslize para o lado</p>
-            <fieldset disabled={readOnly} className="contents">
-              {lojasProntas ? tabelas("edicao") : <p className="py-6 text-center text-sm text-muted-foreground">Carregando lojas…</p>}
-            </fieldset>
+            {/* Sem <fieldset disabled>: ele desligaria também os balões de LEITURA (ponto à mão — PR16 — e nome abreviado no
+                celular); o só-leitura vem de `readOnly` → cada NumberInput `disabled` e o ↺ escondido. */}
+            {lojasProntas ? tabelas("edicao") : <p className="py-6 text-center text-sm text-muted-foreground">Carregando lojas…</p>}
           </div>
           <DialogFooter className="-mx-4 -mb-4 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
             <Button variant="outline" onClick={pedirFechar} aria-label="Voltar">
