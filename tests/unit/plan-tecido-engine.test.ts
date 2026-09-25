@@ -839,3 +839,107 @@ describe("plan-tecido/engine — Distribuição por produto (Task 3)", () => {
     expect(m[1].variantes[0].atende).toEqual(["vt1"]);
   });
 });
+
+describe("plan-tecido/engine — Lote A rodada de correção 1 (C1, C2, I3, I4, M3, M4, M5, M6, M8)", () => {
+  const baseMr2 = (materiais: ModeloReal["materiais"]): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
+  });
+  const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+
+  it("C2: irmã não herda — 'A Preto' distribuída e 'B Preto' sem distribuição dão pç [40, 7], não [40, 40]", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vtA", cor_id: "preto", ordem: 1, multiplicador: 1, grades: { "38|P": 40 }, grade_total: 40 },
+      { variante_tecido_id: "vtB", cor_id: "preto", ordem: 2, multiplicador: 1, grades: { "38|P": 7 }, grade_total: 7 },
+    ] }];
+    // "A Preto" salva com distribuição PRÓPRIA (variante REAL, não planejada); "B Preto" salva SEM distribuição.
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vtA", cor_id: "preto", ordem: 1, multiplicador: 1, grades: { "38|P": 40 }, grade_total: 40, distribuicao: d },
+      { variante_tecido_id: "vtB", cor_id: "preto", ordem: 2, multiplicador: 1, grades: { "38|P": 7 }, grade_total: 7 },
+    ] }];
+    const r = comDistribuicaoDoPlano(vivos, salvos);
+    expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, undefined]);
+    expect(r[0].variantes.map((v) => v.grade_total)).toEqual([40, 7]); // pç do BOM vivo intocado (comDistribuicaoDoPlano só leva a distribuição)
+  });
+
+  it("C2: caminho planejada→real continua funcionando (cor PLANEJADA salva por cor+apelido, sem irmã ambígua)", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt2", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      // salva PLANEJADA (variante_tecido_id null) — única candidata daquela combinação cor+apelido
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+    ] }];
+    expect(comDistribuicaoDoPlano(vivos, salvos)[0].variantes[0].distribuicao).toEqual(d);
+  });
+
+  it("C2: 2+ candidatos PLANEJADOS da mesma combo (ambíguo) NÃO escolhe nenhum", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt9", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: { lf: { base: 2, grades: {}, manuais: [] } } },
+    ] }];
+    expect(comDistribuicaoDoPlano(vivos, salvos)[0].variantes[0].distribuicao).toBeUndefined();
+  });
+
+  it("I3: caminho REAL slotDeModeloReal → mergeArvore — a planejada 'c2·a2' que virou variante real leva a distribuição, chaveada por cor+apelido", () => {
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets: [], modelos: [baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt2", ordem: 1, multiplicador: 1, cor_id: "c2", cor_apelido_id: "a2" },
+      ] },
+    ])] });
+    const salvo: PtArvore = { ...seed, subcolecoes: seed.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((sl) => ({
+      ...sl, materiais: [
+        { ...sl.materiais[0], variantes: [
+          // salva PLANEJADA (a mesma cor·apelido "Marrom · Canela" antes de virar variante real)
+          { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 3, distribuicao: d },
+        ] },
+      ] })) })) })) };
+    const m = mergeArvore(seed, salvo).subcolecoes[0].linhas[0].slots[0].materiais;
+    expect(m[0].variantes[0].variante_tecido_id).toBe("vt2"); // agora é a variante REAL
+    expect(m[0].variantes[0].distribuicao).toEqual(d);
+  });
+
+  it("I4/M6: bloco com 2 cores da MESMA cor base (Preto·Fosco→vtA, Preto·Brilho→vtB) — amarração PARCIAL fica à mão (não vira NULL)", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "frA", ordem: 1, multiplicador: 1, cor_id: "preto", label: "Fosco", complementa_variante_ids: ["vt1"] },
+        { variante_tecido_id: "frB", ordem: 2, multiplicador: 1, cor_id: "preto", label: "Brilho", complementa_variante_ids: [] },
+      ] },
+    ]), 0);
+    // o automático PURO entregaria vt1 à 1ª (frA); a amarração do BOM (frA→[vt1]) bate exatamente com isso — mas
+    // como o bloco tem 2 cores da mesma cor base, a amarração é IGUAL ao automático aqui (não há ambiguidade real:
+    // só 1 cor do T1 pra 2 candidatas do bloco); a prova de "não vira NULL cegamente por cor_id" está no 2º caso.
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // frA: igual ao automático puro (vt1 pra 1ª candidata)
+    expect(s.materiais[1].variantes[1].atende).toBeNull(); // frB: sem casamento nenhum (complementa_variante_ids=[])
+  });
+
+  it("I4/M6: amarração que dá TODAS as cores do T1 à 2ª candidata (∅ igual ao automático, que dá à 1ª) fica à mão", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "frA", ordem: 1, multiplicador: 1, cor_id: "preto", complementa_variante_ids: [] }, // sem casamento
+        { variante_tecido_id: "frB", ordem: 2, multiplicador: 1, cor_id: "preto", complementa_variante_ids: ["vt1"] }, // casa com vt1 à MÃO (o automático daria a vt1 à frA, a 1ª)
+      ] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // frA: sem casamento nenhum
+    expect(s.materiais[1].variantes[1].atende).toEqual(["vt1"]); // frB: amarração ≠ automático (que daria vt1 à frA) → à mão
+  });
+
+  it("M6: id velho (fora de corDoT1) não bloqueia o automático", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1", "vt-removido"] },
+      ] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // "vt-removido" não existe mais no T1 — filtrado, sobra só vt1 = automático
+  });
+
+  it("atendeDoBom (retrocompat, sem automaticoIds): mesma regra simples 'cor base' do teste da T3", () => {
+    expect(atendeDoBom({ cor_id: "c1", complementa_variante_ids: ["vt1", "vt2"] }, new Map([["vt1", "c1"], ["vt2", "c2"]]))).toEqual(["vt1", "vt2"]);
+  });
+});

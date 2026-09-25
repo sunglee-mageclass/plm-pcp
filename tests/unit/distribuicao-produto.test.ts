@@ -112,14 +112,17 @@ describe("distribuicao-produto — tamanhos, proporção legada, tipo, abreviaç
     expect(tamanhosDoTipo(["UN"], "numero")).toEqual(["UN"]);
     expect(tamanhosDoTipo(GRADE, "letra")).toEqual(GRADE);
   });
-  it("proporção com chave legada só-letra/só-número", () => {
+  it("proporção com chave legada só-letra; chave legada SÓ-NÚMERO NÃO resolve (Lote A fix1 · M4: igual ao GradeSection.valorDe)", () => {
     expect(proporcaoDoTamanho({ P: 2 }, "38|P")).toBe(2);
-    expect(proporcaoDoTamanho({ "38": 3 }, "38|P")).toBe(3);
+    expect(proporcaoDoTamanho({ "38": 3 }, "38|P")).toBe(0);
     expect(proporcaoDoTamanho({ "38|P": 1, P: 9 }, "38|P")).toBe(1);
     expect(proporcaoDoTamanho(null, "38|P")).toBe(0);
   });
   it("definirProporcao congela as chaves cheias exibidas e troca só o tamanho digitado", () => {
     expect(definirProporcao({ P: 2 }, ["38|P", "40|M"], "40|M", 3)).toEqual({ "38|P": 2, "40|M": 3 });
+  });
+  it("Lote A fix1 · M3: definirProporcao NÃO descarta as chaves do OUTRO lado da grade (só troca o tamanho mexido)", () => {
+    expect(definirProporcao({ "36": 1, "38": 2, P: 1, M: 2 }, ["38"], "38", 5)).toEqual({ "36": 1, "38": 5, P: 1, M: 2 });
   });
   it("tipoDoProduto: NULL/sem modelo ⇒ Letra (P-25)", () => {
     expect(tipoDoProduto(null)).toBe("letra");

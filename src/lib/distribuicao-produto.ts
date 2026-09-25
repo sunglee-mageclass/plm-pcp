@@ -27,12 +27,15 @@ function inteiro(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Proporção de UM tamanho pela chave cheia ("34|PPP"); aceita a chave legada só-letra ("PPP") ou só-número ("34"). */
+/** Proporção de UM tamanho pela chave cheia ("34|PPP"); aceita a chave legada SÓ-LETRA ("PPP"). Lote A fix1 · M4:
+ *  alinhado ao `GradeSection.valorDe` (fonte única do que o card mostra) — o card só cai pro lado LETRA do par
+ *  ("34|PPP".split("|")[1]), nunca pro lado número; sem esta regra, o dialog (que tentava também a chave legada
+ *  só-número) e o card divergiam pra grade com legado só-número. */
 export function proporcaoDoTamanho(prop: Proporcoes, t: string): number {
   if (!prop) return 0;
   if (tem(prop, t)) return Math.max(0, Number(prop[t]) || 0);
   const l = parseTamanho(t);
-  for (const k of [l.letra, l.numero]) if (k && tem(prop, k)) return Math.max(0, Number(prop[k]) || 0);
+  if (l.letra && tem(prop, l.letra)) return Math.max(0, Number(prop[l.letra]) || 0);
   return 0;
 }
 
@@ -172,10 +175,22 @@ export function voltarAoCalculado(d: Distribuicao, loja: string, t: string, prop
 }
 
 /** Proporção digitada na linha "Proporção por tamanho" do dialog: congela os tamanhos exibidos nas chaves cheias
- *  (igual ao `GradeSection.setProp`) e troca só o tamanho digitado. */
+ *  (igual ao `GradeSection.setProp`) e troca só o tamanho digitado. Lote A fix1 · M3: NÃO descarta as chaves do
+ *  OUTRO lado da grade — só sobrescreve as chaves consumidas para resolver `tamanhos` (a canônica substitui a
+ *  legada que a alimentou); qualquer OUTRA chave de `prop` (ex.: legado do lado oposto — número junto de letra —
+ *  que `tamanhos` não cobre) é mantida como está, igual ao `GradeSection.setProp` preservar o objeto. */
 export function definirProporcao(prop: Proporcoes, tamanhos: string[], t: string, valor: number): Record<string, number> {
+  const consumidas = new Set<string>();
   const out: Record<string, number> = {};
-  for (const k of tamanhos) out[k] = proporcaoDoTamanho(prop, k);
+  for (const k of tamanhos) {
+    out[k] = proporcaoDoTamanho(prop, k);
+    if (prop && tem(prop, k)) consumidas.add(k);
+    else {
+      const l = parseTamanho(k);
+      for (const alias of [l.letra, l.numero]) if (alias && prop && tem(prop, alias)) consumidas.add(alias);
+    }
+  }
+  for (const [k, v] of Object.entries(prop ?? {})) if (!consumidas.has(k) && !(k in out)) out[k] = Number(v) || 0;
   out[t] = inteiro(valor);
   return out;
 }

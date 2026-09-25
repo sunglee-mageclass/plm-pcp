@@ -136,6 +136,30 @@ describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar
     const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
     expect(efeitoDaCarga(cru, { ligado: false, tamanhos: GRADE }, true)).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
   });
+  it("Lote A fix1 · C1: chaves de `grades`/`distribuicao` REORDENADAS (como o jsonb do Postgres devolve — por tamanho da\n" +
+     "     chave, depois por bytes) NÃO deixam o slot sujo; a normalização segue idempotente", () => {
+    // já normalizado (grade_total/grades derivados da distribuição do mockup Número)
+    const normalizado = normalizarSlotDistribuicao(slot([mat("tecido", 1, T1), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]), LIG);
+    const reordenarChaves = <T extends Record<string, unknown>>(o: T): T =>
+      Object.fromEntries(Object.keys(o).sort((a, b) => b.length - a.length || (a < b ? -1 : 1)).map((k) => [k, o[k]])) as T;
+    const reordenado: PtArvore = arvDe({
+      ...normalizado,
+      materiais: normalizado.materiais.map((m) => ({
+        ...m,
+        variantes: m.variantes.map((x) => ({
+          ...x,
+          grades: reordenarChaves(x.grades ?? {}),
+          distribuicao: x.distribuicao ? Object.fromEntries(Object.entries(x.distribuicao).map(([loja, l]) => [loja, { ...l, grades: reordenarChaves(l.grades) }])) : x.distribuicao,
+        })),
+      })),
+    });
+    const e = efeitoDaCarga(reordenado, LIG, true);
+    expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
+    expect(e.arvore).toBe(e.base);
+    // idempotência (normalizar o já-reordenado devolve o MESMO objeto)
+    const s2 = reordenado.subcolecoes[0].linhas[0].slots[0];
+    expect(normalizarSlotDistribuicao(s2, LIG)).toBe(s2);
+  });
 });
 
 describe("materiaisParaAplicar (R3/R4)", () => {

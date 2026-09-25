@@ -3,11 +3,7 @@
 // (computeFreshArvore) e em todo `patch` do PlanTecidoSheet; é idempotente (devolve o MESMO objeto quando nada muda).
 import type { PtArvore, PtMaterial, PtSlot, PtVariante } from "./types";
 import { buildMateriaisAplicar, varKey } from "./calc";
-import { normalizarDistribuicao, tamanhosDoTipo, temDistribuicao, tipoDoProduto, totaisDaDistribuicao, type Distribuicao } from "@/lib/distribuicao-produto";
-
-// Até a Task 3 acrescentar os campos em `types.ts`, o acesso passa por este tipo local (depois ele fica redundante e inofensivo).
-type PtVarianteDist = PtVariante & { distribuicao?: Distribuicao; atende?: string[] | null };
-type PtSlotDist = PtSlot & { tamanho_tipo?: "letra" | "numero" | null };
+import { normalizarDistribuicao, tamanhosDoTipo, temDistribuicao, tipoDoProduto, totaisDaDistribuicao } from "@/lib/distribuicao-produto";
 
 /** Tecido 1 = `tipo='tecido' AND numero=1` (o mesmo critério do servidor e do `_plan_tecido_gravar_bom_core`). */
 export const ehTecido1 = (m: Pick<PtMaterial, "tipo" | "numero">): boolean => m.tipo === "tecido" && Number(m.numero) === 1;
@@ -38,7 +34,7 @@ export type Atendimento = {
 export function atendimentoDoBloco(t1: PtVariante[], bloco: PtVariante[]): Atendimento {
   const servidaPor = new Map<string, string>();
   const manual = new Set<string>();
-  for (const b of bloco as PtVarianteDist[]) {
+  for (const b of bloco) {
     if (!Array.isArray(b.atende)) continue;
     const kb = varKey(b);
     manual.add(kb);
@@ -89,7 +85,22 @@ export function alternarAtende(at: Atendimento, kb: string, kt: string): string[
 export const complementaReal = (servidas: string[]): string[] => servidas.filter((k) => !k.startsWith("plan:"));
 
 export type OpcoesDist = { ligado: boolean; tamanhos: string[] };
-const igual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+// Comparação CANÔNICA (Lote A fix1 · C1): o jsonb do Postgres devolve as chaves de objeto REORDENADAS
+// (por tamanho da chave, depois por bytes) — comparar por JSON.stringify direto (chaves na ordem de
+// inserção) acusava mudança onde não havia, deixando o slot "sujo" para sempre. Ordena as chaves de
+// objeto recursivamente; arrays mantêm a ordem (são dado, não mapa).
+function canon(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canon);
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(o).sort()) out[k] = canon(o[k]);
+    return out;
+  }
+  return v;
+}
+const igual = (a: unknown, b: unknown) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
 /** Deriva o pç do slot (R6): (1) cada cor do T1 com distribuição → células não-manuais recalculadas (proporção × Base),
  *  `grades`/`grade_total` = totais; distribuição que esvazia fica `{}` SEM zerar o pç (R10); (2) cada cor de outro
@@ -98,8 +109,8 @@ export function normalizarSlotDistribuicao(slot: PtSlot, o: OpcoesDist): PtSlot 
   if (!o.ligado) return slot;
   const iT1 = slot.materiais.findIndex(ehTecido1);
   if (iT1 < 0) return slot;
-  const tams = o.tamanhos.length ? tamanhosDoTipo(o.tamanhos, tipoDoProduto((slot as PtSlotDist).tamanho_tipo)) : [];
-  const t1Vars: PtVariante[] = (slot.materiais[iT1].variantes as PtVarianteDist[]).map((v) => {
+  const tams = o.tamanhos.length ? tamanhosDoTipo(o.tamanhos, tipoDoProduto(slot.tamanho_tipo)) : [];
+  const t1Vars: PtVariante[] = slot.materiais[iT1].variantes.map((v) => {
     if (!temDistribuicao(v.distribuicao)) return v;
     const d = normalizarDistribuicao(v.distribuicao, slot.proporcoes, tams);
     if (!temDistribuicao(d)) return { ...v, distribuicao: {} };
@@ -144,7 +155,10 @@ export function normalizarArvoreDistribuicao(arv: PtArvore, o: OpcoesDist): PtAr
   return mudou ? { ...arv, subcolecoes } : arv;
 }
 
-export type EfeitoCarga = { arvore: PtArvore; base: PtArvore; tocados: string[]; recalculadasForaT1: number; sujo: boolean };
+// recalculadasT1 (Lote A fix1 · M5): quantos SLOTS tiveram o Tecido 1 recalculado (a distribuição mudou o pç do
+// próprio bloco T1) — permite a T5 mostrar um aviso próprio ("Distribuição recalculada — salve para gravar")
+// quando só o T1 mudou (sem nenhuma cor de forro/Tecido 2 afetada).
+export type EfeitoCarga = { arvore: PtArvore; base: PtArvore; tocados: string[]; recalculadasForaT1: number; recalculadasT1: number; sujo: boolean };
 
 /** Carga do Plan. Tecido (G-plano R3 — PR12). Normaliza a árvore CRUA (o que o banco tem). Se a normalização MUDOU algum
  *  slot (pç derivado da distribuição ou do "atende a" ≠ o gravado), o slot fica "não salvo": a base do merge colab segue
@@ -152,24 +166,29 @@ export type EfeitoCarga = { arvore: PtArvore; base: PtArvore; tocados: string[];
  *  o mesmo que o Resumo/Modo Plano/Fazer pedido (servidor) leem. Sem mudança ⇒ nada sujo. Sem permissão ⇒ só o aviso. */
 export function efeitoDaCarga(cru: PtArvore, o: OpcoesDist, podeEditar: boolean): EfeitoCarga {
   const arvore = normalizarArvoreDistribuicao(cru, o);
-  if (arvore === cru) return { arvore, base: cru, tocados: [], recalculadasForaT1: 0, sujo: false };
+  if (arvore === cru) return { arvore, base: cru, tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false };
   const tocados: string[] = [];
   let slotsMudados = 0;
   let foraT1 = 0;
+  let t1Mudou = 0;
   cru.subcolecoes.forEach((sub, i) => sub.linhas.forEach((ln, j) => ln.slots.forEach((s, k) => {
     const n = arvore.subcolecoes[i].linhas[j].slots[k];
     if (n === s) return;
     slotsMudados++;
     if (s.id) tocados.push(s.id);
     s.materiais.forEach((m, mi) => {
-      if (ehTecido1(m)) return;
+      if (ehTecido1(m)) {
+        const nm = n.materiais[mi];
+        if (nm && !igual(nm.variantes, m.variantes)) t1Mudou++;
+        return;
+      }
       m.variantes.forEach((v, vi) => {
         const nv = n.materiais[mi]?.variantes[vi];
         if (nv && (Number(nv.grade_total) !== Number(v.grade_total) || !igual(nv.grades ?? {}, v.grades ?? {}))) foraT1++;
       });
     });
   })));
-  return { arvore, base: cru, tocados, recalculadasForaT1: foraT1, sujo: podeEditar && slotsMudados > 0 };
+  return { arvore, base: cru, tocados, recalculadasForaT1: foraT1, recalculadasT1: t1Mudou, sujo: podeEditar && slotsMudados > 0 };
 }
 
 /** Payload de `plan_tecido_aplicar_ao_modelo`/`plan_tecido_criar_card(s)` = o de sempre (`buildMateriaisAplicar`, fonte
