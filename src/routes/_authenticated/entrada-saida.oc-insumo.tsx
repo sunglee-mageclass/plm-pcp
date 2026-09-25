@@ -1098,7 +1098,11 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                 ? <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmark.isPending}>Desmarcar Recebido</Button>
                 : <Button variant="secondary" onClick={() => doSave(true)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Marcar Recebido</Button>
             )}
-            {!isReadOnlyRecebimento && <Button onClick={() => doSave(false)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Salvar</Button>}
+            {/* Salvar sempre aparece, mesmo com a OC recebida — paridade com OC Tecido/Aviamento (achado S3 do
+                QA da Task 12): sem ele, a Data da Nota de Entrada (que continua editável) não tinha como gravar
+                depois de receber. Itens/parcelas de recebimento continuam travados por `isReadOnlyRecebimento`
+                nos próprios campos; o servidor mantém o status ao salvar com `status: 'recebido'`. */}
+            <Button onClick={() => doSave(false)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Salvar</Button>
           </div>
         </div>
         <OcDocumentoPrint modelo={docModelo} />
