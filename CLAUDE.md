@@ -278,8 +278,8 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     `<PageActionBar>` (portal, `pb-24` no container). **Header** com `<Breadcrumb>` "Módulo › Tela ›
     Entidade". Modais persistentes que só existem quando abertos: montar `{open && <Modal/>}` p/ nascer limpo.
   - **Informação complementar de campo = `InfoHover`** (`src/components/shared/InfoHover.tsx`,
-    set/2026): "i" ao lado do rótulo, mostra no hover (desktop, mesmo padrão do `CondicaoInfo`) —
-    nunca texto fixo embaixo do campo. Em uso: motivo da Origem travada e preço/estoque do Tecido
+    set/2026): "i" ao lado do rótulo, mostra no hover (mesmo visual do `CondicaoInfo`) e TAMBÉM abre
+    com toque/teclado (`open` controlado; é o único lugar da informação) — nunca texto fixo embaixo do campo. Em uso: motivo da Origem travada e preço/estoque do Tecido
     1..3 no Sheet do Planejamento.
 - **Colaboração em tempo real (rev otimista)** — telas com risco de edição simultânea (2+ pessoas
   no mesmo registro) usam o padrão: coluna `rev` na tabela-raiz (bump a cada UPDATE) + save manda
