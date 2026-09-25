@@ -1181,7 +1181,7 @@ function PlanejamentoDetailConteudo({
     desenvolvimentoCompleto: desenvolvimentoCompleto(draft, campoVisivelDev),
     preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
     maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
-    anexos: { fotoModelo: draft.fotos_modelo.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
+    anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
   });
   // F3.4 — selo da grade cor × tamanho (comprado): requisito `grade_preenchida` do fluxo de comprado, senão informativo.

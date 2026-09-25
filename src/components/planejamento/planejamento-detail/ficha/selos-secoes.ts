@@ -85,9 +85,33 @@ export type EntradaSelosSheet = {
   /** null = revenda (a tabela de preço é outra) → sem selo. */
   preco: { efetivo: number; markup: number } | null;
   maoObra: { estado: EstadoMO; total: number };
-  anexos: { fotoModelo: boolean; desenho: boolean; croqui: boolean };
+  /** 4 anexos totais (decisão do dono 25/set — a Ficha de Medida NÃO conta): foto do modelo, foto de
+   *  referência, desenho técnico, croqui. */
+  anexos: { fotoModelo: boolean; fotoReferencia: boolean; desenho: boolean; croqui: boolean };
   lancamento: { lancado: boolean; data: string | null };
 };
+
+/** Ordem/rótulos dos 4 anexos (decisão do dono 25/set: são 4 totais — Ficha de Medida NÃO conta). */
+const ANEXOS_ROTULOS: readonly { key: keyof EntradaSelosSheet["anexos"]; label: string }[] = [
+  { key: "fotoModelo", label: "foto do modelo" },
+  { key: "fotoReferencia", label: "foto de referência" },
+  { key: "desenho", label: "desenho técnico" },
+  { key: "croqui", label: "croqui" },
+];
+
+/** Selo informativo da seção Anexos: 4 presentes ⇒ "anexos ok"; 0 ⇒ "vazio"; senão "N de 4 anexos" com
+ *  tooltip "Tem: … · Faltam: …" (decisão do dono 25/set — substitui o texto do PRIMEIRO anexo presente). */
+function seloAnexos(a: EntradaSelosSheet["anexos"]): SeloSecao {
+  const tem = ANEXOS_ROTULOS.filter((r) => a[r.key]);
+  const faltam = ANEXOS_ROTULOS.filter((r) => !a[r.key]);
+  if (tem.length === ANEXOS_ROTULOS.length) return { tone: "ok", texto: "anexos ok" };
+  if (tem.length === 0) return { tone: "muted", texto: "vazio" };
+  return {
+    tone: "muted",
+    texto: `${tem.length} de ${ANEXOS_ROTULOS.length} anexos`,
+    title: `Tem: ${tem.map((r) => r.label).join(", ")} · Faltam: ${faltam.map((r) => r.label).join(", ")}`,
+  };
+}
 
 /** Selos das seções do Planejamento + as simples do Dev. BOM/CAD/Prova/Observações/Relacionado: funções próprias. */
 export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoSheetKey, SeloSecao>> {
@@ -108,13 +132,7 @@ export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoShee
       : mo.estado === "aprovada" ? { tone: "ok", texto: e.podeVerCustos ? `aprovada · ${brl(mo.total)}` : "aprovada" }
         : mo.estado === "reprovada" ? { tone: "warn", texto: "reprovada" }
           : { tone: "warn", texto: "pendente" });
-  const a = e.anexos;
-  out.anexos = r("anexos") ?? (
-    a.fotoModelo && a.desenho && a.croqui ? { tone: "ok", texto: "anexos ok" }
-      : a.fotoModelo ? { tone: "info", texto: "foto do modelo" }
-        : a.desenho ? { tone: "info", texto: "desenho técnico" }
-          : a.croqui ? { tone: "info", texto: "croqui" }
-            : { tone: "muted", texto: "vazio" });
+  out.anexos = r("anexos") ?? seloAnexos(e.anexos);
   out.lancamento = r("lancamento") ?? (
     e.lancamento.lancado ? { tone: "ok", texto: "lançado" }
       : e.lancamento.data ? { tone: "muted", texto: dataBR(e.lancamento.data) }

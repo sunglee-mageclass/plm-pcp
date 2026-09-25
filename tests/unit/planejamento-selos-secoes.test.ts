@@ -36,7 +36,7 @@ describe("selosSecoesSheet", () => {
     requeridas: new Set(), satisfeitas: null, podeVerCustos: true,
     infoCompleta: true, colecaoResumo: "Verão 2027 · Casual · lanç. 2 · mar/2027", desenvolvimentoCompleto: false,
     preco: { efetivo: 289.9, markup: 2.91 }, maoObra: { estado: "aprovada", total: 35 },
-    anexos: { fotoModelo: true, desenho: true, croqui: true }, lancamento: { lancado: false, data: "2027-03-15" },
+    anexos: { fotoModelo: true, fotoReferencia: true, desenho: true, croqui: true }, lancamento: { lancado: false, data: "2027-03-15" },
   };
   it("informativos (sem requisito da loja) — mockup gen_main.py", () => {
     const s = selosSecoesSheet(base);
@@ -65,7 +65,24 @@ describe("selosSecoesSheet", () => {
     expect(selosSecoesSheet({ ...base, maoObra: { estado: "sem_servico", total: 0 } }).mao_obra).toEqual({ tone: "muted", texto: "sem serviço" });
     expect(selosSecoesSheet({ ...base, maoObra: { estado: "pendente", total: 10 } }).mao_obra).toEqual({ tone: "warn", texto: "pendente" });
     expect(selosSecoesSheet({ ...base, lancamento: { lancado: true, data: "2027-03-15" } }).lancamento).toEqual({ tone: "ok", texto: "lançado" });
-    expect(selosSecoesSheet({ ...base, anexos: { fotoModelo: false, desenho: true, croqui: false } }).anexos).toEqual({ tone: "info", texto: "desenho técnico" });
+  });
+  // Decisão do dono (25/set): são 4 anexos totais (foto do modelo, foto de referência, desenho técnico,
+  // croqui — a Ficha de Medida NÃO conta). Substitui a regra antiga de "texto do 1º anexo presente".
+  it("anexos: contagem de 4 (0/1/2/4 presentes)", () => {
+    expect(selosSecoesSheet({ ...base, anexos: { fotoModelo: false, fotoReferencia: false, desenho: false, croqui: false } }).anexos)
+      .toEqual({ tone: "muted", texto: "vazio" });
+    const umSo = selosSecoesSheet({ ...base, anexos: { fotoModelo: true, fotoReferencia: false, desenho: false, croqui: false } }).anexos;
+    expect(umSo).toEqual({
+      tone: "muted", texto: "1 de 4 anexos",
+      title: "Tem: foto do modelo · Faltam: foto de referência, desenho técnico, croqui",
+    });
+    const dois = selosSecoesSheet({ ...base, anexos: { fotoModelo: false, fotoReferencia: true, desenho: true, croqui: false } }).anexos;
+    expect(dois).toEqual({
+      tone: "muted", texto: "2 de 4 anexos",
+      title: "Tem: foto de referência, desenho técnico · Faltam: foto do modelo, croqui",
+    });
+    expect(selosSecoesSheet({ ...base, anexos: { fotoModelo: true, fotoReferencia: true, desenho: true, croqui: true } }).anexos)
+      .toEqual({ tone: "ok", texto: "anexos ok" });
   });
 });
 
