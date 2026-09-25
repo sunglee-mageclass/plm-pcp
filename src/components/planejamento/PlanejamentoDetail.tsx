@@ -1459,6 +1459,11 @@ function PlanejamentoDetailConteudo({
                 rotuloRef={fl("ref")}
                 refVisivel={kanbanCard.refVisivel}
                 refEditavel={refEditavel}
+                // Minor (4) da revisão Opus — o Regerar lê o FORMATO/siglas/"Tamanho em" SALVOS (mensagem do
+                // AlertDialog); com REF/"Tamanho em" digitados e ainda não salvos, regerar agora usaria um valor que
+                // o servidor nem tem — trava até o próximo Salvar (`draftFromModeloRow` normaliza igual ao Draft).
+                refSalva={(modeloData as any)?.ref ?? ""}
+                tamanhoTipoSalvo={(modeloData as any)?.tamanho_tipo === "numero" ? "numero" : "letra"}
                 skus={skus}
                 podeVerSkus={podeVerPlanejamento}
                 podeEditarSkus={podeEditarPlanejamento}

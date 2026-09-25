@@ -1,11 +1,14 @@
 // Seção "4. Códigos" do Sheet do Planejamento (F3.6 — spec 2026-09-25 §5.1; F3.5b da spec do SKU §4.3).
 // L1: REF (o MESMO campo que saiu da seção 3 — aparece a partir da etapa configurada, `refVisivel`, e só o INPUT trava com
-// `refEditavel`, como hoje; sem aviso de campos do Dev nesta seção — R29) · "Tamanho em" (rádio Letra | Número SEM padrão da loja — nasce
-// sem escolha e é obrigatório p/ GERAR os SKUs; Draft → `modelos.tamanho_tipo`, grava no Salvar — R10) · "Regerar SKUs"
-// (AlertDialog; nunca muda os editados à mão). Tabela "SKUs por variante e tamanho": o SKU GRAVADO (editável à mão — RPC
-// imediata `salvar_sku_manual` com `_rev_base`, fora do Salvar da página; NÃO trava depois da Explosão — spec SKU §4.2) e a
-// situação de cada linha. Geração e leitura 100% no servidor (F3.5a + Task 6); regras de exibição puras em ./sku-card.ts;
-// siglas do rótulo por consulta própria (`useSiglasCores` — R11).
+// `refEditavel`, como hoje; sem aviso de campos do Dev nesta seção — R29) · "Tamanho em" (rádio Letra | Número SEM padrão
+// da LOJA — nada na Config; decisão P-25 do dono 25/set 14:57: todo produto NASCE marcado em Letra e pode trocar p/
+// Número, legado migra p/ Letra no banco; Draft → `modelos.tamanho_tipo`, grava no Salvar — R10) · "Regerar SKUs"
+// (AlertDialog; nunca muda os editados à mão; Minor (4) da revisão — trava se REF/"Tamanho em" ainda não foram
+// salvos, senão regeraria com um valor que o servidor nem tem). Tabela "SKUs por variante e tamanho": o SKU GRAVADO
+// (editável à mão — RPC imediata `salvar_sku_manual` com `_rev_base`, fora do Salvar da página; NÃO trava depois da
+// Explosão — spec SKU §4.2; falha de validação devolve o campo ao valor do servidor — Minor (5)) e a situação de
+// cada linha. Geração e leitura 100% no servidor (F3.5a + Task 6; status desconhecido = fail-closed — Minor (2));
+// regras de exibição puras em ./sku-card.ts; siglas do rótulo por consulta própria (`useSiglasCores` — R11).
 import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
@@ -24,12 +27,16 @@ import {
 } from "./sku-card";
 import { useSiglasCores, type SkusModelo } from "./useSkusModelo";
 
-// R10 — SEM padrão da loja: as 2 opções; nenhuma marcada enquanto `tamanho_tipo` é NULL.
+// P-25 (dono 25/set) — SEM padrão da LOJA (nada na Config): as 2 opções; o Draft chega aqui já marcado em Letra
+// (default de fábrica) e o rádio segue o Draft normalmente.
 const TAMANHOS_EM = [{ v: "letra", rotulo: "Letra" }, { v: "numero", rotulo: "Número" }] as const;
 
 // Nível de MÓDULO (não dentro do render): declarado dentro, remontaria a cada render e o input perderia o foco.
-function SkuCampo({ linha, editavel, salvando, onSalvar }: {
-  linha: LinhaSku; editavel: boolean; salvando: boolean; onSalvar: (sku: string) => void;
+function SkuCampo({ linha, editavel, salvando, ariaLabel, onSalvar }: {
+  linha: LinhaSku; editavel: boolean; salvando: boolean;
+  /** Minor (6) da revisão — variante + tamanho (não a chave crua "34|PPP"), ex.: "SKU — Variante 1 · Marrom · 34". */
+  ariaLabel: string;
+  onSalvar: (sku: string) => void;
 }) {
   const [texto, setTexto] = useState(linha.sku ?? "");
   // Recarregou do servidor (salvou / regerou / outra pessoa): o campo acompanha.
@@ -37,6 +44,8 @@ function SkuCampo({ linha, editavel, salvando, onSalvar }: {
   const confirmar = () => {
     const r = skuDigitadoParaSalvar(linha, texto);
     if (r.acao === "salvar") { onSalvar(r.sku); return; }
+    // Minor (5) — inválido OU sem mudança real: o campo volta ao valor GRAVADO no servidor (`linha.sku`), nunca fica
+    // preso no texto digitado que falhou.
     if (r.acao === "erro") toast.error(r.erro);
     setTexto(linha.sku ?? "");
   };
@@ -46,7 +55,7 @@ function SkuCampo({ linha, editavel, salvando, onSalvar }: {
       value={texto}
       placeholder={linha.sku_previsto ?? ""}
       disabled={!editavel || salvando}
-      aria-label={`SKU do tamanho ${linha.tamanho_key}`}
+      aria-label={ariaLabel}
       onChange={(e) => setTexto(e.target.value)}
       onBlur={confirmar}
       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
@@ -56,7 +65,7 @@ function SkuCampo({ linha, editavel, salvando, onSalvar }: {
 }
 
 export function CodigosSecao({
-  draft, setDraftTracked, rotuloRef, refVisivel, refEditavel, skus, podeVerSkus, podeEditarSkus,
+  draft, setDraftTracked, rotuloRef, refVisivel, refEditavel, refSalva, tamanhoTipoSalvo, skus, podeVerSkus, podeEditarSkus,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -65,6 +74,10 @@ export function CodigosSecao({
   refVisivel: boolean;
   /** = `refEditavel` do orquestrador (isEdit && !devBloqueado && refVisivel) — o MESMO que põe a REF no payload. */
   refEditavel: boolean;
+  /** Minor (4) — REF/"Tamanho em" tal como o SERVIDOR os tem agora (`modeloData`), p/ comparar com o Draft e travar
+   *  o Regerar quando há algo digitado e ainda não salvo (o Regerar usa o que está SALVO, não o rascunho). */
+  refSalva: string;
+  tamanhoTipoSalvo: "letra" | "numero";
   skus: SkusModelo;
   /** Ver SKUs = ver o Planejamento; editar/Regerar = editar o Planejamento (spec SKU §4.4 — o servidor confere). */
   podeVerSkus: boolean;
@@ -75,6 +88,9 @@ export function CodigosSecao({
   const grupos = m ? agruparPorVariante(m.linhas) : [];
   // SKU editável = matriz ok + editar o Planejamento. NÃO depende da trava do Dev/Explosão (spec SKU §4.2; R29).
   const editavel = !!m && m.status === "ok" && podeEditarSkus;
+  // Minor (4) — REF ou "Tamanho em" digitados e diferentes do que está SALVO: Regerar usaria valores que o servidor
+  // ainda não tem (o AlertDialog já avisa que recalcula pelo que está "SALVO agora") — trava até o próximo Salvar.
+  const draftSujoParaRegerar = draft.ref !== refSalva || draft.tamanho_tipo !== tamanhoTipoSalvo;
   const siglas = useSiglasCores(podeVerSkus);
   return (
     <div className="space-y-3">
@@ -95,11 +111,12 @@ export function CodigosSecao({
         ) : (
           <p className="text-xs text-muted-foreground">A {rotuloRef} aparece a partir da etapa configurada na Config da Loja.</p>
         )}
-        {/* R10 (dono 25/set) — SEM padrão da loja: nasce sem escolha; obrigatório só p/ GERAR os SKUs (o Salvar segue livre).
-            Rádio nativo (não há RadioGroup em ui/, que não se edita): grupo rotulado; alvo de toque 44px no mobile. */}
+        {/* P-25 (dono 25/set 14:57) — SEM padrão da LOJA: o Draft já chega marcado em Letra (default de fábrica); dá
+            p/ trocar p/ Número. Rádio nativo (não há RadioGroup em ui/, que não se edita): grupo rotulado; alvo de
+            toque 44px no mobile. */}
         <div className="grid gap-1" role="radiogroup" aria-labelledby="codigos-tamanho-em" data-colab-path="tamanho_tipo">
           <Label id="codigos-tamanho-em">
-            Tamanho em <span className="font-normal text-muted-foreground">· obrigatório p/ gerar os SKUs (começa sem escolha)</span>
+            Tamanho em <span className="font-normal text-muted-foreground">· nasce em Letra; troque para Número se o produto usa numeração</span>
           </Label>
           <div className="flex min-h-9 items-center gap-4 text-sm">
             {TAMANHOS_EM.map((o) => (
@@ -119,7 +136,9 @@ export function CodigosSecao({
         </div>
         {podeVerSkus && (
           <Button type="button" variant="outline" size="sm" className="max-sm:min-h-11"
-            disabled={!editavel || skus.regerando} onClick={() => setConfirmarRegerar(true)}>
+            disabled={!editavel || skus.regerando || draftSujoParaRegerar}
+            title={draftSujoParaRegerar ? "Salve o card antes de regerar" : undefined}
+            onClick={() => setConfirmarRegerar(true)}>
             <RefreshCw className="mr-1 h-4 w-4" /> Regerar SKUs
           </Button>
         )}
@@ -139,16 +158,21 @@ export function CodigosSecao({
               ) : m.status === "aguardando_ref" ? (
                 `Os SKUs são gerados quando o card tiver ${rotuloRef} (salve o card depois que ela aparecer).`
               ) : m.status === "sem_tamanho" ? (
-                "Escolha “Tamanho em” (Letra ou Número) e salve o card para gerar os SKUs."
+                // P-25 — só card LEGADO antes da migration T6 rodar (todo produto novo já nasce em Letra); não é
+                // mais uma escolha pendente do usuário, então o texto não fala em "escolha".
+                "Este card é de antes da migração do “Tamanho em” — salve o card para atualizá-lo e gerar os SKUs."
+              ) : m.status === "desconhecido" ? (
+                "Não foi possível ler a situação dos SKUs — recarregue a página."
               ) : (
                 "Sem linhas: preencha a Grade (variantes do Tecido 1 × tamanhos com quantidade)."
               )}
             </p>
           ) : (
             <div className="overflow-x-auto">
-              {/* R23 — SKUs já gravados num card sem "Tamanho em": a tabela mostra os gravados; gerar/regerar espera a escolha. */}
+              {/* R23 — SKUs já gravados num card LEGADO (P-25: sem "Tamanho em" só existe em card de antes da
+                  migração): a tabela mostra os gravados; gerar/regerar espera o Salvar que atualiza o card. */}
               {m.status === "sem_tamanho" && (
-                <p className="mb-2 text-xs text-muted-foreground">Escolha “Tamanho em” e salve o card para gerar ou regerar os SKUs.</p>
+                <p className="mb-2 text-xs text-muted-foreground">Card de antes da migração do “Tamanho em” — salve o card para gerar ou regerar os SKUs.</p>
               )}
               <table className="w-full text-sm">
                 <thead>
@@ -159,23 +183,28 @@ export function CodigosSecao({
                   </tr>
                 </thead>
                 <tbody className="align-middle">
-                  {grupos.map((g) => (
+                  {grupos.map((g) => {
+                    const rotuloVar = rotuloVariante(g, siglasDoGrupo(g, siglas.cores, siglas.apelidos));
+                    return (
                     <Fragment key={g.chave}>
                       <tr className="bg-muted/40">
-                        <td colSpan={3} className="py-1.5 px-2 text-xs font-semibold text-muted-foreground">{rotuloVariante(g, siglasDoGrupo(g, siglas.cores, siglas.apelidos))}</td>
+                        <td colSpan={3} className="py-1.5 px-2 text-xs font-semibold text-muted-foreground">{rotuloVar}</td>
                       </tr>
                       {g.linhas.map((l) => {
                         const sit = situacaoSku(l);
                         const aviso = avisoSku(l);
                         const chave = `${l.variante_key}|${l.tamanho_key}`;
+                        const rotuloTam = rotuloTamanho(l.tamanho_key, m.tamanho_tipo);
                         return (
                           <tr key={chave} className="border-t">
-                            <td className="py-2 pr-3 pl-4 whitespace-nowrap">{rotuloTamanho(l.tamanho_key, m.tamanho_tipo)}</td>
+                            <td className="py-2 pr-3 pl-4 whitespace-nowrap">{rotuloTam}</td>
                             <td className="py-2 px-2 min-w-40">
                               <SkuCampo
                                 linha={l}
                                 editavel={editavel && l.estado !== "orfa"}
                                 salvando={skus.salvandoChave === chave}
+                                // Minor (6) — variante + tamanho, não a chave crua (ex.: "SKU — Variante 1 · Marrom · 34").
+                                ariaLabel={`SKU — ${rotuloVar} · ${rotuloTam}`}
                                 onSalvar={(sku) => skus.salvarManual({ id: l.id, sku, rev: l.rev, varianteKey: l.variante_key, tamanhoKey: l.tamanho_key })}
                               />
                             </td>
@@ -198,7 +227,8 @@ export function CodigosSecao({
                         );
                       })}
                     </Fragment>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

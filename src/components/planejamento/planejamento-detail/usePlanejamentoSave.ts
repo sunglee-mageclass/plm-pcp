@@ -37,7 +37,7 @@ export type UsePlanejamentoSaveArgs = {
   podeVerCustos: boolean;
   /** F3.1: pode editar o Desenvolvimento? Sem isso os campos do Dev saem do payload (decisão F3 #8). */
   podeEditarDev: boolean;
-  /** F3.1: o campo REF está editável na seção "Desenvolvimento"? Só então a REF vai no payload. */
+  /** F3.6: o campo REF está editável na seção "Códigos" (saiu de "Desenvolvimento" na F3.6)? Só então a REF vai no payload. */
   refEditavel: boolean;
   categorias: CatOpt[];
   draft: Draft;

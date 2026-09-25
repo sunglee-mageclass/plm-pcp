@@ -48,8 +48,9 @@ describe("lerMatriz — jsonb das RPCs da F3.5a", () => {
       id: "s1", sku: "X", estado: "salvo", variante_ordem: null, cor_nome: null, faltas: [], avisos: [], conflito_com: null, sku_previsto: null,
     });
   });
-  it("lixo não quebra: null, estado desconhecido, tamanho_tipo inválido (sem cair em 'letra' — R10)", () => {
-    expect(lerMatriz(null)).toEqual({ status: "ok", tamanho_tipo: null, tamanho_tipo_card: null, linhas: [], faltas: [], avisos: [] });
+  it("Minor (2) da revisão — status ausente/desconhecido é FAIL-CLOSED: vira 'desconhecido', NUNCA 'ok' (que destravaria Regerar/input à toa)", () => {
+    expect(lerMatriz(null)).toEqual({ status: "desconhecido", tamanho_tipo: null, tamanho_tipo_card: null, linhas: [], faltas: [], avisos: [] });
+    expect(lerMatriz({ status: "algo_que_o_front_ainda_nao_conhece" }).status).toBe("desconhecido");
     expect(lerMatriz({ linhas: [{ estado: "xyz" }] }).linhas[0].estado).toBe("vazio");
     expect(lerMatriz({ tamanho_tipo: "cm" }).tamanho_tipo).toBeNull();
   });
@@ -124,12 +125,15 @@ describe("situacaoSku / avisoSku", () => {
 });
 
 describe("deveGerarPrimeiraVez (1ª geração pós-Salvar — spec SKU §4.2, Ruling R12)", () => {
-  it("só com REF (status ok), linhas a gerar e NENHUM SKU gravado", () => {
-    expect(deveGerarPrimeiraVez(matriz({ linhas: [linha(), linha({ tamanho_key: "36|PP" })] }))).toBe(true);
-    expect(deveGerarPrimeiraVez(matriz({ linhas: [linha(), linha({ id: "s1", sku: "X", estado: "ok" })] }))).toBe(false);
-    expect(deveGerarPrimeiraVez(matriz({ status: "aguardando_ref" }))).toBe(false);
-    expect(deveGerarPrimeiraVez(matriz({ linhas: [linha({ estado: "falta", sku_previsto: null })] }))).toBe(false);
-    expect(deveGerarPrimeiraVez(matriz())).toBe(false);
+  it("só com REF (status ok), 'Tamanho em' do card já decidido, linhas a gerar e NENHUM SKU gravado", () => {
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: "letra", linhas: [linha(), linha({ tamanho_key: "36|PP" })] }))).toBe(true);
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: "letra", linhas: [linha(), linha({ id: "s1", sku: "X", estado: "ok" })] }))).toBe(false);
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: "letra", status: "aguardando_ref" }))).toBe(false);
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: "letra", linhas: [linha({ estado: "falta", sku_previsto: null })] }))).toBe(false);
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: "letra" }))).toBe(false);
+  });
+  it("Minor (1) da revisão — guarda tamanho_tipo_card !== null: mesmo com status 'ok' e linha pendente, sem o servidor ter decidido o 'Tamanho em' do card não gera (rede p/ deploy fora de ordem/volta)", () => {
+    expect(deveGerarPrimeiraVez(matriz({ tamanho_tipo_card: null, linhas: [linha(), linha({ tamanho_key: "36|PP" })] }))).toBe(false);
   });
 });
 
@@ -157,14 +161,18 @@ describe("resumoGeracao", () => {
 });
 
 describe("seloCodigos (selo da seção — spec §5.3)", () => {
-  it("vazia (nenhuma linha) ⇒ sem selo, nem 'aguardando REF' nem 'escolha Tamanho em' (regra de seção vazia do dono, 25/set)", () => {
+  it("vazia (nenhuma linha) ⇒ sem selo, nem 'aguardando REF' nem 'aguardando migração' (regra de seção vazia do dono, 25/set)", () => {
     expect(seloCodigos(matriz({ status: "aguardando_ref" }))).toBeUndefined();
     expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null }))).toBeUndefined();
     expect(seloCodigos(undefined)).toBeUndefined();
   });
-  it("R23 — SKUs gravados e card SEM 'Tamanho em' ⇒ cinza 'escolha Tamanho em'", () => {
+  it("R23 + P-25 — SKUs gravados e card LEGADO sem 'Tamanho em' ⇒ cinza 'aguardando migração do Tamanho em' (não é mais uma escolha pendente do usuário)", () => {
     expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null, linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
-      .toEqual({ tone: "muted", texto: "escolha Tamanho em" });
+      .toEqual({ tone: "muted", texto: "aguardando migração do Tamanho em" });
+  });
+  it("Minor (2) — status 'desconhecido' com SKUs gravados ⇒ cinza, sem virar 'ok'", () => {
+    expect(seloCodigos(matriz({ status: "desconhecido", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
+      .toEqual({ tone: "muted", texto: "não foi possível ler o status" });
   });
   it("falta sigla ⇒ âmbar 'N SKU(s) sem sigla' (vence o resto)", () => {
     const m = matriz({
@@ -197,18 +205,25 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     expect(s).not.toContain('data-colab-path="ref"');
     expect(s).not.toMatch(/refVisivel/);
   });
-  it("CodigosSecao: REF, 'Tamanho em' SEM padrão (rádio + frase do mockup), SKU com data-colab-path próprio, Regerar com AlertDialog e o texto do mockup", () => {
+  it("CodigosSecao: REF, 'Tamanho em' SEM padrão da loja (nasce em Letra — P-25), SKU com data-colab-path próprio e aria-label por variante/tamanho, Regerar trava se sujo e usa AlertDialog, texto do mockup", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
     expect(s).toContain('data-colab-path="ref"');
     expect(s).toContain('data-colab-path="tamanho_tipo"');
     expect(s).toContain('type="radio"');
-    expect(s).toContain("· obrigatório p/ gerar os SKUs (começa sem escolha)");
-    expect(s).not.toContain("Padrão da loja"); // R10 — dono 25/set: sem padrão da loja
+    // P-25 (dono 25/set 14:57) — "nasce marcado em Letra": não é mais "começa sem escolha".
+    expect(s).toContain("· nasce em Letra; troque para Número se o produto usa numeração");
+    expect(s).not.toContain("começa sem escolha");
+    expect(s).not.toContain("Padrão da loja"); // continua sem padrão da LOJA (nada na Config)
     expect(s).not.toMatch(/tamanho_padrao|TAMANHO_PADRAO/);
-    expect(s).toContain("Escolha “Tamanho em” (Letra ou Número) e salve o card para gerar os SKUs.");
+    expect(s).not.toContain("Escolha “Tamanho em” (Letra ou Número) e salve o card para gerar os SKUs."); // texto antigo saiu
     expect(s).not.toContain("AvisoCamposDev"); // R29 — só o input da REF trava
     expect(s).toContain("rotuloVariante(g, siglasDoGrupo(g, siglas.cores, siglas.apelidos))"); // R11
     expect(s).toContain("data-colab-path={`sku:${linha.variante_key}:${linha.tamanho_key}`}");
+    // Minor (6) — aria-label por variante + tamanho, não a chave crua.
+    expect(s).toContain("ariaLabel={`SKU — ${rotuloVar} · ${rotuloTam}`}");
+    // Minor (4) — Regerar trava quando REF/"Tamanho em" ainda não foram salvos.
+    expect(s).toContain("draftSujoParaRegerar");
+    expect(s).toContain("Salve o card antes de regerar");
     expect(s).toContain("Regerar SKUs");
     expect(s).toMatch(/<AlertDialog\b/);
     expect(s).toContain("SKUs editados à mão não mudam");

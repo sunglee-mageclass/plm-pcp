@@ -2,14 +2,21 @@
 // F3.5b da spec do SKU §4.3). Regras PURAS de exibição da matriz de SKUs que as RPCs `skus_modelo`/`gerar_skus_modelo`
 // (F3.5a, migration 20261003100000) devolvem — sem I/O. O SKU é gerado e gravado SÓ no servidor (fonte única); aqui só se
 // lê, agrupa, rotula, decide o selo, a 1ª geração automática pós-Salvar e o que fazer com um SKU digitado à mão.
-// F3.6 (dono 25/set): o "Tamanho em" NÃO tem padrão da loja — `tamanho_tipo` null = o card ainda não escolheu (status
-// `sem_tamanho`, R23); as siglas do rótulo vêm de consulta própria da tela (`useSiglasCores`), casadas pelo nome (R11).
+// F3.6 — o "Tamanho em" NÃO tem padrão da LOJA (nada na Config). Decisão P-25 do dono (25/set 14:57, corrige a leitura
+// anterior "sem escolha"): todo produto NASCE marcado em Letra (front: `emptyDraft().tamanho_tipo`/
+// `draftFromModeloRow` em modelo-shared.ts); o `tamanho_tipo` null que a matriz ainda pode trazer (status
+// `sem_tamanho`, R23) é só o card LEGADO antes da migration T6 rodar no banco (que move o NULL existente p/ "letra").
+// Siglas do rótulo vêm de consulta própria da tela (`useSiglasCores`), casadas pelo nome (R11).
 import { ladoTamanho, type TamanhoTipo } from "@/lib/tamanho";
 import { normalizarSkuManual, textoAviso, textoFalta, type SkuFalta } from "@/lib/sku-montar";
 import { seloDeSecao, type SeloSecao } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
 
 export type EstadoSku = "ok" | "manual" | "falta" | "pendente" | "divergente" | "conflito" | "vazio" | "orfa" | "salvo";
-export type StatusMatriz = "ok" | "sem_formato" | "aguardando_ref" | "sem_tamanho";
+// Minor (2) da revisão Opus do Lote C — `desconhecido` é FAIL-CLOSED: status ausente/não reconhecido do jsonb da RPC
+// (payload truncado, versão de servidor mais nova/antiga que o front não conhece ainda) NÃO deve virar "ok" — "ok" é o
+// único status que habilita Regerar e o input do SKU (ver `editavel` em CodigosSecao.tsx e `deveGerarPrimeiraVez`
+// abaixo). `desconhecido` trava os dois, como `sem_formato`/`aguardando_ref`.
+export type StatusMatriz = "ok" | "sem_formato" | "aguardando_ref" | "sem_tamanho" | "desconhecido";
 export type ConflitoSku = { modelo_id: string; nome: string | null; ref: string | null };
 export type LinhaSku = {
   variante_key: string; variante_ordem: number | null; cor_nome: string | null; apelido_nome: string | null;
@@ -45,8 +52,12 @@ function conflitoDe(v: unknown): ConflitoSku | null {
  *  estado por linha — o resto vira null/[]. */
 export function lerMatriz(raw: unknown): MatrizSkus {
   const o = obj(raw);
+  // Minor (2) — fail-closed: só os 4 status que a F3.5a/Task 6 realmente devolvem viram eles mesmos; qualquer outra
+  // coisa (ausente, string desconhecida, versão futura) vira "desconhecido" — NUNCA "ok" (que destravaria Regerar/
+  // input sem o servidor ter dito que está tudo certo).
   const status: StatusMatriz =
-    o.status === "sem_formato" || o.status === "aguardando_ref" || o.status === "sem_tamanho" ? o.status : "ok";
+    o.status === "ok" || o.status === "sem_formato" || o.status === "aguardando_ref" || o.status === "sem_tamanho"
+      ? o.status : "desconhecido";
   const linhas = (Array.isArray(o.linhas) ? o.linhas : []).map(obj).map((l): LinhaSku => ({
     variante_key: txt(l.variante_key) ?? "",
     variante_ordem: num(l.variante_ordem),
@@ -149,9 +160,13 @@ export function avisoSku(l: LinhaSku): string | null {
   return l.avisos.length > 0 ? l.avisos.map(textoAviso).join(" · ") : null;
 }
 
-/** 1ª geração automática (spec SKU §4.2; R12): card com REF (`status ok`), NENHUM SKU gravado e há linha a gerar. */
+/** 1ª geração automática (spec SKU §4.2; R12): card com REF (`status ok`), NENHUM SKU gravado e há linha a gerar.
+ *  Minor (1) da revisão — guarda extra `tamanho_tipo_card !== null`: rede de segurança contra deploy fora de ordem
+ *  (front novo antes da migration T6 rodar) ou uma volta de emergência que deixe a coluna NULL de novo no banco —
+ *  `status="ok"` sozinho não garante que o servidor já decidiu um "Tamanho em" para ESTE card. */
 export function deveGerarPrimeiraVez(m: MatrizSkus): boolean {
-  return m.status === "ok" && m.linhas.length > 0 && m.linhas.every((l) => !l.id) && m.linhas.some((l) => l.estado === "pendente");
+  return m.status === "ok" && m.tamanho_tipo_card !== null
+    && m.linhas.length > 0 && m.linhas.every((l) => !l.id) && m.linhas.some((l) => l.estado === "pendente");
 }
 
 export type AcaoSkuDigitado = { acao: "nada" } | { acao: "erro"; erro: string } | { acao: "salvar"; sku: string };
@@ -196,7 +211,12 @@ export function seloCodigos(m: MatrizSkus | null | undefined): SeloSecao | undef
     // R23 — mesma precedência do servidor: sem formato → aguardando REF → sem "Tamanho em".
     if (m.status === "sem_formato") return { tone: "muted", texto: "sem formato de SKU" };
     if (m.status === "aguardando_ref") return { tone: "muted", texto: "aguardando REF" };
-    if (m.status === "sem_tamanho") return { tone: "muted", texto: "escolha Tamanho em" };
+    // P-25 (dono 25/set) — "sem_tamanho" só existe em card LEGADO antes da migration T6 rodar (todo produto novo já
+    // nasce em Letra); o texto não fala mais em "escolha" (não é mais uma escolha pendente do usuário, é um card
+    // antigo aguardando a migration).
+    if (m.status === "sem_tamanho") return { tone: "muted", texto: "aguardando migração do Tamanho em" };
+    // Minor (2) — "desconhecido" (status ausente/não reconhecido) trava igual aos outros estados de espera.
+    if (m.status === "desconhecido") return { tone: "muted", texto: "não foi possível ler o status" };
     if (nPendente > 0) return { tone: "muted", texto: `${nPendente} a gerar` };
     if (m.avisos.length > 0) return { tone: "info", texto: "aviso: apelido sem sigla", title: m.avisos.map(textoAviso).join(" · ") };
     const n = m.linhas.filter((l) => l.estado !== "orfa" && !!l.sku).length;
