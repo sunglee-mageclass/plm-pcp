@@ -17,18 +17,25 @@
 --     ainda a manda até o merge); _skus_modelo_calc usa SÓ modelos.tamanho_tipo; _skus_modelo_core devolve 'sem_tamanho'
 --     (precedência: sem_formato → aguardando_ref → sem_tamanho) com só os SKUs gravados; _gerar_skus_modelo_core não gera
 --     sem o "Tamanho em" (lido depois da trava). Nenhum DML/COMMENT em tenant_config (a chave legada fica, ignorada);
---  4. POR ÚLTIMO (ACCESS EXCLUSIVE só no fim): 7 colunas ADITIVAS em modelos (nullable, sem default, sem backfill), os 4
---     CHECK (>= 0) nomeados de peso/medidas (varrem a tabela uma vez — tudo NULL), o DEFAULT 'letra' de tamanho_tipo (P-25)
---     e, logo depois, o backfill dos NULL existentes para letra (1 vez: rev+1 e 1 linha de auditoria por card; sem efeito
---     em REF/MO/kanban — o pré-voo exige deriva 0 e no máximo 2000 linhas), os COMMENT; e, a ÚLTIMA DDL, a coluna
---     keywords (text, nullable) em tenant_config — só catálogo, sem DML/COMMENT/GRANT (o authenticated já tem privilégio de
---     tabela); os gatilhos de tenant_config não a olham. Sem CHECK em ncm (validação no cliente — ruling 3) nem em
---     preco_anterior (sem precedente em preço — R8).
--- TRAVAS NO ARQUIVO (psql -f é o caminho padrão do CLAUDE.md; o aplica_v2 reinjeta as mesmas — inofensivo). NENHUMA DDL de
--- policy: o hook supautils.policy_grants NÃO dispara. Contagens (funções|gatilhos): +1 | +0.
+--  4. POR ÚLTIMO (ACCESS EXCLUSIVE só no fim): as 7 colunas NOVAS entram nullable, sem default e sem backfill (elas não
+--     tinham dado antes de existir) — ADITIVAS em modelos, os 4 CHECK (>= 0) nomeados de peso/medidas (varrem a tabela uma
+--     vez — tudo NULL). `tamanho_tipo` é DIFERENTE (coluna JÁ existente, F3.5a): ganha DEFAULT 'letra' (P-25) e, logo
+--     depois, o backfill dos NULL existentes para letra (1 vez: rev+1 e 1 linha de auditoria por card; sem efeito em
+--     REF/MO/kanban — o pré-voo exige deriva 0 e no máximo 2000 linhas; a guarda também recusa acima de 2000 — F3), os
+--     COMMENT; e, a ÚLTIMA DDL, a coluna keywords (text, nullable) em tenant_config — só catálogo, sem DML/COMMENT/GRANT (o
+--     authenticated já tem privilégio de tabela); os gatilhos de tenant_config não a olham. Sem CHECK em ncm (validação no
+--     cliente — ruling 3) nem em preco_anterior (sem precedente em preço — R8);
+--  5. pós-condição (bloco PL/pgSQL "$pos$", F2): confere os md5 das 6 funções (depois), 0 NULL em tamanho_tipo e as 7 colunas + keywords
+--     ANTES do COMMIT — qualquer divergência desfaz tudo (ex.: client_encoding errado corrompendo os acentos do título).
+-- TRAVAS NO ARQUIVO: `SET client_encoding = 'UTF8'` ANTES do BEGIN (F1 — o translate do título tem acento; um client_encoding
+-- diferente de UTF8 no psql -f corromperia o texto), depois BEGIN/lock_timeout/transaction_timeout. Aplicar SÓ via
+-- .superpowers/sheet/mig/ida-producao.sh (Task 7), que faz o pré-voo R43 — não psql -f solto (F3). O aplica_v2 reinjeta as
+-- mesmas travas — inofensivo. NENHUMA DDL de policy: o hook supautils.policy_grants NÃO dispara. `NOTIFY pgrst, 'reload
+-- schema'` antes do COMMIT (F5 — só é entregue nele). Contagens (funções|gatilhos): +1 | +0.
 -- ORDEM: aplicar em PRODUÇÃO DEPOIS da 20261004100000 (Nota sem a trava do pedido) e ANTES de juntar o front que grava as
 -- colunas (o vite local do dono grava em produção — sem elas, todo Salvar do Planejamento cairia com PGRST204).
 -- Inverso: supabase/rollback/20261005100000_modelo_titulo_peso_ncm_preco_anterior_down.sql (APAGA o que foi digitado).
+SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
@@ -79,6 +86,10 @@ BEGIN
     IF v_md5 <> '8fa27069995afa1c6ef2a07b6959cbef' THEN
       RAISE EXCEPTION 'sheet_reorg: _titulo_pagina_calculado já existe com outro texto (md5 %) — PARE e avise o controlador', v_md5 USING ERRCODE = 'P0001';
     END IF;
+  END IF;
+  SELECT count(*) FROM public.modelos WHERE tamanho_tipo IS NULL INTO v_n;
+  IF v_n > 2000 THEN
+    RAISE EXCEPTION 'sheet_reorg: % modelos com tamanho_tipo NULL (> 2000) — o backfill (P-25/R41-R43) não roda em lote tão grande dentro desta transação; aplique SÓ via .superpowers/sheet/mig/ida-producao.sh (pré-voo R43) ou combine um lote com o controlador', v_n USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -757,5 +768,51 @@ COMMENT ON COLUMN public.modelos.tamanho_tipo IS '"Tamanho em" do card: letra | 
 
 -- Keywords da loja (dono 25/set, R38): a ÚLTIMA DDL — trava em tenant_config só daqui até o COMMIT; sem DML/COMMENT.
 ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS keywords text;
+
+DO $pos$
+DECLARE
+  v_md5 text;
+  v_n bigint;
+BEGIN
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)')));
+  IF v_md5 <> 'cd89885741a32a63cbfa899d31ac0661' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _replicar_cards_plan_tecido_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._sku_config_normaliza(jsonb)')));
+  IF v_md5 <> '7714c95d1cc43e6da89c14e8090f46a0' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _sku_config_normaliza não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')));
+  IF v_md5 <> '56c3c48067e07b4cfbcdcf0dccdb5ae6' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _skus_modelo_calc não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_modelo_core(uuid)')));
+  IF v_md5 <> 'f77fddb7bbfab7025b5f5f5007ede931' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _skus_modelo_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._gerar_skus_modelo_core(uuid,boolean)')));
+  IF v_md5 <> '5f523d3dabda04bcda684ddf2cac0459' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _gerar_skus_modelo_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._titulo_pagina_calculado(text,text)')));
+  IF v_md5 <> '8fa27069995afa1c6ef2a07b6959cbef' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _titulo_pagina_calculado não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  SELECT count(*) FROM public.modelos WHERE tamanho_tipo IS NULL INTO v_n;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — % linha(s) de modelos.tamanho_tipo ainda NULL depois do backfill (esperado 0) — desfazendo tudo', v_n USING ERRCODE = 'P0001';
+  END IF;
+  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'modelos'
+        AND column_name = ANY(ARRAY['titulo_pagina', 'peso_kg', 'comprimento_cm', 'largura_cm', 'altura_cm', 'ncm', 'preco_anterior'])) <> 7 THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — nem todas as 7 colunas novas de modelos existem — desfazendo tudo' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'tenant_config' AND column_name = 'keywords') THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — tenant_config.keywords não existe — desfazendo tudo' USING ERRCODE = 'P0001';
+  END IF;
+END
+$pos$;
+
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;

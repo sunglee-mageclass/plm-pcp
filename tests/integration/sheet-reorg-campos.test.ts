@@ -174,16 +174,34 @@ describe("F3.6 — arquivos da migration (estático, sem banco)", () => {
     expect(iAcl).toBeGreaterThan(Math.max(...iSku));
     expect(iAlter).toBeGreaterThan(iAcl);
     expect(iTc).toBeGreaterThan(m.lastIndexOf("COMMENT ON COLUMN"));
-    const depois = m.slice(iAlter).replace(/--[^\n]*/g, "");
-    // ALTER de modelos (com o DEFAULT 'letra' — P-25); o backfill; 8× COMMENT (7 + tamanho_tipo); ALTER de tenant_config; COMMIT;
-    expect(depois.match(/;/g)).toHaveLength(12);
+    const antesDoPos = m.slice(iAlter, m.indexOf("DO $pos$")).replace(/--[^\n]*/g, "");
+    // ALTER de modelos (com o DEFAULT 'letra' — P-25); o backfill; 8× COMMENT (7 + tamanho_tipo); ALTER de tenant_config;
+    expect(antesDoPos.match(/;/g)).toHaveLength(11);
     expect(m).toContain("  ALTER COLUMN tamanho_tipo SET DEFAULT 'letra';\n"); // última cláusula do ALTER de modelos
     const iBackfill = m.indexOf("UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE tamanho_tipo IS NULL;");
     expect(iBackfill).toBeGreaterThan(iAlter); // R41: dentro da janela da trava (nenhum NULL entra no meio)
     expect(iBackfill).toBeLessThan(m.indexOf("COMMENT ON COLUMN"));
     expect(m.split("UPDATE public.modelos").length - 1).toBe(1);
-    expect(m.slice(iTc).replace(/--[^\n]*/g, "").trim()).toBe("ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS keywords text;\n\nCOMMIT;");
+    expect(m.slice(iTc, m.indexOf("DO $pos$")).replace(/--[^\n]*/g, "").trim())
+      .toBe("ALTER TABLE public.tenant_config ADD COLUMN IF NOT EXISTS keywords text;");
     expect(m).not.toMatch(/COMMENT ON COLUMN public\.tenant_config|(UPDATE|INSERT INTO|DELETE FROM) public\.tenant_config/); // R25
+    // F2 (G-migration): pós-condição DENTRO da txn, entre o ALTER de tenant_config e o COMMIT; NOTIFY (F5) por último.
+    const iPos = m.indexOf("DO $pos$");
+    const iNotify = m.indexOf("NOTIFY pgrst, 'reload schema';");
+    const iCommit = m.lastIndexOf("COMMIT;");
+    expect(iPos).toBeGreaterThan(iTc);
+    expect(iNotify).toBeGreaterThan(m.indexOf("$pos$;", iPos));
+    expect(iCommit).toBeGreaterThan(iNotify);
+    expect(m.slice(iCommit)).toBe("COMMIT;\n");
+    for (const f of ["_replicar_cards_plan_tecido_core", "_sku_config_normaliza", "_skus_modelo_calc", "_skus_modelo_core", "_gerar_skus_modelo_core", "_titulo_pagina_calculado"]) {
+      expect(m.slice(iPos, iNotify), f).toContain(f);
+    }
+    expect(m.slice(iPos, iNotify)).toContain("tamanho_tipo IS NULL");
+    expect(m.slice(iPos, iNotify)).toContain("'keywords'");
+    // F1: SET client_encoding = 'UTF8' é a 1ª instrução do arquivo, ANTES do BEGIN.
+    expect(m.replace(/^--[^\n]*\n/gm, "").trimStart().startsWith("SET client_encoding = 'UTF8';\nBEGIN;\n")).toBe(true);
+    // F3: a guarda recusa acima de 2000 linhas com tamanho_tipo NULL.
+    expect(m.slice(m.indexOf("DO $guarda$"), iTit)).toContain("> 2000");
     for (const f of SKU_FNS) expect(m).toContain(`REVOKE EXECUTE ON FUNCTION ${f.acl} FROM PUBLIC, anon, authenticated;`);
     for (const col of COLUNAS) expect(m).toContain(`ADD COLUMN IF NOT EXISTS ${col} `);
     for (const ck of CHECKS) expect(m).toContain(`CONSTRAINT ${ck} CHECK`);
@@ -206,8 +224,9 @@ describe("F3.6 — arquivos da migration (estático, sem banco)", () => {
     expect(iDropFn).toBeGreaterThan(iAcl);
     expect(iDropCol).toBeGreaterThan(iDropFn);
     expect(iTc).toBeGreaterThan(iDropCol);
-    // ALTER … DROP COLUMN ×7; COMMENT antigo de tamanho_tipo (com ';' DENTRO da string); ALTER de tenant_config; COMMIT;
-    expect(v.slice(iDropCol).replace(/--[^\n]*/g, "").replace(/'(?:[^']|'')*'/g, "''").match(/;/g)).toHaveLength(4);
+    const iPosInv = v.indexOf("DO $pos$");
+    // ALTER … DROP COLUMN ×7; COMMENT antigo de tamanho_tipo (com ';' DENTRO da string); ALTER de tenant_config — até a pós-condição (o COMMIT vem depois dela agora — F2);
+    expect(v.slice(iDropCol, iPosInv).replace(/--[^\n]*/g, "").replace(/'(?:[^']|'')*'/g, "''").match(/;/g)).toHaveLength(3);
     expect(v).toContain("ALTER TABLE public.tenant_config DROP COLUMN IF EXISTS keywords;");
     for (const col of COLUNAS) expect(v).toContain(`DROP COLUMN IF EXISTS ${col}`);
     expect(v).toContain("  ALTER COLUMN tamanho_tipo DROP DEFAULT;\n"); // R44: só o DEFAULT sai…
@@ -215,6 +234,22 @@ describe("F3.6 — arquivos da migration (estático, sem banco)", () => {
     expect(v).toContain("o backfill (NULL → letra) NÃO é desfeito");
     expect(v).toContain("app.confirmo_apagar_campos_sheet");
     expect(v).toContain("DROP COLUMN apaga");
+    // F2 (G-migration): pós-condição DENTRO da txn, entre o DROP de keywords e o COMMIT; NOTIFY (F5) por último.
+    const iNotifyInv = v.indexOf("NOTIFY pgrst, 'reload schema';");
+    const iCommitInv = v.lastIndexOf("COMMIT;");
+    expect(iPosInv).toBeGreaterThan(iTc);
+    expect(iNotifyInv).toBeGreaterThan(v.indexOf("$pos$;", iPosInv));
+    expect(iCommitInv).toBeGreaterThan(iNotifyInv);
+    expect(v.slice(iCommitInv)).toBe("COMMIT;\n");
+    for (const f of ["_replicar_cards_plan_tecido_core", "_sku_config_normaliza", "_skus_modelo_calc", "_skus_modelo_core", "_gerar_skus_modelo_core", "_titulo_pagina_calculado"]) {
+      expect(v.slice(iPosInv, iNotifyInv), f).toContain(f);
+    }
+    // F4: LOCK TABLE, NESSA ordem, logo depois das travas SET LOCAL e ANTES da guarda de dado.
+    const iLock = v.indexOf("LOCK TABLE public.modelos, public.tenant_config IN ACCESS EXCLUSIVE MODE;");
+    expect(iLock).toBeGreaterThan(v.indexOf("SET LOCAL transaction_timeout"));
+    expect(iLock).toBeLessThan(iGuarda);
+    // F1: SET client_encoding = 'UTF8' é a 1ª instrução do arquivo, ANTES do BEGIN.
+    expect(v.replace(/^--[^\n]*\n/gm, "").trimStart().startsWith("SET client_encoding = 'UTF8';\nBEGIN;\n")).toBe(true);
   });
   it("espelho TS × SQL: as listas fixas e os conectivos do TS estão literalmente no SQL do título", () => {
     const t = corpoTitulo(MIG);
@@ -312,11 +347,18 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
         { nome: "preco_anterior", tipo: "numeric(12,2)", nn: false, def: null },
         { nome: "titulo_pagina", tipo: "text", nn: false, def: null },
       ]);
+      // F7(a, G-migration B-M4): liga a constraint à COLUNA (conkey → attname) e exige ">= 0" EXATO — não regex frouxa.
       const { rows } = await c.query(
-        `select conname, pg_get_constraintdef(oid) d from pg_constraint
-          where conrelid = 'public.modelos'::regclass and conname = any($1) order by conname`, [CHECKS]);
+        `select con.conname,
+                (select a.attname from pg_attribute a where a.attrelid = con.conrelid and a.attnum = con.conkey[1]) col,
+                pg_get_constraintdef(con.oid) d
+           from pg_constraint con
+          where con.conrelid = 'public.modelos'::regclass and con.conname = any($1) order by con.conname`, [CHECKS]);
       expect(rows.map((r) => r.conname)).toEqual(CHECKS);
-      for (const r of rows) expect(r.d, r.conname).toMatch(/^CHECK \(.*>= .*0.*\)$/);
+      for (const r of rows) {
+        expect(r.col, r.conname).toBe(r.conname.replace(/^modelos_/, "").replace(/_nao_negativo$/, ""));
+        expect(r.d, r.conname).toBe(`CHECK ((${r.col} >= (0)::numeric))`);
+      }
     });
   });
 
@@ -388,9 +430,11 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     await withTx(async (c) => {
       await prepara(c);
       await comoUsuario(c);
+      // F7(b, G-migration B-M4): original em 'numero' (≠ DEFAULT 'letra') — só assim o teste distingue "Duplicar LEVA o
+      // Tamanho em" de "caiu no DEFAULT".
       const orig = await um<{ id: string }>(c,
         `insert into modelos (nome, titulo_pagina, peso_kg, comprimento_cm, largura_cm, altura_cm, ncm, preco_anterior, descricao_produto, tamanho_tipo)
-         values ('ITEST-SHEET-DUP', 'Título à mão', 0.35, 60, 40, 2.5, '6204.43.00', 199.9, 'Descrição ITEST', 'letra') returning id`);
+         values ('ITEST-SHEET-DUP', 'Título à mão', 0.35, 60, 40, 2.5, '6204.43.00', 199.9, 'Descrição ITEST', 'numero') returning id`);
       const row = await um<Record<string, unknown>>(c, "select * from modelos where id = $1", [orig.id]);
       // O MESMO objeto que o Duplicar do Sheet manda no INSERT (PlanejamentoDetail.tsx, mutation `duplicate`).
       const payload: Record<string, unknown> = {
@@ -412,7 +456,7 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
                 altura_cm::text alt, descricao_produto, tamanho_tipo from modelos where id = $1`, [novo.id],
       )).toEqual({
         titulo_pagina: null, preco_anterior: null, ncm: "6204.43.00", peso: "0.350", comp: "60.00", larg: "40.00", alt: "2.50",
-        descricao_produto: "Descrição ITEST", tamanho_tipo: "letra",
+        descricao_produto: "Descrição ITEST", tamanho_tipo: "numero",
       });
     });
   });
@@ -611,6 +655,34 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     });
   });
 
+  it.skipIf(!MIG_TXN)("F2 — pós-condição: md5 esperado adulterado (simula corrupção pós-CREATE) ⇒ a ida RECUSA e desfaz TUDO", async () => {
+    await withTx(async (c) => {
+      await timeouts(c);
+      const antes = (await def(c))!;
+      const aclAntes = await acl(c);
+      const skuAntes = await Promise.all(SKU_FNS.map((s) => def(c, s.fn)));
+      // Adultera SÓ o md5 "depois" que a pós-condição exige para _titulo_pagina_calculado (1 dígito hex trocado) — a
+      // função continua sendo CRIADA com o texto REAL do arquivo (guarda/CREATE intocados); só o DO $pos$ passa a
+      // exigir um texto que nunca vai bater ⇒ RAISE ⇒ ROLLBACK de tudo (mesma técnica "outra frente", na PONTA da txn).
+      const mig = ler(MIG);
+      const mdReal = md5(corpoTitulo(MIG) + "\n");
+      const mdFalso = mdReal.slice(0, -1) + (mdReal.at(-1) === "0" ? "1" : "0");
+      // "v_md5 <> '<md5>'" aparece 2×: a guarda PRÉVIA (linha ~86, "já existe com outro texto") e a pós-condição (F2,
+      // "pós-condição falhou"). A âncora inclui o texto da mensagem da pós-condição p/ mirar SÓ nela (1×).
+      const alvo = `IF v_md5 <> '${mdReal}' THEN\n    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou`;
+      expect(mig.split(alvo).length - 1).toBe(1); // âncora 1×, como o resto da suíte exige
+      const forjada = mig.replace(alvo, `IF v_md5 <> '${mdFalso}' THEN\n    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou`);
+      expect(forjada).not.toBe(mig);
+      await expect(aplicarSql(c, semTravas(forjada, "migration forjada"), "migration forjada")).rejects.toThrow(/pós-condição falhou/);
+      expect(await colunas(c)).toEqual([]);
+      expect(await temKeywords(c)).toBe(0);
+      expect(await def(c)).toBe(antes);
+      expect(await acl(c)).toBe(aclAntes);
+      expect(await Promise.all(SKU_FNS.map((s) => def(c, s.fn)))).toEqual(skuAntes);
+      expect(await def(c, FN_TITULO)).toBeNull(); // desfeito — o CREATE do título também voltou (é tudo 1 txn)
+    });
+  });
+
   it.skipIf(!MIG_TXN)("trava: com `modelos` ocupada por outra conexão, desiste em 55P03 (lock_timeout 500ms) e NADA fica", async () => {
     exigeBancoLocal();
     const outra = new Client({ connectionString: dbUrl()!, ssl: false });
@@ -647,6 +719,8 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       const antes = await def(c);
       const aclAntes = await acl(c);
       const skuAntes = await Promise.all(SKU_FNS.map((s) => def(c, s.fn)));
+      // F7(c, G-migration B-M4): o proacl das 4 do SKU também é reconferido depois da volta (antes só _replicar era).
+      const skuAclAntes = await Promise.all(SKU_FNS.map((s) => acl(c, s.fn)));
       const comAntes = await comentarioTamanhoTipo(c);
       const contAntes = await contagens(c);
       await aplica(c, MIG);
@@ -669,6 +743,7 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
       expect(await ttNulos(c)).toBe(0); // …o backfill (NULL → letra) NÃO é desfeito
       expect(await def(c, FN_TITULO)).toBeNull();
       expect(await acl(c)).toBe(aclAntes);
+      for (const [i, s] of SKU_FNS.entries()) expect(await acl(c, s.fn), s.arq).toBe(skuAclAntes[i]); // F7(c)
       expect(await contagens(c)).toBe(contAntes);
     });
   });

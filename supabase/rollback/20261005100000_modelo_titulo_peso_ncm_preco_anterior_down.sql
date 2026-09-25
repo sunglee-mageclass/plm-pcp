@@ -5,15 +5,20 @@
 -- GUARDA: com QUALQUER um desses campos preenchido o script ABORTA, a menos que a MESMA transação tenha
 --   SET LOCAL app.confirmo_apagar_campos_sheet = 'sim'
 -- (o volta-producao.sh exporta antes e injeta a linha pelo EXTRA_SQL do aplica_v2).
--- Ordem: guarda (md5 das 5 funções + confirmação) → _replicar e as 4 funções do SKU voltam ao texto vivo de 25/set byte a
--- byte (o SKU volta a ter o padrão da loja) → REVOKE/ACL → DROP da função do título → DROP das colunas de modelos → o
--- COMMENT antigo de modelos.tamanho_tipo → DROP de keywords POR ÚLTIMO. Idempotente. Travas no arquivo (500 ms / 3 s).
+-- Ordem: SET client_encoding = 'UTF8' ANTES do BEGIN (F1) → BEGIN/travas → LOCK TABLE modelos, tenant_config IN ACCESS
+-- EXCLUSIVE MODE, NESSA ORDEM (F4 — antes da guarda de dado, para a contagem e o DROP enxergarem o MESMO estado) → guarda
+-- (md5 das 5 funções + confirmação) → _replicar e as 4 funções do SKU voltam ao texto vivo de 25/set byte a byte (o SKU
+-- volta a ter o padrão da loja) → REVOKE/ACL → DROP da função do título → DROP das colunas de modelos → o COMMENT antigo de
+-- modelos.tamanho_tipo → DROP de keywords POR ÚLTIMO → pós-condição (bloco PL/pgSQL "$pos$", F2: md5 das 5 = o vivo, colunas + keywords
+-- sumiram) → NOTIFY pgrst, 'reload schema' (F5) → COMMIT. Idempotente. Travas no arquivo (500 ms / 3 s).
 -- P-25: tira SÓ o DEFAULT 'letra' de tamanho_tipo — o backfill (NULL → letra) NÃO é desfeito: não há como saber quem
 -- era NULL (R44).
 -- Voltar a F3.5a (SKU) DEPOIS desta frente exige rodar ESTE inverso antes (R36).
+SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
+LOCK TABLE public.modelos, public.tenant_config IN ACCESS EXCLUSIVE MODE;
 
 DO $guarda$
 DECLARE
@@ -699,5 +704,45 @@ ALTER TABLE public.modelos
 COMMENT ON COLUMN public.modelos.tamanho_tipo IS '"Tamanho em" do card (F3.5): letra | numero; NULL = padrão da loja (tenant_config.sku_config.tamanho_padrao).';
 
 ALTER TABLE public.tenant_config DROP COLUMN IF EXISTS keywords;
+
+DO $pos$
+DECLARE
+  v_md5 text;
+BEGIN
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._replicar_cards_plan_tecido_core(uuid,uuid,uuid,uuid[],integer)')));
+  IF v_md5 <> '4898c806fc043e9392f68385a446e844' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _replicar_cards_plan_tecido_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._sku_config_normaliza(jsonb)')));
+  IF v_md5 <> 'a32359d01656562986e67b06d06c4c8e' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _sku_config_normaliza não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')));
+  IF v_md5 <> 'b4a8716d110a77d72a04b64fb86cc623' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _skus_modelo_calc não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_modelo_core(uuid)')));
+  IF v_md5 <> 'a0d3bf2927c4664c9a152a8256fd6e40' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _skus_modelo_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  v_md5 := md5(pg_get_functiondef(to_regprocedure('public._gerar_skus_modelo_core(uuid,boolean)')));
+  IF v_md5 <> '42d6bec530122feda4147fbc4fbc898c' THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _gerar_skus_modelo_core não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regprocedure('public._titulo_pagina_calculado(text,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — _titulo_pagina_calculado ainda existe — desfazendo tudo' USING ERRCODE = 'P0001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'modelos'
+        AND column_name = ANY(ARRAY['titulo_pagina', 'peso_kg', 'comprimento_cm', 'largura_cm', 'altura_cm', 'ncm', 'preco_anterior'])) THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — alguma das 7 colunas de modelos ainda existe — desfazendo tudo' USING ERRCODE = 'P0001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'tenant_config' AND column_name = 'keywords') THEN
+    RAISE EXCEPTION 'sheet_reorg: pós-condição falhou — tenant_config.keywords ainda existe — desfazendo tudo' USING ERRCODE = 'P0001';
+  END IF;
+END
+$pos$;
+
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;
