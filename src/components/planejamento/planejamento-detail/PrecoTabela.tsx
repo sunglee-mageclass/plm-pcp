@@ -207,6 +207,34 @@ export function PrecoTabela(props: {
             </td>
           </tr>
 
+          {/* ── PARTE 3: M.O. por faixa (opt-in via Config markup_analise_faixa) — logo depois de Preços
+              (pedido do dono 25/set: "deveria ficar junto de preços e custos"; ficava no fim da tabela,
+              as linhas Ideal/Máximo atrás da barra de ações até rolar).
+              Base = preço EFETIVO (`precoBase`): digitado se houver, senão o sugerido — honra o
+              "vazio usa o sugerido" da Parte 1. Valor "—" numa linha = aquela FAIXA não tem markup
+              cadastrado na Linha (Obs explica), não é falta de preço. */}
+          {podeVerCustos && markupFaixaOn && temFaixas && (() => {
+            const usandoSugerido = precoBase > 0 && precoDigitado <= 0;
+            const linhaFaixa = (teto: number | null | undefined, mo: { moMax: number; atingivel: boolean }, semMarkupObs: string, comMarkupObs: string) => (
+              <>
+                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(teto) || 0)}</td>
+                <td className="py-2 px-2 text-right tabular-nums">{precoBase > 0 && mo.atingivel ? brl(mo.moMax) : "—"}</td>
+                <td className="py-2 pl-2 text-xs text-muted-foreground">{!(Number(teto) > 0) ? semMarkupObs : comMarkupObs}</td>
+              </>
+            );
+            return (
+            <>
+              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Mão de obra <span className="normal-case font-normal tracking-normal">— quanto cabe p/ atingir o preço em cada faixa{usandoSugerido ? " (usando o sugerido)" : ""}</span></td></tr>
+              <tr className="border-t"><td className="py-2 pr-3">Mínimo</td>{linhaFaixa(linhaFaixas?.min, moMin, "Linha sem markup mínimo cadastrado", "M.O. que ainda cabe no markup mínimo")}</tr>
+              <tr className="border-t"><td className="py-2 pr-3">Ideal</td>{linhaFaixa(linhaFaixas?.ideal, moIdeal, "Linha sem markup ideal cadastrado", "no markup ideal (alvo)")}</tr>
+              <tr className="border-t"><td className="py-2 pr-3">Máximo</td>{linhaFaixa(linhaFaixas?.max, moMax, "Linha sem markup máximo cadastrado", "no markup máximo (mais exigente)")}</tr>
+              {precoBase <= 0 && (
+                <tr className="border-t"><td colSpan={4} className="py-1.5 px-2 text-xs text-muted-foreground">Defina o custo e o markup da Linha (ou preencha o preço para venda) para ver a M.O. que cabe em cada faixa.</td></tr>
+              )}
+            </>
+            );
+          })()}
+
           {/* ── PARTE 2: Custos ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Custos</td></tr>
           {seloCusto === "real" ? (
@@ -355,32 +383,6 @@ export function PrecoTabela(props: {
               {seloBadge}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
             </td>
           </tr>
-
-          {/* ── PARTE 3: M.O. por faixa (opt-in via Config markup_analise_faixa) ──
-              Base = preço EFETIVO (`precoBase`): digitado se houver, senão o sugerido — honra o
-              "vazio usa o sugerido" da Parte 1. Valor "—" numa linha = aquela FAIXA não tem markup
-              cadastrado na Linha (Obs explica), não é falta de preço. */}
-          {podeVerCustos && markupFaixaOn && temFaixas && (() => {
-            const usandoSugerido = precoBase > 0 && precoDigitado <= 0;
-            const linhaFaixa = (teto: number | null | undefined, mo: { moMax: number; atingivel: boolean }, semMarkupObs: string, comMarkupObs: string) => (
-              <>
-                <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{mkFmt(Number(teto) || 0)}</td>
-                <td className="py-2 px-2 text-right tabular-nums">{precoBase > 0 && mo.atingivel ? brl(mo.moMax) : "—"}</td>
-                <td className="py-2 pl-2 text-xs text-muted-foreground">{!(Number(teto) > 0) ? semMarkupObs : comMarkupObs}</td>
-              </>
-            );
-            return (
-            <>
-              <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Mão de obra <span className="normal-case font-normal tracking-normal">— quanto cabe p/ atingir o preço em cada faixa{usandoSugerido ? " (usando o sugerido)" : ""}</span></td></tr>
-              <tr className="border-t"><td className="py-2 pr-3">Mínimo</td>{linhaFaixa(linhaFaixas?.min, moMin, "Linha sem markup mínimo cadastrado", "M.O. que ainda cabe no markup mínimo")}</tr>
-              <tr className="border-t"><td className="py-2 pr-3">Ideal</td>{linhaFaixa(linhaFaixas?.ideal, moIdeal, "Linha sem markup ideal cadastrado", "no markup ideal (alvo)")}</tr>
-              <tr className="border-t"><td className="py-2 pr-3">Máximo</td>{linhaFaixa(linhaFaixas?.max, moMax, "Linha sem markup máximo cadastrado", "no markup máximo (mais exigente)")}</tr>
-              {precoBase <= 0 && (
-                <tr className="border-t"><td colSpan={4} className="py-1.5 px-2 text-xs text-muted-foreground">Defina o custo e o markup da Linha (ou preencha o preço para venda) para ver a M.O. que cabe em cada faixa.</td></tr>
-              )}
-            </>
-            );
-          })()}
         </tbody>
         </table>
       </div>
