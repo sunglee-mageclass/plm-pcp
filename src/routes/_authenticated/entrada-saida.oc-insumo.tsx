@@ -1051,7 +1051,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                             </td>
                             {showQtdReceb && (
                               <td className="px-2 py-1">
-                                <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdRecebida ?? ""} data-colab-path={`insumo-qtd-rec:${b.etiquetaId}:${r.varianteId ?? "unico"}`} onChange={(e) => updRow(bi, ri, { qtdRecebida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || readOnly} />
+                                <NumberInput type="number" className="max-md:w-24" placeholder="0,00" value={r.qtdRecebida ?? ""} data-colab-path={`insumo-qtd-rec:${b.etiquetaId}:${r.varianteId ?? "unico"}`} onChange={(e) => updRow(bi, ri, { qtdRecebida: e.target.value === "" ? null : Number(e.target.value) })} disabled={!r.incluido || readOnly || isReadOnlyRecebimento} />
                               </td>
                             )}
                             <td className="px-2 py-1">
@@ -1131,7 +1131,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
                 QA da Task 12): sem ele, a Data da Nota de Entrada (que continua editável) não tinha como gravar
                 depois de receber. Com a OC recebida, este botão roda o caminho ESTREITO (acima, no `save`):
                 grava SÓ `data_nota_entrada`, sem remontar cabeçalho/itens/parcelas — todo o resto do
-                formulário já está `disabled` por `isReadOnlyRecebimento`. Com a OC NÃO recebida, roda o save
+                formulário (inclusive a Qtd Recebida dos itens) já está `disabled` por `isReadOnlyRecebimento`. Com a OC NÃO recebida, roda o save
                 completo de sempre. */}
             <Button onClick={() => doSave(false)} disabled={save.isPending || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined}>Salvar</Button>
           </div>
