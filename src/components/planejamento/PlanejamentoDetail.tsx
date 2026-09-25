@@ -1093,7 +1093,7 @@ function PlanejamentoDetailConteudo({
   // do botão desabilitado no setor Lançamento.
   const lancarBloqueios: string[] = [];
   if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Mão de obra).");
+  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Preço e Custos).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   // Selo da etapa no HEADER (decisão 5: Nome → REF → selo). "Planejamento" antes da Ordem de Criação, "Lançado"
@@ -1146,6 +1146,9 @@ function PlanejamentoDetailConteudo({
   // Salvar do Planejamento sozinho NÃO cria nada (precisa do Dev) — nesse caso o texto de "sem produto" mostra o
   // motivo REAL (`motivoGradeSomenteLeitura`) em vez do "salve para criar" enganoso.
   const motivoSemProdutoComprado: string | null = origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
+  // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
+  // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
+  const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
@@ -1157,12 +1160,10 @@ function PlanejamentoDetailConteudo({
     tecidos: fichaVisivel && secFicha.tecidos, aviamentos: fichaVisivel && secFicha.aviamentos,
     insumos: fichaVisivel && secFicha.insumos, grade: fichaVisivel && secFicha.gradeTecido, cad: fichaVisivel && secFicha.cad,
     tecidos_novo: !isEdit && !isComprado,
+    // F3.6 (R1) — Dialog "Novo Modelo" (sem a seção Preço): a MO segue como seção SEM número (mockup gen_novo.py), chave
+    // própria como `tecidos_novo`. No Sheet ela mora dentro de "Preço e Custos" (`moBlocoVisivel`).
+    mao_obra_novo: !isEdit && moBlocoVisivel,
     preco: isEdit,
-    // Lote B (revisão do commit 6fac668, I2) — `veCustos` (união das 2 permissões, decisão F3 #2), não
-    // `podeVerCustos` sozinho: quem só tem `criacao_desenvolvimento:custos` (não `criacao_planejamento:custos`)
-    // precisa ver a seção Mão de obra igual às demais seções gated por custo (linhas 1174/1216/1224 já usam
-    // `veCustos`) — a exibição da SEÇÃO não pode ficar mais restrita que o conteúdo dela.
-    mao_obra: (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)),
     // F3.4 — a mesma chave serve à seção do produto do IMPORTADO ("Produto Importado").
     produto_acabado: isEdit && ((isRevenda && paOn) || (draft.origem === "importado" && piOn)),
     // F3.4 — decisão F3 #4: a grade cor × tamanho é A grade do comprado (revenda E importado), pela seção "s4".
@@ -1204,7 +1205,9 @@ function PlanejamentoDetailConteudo({
       && !draft.data_piloto1 && !draft.data_piloto2 && !draft.data_piloto3 && !draft.data_desenho_tecnico
       && !draft.data_aprovacao && !draft.observacoes_tecnicas.trim(),
     preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
-    maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
+    // F3.6 (R15 — item 13 do G-plano): MO pendente/reprovada no selo de Preço, p/ interno E comprado; o estado já está
+    // carregado aqui (`moLinhas` → `moEstadoLocal`); só quando o bloco de MO é visível p/ este usuário.
+    maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
   });
@@ -1281,6 +1284,31 @@ function PlanejamentoDetailConteudo({
   const podeEnviarExplosaoAgora = mostraEnviarExplosao && motivoEnvioBloqueado === null && ficha.podeEditar
     && !enviarExplosao.isPending && !save.isPending;
 
+  // F3.6 (R16) — o editor de M.O. POR SERVIÇO (spec 2026-08-06) e a Obs. de M.O., montados UMA vez e encaixados: na tabela
+  // de "Preço e Custos" (manufaturado e importado), no bloco de preço da revenda, ou na seção sem número do Dialog "Novo
+  // Modelo". VALOR = rascunho `moLinhas` (grava no Salvar); aprovar/reprovar = RPC imediata gated por
+  // `producao_servico_aprovacao` (invariante #12); ver/digitar valor = `veCustos` (união das 2 permissões, decisão F3 #2).
+  const editorMaoObra = (
+    <MaoObraEditor
+      linhas={moLinhas}
+      categorias={catsServico}
+      podeVerCustos={veCustos}
+      podeAprovar={isEdit && podeAprovarMaoObra}
+      onChangeLinhas={(ls) => setMoLinhas(ls)}
+      onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
+      onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+      pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
+      linhasPersistidas={moLinhasPersistidas}
+    />
+  );
+  // F3.6 (mockup v3; R34): "Observação de mão de obra" pelo `label` que o ObsMaoObraField JÁ aceita (o Dev segue com o dele).
+  const obsMaoObra = veCustos ? (
+    <ObsMaoObraField
+      label="Observação de mão de obra"
+      value={draft.observacoes_mao_obra}
+      onChange={(v) => setDraftTracked((d) => ({ ...d, observacoes_mao_obra: v }))}
+    />
+  ) : null;
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
@@ -1522,6 +1550,14 @@ function PlanejamentoDetailConteudo({
           </Secao>
           )}
 
+          {/* F3.6 (R1) — só no Dialog "Novo Modelo" (a seção Preço não existe nele): a MESMA M.O. da tabela do Sheet. */}
+          {vis.mao_obra_novo && (
+            <Secao id="mao_obra_novo" titulo="Mão de obra" numero={numeros.mao_obra_novo} defaultOpen={false}>
+              {editorMaoObra}
+              {obsMaoObra && <div className="mt-3">{obsMaoObra}</div>}
+            </Secao>
+          )}
+
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {vis.preco && (
           <Secao id="preco" titulo="Preço e Custos" numero={numeros.preco} selo={seloDe("preco")} defaultOpen={false}>
@@ -1569,59 +1605,18 @@ function PlanejamentoDetailConteudo({
                   copiados: ficha.camposCopiados,
                   onEditado: ficha.onCampoEditado,
                 } : null}
+                // F3.6 (R16) — a M.O. entra na tabela (linha "Mão de obra" + Obs. abaixo do "Custo total").
+                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null}
+                obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
               // bidirecional) + Preço atacado/varejo FIXO (preço exato digitado, sem derivar do markup).
-              <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft} />
+              <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft}
+                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null} />
             )}
           </Secao>
-          )}
-
-          {/* Mão de obra POR SERVIÇO (spec 2026-08-06) — LOGO ABAIXO da seção Preço (set/2026,
-              decisão do dono): a de cima calcula quanto de M.O. cabe por faixa; esta é onde se
-              ADICIONA cada serviço com valor. Lista de serviços com valor (R$), estado por linha
-              (pendente/aprovado/reprovado) e aprovar/reprovar por serviço. Gated: ver custos
-              (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar da página (fica no
-              rascunho `moLinhas` até lá — NÃO exige salvar o modelo antes de digitar); aprovar/
-              reprovar é imediato. REVENDA/IMPORTADO (set/2026): a MO é a MESMA fonte
-              `modelo_servico_mo` (chaveada por modelo_id) — a seção aparece igual ao manufaturado,
-              e a MO entra na BASE do markup (banco: _pa/_imp_recomputar). Comprado só mostra com
-              `isEdit` (o modelo espelho já existe p/ gravar; senão não há onde persistir). */}
-          {/* Fix round 4 (item 2) — gate de EXIBIR a seção usa `veCustos` (união das 2 permissões, decisão F3
-              #2): quem só tem `criacao_desenvolvimento:custos` não perde a seção.
-              Fix pós-rebase (item 6 — paridade com o Dev, comparação item 70) — o `MaoObraEditor` também recebe
-              `veCustos` (ver valores + digitar/adicionar/remover serviço): no Dev quem tem `criacao_desenvolvimento:custos`
-              edita a M.O.; o Salvar (usePlanejamentoSave) aceita as 2 permissões. Servidor conferido: a RPC
-              `salvar_modelo_servico_mo` só checa módulo `criacao` + tenant (savepoint funcoes.sql:15695/:7723) — não
-              recusa quem só tem a permissão do Dev; e `modelo_mo_resumo` desmascara os valores p/ `_pode_ver_custos()`, que
-              inclui `criacao_desenvolvimento:custos` (invariante #12). Aprovar/reprovar segue SÓ com
-              `producao_servico_aprovacao` (`podeAprovar`, invariante #12 — intocado). */}
-          {vis.mao_obra && (
-            <Secao id="mao_obra" titulo="Mão de obra" numero={numeros.mao_obra} selo={seloDe("mao_obra")} defaultOpen={false}>
-              <MaoObraEditor
-                linhas={moLinhas}
-                categorias={catsServico}
-                podeVerCustos={veCustos}
-                podeAprovar={isEdit && podeAprovarMaoObra}
-                onChangeLinhas={(ls) => setMoLinhas(ls)}
-                onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
-                onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
-                pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
-                linhasPersistidas={moLinhasPersistidas}
-              />
-              {veCustos && (
-                <div className="mt-3">
-                  {/* F3.1 (mockup aprovado): rótulo "Obs. Mão de Obra", igual ao do Dev (ModeloDetailPanel.tsx:3051-3055). */}
-                  <ObsMaoObraField
-                    label="Obs. Mão de Obra"
-                    value={draft.observacoes_mao_obra}
-                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
-                  />
-                </div>
-              )}
-            </Secao>
           )}
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}

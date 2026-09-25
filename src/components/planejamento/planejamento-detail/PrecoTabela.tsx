@@ -9,7 +9,7 @@
 // dentro do wrapper `overflow-x-auto`, com fade condicional ao scroll real (mesma receita do
 // `SegmentedTabs`, `src/components/dashboard/mobile.tsx` — §Q10). Em ≥768px nada muda: sem
 // `max-md:`, a tabela renderiza exatamente como antes.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
@@ -73,11 +73,16 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
+  // F3.6 (Parte A — spec 2026-09-25 §5.1; R16): a Mão de obra deixa de ser seção — o MESMO MaoObraEditor (montado no
+  // orquestrador, com o estado/aprovações de sempre) entra aqui por slot, logo abaixo da linha "Mão de obra"; a Obs. de MO
+  // logo abaixo do "Custo total". null/ausente = sem permissão (`moBlocoVisivel`): a linha mostra só o total, como antes.
+  blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
-    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn } = props;
+    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
+    blocoMaoObra, obsMaoObra } = props;
 
   // Fix mobile (F3.3) — fade de rolagem do wrapper `overflow-x-auto` (achado 2). Mesma receita do
   // `SegmentedTabs` (§Q10): por lado, condicional ao scroll real (nunca incondicional — senão
@@ -373,8 +378,19 @@ export function PrecoTabela(props: {
                 Por isso Materiais + M.O. NÃO fecham necessariamente com o Custo total (bases
                 diferentes) — sem operador +/= aqui de propósito. */}
             <td className="py-2 px-2 text-right tabular-nums">{maoObraDev > 0 ? brl(maoObraDev) : "—"}</td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>na seção Mão de obra abaixo</span>}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>{blocoMaoObra ? "serviços logo abaixo" : "—"}</span>}</td>
           </tr>
+          {/* F3.6 — serviços de M.O. (valor, aprovar/reprovar p/ quem tem permissão, remover, "+ adicionar") DENTRO da tabela.
+              Célula única (colSpan): um <fieldset>/lista não cabe em <tbody>; a trava é por `disabled` em cada controle, como
+              nas linhas do BOM. No mobile a tabela rola na horizontal — o bloco fica PRESO à esquerda com a largura visível
+              (Sheet em tela cheia, `px-6` = 3rem), senão os botões de aprovar ficariam fora da tela. */}
+          {blocoMaoObra && (
+            <tr className="border-t">
+              <td colSpan={4} className="py-2 px-2">
+                <div className="max-md:sticky max-md:left-0 max-md:w-[calc(100vw-3rem)]">{blocoMaoObra}</div>
+              </td>
+            </tr>
+          )}
           <tr className="border-t font-semibold">
             <td className="py-2 pr-3">Custo total</td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
@@ -383,6 +399,13 @@ export function PrecoTabela(props: {
               {seloBadge}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
             </td>
           </tr>
+          {obsMaoObra && (
+            <tr className="border-t">
+              <td colSpan={4} className="py-2 px-2">
+                <div className="max-md:sticky max-md:left-0 max-md:w-[calc(100vw-3rem)]">{obsMaoObra}</div>
+              </td>
+            </tr>
+          )}
         </tbody>
         </table>
       </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { seloPorChaves, seloSecaoBom } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
 import {
-  dataBR, numerarSecoes, resumoColecao, seloCadSecao, seloObservacoes, seloProva, seloRelacionado, selosSecoesSheet,
+  CONDICOES_SECAO_SHEET, dataBR, numerarSecoes, resumoColecao, seloCadSecao, seloObservacoes, seloProva, seloRelacionado, selosSecoesSheet,
   type EntradaSelosSheet, type SecaoSheetKey,
 } from "@/components/planejamento/planejamento-detail/ficha/selos-secoes";
 
@@ -13,15 +13,22 @@ describe("numerarSecoes", () => {
     expect(numerarSecoes(v)).toEqual({ info: 1, colecao: 2, tecidos: 3, cad: 4, preco: 5, anexos: 6, relacionado: 7 });
   });
   it("Dialog 'Novo Modelo' (mockup gen_novo.py:13-20, R7): só '1. Informações' e '2. Coleção'; Tecidos/Mão de obra/Anexos sem número", () => {
-    const v = new Set<SecaoSheetKey>(["info", "colecao", "tecidos_novo", "mao_obra", "anexos"]);
+    const v = new Set<SecaoSheetKey>(["info", "colecao", "tecidos_novo", "mao_obra_novo", "anexos"]);
     expect(numerarSecoes(v, { dialogNovo: true })).toEqual({ info: 1, colecao: 2 });
   });
-  it("F3.6 — '4. Códigos' logo depois de '3. Desenvolvimento' (a Mão de obra ainda é seção até a Task 3)", () => {
+  it("F3.6 — numeração final da spec §5.1 (1–15): Códigos = 4, Preço e Custos = 11, sem Mão de obra", () => {
     const v = new Set<SecaoSheetKey>([
       "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
-      "preco", "mao_obra", "anexos", "observacoes", "lancamento", "relacionado",
+      "preco", "anexos", "observacoes", "lancamento", "relacionado",
     ]);
-    expect(numerarSecoes(v)).toMatchObject({ desenvolvimento: 3, codigos: 4, prova: 5, preco: 11, mao_obra: 12, relacionado: 16 });
+    expect(numerarSecoes(v)).toEqual({
+      info: 1, colecao: 2, desenvolvimento: 3, codigos: 4, prova: 5, tecidos: 6, aviamentos: 7, insumos: 8, grade: 9, cad: 10,
+      preco: 11, anexos: 12, observacoes: 13, lancamento: 14, relacionado: 15,
+    });
+  });
+  it("sem 'codigos' visível, tudo depois do 3 recua 1 (a numeração segue o que está na tela)", () => {
+    const v = new Set<SecaoSheetKey>(["info", "colecao", "desenvolvimento", "prova", "preco", "relacionado"]);
+    expect(numerarSecoes(v)).toEqual({ info: 1, colecao: 2, desenvolvimento: 3, prova: 4, preco: 5, relacionado: 6 });
   });
 });
 
@@ -50,7 +57,7 @@ describe("selosSecoesSheet", () => {
     requeridas: new Set(), satisfeitas: null, podeVerCustos: true,
     infoCompleta: true, infoVazia: false, colecaoResumo: "Verão 2027 · Casual · lanç. 2 · mar/2027",
     desenvolvimentoCompleto: false, desenvolvimentoVazia: true,
-    preco: { efetivo: 289.9, markup: 2.91 }, maoObra: { estado: "aprovada", total: 35 },
+    preco: { efetivo: 289.9, markup: 2.91 }, maoObraAviso: null,
     anexos: { fotoModelo: true, fotoReferencia: true, desenho: true, croqui: true }, lancamento: { lancado: false, data: "2027-03-15" },
   };
   it("informativos (sem requisito da loja) — mockup gen_main.py", () => {
@@ -61,7 +68,6 @@ describe("selosSecoesSheet", () => {
     // equipe/cronograma preenchido) e sem requisito do kanban ⇒ sem selo.
     expect(s.desenvolvimento).toBeUndefined();
     expect(s.preco?.texto).toMatch(/^Preço de venda R\$\s?289,90 · markup 2,91×$/);
-    expect(s.mao_obra?.texto.startsWith("aprovada · ")).toBe(true);
     expect(s.anexos).toEqual({ tone: "ok", texto: "anexos ok" });
     expect(s.lancamento).toEqual({ tone: "muted", texto: "15/03/2027" });
   });
@@ -84,34 +90,11 @@ describe("selosSecoesSheet", () => {
     // MUDOU: era { tone: "muted", texto: "faltam dados" }.
     expect(selosSecoesSheet({ ...base, requeridas: new Set(["data_piloto1"]), satisfeitas: null }).desenvolvimento).toBeUndefined();
   });
-  it("invariante #12: sem ver custos, nada em R$ nos selos de Preço e Mão de obra", () => {
-    const s = selosSecoesSheet({ ...base, podeVerCustos: false });
-    expect(s.preco).toBeUndefined();
-    expect(s.mao_obra).toEqual({ tone: "ok", texto: "aprovada" });
+  it("invariante #12: sem ver custos, nada em R$ no selo de Preço", () => {
+    expect(selosSecoesSheet({ ...base, podeVerCustos: false }).preco).toBeUndefined();
   });
-  it("estados da mão de obra e do lançamento", () => {
-    // MUDOU: era { tone: "muted", texto: "sem serviço" } — MO vazia (sem_servico) sem requisito ⇒ sem selo.
-    expect(selosSecoesSheet({ ...base, maoObra: { estado: "sem_servico", total: 0 } }).mao_obra).toBeUndefined();
-    expect(selosSecoesSheet({ ...base, maoObra: { estado: "pendente", total: 10 } }).mao_obra).toEqual({ tone: "warn", texto: "pendente" });
+  it("estado do lançamento", () => {
     expect(selosSecoesSheet({ ...base, lancamento: { lancado: true, data: "2027-03-15" } }).lancamento).toEqual({ tone: "ok", texto: "lançado" });
-  });
-  it("mão de obra vazia (sem_servico) com requisito do kanban satisfeito → sem selo (não 'ok' vácuo)", () => {
-    const s = selosSecoesSheet({
-      ...base, maoObra: { estado: "sem_servico", total: 0 },
-      requeridas: new Set(["servico_mo_decidido"]), satisfeitas: { servico_mo_decidido: true },
-    });
-    expect(s.mao_obra).toBeUndefined();
-  });
-  it("mão de obra vazia (sem_servico) com requisito do kanban NÃO satisfeito → mantém o aviso âmbar", () => {
-    const s = selosSecoesSheet({
-      ...base, maoObra: { estado: "sem_servico", total: 0 },
-      requeridas: new Set(["servico_mo_preenchido"]), satisfeitas: { servico_mo_preenchido: false },
-    });
-    expect(s.mao_obra?.tone).toBe("warn");
-  });
-  it("mão de obra com 1 linha (não vazia) → selo de hoje (informativo, sem requisito configurado)", () => {
-    const s = selosSecoesSheet({ ...base, maoObra: { estado: "pendente", total: 10 } });
-    expect(s.mao_obra).toEqual({ tone: "warn", texto: "pendente" });
   });
   it("lançamento vazio (não lançado e sem data) sem requisito ⇒ sem selo", () => {
     // MUDOU: era { tone: "muted", texto: "sem data" }.
@@ -173,5 +156,46 @@ describe("selos auxiliares", () => {
     expect(dataBR(null)).toBe("");
     expect(resumoColecao({ colecao: "Verão 2027", subcolecao: null, linha: "Casual", semana: "2", mes: "Março", ano: "2027" })).toBe("Verão 2027 · Casual · lanç. 2 · mar/2027");
     expect(resumoColecao({ colecao: null, subcolecao: null, linha: null, semana: null, mes: null, ano: null })).toBe("");
+  });
+});
+
+describe("selosSecoesSheet — F3.6: requisitos de Mão de obra no selo de Preço e Custos (Ruling R15)", () => {
+  const base: EntradaSelosSheet = {
+    requeridas: new Set(), satisfeitas: null, podeVerCustos: true,
+    infoCompleta: true, infoVazia: false, colecaoResumo: "",
+    desenvolvimentoCompleto: false, desenvolvimentoVazia: true,
+    preco: { efetivo: 289.9, markup: 2.91 }, maoObraAviso: null,
+    anexos: { fotoModelo: false, fotoReferencia: false, desenho: false, croqui: false }, lancamento: { lancado: false, data: null },
+  };
+  it("CONDICOES_SECAO_SHEET.preco = preço + as 3 chaves de MO; a chave mao_obra não existe mais", () => {
+    expect(CONDICOES_SECAO_SHEET.preco).toEqual(["preco_venda_preenchido", "servico_aprovado", "servico_mo_decidido", "servico_mo_preenchido"]);
+    expect(Object.keys(CONDICOES_SECAO_SHEET)).not.toContain("mao_obra");
+  });
+  it("preço preenchido + UMA condição de MO pendente ⇒ selo de Preço âmbar com a condição", () => {
+    const s = selosSecoesSheet({
+      ...base, requeridas: new Set(["preco_venda_preenchido", "servico_mo_decidido"]),
+      satisfeitas: { preco_venda_preenchido: true, servico_mo_decidido: false },
+    });
+    expect(s.preco?.tone).toBe("warn");
+    expect(s.preco?.condicaoUnica?.key).toBe("servico_mo_decidido");
+  });
+  it("preço vazio + requisito de MO NÃO satisfeito ⇒ mantém o âmbar; satisfeito ⇒ sem selo", () => {
+    const vazio = { ...base, preco: { efetivo: 0, markup: 0 } };
+    expect(selosSecoesSheet({ ...vazio, requeridas: new Set(["servico_aprovado"]), satisfeitas: { servico_aprovado: false } }).preco?.tone).toBe("warn");
+    expect(selosSecoesSheet({ ...vazio, requeridas: new Set(["servico_aprovado"]), satisfeitas: { servico_aprovado: true } }).preco).toBeUndefined();
+  });
+  it("não existe mais selo 'mao_obra'", () => {
+    expect(Object.keys(selosSecoesSheet(base))).not.toContain("mao_obra");
+  });
+  it("R15 (item 13) — MO pendente/reprovada com a seção FECHADA: âmbar no Preço mesmo SEM requisito (interno e comprado)", () => {
+    expect(selosSecoesSheet({ ...base, maoObraAviso: "pendente" }).preco).toEqual({ tone: "warn", texto: "MO pendente" });
+    expect(selosSecoesSheet({ ...base, maoObraAviso: "reprovada" }).preco).toEqual({ tone: "warn", texto: "MO reprovada" });
+    // sem preço (seção 'vazia' de preço) o aviso de MO continua
+    expect(selosSecoesSheet({ ...base, preco: { efetivo: 0, markup: 0 }, maoObraAviso: "pendente" }).preco?.texto).toBe("MO pendente");
+    // requisito do kanban não satisfeito VENCE o aviso
+    const s = selosSecoesSheet({
+      ...base, maoObraAviso: "pendente", requeridas: new Set(["servico_aprovado"]), satisfeitas: { servico_aprovado: false },
+    });
+    expect(s.preco?.condicaoUnica?.key).toBe("servico_aprovado");
   });
 });

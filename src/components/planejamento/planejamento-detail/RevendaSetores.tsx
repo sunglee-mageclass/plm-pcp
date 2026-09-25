@@ -19,8 +19,10 @@ import { type GradeComprado } from "@/components/planejamento/planejamento-detai
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
+  /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
+  blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
 }) {
   const {
     produtoRevenda, produtoRevendaLoading,
@@ -118,6 +120,14 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
                   <p className="text-sm text-muted-foreground sm:col-span-2">
                     {produtoRevendaLoading ? "Carregando…" : "Crie o produto acabado (abaixo) para definir os markups de preço."}
                   </p>
+                )}
+                {/* F3.6 (R17) — M.O. no fim do bloco de preço da revenda (a revenda não tem parte "Custos" depois dos preços). */}
+                {blocoMaoObra && (
+                  <div className="space-y-2 border-t pt-3 sm:col-span-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Mão de obra</p>
+                    {blocoMaoObra}
+                    {obsMaoObra}
+                  </div>
                 )}
               </div>
   );

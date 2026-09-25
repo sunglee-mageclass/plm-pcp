@@ -4,20 +4,21 @@
 // com `selos-bom.ts` (F3.2). Regras do Dev: `reqBadge` (ModeloDetailPanel.tsx:1644-1677) e os selos informativos
 // (:2793-2795 Informações, :2837-2838 Prova, :2886-2890 CAD, :3068-3072 Anexos). Puro — planejamento-selos-secoes.test.ts.
 import { brl, fmtNum, mesLimpo } from "@/lib/format";
-import type { EstadoMO } from "@/lib/mao-obra";
 import { seloDeSecao, seloPorChaves, type SeloSecao } from "./selos-bom";
 
 export type SecaoSheetKey =
   | "info" | "colecao" | "desenvolvimento" | "codigos" | "prova"
   | "tecidos" | "aviamentos" | "insumos" | "grade" | "cad"
-  | "tecidos_novo" | "preco" | "mao_obra" | "produto_acabado" | "grade_revenda"
+  | "tecidos_novo" | "mao_obra_novo" | "preco" | "produto_acabado" | "grade_revenda"
   | "anexos" | "observacoes" | "lancamento" | "relacionado";
 
 /** Ordem do mockup aprovado (gen_main.py:106) + F3.6 (spec 2026-09-25 §5.1): "Códigos" logo depois de "Desenvolvimento"
- *  + "Tecidos" do Dialog e as 2 seções da revenda onde o JSX as põe. */
+ *  + "Tecidos" do Dialog e as 2 seções da revenda onde o JSX as põe.
+ *  F3.6: a "Mão de obra" saiu da ordem (entrou na tabela de "Preço e Custos"); "mao_obra_novo" = a MO do Dialog
+ *  "Novo Modelo" (sem número — R1/R18). */
 export const ORDEM_SECOES_SHEET: readonly SecaoSheetKey[] = [
   "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
-  "tecidos_novo", "preco", "mao_obra", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
+  "tecidos_novo", "mao_obra_novo", "preco", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
 ];
 
 /** Dialog "Novo Modelo": o mockup aprovado numera SÓ "1. Informações Gerais do Produto" e "2. Coleção"; Tecidos, Mão de
@@ -47,8 +48,8 @@ export const CONDICOES_SECAO_SHEET: Partial<Record<SecaoSheetKey, readonly strin
   colecao: ["linha_definida", "colecao_preenchida"],
   desenvolvimento: ["modelista_definido", "piloteiro_definido", "data_desenho_tecnico", "data_piloto1", "data_piloto2", "data_piloto3", "data_aprovacao"],
   cad: ["cad_preenchido"],
-  preco: ["preco_venda_preenchido"],
-  mao_obra: ["servico_aprovado", "servico_mo_decidido", "servico_mo_preenchido"],
+  // F3.6 (spec 2026-09-25 §5.3) — a MO mora dentro de "Preço e Custos": as condições dela viram requisito DESTA seção.
+  preco: ["preco_venda_preenchido", "servico_aprovado", "servico_mo_decidido", "servico_mo_preenchido"],
   anexos: ["anexo_croqui", "desenho_tecnico_anexado", "anexo_modelo", "ficha_medida_anexada"],
   lancamento: ["data_lancamento_preenchida"],
 };
@@ -90,7 +91,9 @@ export type EntradaSelosSheet = {
   desenvolvimentoVazia: boolean;
   /** null = revenda (a tabela de preço é outra) → sem selo. */
   preco: { efetivo: number; markup: number } | null;
-  maoObra: { estado: EstadoMO; total: number };
+  /** F3.6 (R15) — MO pendente/reprovada p/ o selo de "Preço e Custos" (a MO mora na tabela); null = nada a avisar ou o
+   *  bloco de MO não é visível p/ este usuário. Vale p/ interno E comprado (independe das condições da ficha). */
+  maoObraAviso: "pendente" | "reprovada" | null;
   /** 4 anexos totais (decisão do dono 25/set — a Ficha de Medida NÃO conta): foto do modelo, foto de
    *  referência, desenho técnico, croqui. */
   anexos: { fotoModelo: boolean; fotoReferencia: boolean; desenho: boolean; croqui: boolean };
@@ -138,13 +141,13 @@ export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoShee
   const precoInformativo = e.podeVerCustos && e.preco && e.preco.efetivo > 0
     ? { tone: "muted" as const, texto: `Preço de venda ${brl(e.preco.efetivo)}${e.preco.markup > 0 ? ` · markup ${fmtNum(e.preco.markup)}×` : ""}` }
     : undefined;
-  out.preco = seloDeSecao(!e.preco || e.preco.efetivo <= 0, r("preco"), precoInformativo);
-  const mo = e.maoObra;
-  const moInformativo: SeloSecao = mo.estado === "sem_servico" ? { tone: "muted", texto: "sem serviço" }
-    : mo.estado === "aprovada" ? { tone: "ok", texto: e.podeVerCustos ? `aprovada · ${brl(mo.total)}` : "aprovada" }
-      : mo.estado === "reprovada" ? { tone: "warn", texto: "reprovada" }
-        : { tone: "warn", texto: "pendente" };
-  out.mao_obra = seloDeSecao(mo.estado === "sem_servico", r("mao_obra"), moInformativo);
+  // F3.6 (R15, revisto no G-plano — item 13): a MO mora na tabela de Preço; com a seção FECHADA o cabeçalho ainda avisa
+  // MO pendente/reprovada p/ TODO card (interno e comprado). Ordem: requisito do kanban (r("preco") — agora com as 3
+  // chaves de MO) > aviso de MO > informativo de preço.
+  const moAviso: SeloSecao | undefined = e.maoObraAviso
+    ? { tone: "warn", texto: e.maoObraAviso === "reprovada" ? "MO reprovada" : "MO pendente" }
+    : undefined;
+  out.preco = seloDeSecao(!moAviso && (!e.preco || e.preco.efetivo <= 0), r("preco"), moAviso ?? precoInformativo);
   out.anexos = seloDeSecao(
     e.anexos.fotoModelo === false && e.anexos.fotoReferencia === false && e.anexos.desenho === false && e.anexos.croqui === false,
     r("anexos"), seloAnexos(e.anexos),
