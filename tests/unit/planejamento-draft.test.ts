@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { emptyDraft, draftFromModeloRow } from "@/components/planejamento/modelo-shared";
+import { emptyDraft, draftFromModeloRow, tamanhoTipoNormalizado } from "@/components/planejamento/modelo-shared";
 import { serializeSnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
+import { aplicarRegrasCamposDev } from "@/components/planejamento/planejamento-detail/helpers";
 
 // F3.1 — o Draft do Planejamento ganha os campos simples vindos do Desenvolvimento + a Descrição do produto.
 // A etapa (`status_desenvolvimento`) continua FORA do Draft (muda só pelo "Mover para…" do selo).
@@ -51,14 +52,32 @@ describe("Draft F3.6 — 'Tamanho em' (modelos.tamanho_tipo, coluna da F3.5a)", 
     expect(draftFromModeloRow({ tamanho_tipo: null }).tamanho_tipo).toBe("letra");
     expect(draftFromModeloRow({}).tamanho_tipo).toBe("letra");
   });
-  it("P-25 — prova que o card NOVO não abre com 'alterações não salvas': o orquestrador semeia `useState(emptyDraft())` E baseliza o dirty-guard com `emptyDraft()` (mesma função nos dois lados — useDirtySnapshot compara serialização)", () => {
-    // Espelha PlanejamentoDetail.tsx:192 (`useState<Draft>(emptyDraft())`) + :209 (`useDirtySnapshot(draft)`, cujo
-    // baseline é tirado no 1º render a partir do MESMO valor inicial — ver useDirtySnapshot.ts). Antes da P-25,
-    // `tamanho_tipo` nascia `null` nos dois lados também batia; o risco real seria UM lado usar `emptyDraft()` e o
-    // outro usar um literal/objeto separado — não é o caso aqui, mas o teste prova que os dois valores são
-    // IDÊNTICOS byte a byte (JSON), não só "iguais na leitura".
-    expect(serializeSnapshot(emptyDraft())).toBe(serializeSnapshot(emptyDraft()));
-    expect(snapshotsEqual(emptyDraft(), emptyDraft())).toBe(true);
-    expect(emptyDraft().tamanho_tipo).toBe("letra");
+  it("Minor (5)/rodada 2 — tamanhoTipoNormalizado (helper exportado, reusado por PlanejamentoDetail.tsx p/ 'Tamanho em' SALVO) casa exatamente com o que draftFromModeloRow grava no Draft", () => {
+    expect(tamanhoTipoNormalizado("numero")).toBe("numero");
+    expect(tamanhoTipoNormalizado("letra")).toBe("letra");
+    expect(tamanhoTipoNormalizado(null)).toBe("letra");
+    expect(tamanhoTipoNormalizado(undefined)).toBe("letra");
+    expect(tamanhoTipoNormalizado("cm")).toBe("letra");
+    // Mesma função por dentro: normalizar a MESMA linha do servidor pelas duas rotas dá o MESMO valor.
+    const linha = { tamanho_tipo: null };
+    expect(draftFromModeloRow(linha).tamanho_tipo).toBe(tamanhoTipoNormalizado(linha.tamanho_tipo));
+  });
+  it("P-25 — card EXISTENTE vindo com tamanho_tipo NULL do servidor (legado, antes da migration T6): o baseline do dirty-guard normaliza igual ao draft semeado (não abre sujo à toa) E o payload do Salvar grava 'letra'", () => {
+    // Espelha o fluxo real: PlanejamentoDetail.tsx semeia `freshDraft = draftFromModeloRow(modeloData)` (linha
+    // ~737) E baseliza o dirty-guard com ESSE MESMO `freshDraft` (`resetDraftBaseline(freshDraft)`, linha ~745) —
+    // não com `modeloData` cru. Card legado: a LINHA do servidor tem `tamanho_tipo: null`, mas o DRAFT semeado a
+    // partir dela já normaliza para "letra" (rede de proteção do front) — então draft === baseline, sem "sujo".
+    const linhaServidorLegado = { id: "m1", nome: "Vestido X", ref: "REF1", tamanho_tipo: null };
+    const freshDraft = draftFromModeloRow(linhaServidorLegado);
+    const baseline = draftFromModeloRow(linhaServidorLegado); // mesma função = mesmo baseline do orquestrador
+    expect(freshDraft.tamanho_tipo).toBe("letra");
+    expect(snapshotsEqual(freshDraft, baseline)).toBe(true);
+    expect(serializeSnapshot(freshDraft)).toBe(serializeSnapshot(baseline));
+
+    // O payload do Salvar nasce de `aplicarRegrasCamposDev({...d, ...}, d, {...})` (usePlanejamentoSave.ts) — o
+    // spread `{...d}` carrega `tamanho_tipo` para o payload SEM `aplicarRegrasCamposDev` tocá-lo (não está em
+    // CAMPOS_DEV_DRAFT nem é normalizado ali) — então o payload grava exatamente o que o Draft já normalizou.
+    const payload = aplicarRegrasCamposDev({ ...freshDraft }, freshDraft, { podeEditarDev: true, refEditavel: true });
+    expect(payload.tamanho_tipo).toBe("letra");
   });
 });

@@ -232,6 +232,19 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
       "As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' pede confirmação e nunca muda os editados à mão.",
     );
   });
+  it("Rodada 2 — Important: draftSujoParaRegerar compara REF APARADA (o servidor guarda `ref` aparado — helpers.ts trim); Minor (2): editavel também exige tamanho_tipo_card !== null; Minor (3): onSalvar repassa onError p/ voltar ao valor do servidor", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    // Important — a comparação usa .trim() dos dois lados (REF salva com espaço não trava o Regerar pra sempre).
+    expect(s).toContain('(draft.ref ?? "").trim() !== (refSalva ?? "").trim()');
+    expect(s).not.toContain("draft.ref !== refSalva");
+    // Minor (2) — mesma guarda `tamanho_tipo_card !== null` de `deveGerarPrimeiraVez` (sku-card.ts), agora também
+    // no `editavel` de que o Regerar/input dependem.
+    expect(s).toContain('m.status === "ok" && m.tamanho_tipo_card !== null && podeEditarSkus');
+    // Minor (3) — SKU manual falho na RPC volta ao valor do servidor via onError repassado ao salvarManual.
+    expect(s).toContain("onSalvar={(sku, onErro) => skus.salvarManual(");
+    expect(s).toContain("{ onError: onErro }");
+    expect(s).toContain("voltarAoServidor");
+  });
   it("PlanejamentoDetail: seção 3 = 'Desenvolvimento'; 'Códigos' logo depois; 1ª geração no pós-Salvar; SKUs relidos pelo colab", () => {
     const s = fonte("src/components/planejamento/PlanejamentoDetail.tsx");
     const iDev = s.indexOf('<Secao id="desenvolvimento" titulo="Desenvolvimento"');
@@ -245,5 +258,9 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     expect(s).toContain('qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });');
     expect(/<DevEquipeSection[^>]*refVisivel=/.test(s)).toBe(false); // [^>]: não atravessa o `/>` até a CodigosSecao
     expect(s).not.toContain("motivoTravaRef"); // R29
+    // Minor (5)/rodada 2 — `tamanhoTipoSalvo` reusa `tamanhoTipoNormalizado` (modelo-shared.ts), não reimplementa a
+    // regra ≠"numero"→"letra" inline.
+    expect(s).toContain("tamanhoTipoSalvo={tamanhoTipoNormalizado((modeloData as any)?.tamanho_tipo)}");
+    expect(s).toContain("tamanhoTipoNormalizado");
   });
 });

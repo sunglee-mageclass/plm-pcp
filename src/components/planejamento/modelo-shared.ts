@@ -205,8 +205,15 @@ export function draftFromModeloRow(data: any): Draft {
     descricao_produto: data.descricao_produto ?? "",
     proporcoes: (data.proporcoes ?? {}) as Record<string, number>,
     custos_adicionais: (data.custos_adicionais ?? []) as { descricao: string; valor: number }[],
-    // P-25 (dono 25/set) — qualquer valor que não seja "numero" vira "letra" (NULL do legado, valor estranho, etc.);
-    // a migration T6 já move o legado NULL para "letra" no banco, isto é só a rede de proteção no front.
-    tamanho_tipo: data.tamanho_tipo === "numero" ? "numero" : "letra",
+    tamanho_tipo: tamanhoTipoNormalizado(data.tamanho_tipo),
   };
+}
+
+// Rodada 2 (Minor 5) — extraído de dentro de `draftFromModeloRow` p/ ser a MESMA função usada por quem precisa do
+// "Tamanho em" SALVO fora do Draft (ex.: `tamanhoTipoSalvo` em PlanejamentoDetail.tsx, comparado contra o rascunho
+// p/ travar o Regerar) — evita reimplementar a regra "qualquer coisa ≠ 'numero' vira 'letra'" inline em 2 lugares.
+/** P-25 (dono 25/set) — qualquer valor que não seja "numero" vira "letra" (NULL do legado, valor estranho, etc.);
+ *  a migration T6 já move o legado NULL para "letra" no banco, isto é só a rede de proteção no front. */
+export function tamanhoTipoNormalizado(v: unknown): "letra" | "numero" {
+  return v === "numero" ? "numero" : "letra";
 }

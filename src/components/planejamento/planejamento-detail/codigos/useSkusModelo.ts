@@ -19,6 +19,7 @@ async function lerSkus(modeloId: string): Promise<MatrizSkus> {
 }
 
 export type SalvarSkuVars = { id: string | null; sku: string; rev: number | null; varianteKey: string; tamanhoKey: string };
+export type SalvarSkuOpts = { onError?: () => void };
 
 /** `ativo` = card existente e o usuário vê o Planejamento; `podeEditar` = edita o Planejamento (Regerar/SKU à mão/1ª geração). */
 export function useSkusModelo(modeloId: string | null, ativo: boolean, podeEditar: boolean) {
@@ -51,6 +52,9 @@ export function useSkusModelo(modeloId: string | null, ativo: boolean, podeEdita
       if (error) throw error;
     },
     onSuccess: () => { toast.success("SKU salvo — marcado como editado à mão."); invalidar(); },
+    // Minor (3) da rodada 2 — falha na RPC (ex.: conflito de SKU duplicado) NÃO muda `sku`/`rev` da linha, então o
+    // `useEffect([linha.sku, linha.rev])` do `SkuCampo` não dispara sozinho: quem chama `salvarManual` PRECISA
+    // passar `onError` (2º arg) p/ devolver o campo ao valor gravado — `invalidar()` sozinho não bastava.
     onError: (e) => { toast.error(mensagemErro(e, "Não foi possível salvar o SKU.")); invalidar(); },
   });
   /** Depois do Salvar: matriz FRESCA; card com REF e SEM SKU gravado ⇒ gera (`_regerar=false` só cria o que falta). */
@@ -74,7 +78,10 @@ export function useSkusModelo(modeloId: string | null, ativo: boolean, podeEdita
     erro: q.isError,
     regerar: () => regerar.mutate(),
     regerando: regerar.isPending,
-    salvarManual: (v: SalvarSkuVars) => salvar.mutate(v),
+    // Minor (3) — `opts.onError` chega até o `mutationFn` (React Query chama AMBOS: o `onError` da própria call E o
+    // da mutation declarada acima); o `CodigosSecao` usa isto p/ devolver o `SkuCampo` ao valor do servidor quando
+    // sku/rev não mudam (a RPC recusou e a linha continua igual).
+    salvarManual: (v: SalvarSkuVars, opts?: SalvarSkuOpts) => salvar.mutate(v, opts),
     salvandoChave: salvar.isPending && salvar.variables ? `${salvar.variables.varianteKey}|${salvar.variables.tamanhoKey}` : null,
     gerarSeFaltar,
   };

@@ -3,12 +3,13 @@
 // `refEditavel`, como hoje; sem aviso de campos do Dev nesta seção — R29) · "Tamanho em" (rádio Letra | Número SEM padrão
 // da LOJA — nada na Config; decisão P-25 do dono 25/set 14:57: todo produto NASCE marcado em Letra e pode trocar p/
 // Número, legado migra p/ Letra no banco; Draft → `modelos.tamanho_tipo`, grava no Salvar — R10) · "Regerar SKUs"
-// (AlertDialog; nunca muda os editados à mão; Minor (4) da revisão — trava se REF/"Tamanho em" ainda não foram
-// salvos, senão regeraria com um valor que o servidor nem tem). Tabela "SKUs por variante e tamanho": o SKU GRAVADO
-// (editável à mão — RPC imediata `salvar_sku_manual` com `_rev_base`, fora do Salvar da página; NÃO trava depois da
-// Explosão — spec SKU §4.2; falha de validação devolve o campo ao valor do servidor — Minor (5)) e a situação de
-// cada linha. Geração e leitura 100% no servidor (F3.5a + Task 6; status desconhecido = fail-closed — Minor (2));
-// regras de exibição puras em ./sku-card.ts; siglas do rótulo por consulta própria (`useSiglasCores` — R11).
+// (AlertDialog; nunca muda os editados à mão; travado com REF/"Tamanho em" digitados e diferentes do que está SALVO,
+// senão regeraria com um valor que o servidor nem tem — rodada 2, Important). Tabela "SKUs por variante e tamanho":
+// o SKU GRAVADO (editável à mão — RPC imediata `salvar_sku_manual` com `_rev_base`, fora do Salvar da página; NÃO
+// trava depois da Explosão — spec SKU §4.2; validação LOCAL inválida OU falha NA RPC devolvem o campo ao valor do
+// servidor — rodada 2, Minor 3/5) e a situação de cada linha. Geração e leitura 100% no servidor (F3.5a + Task 6;
+// status desconhecido = fail-closed); regras de exibição puras em ./sku-card.ts; siglas do rótulo por consulta
+// própria (`useSiglasCores` — R11).
 import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
@@ -36,18 +37,22 @@ function SkuCampo({ linha, editavel, salvando, ariaLabel, onSalvar }: {
   linha: LinhaSku; editavel: boolean; salvando: boolean;
   /** Minor (6) da revisão — variante + tamanho (não a chave crua "34|PPP"), ex.: "SKU — Variante 1 · Marrom · 34". */
   ariaLabel: string;
-  onSalvar: (sku: string) => void;
+  /** Minor (3)/rodada 2 — `onSalvar` chama `salvarManual(v, { onError })`; se a RPC recusar (ex.: SKU duplicado),
+   *  sku/rev da linha NÃO mudam, então o `useEffect([linha.sku, linha.rev])` abaixo sozinho NÃO dispararia — o
+   *  `onError` devolve o campo ao valor gravado explicitamente. */
+  onSalvar: (sku: string, onErro: () => void) => void;
 }) {
   const [texto, setTexto] = useState(linha.sku ?? "");
   // Recarregou do servidor (salvou / regerou / outra pessoa): o campo acompanha.
   useEffect(() => { setTexto(linha.sku ?? ""); }, [linha.sku, linha.rev]);
+  const voltarAoServidor = () => setTexto(linha.sku ?? "");
   const confirmar = () => {
     const r = skuDigitadoParaSalvar(linha, texto);
-    if (r.acao === "salvar") { onSalvar(r.sku); return; }
-    // Minor (5) — inválido OU sem mudança real: o campo volta ao valor GRAVADO no servidor (`linha.sku`), nunca fica
-    // preso no texto digitado que falhou.
+    if (r.acao === "salvar") { onSalvar(r.sku, voltarAoServidor); return; }
+    // Minor (5) — inválido OU sem mudança real (validação LOCAL, antes de ir ao servidor): o campo volta ao valor
+    // GRAVADO no servidor (`linha.sku`), nunca fica preso no texto digitado que falhou.
     if (r.acao === "erro") toast.error(r.erro);
-    setTexto(linha.sku ?? "");
+    voltarAoServidor();
   };
   return (
     <Input
@@ -86,11 +91,17 @@ export function CodigosSecao({
   const [confirmarRegerar, setConfirmarRegerar] = useState(false);
   const m = skus.matriz;
   const grupos = m ? agruparPorVariante(m.linhas) : [];
-  // SKU editável = matriz ok + editar o Planejamento. NÃO depende da trava do Dev/Explosão (spec SKU §4.2; R29).
-  const editavel = !!m && m.status === "ok" && podeEditarSkus;
-  // Minor (4) — REF ou "Tamanho em" digitados e diferentes do que está SALVO: Regerar usaria valores que o servidor
-  // ainda não tem (o AlertDialog já avisa que recalcula pelo que está "SALVO agora") — trava até o próximo Salvar.
-  const draftSujoParaRegerar = draft.ref !== refSalva || draft.tamanho_tipo !== tamanhoTipoSalvo;
+  // SKU editável = matriz ok + o SERVIDOR já decidiu o "Tamanho em" deste card + editar o Planejamento. NÃO depende
+  // da trava do Dev/Explosão (spec SKU §4.2; R29). Minor (2) da rodada 2 — mesma guarda `tamanho_tipo_card !== null`
+  // de `deveGerarPrimeiraVez` (sku-card.ts): rede p/ deploy fora de ordem/volta de emergência (a coluna ainda NULL
+  // no banco não deveria destravar Regerar/input aqui também).
+  const editavel = !!m && m.status === "ok" && m.tamanho_tipo_card !== null && podeEditarSkus;
+  // Minor (4)/rodada 2 (Important) — REF ou "Tamanho em" digitados e diferentes do que está SALVO: Regerar usaria
+  // valores que o servidor ainda não tem (o AlertDialog já avisa que recalcula pelo que está "SALVO agora") — trava
+  // até o próximo Salvar. `refSalva` vem de `modeloData.ref`, que o SERVIDOR guarda APARADO (`helpers.ts` faz
+  // `.trim()` antes do payload); `draft.ref` continua CRU de propósito (o usuário pode estar digitando) — comparar
+  // os dois crus travaria pra sempre uma REF salva com espaço nas pontas. Compara os dois aparados.
+  const draftSujoParaRegerar = (draft.ref ?? "").trim() !== (refSalva ?? "").trim() || draft.tamanho_tipo !== tamanhoTipoSalvo;
   const siglas = useSiglasCores(podeVerSkus);
   return (
     <div className="space-y-3">
@@ -205,7 +216,10 @@ export function CodigosSecao({
                                 salvando={skus.salvandoChave === chave}
                                 // Minor (6) — variante + tamanho, não a chave crua (ex.: "SKU — Variante 1 · Marrom · 34").
                                 ariaLabel={`SKU — ${rotuloVar} · ${rotuloTam}`}
-                                onSalvar={(sku) => skus.salvarManual({ id: l.id, sku, rev: l.rev, varianteKey: l.variante_key, tamanhoKey: l.tamanho_key })}
+                                onSalvar={(sku, onErro) => skus.salvarManual(
+                                  { id: l.id, sku, rev: l.rev, varianteKey: l.variante_key, tamanhoKey: l.tamanho_key },
+                                  { onError: onErro },
+                                )}
                               />
                             </td>
                             <td className="py-2 pl-2 text-xs">

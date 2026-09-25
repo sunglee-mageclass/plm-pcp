@@ -57,7 +57,7 @@ import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
   uploadFile,
   numOr0,
-  emptyDraft, draftFromModeloRow,
+  emptyDraft, draftFromModeloRow, tamanhoTipoNormalizado,
   type ArtigoOpt, type SubOpt, type Draft,
 } from "@/components/planejamento/modelo-shared";
 import {
@@ -1463,7 +1463,9 @@ function PlanejamentoDetailConteudo({
                 // AlertDialog); com REF/"Tamanho em" digitados e ainda não salvos, regerar agora usaria um valor que
                 // o servidor nem tem — trava até o próximo Salvar (`draftFromModeloRow` normaliza igual ao Draft).
                 refSalva={(modeloData as any)?.ref ?? ""}
-                tamanhoTipoSalvo={(modeloData as any)?.tamanho_tipo === "numero" ? "numero" : "letra"}
+                // Minor (5) da rodada 2 — reusa a MESMA normalização de `draftFromModeloRow` (não reimplementa a
+                // regra ≠"numero"→"letra" inline).
+                tamanhoTipoSalvo={tamanhoTipoNormalizado((modeloData as any)?.tamanho_tipo)}
                 skus={skus}
                 podeVerSkus={podeVerPlanejamento}
                 podeEditarSkus={podeEditarPlanejamento}
