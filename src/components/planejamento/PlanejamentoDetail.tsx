@@ -556,7 +556,15 @@ function PlanejamentoDetailConteudo({
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
-  const moverEtapa = useMoverEtapa(modeloId);
+  const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
+  // M4 (fix round 1, opcional) — o "Mover para…" pode fazer o SERVIDOR revelar a REF (invariante
+  // 11: atingir a etapa configurada copia `ref_auto → ref`) sem eu ter tocado o campo. O refetch
+  // que segue então marca `ref` como "atualizado" no merge e o ColabBanner atribuiria isso a
+  // "Alguém salvou agora" — só que fui EU, pelo meu próprio movimento. Sem mexer no merge
+  // compartilhado (`@/lib/colab/merge`, que não sabe QUEM mudou), a marca fica só localmente
+  // aqui: liga por 1 ciclo de merge após o `moverPara`, consumida (e desligada) no `useEffect`
+  // de merge abaixo — se o ÚNICO resultado desse ciclo for a REF revelada, o banner não dispara.
+  const ecoProprioMoveRef = useRef(false);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -597,6 +605,15 @@ function PlanejamentoDetailConteudo({
     baseRef.current = { draft: freshDraft };
     revRef.current = freshRev;
 
+    // M4 (fix round 1, opcional) — consome a marca do "Mover para…" (`ecoProprioMoveRef`) NESTE
+    // ciclo, uma vez, pra não vazar pro próximo merge de verdade. Se o ÚNICO campo que mudou foi
+    // `ref` (a única coisa que um move pode revelar sozinho — invariante 11) e não há conflito,
+    // é o ECO do meu próprio movimento: aplica o valor normalmente, mas NÃO atribui a "alguém
+    // salvou agora" (o merge compartilhado, `@/lib/colab/merge`, não sabe QUEM mudou — a marca
+    // fica só aqui, local).
+    const ehEcoDoMeuMove = ecoProprioMoveRef.current && md.conflitos.length === 0 && md.atualizados.every((k) => k === "ref");
+    ecoProprioMoveRef.current = false;
+
     // ⚠️ Um save do OUTRO USUÁRIO pode disparar mais de 1 evento UPDATE em sequência; passadas
     // SEGUINTES à que achou o conflito comparam `base` (já avançado) com o MESMO `fresh` → 0
     // diffs nessa passada (`draftMudou=false`) — NÃO sobrescreve `conflitos`/`ultimoMerge` aqui
@@ -607,7 +624,7 @@ function PlanejamentoDetailConteudo({
     setDraft(md.valor);
     conflitosRef.current = md.conflitos;
     setConflitos(md.conflitos);
-    setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+    if (!ehEcoDoMeuMove) setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
     // Categoria pode ter sido adotada em silêncio (não tocada) ou mantida "minha" (conflito) —
     // `md.valor` já reflete a decisão certa; recomputa o Grupo (filtro transiente) a partir dela.
     if (md.valor.categoria_principal_id !== draft.categoria_principal_id) {
@@ -824,6 +841,13 @@ function PlanejamentoDetailConteudo({
   // também exige — kanban_auto_4_rpcs.sql:49-51) e as condições carregadas (a dica não pode mentir).
   const selo = etapaDoModelo(kanbanCard.modeloKanban, kanbanCard.kanbanCfg);
   const podeMover = isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && kanbanCard.condProntas;
+  // M6 (fix round 1): quando o card ESTÁ no kanban e o usuário poderia editar o Dev, mas ainda
+  // não pode mover porque as duas queries (config da loja + condições) não chegaram, o selo
+  // ganha um `title` de "carregando" em vez de parecer indistinguível de "sem permissão"/"fora
+  // do kanban". `FichaKanban` não expõe erro separado de pendente (`useFichaKanban.ts` fora do
+  // escopo deste fix) — tratamos "ainda não pronto" como "carregando" (cobre o caso comum).
+  const seloCarregando: "carregando" | false =
+    isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && !kanbanCard.condProntas ? "carregando" : false;
   const origemSalva = kanbanCard.modeloKanban.origem ?? null;
   const opcoesMover = !podeMover
     ? []
@@ -832,10 +856,15 @@ function PlanejamentoDetailConteudo({
       : opcoesMoverHoje({ origem: origemSalva, statusEfetivo: kanbanCard.statusEfetivo, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond });
   // "Próxima: X — falta: Y" só com a chave ligada (card automático) — igual ao "próx.: falta X" do board da F2.
   const proxima = kanbanCard.kanbanCfg.kanban_automatico ? proximaEtapa(kanbanCard.derivacao, kanbanCard.kanbanCfg) : null;
-  const moverPara = (para: string) => moverEtapa.mutate({
-    para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado,
-    cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
-  });
+  const moverPara = (para: string) => {
+    // M4: liga a marca ANTES de disparar — o refetch (rev novo) que a mutation invalida no
+    // `onSettled` pode chegar bem depois da resposta; o consumo mora no merge (1 ciclo).
+    ecoProprioMoveRef.current = true;
+    moverEtapa.mutate({
+      para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado,
+      cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
+    });
+  };
 
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
@@ -878,6 +907,7 @@ function PlanejamentoDetailConteudo({
                   movendo={moverEtapa.isPending}
                   proxima={proxima}
                   sujo={dirty}
+                  carregando={seloCarregando}
                 />
               )}
               {/* Motivo do Cancelamento (veio do Dev — F3.1): só com a etapa em Reprovado. Sair de Reprovado NÃO

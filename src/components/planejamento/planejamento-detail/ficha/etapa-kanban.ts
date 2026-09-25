@@ -10,11 +10,28 @@
  */
 import { requisitosEfetivos, requisitosOk, type Condicao } from "@/lib/kanban-condicoes";
 import { normalizeKanbanStatuses, refCampoVisivel } from "@/lib/kanban-status";
-import { boardDaLoja, statusParaGate, type Derivacao, type KanbanAutoConfig } from "@/lib/kanban-auto";
+import { boardDaLoja, fluxoDoModelo, reqsDoModelo, statusParaGate, type Derivacao, type KanbanAutoConfig } from "@/lib/kanban-auto";
+import { modoColuna, type ModoColuna } from "@/lib/kanban-auto-ui";
 import { ehOrigemComprada } from "@/lib/origem";
 import { revendaColunaPermitida, revendaRequisitos, type RevendaConfig } from "@/lib/revenda-config";
 
-export type OpcaoMover = { key: string; label: string; nota: string; bloqueada: boolean };
+export type OpcaoMover = {
+  key: string;
+  label: string;
+  nota: string;
+  bloqueada: boolean;
+  /** M6, fix round 1 — modo da coluna (Zap=automática, Hand=manual…) p/ o ícone no menu "Mover
+   *  para…" (reusa `ModoColunaBadge` da F2 — não duplica ícone/rótulo). `null` fora do fluxo. */
+  modo?: ModoColuna | null;
+};
+
+/** Modo da coluna `col` no fluxo do MODELO (origem comprado tem fluxo/reqs próprios — `fluxoDoModelo`/`reqsDoModelo`).
+ *  Exportada p/ `etapa-mover.ts` (chave ligada) reusar — mesmo cálculo, sem duplicar. */
+export function modoDoDestino(col: string, origem: string | null | undefined, cfg: KanbanAutoConfig): ModoColuna | null {
+  const fluxoKeys = fluxoDoModelo(origem, cfg).map((c) => c.key);
+  const { reqs } = reqsDoModelo(origem, cfg);
+  return modoColuna(col, fluxoKeys, reqs);
+}
 
 /** I1 (fix round 1) — "condições prontas" pro card: precisa do card estar NO kanban
  *  (`noKanban`) E das DUAS queries do hook terem chegado (condições do card E config da
@@ -91,7 +108,10 @@ export function opcoesMoverHoje(o: {
     .filter((c) => c.key !== o.statusEfetivo)
     .map((c) => {
       const { ok, faltando } = podeEntrarHoje({ origem: o.origem, para: c.key, cfg: o.cfg, cond: o.cond });
-      return { key: c.key, label: c.label, nota: ok ? "" : `falta ${faltando.map((f) => f.label).join(", ")}`, bloqueada: !ok };
+      return {
+        key: c.key, label: c.label, nota: ok ? "" : `falta ${faltando.map((f) => f.label).join(", ")}`, bloqueada: !ok,
+        modo: modoDoDestino(c.key, o.origem, o.cfg),
+      };
     });
 }
 

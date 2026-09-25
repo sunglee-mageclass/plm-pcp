@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { Derivacao, KanbanAutoConfig } from "@/lib/kanban-auto";
+import type { Derivacao, KanbanAutoConfig, ModeloKanban } from "@/lib/kanban-auto";
+import { etapaDoModelo } from "@/lib/kanban-auto-ui";
 import {
   condProntasFicha, mensagemBloqueioHoje, opcoesMoverHoje, podeEntrarHoje, refVisivelFicha, statusEfetivoFicha,
 } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
@@ -103,10 +104,49 @@ describe("opcoesMoverHoje + mensagemBloqueioHoje", () => {
     const ops = opcoesMoverHoje({ origem: "interno", statusEfetivo: "em_modelagem", cfg: cfg({ kanban_requisitos: { em_pilotagem: ["data_piloto1"] } }), cond: {} });
     expect(ops.map((o) => o.key)).not.toContain("em_modelagem");
     expect(ops).toHaveLength(13);
-    expect(ops.find((o) => o.key === "em_pilotagem")).toEqual({ key: "em_pilotagem", label: "Em Pilotagem", nota: "falta Data de Piloto I preenchida", bloqueada: true });
-    expect(ops.find((o) => o.key === "corte_piloto_1")).toEqual({ key: "corte_piloto_1", label: "Corte de Piloto I", nota: "", bloqueada: false });
+    // M6 (fix round 1): ganhou o campo `modo` (ícone do menu) — `em_pilotagem` tem requisito
+    // próprio nesta config (automática), `corte_piloto_1` não (manual).
+    expect(ops.find((o) => o.key === "em_pilotagem")).toEqual({ key: "em_pilotagem", label: "Em Pilotagem", nota: "falta Data de Piloto I preenchida", bloqueada: true, modo: "automatica" });
+    expect(ops.find((o) => o.key === "corte_piloto_1")).toEqual({ key: "corte_piloto_1", label: "Corte de Piloto I", nota: "", bloqueada: false, modo: "manual" });
   });
   it("texto do bloqueio = o do board", () => {
     expect(mensagemBloqueioHoje([{ label: "A" }, { label: "B" }])).toBe("Não pode entrar aqui. Faltam: A, B");
+  });
+});
+
+describe("M5(a), fix round 1 — anti-drift: etapaDoModelo(...).key ≡ statusEfetivoFicha(...)", () => {
+  // As duas devem concordar na COLUNA onde o card aparece (F2 no card do Planejamento/board;
+  // F3.1 no header do Sheet) — mesma régua (trim, sem lowercase; nulo/órfão cai na 1ª coluna).
+  // Casos: chave ligada/desligada, antes da Ordem (não aplica — cada função trata à sua forma),
+  // lançado (idem) e fixado (coluna manual atual).
+  const m = (over: Partial<ModeloKanban> = {}): ModeloKanban => ({
+    origem: "interno", status_desenvolvimento: "em_pilotagem", ordem_criacao_enviada: true, lancado: false, ...over,
+  });
+  const casos: { nome: string; modelo: ModeloKanban; cfg: KanbanAutoConfig }[] = [
+    { nome: "chave desligada, status válido", modelo: m(), cfg: { kanban_automatico: false, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} } },
+    { nome: "chave ligada, status válido (fixado em coluna manual)", modelo: m({ status_desenvolvimento: "stand_by" }), cfg: { kanban_automatico: true, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} } },
+    { nome: "status nulo cai na 1ª coluna", modelo: m({ status_desenvolvimento: null }), cfg: { kanban_automatico: false, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} } },
+    { nome: "status órfão (fora do board) cai na 1ª coluna", modelo: m({ status_desenvolvimento: "coluna_removida" }), cfg: { kanban_automatico: false, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} } },
+    { nome: "board customizado", modelo: m({ status_desenvolvimento: "aprovado" }), cfg: { kanban_automatico: false, status_kanban: ["Cadastro", "Aprovado"], kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} } },
+  ];
+  it.each(casos)("$nome", ({ modelo, cfg }) => {
+    const selo = etapaDoModelo(modelo, cfg);
+    const efetivo = statusEfetivoFicha(modelo.status_desenvolvimento, modelo.ordem_criacao_enviada === true, cfg);
+    expect(selo.key).toBe(efetivo);
+  });
+  it("antes da Ordem de Criação: selo.key é null e statusEfetivoFicha (enviada=false) também é null", () => {
+    const modelo = m({ ordem_criacao_enviada: false });
+    const cfg: KanbanAutoConfig = { kanban_automatico: false, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} };
+    expect(etapaDoModelo(modelo, cfg).key).toBeNull();
+    expect(statusEfetivoFicha(modelo.status_desenvolvimento, false, cfg)).toBeNull();
+  });
+  it("lançado: selo.key é null (fase 'lancado') — statusEfetivoFicha não modela fase, só coluna (mesma entrada, mesma resposta que o não-lançado)", () => {
+    const modelo = m({ lancado: true });
+    const cfg: KanbanAutoConfig = { kanban_automatico: false, status_kanban: null, kanban_requisitos: {}, kanban_requisitos_excecoes: {}, revenda_kanban_colunas: [], revenda_kanban_requisitos: {} };
+    expect(etapaDoModelo(modelo, cfg).key).toBeNull();
+    // A F3.1 só chama `statusEfetivoFicha` fora da fase "lancado" (o header não mostra "Mover
+    // para…" nesse caso) — aqui provamos que ela sozinha devolveria a coluna crua, reforçando
+    // por que quem chama tem que checar `selo.fase === "kanban"` antes (já é o que `podeMover` faz).
+    expect(statusEfetivoFicha(modelo.status_desenvolvimento, true, cfg)).toBe("em_pilotagem");
   });
 });

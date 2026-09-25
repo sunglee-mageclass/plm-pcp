@@ -6,11 +6,12 @@ import { useState } from "react";
 import { ArrowRight, ChevronDown, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EtapaKanbanBadge } from "@/components/shared/EtapaKanbanBadge";
+import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { cn } from "@/lib/utils";
 import type { EtapaSelo } from "@/lib/kanban-auto-ui";
 import type { OpcaoMover } from "./etapa-kanban";
 
-export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima, sujo }: {
+export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima, sujo, carregando }: {
   selo: EtapaSelo;
   podeMover: boolean;
   opcoes: OpcaoMover[];
@@ -19,6 +20,11 @@ export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima
   proxima: { coluna: string; falta: string } | null;
   /** Há alteração não salva — as regras olham o estado SALVO. */
   sujo: boolean;
+  /** M6, fix round 1 — `podeMover` é falso por CARGA (config/condições ainda não chegaram) ou por
+   *  ERRO nelas — o selo vira só leitura com um `title` explicando o motivo, em vez de silenciar
+   *  a diferença entre "não pode mover" (fora do kanban/sem permissão) e "ainda não sei". Omitido/
+   *  `undefined` = não aplica (selo permanece do jeito de sempre). */
+  carregando?: "carregando" | "erro" | false;
 }) {
   const [aberto, setAberto] = useState(false);
   return (
@@ -53,17 +59,30 @@ export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima
                   disabled={movendo}
                   onClick={() => { setAberto(false); onMover(o.key); }}
                   className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50 max-sm:min-h-11",
+                    "flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50 max-sm:min-h-11",
                     o.bloqueada && "text-muted-foreground",
                   )}
                 >
-                  <span className="min-w-0 truncate">{o.label}</span>
-                  {o.nota && <span className="shrink-0 text-xs opacity-80">{o.nota}</span>}
+                  <span className="flex w-full min-w-0 items-center gap-1.5">
+                    {/* M6: ícone do MODO da coluna-destino (Zap=automática, Hand=manual…) — reusa o
+                        badge da F2 (Config da Loja), não duplica ícone/rótulo. */}
+                    <ModoColunaBadge modo={o.modo ?? null} />
+                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                  </span>
+                  {o.nota && <span className="w-full whitespace-normal break-words text-xs text-muted-foreground opacity-80">{o.nota}</span>}
                 </button>
               ))}
             </div>
           </PopoverContent>
         </Popover>
+      ) : carregando && selo.fase === "kanban" ? (
+        // M6: quando a etapa está no kanban mas ainda não dá pra mover por CARGA/ERRO das regras
+        // (config/condições), um `title` no WRAPPER explica — `EtapaKanbanBadge` (F2, não editar
+        // aqui) sempre define o próprio `title` a partir de `tituloSelo`, então a dica fica num
+        // `span` por fora em vez de tentar sobrescrever a da F2.
+        <span title={carregando === "erro" ? "Não foi possível carregar as regras — recarregue" : "Carregando as regras do quadro…"}>
+          <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
+        </span>
       ) : (
         <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
       )}
