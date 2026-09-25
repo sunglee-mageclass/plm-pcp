@@ -44,6 +44,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { FormatoSkuCard } from "@/components/configuracoes/FormatoSkuCard";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -738,6 +739,7 @@ function ConfiguracoesLojaPage() {
         value={cfg.ref_config}
         onChange={(ref_config) => setCfg((c) => ({ ...c, ref_config }))}
       />
+      <FormatoSkuCard />
 
       {modules.produto_acabado && (
         <FluxoRevendaCard
