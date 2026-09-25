@@ -1719,6 +1719,7 @@ function OcDialog({
             totalPrevisto={totalPrevisto}
             metragemPrevista={metragemPrevista}
             numVariantes={numVariantes}
+            readOnly={isReadOnlyRecebimento}
           />
 
           {/* Criação: Recebimento/CQ só existem depois de salvar — aviso explícito. */}
@@ -1760,6 +1761,7 @@ function OcDialog({
               onSemEtiqueta={onSemEtiqueta}
               etiquetasByArtigo={etiquetasByArtigo}
               requisitos={requisitosRecebimento}
+              colab={{ emConflito, conflitoDe, pc, onResolverConflito: resolverConflito, conflitoLinha }}
             />
           )}
 

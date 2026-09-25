@@ -338,12 +338,6 @@ export function OcImpForm({
             <Label>Data prevista de entrega</Label>
             <DateField value={draft.data_prevista} disabled={disabled} onChange={(e) => setDraft((d) => ({ ...d, data_prevista: e.target.value }))} />
           </div>
-          <CampoDataNotaEntrada
-            value={draft.data_nota_entrada}
-            disabled={disabled}
-            dica={DICA_CAMPO_NOTA_IMPORTADO}
-            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
-          />
         </div>
 
         <InfoStrip
@@ -590,6 +584,13 @@ export function OcImpForm({
             disabled={disabled}
             onChange={(f) => handleUpload(f, "anexo_nf_url")}
             onClear={() => setDraft((d) => ({ ...d, anexo_nf_url: null }))}
+          />
+          {/* Data da Nota de Entrada (spec 2026-09-24): ao lado do anexo da Nota Fiscal. */}
+          <CampoDataNotaEntrada
+            value={draft.data_nota_entrada}
+            disabled={disabled}
+            dica={DICA_CAMPO_NOTA_IMPORTADO}
+            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
           />
         </div>
       </section>

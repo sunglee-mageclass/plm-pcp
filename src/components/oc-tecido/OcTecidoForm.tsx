@@ -2,7 +2,6 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
-import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,10 +9,11 @@ import { cn } from "@/lib/utils";
 import type { CorPresenca } from "@/lib/colab/presenca-cor";
 import { fmtNum } from "@/lib/format";
 import { FileField } from "./FileField";
+import { NfList } from "./NfList";
 import { TecidoGroup } from "./TecidoGroup";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
-import { fmtMoney, type Artigo, type Draft, type Empresa, type ItemDraft, type ParcelaRecebimento, type Variante } from "./shared";
+import { fmtMoney, uploadFile, type Artigo, type Draft, type Empresa, type ItemDraft, type ParcelaRecebimento, type Variante } from "./shared";
 import type { Conflito } from "@/lib/colab/merge";
 import { useNumeroPedidoAuto } from "@/hooks/useNumeroPedidoAuto";
 
@@ -41,7 +41,7 @@ export type ColabHeaderProps = {
 };
 
 /** Pequeno aviso inline "editado por outra pessoa" com as 2 ações de resolução. */
-function ConflitoAviso({ conflito, onResolver }: { conflito: Conflito; onResolver: (useDele: boolean) => void }) {
+export function ConflitoAviso({ conflito, onResolver }: { conflito: Conflito; onResolver: (useDele: boolean) => void }) {
   return (
     <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
       <span>Editado por outra pessoa.</span>
@@ -64,6 +64,7 @@ export function OcTecidoForm({
   totalPrevisto,
   metragemPrevista,
   numVariantes,
+  readOnly = false,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -91,6 +92,9 @@ export function OcTecidoForm({
   totalPrevisto: number;
   metragemPrevista: number;
   numVariantes: number;
+  // Notas Fiscais (seção 3 · Anexos, decisão do dono 25/set): mesmo readOnly da OC
+  // recebida que já travava o NfList dentro da Recebimento — preserva o disabled.
+  readOnly?: boolean;
 }) {
   // Um por campo instrumentado. Conflito (âmbar) = classe fixa no input. O ANEL de presença
   // (nome+cor de quem foca) NÃO é mais wrapper por campo — vem do <ColabPresenceOverlay> montado
@@ -107,7 +111,6 @@ export function OcTecidoForm({
   const cPrazo = campo("prazo_pagamento");
   const cDataPedido = campo("data_pedido");
   const cDataEntrega = campo("data_prevista_entrega");
-  const cNota = campo("data_nota_entrada");
 
   // Preview ao vivo do Número do Pedido (T-…): só em CRIAÇÃO (colab: não dispara dirty
   // numa OC existente). materialId = artigo_id do 1º item do Tecido 1 (vazio → null).
@@ -207,18 +210,6 @@ export function OcTecidoForm({
             {/* Contagem de parcelas — inteiro ("4"), nunca decimal ("4,00"). */}
             <NumberInput type="number" integer value={draft.quantidade_prazos} readOnly disabled />
           </div>
-          {/* Data da Nota de Entrada (spec 2026-09-24): o prazo acima conta a partir dela. Editável mesmo com a OC recebida. */}
-          <CampoDataNotaEntrada
-            className="sm:col-span-2"
-            value={draft.data_nota_entrada}
-            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
-            colabPath={cNota["data-colab-path"]}
-            inputClassName={cNota.className}
-          >
-            {cNota.conflito && (
-              <ConflitoAviso conflito={cNota.conflito} onResolver={(useDele) => colab.onResolverConflito(cNota.conflito!, useDele)} />
-            )}
-          </CampoDataNotaEntrada>
         </div>
 
         {/* Nova OC: entregas parceladas (recebimento) editáveis já na criação —
@@ -346,6 +337,15 @@ export function OcTecidoForm({
             onChange={(f) => handleSingleUpload(f, "modelo_sugerido_url")}
             onClear={() => setDraft((d) => ({ ...d, modelo_sugerido_url: null }))} />
         </div>
+        {/* Notas Fiscais (ajuste do dono 25/set): saíram da 4. Recebimento e vieram
+            pra cá — é anexo. `data-colab-path`/conflito de NF não muda; mesmo readOnly
+            (OC recebida) que travava antes dentro da Recebimento. */}
+        <NfList
+          value={draft.nfs}
+          onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
+          uploadFn={(f) => uploadFile(f, "nf_url")}
+          readOnly={readOnly}
+        />
       </section>
     </>
   );

@@ -1133,12 +1133,6 @@ function OcDialog({
               />
             </div>
 
-            <CampoDataNotaEntrada
-              className="sm:col-span-2"
-              value={draft.data_nota_entrada}
-              onChange={(v) => setDraftTracked((d) => ({ ...d, data_nota_entrada: v }))}
-            />
-
             <div className="grid gap-1">
               <Label>Data do Pedido</Label>
               <DateField value={draft.data_pedido} onChange={(e) => setDraftTracked((d) => ({ ...d, data_pedido: e.target.value }))} />
@@ -1321,6 +1315,12 @@ function OcDialog({
           {canShowRecebimento && (
             <section id="oca-sec-recebimento" className="scroll-mt-2 space-y-4">
               <OcSecTitle n={4}>Recebimento</OcSecTitle>
+              {/* Data da Nota de Entrada (spec 2026-09-24): topo do Recebimento — é
+                  quando se recebe. Editável mesmo com a OC recebida (sem `disabled`). */}
+              <CampoDataNotaEntrada
+                value={draft.data_nota_entrada}
+                onChange={(v) => setDraftTracked((d) => ({ ...d, data_nota_entrada: v }))}
+              />
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label>Data da Entrega <span className="text-xs text-muted-foreground">(última parcela recebida)</span></Label>

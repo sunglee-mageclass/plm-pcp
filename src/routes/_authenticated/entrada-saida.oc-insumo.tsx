@@ -977,10 +977,6 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             </div>
             <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly || isReadOnlyRecebimento} /></div>
             <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly || isReadOnlyRecebimento} /></div>
-            {/* col-span-2 evita o desalinhamento da dica sob o campo (revisão Opus) — mesma solução do Tecido.
-                Posição "ao lado do Prazo" (spec §5) exigiria ficar em índice par da lista e abriria buraco no
-                grid (col-span-2 sempre pula pra própria linha); mantido no fim, como já estava. */}
-            <CampoDataNotaEntrada className="sm:col-span-2" value={dataNota} onChange={(v) => { marcarHeadTouched("data_nota_entrada"); setDataNota(v); }} disabled={readOnly} />
             <div className="grid gap-1"><Label>Qtd. Parcelas de Recebimento</Label>
               <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => { marcarHeadTouched("parcelas_recebimento"); setNumParcelas(parseInt(e.target.value, 10)); }} disabled={isReadOnlyRecebimento || readOnly} />
             </div>
@@ -1087,6 +1083,12 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           {isEdit && (
             <section id="oci-sec-recebimento" className="scroll-mt-2 space-y-4">
               <OcSecTitle n={4}>Recebimento</OcSecTitle>
+              {/* Data da Nota de Entrada (spec 2026-09-24): topo do Recebimento — é
+                  quando se recebe. `disabled` só por PERMISSÃO (`readOnly`) — NUNCA por
+                  `isReadOnlyRecebimento`: na OC Insumo RECEBIDA este é o ÚNICO campo
+                  editável (o resto do Recebimento trava por `isReadOnlyRecebimento`,
+                  ver `disabled` das parcelas logo abaixo). */}
+              <CampoDataNotaEntrada value={dataNota} onChange={(v) => { marcarHeadTouched("data_nota_entrada"); setDataNota(v); }} disabled={readOnly} />
               <div className="grid gap-2">
                 <Label className="text-sm">Parcelas de Recebimento</Label>
                 {parcelas.length === 0 ? (

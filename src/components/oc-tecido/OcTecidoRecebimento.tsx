@@ -1,14 +1,14 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DateField } from "@/components/shared/DateField";
+import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { NfList } from "./NfList";
+import { cn } from "@/lib/utils";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
-import { uploadFile } from "./shared";
-import { OcSecTitle } from "./OcTecidoForm";
+import { ConflitoAviso, OcSecTitle, type ColabHeaderProps } from "./OcTecidoForm";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
 import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, RoloEntry, Variante } from "./shared";
@@ -25,6 +25,7 @@ export function OcTecidoRecebimento({
   modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste,
   semEtiquetaPorArtigo = {}, setSemEtiquetaPorArtigo, onSemEtiqueta, etiquetasByArtigo = {},
   requisitos = [],
+  colab,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -54,11 +55,31 @@ export function OcTecidoRecebimento({
   etiquetasByArtigo?: Record<string, string[]>;
   // Checklist SEMPRE visível dos requisitos do "marcar recebido" (fonte única no OcDialog).
   requisitos?: RequisitoRecebimento[];
+  // Data da Nota de Entrada (ajuste do dono 25/set): topo desta seção. Mesmo
+  // padrão colab do OcTecidoForm — presença/conflito por campo do cabeçalho.
+  colab: ColabHeaderProps;
 }) {
+  const cNota = (() => {
+    const conflito = colab.emConflito("data_nota_entrada") ? colab.conflitoDe("data_nota_entrada") : undefined;
+    return { "data-colab-path": "data_nota_entrada", className: cn(conflito ? "ring-1 ring-amber-500" : undefined), conflito };
+  })();
   return (
     <section id="oc-sec-recebimento" className="scroll-mt-2">
       <div className="space-y-4">
         <OcSecTitle n={4}>Recebimento</OcSecTitle>
+
+        {/* Data da Nota de Entrada (decisão do dono 25/set): topo da seção — é
+            quando se recebe. Editável mesmo com a OC recebida (sem `disabled`). */}
+        <CampoDataNotaEntrada
+          value={draft.data_nota_entrada}
+          onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
+          colabPath={cNota["data-colab-path"]}
+          inputClassName={cNota.className}
+        >
+          {cNota.conflito && (
+            <ConflitoAviso conflito={cNota.conflito} onResolver={(useDele) => colab.onResolverConflito(cNota.conflito!, useDele)} />
+          )}
+        </CampoDataNotaEntrada>
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="grid gap-1">
@@ -98,13 +119,6 @@ export function OcTecidoRecebimento({
             />
           </div>
         </div>
-
-        <NfList
-          value={draft.nfs}
-          onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
-          uploadFn={(f) => uploadFile(f, "nf_url")}
-          readOnly={readOnly}
-        />
 
         <div className="rounded-md border p-3 space-y-2">
           <Label className="text-sm">Parcelas de entrega</Label>

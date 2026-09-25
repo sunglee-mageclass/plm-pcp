@@ -287,11 +287,6 @@ export function OcPaForm({
             <Label>Parcelas a pagar (derivado)</Label>
             <NumberInput type="number" integer value={draft.parcelas_entrega} readOnly disabled />
           </div>
-          <CampoDataNotaEntrada
-            value={draft.data_nota_entrada}
-            disabled={disabled}
-            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
-          />
         </div>
 
         <InfoStrip
@@ -453,6 +448,12 @@ export function OcPaForm({
             disabled={disabled}
             onChange={(f) => handleUpload(f, "anexo_nf_url")}
             onClear={() => setDraft((d) => ({ ...d, anexo_nf_url: null }))}
+          />
+          {/* Data da Nota de Entrada (spec 2026-09-24): ao lado do anexo da Nota Fiscal. */}
+          <CampoDataNotaEntrada
+            value={draft.data_nota_entrada}
+            disabled={disabled}
+            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
           />
         </div>
       </section>
