@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -31,11 +30,11 @@ import type { TamanhoTipo } from "@/lib/tamanho";
 // tela abriu, o salvar recusa). O servidor valida/canoniza de novo (gatilho) com as MESMAS regras de
 // `normalizarSkuConfig`. A prévia usa `resolverSku` (espelho byte a byte do SQL) com um exemplo REAL da loja.
 
-type Rascunho = { partes: SkuParte[]; separadores: Record<string, string>; tamanho_padrao: TamanhoTipo };
+type Rascunho = { partes: SkuParte[]; separadores: Record<string, string> };
 const rascunhoDe = (cfg: SkuConfig | null): Rascunho =>
-  cfg
-    ? { partes: [...cfg.partes], separadores: { ...cfg.separadores }, tamanho_padrao: cfg.tamanho_padrao }
-    : { partes: [], separadores: {}, tamanho_padrao: "letra" };
+  cfg ? { partes: [...cfg.partes], separadores: { ...cfg.separadores } } : { partes: [], separadores: {} };
+// F3.6 (dono 25/set, R10): SEM padrão da loja — o "Tamanho em" é escolhido em CADA card; a prévia mostra as 2 formas.
+const TIPOS_PREVIA: { tipo: TamanhoTipo; rotulo: string }[] = [{ tipo: "letra", rotulo: "Letra" }, { tipo: "numero", rotulo: "Número" }];
 
 type Exemplo = { ref: string | null; cor: SkuCor | null; apelido: SkuCor | null };
 
@@ -158,7 +157,7 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
   const corExemploFicticia: SkuCor = { id: "exemplo", nome: "Amarelo", sigla: "AM" };
   const corPrevia = ex?.cor ?? corExemploFicticia;
   const corRotulo = ex?.cor ? corPrevia.nome : `${corPrevia.nome} (cor de exemplo)`;
-  const previa = (apelido: SkuCor | null) =>
+  const previa = (apelido: SkuCor | null, tipo: TamanhoTipo) =>
     norm.ok && norm.valor
       ? resolverSku({
           cfg: norm.valor,
@@ -166,14 +165,14 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
           cor: corPrevia,
           apelido,
           tamanhoKey: grade0,
-          tipo: rascunho.tamanho_padrao,
+          tipo,
           tamanhosSku: tamanhosSkuPrevia,
         })
       : null;
-  const exemplos = [
-    { rotulo: `${corRotulo}${ex?.apelido ? ` · ${ex.apelido.nome}` : ""} · ${grade0}`, r: previa(ex?.apelido ?? null) },
-    ...(ex?.apelido ? [{ rotulo: `${corRotulo} (sem apelido) · ${grade0}`, r: previa(null) }] : []),
-  ];
+  const exemplos = TIPOS_PREVIA.flatMap(({ tipo, rotulo }) => [
+    { rotulo: `${corRotulo}${ex?.apelido ? ` · ${ex.apelido.nome}` : ""} · ${grade0} · Tamanho em ${rotulo}`, r: previa(ex?.apelido ?? null, tipo) },
+    ...(ex?.apelido ? [{ rotulo: `${corRotulo} (sem apelido) · ${grade0} · Tamanho em ${rotulo}`, r: previa(null, tipo) }] : []),
+  ]);
 
   return (
     <Card data-secao="formato-sku">
@@ -261,27 +260,12 @@ export function FormatoSkuCard({ paginaSuja }: { paginaSuja?: boolean } = {}) {
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-1 sm:max-w-xs">
-          <Label className="text-xs text-muted-foreground">Tamanho em (padrão da loja)</Label>
-          <Select
-            value={rascunho.tamanho_padrao}
-            disabled={travado}
-            onValueChange={(v) => setRascunho((r) => ({ ...r, tamanho_padrao: v as TamanhoTipo }))}
-          >
-            <SelectTrigger className="h-8 max-md:h-11" aria-label="Tamanho em (padrão da loja)"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="letra">Letra (PP, P, M…)</SelectItem>
-              <SelectItem value="numero">Número (36, 38, 40…)</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">Card novo nasce com este padrão; cada card pode trocar.</p>
-        </div>
-
         <div className="space-y-2 border-t pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prévia</p>
           <p className="text-xs text-muted-foreground">
             Exemplo com {ex?.ref ? `a REF ${ex.ref}` : "uma REF de exemplo"}, {ex?.cor ? `a cor ${ex.cor.nome}` : `a cor de exemplo (${corPrevia.nome})`}
-            {" "}e {usaGradeFicticia ? "um tamanho de exemplo" : "o 1º tamanho da grade"} ({grade0}).
+            {" "}e {usaGradeFicticia ? "um tamanho de exemplo" : "o 1º tamanho da grade"} ({grade0}). O &#8220;Tamanho em&#8221;
+            (Letra ou Número) é escolhido em cada card — obrigatório para gerar os SKUs; a prévia mostra as duas formas.
           </p>
           {!norm.ok ? (
             <p className="text-sm text-destructive">{norm.erro}</p>
