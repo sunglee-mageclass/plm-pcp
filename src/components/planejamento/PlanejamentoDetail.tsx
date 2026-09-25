@@ -72,7 +72,7 @@ import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/com
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { opcoesMoverHoje } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
-import { ehEcoDoMove, opcoesMoverAuto, proximaEtapa, proximoEcoMove, type EcoMoveVars } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
+import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
 import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
@@ -557,16 +557,6 @@ function PlanejamentoDetailConteudo({
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
-  // M4 (fix round 1→2) — o "Mover para…" pode fazer o SERVIDOR revelar a REF (invariante 11:
-  // atingir a etapa configurada copia `ref_auto → ref`) sem eu ter tocado o campo. O refetch que
-  // segue então marca `ref` como "atualizado" no merge e o ColabBanner atribuiria isso a "Alguém
-  // salvou agora" — só que fui EU, pelo meu próprio movimento. Sem mexer no merge compartilhado
-  // (`@/lib/colab/merge`, que não sabe QUEM mudou), a marca fica só localmente aqui — round 2:
-  // CASA O REV (não um prazo por tempo — `proximoEcoMove`/`ehEcoDoMove`, `etapa-mover.ts`): o
-  // `rev` que este move GRAVOU (RPC ou UPDATE) é comparado com o `freshRev` do próximo merge; só
-  // o MESMO evento consome a marca. Armada só quando o move realmente grava algo (`proximoEcoMove`
-  // desarma sozinho em erro/bloqueado/"nada mudou" — `res.rev === revAntes`).
-  const ecoProprioMoveRef = useRef<EcoMoveVars>(null);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -607,14 +597,6 @@ function PlanejamentoDetailConteudo({
     baseRef.current = { draft: freshDraft };
     revRef.current = freshRev;
 
-    // M4 (fix round 2) — consome a marca do "Mover para…" (`ecoProprioMoveRef`) NESTE ciclo: se o
-    // `freshRev` que chegou é EXATAMENTE o `rev` que o move gravou (`ehEcoDoMove`, casa o rev — não
-    // um prazo), é o MESMO evento; aplica o valor normalmente, mas NÃO atribui a "alguém salvou
-    // agora" (o merge compartilhado, `@/lib/colab/merge`, não sabe QUEM mudou — a marca fica só
-    // aqui, local). Consumida sempre (mesmo sem bater), pra não vazar pro próximo merge de verdade.
-    const ehEcoDoMeuMove = ehEcoDoMove(ecoProprioMoveRef.current, freshRev);
-    ecoProprioMoveRef.current = null;
-
     // ⚠️ Um save do OUTRO USUÁRIO pode disparar mais de 1 evento UPDATE em sequência; passadas
     // SEGUINTES à que achou o conflito comparam `base` (já avançado) com o MESMO `fresh` → 0
     // diffs nessa passada (`draftMudou=false`) — NÃO sobrescreve `conflitos`/`ultimoMerge` aqui
@@ -625,7 +607,7 @@ function PlanejamentoDetailConteudo({
     setDraft(md.valor);
     conflitosRef.current = md.conflitos;
     setConflitos(md.conflitos);
-    if (!ehEcoDoMeuMove) setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+    setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
     // Categoria pode ter sido adotada em silêncio (não tocada) ou mantida "minha" (conflito) —
     // `md.valor` já reflete a decisão certa; recomputa o Grupo (filtro transiente) a partir dela.
     if (md.valor.categoria_principal_id !== draft.categoria_principal_id) {
@@ -859,26 +841,10 @@ function PlanejamentoDetailConteudo({
       : opcoesMoverHoje({ origem: origemSalva, statusEfetivo: kanbanCard.statusEfetivo, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond });
   // "Próxima: X — falta: Y" só com a chave ligada (card automático) — igual ao "próx.: falta X" do board da F2.
   const proxima = kanbanCard.kanbanCfg.kanban_automatico ? proximaEtapa(kanbanCard.derivacao, kanbanCard.kanbanCfg) : null;
-  const moverPara = (para: string) => {
-    // M4 (fix round 2): a marca só arma DEPOIS da resposta (não mais otimista antes de disparar —
-    // `proximoEcoMove` decide com o `rev` REAL que saiu do move), e é DESARMADA (`null`) sempre que
-    // o movimento não grava nada: erro (`onError`), bloqueado (chave desligada reprova), ou (chave
-    // ligada) `res.r.rev === revRef.current` — o `kanban_mover` não bateu em coluna nenhuma que
-    // mude algo e devolveu o MESMO rev de antes (ex.: ação "nada" da tabela única de arraste).
-    moverEtapa.mutate(
-      { para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond },
-      {
-        onSuccess: (res) => {
-          const p =
-            res.tipo === "bloqueado" ? proximoEcoMove({ tipo: "bloqueado" }, revRef.current)
-            : res.tipo === "auto" ? proximoEcoMove({ tipo: "auto", rev: res.r.rev }, revRef.current)
-            : proximoEcoMove({ tipo: "hoje", rev: res.rev }, revRef.current);
-          ecoProprioMoveRef.current = p;
-        },
-        onError: () => { ecoProprioMoveRef.current = proximoEcoMove({ tipo: "erro" }, revRef.current); },
-      },
-    );
-  };
+  const moverPara = (para: string) => moverEtapa.mutate({
+    para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado,
+    cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
+  });
 
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);

@@ -12,12 +12,6 @@
  *    `useFichaKanban`), igual ao board (`criacao.desenvolvimento.tsx`, `["tenant-kanban-auto"]`).
  *  • M3 — chave desligada: o UPDATE devolve o `status_desenvolvimento` GRAVADO (`.select().single()`); toast
  *    e cache usam ESSE valor, não `v.para` (um guard de servidor pode redirecionar o destino).
- *  Fix round 2:
- *  • M4 — o `rev` GRAVADO por este move (RPC `kanban_mover.rev`, ou `.select("...,rev")` no
- *    caminho de hoje) sai no resultado da mutation (`res.r.rev`/`res.rev`) — quem chama
- *    (`PlanejamentoDetail.tsx`) usa isso p/ marcar/desarmar o "eco do meu próprio move" no
- *    ColabBanner (`proximoEcoMove`, `etapa-mover.ts`) casando com o `rev` que o merge trouxer,
- *    em vez de um prazo por tempo.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -37,10 +31,10 @@ export type MoverEtapaVars = {
   cfg: KanbanAutoConfig;
   cond: Record<string, boolean>;
 };
-export type ResultadoEtapa =
+type ResultadoEtapa =
   | { tipo: "auto"; r: ResultadoMover }
   | { tipo: "bloqueado"; faltando: { label: string }[] }
-  | { tipo: "hoje"; status: string; rev: number | null };
+  | { tipo: "hoje"; status: string };
 
 export function useMoverEtapa(modeloId: string | null, tenantId?: string | null) {
   const qc = useQueryClient();
@@ -53,20 +47,15 @@ export function useMoverEtapa(modeloId: string | null, tenantId?: string | null)
       // M3: devolve o status GRAVADO — se um guard do servidor redirecionou, o toast/cache
       // refletem o destino REAL, não o `v.para` pedido. Payload = SÓ `status_desenvolvimento`
       // (`plano.payload`, M5b) — nunca toca `motivo_cancelamento`.
-      // M4 (fix round 2): pede `rev` junto — vira `revDoMove` p/ casar o eco do próprio move.
       const { data, error } = await supabase
         .from("modelos")
         .update(plano.payload)
         .eq("id", plano.modeloId)
-        .select("status_desenvolvimento, rev")
+        .select("status_desenvolvimento")
         .single();
       if (error) throw error;
       await supabase.rpc("marcar_etapa_verificada", { _modelo_id: modeloId, _etapa: "kanban" });
-      return {
-        tipo: "hoje",
-        status: (data?.status_desenvolvimento as string | null) ?? v.para,
-        rev: (data?.rev as number | null) ?? null,
-      };
+      return { tipo: "hoje", status: (data?.status_desenvolvimento as string | null) ?? v.para };
     },
     onSuccess: (res, v) => {
       const board = boardDaLoja(v.cfg);
