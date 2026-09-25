@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, comDistribuicaoDoPlano, comAtendeDoPlano, atendeDoBom, type ModeloReal } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
+import { atendimentoDoBloco } from "@/lib/plan-tecido/atendimento";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -762,5 +763,79 @@ describe("plan-tecido/engine", () => {
       expect(slots.filter((s) => s.modelo_id).length).toBe(1);
       expect(slots.filter((s) => !s.modelo_id).length).toBe(1); // planejou 2, tem 1 → 1 vaga real
     });
+  });
+});
+
+describe("plan-tecido/engine — Distribuição por produto (Task 3)", () => {
+  const baseMr = (materiais: ModeloReal["materiais"]): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
+  });
+  it("slotDeModeloReal: cor_id em todas; casamento do BOM vira 'atende' fora do T1 (igual ao automático ⇒ NULL — PR11); tamanho_tipo no slot", () => {
+    const s = slotDeModeloReal(baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: null },
+        { variante_tecido_id: "vt2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: null },
+      ] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }, // = automático (mesma cor base)
+        { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: ["vt1"] }, // à mão (outra cor base)
+        { variante_tecido_id: "fr3", ordem: 3, multiplicador: 1, cor_id: "c3", complementa_variante_ids: null },
+      ] },
+    ]), 0);
+    expect(s.tamanho_tipo).toBe("numero");
+    expect(s.materiais[0].variantes[0]).toMatchObject({ cor_id: "c1" });
+    expect(s.materiais[0].variantes[0]).not.toHaveProperty("atende");
+    expect(s.materiais[1].variantes.map((v) => v.atende)).toEqual([null, ["vt1"], null]);
+  });
+  it("PR11 (G-plano R2): depois do 1º aplicar, uma cor NOVA do T1 com a mesma cor base é atendida sozinha (P-17)", () => {
+    const s = slotDeModeloReal(baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull();
+    const t1 = [...s.materiais[0].variantes, { ...s.materiais[0].variantes[0], variante_tecido_id: "vt1b", ordem: 2 }];
+    expect(atendimentoDoBloco(t1, s.materiais[1].variantes).porCor.get("fr1")).toEqual(["vt1", "vt1b"]);
+    expect(atendeDoBom({ cor_id: "c1", complementa_variante_ids: ["vt1", "vt2"] }, new Map([["vt1", "c1"], ["vt2", "c2"]]))).toEqual(["vt1", "vt2"]);
+  });
+  it("comDistribuicaoDoPlano: leva a distribuição salva para a cor viva do T1 (por chave e, planejada→real, por cor+apelido)", () => {
+    const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+      { variante_tecido_id: "vt2", cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+    ] }];
+    const r = comDistribuicaoDoPlano(vivos, salvos);
+    expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, d]);
+    expect(comDistribuicaoDoPlano(vivos, [])).toBe(vivos);
+  });
+  it("comAtendeDoPlano: BOM com casamento vence; sem casamento no BOM vale o do plano", () => {
+    const vivos = [{ artigo_id: "F", tipo: "forro" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 1, variantes: [
+      { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtA"] },
+      { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0, atende: null },
+    ] }];
+    const salvos = [{ artigo_id: "F", tipo: "forro" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 1, variantes: [
+      { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtB"] },
+      { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtC"] },
+    ] }];
+    expect(comAtendeDoPlano(vivos, salvos)[0].variantes.map((v) => v.atende)).toEqual([["vtA"], ["vtC"]]);
+  });
+  it("mergeArvore: card real mantém a distribuição e o 'atende' salvos depois do 'Dev vence'", () => {
+    const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets: [], modelos: [baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c9" }] },
+    ])] });
+    const salvo: PtArvore = { ...seed, subcolecoes: seed.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((sl) => ({
+      ...sl, materiais: [
+        { ...sl.materiais[0], variantes: [{ ...sl.materiais[0].variantes[0], distribuicao: d }] },
+        { ...sl.materiais[1], variantes: [{ ...sl.materiais[1].variantes[0], atende: ["vt1"] }] },
+      ] })) })) })) };
+    const m = mergeArvore(seed, salvo).subcolecoes[0].linhas[0].slots[0].materiais;
+    expect(m[0].variantes[0].distribuicao).toEqual(d);
+    expect(m[1].variantes[0].atende).toEqual(["vt1"]);
   });
 });

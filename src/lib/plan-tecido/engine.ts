@@ -1,4 +1,6 @@
 import type { PtArvore, PtSub, PtLinha, PtSlot, PtMaterial, PtVariante } from "./types";
+import { varKey } from "./calc";
+import { ehTecido1 } from "./atendimento";
 
 export type SeedInput = {
   colecao_id: string;
@@ -24,7 +26,8 @@ export type ModeloRealMaterial = {
   consumo_cad?: number | null;
   loss_percent: number;
   // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador + cor_nome
-  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null }[];
+  // cor_id (cor base) alimenta o "atende a" automático; complementa_variante_ids = casamento do BOM (casar variantes).
+  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null; cor_id?: string | null; complementa_variante_ids?: string[] | null }[];
 };
 export type ModeloReal = {
   id: string;
@@ -48,6 +51,8 @@ export type ModeloReal = {
   materiais: ModeloRealMaterial[];
   // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
   materiais_custo?: number;
+  // "Tamanho em" do modelo (modelos.tamanho_tipo) — só exibição no Plan. Tecido (dialog Distribuir por loja).
+  tamanho_tipo?: "letra" | "numero" | null;
   // grade por variante_numero (=ordem da variante): { grades, grade_total }
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
 };
@@ -55,6 +60,19 @@ export type ModeloReal = {
 // id client-side estável desde a criação: o save PRESERVA esse id (não regenera), então o slot.id em
 // memória bate com o do banco após salvar → aplicar_ao_modelo/set_slot_oc não recebem id defasado.
 const slotVazio = (i: number): PtSlot => ({ id: crypto.randomUUID(), modelo_id: null, slot_index: i, nome: null, custos_adicionais: [], materiais: [] });
+
+// PR11 (G-plano R2): o casamento do BOM (complementa_variante_ids) vira o "atende a" do plano. IGUAL ao automático —
+// toda cor casada do Tecido 1 tem a MESMA cor base da cor do bloco — volta NULL (automático): senão, depois do 1º aplicar,
+// uma cor NOVA do T1 com a mesma cor base deixaria de ser atendida sozinha (P-17). Outra cor base = lista à mão.
+export function atendeDoBom(
+  v: { cor_id?: string | null; complementa_variante_ids?: string[] | null },
+  corDoT1: Map<string, string | null>,
+): string[] | null {
+  const ids = Array.isArray(v.complementa_variante_ids) ? v.complementa_variante_ids.filter(Boolean) : [];
+  if (ids.length === 0) return null;
+  if (v.cor_id && ids.every((id) => corDoT1.get(id) === v.cor_id)) return null;
+  return [...ids];
+}
 
 /** Converte um modelo real (BOM + grade) num slot pré-preenchido do Plan. Tecido. */
 export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
@@ -75,6 +93,12 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     if (g) g.mats.push(mat);
     else grupos.set(k, { tipo: mat.tipo, mats: [mat] });
   }
+  // PR11: cor base de cada variante do Tecido 1 do BOM — o 1º grupo de tecido (o mesmo que puxa a grade do Dev), com os
+  // substitutos — p/ reconhecer o casamento igual ao automático.
+  const gT1 = Array.from(grupos.values()).find((x) => x.tipo === "tecido");
+  const corDoT1 = new Map(
+    (gT1?.mats ?? []).flatMap((m) => m.variantes.map((x) => [x.variante_tecido_id, x.cor_id ?? null] as const)),
+  );
   const seqPorTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
   const materiais: PtMaterial[] = Array.from(grupos.values()).map((g, mi) => {
     const numero = (seqPorTipo[g.tipo] = (seqPorTipo[g.tipo] ?? 0) + 1);
@@ -98,6 +122,10 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
           grade_total: Number(g2?.grade_total) || 0,
           cor_nome: v.cor_nome ?? null,
           label: v.label ?? undefined,
+          cor_id: v.cor_id ?? null,
+          // Distribuição por produto (R3/R7): o casamento do BOM é o "atende a" fora do Tecido 1 (NULL = automático);
+          // igual ao automático (mesma cor base) volta NULL — PR11.
+          ...(g.tipo === "tecido" && numero === 1 ? {} : { atende: atendeDoBom(v, corDoT1) }),
         };
       });
     return {
@@ -124,6 +152,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     nome: mr.nome ?? null,
     thumb_path: mr.thumb_path ?? null,
     proporcoes: mr.proporcoes ?? null,
+    tamanho_tipo: mr.tamanho_tipo ?? null,
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,
     // categoriza AUTOMATICAMENTE pela categoria de tecido do Tecido 1 (sem clicar "Agrupar")
@@ -319,6 +348,59 @@ export function comGradeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | nul
   });
 }
 
+// Distribuição por produto (spec R7) — mesmo princípio "Dev vence só se preenchido": o BOM vivo nunca tem distribuição;
+// ela mora SÓ no plano. Leva a distribuição salva para a cor viva do Tecido 1 pela chave (`varKey`); a cor PLANEJADA
+// salva que virou variante real no Dev é casada por cor + apelido. Sem nada a levar ⇒ o MESMO array.
+export function comDistribuicaoDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  const sT1 = salvos.find(ehTecido1);
+  const comDist = (sT1?.variantes ?? []).filter((v) => Object.keys(v.distribuicao ?? {}).length > 0);
+  if (comDist.length === 0) return vivos;
+  const porKey = new Map(comDist.map((v) => [varKey(v), v.distribuicao!] as const));
+  const porCombo = new Map(comDist.filter((v) => !!v.cor_id).map((v) => [`${v.cor_id}|${v.cor_apelido_id ?? ""}`, v.distribuicao!] as const));
+  let mudouAlgum = false;
+  const out = vivos.map((m) => {
+    if (!ehTecido1(m)) return m;
+    let mudou = false;
+    const variantes = m.variantes.map((v) => {
+      if (Object.keys(v.distribuicao ?? {}).length > 0) return v;
+      const d = porKey.get(varKey(v)) ?? (v.cor_id ? porCombo.get(`${v.cor_id}|${v.cor_apelido_id ?? ""}`) : undefined);
+      if (!d) return v;
+      mudou = true;
+      return { ...v, distribuicao: d };
+    });
+    if (!mudou) return m;
+    mudouAlgum = true;
+    return { ...m, variantes };
+  });
+  return mudouAlgum ? out : vivos;
+}
+
+// "Atende a" (spec R7): o casamento do BOM vivo (complementa_variante_ids) VENCE; cor sem casamento no BOM (NULL) usa a
+// lista salva no plano (mesmo bloco: tipo + número + artigo). O Tecido 1 nunca casa.
+export function comAtendeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  let mudouAlgum = false;
+  const out = vivos.map((m) => {
+    if (ehTecido1(m)) return m;
+    const s = salvos.find((x) => x.tipo === m.tipo && Number(x.numero) === Number(m.numero) && (x.artigo_id ?? null) === (m.artigo_id ?? null));
+    const porKey = new Map((s?.variantes ?? []).filter((v) => Array.isArray(v.atende)).map((v) => [varKey(v), v.atende!] as const));
+    if (porKey.size === 0) return m;
+    let mudou = false;
+    const variantes = m.variantes.map((v) => {
+      if (Array.isArray(v.atende)) return v;
+      const a = porKey.get(varKey(v));
+      if (!a) return v;
+      mudou = true;
+      return { ...v, atende: [...a] };
+    });
+    if (!mudou) return m;
+    mudouAlgum = true;
+    return { ...m, variantes };
+  });
+  return mudouAlgum ? out : vivos;
+}
+
 // artigo_id do Tecido 1 (tipo==='tecido' && numero===1) de um slot — SSOT usado por
 // moverParaFamiliaDoTecido (G2) E normalizarCategoriasAuto (bug lane congelada, ago/2026): a
 // "categoria auto" de um card é SEMPRE derivada deste mesmo artigo, nunca de forro/Tecido 2+.
@@ -460,8 +542,17 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
             // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
             // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
+            // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7.
             materiais: effModeloId
-              ? (live?.materiais?.length ? comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais) : (saved.materiais ?? []))
+              ? (live?.materiais?.length
+                  ? comAtendeDoPlano(
+                      comDistribuicaoDoPlano(
+                        comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
+                        saved.materiais,
+                      ),
+                      saved.materiais,
+                    )
+                  : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
