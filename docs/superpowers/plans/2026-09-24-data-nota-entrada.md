@@ -4168,7 +4168,7 @@ Expected: variante `:5181` derrubada pelo próprio script; `volta` → `== CÓPI
 
 > **R3 (g-scripts-nota.md):** os scripts VIGENTES são os de `.superpowers/nota/{copia.sh, mig/*.sh}` (worktree `nota-entrada`) — eles NÃO são versionados (`.gitignore:58`), então este plano não os acompanha byte a byte; as versões embutidas como blocos de código na Task 4 Step 1 (`:2133-2522` aprox.) são HISTÓRICAS (mostram a forma ORIGINAL antes das ressalvas do G-migration/G-scripts — ex.: ainda exigem o Aviso, usam o pré-F1 puro como base, conferem o CONT absoluto, fazem `pg_dump` do banco inteiro) — **não copiar dali no dia**. Sha256 (16 primeiros) dos scripts vigentes DEPOIS desta rodada (revisão `g-scripts-nota.md`, 25/set) — o dono confere com `shasum -a 256` antes de rodar:
 > - `aplica.sh` `fbaed4583d71b745`
-> - `ida-producao.sh` `88eab44156a3c23d`
+> - `ida-producao.sh` `86c78f27b1a6c09c` (Q1: nova tentativa permitida se a Nota segue ausente; pasta 700)
 > - `volta-producao.sh` `621d306469065b0e`
 > - `ref-volta-f1.sh` `81246db56209c592`
 > - `copia.sh` `192e9ef2a23a69b9`
