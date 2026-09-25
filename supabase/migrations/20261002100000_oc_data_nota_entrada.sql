@@ -1479,6 +1479,24 @@ BEGIN
                     AND a.attname = 'data_nota_entrada') THEN
     RAISE EXCEPTION 'data_nota_entrada: trg_gerar_parcelas_ocpa não escuta a coluna nova';
   END IF;
+  -- M1: cada trg_nota_entrada_valida tem de escutar as DUAS colunas (data_nota_entrada e data_pedido) — mesmo padrão
+  -- de checagem por tgattr do trg_gerar_parcelas_ocpa acima (não basta contar os 5 gatilhos; confere o UPDATE OF real).
+  FOR r IN SELECT * FROM (VALUES ('ocs_tecido'),
+    ('ocs_aviamento'),
+    ('ocs_etiqueta'),
+    ('ocs_p_acabado'),
+    ('ocs_importado')) AS t(tbl) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr::int2[])
+                    WHERE t.tgrelid = ('public.' || r.tbl)::regclass AND t.tgname = 'trg_nota_entrada_valida'
+                      AND a.attname = 'data_nota_entrada') THEN
+      RAISE EXCEPTION 'data_nota_entrada: trg_nota_entrada_valida em % não escuta data_nota_entrada', r.tbl;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr::int2[])
+                    WHERE t.tgrelid = ('public.' || r.tbl)::regclass AND t.tgname = 'trg_nota_entrada_valida'
+                      AND a.attname = 'data_pedido') THEN
+      RAISE EXCEPTION 'data_nota_entrada: trg_nota_entrada_valida em % não escuta data_pedido', r.tbl;
+    END IF;
+  END LOOP;
   FOREACH v_sig IN ARRAY ARRAY['public.fn_oc_nota_entrada_recalc()', 'public.fn_oc_nota_entrada_valida()', 'public._recalcular_parcelas_core(uuid,text)', 'public.recalcular_parcelas_etiqueta(uuid)', 'public._salvar_oc_tecido_core(uuid,jsonb,jsonb,integer)', 'public._salvar_oc_aviamento_core(uuid,jsonb,jsonb,integer)', 'public._salvar_oc_p_acabado_core(uuid,jsonb,jsonb,integer)', 'public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', 'public.gerar_parcelas_oc_tecido()', 'public.gerar_parcelas_oc_aviamento()'] LOOP
     IF has_function_privilege('anon', v_sig, 'EXECUTE') OR has_function_privilege('authenticated', v_sig, 'EXECUTE') THEN
       RAISE EXCEPTION 'data_nota_entrada: % executável por anon/authenticated (invariante #9)', v_sig;

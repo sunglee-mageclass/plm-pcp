@@ -63,7 +63,7 @@ describe("nota-entrada — base, payload, textos e invalidação", () => {
     expect(AVISO_FALTA_NOTA).toBe("Falta a Data da Nota de Entrada — os vencimentos estão provisórios");
     expect(TEXTO_PARCELA_PROVISORIA).toBe("vencimento provisório — falta a data da nota");
   });
-  it("D6 (pendente do dono): sem parcela a pagar confirmada, o aviso NÃO fala em 'provisórios'", () => {
+  it("D6 (decidido pelo dono 24/set): sem parcela a pagar confirmada, o aviso NÃO fala em 'provisórios'", () => {
     expect(textoAvisoFaltaNota(true)).toBe(AVISO_FALTA_NOTA);
     expect(textoAvisoFaltaNota(false)).toBe("Falta a Data da Nota de Entrada");
     expect(textoAvisoFaltaNota(undefined)).toBe(AVISO_FALTA_NOTA_CURTO); // carregando: nunca afirma o que não sabe
@@ -72,7 +72,7 @@ describe("nota-entrada — base, payload, textos e invalidação", () => {
       tecido: "oc_tecido_id", aviamento: "oc_aviamento_id", etiqueta: "oc_etiqueta_id", p_acabado: "oc_p_acabado_id",
     });
   });
-  it("D7 (pendente do dono): data futura ou antes do pedido é recusada com o MESMO texto do banco", () => {
+  it("D7 (decidido pelo dono 24/set): data futura ou antes do pedido é recusada com o MESMO texto do banco", () => {
     const hoje = "2026-09-24";
     expect(validarDataNota("2026-09-25", "2026-09-01", hoje)).toBe("A Data da Nota de Entrada (25/09/2026) não pode ser no futuro.");
     expect(validarDataNota("2026-08-31", "2026-09-01", hoje))
