@@ -16,7 +16,7 @@ import { useSignedUrlBucket, type Opt, type ArtigoOpt } from "@/components/plane
 // Seção colapsável do detalhe do card — expandida por default; estado local por seção
 // (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
 // (O que abre COLAPSADO por default são os GRUPOS da lista — pedido do dono, ago/2026.)
-export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = true }: {
+export function Secao({ id, titulo, numero, selo, children, defaultOpen = true }: {
   /** F3.3 — chave da seção (`data-secao` + abertura por pedido — links "Para enviar, falta…"). */
   id?: string;
   titulo: string;
@@ -24,8 +24,6 @@ export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = 
   numero?: number;
   /** F3.3 — selo de completude à direita (IRMÃO do botão: o "i" do selo é um <button>). */
   selo?: React.ReactNode;
-  /** F3.3 — chip "do Desenvolvimento" (mockup) nas seções vindas do Dev. */
-  chip?: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {
@@ -45,7 +43,6 @@ export function Secao({ id, titulo, numero, selo, chip, children, defaultOpen = 
         >
           {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <span className="truncate">{numero ? `${numero}. ` : ""}{titulo}</span>
-          {chip && <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground max-sm:hidden">{chip}</span>}
         </button>
         {/* Lote B (revisão do commit 6fac668, minor) — `min-w-0` + `truncate` (não `shrink-0`, que IMPEDE encolher):
             selos com texto longo (ex.: resumo da Coleção, "Verão 2027 · Casual · lanç. 2 · mar/2027") estouravam a

@@ -1413,7 +1413,7 @@ function PlanejamentoDetailConteudo({
               p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no card existente. O
               <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
           {vis.desenvolvimento && (
-            <Secao id="desenvolvimento" titulo="Desenvolvimento — equipe e cronograma" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} chip="do Desenvolvimento" defaultOpen={false}>
+            <Secao id="desenvolvimento" titulo="Desenvolvimento — equipe e cronograma" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <DevEquipeSection
@@ -1432,7 +1432,7 @@ function PlanejamentoDetailConteudo({
           {/* Ajustes na Prova (veio do Dev — F3.1): fio de comentários que grava NA HORA (fora do Salvar). Comprado
               segue a seção "prova" do Fluxo de Revenda (default: escondida). Trava = fieldset, como no Dev. */}
           {vis.prova && modeloId && (
-            <Secao id="prova" titulo="Ajustes na Prova" numero={numeros.prova} selo={<SeloProvaBadge modeloId={modeloId} />} chip="do Desenvolvimento" defaultOpen={false}>
+            <Secao id="prova" titulo="Ajustes na Prova" numero={numeros.prova} selo={<SeloProvaBadge modeloId={modeloId} />} defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <ModeloAjustesProvaSection modeloId={modeloId} />
@@ -1635,7 +1635,7 @@ function PlanejamentoDetailConteudo({
               Reuso DIRETO de `ModeloObservacoes` (o card dele tem título próprio "Observações" — aceito: o
               componente é compartilhado com o Sheet do Dev e não muda até a F5). */}
           {vis.observacoes && modeloId && (
-            <Secao id="observacoes" titulo="Observações" numero={numeros.observacoes} selo={<SeloObservacoesBadge modeloId={modeloId} />} chip="do Desenvolvimento" defaultOpen={false}>
+            <Secao id="observacoes" titulo="Observações" numero={numeros.observacoes} selo={<SeloObservacoesBadge modeloId={modeloId} />} defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <ModeloObservacoes modeloId={modeloId} readOnly={devBloqueado} />

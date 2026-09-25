@@ -1,18 +1,18 @@
 // F3.2 — cabeçalho de seção vinda do Desenvolvimento no Sheet do Planejamento (mockup Main/Anotado:
-// título + chip "do Desenvolvimento" + selo à direita). Recolhida por padrão (decisão travada 6). O botão de
+// título + selo à direita; chip "do Desenvolvimento" REMOVIDO 25/set — fusão Planejamento+Dev tornou
+// a origem irrelevante). Recolhida por padrão (decisão travada 6). O botão de
 // abrir e o selo são IRMÃOS (o selo pode ter o "i" do CondicaoInfo, que é um <button> — botão dentro de
 // botão é HTML inválido). `open`/`onOpenChange` opcionais p/ a F3.3 abrir a seção por link.
 import { useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { usePedidoAbertura } from "@/components/planejamento/planejamento-detail/secoes-abertas";
 
-export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOpen = false, open: openProp, onOpenChange, oculta = false, children }: {
+export function SecaoBom({ id, titulo, numero, selo, defaultOpen = false, open: openProp, onOpenChange, oculta = false, children }: {
   id: string;
   titulo: string;
   /** F3.3 — numeração dinâmica "N." (selos-secoes.ts `numerarSecoes`). */
   numero?: number;
   selo?: ReactNode;
-  origemDev?: boolean;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
@@ -46,9 +46,6 @@ export function SecaoBom({ id, titulo, numero, selo, origemDev = true, defaultOp
         >
           {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <span className="truncate">{numero ? `${numero}. ` : ""}{titulo}</span>
-          {origemDev && (
-            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal text-muted-foreground max-sm:hidden">do Desenvolvimento</span>
-          )}
         </button>
         {/* Lote B (revisão do commit 6fac668, minor) — `min-w-0` + `truncate` (não `shrink-0`, que IMPEDE encolher):
             selos com texto longo (ex.: resumo da Coleção, "Verão 2027 · Casual · lanç. 2 · mar/2027") estouravam a
