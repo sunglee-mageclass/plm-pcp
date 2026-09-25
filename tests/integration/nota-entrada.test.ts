@@ -26,6 +26,13 @@ import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, ehBancoLocal } from "./db
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIG = "supabase/migrations/20261002100000_oc_data_nota_entrada.sql";
 const DOWN = "supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql";
+/** "Sem trava do pedido" (25/set) — tira SÓ a recusa "anterior à data do pedido"; "não pode ser no futuro" continua. */
+const SEM_TRAVA = "supabase/migrations/20261004100000_nota_entrada_sem_trava_pedido.sql";
+const SEM_TRAVA_DOWN = "supabase/rollback/20261004100000_nota_entrada_sem_trava_pedido_down.sql";
+/** md5(pg_get_functiondef) de fn_oc_nota_entrada_valida(): da Nota (20261002100000, com a trava do pedido) e desta
+ *  migration (20261004100000, sem ela) — .superpowers/nota/mig/md5-depois.txt e md5-sem-trava.txt. */
+const MD5_ANTES_TRAVA = "0c3614b75fd6bdbac1b3c862a35b796b";
+const MD5_SEM_TRAVA = "96ef34c2bb9014ad92dedfbfa40dc932";
 const MIG_TXN = process.env.NOTA_MIG_TXN === "1";
 const CAPTURA = process.env.NOTA_CAPTURA_DEPOIS ?? "";
 /** R9-b: arquivo onde a medição do laço do inverso grava (chave=valor) — só com NOTA_MIG_TXN=1 (Task 4 Step 2). */
@@ -482,7 +489,12 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
     });
   });
 
-  it("D7 (decidida pelo dono): data futura ou anterior ao pedido é recusada em PT — pela RPC e por UPDATE direto", async () => {
+  it("D7 (decidida pelo dono 24/set; trava do pedido REVOGADA 25/set — DECISÃO NOVA): futura recusada, anterior ao pedido ACEITA — pela RPC e por UPDATE direto", async () => {
+    // ⚠️ Esta cópia JÁ tem a migration 20261004100000 aplicada PARA FICAR (.superpowers/nota/copia-estado.md,
+    // 25/set 11:33) — `prepara(c)` reflete esse estado atual, não precisa aplicar SEM_TRAVA aqui. A recusa "anterior
+    // à data do pedido" que este teste provava até 24/set foi TIRADA a pedido do dono (chat 25/set: "está me
+    // barrando a entrada da data da nota de entrada porque é uma data anterior a data do pedido, deixe sem essa
+    // trava"); "não pode ser no futuro" segue intacta (não foi pedido tirar).
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixtures(c);
@@ -495,32 +507,72 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
         expect(msg).toMatch(re);
       };
       await recusa(() => ocAviamento(c, fx, { data_nota_entrada: futura }), /não pode ser no futuro/);
-      await recusa(() => ocAviamento(c, fx, { data_nota_entrada: "2026-08-31" }),
-        /não pode ser anterior à data do pedido \(01\/09\/2026\)/);
-      await recusa(() => ocPAcabado(c, fx, { data_nota_entrada: "2026-08-31" }), /anterior à data do pedido/);
-      const id = await ocAviamento(c, fx, { data_nota_entrada: "2026-09-01" }); // = data do pedido: aceita
+      // NOVO (25/set): anterior ao pedido (01/09) já não é recusado — aceita, pela RPC.
+      const idAnt = await ocAviamento(c, fx, { data_nota_entrada: "2026-08-31" });
+      expect(await notaDe(c, "ocs_aviamento", idAnt)).toBe("2026-08-31");
+      const idPa = await ocPAcabado(c, fx, { data_nota_entrada: "2026-08-31" });
+      expect(await notaDe(c, "ocs_p_acabado", idPa)).toBe("2026-08-31");
+      const id = await ocAviamento(c, fx, { data_nota_entrada: "2026-09-01" }); // = data do pedido: sempre aceitou
       expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01");
       await recusa(() => c.query(`update public.ocs_aviamento set data_nota_entrada = $2::date where id = $1`, [id, futura]),
         /não pode ser no futuro/);
-      // M1 (revisão Opus): a D7 não pode ser contornada mudando o PEDIDO em vez da nota — o gatilho escuta as duas
-      // colunas. A nota está em 01/09; mover o pedido pra DEPOIS dela (02/09) tem de ser recusado.
-      await recusa(() => c.query(`update public.ocs_aviamento set data_pedido = '2026-09-02' where id = $1`, [id]),
-        /não pode ser anterior à data do pedido \(02\/09\/2026\)/);
-      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01"); // a recusa não deixou nada pela metade
-      // N3: prova (não tautologia) de que "sem mudar nem a nota nem o pedido" não revalida — usa dado LEGADO
-      // já inconsistente (nota < pedido), gravado direto no catálogo com o gatilho desligado (grandfather data:
-      // só assim dá pra ter uma linha assim no disco, já que o gatilho barra tanto INSERT quanto UPDATE das duas
-      // colunas). Um UPDATE de uma terceira coluna (não nota, não pedido) não pode falhar.
-      await c.query(`ALTER TABLE public.ocs_aviamento DISABLE TRIGGER trg_nota_entrada_valida`);
-      const idLegado = await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90002", data_pedido: "2026-09-10", data_nota_entrada: "2026-09-01" });
-      await c.query(`ALTER TABLE public.ocs_aviamento ENABLE TRIGGER trg_nota_entrada_valida`);
-      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01"); // nota (01/09) < pedido (10/09): já inválida
-      await c.query(`update public.ocs_aviamento set responsavel_nome = 'legado ok' where id = $1`, [idLegado]);
-      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01"); // segue lá — não revalidou, não recusou
-      // re-salvar pela RPC sem tocar nota/pedido também não revalida (mesmo numero_pedido do INSERT — o helper
-      // não busca o valor atual do banco quando `extra` está vazio, então repetir aqui evita colidir com `id`)
-      await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90002", data_pedido: "2026-09-10", data_nota_entrada: "2026-09-01" }, idLegado);
-      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01");
+      // M1 (mantido, agora inofensivo): mover o PEDIDO pra depois da nota já gravada não é mais recusado — a trava
+      // que M1 fechava sumiu de vez com a trava do pedido.
+      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-09-01' where id = $1`, [id]);
+      await c.query(`update public.ocs_aviamento set data_pedido = '2026-09-02' where id = $1`, [id]);
+      expect((await um<{ d: string }>(c, `select to_char(data_pedido, 'YYYY-MM-DD') d from public.ocs_aviamento where id = $1`, [id])).d)
+        .toBe("2026-09-02");
+      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01"); // a nota não mudou (só a checagem sumiu)
+    });
+  });
+
+  it("D7 sem a trava do pedido (decisão NOVA do dono, 25/set): anterior ao pedido é ACEITA; futura continua recusada", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const fx = await fixtures(c);
+      await aplicarArquivo(c, SEM_TRAVA); // migration desta frente, na MESMA txn (nunca \i)
+      const futura = (await um<{ d: string }>(c, `select to_char(current_date + 400, 'YYYY-MM-DD') d`)).d;
+      const recusa = async (fn: () => Promise<unknown>, re: RegExp) => {
+        await c.query("SAVEPOINT nota_sem_trava");
+        let msg = "(aceitou)";
+        try { await fn(); } catch (e) { msg = String((e as Error).message); }
+        await c.query("ROLLBACK TO SAVEPOINT nota_sem_trava");
+        expect(msg).toMatch(re);
+      };
+      // NOVO: anterior ao pedido (01/09) agora é ACEITA — pela RPC e por UPDATE direto.
+      const id = await ocAviamento(c, fx, { data_nota_entrada: "2026-08-31" });
+      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-08-31");
+      await ocPAcabado(c, fx, { data_nota_entrada: "2026-08-01" }); // bem antes do pedido (01/09) — aceita
+      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-07-01' where id = $1`, [id]);
+      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-07-01");
+      // M1 (mantido): mover o PEDIDO pra depois da nota já gravada não é mais recusado (a trava sumiu de vez).
+      await c.query(`update public.ocs_aviamento set data_pedido = '2026-09-02' where id = $1`, [id]);
+      expect((await um<{ d: string }>(c, `select to_char(data_pedido, 'YYYY-MM-DD') d from public.ocs_aviamento where id = $1`, [id])).d)
+        .toBe("2026-09-02");
+      // "não pode ser no futuro" CONTINUA valendo (não foi pedido tirar).
+      await recusa(() => ocAviamento(c, fx, { data_nota_entrada: futura }), /não pode ser no futuro/);
+      await recusa(() => c.query(`update public.ocs_aviamento set data_nota_entrada = $2::date where id = $1`, [id, futura]),
+        /não pode ser no futuro/);
+      // ACL segue igual (invariante #9) e md5 = o esperado desta migration.
+      const acl = await um<{ a: boolean; u: boolean }>(c,
+        `select has_function_privilege('anon', 'public.fn_oc_nota_entrada_valida()', 'EXECUTE') a,
+                has_function_privilege('authenticated', 'public.fn_oc_nota_entrada_valida()', 'EXECUTE') u`);
+      expect(acl).toEqual({ a: false, u: false });
+      expect((await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m)
+        .toBe(MD5_SEM_TRAVA);
+    });
+  });
+
+  it("inverso da trava-do-pedido: restaura a recusa 'anterior ao pedido' byte a byte (md5 volta ao da Nota)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      await aplicarArquivo(c, SEM_TRAVA);
+      await aplicarArquivo(c, SEM_TRAVA_DOWN);
+      const md5 = (await um<{ m: string }>(c, `select md5(pg_get_functiondef(to_regprocedure('public.fn_oc_nota_entrada_valida()'))) m`)).m;
+      expect(md5).toBe(MD5_ANTES_TRAVA); // = o md5 da Nota (20261002100000) — a trava do pedido voltou
+      const fx = await fixtures(c);
+      await expect(ocAviamento(c, fx, { data_nota_entrada: "2026-08-31" }))
+        .rejects.toThrow(/não pode ser anterior à data do pedido \(01\/09\/2026\)/);
     });
   });
 
