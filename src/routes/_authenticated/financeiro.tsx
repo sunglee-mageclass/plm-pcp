@@ -33,6 +33,8 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addM
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { parcelaProvisoria, TEXTO_PARCELA_PROVISORIA, type OcNotaInfo } from "@/lib/nota-entrada";
+import { TagParcelaProvisoria } from "@/components/shared/NotaEntrada";
 import { useAuth } from "@/hooks/useAuth";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
@@ -88,6 +90,8 @@ type Parcela = {
   ocs_p_acabado?: { numero_pedido: string | null } | null;
   ocs_importado?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; tone: StatusTone } | null;
+  // Data da Nota de Entrada (spec 2026-09-24): parcela NÃO paga de OC recebida sem a data — vencimento provisório.
+  provisoria?: boolean;
 };
 
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
@@ -241,18 +245,18 @@ function FinanceiroPage() {
           : Promise.resolve({ data: [], error: null } as const),
 
         tecidoIds.length
-          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, representante:representante_id(nome,cnpj), ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
+          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, status, data_nota_entrada, representante:representante_id(nome,cnpj), ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
         aviamentoIds.length
-          ? supabase.from("ocs_aviamento").select("id,numero_pedido, representante:representante_id(nome,cnpj)").in("id", aviamentoIds)
+          ? supabase.from("ocs_aviamento").select("id,numero_pedido, status, data_nota_entrada, representante:representante_id(nome,cnpj)").in("id", aviamentoIds)
           : Promise.resolve({ data: [], error: null } as const),
         etiquetaIds.length
-          ? supabase.from("ocs_etiqueta" as any).select("id,numero_pedido, representante:representante_id(nome,cnpj)").in("id", etiquetaIds)
+          ? supabase.from("ocs_etiqueta" as any).select("id,numero_pedido, status, data_nota_entrada, representante:representante_id(nome,cnpj)").in("id", etiquetaIds)
           : Promise.resolve({ data: [], error: null } as const),
         // `ocs_p_acabado` está fora do types.ts (feature Revenda, branch não mesclada);
         // a coluna do nº do pedido lá é `numero` (não `numero_pedido`, diferente das demais).
         pAcabadoIds.length
-          ? supabase.from("ocs_p_acabado" as any).select("id,numero, empresa_id, representante:representante_id(nome,cnpj)").in("id", pAcabadoIds)
+          ? supabase.from("ocs_p_acabado" as any).select("id,numero, empresa_id, status, data_nota_entrada, representante:representante_id(nome,cnpj)").in("id", pAcabadoIds)
           : Promise.resolve({ data: [], error: null } as const),
         // `ocs_importado` está fora do types.ts (mesma classe do p_acabado); coluna do
         // nº do pedido também é `numero` (não `numero_pedido`).
@@ -301,6 +305,11 @@ function FinanceiroPage() {
           return its.length > 0 && its.every((it: any) => it.cancelado) ;
         }).map((o: any) => o.id),
       );
+      // Data da Nota de Entrada: status + data de cada OC (4 famílias) → parcela provisória (regra única em nota-entrada.ts).
+      const notaPorOc = new Map<string, OcNotaInfo>(
+        [...(tecidoRes.data ?? []), ...(aviamentoRes.data ?? []), ...etqData, ...pAcData].map((o: any) =>
+          [o.id as string, { status: o.status ?? null, data_nota_entrada: o.data_nota_entrada ?? null }]),
+      );
 
       return list
         .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
@@ -324,6 +333,7 @@ function FinanceiroPage() {
         ocs_p_acabado: p.oc_p_acabado_id ? { numero_pedido: pAcMap.get(p.oc_p_acabado_id) ?? null } : null,
         ocs_importado: p.oc_importado_id ? { numero_pedido: pImpMap.get(p.oc_importado_id) ?? null } : null,
         ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
+        provisoria: parcelaProvisoria(p, notaPorOc.get(p.oc_tecido_id ?? p.oc_aviamento_id ?? p.oc_etiqueta_id ?? p.oc_p_acabado_id ?? "")),
         };
       });
     },
@@ -543,7 +553,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
                       const { tone, Icon, fill } = VIS_META[parcelaVis(p, hoje, today)];
                       const nome = p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—";
                       return (
-                        <span key={p.id} className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", TONE_SURFACE[tone])}>
+                        <span key={p.id} data-qa={p.provisoria ? "parcela-provisoria" : undefined} title={p.provisoria ? TEXTO_PARCELA_PROVISORIA : undefined} className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", TONE_SURFACE[tone], p.provisoria && "border border-dashed border-[var(--tone-warning-fg)]")}>
                           <Icon className={cn("h-3.5 w-3.5 shrink-0", fill && "fill-current")} aria-hidden />
                           <span className="min-w-0 flex-1 truncate font-normal">{nome}</span>
                           <span className="shrink-0 tabular-nums font-semibold">{brlAbrev(Number(p.valor))}</span>
@@ -640,7 +650,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
                             <VisBadgeIcon vis={vis} className="h-7 w-7 shrink-0" />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium">{nome}</span>
-                              <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+                              <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span><TagParcelaProvisoria show={!!p.provisoria} />
                             </span>
                             <span className="shrink-0 text-sm font-semibold tabular-nums">{brl(Number(p.valor))}</span>
                           </button>
@@ -820,6 +830,7 @@ function ParcelaDetailDialog({
             {parcela.ocBadge && <StatusBadge tone={parcela.ocBadge.tone}>{parcela.ocBadge.label}</StatusBadge>}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
+          <TagParcelaProvisoria show={!!parcela.provisoria} className="text-sm" />
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Vencimento:</span>
             <DateField
@@ -1003,7 +1014,7 @@ function DiaParcelasList({
               <VisBadgeIcon vis={vis} className="h-6 w-6 shrink-0" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{nome}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span><TagParcelaProvisoria show={!!p.provisoria} />
               </span>
               <span className="shrink-0 text-sm font-bold tabular-nums">{brl(Number(p.valor))}</span>
             </button>
@@ -1257,7 +1268,8 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalheId(p.id); }
                     }}
-                    className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : ""}`}
+                    data-qa={p.provisoria ? "parcela-provisoria" : undefined}
+                    className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : p.provisoria ? "bg-[var(--tone-warning-bg)]" : ""}`}
                   >
                     <td className="py-2 pr-3">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3" data-label="Nº Pedido">
@@ -1283,6 +1295,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
                         disabled={st === "pago"}
                       />
                       <OffsetTag dias={(p as any).dias_offset} />
+                      <TagParcelaProvisoria show={!!p.provisoria} className="mt-1" />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
                       <StatusParcelaBadge st={st} />
@@ -2246,7 +2259,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
                     <span className="w-11 shrink-0 text-sm font-bold tabular-nums">{format(parseLocalDate(p.data_vencimento), "dd/MM")}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{nome}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{parcelaOrigemLabel(p)}</span><TagParcelaProvisoria show={!!p.provisoria} />
                     </span>
                     <span className="shrink-0 text-sm font-semibold tabular-nums">{brl(Number(p.valor))}</span>
                   </div>
