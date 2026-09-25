@@ -3,24 +3,31 @@
 // mudança de comportamento; F3.4: a grade passa a valer p/ revenda E importado (`useGradeComprado`, decisão F3 #4) e o
 // importado ganha a seção do produto. Componentes de nível de MÓDULO de propósito — declarados dentro do orquestrador,
 // eles remontariam a cada render e o input perderia o foco.
-import { ExternalLink, PackagePlus } from "lucide-react";
+import { ExternalLink, PackagePlus, RotateCcw } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { brl } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/campos";
+import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, precoAnterior, onPrecoAnterior }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
+  /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
+  blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
+  /** F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o VAREJO efetivo (`piRevenda.efetivo`); editar =
+   *  `criacao_planejamento:preco_venda`; grava no Salvar da página (não pela RPC de preço fixo). */
+  podeEditarPreco: boolean; precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
 }) {
   const {
     produtoRevenda, produtoRevendaLoading,
@@ -72,6 +79,41 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
+                    {/* F3.6 (ruling 11, R17; M2 — revisão Opus fix1): Preço anterior em linha própria, na posição do
+                        brief (Step 4.3) — logo ANTES do par atacado/varejo, DEPOIS dos Markups; acompanha o VAREJO. */}
+                    {podeEditarPreco ? (
+                      <div className="grid gap-1 sm:col-span-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
+                          <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                            {precoAnterior === null ? "automático" : "editado"}
+                          </StatusBadge>
+                        </div>
+                        <div className="flex items-center gap-1 sm:max-w-xs">
+                          {/* M3 (fix1) — 44px no celular, como a lixeira de PrecoTabela.tsx. */}
+                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
+                            aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                          <MoneyInput
+                            id="preco-anterior-revenda"
+                            fixedDecimals
+                            aria-label="Preço anterior"
+                            className="min-w-0 flex-1"
+                            // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload); evita "editado · 0,00".
+                            value={precoAnteriorExibido(precoAnterior, piRevenda.efetivo) ?? ""}
+                            placeholder="0,00"
+                            data-colab-path="preco_anterior"
+                            onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</p>
+                      </div>
+                    ) : (
+                      <div className="sm:col-span-2 sm:max-w-xs">
+                        <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
+                      </div>
+                    )}
                     {/* Preços EDITÁVEIS = preço FIXO (set/2026, sem derivar do markup): o que se EXIBE
                         em repouso é o preço REAL do modelo (`draft.preco_atacado`/`preco_venda`, já
                         fixo-ou-derivado pelo servidor) — NÃO mais o derivado do markup, que mostraria
@@ -118,6 +160,14 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft }: {
                   <p className="text-sm text-muted-foreground sm:col-span-2">
                     {produtoRevendaLoading ? "Carregando…" : "Crie o produto acabado (abaixo) para definir os markups de preço."}
                   </p>
+                )}
+                {/* F3.6 (R17) — M.O. no fim do bloco de preço da revenda (a revenda não tem parte "Custos" depois dos preços). */}
+                {blocoMaoObra && (
+                  <div className="space-y-2 border-t pt-3 sm:col-span-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Mão de obra</p>
+                    {blocoMaoObra}
+                    {obsMaoObra}
+                  </div>
                 )}
               </div>
   );

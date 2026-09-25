@@ -9,17 +9,18 @@
 // dentro do wrapper `overflow-x-auto`, com fade condicional ao scroll real (mesma receita do
 // `SegmentedTabs`, `src/components/dashboard/mobile.tsx` — §Q10). Em ≥768px nada muda: sem
 // `max-md:`, a tabela renderiza exatamente como antes.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { brl, fmtNum } from "@/lib/format";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SeloCusto } from "@/components/planejamento/planejamento-detail/custo-base";
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -49,6 +50,9 @@ export function PrecoTabela(props: {
   // distingue, na Obs, se está usando o preço do usuário ou o sugerido.
   precoBase: number; precoDigitado: number;
   draftPrecoVenda: number | null | undefined; onPrecoVenda: (v: string) => void;
+  // F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o preço EFETIVO (`precoBase` — o digitado ou o sugerido, o
+  // mesmo da linha "Preço de venda"); não-NULL = fixado à mão até o ↺. Editar = `podeEditarPreco` (mesma permissão).
+  precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
   // F3.2 (decisão F3 #6): custo-base ÚNICO (o MESMO que o markup usa) + selo de 3 estados —
   // real (CAD enviado ao corte) › previsto (BOM) › estimado (tecido + materiais + M.O.).
   seloCusto: SeloCusto; custoBase: number;
@@ -73,11 +77,17 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
+  // F3.6 (Parte A — spec 2026-09-25 §5.1; R16): a Mão de obra deixa de ser seção — o MESMO MaoObraEditor (montado no
+  // orquestrador, com o estado/aprovações de sempre) entra aqui por slot, logo abaixo da linha "Mão de obra"; a Obs. de MO
+  // logo abaixo do "Custo total". null/ausente = sem permissão (`moBlocoVisivel`): a linha mostra só o total, como antes.
+  blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
+    precoAnterior, onPrecoAnterior,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
-    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn } = props;
+    linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
+    blocoMaoObra, obsMaoObra } = props;
 
   // Fix mobile (F3.3) — fade de rolagem do wrapper `overflow-x-auto` (achado 2). Mesma receita do
   // `SegmentedTabs` (§Q10): por lado, condicional ao scroll real (nunca incondicional — senão
@@ -167,6 +177,45 @@ export function PrecoTabela(props: {
         <tbody className="align-middle">
           {/* ── PARTE 1: Preços (digitáveis) ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Preços</td></tr>
+          {/* F3.6 (ruling 11) — Preço anterior ANTES do Preço de venda. Automático (NULL): mostra o EFETIVO e acompanha ao vivo
+              qualquer mudança do preço de venda; qualquer valor digitado FIXA (R5 — é o "congelar o preço atual"); ↺ volta ao
+              automático. Sem a permissão: só leitura. */}
+          <tr className="border-t">
+            {/* mockup v3 (R34): o selo "automático" (ou "editado") mora na 1ª coluna, junto do rótulo; o ↺ vem ANTES do input. */}
+            <td className="py-2 pr-3">
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                Preço anterior
+                <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                  {precoAnterior === null ? "automático" : "editado"}
+                </StatusBadge>
+              </span>
+            </td>
+            <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+            <td className="py-2 px-2 text-right">
+              {podeEditarPreco ? (
+                <span className="ml-auto inline-flex items-center justify-end gap-1">
+                  {/* M3 (fix1) — 44px no celular, como a lixeira "Remover custo" logo abaixo (mesmo arquivo). */}
+                  <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
+                    aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                  <MoneyInput
+                    fixedDecimals
+                    aria-label="Preço anterior"
+                    className="h-8 w-32 text-right tabular-nums"
+                    value={precoAnteriorExibido(precoAnterior, precoBase) ?? ""}
+                    placeholder="0,00"
+                    data-colab-path="preco_anterior"
+                    // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload): evita "editado · 0,00" e conflito falso.
+                    onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
+                  />
+                </span>
+              ) : (
+                <span className="tabular-nums">{(() => { const v = precoAnteriorExibido(precoAnterior, precoBase); return v != null ? brl(v) : "—"; })()}</span>
+              )}
+            </td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</td>
+          </tr>
           <tr className="border-t">
             <td className="py-2 pr-3"><b>Preço de venda</b></td>
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
@@ -174,6 +223,7 @@ export function PrecoTabela(props: {
               {podeEditarPreco ? (
                 <MoneyInput
                   fixedDecimals
+                  aria-label="Preço de venda"
                   className="ml-auto h-8 w-32 text-right tabular-nums"
                   value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
                   placeholder={precoSug > 0 ? brl(precoSug) : undefined}
@@ -373,8 +423,20 @@ export function PrecoTabela(props: {
                 Por isso Materiais + M.O. NÃO fecham necessariamente com o Custo total (bases
                 diferentes) — sem operador +/= aqui de propósito. */}
             <td className="py-2 px-2 text-right tabular-nums">{maoObraDev > 0 ? brl(maoObraDev) : "—"}</td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>na seção Mão de obra abaixo</span>}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">{moBadge ?? <span>{blocoMaoObra ? "serviços logo abaixo" : "—"}</span>}</td>
           </tr>
+          {/* F3.6 — serviços de M.O. (valor, aprovar/reprovar p/ quem tem permissão, remover, "+ adicionar") DENTRO da tabela.
+              Célula única (colSpan): um <fieldset>/lista não cabe em <tbody>; a trava é por `disabled` em cada controle, como
+              nas linhas do BOM. No mobile a tabela rola na horizontal — o bloco fica PRESO à esquerda com a largura visível:
+              <640px o Sheet é tela cheia (`100vw-4rem`, `px-6`+`px-2` da célula); 640–767px o Sheet é `sm:w-[70vw]`
+              (`70vw-4rem`, mesmo `px-6`+`px-2`) — senão os botões de aprovar ficariam fora da tela. */}
+          {blocoMaoObra && (
+            <tr className="border-t">
+              <td colSpan={4} className="py-2 px-2">
+                <div className="max-md:sticky max-md:left-0 max-sm:w-[calc(100vw-4rem)] sm:max-md:w-[calc(70vw-4rem)]">{blocoMaoObra}</div>
+              </td>
+            </tr>
+          )}
           <tr className="border-t font-semibold">
             <td className="py-2 pr-3">Custo total</td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
@@ -383,6 +445,13 @@ export function PrecoTabela(props: {
               {seloBadge}{divergePrevisto ? <span className="ml-1">· antes (previsto): {brl(custoPrevisto)}</span> : null}
             </td>
           </tr>
+          {obsMaoObra && (
+            <tr className="border-t">
+              <td colSpan={4} className="py-2 px-2">
+                <div className="max-md:sticky max-md:left-0 max-sm:w-[calc(100vw-4rem)] sm:max-md:w-[calc(70vw-4rem)]">{obsMaoObra}</div>
+              </td>
+            </tr>
+          )}
         </tbody>
         </table>
       </div>

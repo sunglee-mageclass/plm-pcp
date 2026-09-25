@@ -15,6 +15,7 @@ import {
   precoAnteriorOuNull,
   precoAnteriorExibido,
   camposNovosParaPayload,
+  aplicarPrecoAnterior,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -324,6 +325,14 @@ describe("F3.6 (Parte B) — campos novos: rótulos, NCM, números e Preço ante
     expect(filtrarNcm("62044300999")).toBe("6204430099");
     expect(filtrarNcm(null)).toBe("");
   });
+  // P8 (fix1, revisão Opus do Lote B1 — parqueado da T8): colar um texto com PREFIXO (ex.: "NCM: 6204.43.00") tem que
+  // extrair os dígitos/pontos corretos, não truncar pelos primeiros 10 CARACTERES do texto colado (o bug era o
+  // `maxLength={10}` do <Input> cortando ANTES de `filtrarNcm` rodar — aqui provamos que a função pura já filtra certo;
+  // remover o `maxLength` no componente é o que deixa esse resultado chegar até o Draft).
+  it("filtrarNcm: texto colado com prefixo — extrai os dígitos/pontos certos, não os 10 primeiros caracteres crus", () => {
+    expect(filtrarNcm("NCM: 6204.43.00")).toBe("6204.43.00");
+    expect(filtrarNcm("Código NCM 6204.43.00")).toBe("6204.43.00");
+  });
   it("numeroOuNull: vazio/null/inválido = NULL; 0 VALE (CHECK >= 0); arredonda às casas da coluna", () => {
     expect(numeroOuNull("", 3)).toBeNull();
     expect(numeroOuNull(null, 2)).toBeNull();
@@ -372,5 +381,56 @@ describe("F3.6 (Parte B) — campos novos: rótulos, NCM, números e Preço ante
       ...emptyDraft(), titulo_pagina: "  ", ncm: "62.04x", peso_kg: 0.3456, preco_anterior: 0,
     });
     expect(n).toMatchObject({ titulo_pagina: null, ncm: "62.04", peso_kg: 0.346, preco_anterior: null });
+  });
+});
+
+// Ruling R-a (revisão do Lote B1, mesmo tema da T9): `aplicarPrecoAnterior` extraída de `usePlanejamentoSave.ts`
+// como função PURA — a MESMA regra de permissão do preço de venda, aplicada no MESMO ponto pros dois ramos
+// (manufaturado/importado e revenda).
+describe("aplicarPrecoAnterior (ruling R-a)", () => {
+  it("com permissão: grava precoAnteriorOuNull(d.preco_anterior) — 0/vazio/negativo viram NULL", () => {
+    const payload: Record<string, unknown> = {};
+    aplicarPrecoAnterior(payload, { ...emptyDraft(), preco_anterior: 199.9 }, true);
+    expect(payload.preco_anterior).toBe(199.9);
+
+    const p0: Record<string, unknown> = {};
+    aplicarPrecoAnterior(p0, { ...emptyDraft(), preco_anterior: 0 }, true);
+    expect(p0.preco_anterior).toBeNull();
+
+    const pNeg: Record<string, unknown> = {};
+    aplicarPrecoAnterior(pNeg, { ...emptyDraft(), preco_anterior: -10 }, true);
+    expect(pNeg.preco_anterior).toBeNull();
+
+    const pNull: Record<string, unknown> = {};
+    aplicarPrecoAnterior(pNull, { ...emptyDraft(), preco_anterior: null }, true);
+    expect(pNull.preco_anterior).toBeNull();
+  });
+  it("sem permissão: a chave NÃO entra no payload (nem para apagar um valor já presente)", () => {
+    const payload: Record<string, unknown> = { preco_anterior: 150, nome: "M" };
+    aplicarPrecoAnterior(payload, { ...emptyDraft(), preco_anterior: 199.9 }, false);
+    expect(payload).not.toHaveProperty("preco_anterior");
+    expect(payload.nome).toBe("M");
+  });
+});
+
+// Ruling R-b (revisão do Lote B1): sem `podeEditarPreco`, `normalizarDraftSalvo` NÃO normaliza `preco_anterior` —
+// usa o valor CRU do servidor (o payload não o manda nesse caso), evitando o falso "Alguém salvou agora" quando
+// o banco tem 0/negativo (dado legado) e quem salvou não tinha a permissão de ver/mexer no preço.
+describe("normalizarDraftSalvo — R-b (permissão de preço)", () => {
+  it("sem permissão + servidor com 0: mantém 0 (não normaliza para NULL)", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 0 }, false);
+    expect(n.preco_anterior).toBe(0);
+  });
+  it("sem permissão + servidor com valor negativo (dado legado): mantém o valor cru", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: -5 }, false);
+    expect(n.preco_anterior).toBe(-5);
+  });
+  it("com permissão (default do parâmetro): normaliza — 0 vira NULL, como antes", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 0 });
+    expect(n.preco_anterior).toBeNull();
+  });
+  it("com permissão explícita=true: idêntico ao default", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 199.9 }, true);
+    expect(n.preco_anterior).toBe(199.9);
   });
 });

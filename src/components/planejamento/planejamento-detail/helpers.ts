@@ -17,7 +17,7 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   tecidos_planejados: "Tecido Planejado", status_planejamento: "Status",
   croqui_url: "Foto do Croqui", desenho_tecnico_url: "Desenho Técnico",
   fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
-  observacoes_gerais: "Observações Gerais", observacoes_mao_obra: "Obs. Mão de obra",
+  observacoes_gerais: "Observações Gerais", observacoes_mao_obra: "Observação de mão de obra",
   versao: "Versão", modelo_base_id: "Modelo base", custo_simulado: "Simulação de custo",
   // F3.1 — campos vindos do Desenvolvimento + Descrição do produto (rótulos do Dev,
   // ModeloDetailPanel.tsx:145-160, e do mockup aprovado).
@@ -123,6 +123,17 @@ export function precoAnteriorExibido(fixado: number | null | undefined, efetivo:
   if (fixado !== null && fixado !== undefined) return fixado;
   return efetivo > 0 ? efetivo : null;
 }
+/**
+ * F3.6 (ruling 11 / R9, extraída na revisão do Lote B1 — ruling R-a): aplica ao payload (mutando-o) a regra de
+ * permissão do "Preço anterior" — a MESMA `criacao_planejamento:preco_venda` do preço de venda, nos DOIS ramos
+ * (manufaturado/importado E revenda). Com permissão, grava `precoAnteriorOuNull(d.preco_anterior)` (0/vazio/negativo
+ * viram NULL = automático); sem ela, a chave NEM ENTRA no payload — um Salvar disparado por outro campo não deve
+ * reenviar/sobrescrever o valor gravado no servidor. Usada no MESMO ponto (depois do if/else da revenda), pros 2 ramos.
+ */
+export function aplicarPrecoAnterior(payload: Record<string, unknown>, d: Draft, podeEditarPreco: boolean): void {
+  if (podeEditarPreco) payload.preco_anterior = precoAnteriorOuNull(d.preco_anterior);
+  else delete payload.preco_anterior;
+}
 /** Os 6 campos novos que vão em TODO payload (o Preço anterior tem regra de permissão própria — no save). Título aparado. */
 export function camposNovosParaPayload(
   d: Pick<Draft, "titulo_pagina" | "ncm" | "peso_kg" | "comprimento_cm" | "largura_cm" | "altura_cm">,
@@ -219,14 +230,19 @@ export function draftParaSalvar(draftLiveRefCurrent: Draft | null | undefined, d
  * próximo refetch, o merge via `mergeDraft` comparava base≠fresh nesses 2 campos e mostrava
  * "Alguém salvou agora — 1 campo" para o PRÓPRIO save de quem acabou de clicar Salvar.
  * F3.6: + Título/NCM/Peso/medidas/Preço anterior (camposNovosParaPayload/precoAnteriorOuNull).
+ * F3.6 (ruling R-b, revisão do Lote B1): SEM `podeEditarPreco`, o Preço anterior NÃO é normalizado — o payload
+ * do Salvar OMITE essa chave nesse caso (`aplicarPrecoAnterior`), então o valor "que o servidor gravou" é o que
+ * já estava lá ANTES deste Salvar (o cru vindo do servidor, `d.preco_anterior`), não `precoAnteriorOuNull(...)`.
+ * Sem isto, um banco com 0/negativo (dado legado) virava NULL aqui e o próximo merge comparava base≠fresh nesse
+ * campo, mostrando o falso "Alguém salvou agora — Preço anterior" pra quem nem podia editá-lo.
  */
-export function normalizarDraftSalvo(d: Draft): Draft {
+export function normalizarDraftSalvo(d: Draft, podeEditarPreco = true): Draft {
   return {
     ...d,
     ref: (d.ref ?? "").trim(),
     descricao_produto: textoOuNull(d.descricao_produto) ?? "",
     // F3.6 — os 7 campos novos com as MESMAS regras do payload (senão o eco do próprio Salvar vira "alguém salvou agora").
     ...camposNovosParaPayload(d),
-    preco_anterior: precoAnteriorOuNull(d.preco_anterior),
+    preco_anterior: podeEditarPreco ? precoAnteriorOuNull(d.preco_anterior) : d.preco_anterior,
   };
 }
