@@ -11,6 +11,20 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { STATUS_OPTS, type Opt, type CatOpt, type SubOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, FieldText, FieldSelect } from "@/components/planejamento/planejamento-detail/campos";
 import type { OpcaoOrigem } from "@/components/planejamento/planejamento-detail/comprado";
+import { InfoHover } from "@/components/shared/InfoHover";
+
+/** "i" ao lado de "Origem" com o motivo de cada opção travada. Sem opção travada ⇒ não renderiza nada. */
+function MotivosOrigemInfo({ opcoes }: { opcoes: OpcaoOrigem[] }) {
+  const travadas = opcoes.filter((o) => o.disabled && o.motivo);
+  if (travadas.length === 0) return null;
+  return (
+    <InfoHover ariaLabel="Por que algumas origens estão travadas?">
+      {travadas.map((o) => (
+        <p key={o.value}><span className="font-semibold">{o.label}:</span> {o.motivo}</p>
+      ))}
+    </InfoHover>
+  );
+}
 
 export function InfoGeraisSecao({
   draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
@@ -58,7 +72,12 @@ export function InfoGeraisSecao({
                 options={estilistas}
               />
               <div className="grid gap-1">
-                <Label>Origem</Label>
+                {/* F3.4 — D1: por que a troca está travada (item desabilitado do Radix não mostra `title`). Dono 25/set:
+                    sem texto fixo embaixo do campo — o motivo aparece no "i" ao lado do rótulo, ao passar o mouse. */}
+                <div className="flex items-center gap-1.5">
+                  <Label>Origem</Label>
+                  <MotivosOrigemInfo opcoes={origemOpcoes} />
+                </div>
                 <Select value={draft.origem} onValueChange={(v) => setDraftTracked((d) => ({ ...d, origem: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -67,10 +86,6 @@ export function InfoGeraisSecao({
                     ))}
                   </SelectContent>
                 </Select>
-                {/* F3.4 — D1: por que a troca está travada (item desabilitado do Radix não mostra `title`). */}
-                {origemOpcoes.some((o) => o.disabled && o.motivo) && (
-                  <p className="text-xs text-muted-foreground">{origemOpcoes.find((o) => o.disabled && o.motivo)?.motivo}</p>
-                )}
               </div>
             </div>
 

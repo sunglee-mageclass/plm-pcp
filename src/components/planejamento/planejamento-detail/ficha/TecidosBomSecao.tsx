@@ -23,6 +23,7 @@ import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "@/components/desenvolvimento/modelo-detail/types";
 import type { EstoqueArtigo } from "@/components/planejamento/planejamento-detail/campos";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { brl, fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
@@ -791,8 +792,25 @@ function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disa
 }) {
   const sel = value ? artigos.find((a) => a.id === value) : undefined;
   const eSel = value ? estoque[value] : undefined;
+  // Dono 25/set: preço/estoque do tecido escolhido saem da legenda fixa embaixo do campo e vão para o "i" ao lado do
+  // rótulo (hover). A lista do seletor continua mostrando preço/estoque de cada opção (ajuda a escolher).
   return (
-    <Field label={label}>
+    <div className="grid gap-1">
+      <div className="flex items-center gap-1.5">
+        <Label className="text-xs">{label}</Label>
+        {sel && (
+          <InfoHover ariaLabel={`Preço e estoque do ${label}`}>
+            <p>Preço/m: {sel.preco_por_metro != null ? brl(sel.preco_por_metro) : "—"}</p>
+            {eSel && (
+              <p>
+                Estoque: {fmtNum(eSel.fisico_m)} m{" · "}
+                {/* tooltip é navy (bg-primary): vermelho em texto não lê — disponível ≤ 0 vira etiqueta vermelha */}
+                <span className={eSel.disponivel_m <= 0 ? "rounded-sm bg-destructive px-1 font-medium text-destructive-foreground" : ""}>disp.: {fmtNum(eSel.disponivel_m)} m</span>
+              </p>
+            )}
+          </InfoHover>
+        )}
+      </div>
       <Select disabled={disabled} value={value ?? ""} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
         <SelectTrigger>
           <SelectValue placeholder="Selecione…">{sel ? artigoLabel(sel) : undefined}</SelectValue>
@@ -817,17 +835,6 @@ function ArtigoComEstoqueSelect({ label, value, onChange, artigos, estoque, disa
           })}
         </SelectContent>
       </Select>
-      {sel && (
-        <p className="text-[11px] text-muted-foreground">
-          Preço/m: {sel.preco_por_metro != null ? brl(sel.preco_por_metro) : "—"}
-          {eSel && (
-            <>
-              {" · "}Estoque: {fmtNum(eSel.fisico_m)} m{" · "}
-              <span className={eSel.disponivel_m <= 0 ? "font-medium text-destructive" : ""}>disp.: {fmtNum(eSel.disponivel_m)} m</span>
-            </>
-          )}
-        </p>
-      )}
-    </Field>
+    </div>
   );
 }
