@@ -142,10 +142,11 @@ export function InfoGeraisSecao({
               </div>
               <div className="grid gap-1">
                 <Label htmlFor="ncm-produto">NCM do Produto</Label>
+                {/* P8 (fix1) — SEM `maxLength`: cortava o texto COLADO antes de `filtrarNcm` rodar (ex.: "NCM: 6204.43.00"
+                    virava "6204." — o prefixo "NCM: " já consumia os 10 caracteres). `filtrarNcm` já limita a 10. */}
                 <Input
                   id="ncm-produto"
                   inputMode="decimal"
-                  maxLength={10}
                   placeholder="0000.00.00"
                   value={draft.ncm ?? ""}
                   onChange={(e) => { const v = filtrarNcm(e.target.value); setDraftTracked((d) => ({ ...d, ncm: v === "" ? null : v })); }}
@@ -212,11 +213,13 @@ export function InfoGeraisSecao({
                   onBlur={() => setDraftTracked((d) => ({ ...d, titulo_pagina: tituloAoSair(d.titulo_pagina, tituloCalculado) }))}
                   data-colab-path="titulo_pagina"
                 />
+                {/* P9 (fix1) — `max-md:min-h-11` (não `max-sm:`): alinha com o `Input` acima, que é `max-md:h-11`
+                    (640–767px também ganha alvo de toque de 44px, não só <640px). */}
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="shrink-0 max-sm:min-h-11"
+                  className="shrink-0 max-md:min-h-11"
                   disabled={tituloAutomatico}
                   onClick={() => setDraftTracked((d) => ({ ...d, titulo_pagina: null }))}
                   aria-label="Título: voltar ao automático"

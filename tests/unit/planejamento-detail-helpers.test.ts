@@ -325,6 +325,14 @@ describe("F3.6 (Parte B) — campos novos: rótulos, NCM, números e Preço ante
     expect(filtrarNcm("62044300999")).toBe("6204430099");
     expect(filtrarNcm(null)).toBe("");
   });
+  // P8 (fix1, revisão Opus do Lote B1 — parqueado da T8): colar um texto com PREFIXO (ex.: "NCM: 6204.43.00") tem que
+  // extrair os dígitos/pontos corretos, não truncar pelos primeiros 10 CARACTERES do texto colado (o bug era o
+  // `maxLength={10}` do <Input> cortando ANTES de `filtrarNcm` rodar — aqui provamos que a função pura já filtra certo;
+  // remover o `maxLength` no componente é o que deixa esse resultado chegar até o Draft).
+  it("filtrarNcm: texto colado com prefixo — extrai os dígitos/pontos certos, não os 10 primeiros caracteres crus", () => {
+    expect(filtrarNcm("NCM: 6204.43.00")).toBe("6204.43.00");
+    expect(filtrarNcm("Código NCM 6204.43.00")).toBe("6204.43.00");
+  });
   it("numeroOuNull: vazio/null/inválido = NULL; 0 VALE (CHECK >= 0); arredonda às casas da coluna", () => {
     expect(numeroOuNull("", 3)).toBeNull();
     expect(numeroOuNull(null, 2)).toBeNull();

@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import type { SeloCusto } from "@/components/planejamento/planejamento-detail/custo-base";
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
-import { precoAnteriorExibido } from "@/components/planejamento/planejamento-detail/helpers";
+import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -194,17 +194,20 @@ export function PrecoTabela(props: {
             <td className="py-2 px-2 text-right">
               {podeEditarPreco ? (
                 <span className="ml-auto inline-flex items-center justify-end gap-1">
-                  <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground" disabled={precoAnterior === null}
+                  {/* M3 (fix1) — 44px no celular, como a lixeira "Remover custo" logo abaixo (mesmo arquivo). */}
+                  <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
                     aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
                     <RotateCcw className="h-4 w-4" />
                   </Button>
                   <MoneyInput
                     fixedDecimals
+                    aria-label="Preço anterior"
                     className="h-8 w-32 text-right tabular-nums"
                     value={precoAnteriorExibido(precoAnterior, precoBase) ?? ""}
                     placeholder="0,00"
                     data-colab-path="preco_anterior"
-                    onChange={(e) => onPrecoAnterior(e.target.value === "" ? null : Number(e.target.value))}
+                    // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload): evita "editado · 0,00" e conflito falso.
+                    onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
                   />
                 </span>
               ) : (
@@ -220,6 +223,7 @@ export function PrecoTabela(props: {
               {podeEditarPreco ? (
                 <MoneyInput
                   fixedDecimals
+                  aria-label="Preço de venda"
                   className="ml-auto h-8 w-32 text-right tabular-nums"
                   value={draftPrecoVenda && draftPrecoVenda > 0 ? draftPrecoVenda : ""}
                   placeholder={precoSug > 0 ? brl(precoSug) : undefined}

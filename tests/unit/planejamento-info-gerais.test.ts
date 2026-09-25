@@ -23,6 +23,14 @@ describe("InfoGeraisSecao (fonte)", () => {
     expect(s).toContain("filtrarNcm(e.target.value)");
     expect(s).toContain('data-colab-path="ncm"');
   });
+  // P8 (fix1) — SEM `maxLength` no <Input> do NCM: ele cortava o texto COLADO antes de `filtrarNcm` rodar
+  // (ex.: "NCM: 6204.43.00" virava "6204." — o prefixo já consumia os 10 caracteres). `filtrarNcm` já limita a 10.
+  it("NCM: o <Input> NÃO tem maxLength (cortava o texto colado antes do filtro)", () => {
+    const iNcm = s.indexOf('id="ncm-produto"');
+    const iFimTag = s.indexOf("/>", iNcm);
+    const tagNcm = s.slice(iNcm, iFimTag);
+    expect(tagNcm).not.toContain("maxLength");
+  });
   it("L4 Título entre as subcategorias e a Descrição, com badge automático, ↺ e o hint do mockup", () => {
     const iSub2 = s.indexOf('label="Subcategoria 2"');
     const iTit = s.indexOf('<Label htmlFor="titulo-pagina">Título para a página</Label>');

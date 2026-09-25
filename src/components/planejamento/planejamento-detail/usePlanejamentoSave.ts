@@ -632,8 +632,9 @@ export function usePlanejamentoSave({
       // e o refetch seguinte via Realtime mostrava o eco do PRÓPRIO Salvar como conflito.
       // `savedId` (F3.1): id do card — usado no onSuccess pra disparar `onCreated` no card NOVO.
       return {
-        // F3.6 (ruling R-b) — sem `podeEditarPreco` o payload OMITE `preco_anterior` (abaixo); o `savedDraft` tem
-        // que ecoar o valor CRU que já estava (não normalizar), senão o próximo merge acha "alguém salvou agora".
+        // F3.6 (ruling R-b) — sem `podeEditarPreco` o payload OMITE `preco_anterior` (acima, `aplicarPrecoAnterior`);
+        // o `savedDraft` tem que ecoar o valor CRU que já estava (não normalizar), senão o próximo merge acha
+        // "alguém salvou agora".
         autoProduto, savedDraft: normalizarDraftSalvo(d, podeEditarPreco), savedId, etapasMarcadas,
         consumoOuAviamento: bom.gravar && (bom.flags.consumo || bom.flags.aviamentos),
       };

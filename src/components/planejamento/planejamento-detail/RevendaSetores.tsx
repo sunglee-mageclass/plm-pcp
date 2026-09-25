@@ -15,7 +15,7 @@ import { varianteLabel } from "@/lib/variante";
 import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/campos";
-import { precoAnteriorExibido } from "@/components/planejamento/planejamento-detail/helpers";
+import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import type { ReactNode } from "react";
@@ -45,37 +45,6 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                 <CampoRO label="Preço sugerido" value={piRevenda.sugerido > 0 ? brl(piRevenda.sugerido) : "—"} />
                 {produtoRevenda ? (
                   <>
-                    {/* F3.6 (ruling 11, R17) — Preço anterior em linha própria, ANTES do par atacado/varejo; acompanha o VAREJO. */}
-                    {podeEditarPreco ? (
-                      <div className="grid gap-1 sm:col-span-2">
-                        <div className="flex items-center gap-1.5">
-                          <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
-                          <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
-                            {precoAnterior === null ? "automático" : "editado"}
-                          </StatusBadge>
-                        </div>
-                        <div className="flex items-center gap-1 sm:max-w-xs">
-                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground" disabled={precoAnterior === null}
-                            aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                          <MoneyInput
-                            id="preco-anterior-revenda"
-                            fixedDecimals
-                            className="min-w-0 flex-1"
-                            value={precoAnteriorExibido(precoAnterior, piRevenda.efetivo) ?? ""}
-                            placeholder="0,00"
-                            data-colab-path="preco_anterior"
-                            onChange={(e) => onPrecoAnterior(e.target.value === "" ? null : Number(e.target.value))}
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</p>
-                      </div>
-                    ) : (
-                      <div className="sm:col-span-2 sm:max-w-xs">
-                        <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
-                      </div>
-                    )}
                     <div className="grid gap-1">
                       <Label>Markup atacado</Label>
                       <div className="relative">
@@ -110,6 +79,41 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
                     </div>
+                    {/* F3.6 (ruling 11, R17; M2 — revisão Opus fix1): Preço anterior em linha própria, na posição do
+                        brief (Step 4.3) — logo ANTES do par atacado/varejo, DEPOIS dos Markups; acompanha o VAREJO. */}
+                    {podeEditarPreco ? (
+                      <div className="grid gap-1 sm:col-span-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
+                          <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                            {precoAnterior === null ? "automático" : "editado"}
+                          </StatusBadge>
+                        </div>
+                        <div className="flex items-center gap-1 sm:max-w-xs">
+                          {/* M3 (fix1) — 44px no celular, como a lixeira de PrecoTabela.tsx. */}
+                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
+                            aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                          <MoneyInput
+                            id="preco-anterior-revenda"
+                            fixedDecimals
+                            aria-label="Preço anterior"
+                            className="min-w-0 flex-1"
+                            // M1 (fix1) — 0/negativo volta ao automático NA TELA (não só no payload); evita "editado · 0,00".
+                            value={precoAnteriorExibido(precoAnterior, piRevenda.efetivo) ?? ""}
+                            placeholder="0,00"
+                            data-colab-path="preco_anterior"
+                            onChange={(e) => onPrecoAnterior(precoAnteriorOuNull(e.target.value))}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</p>
+                      </div>
+                    ) : (
+                      <div className="sm:col-span-2 sm:max-w-xs">
+                        <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
+                      </div>
+                    )}
                     {/* Preços EDITÁVEIS = preço FIXO (set/2026, sem derivar do markup): o que se EXIBE
                         em repouso é o preço REAL do modelo (`draft.preco_atacado`/`preco_venda`, já
                         fixo-ou-derivado pelo servidor) — NÃO mais o derivado do markup, que mostraria
