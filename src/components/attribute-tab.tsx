@@ -77,6 +77,9 @@ export type AttributeTabConfig = {
   extraFirst?: boolean;
   /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias, markup). */
   extraNumber?: { field: string; label: string; placeholder?: string; step?: string };
+  /** Campo de TEXTO curto opcional por linha (ex.: "Sigla SKU" da cor — F3.5a). Vazio grava NULL; o servidor pode
+   *  normalizar no salvar (gatilho) — a lista relê depois de gravar e mostra o valor final. */
+  extraText?: { field: string; label: string; placeholder?: string; maxLength?: number; hint?: string };
   // Campo enum (select de opções fixas) por linha — ex.: etapa "Até costura"/"Pós costura".
   extraEnum?: { field: string; label: string; options: { value: string; label: string }[] };
   fixedFilter?: { field: string; value: string };
@@ -125,11 +128,12 @@ export function AttributeTab({
   const [newName, setNewName] = useState("");
   const [newExtra, setNewExtra] = useState<string>("");
   const [newExtraNum, setNewExtraNum] = useState<string>("");
+  const [newExtraText, setNewExtraText] = useState<string>("");
   const [newEnum, setNewEnum] = useState<string>("");
   const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   // Conjunto fixo (meses): sem criar/excluir/seleção em massa — só renomear.
   const showCheck = isAdmin && !config.fixed;
-  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0);
+  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraText ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   // Edição inline unificada do DESKTOP: o lápis liga a linha inteira (Nome + extra +
@@ -138,6 +142,7 @@ export function AttributeTab({
   // em vez de num Sheet. Nada salva sem clicar ✓ (save atômico único).
   const [editExtra, setEditExtra] = useState("");
   const [editNum, setEditNum] = useState("");
+  const [editText, setEditText] = useState("");
   const [editEnum, setEditEnum] = useState("");
   const [editAtivo, setEditAtivo] = useState(true);
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
@@ -147,7 +152,7 @@ export function AttributeTab({
   const [bulkBusy, setBulkBusy] = useState(false);
 
   // Guarda de alterações não salvas no diálogo "Novo …"
-  const createDirty = createOpen && (newName !== "" || newExtra !== "" || newExtraNum !== "" || newEnum !== "");
+  const createDirty = createOpen && (newName !== "" || newExtra !== "" || newExtraNum !== "" || newExtraText !== "" || newEnum !== "");
   const { requestClose: requestCreateClose, confirm: createConfirm } = useUnsavedGuard({
     dirty: createDirty,
     onClose: () => setCreateOpen(false),
@@ -258,6 +263,8 @@ export function AttributeTab({
         if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
         payload[config.extraNumber.field] = num;
       }
+      // Só manda a coluna quando há valor: sem a migration no banco, criar a cor sem sigla continua funcionando.
+      if (config.extraText && newExtraText.trim() !== "") payload[config.extraText.field] = newExtraText;
       if (config.extraEnum) {
         payload[config.extraEnum.field] = newEnum || config.extraEnum.options[0].value;
       }
@@ -279,6 +286,7 @@ export function AttributeTab({
       setNewName("");
       setNewExtra("");
       setNewExtraNum("");
+      setNewExtraText("");
       setNewEnum("");
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
@@ -308,6 +316,11 @@ export function AttributeTab({
         const num = n === "" ? null : Number(n);
         if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
         payload[config.extraNumber.field] = num;
+      }
+      if (config.extraText) {
+        // Só manda a coluna se MUDOU (editar o nome sem mexer na sigla não depende da coluna existir no banco).
+        const v = editText.trim() === "" ? null : editText;
+        if (v !== (row[config.extraText.field] ?? null)) payload[config.extraText.field] = v;
       }
       if (config.extraEnum) payload[config.extraEnum.field] = editEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = editAtivo;
@@ -393,6 +406,7 @@ export function AttributeTab({
     setEditValue(String(row[config.nameField] ?? ""));
     setEditExtra(config.extra ? (row[config.extra.field] ?? "") : "");
     setEditNum(config.extraNumber && row[config.extraNumber.field] != null ? String(row[config.extraNumber.field]) : "");
+    setEditText(config.extraText ? String(row[config.extraText.field] ?? "") : "");
     setEditEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
     setEditAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
   };
@@ -403,6 +417,7 @@ export function AttributeTab({
   const [sheetName, setSheetName] = useState("");
   const [sheetExtra, setSheetExtra] = useState("");
   const [sheetNum, setSheetNum] = useState("");
+  const [sheetText, setSheetText] = useState("");
   const [sheetEnum, setSheetEnum] = useState("");
   const [sheetAtivo, setSheetAtivo] = useState(true);
   const openEditSheet = (row: Row) => {
@@ -410,6 +425,7 @@ export function AttributeTab({
     setSheetName(String(row[config.nameField] ?? ""));
     setSheetExtra(config.extra ? (row[config.extra.field] ?? "") : "");
     setSheetNum(config.extraNumber && row[config.extraNumber.field] != null ? String(row[config.extraNumber.field]) : "");
+    setSheetText(config.extraText ? String(row[config.extraText.field] ?? "") : "");
     setSheetEnum(config.extraEnum ? String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value) : "");
     setSheetAtivo(config.toggleField ? row[config.toggleField.field] !== false : true);
   };
@@ -418,6 +434,7 @@ export function AttributeTab({
     sheetName !== String(sheetRow[config.nameField] ?? "") ||
     (!!config.extra && (sheetExtra || "") !== (sheetRow[config.extra.field] ?? "")) ||
     (!!config.extraNumber && sheetNum !== (sheetRow[config.extraNumber.field] != null ? String(sheetRow[config.extraNumber.field]) : "")) ||
+    (!!config.extraText && sheetText !== String(sheetRow[config.extraText.field] ?? "")) ||
     (!!config.extraEnum && sheetEnum !== String(sheetRow[config.extraEnum.field] ?? config.extraEnum.options[0].value)) ||
     (!!config.toggleField && sheetAtivo !== (sheetRow[config.toggleField.field] !== false))
   );
@@ -443,6 +460,10 @@ export function AttributeTab({
         const num = n === "" ? null : Number(n);
         if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
         payload[config.extraNumber.field] = num;
+      }
+      if (config.extraText) {
+        const v = sheetText.trim() === "" ? null : sheetText;
+        if (v !== (sheetRow[config.extraText.field] ?? null)) payload[config.extraText.field] = v;
       }
       if (config.extraEnum) payload[config.extraEnum.field] = sheetEnum || config.extraEnum.options[0].value;
       if (config.toggleField) payload[config.toggleField.field] = sheetAtivo;
@@ -554,6 +575,9 @@ export function AttributeTab({
               {config.extraNumber && (
                 <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} align="left" className="w-32 [&>span]:w-full [&>span]:justify-start [&>span>button]:text-left" />
               )}
+              {config.extraText && (
+                <SortHead label={config.extraText.label} sortKey={config.extraText.field} sortState={sortState} className="w-32" />
+              )}
               {config.extraEnum && (
                 <SortHead label={config.extraEnum.label} sortKey={config.extraEnum.field} sortState={sortState} className="w-44" />
               )}
@@ -618,6 +642,8 @@ export function AttributeTab({
                 }
                 if (config.extraNumber && row[config.extraNumber.field] != null && row[config.extraNumber.field] !== "")
                   subParts.push(`${config.extraNumber.label}: ${String(row[config.extraNumber.field]).replace(".", ",")}`);
+                if (config.extraText && row[config.extraText.field])
+                  subParts.push(`${config.extraText.label}: ${String(row[config.extraText.field])}`);
                 const sublinha = subParts.join(" · ");
                 return (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
@@ -729,6 +755,25 @@ export function AttributeTab({
                           {row[config.extraNumber.field] != null && row[config.extraNumber.field] !== ""
                             ? String(row[config.extraNumber.field]).replace(".", ",")
                             : "—"}
+                        </span>
+                      )}
+                    </TableCell>
+                  )}
+                  {config.extraText && (
+                    <TableCell className="w-32">
+                      {isEditingRow ? (
+                        <Input
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          placeholder={config.extraText.placeholder ?? "—"}
+                          maxLength={config.extraText.maxLength}
+                          disabled={readOnly}
+                          aria-label={config.extraText.label}
+                          className="h-8 w-28 uppercase max-md:h-11"
+                        />
+                      ) : (
+                        <span className="font-mono text-sm">
+                          {row[config.extraText.field] ? String(row[config.extraText.field]) : "—"}
                         </span>
                       )}
                     </TableCell>
@@ -846,6 +891,19 @@ export function AttributeTab({
                 />
               </div>
             )}
+            {config.extraText && (
+              <div className="space-y-1.5">
+                <Label>{config.extraText.label}</Label>
+                <Input
+                  value={newExtraText}
+                  onChange={(e) => setNewExtraText(e.target.value)}
+                  placeholder={config.extraText.placeholder}
+                  maxLength={config.extraText.maxLength}
+                  className="uppercase"
+                />
+                {config.extraText.hint && <p className="text-xs text-muted-foreground">{config.extraText.hint}</p>}
+              </div>
+            )}
             {config.extraEnum && (
               <div className="space-y-1.5">
                 <Label>{config.extraEnum.label}</Label>
@@ -905,6 +963,14 @@ export function AttributeTab({
                   <Input type="number" inputMode="decimal" min={0} step={config.extraNumber.step ?? "0.5"}
                     value={sheetNum} onChange={(e) => setSheetNum(e.target.value)}
                     placeholder={config.extraNumber.placeholder} />
+                </div>
+              )}
+              {config.extraText && (
+                <div className="space-y-1.5">
+                  <Label>{config.extraText.label}</Label>
+                  <Input value={sheetText} onChange={(e) => setSheetText(e.target.value)}
+                    placeholder={config.extraText.placeholder} maxLength={config.extraText.maxLength} className="uppercase" />
+                  {config.extraText.hint && <p className="text-xs text-muted-foreground">{config.extraText.hint}</p>}
                 </div>
               )}
               {config.extraEnum && (

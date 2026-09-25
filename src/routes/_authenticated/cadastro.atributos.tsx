@@ -58,6 +58,8 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Cor base",
       plural: "Cores base",
+      // Sigla da cor no SKU automático (F3.5a). O servidor normaliza no salvar (sem acento/espaço, só A–Z/0–9, maiúsculas; vazia = sem sigla — D6).
+      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: AM", maxLength: 10, hint: "Usada no SKU automático: só letras e números, sem acento nem espaço (fica em maiúsculas)." },
       usage: [
         { table: "variantes_tecido", column: "cor_id" },
         { table: "aviamentos", column: "cor_id" }, // SET NULL — some em silêncio se não contar
@@ -74,6 +76,8 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Cor apelido",
       plural: "Cores apelido",
+      // Sigla do apelido no SKU automático (F3.5a) — mesma regra da Cor base.
+      extraText: { field: "sigla_sku", label: "Sigla SKU", placeholder: "Ex.: CAN", maxLength: 10, hint: "Usada no SKU automático: só letras e números, sem acento nem espaço (fica em maiúsculas)." },
       // Cada apelido pertence a uma Cor base (obrigatório).
       extra: { field: "cor_base_id", label: "Cor base", from: "cores", optionLabel: "nome", required: true },
       usage: [
