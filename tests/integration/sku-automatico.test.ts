@@ -871,8 +871,15 @@ describe.skipIf(!PRONTO)("SKU F3.5a — permissões e ACL", () => {
       expect(await falha(c, q, [k.interno])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
       expect(await falha(c, criar, [k.interno, k.kVdMus])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
       expect(await falha(c, q, ["00000000-0000-0000-0000-00000000f35a"])).toEqual({ code: "42501", message: "Sem permissão para este modelo." });
+      // O UPDATE de tenant_id do PRÓPRIO usuário comum precisa rodar como super_admin (trigger
+      // users_prevent_self_role_change, alheio ao SKU, bloqueia um não-super-admin de mudar o PRÓPRIO
+      // tenant_id — "Não é permitido alterar o próprio tenant"). Volta ao super_admin só p/ este setup,
+      // depois retoma o JWT do usuário comum. Ordem corrigida por decisão do controlador (T2); nenhuma
+      // asserção mudou.
+      await comoUsuario(c);
       await c.query("UPDATE public.users SET tenant_id = $1, papel_id = NULL WHERE id = $2", [T, comum.id]);
       await c.query("DELETE FROM public.user_permissions WHERE user_id = $1", [comum.id]);
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: comum.id, role: "authenticated" })]);
       expect(await falha(c, ler, [k.interno])).toEqual({ code: "42501", message: "Sem permissão para ver SKUs (Planejamento de Produto)." });
       await c.query("INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1, $2, 'criacao_planejamento', true, false)", [comum.id, T]);
       expect((await um<any>(c, ler, [k.interno])).v.status).toBe("ok");

@@ -395,6 +395,546 @@ REVOKE EXECUTE ON FUNCTION
   public._sku_resolver(jsonb, text, jsonb, jsonb, text, text, jsonb)
   FROM PUBLIC, anon, authenticated;
 
+-- ─────────────────────────── [C] Cálculo, leitura, geração, edição manual e ACL ───────────────────────────
+-- Modelo de segurança (invariante #9 + spec §4.4): o WRAPPER checa login → módulo `criacao` → loja do modelo →
+-- permissão (`criacao_planejamento`: ver p/ ler, editar p/ gerar/regerar/editar) via _sku_guarda; os `_core`
+-- e o cálculo têm EXECUTE revogado dos TRÊS (PUBLIC, anon, authenticated).
+-- Unicidade do SKU (D5/R2 — PENDENTE DO DONO; implementada a recomendação): SKU igual só é aceito entre cards com a
+-- MESMA REF VIVA (modelos.ref agora, normalizada, não vazia — R2-a) e a MESMA linha (cor + tamanho) — a réplica/versão
+-- do produto reusa o SKU do original; qualquer outro SKU igual na loja é conflito. Quem garante é o gatilho
+-- fn_modelo_skus_unico (parte B); a leitura abaixo espelha a MESMA regra para marcar "conflito" — inclusive no SKU já
+-- GRAVADO, quando a REF de um dos cards mudou depois (sem isso o conflito ficaria calado).
+-- Ordem de travas em TODA escrita de SKU (geração e edição à mão — sem deadlock entre elas): sku_modelo:<modelo> →
+-- a linha (FOR UPDATE / INSERT / UPDATE) → sku_unico:<loja> (no gatilho).
+
+-- Guarda comum dos 3 wrappers. _tenant = loja do modelo/SKU (NULL = não existe ⇒ "Sem permissão", sem vazar).
+CREATE OR REPLACE FUNCTION public._sku_guarda(_tenant uuid, _editar boolean)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT public.tenant_module_enabled('criacao') THEN
+    RAISE EXCEPTION 'Módulo Estilo & Engenharia não habilitado para esta loja.' USING ERRCODE = '42501';
+  END IF;
+  IF _tenant IS DISTINCT FROM public.get_user_tenant_id() AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Sem permissão para este modelo.' USING ERRCODE = '42501';
+  END IF;
+  IF _editar AND NOT public.user_can_edit('criacao_planejamento') THEN
+    RAISE EXCEPTION 'Sem permissão para editar SKUs (Planejamento de Produto).' USING ERRCODE = '42501';
+  END IF;
+  IF NOT _editar AND NOT public.user_can_view('criacao_planejamento') THEN
+    RAISE EXCEPTION 'Sem permissão para ver SKUs (Planejamento de Produto).' USING ERRCODE = '42501';
+  END IF;
+END
+$function$;
+
+-- As linhas (variante × tamanho com quantidade > 0) do modelo e o SKU PREVISTO de cada uma (ou as faltas), com os
+-- avisos (D4: apelido sem sigla — o SKU sai com a cor base).
+-- Variantes: interno = variantes do Tecido 1; revenda = produto_acabado_variantes; importado =
+-- produto_importado_variantes. A CHAVE da variante é a COR (_sku_variante_key(cor, apelido) — R1): o id da linha de
+-- variante muda a cada Salvar do produto. Duas variantes com a MESMA cor + apelido no mesmo card (ex.: Bege em 2
+-- tecidos) viram UMA linha e UM SKU (D7 — PENDENTE DO DONO: para o cliente é o mesmo produto): vale a menor ordem e
+-- as quantidades por tamanho somam. Grade: modelo_grades.variante_numero = ordem da variante; tamanho_key = a chave INTEIRA da grade
+-- ("34|PPP"). Sem sku_config: linhas com sku NULL (o chamador decide o status). Não lê modelo_skus.
+CREATE OR REPLACE FUNCTION public._skus_modelo_calc(_modelo_id uuid)
+RETURNS TABLE (variante_key uuid, variante_ordem integer, cor_nome text, apelido_nome text,
+               tamanho_key text, tamanho_ordem integer, sku text, faltas jsonb, avisos jsonb)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH m AS (
+    SELECT mo.id AS mid,
+           mo.ref AS mref,
+           coalesce(mo.origem, 'interno') AS morigem,
+           coalesce(mo.tamanho_tipo, tc.sku_config ->> 'tamanho_padrao', 'letra') AS mtipo,
+           tc.sku_config AS mcfg,
+           tc.tamanhos_sku AS mtsku,
+           CASE WHEN jsonb_typeof(tc.tamanhos_grade) = 'array' THEN tc.tamanhos_grade ELSE '[]'::jsonb END AS mgrade
+      FROM public.modelos mo
+      LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
+     WHERE mo.id = _modelo_id
+  ),
+  va AS (
+    SELECT public._sku_variante_key(vt.cor_id, vt.cor_apelido_id) AS vkey, mtv.ordem AS vordem,
+           vt.cor_id AS vcor, vt.cor_apelido_id AS vapelido
+      FROM m
+      JOIN public.modelo_tecidos mt ON mt.modelo_id = m.mid AND mt.tipo = 'tecido' AND mt.numero = 1
+      JOIN public.modelo_tecido_variantes mtv ON mtv.modelo_tecido_id = mt.id
+      JOIN public.variantes_tecido vt ON vt.id = mtv.variante_tecido_id
+     WHERE m.morigem = 'interno'
+    UNION ALL
+    SELECT public._sku_variante_key(pv.cor_id, pv.cor_apelido_id), pv.ordem, pv.cor_id, pv.cor_apelido_id
+      FROM m
+      JOIN public.produtos_acabados pa ON pa.modelo_id = m.mid
+      JOIN public.produto_acabado_variantes pv ON pv.produto_acabado_id = pa.id
+     WHERE m.morigem = 'revenda'
+    UNION ALL
+    SELECT public._sku_variante_key(iv.cor_id, iv.cor_apelido_id), iv.ordem, iv.cor_id, iv.cor_apelido_id
+      FROM m
+      JOIN public.produtos_importados pi ON pi.modelo_id = m.mid
+      JOIN public.produto_importado_variantes iv ON iv.produto_importado_id = pi.id
+     WHERE m.morigem = 'importado'
+  ),
+  vs AS (
+    SELECT DISTINCT ON (va.vkey) va.vkey, va.vordem, va.vcor, va.vapelido
+      FROM va
+     ORDER BY va.vkey, va.vordem
+  ),
+  tam AS (
+    SELECT va.vkey AS tvkey, e.key AS tkey
+      FROM va
+      JOIN public.modelo_grades g ON g.modelo_id = _modelo_id AND g.variante_numero = va.vordem
+      CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(g.grades) = 'object' THEN g.grades ELSE '{}'::jsonb END) AS e
+     GROUP BY va.vkey, e.key
+    HAVING sum(CASE
+                 WHEN jsonb_typeof(e.value) = 'number' THEN (e.value #>> '{}')::numeric
+                 WHEN jsonb_typeof(e.value) = 'string' AND btrim(e.value #>> '{}') ~ '^[0-9]+(\.[0-9]+)?$'
+                   THEN btrim(e.value #>> '{}')::numeric
+                 ELSE 0
+               END) > 0
+  )
+  SELECT vs.vkey,
+         vs.vordem,
+         c.nome::text,
+         a.nome::text,
+         tam.tkey,
+         coalesce((SELECT o.n::integer
+                     FROM jsonb_array_elements_text(m.mgrade) WITH ORDINALITY AS o(t, n)
+                    WHERE o.t = tam.tkey
+                    ORDER BY o.n
+                    LIMIT 1), 9999),
+         r.res ->> 'sku',
+         r.res -> 'faltas',
+         r.res -> 'avisos'
+    FROM m
+    JOIN vs ON true
+    JOIN tam ON tam.tvkey = vs.vkey
+    LEFT JOIN public.cores c ON c.id = vs.vcor
+    LEFT JOIN public.cores_apelido a ON a.id = vs.vapelido
+    CROSS JOIN LATERAL (
+      SELECT public._sku_resolver(
+               m.mcfg,
+               m.mref,
+               CASE WHEN c.id IS NULL THEN NULL ELSE jsonb_build_object('id', c.id, 'nome', c.nome, 'sigla', c.sigla_sku) END,
+               CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id', a.id, 'nome', a.nome, 'sigla', a.sigla_sku) END,
+               tam.tkey,
+               m.mtipo,
+               m.mtsku) AS res
+    ) AS r;
+END
+$function$;
+
+-- A MATRIZ do card (Variante × Tamanho) — leitura pura (a F3.5b mostra; nada é gravado aqui).
+-- status: 'sem_formato' (loja sem sku_config) | 'aguardando_ref' (card sem REF) | 'ok'. `faltas` (bloqueiam a linha —
+-- Q4) × `avisos` (não bloqueiam — D4), por linha e somados no topo (a F3.5b usa no selo: "falta sigla" × "aviso").
+-- estado por linha: ok · manual · falta · pendente (ainda não gerado) · divergente (Regerar mudaria) ·
+-- conflito (o SKU GRAVADO ou o PREVISTO já é de outra linha da loja — `conflito_com`; réplica com a mesma REF VIVA e a
+-- mesma linha NÃO é conflito — D5; a REF de um card trocada depois de gravar aparece aqui nos DOIS cards — R2-a) ·
+-- vazio · orfa (gravado, fora da grade).
+CREATE OR REPLACE FUNCTION public._skus_modelo_core(_modelo_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+  v_refn text;
+  v_cfg jsonb;
+  v_tipo_card text;
+  v_tipo text;
+  v_status text;
+  v_linhas jsonb;
+  v_faltas jsonb;
+  v_avisos jsonb;
+BEGIN
+  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config, mo.tamanho_tipo
+    INTO v_tenant, v_refn, v_cfg, v_tipo_card
+    FROM public.modelos mo
+    LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
+   WHERE mo.id = _modelo_id;
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0001';
+  END IF;
+  v_tipo := coalesce(v_tipo_card, v_cfg ->> 'tamanho_padrao', 'letra');
+  v_status := CASE WHEN v_cfg IS NULL THEN 'sem_formato' WHEN v_refn = '' THEN 'aguardando_ref' ELSE 'ok' END;
+
+  IF v_status <> 'ok' THEN
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+             'id', s.id, 'variante_key', s.variante_key, 'tamanho_key', s.tamanho_key, 'sku', s.sku,
+             'manual', s.manual, 'rev', s.rev, 'estado', CASE WHEN s.manual THEN 'manual' ELSE 'salvo' END)
+             ORDER BY s.variante_key, s.tamanho_key), '[]'::jsonb)
+      INTO v_linhas
+      FROM public.modelo_skus s
+     WHERE s.modelo_id = _modelo_id;
+    RETURN jsonb_build_object('status', v_status, 'tamanho_tipo', v_tipo, 'tamanho_tipo_card', v_tipo_card,
+                              'linhas', v_linhas, 'faltas', '[]'::jsonb, 'avisos', '[]'::jsonb);
+  END IF;
+
+  WITH c AS (
+    SELECT * FROM public._skus_modelo_calc(_modelo_id)
+  ), s AS (
+    SELECT sk.id, sk.variante_key, sk.tamanho_key, sk.sku, sk.manual, sk.rev
+      FROM public.modelo_skus sk
+     WHERE sk.modelo_id = _modelo_id
+  ), j AS (
+    SELECT c.variante_key AS c_vkey, s.variante_key AS s_vkey, c.variante_ordem AS vordem, c.cor_nome, c.apelido_nome,
+           coalesce(c.tamanho_key, s.tamanho_key) AS tkey, c.tamanho_ordem AS tordem, c.sku AS previsto,
+           coalesce(c.faltas, '[]'::jsonb) AS faltas, coalesce(c.avisos, '[]'::jsonb) AS avisos, s.id AS sid, s.sku AS salvo, s.manual, s.rev
+      FROM c
+      FULL JOIN s ON s.variante_key = c.variante_key AND s.tamanho_key = c.tamanho_key
+  ), k AS (
+    SELECT j.*,
+           -- o SKU GRAVADO divide com outra linha que não é réplica (REF viva) — ex.: a REF de um card mudou (R2-a)
+           (SELECT jsonb_build_object('modelo_id', o.modelo_id, 'nome', mo.nome, 'ref', mo.ref)
+              FROM public.modelo_skus o
+              JOIN public.modelos mo ON mo.id = o.modelo_id
+             WHERE o.tenant_id = v_tenant AND o.sku = j.salvo AND o.id <> j.sid
+               AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
+                        AND o.variante_key = coalesce(j.c_vkey, j.s_vkey) AND o.tamanho_key = j.tkey)
+             ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
+             LIMIT 1) AS conflito_salvo,
+           -- o SKU PREVISTO (o que a geração gravaria) já é de outra linha que não é réplica
+           (SELECT jsonb_build_object('modelo_id', o.modelo_id, 'nome', mo.nome, 'ref', mo.ref)
+              FROM public.modelo_skus o
+              JOIN public.modelos mo ON mo.id = o.modelo_id
+             WHERE o.tenant_id = v_tenant AND o.sku = j.previsto AND o.id IS DISTINCT FROM j.sid
+               AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
+                        AND o.variante_key = j.c_vkey AND o.tamanho_key = j.tkey)
+             ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
+             LIMIT 1) AS conflito_prev
+      FROM j
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'variante_key', coalesce(k.c_vkey, k.s_vkey), 'variante_ordem', k.vordem,
+           'cor_nome', k.cor_nome, 'apelido_nome', k.apelido_nome,
+           'tamanho_key', k.tkey, 'tamanho_ordem', k.tordem,
+           'id', k.sid, 'sku', k.salvo, 'manual', coalesce(k.manual, false), 'rev', k.rev,
+           'sku_previsto', k.previsto, 'faltas', k.faltas, 'avisos', k.avisos,
+           'conflito_com', coalesce(k.conflito_salvo, k.conflito_prev),
+           'estado', CASE
+             WHEN k.c_vkey IS NULL THEN 'orfa'
+             WHEN k.conflito_salvo IS NOT NULL THEN 'conflito'
+             WHEN k.manual IS TRUE THEN 'manual'
+             WHEN jsonb_array_length(k.faltas) > 0 THEN 'falta'
+             WHEN k.previsto IS NULL THEN 'vazio'
+             WHEN k.salvo = k.previsto THEN 'ok'
+             WHEN k.conflito_prev IS NOT NULL THEN 'conflito'
+             WHEN k.salvo IS NULL THEN 'pendente'
+             ELSE 'divergente'
+           END)
+           ORDER BY k.vordem NULLS LAST, k.tordem NULLS LAST, k.tkey), '[]'::jsonb)
+    INTO v_linhas
+    FROM k;
+
+  SELECT coalesce(jsonb_agg(DISTINCT f.value ORDER BY f.value), '[]'::jsonb)
+    INTO v_faltas
+    FROM jsonb_array_elements(v_linhas) AS l(value)
+    CROSS JOIN LATERAL jsonb_array_elements(l.value -> 'faltas') AS f(value)
+   WHERE l.value ->> 'estado' = 'falta';
+
+  SELECT coalesce(jsonb_agg(DISTINCT a.value ORDER BY a.value), '[]'::jsonb)
+    INTO v_avisos
+    FROM jsonb_array_elements(v_linhas) AS l(value)
+    CROSS JOIN LATERAL jsonb_array_elements(l.value -> 'avisos') AS a(value);
+
+  RETURN jsonb_build_object('status', v_status, 'tamanho_tipo', v_tipo, 'tamanho_tipo_card', v_tipo_card,
+                            'linhas', v_linhas, 'faltas', v_faltas, 'avisos', v_avisos);
+END
+$function$;
+
+-- Gera (1ª vez: _regerar=false só cria o que falta) ou regera (_regerar=true: recalcula as AUTOMÁTICAS e remove
+-- as automáticas que saíram da grade — D2). Linha manual: NUNCA tocada (Q2). Falta sigla: não gera a linha (Q4).
+-- SKU já usado por OUTRA linha da loja (gatilho de unicidade, D5): não grava a linha e devolve em `conflitos`.
+-- Devolve a MATRIZ (_skus_modelo_core) + criados/atualizados/removidos/conflitos.
+CREATE OR REPLACE FUNCTION public._gerar_skus_modelo_core(_modelo_id uuid, _regerar boolean)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_tenant uuid;
+  v_refn text;
+  v_cfg jsonb;
+  l record;
+  v_id uuid;
+  v_sku text;
+  v_manual boolean;
+  v_criados integer := 0;
+  v_atualizados integer := 0;
+  v_removidos integer := 0;
+  v_conflitos jsonb := '[]'::jsonb;
+  v_com_modelo uuid;
+  v_com_nome text;
+  v_com_ref text;
+BEGIN
+  SELECT mo.tenant_id, public._sku_norm_ref(mo.ref), tc.sku_config
+    INTO v_tenant, v_refn, v_cfg
+    FROM public.modelos mo
+    LEFT JOIN public.tenant_config tc ON tc.tenant_id = mo.tenant_id
+   WHERE mo.id = _modelo_id;
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'Modelo não encontrado.' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Uma geração/edição por modelo de cada vez (duas abas/pessoas no mesmo card esperam em fila). 1ª trava da ordem
+  -- única (sku_modelo → linha → sku_unico): a edição à mão pega a MESMA antes de travar a linha — sem deadlock.
+  PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || _modelo_id::text, 0));
+
+  IF v_cfg IS NOT NULL AND v_refn <> '' THEN
+    IF _regerar THEN
+      -- Automáticas que saíram da grade (variante/cor removida, tamanho zerado) saem ANTES de gerar. Manual: nunca.
+      DELETE FROM public.modelo_skus s
+       WHERE s.modelo_id = _modelo_id
+         AND NOT s.manual
+         AND (s.variante_key, s.tamanho_key) NOT IN (
+               SELECT c.variante_key, c.tamanho_key FROM public._skus_modelo_calc(_modelo_id) AS c);
+      GET DIAGNOSTICS v_removidos = ROW_COUNT;
+    END IF;
+
+    FOR l IN SELECT c.variante_key, c.tamanho_key, c.sku
+               FROM public._skus_modelo_calc(_modelo_id) AS c
+              ORDER BY c.variante_ordem, c.tamanho_ordem, c.tamanho_key LOOP
+      v_id := NULL;
+      v_sku := NULL;
+      v_manual := NULL;
+      SELECT s.id, s.sku, s.manual INTO v_id, v_sku, v_manual
+        FROM public.modelo_skus s
+       WHERE s.modelo_id = _modelo_id AND s.variante_key = l.variante_key AND s.tamanho_key = l.tamanho_key;
+      CONTINUE WHEN v_manual IS TRUE;                                          -- editado à mão: nunca (Q2)
+      CONTINUE WHEN l.sku IS NULL;                                             -- falta sigla (Q4) / vazio
+      CONTINUE WHEN v_id IS NOT NULL AND (NOT _regerar OR v_sku = l.sku);      -- fixo (Q2) ou já igual
+      BEGIN
+        IF v_id IS NULL THEN
+          INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
+          VALUES (v_tenant, _modelo_id, l.variante_key, l.tamanho_key, l.sku, false, now());
+          v_criados := v_criados + 1;
+        ELSE
+          UPDATE public.modelo_skus SET sku = l.sku, gerado_em = now(), rev = rev + 1 WHERE id = v_id;
+          v_atualizados := v_atualizados + 1;
+        END IF;
+      EXCEPTION WHEN unique_violation THEN
+        v_com_modelo := NULL;
+        v_com_nome := NULL;
+        v_com_ref := NULL;
+        SELECT o.modelo_id, mo.nome, mo.ref INTO v_com_modelo, v_com_nome, v_com_ref
+          FROM public.modelo_skus o
+          JOIN public.modelos mo ON mo.id = o.modelo_id
+         WHERE o.tenant_id = v_tenant AND o.sku = l.sku
+           AND NOT (o.modelo_id <> _modelo_id AND public._sku_norm_ref(mo.ref) = v_refn
+                    AND o.variante_key = l.variante_key AND o.tamanho_key = l.tamanho_key)
+         ORDER BY (o.modelo_id = _modelo_id) DESC, o.modelo_id
+         LIMIT 1;
+        v_conflitos := v_conflitos || jsonb_build_array(jsonb_build_object(
+          'variante_key', l.variante_key, 'tamanho_key', l.tamanho_key, 'sku', l.sku,
+          'com_modelo_id', v_com_modelo, 'com_nome', v_com_nome, 'com_ref', v_com_ref,
+          'mensagem', CASE
+            WHEN v_com_modelo IS NULL THEN
+              format('SKU %s não gravado: outra pessoa gravou esta linha agora. Gere de novo.', l.sku)
+            WHEN v_com_modelo = _modelo_id THEN
+              format('SKU %s repetido neste produto: duas linhas dão o mesmo SKU. Mude uma sigla ou edite um deles à mão.', l.sku)
+            ELSE
+              format('SKU %s já existe em %s (REF %s). Edite este SKU à mão ou mude a sigla.', l.sku,
+                     coalesce(v_com_nome, 'outro produto'), coalesce(nullif(btrim(v_com_ref), ''), '—'))
+          END));
+      END;
+    END LOOP;
+  END IF;
+
+  RETURN public._skus_modelo_core(_modelo_id)
+      || jsonb_build_object('criados', v_criados, 'atualizados', v_atualizados, 'removidos', v_removidos,
+                            'conflitos', v_conflitos);
+END
+$function$;
+
+-- SKU à mão (R3): grava manual=true e normalizado (D6). Duas formas:
+--   • `_id` = linha JÁ gravada (automática ou manual) → troca o SKU;
+--   • `_id` NULL + (`_modelo_id`, `_variante_key`, `_tamanho_key`) = linha AINDA SEM SKU (em conflito, com falta de
+--     sigla ou só pendente) → cria a linha manual, validada contra a grade atual (_skus_modelo_calc); se a tripla já
+--     tem linha gravada, troca o SKU dela.
+-- Mesma unicidade da geração (D5, REF viva). `_rev_base` (opcional, linha existente) = trava otimista (P0409).
+-- Travas na MESMA ordem da geração (sku_modelo:<modelo> → a linha → sku_unico:<loja>): um Regerar e uma edição à mão
+-- no mesmo card fazem fila, sem deadlock (NOTA do guardião), e duas criações da mesma linha não disputam a UNIQUE.
+-- NÃO trava depois do envio à Explosão (spec §4.2: o SKU é identidade comercial do Planejamento).
+CREATE OR REPLACE FUNCTION public._salvar_sku_manual_core(_id uuid, _sku text, _rev_base integer,
+                                                          _modelo_id uuid, _variante_key uuid, _tamanho_key text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sku text;
+  v_id uuid := _id;
+  v_tenant uuid;
+  v_modelo uuid;
+  v_vkey uuid;
+  v_tkey text;
+  v_refn text;
+  v_rev integer;
+  v_com_modelo uuid;
+  v_com_nome text;
+  v_com_ref text;
+BEGIN
+  v_sku := public._sku_norm_manual(_sku);
+  IF v_id IS NULL THEN
+    IF _modelo_id IS NULL OR _variante_key IS NULL OR coalesce(btrim(_tamanho_key), '') = '' THEN
+      RAISE EXCEPTION 'Informe a linha do SKU (modelo, variante e tamanho).' USING ERRCODE = 'P0001';
+    END IF;
+    v_modelo := _modelo_id;
+  ELSE
+    SELECT s.modelo_id INTO v_modelo FROM public.modelo_skus s WHERE s.id = v_id;
+    IF v_modelo IS NULL THEN
+      RAISE EXCEPTION 'SKU não encontrado.' USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || v_modelo::text, 0));
+  IF v_id IS NULL THEN
+    SELECT s.id INTO v_id
+      FROM public.modelo_skus s
+     WHERE s.modelo_id = _modelo_id AND s.variante_key = _variante_key AND s.tamanho_key = _tamanho_key;
+    IF v_id IS NULL AND NOT EXISTS (
+         SELECT 1 FROM public._skus_modelo_calc(_modelo_id) AS c
+          WHERE c.variante_key = _variante_key AND c.tamanho_key = _tamanho_key) THEN
+      RAISE EXCEPTION 'Esta variante/tamanho não está na grade do produto.' USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+  IF v_id IS NOT NULL THEN
+    SELECT s.tenant_id, s.rev, s.variante_key, s.tamanho_key INTO v_tenant, v_rev, v_vkey, v_tkey
+      FROM public.modelo_skus s
+     WHERE s.id = v_id
+       FOR UPDATE;
+    IF v_tenant IS NULL THEN
+      RAISE EXCEPTION 'SKU não encontrado.' USING ERRCODE = 'P0001';
+    END IF;
+    IF _rev_base IS NOT NULL AND v_rev IS DISTINCT FROM _rev_base THEN
+      RAISE EXCEPTION 'conflito_versao: o SKU foi alterado por outra pessoa' USING ERRCODE = 'P0409';
+    END IF;
+  ELSE
+    SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = v_modelo;
+    v_vkey := _variante_key;
+    v_tkey := _tamanho_key;
+  END IF;
+  SELECT public._sku_norm_ref(mo.ref) INTO v_refn FROM public.modelos mo WHERE mo.id = v_modelo;
+  BEGIN
+    IF v_id IS NULL THEN
+      INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
+      VALUES (v_tenant, v_modelo, v_vkey, v_tkey, v_sku, true, now())
+      RETURNING id, rev INTO v_id, v_rev;
+    ELSE
+      UPDATE public.modelo_skus s
+         SET sku = v_sku, manual = true, gerado_em = now(), rev = s.rev + 1
+       WHERE s.id = v_id
+      RETURNING s.rev INTO v_rev;
+    END IF;
+  EXCEPTION WHEN unique_violation THEN
+    SELECT o.modelo_id, mo.nome, mo.ref INTO v_com_modelo, v_com_nome, v_com_ref
+      FROM public.modelo_skus o
+      JOIN public.modelos mo ON mo.id = o.modelo_id
+     WHERE o.tenant_id = v_tenant AND o.sku = v_sku AND o.id IS DISTINCT FROM v_id
+       AND NOT (coalesce(v_refn, '') <> '' AND o.modelo_id <> v_modelo AND public._sku_norm_ref(mo.ref) = v_refn
+                AND o.variante_key = v_vkey AND o.tamanho_key = v_tkey)
+     ORDER BY (o.modelo_id = v_modelo) DESC, o.modelo_id
+     LIMIT 1;
+    IF v_com_modelo IS NULL THEN
+      RAISE EXCEPTION 'conflito_versao: a linha do SKU foi gravada por outra pessoa' USING ERRCODE = 'P0409';
+    END IF;
+    IF v_com_modelo = v_modelo THEN
+      RAISE EXCEPTION 'O SKU % já está em outra linha deste produto.', v_sku USING ERRCODE = 'P0001';
+    END IF;
+    RAISE EXCEPTION 'O SKU % já existe em % (REF %). Escolha outro.', v_sku, coalesce(v_com_nome, 'outro produto'),
+      coalesce(nullif(btrim(v_com_ref), ''), '—') USING ERRCODE = 'P0001';
+  END;
+  RETURN jsonb_build_object('id', v_id, 'sku', v_sku, 'manual', true, 'rev', v_rev);
+END
+$function$;
+
+-- ── Wrappers públicos (PostgREST) ──
+CREATE OR REPLACE FUNCTION public.skus_modelo(_modelo_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+BEGIN
+  SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = _modelo_id;
+  PERFORM public._sku_guarda(v_tenant, false);
+  RETURN public._skus_modelo_core(_modelo_id);
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.gerar_skus_modelo(_modelo_id uuid, _regerar boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+BEGIN
+  SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = _modelo_id;
+  PERFORM public._sku_guarda(v_tenant, true);
+  RETURN public._gerar_skus_modelo_core(_modelo_id, coalesce(_regerar, false));
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.salvar_sku_manual(_id uuid, _sku text, _rev_base integer DEFAULT NULL,
+                                                    _modelo_id uuid DEFAULT NULL, _variante_key uuid DEFAULT NULL,
+                                                    _tamanho_key text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tenant uuid;
+BEGIN
+  IF _id IS NOT NULL THEN
+    SELECT s.tenant_id INTO v_tenant FROM public.modelo_skus s WHERE s.id = _id;
+  ELSE
+    SELECT mo.tenant_id INTO v_tenant FROM public.modelos mo WHERE mo.id = _modelo_id;
+  END IF;
+  PERFORM public._sku_guarda(v_tenant, true);
+  RETURN public._salvar_sku_manual_core(_id, _sku, _rev_base, _modelo_id, _variante_key, _tamanho_key);
+END
+$function$;
+
+-- Invariante #9 — revogar dos TRÊS; conferido por has_function_privilege (testes + G-migration).
+REVOKE EXECUTE ON FUNCTION
+  public._sku_guarda(uuid, boolean),
+  public._skus_modelo_calc(uuid),
+  public._skus_modelo_core(uuid),
+  public._gerar_skus_modelo_core(uuid, boolean),
+  public._salvar_sku_manual_core(uuid, text, integer, uuid, uuid, text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION
+  public.skus_modelo(uuid),
+  public.gerar_skus_modelo(uuid, boolean),
+  public.salvar_sku_manual(uuid, text, integer, uuid, uuid, text)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION
+  public.skus_modelo(uuid),
+  public.gerar_skus_modelo(uuid, boolean),
+  public.salvar_sku_manual(uuid, text, integer, uuid, uuid, text)
+  TO authenticated;
+
 -- ==== [PARTE C] cálculo, RPCs e ACL entram ACIMA desta linha (Task 5) ====
 
 -- ─────────────────────────── [B] Gatilhos, tabela modelo_skus, colunas e policies (POR ÚLTIMO) ───────────────────────────
