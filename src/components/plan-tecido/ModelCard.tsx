@@ -9,7 +9,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { OcHoverResumo } from "./OcHoverResumo";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { DragHandle } from "./dnd";
-import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, fmtMetros } from "@/lib/plan-tecido/calc";
+import { ehTecido1, materiaisParaAplicar } from "@/lib/plan-tecido/atendimento";
+import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { fmtInt } from "@/lib/format";
 import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -83,6 +85,9 @@ export function ModelCard({
   variantesGrupoT1,
   situacaoRows,
   onAbrirOcDialog,
+  distribuicaoLigada,
+  presentesColab,
+  onFocoDistribuicao,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -124,6 +129,12 @@ export function ModelCard({
       (Cor·Pedido·Reserva·Sobra). `situacaoRows` alimenta o popover; `onAbrirOcDialog` abre o dialog. */
   situacaoRows?: SituacaoOcRow[];
   onAbrirOcDialog?: (ocId: string) => void;
+  /** Distribuição por produto (módulo `distribuicao`): pç derivado, "atende a" e o botão "Distribuir por loja". */
+  distribuicaoLigada?: boolean;
+  /** Presença do canal do Plan. Tecido — o dialog mostra quem está neste produto (R19). */
+  presentesColab?: PresencaColab[];
+  /** Marcador de presença de página do dialog aberto (`dist:{slot}:aberto`) — o PlanTecidoSheet o usa como campoFocado. */
+  onFocoDistribuicao?: (path: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -169,7 +180,7 @@ export function ModelCard({
 
   // BOM do slot com a grade distribuída por proporção (compartilhado por aplicar + auto-aplicar
   // do save — fonte única em `buildMateriaisAplicar`, @/lib/plan-tecido/calc).
-  const buildMateriais = () => buildMateriaisAplicar(slot);
+  const buildMateriais = () => materiaisParaAplicar(slot, !!distribuicaoLigada);
 
   const invalidarModelo = () => {
     void qc.invalidateQueries({ queryKey: ["modelo"] });
@@ -226,6 +237,8 @@ export function ModelCard({
   const isComprado = ehOrigemComprada(origem);
   // peças = grade total do Tecido 1 (base do modelo)
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
+  // Cores do Tecido 1 (base do "atende a" dos demais blocos — Distribuição por produto).
+  const t1Variantes = slot.materiais.find(ehTecido1)?.variantes;
   const borderClass = open ? "border-primary" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
@@ -575,6 +588,7 @@ export function ModelCard({
                         laneCategoriaId={slot.categoria_tecido_id ?? null}
                         paleta={paleta}
                         variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
+                        dist={distribuicaoLigada ? { ligado: true, t1: t1Variantes ?? [] } : undefined}
                         onChange={(nm) => {
                           const materiais = slot.materiais.slice();
                           materiais[i] = nm;

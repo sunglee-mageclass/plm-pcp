@@ -1,5 +1,5 @@
 // src/components/plan-tecido/MaterialBlock.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -10,22 +10,47 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { X, Plus, AlertTriangle } from "lucide-react";
+import { X, Plus, AlertTriangle, Lock } from "lucide-react";
 import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
 import { varKey, fmtMetros, dedupVariantes } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { AtendeAPopover } from "./AtendeAPopover";
+import { atendimentoDoBloco } from "@/lib/plan-tecido/atendimento";
+import { temDistribuicao } from "@/lib/distribuicao-produto";
 
 type VarRow = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
 
-export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false, variantesGrupo }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean; variantesGrupo?: PtVariante[] }) {
+export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, readOnly = false, variantesGrupo, dist, acaoExtra }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[]; readOnly?: boolean; variantesGrupo?: PtVariante[];
+  /** Distribuição por produto (só com o módulo): `t1` = cores do Tecido 1 do card (p/ o "atende a" dos demais blocos). */
+  dist?: { ligado: boolean; t1?: PtVariante[] };
+  /** Ação extra na linha de ações (o "Distribuir por loja" do Tecido 1) — aparece também com o bloco travado. */
+  acaoExtra?: ReactNode }) {
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria, artigoMap } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
+  // Distribuição por produto (spec R4/R14): só com o módulo. Tecido 1 = pç só leitura quando distribuído; demais blocos
+  // (forro/Tecido 2…) = "atende a", com o pç = soma das cores atendidas (derivado pela normalização do PlanTecidoSheet).
+  const ehT1 = material.tipo === "tecido" && Number(material.numero) === 1;
+  const distLigado = !!dist?.ligado;
+  const atendimento = useMemo(
+    () => (distLigado && !ehT1 && dist?.t1 ? atendimentoDoBloco(dist.t1, material.variantes) : null),
+    [distLigado, ehT1, dist?.t1, material.variantes],
+  );
+  const materialKey = material.id ?? `${material.tipo}#${material.numero}`;
+  const setAtende = (v: PtVariante, atende: string[] | null) =>
+    onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, atende } : x)) });
+  // "Marrom · Canela" (cor planejada guarda "Cor - Apelido" no label) — p/ o "atende a" e os avisos.
+  const nomeCorCurto = (v: PtVariante): string => {
+    const cor = v.cor_nome || v.label || "—";
+    const ap = v.label && v.cor_nome && v.label.startsWith(`${v.cor_nome} - `) ? v.label.slice(v.cor_nome.length + 3) : null;
+    return ap ? `${cor} · ${ap}` : cor;
+  };
   // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros. TECIDO é FILTRADO pela categoria
   // da lane (ex.: lane Chiffon → só tecidos Chiffon); o artigo já escolhido continua visível. Forro
   // tem categoria própria ("Forro") e nunca casa a categoria-de-tecido da lane → não filtra.
@@ -363,7 +388,37 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
                 ) : planejada ? (
                   <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
                 ) : null}
-                <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={fantasma ? 0 : (v.grade_total ?? 0)} data-colab-path={fantasma ? undefined : `pt-grade:${material.id ?? `${material.tipo}#${material.numero}`}:${varKey(v)}`} onChange={(e) => fantasma ? promoverFantasma(v, Number(e.target.value) || 0) : setGrade(v, Number(e.target.value) || 0)} />
+                {(() => {
+                  // Distribuição por produto: cor do T1 distribuída OU cor de bloco amarrada = pç SÓ LEITURA (derivado).
+                  // Tudo na MESMA linha e sem aumentar a altura (Modo Plano alinha pela altura da linha — estudo R9).
+                  const distribuida = !fantasma && distLigado && ehT1 && temDistribuicao(v.distribuicao);
+                  const servidas = !fantasma && atendimento ? (atendimento.porCor.get(varKey(v)) ?? []) : [];
+                  return (
+                    <>
+                      {distribuida && (
+                        <StatusBadge tone="info" className="shrink-0 px-1 py-0 normal-case tracking-normal" title="Quantidade vinda do Distribuir por loja">distribuído</StatusBadge>
+                      )}
+                      {!fantasma && atendimento && dist?.t1 && (
+                        <AtendeAPopover materialKey={materialKey} cor={v} bloco={material.variantes} t1={dist.t1} at={atendimento}
+                          consumo={material.consumo} rotulo={rotulo} nomeCor={nomeCorCurto} readOnly={readOnly}
+                          onChange={(a) => setAtende(v, a)} />
+                      )}
+                      {!fantasma && atendimento && servidas.length === 0 && (
+                        <span className="shrink-0 text-amber-600" title="Não atende nenhuma cor do Tecido 1" aria-label="Não atende nenhuma cor do Tecido 1">
+                          <AlertTriangle className="h-3 w-3" />
+                        </span>
+                      )}
+                      {distribuida || servidas.length > 0 ? (
+                        <span className="flex h-7 w-12 shrink-0 items-center justify-end gap-0.5 tabular-nums"
+                          title={distribuida ? "Só leitura — muda pelo Distribuir por loja" : "Soma das cores do Tecido 1 que ele atende"}>
+                          <Lock className="h-3 w-3 text-muted-foreground" />{v.grade_total ?? 0}
+                        </span>
+                      ) : (
+                        <NumberInput disabled={readOnly} integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={fantasma ? 0 : (v.grade_total ?? 0)} data-colab-path={fantasma ? undefined : `pt-grade:${material.id ?? `${material.tipo}#${material.numero}`}:${varKey(v)}`} onChange={(e) => fantasma ? promoverFantasma(v, Number(e.target.value) || 0) : setGrade(v, Number(e.target.value) || 0)} />
+                      )}
+                    </>
+                  );
+                })()}
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
                 <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (fantasma ? 0 : (v.grade_total || 0)))} m</span>
                 {!readOnly && !fantasma ? (
@@ -398,11 +453,23 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId, r
             ));
         })()}
 
+        {/* Distribuição por produto (R14): cor do Tecido 1 sem nenhuma cor deste bloco → aviso âmbar (fica fora do "a comprar"). */}
+        {atendimento && dist?.t1 && material.variantes.length > 0 && (() => {
+          const livres = dist.t1.filter((t) => !atendimento.servidaPor.has(varKey(t)));
+          return livres.length > 0 ? (
+            <p className="mt-1 text-[10px] font-medium text-amber-700">Sem cor deste {rotulo}: {livres.map(nomeCorCurto).join(", ")}</p>
+          ) : null;
+        })()}
+
         {/* ações — escondidas quando travado (enviado à Explosão) */}
-        {!readOnly && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setMenuOpen((o) => !o)}><Plus className="h-3 w-3" />adicionar cor</Button>
-            {temDivergentes && (
+        {(!readOnly || acaoExtra) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {!readOnly && (
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setMenuOpen((o) => !o)}><Plus className="h-3 w-3" />adicionar cor</Button>
+            )}
+            {/* Distribuição por produto: "Distribuir por loja" (só Tecido 1) — também travado (abre só leitura, P-22). */}
+            {acaoExtra}
+            {!readOnly && temDivergentes && (
               <Button variant="ghost" size="sm" className="h-7 gap-1 text-[11px] text-red-600 hover:text-red-700" onClick={removerDivergentes}><AlertTriangle className="h-3 w-3" />remover divergentes</Button>
             )}
           </div>

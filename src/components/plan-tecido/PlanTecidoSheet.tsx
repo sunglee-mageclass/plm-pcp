@@ -39,7 +39,10 @@ import { CategoriaTecidoFilter } from "@/components/plan-tecido/CategoriaTecidoF
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros, fmtMetros, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import { efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
+import { useReadOnly } from "@/components/RequirePermission";
 import { difVariantes, aplicarDifNoMaterial, indiceMaterialCorrespondente } from "@/lib/plan-tecido/replicar-variantes";
 import { ehOrigemComprada } from "@/lib/origem";
 import { normalizeKanbanStatuses, labelColunaKanban } from "@/lib/kanban-status";
@@ -84,10 +87,13 @@ function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvore {
 
 // Árvore "fresca" = a semeadura (OTB/BOM vivos) mesclada com o que está salvo no servidor —
 // MESMO pipeline usado pelo carregamento normal (engine intocado, só consumido).
-function computeFreshArvore(seed: SeedInput, modelos: ModeloReal[], salvo: PtArvore | null, modelosDb: any[]): PtArvore {
+function computeFreshArvore(seed: SeedInput, modelos: ModeloReal[], salvo: PtArvore | null, modelosDb: any[], dist: OpcoesDist): PtArvore {
   const validIds = new Set(modelosDb.map((m) => m.id as string));
-  return limparSlotsOrfaos(mergeArvore(semearComModelos({ ...seed, modelos }), salvo), validIds);
+  // Distribuição por produto (R6): o pç derivado (distribuição do T1 e forro/T2 amarrado) é re-derivado aqui. Com
+  // `SEM_DERIVAR` devolve a árvore CRUA (o que o banco tem) — a carga normal passa por `efeitoDaCarga` (PR12, item f2).
+  return normalizarArvoreDistribuicao(limparSlotsOrfaos(mergeArvore(semearComModelos({ ...seed, modelos }), salvo), validIds), dist);
 }
+const SEM_DERIVAR: OpcoesDist = { ligado: false, tamanhos: [] };
 
 function rotuloConflitoSlot(c: Conflito | undefined): string {
   const s = (c?.meu ?? c?.dele) as PtSlot | null | undefined;
@@ -454,7 +460,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           // cad(cad_tecidos(consumo_cad)) — consumo confirmado no CAD (item 3c): fonte MAIS adiantada
           // do consumo. `cad` é to-many (1:1 por trigger, sem UNIQUE — CLAUDE.md invariante #7), lido
           // como m.cad?.[0]. Casa com o material por (tipo, numero), o mesmo par do sync CAD→BOM.
-          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad))",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, markup_editado, categoria_principal_id, proporcoes, tamanho_tipo, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, cor_apelido_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total), cad(cad_tecidos(tipo, numero, consumo_cad))",
         )
         .eq("colecao_id", colecaoId)
         // Revenda/importado são COMPRADOS (peça pronta) — não consomem tecido, então não pertencem ao
@@ -465,7 +471,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   });
 
   // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
-  const { data: tamanhos = [] } = useQuery({
+  const { data: tamanhos = [], isFetched: tamanhosProntos } = useQuery({
     queryKey: ["plan-tecido-tamanhos"],
     queryFn: async () => {
       const raw = ((await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data as any)?.tamanhos_grade;
@@ -475,6 +481,17 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       return arr as string[];
     },
   });
+  // Distribuição por produto (spec R4/R6): gate do módulo + opções da normalização (a grade da loja). PR15: `isFetched` —
+  // com a query desabilitada (tenant ainda não resolvido) `isLoading` é FALSE e a 1ª carga leria o módulo "desligado".
+  const { isModuleEnabled, isFetched: modulosProntos } = useTenantModules();
+  const distribOn = isModuleEnabled("distribuicao");
+  const distOpts = useMemo<OpcoesDist>(() => ({ ligado: distribOn, tamanhos }), [distribOn, tamanhos]);
+  // PR12: sem permissão de editar, a carga que recalcula só AVISA (não suja — não dá para salvar).
+  const paginaSoLeitura = useReadOnly();
+  const [recalculadas, setRecalculadas] = useState(0);
+  // M5 (Lote A fix1): quando a carga recalcula SÓ o Tecido 1 (nenhuma cor de forro/Tecido 2 afetada),
+  // mostra um aviso PRÓPRIO no mesmo lugar do PR12 — `recalculadasForaT1===0 && recalculadasT1>0`.
+  const [recalculadasT1, setRecalculadasT1] = useState(0);
 
   // OCs aplicadas (nº + tecidos que contém) — oferecidas como hint de OC por card (#5)
   const { data: ocsAplicadas = [] } = useQuery({
@@ -640,6 +657,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             multiplicador: Number(v.multiplicador) || 1,
             cor_nome: (v.variante?.cor?.nome ?? null) as string | null,
             label: corApelidoLabel(v.variante?.cor?.nome ?? null, v.variante?.apelido?.nome ?? null),
+            cor_id: (v.variante?.cor_id ?? null) as string | null,
+            complementa_variante_ids: Array.isArray(v.complementa_variante_ids) ? (v.complementa_variante_ids as string[]) : null,
           });
         }
       }
@@ -670,6 +689,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         // fotos de referência do modelo (G4) — mesma coluna do Plan. Produto/Dev (interop)
         fotos_referencia: (m.fotos_referencia ?? []) as string[],
         proporcoes: (m.proporcoes ?? null) as Record<string, number> | null,
+        tamanho_tipo: (m.tamanho_tipo ?? null) as "letra" | "numero" | null,
         materiais,
         // custo de materiais = Σ aviamentos/insumos do desenvolvimento (custo_previsto)
         materiais_custo: (m.modelo_aviamentos ?? []).reduce((s: number, a: any) => s + (Number(a.custo_previsto) || 0), 0),
@@ -758,14 +778,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // (modelo/consumo/subcoleção/OTB novos → re-mergeia; itens 3/6/7/13) de "só salvei o plano" (só o
   // `salvo` refetcha, seed/modelosReais iguais → NÃO re-mergeia, senão reverteria p/ o seed e o
   // auto-upgrade de cor re-sujaria = loop de "alterações não salvas"; item 12).
-  const srcRef = useRef<{ seed: unknown; models: unknown } | null>(null);
+  const srcRef = useRef<{ seed: unknown; models: unknown; dist?: unknown } | null>(null);
 
   // Colab: `colecoes.plan_rev` espelhado num ref (lido de forma síncrona no save/retry).
   useEffect(() => { if (colecao) revRef.current = (colecao as any).plan_rev ?? null; }, [colecao]);
 
   useEffect(() => {
     if (!seed || salvo === undefined || modelosDb === undefined) return;
-    const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais;
+    if (!tamanhosProntos || !modulosProntos) return; // PR3/PR15: normalizar sem a grade/sem o gate daria outro pç
+    const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais || srcRef.current.dist !== distOpts; // PR15: grade/módulos que chegam ou mudam RE-SEMEIAM
     const salvoNovo = salvo !== salvoConsumidoRef.current;
 
     if (dirty) {
@@ -778,7 +799,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // simplesmente ignorar (era o comportamento pré-colab: qualquer refetch com dirty=true
       // era descartado em silêncio).
       if (!planBaseRef.current || !arvore) return; // segurança: não deveria ficar dirty sem base
-      const fresh = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[]);
+      const fresh = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], distOpts);
       const result = mergeArvorePorSlot({ base: planBaseRef.current, draft: arvore, fresh, touchedIds: touchedSlotIdsRef.current });
       planBaseRef.current = fresh;
       if (result.atualizados > 0 || result.conflitos.length > 0) setArvore(result.arvore);
@@ -794,26 +815,34 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     // antes do refetch resolver) e mantém `planBaseRef`/conflitos em dia.
     if (arvore !== null && !fonteMudou && !salvoNovo) return;
     salvoConsumidoRef.current = salvo;
-    srcRef.current = { seed, models: modelosReais };
-    const merged = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[]);
-    planBaseRef.current = merged;
-    touchedSlotIdsRef.current = new Set();
+    srcRef.current = { seed, models: modelosReais, dist: distOpts };
+    // PR12: a base do merge colab = o que o BANCO tem; se a normalização MUDOU algum slot (pç derivado ≠ gravado), ele entra
+    // "não salvo" (tocado) + aviso no topo — depois do 1º Salvar o número do card = o do Resumo/Modo Plano/Fazer pedido.
+    const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura);
+    const merged = carga.arvore;
+    planBaseRef.current = carga.base;
+    touchedSlotIdsRef.current = new Set(carga.tocados);
+    setRecalculadas(carga.recalculadasForaT1);
+    setRecalculadasT1(carga.recalculadasT1);
     conflitosSlotRef.current = [];
     setConflitosSlot([]);
     setUltimoMergeSlot(null);
     setArvore(merged);
-  }, [seed, salvo, modelosReais, modelosDb, dirty, arvore]);
+    if (carga.sujo) setDirty(true);
+  }, [seed, salvo, modelosReais, modelosDb, dirty, arvore, tamanhosProntos, modulosProntos, distOpts, paginaSoLeitura]);
 
   // Presença + reage ao UPDATE em `colecoes` (QUALQUER save da árvore bumpa plan_rev — Task 1).
   // Ring por campo (set/2026): o foco é derivado no container (pathDoElemento); as células da árvore
   // (proporção/consumo/grade) carregam data-colab-path keyed por slot/material/variante/tamanho.
   const [campoFocadoColab, setCampoFocadoColab] = useState<string | null>(null);
   const colabScopeRef = useRef<HTMLElement>(null);
+  // Distribuição por produto (R19): marcador "dialog aberto" (`dist:{slot}:aberto`) quando nenhum campo está focado.
+  const [focoDistribuicao, setFocoDistribuicao] = useState<string | null>(null);
   const { presentes } = useColabRegistro({
     canal: colecaoId ? `colab:plan:${colecaoId}` : null,
     tabela: "colecoes",
     registroId: colecaoId,
-    campoFocado: campoFocadoColab,
+    campoFocado: campoFocadoColab ?? focoDistribuicao,
     onMudancaServidor: () => {
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] });
@@ -896,7 +925,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
           if (enviadoCadSet.has(slot.modelo_id)) continue;                 // pós-explosão: card NÃO toca o BOM
           if (ehOrigemComprada(origemMap[slot.modelo_id])) continue;        // comprado (revenda/importado): sem BOM de tecido
           if (!slot.materiais.some((m) => m.artigo_id)) continue;          // sem tecido escolhido: nada a gravar
-          alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: buildMateriaisAplicar(slot) });
+          alvos.push({ slotId: slot.id, modeloId: slot.modelo_id, nome: slot.nome ?? slot.ref ?? "Modelo", materiais: materiaisParaAplicar(slot, distribOn) });
         }
     if (alvos.length === 0) return;
     const pendentes: { slotId: string; nome: string; materiais: unknown }[] = [];
@@ -952,6 +981,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       conflitosSlotRef.current = [];
       setConflitosSlot([]);
       setUltimoMergeSlot(null);
+      setRecalculadas(0);
+      setRecalculadasT1(0);
       toast.success("Planejamento de tecido salvo.");
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
@@ -973,7 +1004,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         const freshColecao = qc.getQueryData<any>(["plan-tecido-colecao", colecaoId]);
         const draft = arvoreLiveRef.current; // espelho síncrono: nada editado durante o await se perde
         if (freshSalvo !== undefined && draft) {
-          const fresh = computeFreshArvore(seed, modelosReais, freshSalvo ?? null, modelosDb as any[]);
+          const fresh = computeFreshArvore(seed, modelosReais, freshSalvo ?? null, modelosDb as any[], distOpts);
           const base = planBaseRef.current ?? fresh;
           const result = mergeArvorePorSlot({ base, draft, fresh, touchedIds: touchedSlotIdsRef.current });
           planBaseRef.current = fresh;
@@ -1018,6 +1049,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
     if (!planBaseRef.current) return;
     setArvore(planBaseRef.current);
     setDirty(false);
+    srcRef.current = null; // PR12: re-deriva na próxima passada (a base é a árvore crua)
     touchedSlotIdsRef.current = new Set();
     conflitosSlotRef.current = [];
     setConflitosSlot([]);
@@ -1028,7 +1060,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   // Tecido) — `patch` é o ÚNICO funil de escrita local (drag, aplicar em massa, categoria,
   // onChange do card), então instrumentar aqui cobre toda edição sem mudar a assinatura recebida
   // pelos filhos.
-  const patch = (next: PtArvore) => {
+  const patch = (next0: PtArvore) => {
+    const next = normalizarArvoreDistribuicao(next0, distOpts); // R6: toda edição re-deriva o pç (idempotente)
     if (arvore) {
       const prevById = new Map<string, PtSlot>();
       for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) if (s.id) prevById.set(s.id, s);
@@ -1255,7 +1288,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
         custo_terceirizados_previsto: 0, // inerte: a MO nasce por-serviço no Planejamento (modelo_servico_mo)
         custo_simulado: slot.custo_simulado ?? {},
         referencia_paths: slot.referencia_paths ?? [],
-        materiais: buildMateriaisAplicar(slot),
+        materiais: materiaisParaAplicar(slot, distribOn),
       }));
       const { data, error } = await supabase.rpc("plan_tecido_criar_cards" as any, { _colecao_id: colecaoId, _slots });
       if (error) throw error;
@@ -1586,6 +1619,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
             onResolver={resolverSlotPorPath}
             rotulo={rotuloDoConflitoSlot}
           />
+          {recalculadas > 0 && (
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              {recalculadas} cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar
+            </p>
+          )}
+          {recalculadas === 0 && recalculadasT1 > 0 && (
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              Distribuição recalculada — salve para gravar
+            </p>
+          )}
         </div>
 
 
@@ -1774,6 +1817,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
               variantesGrupoT1={variantesGrupoT1}
               situacaoRows={onAbrirOcDialog ? situacaoRows : undefined}
               onAbrirOcDialog={onAbrirOcDialog}
+              distribuicaoLigada={distribOn}
+              presentesColab={presentes}
+              onFocoDistribuicao={setFocoDistribuicao}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}

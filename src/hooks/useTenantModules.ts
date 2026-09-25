@@ -65,7 +65,7 @@ const LANDING_ORDER: ModuleKey[] = [
 
 export function useTenantModules() {
   const tenantId = useActiveTenantId();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetched } = useQuery({
     // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
     queryKey: ["tenant_config", "modules", tenantId],
     enabled: !!tenantId,
@@ -93,5 +93,5 @@ export function useTenantModules() {
   const firstActiveModulePath =
     MODULE_BASE_PATH[LANDING_ORDER.find((k) => modules[k]) ?? "cadastro"];
 
-  return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading };
+  return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };
 }
