@@ -5,6 +5,8 @@ import { Sparkles, Plus, Upload, Trash2, ArrowLeft, Printer } from "lucide-react
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
+import { AvisoFaltaNota, BolinhaFaltaNota, CampoDataNotaEntrada, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { brl } from "@/lib/format";
 import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 import { corApelidoLabel } from "@/lib/variante";
@@ -115,6 +117,7 @@ type OC = {
   data_pedido: string | null;
   data_prevista_entrega: string | null;
   data_entrega: string | null;
+  data_nota_entrada?: string | null;
   prazo_pagamento: string | null;
   quantidade_prazos: number | null;
   nf_url: string | null;
@@ -351,7 +354,7 @@ function OcAviamentoPage() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("aviamento", o)} />
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" />
                   </div>
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
@@ -384,7 +387,7 @@ function OcAviamentoPage() {
                 )}
                 {sortEncomendado.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
-                    <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
+                    <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("aviamento", o)} /></span></TableCell>
                     <TableCell data-label="Fornecedor">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell data-label="Data Prevista">{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell data-label="Valor Previsto">{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
@@ -438,7 +441,7 @@ function OcAviamentoPage() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("aviamento", o)} />
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />
                   </div>
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
@@ -470,7 +473,7 @@ function OcAviamentoPage() {
                 )}
                 {sortRecebido.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
-                    <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
+                    <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("aviamento", o)} /></span></TableCell>
                     <TableCell data-label="Fornecedor">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell data-label="Data Entrega">{fmtDate(o.data_entrega)}</TableCell>
                     <TableCell data-label="Prazo"><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
@@ -538,6 +541,7 @@ type Draft = {
   data_pedido: string;
   data_prevista_entrega: string;
   data_entrega: string;
+  data_nota_entrada: string; // ISO ou "" (spec 2026-09-24)
   prazo_pagamento: string;
   quantidade_prazos: number;
   nf_url: string | null;
@@ -554,6 +558,7 @@ function emptyDraft(): Draft {
     data_pedido: format(new Date(), "yyyy-MM-dd"),
     data_prevista_entrega: "",
     data_entrega: "",
+    data_nota_entrada: "",
     prazo_pagamento: "",
     quantidade_prazos: 1,
     nf_url: null,
@@ -572,6 +577,7 @@ function OcDialog({
   onDelete?: () => void;
 }) {
   const isEdit = !!ocId;
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);
@@ -650,6 +656,7 @@ function OcDialog({
     data_pedido: oc.data_pedido ?? "",
     data_prevista_entrega: oc.data_prevista_entrega ?? "",
     data_entrega: oc.data_entrega ?? "",
+    data_nota_entrada: oc.data_nota_entrada ?? "",
     prazo_pagamento: oc.prazo_pagamento ?? "",
     quantidade_prazos: oc.quantidade_prazos ?? 1,
     nf_url: oc.nf_url,
@@ -796,7 +803,7 @@ function OcDialog({
   const ROTULO_CONFLITO_AVI: Record<string, string> = {
     numero_pedido: "Número do Pedido", empresa_id: "Fornecedor", representante_id: "Representante",
     responsavel_nome: "Responsável", data_pedido: "Data do Pedido", data_prevista_entrega: "Data Prevista de Entrega",
-    data_entrega: "Data de Entrega", prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
+    data_entrega: "Data de Entrega", data_nota_entrada: ROTULO_DATA_NOTA, prazo_pagamento: "Prazo de Pagamento", quantidade_prazos: "Nº de parcelas",
     parcelas_recebimento: "Parcelas de recebimento", nf_url: "Nota Fiscal", nfs: "Notas Fiscais",
   };
   const rotuloConflito = (path: string) =>
@@ -854,6 +861,7 @@ function OcDialog({
       if (!draft.empresa_id) throw new Error("Informe o Fornecedor.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new Error(erroNota); } // D7
       const selecionados = items.filter((i) => i.aviamento_id);
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
         throw new Error("Informe a quantidade (maior que zero) de cada aviamento.");
@@ -870,6 +878,7 @@ function OcDialog({
         data_pedido: draft.data_pedido || null,
         data_prevista_entrega: draft.data_prevista_entrega || null,
         data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
+        data_nota_entrada: payloadDataNota(draft.data_nota_entrada), // chave SEMPRE presente: "" limpa
         prazo_pagamento: draft.prazo_pagamento || null,
         quantidade_prazos: draft.quantidade_prazos,
         nf_url: draft.nfs[0]?.url ?? null, // NF primária = primeira da lista (compat)
@@ -908,6 +917,7 @@ function OcDialog({
     onSuccess: () => {
       toast.success("OC salva");
       markClean();
+      invalidarVencimentos(qc);
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
@@ -1077,6 +1087,7 @@ function OcDialog({
           <ColabPresenceOverlay presentes={presentesColab} scopeRef={colabScopeRef} />
           <section id="oca-sec-pedido" className="scroll-mt-2 space-y-4">
           <OcSecTitle n={1}>Pedido</OcSecTitle>
+          <AvisoFaltaNota show={faltaNotaEntrada("aviamento", { status, data_nota_entrada: draft.data_nota_entrada })} familia="aviamento" ocId={ocId} />
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="grid gap-1">
               <Label>Número do Pedido</Label>
@@ -1120,6 +1131,11 @@ function OcDialog({
                 placeholder="Ex: 30/60/90"
               />
             </div>
+
+            <CampoDataNotaEntrada
+              value={draft.data_nota_entrada}
+              onChange={(v) => setDraftTracked((d) => ({ ...d, data_nota_entrada: v }))}
+            />
 
             <div className="grid gap-1">
               <Label>Data do Pedido</Label>
