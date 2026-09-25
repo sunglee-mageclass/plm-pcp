@@ -397,6 +397,203 @@ REVOKE EXECUTE ON FUNCTION
 
 -- ==== [PARTE C] cálculo, RPCs e ACL entram ACIMA desta linha (Task 5) ====
 
+-- ─────────────────────────── [B] Gatilhos, tabela modelo_skus, colunas e policies (POR ÚLTIMO) ───────────────────────────
+
+-- Normalização da sigla NO SALVAR, no servidor (spec §4.1 + D6/R4). GATILHO (e não RPC) porque Cadastro > Atributos
+-- grava cores/cores_apelido DIRETO pela API (AttributeTab: insert/update na tabela) — o gatilho cobre esse caminho E
+-- qualquer outro (importação, SQL). DEFINER: chama o helper revogado (#9) sem depender do EXECUTE do usuário.
+CREATE OR REPLACE FUNCTION public.fn_sigla_sku_normaliza()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  NEW.sigla_sku := public._sku_norm_sigla(NEW.sigla_sku);
+  RETURN NEW;
+END
+$function$;
+
+-- tenant_config: valida/canoniza o Formato do SKU e as siglas de tamanho (mensagens PT, RAISE P0001). Só dispara
+-- quando essas colunas estão no UPDATE — o upsert genérico da Config da Loja não as envia (não pesa nele).
+CREATE OR REPLACE FUNCTION public.fn_tenant_config_sku_normaliza()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  NEW.sku_config := public._sku_config_normaliza(NEW.sku_config);
+  NEW.tamanhos_sku := public._sku_tamanhos_normaliza(NEW.tamanhos_sku);
+  RETURN NEW;
+END
+$function$;
+
+-- "Tamanho em" do produto comprado ANTES do card existir (spec §4.1): quando o produto ganha o modelo espelho
+-- (modelo_id), o valor PASSA ao modelo (só se o modelo ainda não tem um) e sai do produto — com espelho, a fonte
+-- ÚNICA é modelos.tamanho_tipo. Mesma loja obrigatória (produtos_importados não tem gatilho de loja do espelho).
+CREATE OR REPLACE FUNCTION public.fn_produto_tamanho_tipo_handover()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.modelo_id IS NOT NULL AND NEW.tamanho_tipo IS NOT NULL THEN
+    UPDATE public.modelos m
+       SET tamanho_tipo = NEW.tamanho_tipo
+     WHERE m.id = NEW.modelo_id
+       AND m.tenant_id = NEW.tenant_id
+       AND m.tamanho_tipo IS NULL;
+    NEW.tamanho_tipo := NULL;
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+-- Unicidade do SKU na loja (D5/R2 — PENDENTE DO DONO; implementada a recomendação do guardião): um SKU só pode
+-- repetir entre cards DIFERENTES com a MESMA REF e a MESMA linha (cor + tamanho) — é a réplica/versão do mesmo
+-- produto, que o ERP/e-commerce vê como o mesmo SKU. "Mesma REF" = a REF VIVA dos dois cards (modelos.ref AGORA,
+-- normalizada por _sku_norm_ref) e não vazia — nunca uma cópia guardada no SKU (R2-a: cópia fica velha quando a REF
+-- do card muda). Qualquer outro SKU igual (outra REF, outra linha, duas linhas do mesmo card, card sem REF) = RAISE
+-- 23505 (unique_violation), que a geração captura como `conflitos[]` e a edição manual traduz em PT.
+-- Travas (ordem única em toda escrita de SKU — sem deadlock): sku_modelo:<modelo> (geração/edição) → a linha →
+-- sku_unico:<loja> (AQUI, lock consultivo por loja: sem ele duas transações passariam juntas pela checagem).
+-- Trocar a REF de um card NÃO revalida os SKUs já gravados (sem gatilho em modelos — tabela quente; travaria o Salvar
+-- do card): a leitura (_skus_modelo_core) compara com a REF viva e marca `conflito` nos DOIS cards na hora, e a próxima
+-- gravação da linha passa por aqui de novo.
+-- Variante B da D5 ("SKU próprio da versão"): tirar a exceção `AND NOT (…)` abaixo = unicidade estrita por loja.
+CREATE OR REPLACE FUNCTION public.fn_modelo_skus_unico()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ref text;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('sku_unico:' || NEW.tenant_id::text, 0));
+  SELECT public._sku_norm_ref(m.ref) INTO v_ref FROM public.modelos m WHERE m.id = NEW.modelo_id;
+  PERFORM 1
+     FROM public.modelo_skus o
+     JOIN public.modelos mo ON mo.id = o.modelo_id
+    WHERE o.tenant_id = NEW.tenant_id
+      AND o.sku = NEW.sku
+      AND o.id <> NEW.id
+      AND NOT (coalesce(v_ref, '') <> '' AND o.modelo_id <> NEW.modelo_id
+               AND public._sku_norm_ref(mo.ref) = v_ref
+               AND o.variante_key = NEW.variante_key AND o.tamanho_key = NEW.tamanho_key);
+  IF FOUND THEN
+    RAISE EXCEPTION 'O SKU % já está em uso na loja.', NEW.sku USING ERRCODE = '23505';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION
+  public.fn_sigla_sku_normaliza(),
+  public.fn_tenant_config_sku_normaliza(),
+  public.fn_produto_tamanho_tipo_handover(),
+  public.fn_modelo_skus_unico()
+  FROM PUBLIC, anon, authenticated;
+
+-- SKUs gravados (1 linha por modelo × variante(cor) × tamanho). UNIQUE COMPOSTA (segura p/ o PostgREST — regra "O que
+-- NÃO fazer") em (modelo_id, variante_key, tamanho_key) = 1 SKU por linha (e índice por modelo_id). O SKU igual na
+-- loja é barrado pelo gatilho acima (D5, REF viva), com o índice (tenant_id, sku) para a busca. SEM cópia da REF aqui
+-- (R2-a). Escrita SÓ pelas RPCs DEFINER: `authenticated` só tem SELECT (RLS por loja).
+CREATE TABLE IF NOT EXISTS public.modelo_skus (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES public.tenants(id),
+  modelo_id    uuid NOT NULL REFERENCES public.modelos(id) ON DELETE CASCADE,
+  variante_key uuid NOT NULL,
+  tamanho_key  text NOT NULL,
+  sku          text NOT NULL CONSTRAINT modelo_skus_sku_chk CHECK (btrim(sku) <> ''),
+  manual       boolean NOT NULL DEFAULT false,
+  gerado_em    timestamptz NOT NULL DEFAULT now(),
+  rev          integer NOT NULL DEFAULT 0,
+  CONSTRAINT modelo_skus_modelo_variante_tamanho_key UNIQUE (modelo_id, variante_key, tamanho_key)
+);
+CREATE INDEX IF NOT EXISTS idx_modelo_skus_tenant_sku ON public.modelo_skus (tenant_id, sku);
+COMMENT ON TABLE public.modelo_skus IS
+  'SKU por modelo × variante × tamanho (F3.5a). Escrita só por gerar_skus_modelo/salvar_sku_manual. variante_key = _sku_variante_key(cor base, cor apelido) (R1: estável entre saves; mesma cor no card = 1 linha, D7); tamanho_key = chave inteira da grade ("34|PPP"). manual=true nunca é sobrescrito. SKU repetido só entre réplicas (REF viva igual e mesma linha) — gatilho fn_modelo_skus_unico (D5).';
+DROP TRIGGER IF EXISTS trg_modelo_skus_unico ON public.modelo_skus;
+CREATE TRIGGER trg_modelo_skus_unico BEFORE INSERT OR UPDATE OF tenant_id, modelo_id, variante_key, tamanho_key, sku
+  ON public.modelo_skus FOR EACH ROW EXECUTE FUNCTION public.fn_modelo_skus_unico();
+REVOKE ALL ON public.modelo_skus FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.modelo_skus TO authenticated;
+ALTER TABLE public.modelo_skus ENABLE ROW LEVEL SECURITY;
+
+-- Colunas (AccessExclusive curto em cada tabela — por isso no FIM do arquivo).
+ALTER TABLE public.cores ADD COLUMN IF NOT EXISTS sigla_sku text;
+COMMENT ON COLUMN public.cores.sigla_sku IS 'Sigla da cor base no SKU (F3.5a). Normalizada no salvar (sem acento, só A–Z/0–9, maiúsculas; vazia = NULL).';
+DROP TRIGGER IF EXISTS trg_cores_sigla_sku ON public.cores;
+CREATE TRIGGER trg_cores_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores
+  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
+
+ALTER TABLE public.cores_apelido ADD COLUMN IF NOT EXISTS sigla_sku text;
+COMMENT ON COLUMN public.cores_apelido.sigla_sku IS 'Sigla da cor apelido no SKU (F3.5a). Normalizada no salvar (sem acento, só A–Z/0–9, maiúsculas; vazia = NULL).';
+DROP TRIGGER IF EXISTS trg_cores_apelido_sigla_sku ON public.cores_apelido;
+CREATE TRIGGER trg_cores_apelido_sigla_sku BEFORE INSERT OR UPDATE OF sigla_sku ON public.cores_apelido
+  FOR EACH ROW EXECUTE FUNCTION public.fn_sigla_sku_normaliza();
+
+ALTER TABLE public.produtos_acabados ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+ALTER TABLE public.produtos_importados ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+ALTER TABLE public.modelos ADD COLUMN IF NOT EXISTS tamanho_tipo text;
+-- CHECK letra|numero como NOT VALID: vale para toda escrita nova e evita varrer a tabela sob AccessExclusive (todas as
+-- linhas existentes são NULL — nada a validar).
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'produtos_acabados_tamanho_tipo_chk'
+                  AND conrelid = 'public.produtos_acabados'::regclass) THEN
+    ALTER TABLE public.produtos_acabados
+      ADD CONSTRAINT produtos_acabados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'produtos_importados_tamanho_tipo_chk'
+                  AND conrelid = 'public.produtos_importados'::regclass) THEN
+    ALTER TABLE public.produtos_importados
+      ADD CONSTRAINT produtos_importados_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'modelos_tamanho_tipo_chk'
+                  AND conrelid = 'public.modelos'::regclass) THEN
+    ALTER TABLE public.modelos
+      ADD CONSTRAINT modelos_tamanho_tipo_chk CHECK (tamanho_tipo IN ('letra', 'numero')) NOT VALID;
+  END IF;
+END
+$do$;
+COMMENT ON COLUMN public.modelos.tamanho_tipo IS '"Tamanho em" do card (F3.5): letra | numero; NULL = padrão da loja (tenant_config.sku_config.tamanho_padrao).';
+DROP TRIGGER IF EXISTS trg_pa_tamanho_tipo ON public.produtos_acabados;
+CREATE TRIGGER trg_pa_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_acabados
+  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
+DROP TRIGGER IF EXISTS trg_pi_tamanho_tipo ON public.produtos_importados;
+CREATE TRIGGER trg_pi_tamanho_tipo BEFORE INSERT OR UPDATE OF modelo_id, tamanho_tipo ON public.produtos_importados
+  FOR EACH ROW EXECUTE FUNCTION public.fn_produto_tamanho_tipo_handover();
+
+-- tenant_config (as policies RLS de todas as lojas leem esta tabela): UM só ALTER.
+ALTER TABLE public.tenant_config
+  ADD COLUMN IF NOT EXISTS tamanhos_sku jsonb,
+  ADD COLUMN IF NOT EXISTS sku_config jsonb;
+COMMENT ON COLUMN public.tenant_config.tamanhos_sku IS 'Sigla SKU de CADA LADO dos pares da grade ({"34":"34","PPP":"PPP"}) — F3.5a. tamanhos_grade não muda.';
+COMMENT ON COLUMN public.tenant_config.sku_config IS 'Formato do SKU {partes, separadores {"a|b": sep}, tamanho_padrao} — F3.5a. NULL = a loja não gera SKU.';
+DROP TRIGGER IF EXISTS trg_tenant_config_sku ON public.tenant_config;
+CREATE TRIGGER trg_tenant_config_sku BEFORE INSERT OR UPDATE OF sku_config, tamanhos_sku ON public.tenant_config
+  FOR EACH ROW EXECUTE FUNCTION public.fn_tenant_config_sku_normaliza();
+
+-- Policies de modelo_skus POR ÚLTIMO: todo CREATE/DROP POLICY como `postgres` dispara o hook
+-- supautils.policy_grants, que trava ~24 tabelas de auth/storage/realtime até o COMMIT (login/refresh esperam).
+-- RLS por loja no SELECT + modgate RESTRICTIVE do `criacao` em escrita (padrão de modelo_grades; defesa em profundidade).
+DROP POLICY IF EXISTS tenant_select ON public.modelo_skus;
+CREATE POLICY tenant_select ON public.modelo_skus FOR SELECT TO authenticated
+  USING (tenant_id = public.get_user_tenant_id());
+DROP POLICY IF EXISTS modgate_ins ON public.modelo_skus;
+CREATE POLICY modgate_ins ON public.modelo_skus AS RESTRICTIVE FOR INSERT
+  WITH CHECK (public.tenant_module_enabled('criacao'));
+DROP POLICY IF EXISTS modgate_upd ON public.modelo_skus;
+CREATE POLICY modgate_upd ON public.modelo_skus AS RESTRICTIVE FOR UPDATE
+  USING (public.tenant_module_enabled('criacao'));
+DROP POLICY IF EXISTS modgate_del ON public.modelo_skus;
+CREATE POLICY modgate_del ON public.modelo_skus AS RESTRICTIVE FOR DELETE
+  USING (public.tenant_module_enabled('criacao'));
+
 -- ==== [PARTE B] tabela, colunas, gatilhos e policies entram ACIMA desta linha (Task 4) ====
 
 NOTIFY pgrst, 'reload schema';
