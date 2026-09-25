@@ -277,6 +277,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     · Excluir (destructive) · Salvar (ml-auto)** — nunca no header; página inteira usa
     `<PageActionBar>` (portal, `pb-24` no container). **Header** com `<Breadcrumb>` "Módulo › Tela ›
     Entidade". Modais persistentes que só existem quando abertos: montar `{open && <Modal/>}` p/ nascer limpo.
+  - **Informação complementar de campo = `InfoHover`** (`src/components/shared/InfoHover.tsx`,
+    set/2026): "i" ao lado do rótulo, mostra no hover (desktop, mesmo padrão do `CondicaoInfo`) —
+    nunca texto fixo embaixo do campo. Em uso: motivo da Origem travada e preço/estoque do Tecido
+    1..3 no Sheet do Planejamento.
 - **Colaboração em tempo real (rev otimista)** — telas com risco de edição simultânea (2+ pessoas
   no mesmo registro) usam o padrão: coluna `rev` na tabela-raiz (bump a cada UPDATE) + save manda
   `_rev_base`; a RPC compara e dá `P0409` se alguém salvou no meio (mensagem PT em `erro-mensagem.ts`).
@@ -312,7 +316,13 @@ e verifique** — o repo muda rápido.
    via trigger p/ **tecido** (`recalc_parcelas_on_valor` em `ocs_tecido` ao mudar
    `valor_real_total`) E **aviamento** (`trg_recalc_parcelas_aviamento` em
    `ocs_aviamento_itens`, só quando a OC já está 'recebido'). **Parcela a pagar (prazo
-   30/60/90) ≠ `parcelas_recebimento` (entrega).** ⚠️ O cliente (`authenticated`) só tem
+   30/60/90) ≠ `parcelas_recebimento` (entrega).** Vencimento = `data_nota_entrada` (Data da
+   Nota de Entrada, campo NF do fornecedor nas 5 OCs; `src/lib/nota-entrada.ts`) **+ N dias
+   CORRIDOS** de cada prazo (`date + integer`, nunca meses); sem a Nota, cai em
+   `COALESCE(data_entrega|data_pedido, hoje)` (provisório). `fn_oc_nota_entrada_valida` só
+   bloqueia data **FUTURA** — a trava "anterior à data do pedido" foi **revogada pelo dono em
+   25/set** (`20261004100000_nota_entrada_sem_trava_pedido.sql`, produção 25/set 13h08).
+   ⚠️ O cliente (`authenticated`) só tem
    UPDATE em `parcelas(data_vencimento,status,data_pagamento,comprovante_url)` — `valor`/
    `numero_parcela` são só-derivados das geradoras (DEFINER, owner=postgres). Vencimento de
    parcela PAGA é bloqueado no front (não muta conta quitada). `servicos_financeiro` (DEFINER
