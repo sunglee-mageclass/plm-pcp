@@ -472,12 +472,12 @@ UPDATE direto também é recusado.
   aceitar** (é o "recalcula as não pagas").
 - **D5 — Amarelo no calendário.** No calendário do Financeiro o amarelo já quer dizer "vence em ≤ 3 dias". **Recomendo:** na
   lista, fundo amarelo + texto; no calendário, contorno tracejado amarelo + texto no toque/tooltip, sem trocar a cor do chip.
-- **D6 — OC recebida toda paga ou de valor 0 acende a bolinha e o aviso? (pendente do dono)** Uma OC dessas não tem vencimento
+- **D6 — OC recebida toda paga ou de valor 0 acende a bolinha e o aviso? (decidido pelo dono 24/set)** Uma OC dessas não tem vencimento
   provisório, mas continua sem a data da nota. **Recomendo: acende**, com o texto **"Falta a Data da Nota de Entrada"** SEM
   "provisórios" (o aviso completo fica para a OC com parcela a pagar). O plano implementa isso (`textoAvisoFaltaNota` +
   `AvisoFaltaNota`, que conta as parcelas não pagas da OC). Alternativa: não acender — mas a lista não tem o dado de parcelas,
   então exigiria uma consulta por OC na lista ou um campo derivado no banco (task nova).
-- **D7 — Data implausível (futura ou antes do pedido): validar? (pendente do dono)** Um ano trocado move todos os vencimentos
+- **D7 — Data implausível (futura ou antes do pedido): validar? (decidido pelo dono 24/set)** Um ano trocado move todos os vencimentos
   não pagos. **Recomendo: validar** — não pode ser futura (> hoje no fuso da loja) nem anterior à data do pedido da OC; erro em
   PT; validada no SERVIDOR (gatilho `trg_nota_entrada_valida` nas 5 OCs, vale para RPC e UPDATE direto) E no front (calendário
   sem dia futuro + checagem no Salvar), com os mesmos textos (§4.4b). O plano implementa isso. Alternativa: não validar — sai a

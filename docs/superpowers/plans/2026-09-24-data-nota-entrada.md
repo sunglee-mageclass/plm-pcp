@@ -396,7 +396,7 @@ describe("nota-entrada — base, payload, textos e invalidação", () => {
     expect(AVISO_FALTA_NOTA).toBe("Falta a Data da Nota de Entrada — os vencimentos estão provisórios");
     expect(TEXTO_PARCELA_PROVISORIA).toBe("vencimento provisório — falta a data da nota");
   });
-  it("D6 (pendente do dono): sem parcela a pagar confirmada, o aviso NÃO fala em 'provisórios'", () => {
+  it("D6 (decidido pelo dono 24/set): sem parcela a pagar confirmada, o aviso NÃO fala em 'provisórios'", () => {
     expect(textoAvisoFaltaNota(true)).toBe(AVISO_FALTA_NOTA);
     expect(textoAvisoFaltaNota(false)).toBe("Falta a Data da Nota de Entrada");
     expect(textoAvisoFaltaNota(undefined)).toBe(AVISO_FALTA_NOTA_CURTO); // carregando: nunca afirma o que não sabe
@@ -405,7 +405,7 @@ describe("nota-entrada — base, payload, textos e invalidação", () => {
       tecido: "oc_tecido_id", aviamento: "oc_aviamento_id", etiqueta: "oc_etiqueta_id", p_acabado: "oc_p_acabado_id",
     });
   });
-  it("D7 (pendente do dono): data futura ou antes do pedido é recusada com o MESMO texto do banco", () => {
+  it("D7 (decidido pelo dono 24/set): data futura ou antes do pedido é recusada com o MESMO texto do banco", () => {
     const hoje = "2026-09-24";
     expect(validarDataNota("2026-09-25", "2026-09-01", hoje)).toBe("A Data da Nota de Entrada (25/09/2026) não pode ser no futuro.");
     expect(validarDataNota("2026-08-31", "2026-09-01", hoje))
@@ -559,7 +559,7 @@ Cobertura (15 testes; 9 rodam nos dois modos, 6 só com `NOTA_MIG_TXN=1`). Datas
 5. Aviamento, 6. Insumo: data, mudança pela RPC e por UPDATE direto, paga intacta, Σ = total (calculado no SQL).
 7. P. Acabado: base = data antes do recebimento; mudança só nas não pagas; sem data = pedido; UPDATE direto re-dispara o gerador.
 8. Importado: parcelas idênticas com e sem a data (controle = re-salvar sem a chave).
-9. D7 (pendente do dono): data futura e data antes do pedido RECUSADAS em PT (pela RPC e por UPDATE direto); = pedido aceita; re-salvar sem mudar a data não revalida.
+9. D7 (decidido pelo dono 24/set): data futura e data antes do pedido RECUSADAS em PT (pela RPC e por UPDATE direto); = pedido aceita; re-salvar sem mudar a data não revalida.
 10. (MIG_TXN) sem a data = o de hoje, byte a byte (4 famílias; com e sem entrega; com paga + recálculo; prazo "30, 60").
 11. (MIG_TXN) idempotente e ACL das 10 redefinidas igual à de antes; 3 gatilhos de recálculo + 5 de validação.
 12. (MIG_TXN) **R2:** uma função alterada por "outra frente" que AINDA contém `data_nota_entrada` é RECUSADA pela migration e pelo inverso (e nada fica pela metade).
@@ -1008,7 +1008,7 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
     });
   });
 
-  it("D7 (pendente do dono): data futura ou anterior ao pedido é recusada em PT — pela RPC e por UPDATE direto", async () => {
+  it("D7 (decidido pelo dono 24/set): data futura ou anterior ao pedido é recusada em PT — pela RPC e por UPDATE direto", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixtures(c);
@@ -1954,7 +1954,7 @@ ok: migration, inverso, depois-esperado/ e diff-esperado.txt gerados
   _salvar_oc_p_acabado_core(uuid,jsonb,jsonb,integer): antes bd8139b1a1b1dee8b4b90e4327cb152c  depois-esperado 70b852884f47e55d01cd2b18846bbfa8
   _salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer): antes b74cd38a16fa08482551f1fb7e1487bb  depois-esperado 3b9077848c79865efbe15f0499595d69
   fn_oc_nota_entrada_recalc(): (nova)  depois-esperado 4df62f1206fc0ad006f04851c736019e
-  fn_oc_nota_entrada_valida(): (nova)  depois-esperado e2c335a5e09cb45557babadd542cf958
+  fn_oc_nota_entrada_valida(): (nova)  depois-esperado 0c3614b75fd6bdbac1b3c862a35b796b
 ```
 
 (~1.503 linhas a migration e ~1.424 o inverso — o grosso é o texto das 10 funções.) O gerador imprime `travas: ida lock 500ms / transaction 3s · inverso lock 500ms / transaction 30s (--tt-inverso)`. R9/R9-a: na migration `BEGIN;` / `SET LOCAL lock_timeout = '500ms';` / `SET LOCAL transaction_timeout = '3s';` e `0`; no inverso as mesmas linhas com `'30s'` (padrão do `--tt-inverso`; a Task 4 pode subir) e `0` — outra saída = PARE. No inverso, a ordem é guarda → captura → funções (2) → laço (3) → gatilhos (4) → repasse (4b, R9-b) → colunas (5): `grep -n '^-- [0-9]b\?)' supabase/rollback/20261002100000_oc_data_nota_entrada_down.sql`. O `diff-esperado.txt` tem de ser EXATAMENTE este (é o diff mínimo aprovado no plano — qualquer linha a mais = PARE):
@@ -2926,14 +2926,14 @@ por
 ```ts
 // vencimento_i = base + dias[i] (fallback base + i*30), base = Data da Nota de Entrada, senão data de entrega, senão hoje;
 ```
-(i) D7 (pendente do dono) — o validador, no corpo do `OcDialog`: trocar
+(i) D7 (decidido pelo dono 24/set) — o validador, no corpo do `OcDialog`: trocar
 ```ts
   const isEdit = !!ocId;
 ```
 por
 ```ts
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (pendente do dono): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
 ```
 (j) no `saveMutation` — trocar
 ```ts
@@ -3101,14 +3101,14 @@ por
 <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("aviamento", o)} /></span></TableCell>
 ```
 
-(l) D7 (pendente do dono) — trocar
+(l) D7 (decidido pelo dono 24/set) — trocar
 ```ts
   const isEdit = !!ocId;
 ```
 por
 ```ts
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (pendente do dono): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
 ```
 (m) no `saveMutation` — trocar
 ```ts
@@ -3250,14 +3250,14 @@ e `<TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>` po
 <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("etiqueta", o)} /></span></TableCell>
 ```
 
-(p) D7 (pendente do dono) — trocar
+(p) D7 (decidido pelo dono 24/set) — trocar
 ```ts
   const isEdit = !!ocId;
 ```
 por
 ```ts
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (pendente do dono): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
 ```
 (q) no `saveMutation` — trocar
 ```ts
@@ -3444,14 +3444,14 @@ e `<TableCell className="font-medium">{o.numero ?? "—"}</TableCell>` por
 <TableCell className="font-medium"><span className="inline-flex items-center gap-2">{o.numero ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("p_acabado", o)} /></span></TableCell>
 ```
 
-(j) D7 (pendente do dono) — trocar
+(j) D7 (decidido pelo dono 24/set) — trocar
 ```ts
   const isEdit = !!ocId;
 ```
 por
 ```ts
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (pendente do dono): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
 ```
 (k) no save — trocar
 ```ts
@@ -3583,7 +3583,7 @@ por
 por
 ```ts
   const isEdit = !!ocId;
-  const validarNota = useValidarDataNota(); // D7 (pendente do dono): não futura, não antes do pedido
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
 ```
 (l) no save — trocar
 ```ts
@@ -3996,13 +3996,13 @@ async function fluxoOc(browser: Browser, o: {
     await linha.click();
     const dlg = page.getByRole("dialog").first();
     await expect(dlg).toBeVisible({ timeout: 30_000 });
-    // D6 (pendente do dono): as OCs escolhidas têm parcela a pagar → o texto completo ("…provisórios").
+    // D6 (decidido pelo dono 24/set): as OCs escolhidas têm parcela a pagar → o texto completo ("…provisórios").
     if (o.alerta) await expect(dlg.locator('[data-qa="aviso-falta-nota"]')).toHaveText(AVISO);
     else await expect(dlg.locator('[data-qa="aviso-falta-nota"]')).toHaveCount(0);
     await expect(dlg.getByText(o.dica, { exact: true })).toBeVisible();
     expect(await page.locator('input[type="date"]').count()).toBe(0);
     if (o.alerta) {
-      // D7 (pendente do dono): data FUTURA é recusada no Salvar com o texto PT, sem chamar a RPC.
+      // D7 (decidido pelo dono 24/set): data FUTURA é recusada no Salvar com o texto PT, sem chamar a RPC.
       await digitarData(page, FUTURA_BR);
       let chamou = false;
       page.on("request", (r) => { if (new URL(r.url()).pathname === `/rest/v1/rpc/${o.rpc}`) chamou = true; });
@@ -4366,8 +4366,8 @@ Com o OK do dono: `git worktree remove .claude/worktrees/nota-entrada` (depois d
 | D3 bolinha só em Recebidas | manter | acender com entrega parcial = regra nova (entregas marcadas) — nova task de front | antes da Task 6 |
 | D4 ajuste manual sobrescrito | aceitar | congelar vencimento editado à mão = coluna/flag nova no banco — fora desta migration | antes da Task 13 |
 | D5 amarelo no calendário | tracejado + texto | chip inteiro em warning — trocar a classe na Task 10 (f) | antes da Task 10 |
-| **D6** OC recebida toda paga ou de valor 0 acende a bolinha e o aviso? **(pendente do dono)** | **acende, com o texto "Falta a Data da Nota de Entrada" SEM "provisórios"** (o dono quer as datas preenchidas mesmo) — `textoAvisoFaltaNota` + `AvisoFaltaNota` contando as parcelas a pagar (Tasks 1 e 5) | não acender: `faltaNotaEntrada` passa a exigir parcela a pagar — mas a lista não tem esse dado: exigiria uma consulta por OC na lista (ou um campo derivado no banco); nova task | antes da Task 1 |
-| **D7** data implausível (futura ou antes do pedido) move todos os vencimentos não pagos — validar? **(pendente do dono)** | **validar: não pode ser futura (> hoje no fuso da loja) nem anterior à data do pedido, erro em PT, no SERVIDOR (gatilho `trg_nota_entrada_valida` nas 5 OCs) E no front (`validarDataNota`/`useValidarDataNota`)** | não validar: tirar `FN_VALIDA`/os 5 gatilhos do `gerar_sql.py` (a migration volta a +1\|+3; CONT da volta da F1 428\|222), o teste 9 e as linhas `validarNota` das Tasks 6–9 | antes da Task 1 (código) e da Task 13 Step 3 |
+| **D6** OC recebida toda paga ou de valor 0 acende a bolinha e o aviso? **(decidido pelo dono 24/set)** | **acende, com o texto "Falta a Data da Nota de Entrada" SEM "provisórios"** (o dono quer as datas preenchidas mesmo) — `textoAvisoFaltaNota` + `AvisoFaltaNota` contando as parcelas a pagar (Tasks 1 e 5) | não acender: `faltaNotaEntrada` passa a exigir parcela a pagar — mas a lista não tem esse dado: exigiria uma consulta por OC na lista (ou um campo derivado no banco); nova task | antes da Task 1 |
+| **D7** data implausível (futura ou antes do pedido) move todos os vencimentos não pagos — validar? **(decidido pelo dono 24/set)** | **validar: não pode ser futura (> hoje no fuso da loja) nem anterior à data do pedido, erro em PT, no SERVIDOR (gatilho `trg_nota_entrada_valida` nas 5 OCs) E no front (`validarDataNota`/`useValidarDataNota`)** | não validar: tirar `FN_VALIDA`/os 5 gatilhos do `gerar_sql.py` (a migration volta a +1\|+3; CONT da volta da F1 428\|222), o teste 9 e as linhas `validarNota` das Tasks 6–9 | antes da Task 1 (código) e da Task 13 Step 3 |
 
 ## 6. Autorrevisão (cobertura do pedido)
 
