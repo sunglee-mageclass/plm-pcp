@@ -1005,6 +1005,9 @@ function OcPaDialog({
         return;
       }
       toast.error(mensagemErro(e, "Erro ao marcar recebido"));
+      // O save intermediário já pode ter regenerado as parcelas (gatilho reage a data_nota_entrada)
+      // mesmo a transição tendo falhado — invalida o Financeiro/dashboard/visão da OC também aqui.
+      invalidarVencimentos(qc);
       // Se o SAVE intermediário teve SUCESSO mas a TRANSIÇÃO (receber_oc_p_acabado) falhou
       // (ex.: "Crie o card no Planejamento antes de receber"), o servidor já bumpou o rev — mas
       // revRef.current ficou no valor antigo. Sem re-baselinar, a próxima tentativa mandaria o

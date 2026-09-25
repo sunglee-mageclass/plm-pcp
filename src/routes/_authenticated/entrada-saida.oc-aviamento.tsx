@@ -974,7 +974,7 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
-      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      invalidarVencimentos(qc); // desmarcar apaga as parcelas não pagas — mesmo caminho de invalidação do salvar/receber
       qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
@@ -1133,6 +1133,7 @@ function OcDialog({
             </div>
 
             <CampoDataNotaEntrada
+              className="sm:col-span-2"
               value={draft.data_nota_entrada}
               onChange={(v) => setDraftTracked((d) => ({ ...d, data_nota_entrada: v }))}
             />

@@ -1402,6 +1402,10 @@ function OcDialog({
         toast.error(mensagemErro(e, "Erro ao salvar"));
         return;
       }
+      // A RPC (salvar_oc_tecido) já pode ter gravado e movido vencimentos antes de o
+      // update de NFs (~1275) falhar e lançar pra cá — invalida o Financeiro/dashboard/
+      // visão da OC também nesse ramo (não é só P0409).
+      invalidarVencimentos(qc);
       toast.error(mensagemErro(e, "Erro ao salvar"));
     },
   });
@@ -1420,7 +1424,7 @@ function OcDialog({
       setConfirmUnmark(false);
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
-      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      invalidarVencimentos(qc); // desmarcar apaga as parcelas não pagas — mesmo caminho de invalidação do salvar/receber
       qc.invalidateQueries({ queryKey: ["rolos"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });

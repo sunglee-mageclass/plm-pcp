@@ -979,6 +979,9 @@ function OcImpDialog({
         return;
       }
       toast.error(mensagemErro(e, "Erro ao marcar recebido"));
+      // O save intermediário pode ter gravado a data/vencimentos mesmo a transição tendo falhado —
+      // invalida o Financeiro/dashboard/visão da OC também aqui (mesma lógica do P. Acabado).
+      invalidarVencimentos(qc);
       // Save intermediário OK mas a TRANSIÇÃO (receber_oc_importado) falhou → o servidor já bumpou
       // o rev, mas revRef ficou velho. Sem re-baselinar, a próxima tentativa tomaria P0409 espúrio
       // contra o próprio save (achado da revisão adversarial do P.Acabado). Invalida p/ o

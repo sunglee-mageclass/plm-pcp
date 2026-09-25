@@ -850,7 +850,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   });
   const unmark = useMutation({
     mutationFn: async () => { const { error } = await supabase.rpc("desmarcar_recebimento_oc_etiqueta" as any, { _oc_id: ocId }); if (error) throw error; },
-    onSuccess: () => { toast.success("OC voltou para Encomendado."); setConfirmUnmark(false); onSaved(); },
+    onSuccess: () => { toast.success("OC voltou para Encomendado."); setConfirmUnmark(false); invalidarVencimentos(qc); onSaved(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
   const doSave = (markReceived: boolean) => {
@@ -948,7 +948,10 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             </div>
             <div className="grid gap-1"><Label>Data do Pedido</Label><DateField value={dataPedido} onChange={(e) => { marcarHeadTouched("data_pedido"); setDataPedido(e.target.value); }} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Data Prevista de Entrega</Label><DateField value={dataPrevista} onChange={(e) => { marcarHeadTouched("data_prevista_entrega"); setDataPrevista(e.target.value); }} disabled={readOnly} /></div>
-            <CampoDataNotaEntrada value={dataNota} onChange={(v) => { marcarHeadTouched("data_nota_entrada"); setDataNota(v); }} disabled={readOnly} />
+            {/* col-span-2 evita o desalinhamento da dica sob o campo (revisão Opus) — mesma solução do Tecido.
+                Posição "ao lado do Prazo" (spec §5) exigiria ficar em índice par da lista e abriria buraco no
+                grid (col-span-2 sempre pula pra própria linha); mantido no fim, como já estava. */}
+            <CampoDataNotaEntrada className="sm:col-span-2" value={dataNota} onChange={(v) => { marcarHeadTouched("data_nota_entrada"); setDataNota(v); }} disabled={readOnly} />
             <div className="grid gap-1"><Label>Qtd. Parcelas de Recebimento</Label>
               <NumberInput type="number" integer min={1} max={24} value={parcelas.length || 1} onChange={(e) => { marcarHeadTouched("parcelas_recebimento"); setNumParcelas(parseInt(e.target.value, 10)); }} disabled={isReadOnlyRecebimento || readOnly} />
             </div>
