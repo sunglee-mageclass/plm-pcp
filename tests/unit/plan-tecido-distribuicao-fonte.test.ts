@@ -143,3 +143,82 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(sheet).toContain("cor_apelido_id: (v.variante?.cor_apelido_id ?? null) as string | null,");
   });
 });
+
+describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
+  const dlg = ler("src/components/plan-tecido/DistribuirPorLojaDialog.tsx");
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+  const card = ler("src/components/plan-tecido/ModelCard.tsx");
+  it("presença (R19): overlay PRÓPRIO com scope no corpo rolável; marcador de página ao abrir; banner de quem está no produto", () => {
+    expect(dlg).toContain("<ColabPresenceOverlay presentes={presentes} scopeRef={corpoRef} />");
+    expect(dlg).toContain('ref={corpoRef} className="min-h-0 space-y-3 overflow-y-auto py-2"');
+    expect(dlg).toContain("onFoco?.(pathDistAberto(slotKey));");
+    expect(dlg).toContain("pathEhDoProduto(p.campoFocado, slotKey)");
+  });
+  it("todo campo do dialog tem data-colab-path próprio: proporção, Base e cada quadradinho", () => {
+    expect(tab).toContain("pathDistProp(p.slotKey, t)");
+    expect(tab).toContain("pathDistBase(p.slotKey, l.id, c.key)");
+    expect(tab).toContain("pathDistCel(p.slotKey, l.id, c.key, t)");
+    expect(tab).toContain("data-colab-path={path}");
+  });
+  it("textos do mockup", () => {
+    for (const s of ["Loja / Cor", "você digita", "Tamanhos: proporção × Base · dá para corrigir à mão", "da cor na loja",
+      "Proporção por tamanho", "do card", "Total por cor × tamanho", "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card.",
+      "soma das lojas", "= pç no card", "sem distribuição · pç do card", "Editado à mão · calculado seria"]) expect(tab, s).toContain(s);
+    for (const s of ["Distribuir por loja", "Salvar preenche o pç das", "Grava de vez no Salvar do plano.", "Por loja · deslize para o lado",
+      "Descartar alterações?", "TEXTO_AJUDA_DIST"]) expect(dlg, s).toContain(s);
+  });
+  it("impressão = o que o dialog mostra, sem botões; salvar/zerar/descartar", () => {
+    expect(dlg).toContain("<PrintArea>");
+    expect(dlg).toContain('tabelas("impressao")');
+    expect(dlg).toContain("printWithImages()");
+    expect(dlg).toContain("setZeradas(nomes)");
+  });
+  it("PR16 (G-plano R7, P-09 no celular): o ponto abre um balão com o calculado e um ↺ SEPARADO; tocar no ponto não volta sozinho", () => {
+    expect(tab).toContain("function PontoManual(");
+    expect(tab).toContain("onClick={() => { onVoltar(); setAberto(false); }}");
+    expect(tab).not.toContain("clique para voltar ao calculado");
+    expect(dlg).not.toContain("<fieldset disabled"); // só leitura (P-22) ainda abre o balão do calculado e o nome completo
+    expect(conta(tab, "onVoltar(")).toBe(1);
+  });
+  it("P-36 = B: Imprimir só no desktop (a PrintArea fica)", () => {
+    expect(dlg).toContain('size="sm" className="max-sm:hidden" onClick={() => void printWithImages()}');
+    expect(dlg).toContain("<PrintArea>");
+  });
+  it("o card monta o botão (Tecido 1, com o módulo) e o dialog só quando aberto", () => {
+    expect(card).toContain("Distribuir por loja");
+    expect(card).toMatch(/acaoExtra=\{distribuicaoLigada && ehTecido1\(m\) \?/);
+    expect(card).toContain("{distOpen && (");
+    expect(card).toContain("<DistribuirPorLojaDialog");
+  });
+  it("Ruling do controlador (revisão T5/M1): o gatilho 'Distribuir por loja' NÃO é um <button> nativo — o fieldset do " +
+    "SheetContent (modo só-leitura da página) o desabilitaria em silêncio; usa role=\"button\" + tabIndex, igual ao " +
+    "padrão já usado em ImagePreview.tsx para escapar de um fieldset ancestral", () => {
+    const idx = card.indexOf('<Store className="h-3 w-3" />Distribuir por loja');
+    expect(idx).toBeGreaterThan(-1);
+    const trechoAntes = card.slice(Math.max(0, idx - 1600), idx);
+    // é uma <div role="button">, não um <button>
+    expect(trechoAntes).toContain('role="button"');
+    expect(trechoAntes).toContain("tabIndex={");
+    expect(trechoAntes).toContain("onKeyDown={");
+    expect(trechoAntes).not.toMatch(/<button[^>]*>\s*<Store/);
+  });
+  it("Achado próprio (Task 6): o <DialogContent> TAMBÉM embrulha seus filhos num fieldset (dialog.tsx) — Imprimir e " +
+    "Voltar, sendo <button> nativos dentro do dialog, ficariam travados no mesmo modo só-leitura de página; os dois " +
+    "usam Button asChild + role=\"button\" (mesma fuga da Slot já usada no gatilho do card)", () => {
+    const imprimirIdx = dlg.indexOf("printWithImages()");
+    const trechoImprimir = dlg.slice(Math.max(0, imprimirIdx - 400), imprimirIdx + 400);
+    expect(trechoImprimir).toContain("Button asChild");
+    expect(trechoImprimir).toContain('role="button"');
+    const voltarIdx = dlg.indexOf('aria-label="Voltar"');
+    const trechoVoltar = dlg.slice(Math.max(0, voltarIdx - 400), voltarIdx + 400);
+    expect(trechoVoltar).toContain("Button asChild");
+    expect(trechoVoltar).toContain('role="button"');
+  });
+  it("Achado próprio (Task 6): os 2 PopoverTrigger de DistribuicaoTabelas (nome completo abreviado; ponto à mão) " +
+    "usam role=\"button\" em vez de <button> — eles NÃO são portalados (o PopoverContent é; o trigger renderiza no " +
+    "lugar, dentro do fieldset do DialogContent) e precisam continuar abrindo em modo só-leitura (P-22)", () => {
+    expect(conta(tab, 'PopoverTrigger asChild')).toBe(2);
+    expect(conta(tab, 'role="button"')).toBe(2);
+    expect(tab).not.toMatch(/<button/);
+  });
+});

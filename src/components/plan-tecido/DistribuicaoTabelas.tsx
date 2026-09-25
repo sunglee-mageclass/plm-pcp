@@ -1,0 +1,224 @@
+// Distribuição por produto — as 2 tabelas do dialog "Distribuir por loja" (spec §5.3): (1) Loja / Cor × Base × tamanhos ×
+// Total, com a linha "Proporção por tamanho" do card e o subtotal por loja; (2) "Total por cor × tamanho" (= pç no card).
+// UM componente para a TELA (inputs, `data-colab-path` por campo — R19) e a IMPRESSÃO (texto, sem botões). Celular:
+// rolagem horizontal só dentro da tabela, 1ª coluna fixa com nome ABREVIADO (toque abre o nome completo).
+import { Fragment, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { NumberInput } from "@/components/shared/NumberInput";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import type { TamanhoTipo } from "@/lib/tamanho";
+import {
+  abreviarNome, linhaVista, pathDistBase, pathDistCel, pathDistProp, rotuloTamanho, somaVistas, temDistribuicao,
+  type Distribuicao,
+} from "@/lib/distribuicao-produto";
+
+export type LojaDist = { id: string; nome: string; inativa: boolean };
+export type CorDist = { key: string; cor: string; apelido: string | null; swatch: string | null; pcCard: number };
+
+const TH = "border px-2 py-1 text-center text-xs font-medium";
+const TD = "border px-1 py-0.5 text-center tabular-nums";
+const COL1 = "sticky left-0 z-10 border bg-background px-2 py-1 text-left";
+
+function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
+  const completo = c.apelido ? `${c.cor} · ${c.apelido}` : c.cor;
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <VarianteSwatch nome={c.swatch ?? c.cor} />
+      <span className={impressao ? "" : "max-md:hidden"}>
+        <span className="block font-medium">{c.cor}</span>
+        {c.apelido && <span className="block text-[10px] text-muted-foreground">{c.apelido}</span>}
+      </span>
+      {!impressao && (
+        <Popover>
+          <PopoverTrigger asChild>
+            {/* div com role de botão (não elemento nativo) — o DialogContent embrulha os filhos no PRÓPRIO fieldset
+                (disabled=readOnly de página): um elemento nativo aqui ficaria travado em modo só-leitura, mas o nome
+                completo tem que continuar abrindo (P-22 "ver"). Mesmo padrão de ImagePreview.tsx p/ escapar do fieldset. */}
+            <div role="button" tabIndex={0} className="truncate text-left font-medium md:hidden" title={completo}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); }}>
+              {abreviarNome(`${c.cor}${c.apelido ? ` ${c.apelido}` : ""}`)}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-2 text-xs">{completo}</PopoverContent>
+        </Popover>
+      )}
+    </div>
+  );
+}
+
+/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7): o mouse vê "calculado seria N" no hover (`title`);
+ *  clique/TOQUE abre o balão com o calculado e um botão ↺ SEPARADO — tocar no ponto NUNCA volta sozinho ao calculado. */
+function PontoManual({ calculado, bloqueado, onVoltar }: { calculado: number; bloqueado: boolean; onVoltar: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        {/* div com role de botão (não elemento nativo) — mesmo motivo do nome abreviado acima: o balão do calculado
+            tem que abrir também em modo só-leitura (P-22 "ver"), senão ficaria travado pelo fieldset do DialogContent. */}
+        <div role="button" tabIndex={0} title={`Editado à mão · calculado seria ${calculado}`} aria-label={`Editado à mão · calculado seria ${calculado}`}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setAberto(true); } }}
+          className="absolute right-0.5 top-0.5 h-3 w-3 cursor-pointer rounded-full bg-primary max-md:h-4 max-md:w-4" />
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs">
+        <p>Editado à mão · calculado seria {calculado}</p>
+        {!bloqueado && (
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => { onVoltar(); setAberto(false); }}>
+            <RotateCcw className="h-3 w-3" />Voltar ao calculado
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function DistribuicaoTabelas(p: {
+  modo: "edicao" | "impressao";
+  slotKey: string;
+  tamanhos: string[];
+  tipo: TamanhoTipo;
+  prop: Record<string, number>;
+  cores: CorDist[];
+  dists: Record<string, Distribuicao>;
+  lojas: LojaDist[];
+  readOnly?: boolean;
+  onProp?: (t: string, v: number) => void;
+  onBase?: (corKey: string, loja: string, v: number) => void;
+  onCel?: (corKey: string, loja: string, t: string, v: number) => void;
+  onVoltar?: (corKey: string, loja: string, t: string) => void;
+}) {
+  const imp = p.modo === "impressao";
+  const bloqueado = imp || !!p.readOnly;
+  const esmaecido = (t: string) => ((p.prop[t] ?? 0) > 0 ? "" : "opacity-50");
+  const somaProp = p.tamanhos.reduce((s, t) => s + (p.prop[t] ?? 0), 0);
+  const vista = (corKey: string, loja: string) => linhaVista(p.dists[corKey]?.[loja], p.prop, p.tamanhos);
+  const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
+    imp ? (
+      <span className={extra}>{valor || 0}</span>
+    ) : (
+      <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path} disabled={bloqueado}
+        className={`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
+        onChange={(e) => onChange(Number(e.target.value) || 0)} />
+    );
+  const comDist = p.cores.filter((c) => temDistribuicao(p.dists[c.key]));
+  const totalGeral = somaVistas(comDist.flatMap((c) => p.lojas.map((l) => vista(c.key, l.id))), p.tamanhos);
+
+  return (
+    <div className="space-y-5">
+      <div className="overflow-x-auto rounded border">
+        <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
+          <thead className="bg-muted/50">
+            <tr>
+              <th rowSpan={2} className={`${COL1} bg-muted/50 text-xs font-medium`}>Loja / Cor</th>
+              <th rowSpan={2} className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">você digita</span></th>
+              <th colSpan={p.tamanhos.length} className={TH}>Tamanhos: proporção × Base · dá para corrigir à mão</th>
+              <th rowSpan={2} className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">da cor na loja</span></th>
+            </tr>
+            <tr>{p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}</tr>
+          </thead>
+          <tbody>
+            <tr className="bg-muted/30">
+              <td className={`${COL1} bg-muted/30`}>Proporção por tamanho<span className="block text-[10px] text-muted-foreground">do card</span></td>
+              <td className={`${TD} text-muted-foreground`}>—</td>
+              {p.tamanhos.map((t) => (
+                <td key={t} className={`${TD} ${esmaecido(t)}`}>
+                  {campo(p.prop[t] ?? 0, (v) => p.onProp?.(t, v), pathDistProp(p.slotKey, t), `Proporção ${rotuloTamanho(t, p.tipo)}`)}
+                </td>
+              ))}
+              <td className={`${TD} font-semibold`}>{somaProp}</td>
+            </tr>
+            {p.lojas.map((l) => {
+              const vistas = p.cores.map((c) => vista(c.key, l.id));
+              const sub = somaVistas(vistas, p.tamanhos);
+              return (
+                <Fragment key={l.id}>
+                  <tr className={l.inativa ? "opacity-60" : ""}>
+                    <td colSpan={p.tamanhos.length + 3} className="border bg-muted/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide">{l.nome}</td>
+                  </tr>
+                  {p.cores.map((c, i) => {
+                    const v = vistas[i];
+                    return (
+                      <tr key={c.key} className={l.inativa ? "opacity-60" : ""}>
+                        <td className={COL1}><NomeCor c={c} impressao={imp} /></td>
+                        <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold")}</td>
+                        {p.tamanhos.map((t) => {
+                          const cel = v.celulas[t];
+                          return (
+                            <td key={t} className={`${TD} relative ${esmaecido(t)}`}>
+                              {campo(cel.valor, (x) => p.onCel?.(c.key, l.id, t, x), pathDistCel(p.slotKey, l.id, c.key, t), `${l.nome} ${c.cor} ${rotuloTamanho(t, p.tipo)}`)}
+                              {cel.manual && (imp ? (
+                                <span aria-hidden> •</span>
+                              ) : (
+                                <PontoManual calculado={cel.calculado} bloqueado={bloqueado} onVoltar={() => p.onVoltar?.(c.key, l.id, t)} />
+                              ))}
+                            </td>
+                          );
+                        })}
+                        <td className={`${TD} font-semibold`}>{v.total}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className={`${COL1} bg-muted/40`}>Total {l.nome}</td>
+                    <td className={TD}>{sub.base}</td>
+                    {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{sub.grades[t]}</td>)}
+                    <td className={TD}>{sub.total}</td>
+                  </tr>
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        <span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary align-middle" />editado à mão — passe o mouse ou toque no ponto para ver o calculado; o ↺ volta a ele. Os totais já contam o valor editado.
+      </p>
+
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold">Total por cor × tamanho</h3>
+        <p className="text-xs text-muted-foreground">Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card.</p>
+        <div className="overflow-x-auto rounded border">
+          <table className="w-full min-w-[560px] border-collapse text-sm" aria-label="Total por cor e tamanho">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className={`${COL1} bg-muted/50 text-xs font-medium`}>Cor</th>
+                <th className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">soma das lojas</span></th>
+                {p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}
+                <th className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">= pç no card</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.cores.map((c) => {
+                const tem = temDistribuicao(p.dists[c.key]);
+                const tot = somaVistas(p.lojas.map((l) => vista(c.key, l.id)), p.tamanhos);
+                return (
+                  <tr key={c.key}>
+                    <td className={COL1}><NomeCor c={c} impressao={imp} /></td>
+                    {tem ? (
+                      <>
+                        <td className={TD}>{tot.base}</td>
+                        {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{tot.grades[t]}</td>)}
+                        <td className={`${TD} font-semibold`}>{tot.total}</td>
+                      </>
+                    ) : (
+                      <td colSpan={p.tamanhos.length + 2} className={`${TD} text-left text-xs text-muted-foreground`}>sem distribuição · pç do card {c.pcCard}</td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-muted/40 font-semibold">
+                <td className={`${COL1} bg-muted/40`}>Total</td>
+                <td className={TD}>{totalGeral.base}</td>
+                {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{totalGeral.grades[t]}</td>)}
+                <td className={TD}>{totalGeral.total}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

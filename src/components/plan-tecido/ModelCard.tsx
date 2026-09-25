@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser } from "lucide-react";
+import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser, Store } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OcHoverResumo } from "./OcHoverResumo";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -30,6 +30,8 @@ import { SlotOcHint } from "./SlotOcHint";
 import { ReferenciaDialog } from "./ReferenciaDialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useReadOnly } from "@/components/RequirePermission";
+import { DistribuirPorLojaDialog } from "./DistribuirPorLojaDialog";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   // numero = MAX(numero do mesmo tipo) + 1 — NUNCA por CONTAGEM. O material vindo do BOM (partição
@@ -239,6 +241,10 @@ export function ModelCard({
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
   // Cores do Tecido 1 (base do "atende a" dos demais blocos — Distribuição por produto).
   const t1Variantes = slot.materiais.find(ehTecido1)?.variantes;
+  // Dialog "Distribuir por loja" (montado só aberto — nasce limpo). Só leitura: enviado à Explosão (P-22) ou sem permissão.
+  const [distOpen, setDistOpen] = useState(false);
+  const paginaSoLeitura = useReadOnly();
+  const distSoLeitura = !!travado || paginaSoLeitura;
   const borderClass = open ? "border-primary" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
@@ -589,6 +595,30 @@ export function ModelCard({
                         paleta={paleta}
                         variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
                         dist={distribuicaoLigada ? { ligado: true, t1: t1Variantes ?? [] } : undefined}
+                        acaoExtra={distribuicaoLigada && ehTecido1(m) ? (
+                          // Ruling do controlador (revisão T5/M1): este bloco vive dentro do <fieldset disabled> do
+                          // SheetContent (modo só-leitura da PÁGINA — src/components/ui/sheet.tsx). Um <button> nativo
+                          // aqui seria desabilitado pelo fieldset mesmo sem `disabled` explícito, e a spec exige "ver e
+                          // imprimir sem permissão". Mesmo padrão já usado em ImagePreview.tsx para escapar de um
+                          // fieldset ancestral: `role="button"` (não <button>) + tabIndex + Enter/Espaço. O dialog em
+                          // si trata o só-leitura por campo (readOnly), então segue abrindo normalmente.
+                          <div
+                            role="button"
+                            tabIndex={m.variantes.length === 0 ? -1 : 0}
+                            aria-disabled={m.variantes.length === 0}
+                            onClick={() => { if (m.variantes.length > 0) setDistOpen(true); }}
+                            onKeyDown={(e) => {
+                              if ((e.key === "Enter" || e.key === " ") && m.variantes.length > 0) {
+                                e.preventDefault();
+                                setDistOpen(true);
+                              }
+                            }}
+                            title={m.variantes.length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
+                            className={`inline-flex h-7 cursor-pointer select-none items-center justify-center gap-1 whitespace-nowrap rounded-md border border-input bg-background px-3 text-[11px] font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-2 ${m.variantes.length === 0 ? "pointer-events-none cursor-not-allowed bg-muted text-muted-foreground shadow-none" : ""}`}
+                          >
+                            <Store className="h-3 w-3" />Distribuir por loja
+                          </div>
+                        ) : undefined}
                         onChange={(nm) => {
                           const materiais = slot.materiais.slice();
                           materiais[i] = nm;
@@ -696,6 +726,19 @@ export function ModelCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {distOpen && (
+        <DistribuirPorLojaDialog
+          slot={slot}
+          tamanhosGrade={tamanhos ?? []}
+          readOnly={distSoLeitura}
+          motivoSoLeitura={travado ? "Enviado à Explosão — só leitura (ver e imprimir)." : "Só leitura (ver e imprimir)."}
+          presentes={presentesColab ?? []}
+          onFoco={onFocoDistribuicao}
+          onSalvar={(novo) => { onChange(novo); setDistOpen(false); }}
+          onClose={() => setDistOpen(false)}
+        />
+      )}
     </>
   );
 }
