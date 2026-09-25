@@ -5478,11 +5478,63 @@ Expected: `:5180` fora do ar (só a variante f35a); `dados do QA exportados: …
 
 ---
 
-## Task 12: PRODUÇÃO — pelo DONO, no Terminal, com backup completo ANTES  *(dono; controlador acompanha pelo chat)*
+## Task 12: PRODUÇÃO — pelo DONO, no Terminal, com backup ANTES  *(dono; controlador acompanha pelo chat)*
 
-> ⛔ Pré-condições: Task 11 inteira (G-migration APROVA + OK do dono); **F1, Aviso Global e Data da Nota de Entrada JÁ em produção** (o pré-voo confere pelos OBJETOS — R7); HORÁRIO CALMO, fora do uso das lojas (a migration trava tabelas existentes e, nas policies, auth/storage: login/refresh podem esperar até ~3 s). O plano Supabase NÃO tem PITR: o `backup_prod` é obrigatório e vem primeiro. O agente NÃO roda nada contra produção.
+> ⚠️ **ORDEM NOVA do dono (24/set ~22h): F1 → Data da Nota de Entrada → SKU (esta frente) → Aviso Global.** O texto
+> abaixo (Steps 1–5) e os blocos de código embutidos SÃO HISTÓRICOS: escritos quando a ordem era "F1 → Aviso →
+> Nota" e o backup era um `pg_dump` único do banco inteiro. Os **scripts VIGENTES** (25/set, aplicando as lições
+> do G-migration da Data da Nota de Entrada — `scripts-producao-brief.md`/`scripts-producao-report.md`) são os
+> arquivos reais em `.superpowers/f35a/mig/` (não versionados — `.gitignore`), com sha256 (16 primeiros) do dia da
+> revisão:
+> - `aplica.sh` `688c1d43a7aa0bae`
+> - `ida-producao.sh` `293bf9fcfb2eb13a`
+> - `volta-producao.sh` `667d431d6565807d`
+> - `ref-volta-f1.sh` `546f96b987bd0751`
+>
+> Mudanças em relação ao texto histórico abaixo:
+> - **Pré-voo exige F1 E a Data da Nota de Entrada** (detectada por `fn_oc_nota_entrada_recalc()` + `ocs_tecido.
+>   data_nota_entrada`); o **Aviso Global NÃO é mais exigido** (ele entra DEPOIS do SKU na ordem nova).
+> - **`ref-volta-f1.sh` encadeia SEMPRE na referência da Nota** (`fidelidade_ref_volta_f1_pos_nota_detalhe.txt` +
+>   `cont_volta_f1_pos_nota.txt`, gravados pelo Step 7b do script `ref-volta-f1.sh` DA NOTA) — não mais "Nota senão
+>   Aviso senão pré-F1". Esses 2 arquivos **ainda não existem** na data desta revisão (25/set): são gravados pelo
+>   DONO quando a Nota for a produção; o `ref-volta-f1.sh` do SKU PARA com mensagem clara se faltarem.
+> - **Guarda de URL de produção ANCORADA** (mesma regex da Nota) antes de qualquer `psql`/`pg_dump`/`source`, nos 3
+>   scripts (`ida-producao.sh`, `volta-producao.sh`, `ref-volta-f1.sh`); nunca imprime a URL.
+> - **Volta por DIFERENÇA**: contagens e `FN_PRE` lidos NA HORA (imediatamente antes do inverso), nunca o valor
+>   absoluto gravado no pré-voo — a mesma lição da Nota (RA4/R7 do G-migration dela): outra frente pode ter mexido
+>   no schema entre a ida e uma volta de emergência.
+> - **Backup = a receita PROVADA** (revisão do G-migration da Nota, rodada 2): `pg_dump` 17.6 DO CONTAINER (não o
+>   do Mac, que é 15), **2 dumps POR SCHEMA** (`-n public` e `-n auth`, não o banco inteiro), URL pela ENTRADA
+>   PADRÃO (nunca em argumento de processo), `umask 077` + `chmod 600` mesmo em falha, pasta `700`, exige
+>   `TABLE DATA > 0` nos dois schemas, PARA em qualquer falha (nada aplicado pela metade).
+> - **md5 dos 2 SQL** (migration + inverso) conferido no pré-voo contra `md5-mig.txt`/`md5-inv.txt` (gravados pelo
+>   ensaio, Task 6); `unset EXTRA_SQL` no topo dos 2 scripts de escrita; `"IDA OK"` só depois das pós-condições
+>   (`confere_ida_f35a`); a volta termina com uma linha clara `"VOLTA OK"` ou `"VOLTA NÃO CONCLUÍDA"`; uma nova
+>   tentativa de ida é permitida se a F3.5a seguir ausente (lição Q1 do G-migration da Nota — não bloquear retry
+>   legítimo por causa de um `cont-antes-f35a.txt` de tentativa anterior que não chegou a aplicar); **não registra
+>   em `schema_migrations`** só por ORNAMENTO (o `ida-producao.sh` ainda tenta o INSERT, mas o gate real de "F3.5a
+>   em produção" é sempre por OBJETOS — ruling F1/Nota, nunca `schema_migrations`).
+> - A migration da F3.5a **CRIA uma tabela nova** (`modelo_skus`) e por isso, diferente da Nota, TEM DDL de
+>   policy — mas segue a regra do G-migration (item 6 do checklist): "policies POR ÚLTIMO" (confirmado no arquivo:
+>   as 4 policies de `modelo_skus` são a última DDL antes de `NOTIFY`/`COMMIT`); o hook `supautils.policy_grants`
+>   ainda trava ~24 tabelas de auth/storage/realtime até o COMMIT (mesmo custo do F1/Nota/Aviso) — horário calmo
+>   continua obrigatório.
+>
+> ⛔ Pré-condições: Task 11 inteira (G-migration APROVA + OK do dono); **F1 e Data da Nota de Entrada JÁ em
+> produção** (o pré-voo confere pelos OBJETOS — R7; o Aviso Global NÃO é mais exigido, ordem nova); HORÁRIO CALMO,
+> fora do uso das lojas (a migration cria `modelo_skus` com policies — hook supautils trava auth/storage; login/
+> refresh podem esperar alguns segundos). O plano Supabase NÃO tem PITR: o backup (por schema, `public`+`auth`) é
+> obrigatório e vem primeiro, dentro do próprio `ida-producao.sh`. O agente NÃO roda nada contra produção.
 
-**Files:** nenhum no git. Cria `.superpowers/f35a/mig/producao.sh` e `.superpowers/f35a/mig/ref-volta-f1.sh` (R8); saída em `/Users/sunglee/PLM + Criação/savepoints/<data>-pre-f35a-sku/` (FORA do repo; dados de lojas — nunca commitar).
+**Files:** nenhum no git (`.superpowers/f35a/mig/` — `.gitignore`). Scripts vigentes: `aplica.sh`, `ida-producao.sh`,
+`volta-producao.sh`, `ref-volta-f1.sh` (sha256 acima); saída em `/Users/sunglee/PLM + Criação/savepoints/
+pre-apply-f35a-sku/` (FORA do repo; dados de lojas — nunca commitar). **Os blocos de código dos Steps 1–5 abaixo
+são o texto HISTÓRICO** (ordem antiga F1 → Aviso → Nota, backup único do banco inteiro) — mantidos por rastreio;
+não rodar como estão.
+
+> **HISTÓRICO — Steps 1–5 abaixo (`producao.sh` + `ref-volta-f1.sh` originais).** Superados pelos scripts vigentes
+> `.superpowers/f35a/mig/{aplica.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh}` (sha256 no aviso acima).
+> Mantidos só para rastreio de como a Task foi originalmente desenhada.
 
 - [ ] **Step 1: O script** (o controlador cria; o dono roda) — `.superpowers/f35a/mig/producao.sh`:
 
