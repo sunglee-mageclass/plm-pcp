@@ -368,6 +368,10 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       expect(p3[0]).toEqual(paga);
       expect(p3[1].venc).toBe("2026-11-19");
       expect(centavos(p3)).toBe(total);
+      // N5: espelha o "encomendada não ganha parcela" do Tecido — o gerador só roda com status='recebido'.
+      const enc = await ocAviamento(c, fx, { status: "encomendado", numero_pedido: "NOTA-AVI-90002" });
+      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-09-15' where id = $1`, [enc]);
+      expect(await parcelas(c, "aviamento", enc)).toEqual([]);
     });
   });
 
@@ -392,6 +396,42 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       expect(p3[0]).toEqual(paga);
       expect(p3[1].venc).toBe("2026-11-19");
       expect(centavos(p3)).toBe(total);
+      // N5: espelha o "encomendada não ganha parcela" do Tecido — o gerador só roda com status='recebido'.
+      const enc = await ocInsumo(c, fx, { status: "encomendado", numero_pedido: "NOTA-INS-90002" });
+      await c.query(`update public.ocs_etiqueta set data_nota_entrada = '2026-09-15' where id = $1`, [enc]);
+      expect(await parcelas(c, "etiqueta", enc)).toEqual([]);
+    });
+  });
+
+  it("N4: UPDATE direto da data sob a role authenticated (papel real do cliente) recalcula igual — Tecido, Aviamento, Insumo", async () => {
+    await withTx(async (c) => {
+      await prepara(c); // comoUsuario faz UPDATE em public.users — precisa rodar ANTES do SET LOCAL ROLE (RLS de users)
+      const fx = await fixtures(c);
+      const tec = await ocTecido(c, fx, { data_nota_entrada: "2026-09-05" });
+      await pagar(c, (await parcelas(c, "tecido", tec))[0].id);
+      const pagaTec = (await parcelas(c, "tecido", tec))[0];
+      const avi = await ocAviamento(c, fx, { data_nota_entrada: "2026-09-05" });
+      await pagar(c, (await parcelas(c, "aviamento", avi))[0].id);
+      const pagaAvi = (await parcelas(c, "aviamento", avi))[0];
+      const ins = await ocInsumo(c, fx, { data_nota_entrada: "2026-09-05" });
+      await pagar(c, (await parcelas(c, "etiqueta", ins))[0].id);
+      const pagaIns = (await parcelas(c, "etiqueta", ins))[0];
+
+      await c.query("SET LOCAL ROLE authenticated"); // papel REAL do cliente — não só a superusuária postgres do harness
+      await c.query(`update public.ocs_tecido set data_nota_entrada = '2026-09-15' where id = $1`, [tec]);
+      await c.query(`update public.ocs_aviamento set data_nota_entrada = '2026-09-15' where id = $1`, [avi]);
+      await c.query(`update public.ocs_etiqueta set data_nota_entrada = '2026-09-15' where id = $1`, [ins]);
+      await c.query("RESET ROLE"); // volta a postgres para as leituras/asserções seguintes na mesma txn
+
+      const pTec = await parcelas(c, "tecido", tec);
+      expect(pTec[0]).toEqual(pagaTec);
+      expect(pTec.slice(1).map((x) => x.venc)).toEqual(["2026-11-14", "2026-12-14"]);
+      const pAvi = await parcelas(c, "aviamento", avi);
+      expect(pAvi[0]).toEqual(pagaAvi);
+      expect(pAvi[1].venc).toBe("2026-11-14");
+      const pIns = await parcelas(c, "etiqueta", ins);
+      expect(pIns[0]).toEqual(pagaIns);
+      expect(pIns[1].venc).toBe("2026-11-14");
     });
   });
 
@@ -415,6 +455,12 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       expect((await parcelas(c, "p_acabado", id2)).map((p) => p.venc)).toEqual(["2026-10-01", "2026-10-31"]);
       await c.query(`update public.ocs_p_acabado set data_nota_entrada = '2026-09-05' where id = $1`, [id2]);
       expect((await parcelas(c, "p_acabado", id2)).map((p) => p.venc)).toEqual(["2026-10-05", "2026-11-04"]);
+      // N5 (P. Acabado): ao contrário de Tecido/Aviamento/Insumo, o gerador do P. Acabado NÃO checa status='recebido'
+      // (invariante #13: parcelas nascem no PEDIDO, não no recebimento) — id2 acima nunca deixou o default
+      // 'encomendado' e MESMO ASSIM já tem parcela; confirmando aqui de propósito para não confundir com um
+      // "encomendada não ganha parcela" falso nesta família.
+      expect((await um<{ s: string }>(c, `select status s from public.ocs_p_acabado where id = $1`, [id2])).s).toBe("encomendado");
+      expect((await parcelas(c, "p_acabado", id2)).length).toBeGreaterThan(0);
     });
   });
 
@@ -436,7 +482,7 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
     });
   });
 
-  it("D7 (pendente do dono): data futura ou anterior ao pedido é recusada em PT — pela RPC e por UPDATE direto", async () => {
+  it("D7 (decidida pelo dono): data futura ou anterior ao pedido é recusada em PT — pela RPC e por UPDATE direto", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const fx = await fixtures(c);
@@ -456,8 +502,25 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
       expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01");
       await recusa(() => c.query(`update public.ocs_aviamento set data_nota_entrada = $2::date where id = $1`, [id, futura]),
         /não pode ser no futuro/);
-      await ocAviamento(c, fx, {}, id); // re-salvar SEM mudar a data não revalida
-      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01");
+      // M1 (revisão Opus): a D7 não pode ser contornada mudando o PEDIDO em vez da nota — o gatilho escuta as duas
+      // colunas. A nota está em 01/09; mover o pedido pra DEPOIS dela (02/09) tem de ser recusado.
+      await recusa(() => c.query(`update public.ocs_aviamento set data_pedido = '2026-09-02' where id = $1`, [id]),
+        /não pode ser anterior à data do pedido \(02\/09\/2026\)/);
+      expect(await notaDe(c, "ocs_aviamento", id)).toBe("2026-09-01"); // a recusa não deixou nada pela metade
+      // N3: prova (não tautologia) de que "sem mudar nem a nota nem o pedido" não revalida — usa dado LEGADO
+      // já inconsistente (nota < pedido), gravado direto no catálogo com o gatilho desligado (grandfather data:
+      // só assim dá pra ter uma linha assim no disco, já que o gatilho barra tanto INSERT quanto UPDATE das duas
+      // colunas). Um UPDATE de uma terceira coluna (não nota, não pedido) não pode falhar.
+      await c.query(`ALTER TABLE public.ocs_aviamento DISABLE TRIGGER trg_nota_entrada_valida`);
+      const idLegado = await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90002", data_pedido: "2026-09-10", data_nota_entrada: "2026-09-01" });
+      await c.query(`ALTER TABLE public.ocs_aviamento ENABLE TRIGGER trg_nota_entrada_valida`);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01"); // nota (01/09) < pedido (10/09): já inválida
+      await c.query(`update public.ocs_aviamento set responsavel_nome = 'legado ok' where id = $1`, [idLegado]);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01"); // segue lá — não revalidou, não recusou
+      // re-salvar pela RPC sem tocar nota/pedido também não revalida (mesmo numero_pedido do INSERT — o helper
+      // não busca o valor atual do banco quando `extra` está vazio, então repetir aqui evita colidir com `id`)
+      await ocAviamento(c, fx, { numero_pedido: "NOTA-AVI-90002", data_pedido: "2026-09-10", data_nota_entrada: "2026-09-01" }, idLegado);
+      expect(await notaDe(c, "ocs_aviamento", idLegado)).toBe("2026-09-01");
     });
   });
 
@@ -502,6 +565,7 @@ describe.skipIf(!RODA)("Data da Nota de Entrada — banco (só na cópia local)"
         `select p.oid::regprocedure::text sig, md5(pg_get_functiondef(p.oid)) md5, coalesce(array_to_string(p.proacl, ','), '') acl
            from pg_proc p where p.oid = any ($1::regprocedure[]) order by 1`, [Object.keys(MD5_ANTES)])).rows as { sig: string; md5: string; acl: string }[];
       const antes = await estado();
+      expect(antes.length).toBe(10); // N5: afirma que vieram as 10 linhas — um for-of vazio passaria os asserts abaixo à toa
       for (const r of antes) expect(r.md5).toBe(MD5_ANTES[`public.${r.sig}`] ?? MD5_ANTES[r.sig]);
       await aplicarArquivo(c, MIG);
       const d1 = await estado();

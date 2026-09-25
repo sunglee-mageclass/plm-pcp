@@ -21,7 +21,7 @@ export const COLUNA_PARCELA_POR_FAMILIA: Readonly<Record<string, string>> = {
 
 export const ROTULO_DATA_NOTA = "Data da Nota de Entrada";
 export const AVISO_FALTA_NOTA = "Falta a Data da Nota de Entrada — os vencimentos estão provisórios";
-/** D6 (pendente do dono — recomendação): OC recebida SEM parcela a pagar (toda paga ou valor 0) avisa sem "provisórios". */
+/** D6 (decidida pelo dono em 24/set): OC recebida SEM parcela a pagar (toda paga ou valor 0) avisa sem "provisórios". */
 export const AVISO_FALTA_NOTA_CURTO = "Falta a Data da Nota de Entrada";
 export const TEXTO_PARCELA_PROVISORIA = "vencimento provisório — falta a data da nota";
 export const TITULO_BOLINHA = "Falta a Data da Nota de Entrada";
@@ -69,7 +69,7 @@ export function payloadDataNota(v: string | null | undefined): string | null {
 
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
-/** D7 (pendente do dono — recomendação): a data não pode ser FUTURA (> hoje no fuso da loja) nem ANTERIOR à data do
+/** D7 (decidida pelo dono em 24/set): a data não pode ser FUTURA (> hoje no fuso da loja) nem ANTERIOR à data do
  *  pedido. Espelho EXATO das mensagens do gatilho `fn_oc_nota_entrada_valida` do banco (que é quem garante). */
 export function validarDataNota(
   dataNota: string | null | undefined, dataPedido: string | null | undefined, hojeISO: string,

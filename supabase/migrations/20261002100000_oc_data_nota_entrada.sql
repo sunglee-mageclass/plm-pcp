@@ -9,7 +9,8 @@
 --     P. Acabado. O Importado NÃO muda (vencimento = etapas de câmbio; a data só é registrada);
 --  3. os 5 saves gravam a chave data_nota_entrada do jsonb (chave ausente = mantém; "" ou null = limpa);
 --  4. mudar a data numa OC já recebida recalcula as NÃO pagas (pagas intactas, soma = total da OC);
---  5. D7 (PENDENTE DO DONO — recomendação): gatilho que recusa data futura ou anterior ao pedido, nas 5 OCs;
+--  5. D7 decidida pelo dono em 24/set: gatilho que recusa data futura ou anterior ao pedido, nas 5 OCs
+--     (escuta data_nota_entrada E data_pedido — M1, revisão Opus);
 --  6. ACL (invariante #9).
 -- TRAVAS NO ARQUIVO (R9 — lição do Aviso Global): `SET LOCAL lock_timeout = '500ms'` + `SET LOCAL transaction_timeout =
 -- '3s'` logo depois do `BEGIN;`, porque `psql -f` é o caminho padrão do CLAUDE.md. O caminho DESTA frente continua sendo o
@@ -43,7 +44,7 @@ BEGIN
     ('public._salvar_oc_p_acabado_core(uuid,jsonb,jsonb,integer)', 'bd8139b1a1b1dee8b4b90e4327cb152c', '70b852884f47e55d01cd2b18846bbfa8'),
     ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', 'b74cd38a16fa08482551f1fb7e1487bb', '3b9077848c79865efbe15f0499595d69'),
     ('public.fn_oc_nota_entrada_recalc()', NULL, '4df62f1206fc0ad006f04851c736019e'),
-    ('public.fn_oc_nota_entrada_valida()', NULL, 'e2c335a5e09cb45557babadd542cf958')
+    ('public.fn_oc_nota_entrada_valida()', NULL, '0c3614b75fd6bdbac1b3c862a35b796b')
   ) AS t(sig, md5_antes, md5_depois) LOOP
     IF to_regprocedure(r.sig) IS NULL THEN
       IF r.md5_antes IS NOT NULL THEN
@@ -1388,7 +1389,9 @@ CREATE TRIGGER trg_gerar_parcelas_ocpa
   AFTER INSERT OR UPDATE OF valor_total_desconto, prazo_pagamento, data_pedido, data_nota_entrada ON public.ocs_p_acabado
   FOR EACH ROW EXECUTE FUNCTION public.gerar_parcelas_oc_p_acabado();
 
--- 5) D7 (PENDENTE DO DONO — recomendação): data implausível recusada no SERVIDOR, nas 5 OCs (RPC ou UPDATE direto).
+-- 5) D7 decidida pelo dono em 24/set: data implausível recusada no SERVIDOR, nas 5 OCs (RPC ou UPDATE direto).
+--    M1 (revisão Opus): o gatilho escuta TAMBÉM data_pedido — um UPDATE que só move o pedido pra depois da nota já
+--    gravada tem de revalidar (senão a D7 é contornável mudando o pedido em vez da nota).
 CREATE OR REPLACE FUNCTION public.fn_oc_nota_entrada_valida()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1398,13 +1401,16 @@ AS $function$
 DECLARE
   v_hoje date;
 BEGIN
-  -- Data da Nota de Entrada (24/set) — D7, PENDENTE DO DONO (recomendação): não pode ser FUTURA (hoje no fuso da loja)
-  -- nem ANTERIOR à data do pedido da OC. Só valida quando a data MUDA (linhas antigas e saves sem mudança passam).
-  -- Mensagens = as do front (src/lib/nota-entrada.ts, validarDataNota). P0001: o erro-mensagem.ts mostra o texto.
+  -- Data da Nota de Entrada (24/set) — D7 decidida pelo dono em 24/set: não pode ser FUTURA (hoje no fuso da loja)
+  -- nem ANTERIOR à data do pedido da OC. Valida quando a data OU o pedido MUDAM (M1, revisão Opus: um UPDATE que só
+  -- move data_pedido pra depois da nota também tem de revalidar — senão a D7 é contornável). Linhas antigas e saves
+  -- sem mudança em nenhuma das duas passam. Mensagens = as do front (src/lib/nota-entrada.ts, validarDataNota).
+  -- P0001: o erro-mensagem.ts mostra o texto.
   IF NEW.data_nota_entrada IS NULL THEN
     RETURN NEW;
   END IF;
-  IF TG_OP = 'UPDATE' AND NEW.data_nota_entrada IS NOT DISTINCT FROM OLD.data_nota_entrada THEN
+  IF TG_OP = 'UPDATE' AND NEW.data_nota_entrada IS NOT DISTINCT FROM OLD.data_nota_entrada
+                       AND NEW.data_pedido IS NOT DISTINCT FROM OLD.data_pedido THEN
     RETURN NEW;
   END IF;
   SELECT (now() AT TIME ZONE coalesce(nullif(tc.timezone, ''), 'America/Sao_Paulo'))::date INTO v_hoje
@@ -1423,19 +1429,19 @@ END;
 $function$;
 
 DROP TRIGGER IF EXISTS trg_nota_entrada_valida ON public.ocs_tecido;
-CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada ON public.ocs_tecido
+CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido ON public.ocs_tecido
   FOR EACH ROW EXECUTE FUNCTION public.fn_oc_nota_entrada_valida();
 DROP TRIGGER IF EXISTS trg_nota_entrada_valida ON public.ocs_aviamento;
-CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada ON public.ocs_aviamento
+CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido ON public.ocs_aviamento
   FOR EACH ROW EXECUTE FUNCTION public.fn_oc_nota_entrada_valida();
 DROP TRIGGER IF EXISTS trg_nota_entrada_valida ON public.ocs_etiqueta;
-CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada ON public.ocs_etiqueta
+CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido ON public.ocs_etiqueta
   FOR EACH ROW EXECUTE FUNCTION public.fn_oc_nota_entrada_valida();
 DROP TRIGGER IF EXISTS trg_nota_entrada_valida ON public.ocs_p_acabado;
-CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada ON public.ocs_p_acabado
+CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido ON public.ocs_p_acabado
   FOR EACH ROW EXECUTE FUNCTION public.fn_oc_nota_entrada_valida();
 DROP TRIGGER IF EXISTS trg_nota_entrada_valida ON public.ocs_importado;
-CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada ON public.ocs_importado
+CREATE TRIGGER trg_nota_entrada_valida BEFORE INSERT OR UPDATE OF data_nota_entrada, data_pedido ON public.ocs_importado
   FOR EACH ROW EXECUTE FUNCTION public.fn_oc_nota_entrada_valida();
 
 -- 6) ACL (#9): internas sem EXECUTE para PUBLIC/anon/authenticated (CREATE OR REPLACE preserva o ACL; aqui reafirma).
@@ -1490,7 +1496,7 @@ BEGIN
     ('public._salvar_oc_p_acabado_core(uuid,jsonb,jsonb,integer)', '70b852884f47e55d01cd2b18846bbfa8'),
     ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', '3b9077848c79865efbe15f0499595d69'),
     ('public.fn_oc_nota_entrada_recalc()', '4df62f1206fc0ad006f04851c736019e'),
-    ('public.fn_oc_nota_entrada_valida()', 'e2c335a5e09cb45557babadd542cf958')
+    ('public.fn_oc_nota_entrada_valida()', '0c3614b75fd6bdbac1b3c862a35b796b')
   ) AS t(sig, md5_depois) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.sig))) IS DISTINCT FROM r.md5_depois THEN
       RAISE EXCEPTION 'data_nota_entrada: % não ficou no texto desta migration', r.sig;

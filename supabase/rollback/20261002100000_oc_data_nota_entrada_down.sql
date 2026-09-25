@@ -48,7 +48,7 @@ BEGIN
     ('public._salvar_oc_p_acabado_core(uuid,jsonb,jsonb,integer)', 'bd8139b1a1b1dee8b4b90e4327cb152c', '70b852884f47e55d01cd2b18846bbfa8'),
     ('public._salvar_oc_importado_core(uuid,jsonb,jsonb,jsonb,integer)', 'b74cd38a16fa08482551f1fb7e1487bb', '3b9077848c79865efbe15f0499595d69'),
     ('public.fn_oc_nota_entrada_recalc()', NULL, '4df62f1206fc0ad006f04851c736019e'),
-    ('public.fn_oc_nota_entrada_valida()', NULL, 'e2c335a5e09cb45557babadd542cf958')
+    ('public.fn_oc_nota_entrada_valida()', NULL, '0c3614b75fd6bdbac1b3c862a35b796b')
   ) AS t(sig, md5_antes, md5_depois) LOOP
     CONTINUE WHEN to_regprocedure(r.sig) IS NULL AND r.md5_antes IS NULL;
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.sig)));
