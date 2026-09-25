@@ -19,11 +19,13 @@ export type CorDist = { key: string; cor: string; apelido: string | null; swatch
 
 const TH = "border px-2 py-1 text-center text-xs font-medium";
 const TD = "border px-1 py-0.5 text-center tabular-nums";
-// T6 fix1 · I1: fundo SEMPRE opaco na célula fixa (`!bg-*`, precedente TabelaAnalise.tsx:109) — sem o `!`, o
-// tom (bg-muted/30|40|50|60) empilhava sobre o bg-background e o CSS deixava valer o translúcido; no celular
-// os números da coluna que rola passavam por baixo do texto da coluna fixa. Cada chamada soma o TOM próprio
-// (ex.: `${COL1} !bg-muted`) por cima deste `!bg-background` default.
-const COL1 = "sticky left-0 z-10 border !bg-background px-2 py-1 text-left";
+// T6 fix1 · I1 + T6 fix2 · N2: fundo SEMPRE opaco na célula fixa (`!bg-*`, precedente TabelaAnalise.tsx:109) — sem
+// o `!`, o tom (bg-muted/30|40|50|60) empilhava sobre o bg-background e o CSS deixava valer o translúcido; no
+// celular os números da coluna que rola passavam por baixo do texto da coluna fixa. `COL1` NÃO carrega `bg-*`
+// nenhum (o fix1 pôs `!bg-background` aqui, mas dois `!important` empatam por ORDEM DE FONTE do Tailwind — não
+// por posição na string — e a linha de total perdia o tom para este default): toda chamada de `${COL1}` tem que
+// somar o SEU PRÓPRIO `!bg-*` opaco (sem fração `/NN`).
+const COL1 = "sticky left-0 z-10 border px-2 py-1 text-left";
 
 function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
   const completo = c.apelido ? `${c.cor} · ${c.apelido}` : c.cor;
@@ -59,12 +61,21 @@ function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
   );
 }
 
-/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7; T6 fix1 · m6): no DESKTOP o balão abre no HOVER do
- *  mouse (mesmo padrão de ponteiro do `InfoHover` — mouse = hover, toque/caneta = toque, teclado = alterna);
- *  continua abrindo por clique/toque também. O ↺ segue SEPARADO dentro do balão — tocar/passar o mouse no
- *  ponto NUNCA volta sozinho ao calculado. */
+/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7; T6 fix1 · m6; T6 fix2 · N1): no DESKTOP o balão abre no
+ *  HOVER do mouse, no MESMO padrão de ponteiro do `InfoHover` (mouse = hover; toque/caneta = toque; teclado = alterna)
+ *  — evita a REGRESSÃO do fix1 (o gatilho anterior abria o Popover do Radix em QUALQUER dispositivo ao passar por
+ *  cima, sem checar o tipo de ponteiro, puxando o foco para o botão ↺ e roubando o foco/os dígitos de quem editava
+ *  outra célula; no desktop o clique-depois-do-hover piscava; no toque, o evento de compatibilidade brigava com o
+ *  clique). Usa eventos de PONTEIRO (não os de mouse específicos do DOM), checando `pointerType`. Continua abrindo
+ *  por clique/toque; o ↺ segue SEPARADO dentro do balão — nunca volta sozinho ao calculado. */
 function PontoManual({ calculado, bloqueado, onVoltar }: { calculado: number; bloqueado: boolean; onVoltar: () => void }) {
   const [aberto, setAberto] = useState(false);
+  // Tipo do último ponteiro (mesma ref de InfoHover.tsx): só MOUSE abre/fecha pelo hover; toque/caneta abrem no
+  // toque (sem alternar — não pisca); teclado (sem pointerdown) alterna.
+  const ponteiro = useRef<string | null>(null);
+  // Abriu por HOVER (mouse)? Usado para condicionar onOpenAutoFocus/onCloseAutoFocus — teclado/toque mantêm o
+  // foco automático de sempre (acessibilidade); hover NUNCA move o foco (não pode roubar dígitos de outra célula).
+  const abriuPorHover = useRef(false);
   // Sai do hover (do ponto OU do balão) com um atraso curto — dá tempo do mouse atravessar a distância até o
   // ↺ sem fechar no meio do caminho (mesma folga de um hover-card comum); qualquer novo enter cancela o timer.
   const fecharTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,12 +87,29 @@ function PontoManual({ calculado, bloqueado, onVoltar }: { calculado: number; bl
         {/* div com role de botão (não elemento nativo) — mesmo motivo do nome abreviado acima: o balão do calculado
             tem que abrir também em modo só-leitura (P-22 "ver"), senão ficaria travado pelo fieldset do DialogContent. */}
         <div role="button" tabIndex={0} title={`Editado à mão · calculado seria ${calculado}`} aria-label={`Editado à mão · calculado seria ${calculado}`}
-          onMouseEnter={() => { cancelarFechar(); setAberto(true); }}
-          onMouseLeave={agendarFechar}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setAberto((o) => !o); } }}
+          onPointerEnter={(e) => {
+            ponteiro.current = e.pointerType;
+            if (e.pointerType === "mouse") { abriuPorHover.current = true; cancelarFechar(); setAberto(true); }
+          }}
+          onPointerLeave={(e) => { if (e.pointerType === "mouse") agendarFechar(); }}
+          onPointerDown={(e) => { ponteiro.current = e.pointerType; }}
+          onClick={(e) => {
+            const tipo = ponteiro.current;
+            if (tipo === "mouse") { e.preventDefault(); setAberto(true); return; } // já abriu no hover — sem alternar (não pisca)
+            abriuPorHover.current = false;
+            if (tipo === "touch" || tipo === "pen") setAberto(true);
+            else setAberto((o) => !o);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abriuPorHover.current = false; setAberto((o) => !o); }
+          }}
           className="absolute right-0.5 top-0.5 h-3 w-3 cursor-pointer rounded-full bg-primary max-md:h-4 max-md:w-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1" />
       </PopoverTrigger>
-      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs" onMouseEnter={cancelarFechar} onMouseLeave={agendarFechar}>
+      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs"
+        onPointerEnter={(e) => { if (e.pointerType === "mouse") cancelarFechar(); }}
+        onPointerLeave={(e) => { if (e.pointerType === "mouse") agendarFechar(); }}
+        onOpenAutoFocus={(e) => { if (abriuPorHover.current) e.preventDefault(); }}
+        onCloseAutoFocus={(e) => { if (abriuPorHover.current) e.preventDefault(); }}>
         <p>Editado à mão · calculado seria {calculado}</p>
         {!bloqueado && (
           <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => { onVoltar(); setAberto(false); }}>

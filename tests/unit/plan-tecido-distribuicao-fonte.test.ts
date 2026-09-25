@@ -232,17 +232,17 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
   const card = ler("src/components/plan-tecido/ModelCard.tsx");
   const atendimento = ler("src/lib/plan-tecido/atendimento.ts");
 
-  it("T6 fix1 · I1: nenhuma célula fixa (COL1) usa fundo translúcido (bg-*/NN) — só tons OPACOS", () => {
-    // toda ocorrência de `${COL1}` (ou COL1 sozinho) é seguida de um `!bg-` opaco (sem fração /NN logo depois
-    // do nome do tom) OU não tem bg- nenhum na mesma string (herda o `!bg-background` da constante).
-    const usos = [...tab.matchAll(/\$\{COL1\}[^`]*`/g)].map((m) => m[0]);
+  it("T6 fix1 · I1 (constante COL1 ajustada no fix2 · N2 — ver 3º describe): nenhuma célula fixa (COL1) usa fundo " +
+    "translúcido (bg-*/NN) — só tons OPACOS", () => {
+    // toda ocorrência de `${COL1}` DENTRO de um className= (não em comentário/prosa) é seguida de um `!bg-`
+    // opaco (sem fração /NN logo depois do nome do tom).
+    const usos = [...tab.matchAll(/className=\{`\$\{COL1\}[^`]*`\}/g)].map((m) => m[0]);
     expect(usos.length).toBeGreaterThan(0);
     for (const u of usos) {
       const comFracao = u.match(/!?bg-[a-z]+\/\d+/);
       expect(comFracao, u).toBeNull();
+      expect(u, u).toMatch(/!bg-[a-z]+(?!\/)/);
     }
-    // a constante COL1 em si é opaca (!bg-background, sem /NN)
-    expect(tab).toContain('const COL1 = "sticky left-0 z-10 border !bg-background px-2 py-1 text-left";');
   });
   it("T6 fix1 · m1: a versão de impressão do cabeçalho NÃO leva o InfoHover (impressão sem botões)", () => {
     expect(dlg).toContain("const cabecalho = (impressao: boolean) =>");
@@ -275,9 +275,9 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
     expect(dlg).toContain("const propMudou = !igual(prop, inicial.prop);");
     expect(dlg).not.toMatch(/JSON\.stringify\(\{ ?prop, ?dists ?\}\)/);
   });
-  it("T6 fix1 · m6: no desktop o balão do ponto abre no HOVER do mouse; clique/toque continua abrindo; ↺ separado", () => {
-    expect(tab).toContain("onMouseEnter={() => { cancelarFechar(); setAberto(true); }}");
-    expect(tab).toContain("onMouseEnter={cancelarFechar} onMouseLeave={agendarFechar}");
+  it("T6 fix1 · m6 (implementação corrigida no fix2 · N1 — ver 3º describe): no desktop o balão do ponto abre no " +
+    "HOVER do mouse; clique/toque continua abrindo; ↺ separado", () => {
+    expect(tab).toContain("function PontoManual(");
     expect(tab).toContain("onClick={() => { onVoltar(); setAberto(false); }}");
   });
   it("T6 fix1 · m7: nome da cor abreviado em 2 linhas; rótulo curto 'Proporção'/'Total' abaixo de 640px", () => {
@@ -297,5 +297,41 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
     expect(conta(tab, "focus-visible:ring")).toBeGreaterThanOrEqual(2);
     expect(dlg).toContain("const rotuloCor = (v: PtVariante): string => {");
     expect(dlg).toContain("nomes.push(rotuloCor(v));");
+  });
+});
+
+describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix2)", () => {
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+  const card = ler("src/components/plan-tecido/ModelCard.tsx");
+
+  it("T6 fix2 · N1: o hover só abre/fecha para pointerType === \"mouse\" (padrão InfoHover) — nada de mouseenter/mouseleave", () => {
+    expect(tab).toContain('e.pointerType === "mouse"');
+    expect(tab).toContain("onPointerEnter={(e) => {");
+    expect(tab).toContain("onPointerLeave={(e) => { if (e.pointerType === \"mouse\") agendarFechar(); }}");
+    expect(tab).not.toMatch(/onMouseEnter|onMouseLeave/);
+  });
+  it("T6 fix2 · N1: clique com mouse faz preventDefault e NÃO alterna (evita piscar) — toque/caneta abrem; teclado alterna", () => {
+    expect(tab).toContain('if (tipo === "mouse") { e.preventDefault(); setAberto(true); return; }');
+    expect(tab).toContain('if (tipo === "touch" || tipo === "pen") setAberto(true);');
+    expect(tab).toContain("else setAberto((o) => !o);");
+  });
+  it("T6 fix2 · N1: onOpenAutoFocus/onCloseAutoFocus só fazem preventDefault quando o balão abriu por HOVER", () => {
+    expect(tab).toContain("const abriuPorHover = useRef(false);");
+    expect(tab).toContain("onOpenAutoFocus={(e) => { if (abriuPorHover.current) e.preventDefault(); }}");
+    expect(tab).toContain("onCloseAutoFocus={(e) => { if (abriuPorHover.current) e.preventDefault(); }}");
+    // teclado e clique real (não-mouse) desligam a flag — o foco automático de acessibilidade some intacto
+    expect(tab).toContain("abriuPorHover.current = false;");
+  });
+  it("T6 fix2 · N2: a constante COL1 não carrega bg- nenhum — toda célula fixa soma o SEU tom opaco", () => {
+    expect(tab).toContain('const COL1 = "sticky left-0 z-10 border px-2 py-1 text-left";');
+    expect(tab).not.toMatch(/const COL1 = "[^"]*bg-/);
+  });
+  it("T6 fix2 · N3: o gatilho do card reusa a MESMA chamada de buttonVariants dos botões vizinhos (altura igual) e não muda de cor no hover quando aria-disabled", () => {
+    const idxGatilho = card.indexOf('buttonVariants({ variant: "outline", size: "sm" })');
+    const idxVizinho = card.indexOf('variant: "outline"');
+    expect(idxGatilho).toBeGreaterThan(-1);
+    expect(idxVizinho).toBeGreaterThan(-1);
+    expect(card).toContain("hover:!bg-transparent");
+    expect(card).toContain("hover:!text-muted-foreground");
   });
 });

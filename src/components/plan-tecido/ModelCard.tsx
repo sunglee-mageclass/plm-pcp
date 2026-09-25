@@ -597,14 +597,18 @@ export function ModelCard({
                         variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
                         dist={distribuicaoLigada ? { ligado: true, t1: t1Variantes ?? [] } : undefined}
                         acaoExtra={distribuicaoLigada && ehTecido1(m) ? (
-                          // Ruling do controlador (revisão T5/M1, fix1 · m2): este bloco vive dentro do fieldset
-                          // (disabled=readOnly de página) do SheetContent — um <button> nativo aqui seria
+                          // Ruling do controlador (revisão T5/M1, fix1 · m2, fix2 · N3): este bloco vive dentro do
+                          // fieldset (disabled=readOnly de página) do SheetContent — um <button> nativo aqui seria
                           // desabilitado mesmo sem `disabled` explícito, e a spec exige "ver e imprimir sem
                           // permissão". Mesmo padrão já usado em ImagePreview.tsx para escapar de um fieldset
                           // ancestral: `role="button"` (não elemento nativo) + tabIndex + Enter/Espaço. O visual
-                          // usa `buttonVariants` (não classes copiadas à mão) — mesmo `outline`/`sm` dos botões
-                          // vizinhos, `max-md:h-11` de toque incluso. NÃO trava o ponteiro à força quando não há
-                          // cores: o handler bloqueia o clique/tecla, e o `title` continua aparecendo no hover/foco.
+                          // usa `buttonVariants` (não classes copiadas à mão) — MESMA chamada (`outline`/`sm`) dos
+                          // botões "+ tecido"/"+ forro" vizinhos, então a altura já bate (inclui `max-md:h-11` de
+                          // toque). NÃO trava o ponteiro à força quando não há cores: o handler bloqueia o
+                          // clique/tecla, e o `title` continua aparecendo no hover/foco; sem cor de hover no estado
+                          // `aria-disabled` (`hover:!bg-transparent`/`hover:!text-muted-foreground` com `!important`
+                          // — mesma convenção de cadastro.colaboradores.tsx — para vencer o `hover:bg-accent` do
+                          // outline não-`!important` independente da ordem de fonte do Tailwind, lição do N2).
                           <div
                             role="button"
                             tabIndex={0}
@@ -617,7 +621,7 @@ export function ModelCard({
                               }
                             }}
                             title={m.variantes.length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
-                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.length === 0 && "cursor-not-allowed text-muted-foreground")}
+                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.length === 0 && "cursor-not-allowed text-muted-foreground hover:!bg-transparent hover:!text-muted-foreground")}
                           >
                             <Store className="h-4 w-4" />Distribuir por loja
                           </div>
