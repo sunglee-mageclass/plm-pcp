@@ -71,6 +71,11 @@ import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-d
 import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/components/planejamento/planejamento-detail/RevendaSetores";
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
+import { opcoesMoverHoje } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
+import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
+import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
+import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
+import { etapaDoModelo } from "@/lib/kanban-auto-ui";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
@@ -550,6 +555,8 @@ function PlanejamentoDetailConteudo({
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
+  // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
+  const moverEtapa = useMoverEtapa(modeloId);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -812,6 +819,24 @@ function PlanejamentoDetailConteudo({
   if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Mão de obra).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
+  // Selo da etapa no HEADER (decisão 5: Nome → REF → selo). "Planejamento" antes da Ordem de Criação, "Lançado"
+  // depois de lançar, senão a coluna (+ automática/fixado c/ a chave ligada). Mover exige editar o Dev (a RPC
+  // também exige — kanban_auto_4_rpcs.sql:49-51) e as condições carregadas (a dica não pode mentir).
+  const selo = etapaDoModelo(kanbanCard.modeloKanban, kanbanCard.kanbanCfg);
+  const podeMover = isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && kanbanCard.condProntas;
+  const origemSalva = kanbanCard.modeloKanban.origem ?? null;
+  const opcoesMover = !podeMover
+    ? []
+    : kanbanCard.kanbanCfg.kanban_automatico
+      ? opcoesMoverAuto({ modelo: kanbanCard.modeloKanban, statusEfetivo: kanbanCard.statusEfetivo, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond })
+      : opcoesMoverHoje({ origem: origemSalva, statusEfetivo: kanbanCard.statusEfetivo, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond });
+  // "Próxima: X — falta: Y" só com a chave ligada (card automático) — igual ao "próx.: falta X" do board da F2.
+  const proxima = kanbanCard.kanbanCfg.kanban_automatico ? proximaEtapa(kanbanCard.derivacao, kanbanCard.kanbanCfg) : null;
+  const moverPara = (para: string) => moverEtapa.mutate({
+    para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado,
+    cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
+  });
+
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
@@ -843,6 +868,17 @@ function PlanejamentoDetailConteudo({
                   Desenvolvimento, invariante #11); vazia no Planejamento pré-Dev fica oculta (mais clean). */}
               {isEdit && draft.ref && (
                 <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
+              )}
+              {isEdit && (
+                <EtapaHeader
+                  selo={selo}
+                  podeMover={podeMover}
+                  opcoes={opcoesMover}
+                  onMover={moverPara}
+                  movendo={moverEtapa.isPending}
+                  proxima={proxima}
+                  sujo={dirty}
+                />
               )}
               {/* Motivo do Cancelamento (veio do Dev — F3.1): só com a etapa em Reprovado. Sair de Reprovado NÃO
                   apaga o motivo (dono, 23/set) — ele só some da tela. Trava/permissão = fieldset. */}
