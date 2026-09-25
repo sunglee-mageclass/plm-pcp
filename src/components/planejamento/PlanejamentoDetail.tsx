@@ -15,6 +15,7 @@ import { Trash2, Copy, ArrowLeft, Save, Pencil, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -935,19 +936,32 @@ function PlanejamentoDetailConteudo({
 
         <div
           ref={colabScopeRef}
-          className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-6"
+          className={cn(
+            "flex-1 min-h-0 overflow-y-auto px-6 pb-4",
+            // R1 (guardião): o `disabled` do fieldset não impede o Radix (Select/Combobox/Popover)
+            // de abrir — ele abre no `pointerdown`, antes do React re-renderizar como bloqueado.
+            // `pointer-events-none` no container barra esse pointerdown; o teclado já é coberto
+            // pelo `disabled` do fieldset. Só liga durante o 1º Salvar do card NOVO (`salvandoNovo`
+            // exige `!isEdit` — nunca afeta o card existente). O indicador "Salvando…" (no header)
+            // continua visível pois vive FORA deste container.
+            salvandoNovo && "pointer-events-none",
+          )}
+          aria-busy={salvandoNovo}
           onFocusCapture={(e) => {
             const scope = colabScopeRef.current;
             setCampoFocado(scope ? pathDoElemento(e.target as HTMLElement, scope) : null);
           }}
           onBlurCapture={() => setCampoFocado(null)}
         >
-        {/* Fix final (F3.1, item 3): card NOVO + 1º Salvar em voo — trava TODO o formulário
-            (mesmo padrão `<fieldset disabled className="contents">` já usado acima pro
-            Motivo do Cancelamento/Observações do Dev, `className="contents"` não interfere no
-            grid/space-y do container). Não mexe no card EXISTENTE: `salvandoNovo` exige
-            `!isEdit`. */}
-        <fieldset disabled={salvandoNovo} className="contents">
+        {/* Fix final (F3.1, item 3): card NOVO + 1º Salvar em voo — trava TODO o formulário.
+            B1 (guardião): o `space-y-6` mora AQUI (no próprio fieldset, não mais no container
+            acima) — como este fieldset é o ÚNICO filho direto do container, um `className="contents"`
+            fazia o seletor `:where(.space-y-6>:not(:last-child))` não achar nenhum filho direto
+            de verdade (as seções viravam netas), zerando o espaço entre elas. `min-w-0 border-0
+            p-0 m-0` zera o default de UA do <fieldset> (min-width/border/padding/margin) para não
+            mudar nada visual além de devolver os 24px. Não mexe no card EXISTENTE: `salvandoNovo`
+            exige `!isEdit`. */}
+        <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <InfoGeraisSecao
             draft={draft} setDraftTracked={setDraftTracked}
