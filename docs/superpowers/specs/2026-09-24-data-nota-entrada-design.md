@@ -395,9 +395,12 @@ UPDATE direto também é recusado.
    sempre com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres`; o conjunto de falhas depois tem de
    ser igual ou menor (nenhuma falha nova).
 7. **Volta de emergência da F1 deixa de fechar (R1):** o runbook v2 da F1 espera 427 | 219 e o retrato pré-F1; com a Nota
-   no banco a volta da F1 dá **429 | 227** (sem a D7: 428 | 222), com 5 colunas a mais e 10 funções com md5 diferente. Logo depois da Nota em
-   produção grava-se uma referência nova da volta da F1 (mesmo padrão do `ref-volta-f1.sh` do Aviso), com o Aviso detectado
-   por `to_regclass('public.avisos_globais')`; a referência do Aviso fica SUPERADA e tem de ser regravada depois da Nota.
+   no banco a volta da F1 dá **429 | 227** (sem a D7: 428 | 222), com 5 colunas a mais e 10 funções com md5 diferente. Como a
+   F3.1 já está em produção (coluna `modelos.descricao_produto`, desde antes da Nota) e sozinha já mudava 2 linhas de
+   fidelidade, o `ref-volta-f1.sh` da Nota encadeia na referência MAIS NOVA detectada por objeto (A-RA2/B-R1): usa
+   `fidelidade_ref_volta_f1_com_f31_detalhe.txt` (gravada pelo `ref-volta-f1.sh` da F3.1) como base, não o retrato pré-F1
+   puro. Grava a referência nova logo depois da Nota em produção; ela SUPERA a da F3.1 sozinha. Com a ordem nova do dono
+   (F1 → Nota → SKU → Aviso), o Aviso ainda não chegou a produção nesse ponto — não há referência "do Aviso" a superar.
 8. **Locks (R3/R9):** `ALTER TABLE … ADD COLUMN`/`DROP TRIGGER` pegam AccessExclusive nas 5 tabelas de OC até o COMMIT (não
    em `tenant_config`). As policies de OUTRAS tabelas que dependem delas ficam bloqueadas durante a transação — na cópia,
    5: `enderecamento_tecido` (endtec_ins, endtec_upd), `ocs_tecido_itens`, `ocs_aviamento_itens`, `ocs_etiqueta_itens`
@@ -437,10 +440,11 @@ UPDATE direto também é recusado.
 - QA na cópia: variante do app de teste na porta **5181** (já reservada pelo controlador na linha `case "$PORTA"` do
   `criar-variante.sh` — esta frente só CONFERE, nunca edita essa linha), guarda de rede invertida (qualquer `*.supabase.co`
   reprova), escritas simuladas + 1 fluxo real opcional com OK do dono.
-- Produção: snapshot só-leitura antes; `pg_dump` completo pelo dono; migration aplicada pelo dono no Terminal pelo `aplica_v2`
-  (pré-voo: arquivos com as travas e sem policy, PG ≥ 17, F1 e Aviso no banco, a Nota ausente, md5 de 24/set, ATIV vazio);
-  conferência só-leitura depois; referência nova da volta da F1 (R1); ida na cópia junto com o merge (R8); portão do deploy
-  (R7).
+- Produção: snapshot só-leitura antes; backup `pg_dump -n public` + `-n auth` pelo dono (receita provada — R2/B-R5); migration
+  aplicada pelo dono no Terminal pelo `aplica_v2` (pré-voo: arquivos com as travas e sem policy, PG ≥ 17, F1 no banco — o
+  Aviso NÃO é mais exigido aqui, ordem nova F1 → Nota → SKU → Aviso —, a Nota ausente, md5 de 24/set das funções E dos 2
+  SQL revisados (R4), ATIV vazio); conferência só-leitura depois; referência nova da volta da F1 encadeada na mais nova por
+  objeto (R1); ida na cópia junto com o merge (R8); portão do deploy (R7).
 
 ## 9. Fora de escopo
 
