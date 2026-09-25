@@ -43,11 +43,11 @@ export function OcPaRecebimento({
     <section id="ocpa-sec-recebimento" className="scroll-mt-2 space-y-4">
       <OcSecTitle n={4}>Recebimento</OcSecTitle>
 
-      {/* Data da Nota de Entrada (ajuste do dono 25/set): topo da seção — é
-          quando se recebe. */}
+      {/* Data da Nota de Entrada (ajuste do dono 25/set): topo da seção — é quando se recebe.
+          SEM `readOnly`: o resto do Recebimento trava com a OC recebida, mas a data é justamente
+          preenchida DEPOIS de receber (antes, no Form, ela nunca travava). */}
       <CampoDataNotaEntrada
         value={draft.data_nota_entrada}
-        disabled={readOnly}
         onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
       />
 

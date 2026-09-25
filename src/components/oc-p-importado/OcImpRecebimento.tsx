@@ -50,7 +50,6 @@ export function OcImpRecebimento({
           quando se recebe. Mantém a dica própria do Importado. */}
       <CampoDataNotaEntrada
         value={draft.data_nota_entrada}
-        disabled={readOnly}
         dica={DICA_CAMPO_NOTA_IMPORTADO}
         onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
       />
