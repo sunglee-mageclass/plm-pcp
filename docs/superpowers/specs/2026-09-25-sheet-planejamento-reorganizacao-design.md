@@ -348,9 +348,11 @@ em produção antes do deploy):**
   `desenvolvimento` e antes de `prova`/`tecidos` no `ORDEM_SECOES_SHEET`.
 - L1: REF (mesmo campo/estilo que saiu da seção 3 — `Input className="font-mono"` com
   `data-colab-path="ref"`, mesma trava `bloqueado`/`refVisivel` de hoje) | "Tamanho em" (Letra |
-  Número, radio ou segmentado — espelha a decisão Q3 da spec do SKU §2: "um OU outro por card"; o
-  card novo nasce com o padrão da loja) | botão "↻ Regerar SKUs" alinhado à direita (mockup linhas
-  150-158).
+  Número em rádio — "um OU outro por card"; **decisão do dono 25/set: SEM padrão da loja — o card
+  nasce SEM escolha e o campo é obrigatório para GERAR os SKUs; o Salvar do card segue livre; a
+  Config perde o campo "Tamanho em (padrão)" e a prévia mostra as duas formas; o banco não tem
+  fallback — ver §10**; texto do mockup v3: "· obrigatório p/ gerar os SKUs (começa sem escolha)")
+  | botão "↻ Regerar SKUs" alinhado à direita (mockup linhas 150-158).
 - Tabela "SKUs por variante e tamanho" (mockup linhas 159-174): colunas Variante/Tamanho | SKU |
   Situação. Uma linha de grupo por variante (rótulo "Variante N · Cor Base (SIGLA) · apelido Cor
   Apelido (SIGLA)" ou "sem apelido"), e abaixo uma linha por tamanho da Grade com:
@@ -518,6 +520,8 @@ então a trava `ACCESS EXCLUSIVE` fica só no resto do arquivo, não no arquivo 
   `descricao_produto` já faz — ver `tests/integration/modelo-descricao-produto.test.ts`, citado no
   comentário da migration linha 7). `preco_anterior` é copiado como está (automático `NULL` ou
   manual) — decisão explícita do dono (ruling 11): "Replicar: leva o valor manual, se houver".
+  **Acréscimo do dono (25/set, D4):** o Replicar leva também o "Tamanho em" (`tamanho_tipo`) — 8
+  campos nas mesmas 2 linhas (sem padrão da loja, a réplica sem o valor nasceria sem escolha).
 
 ### 5.3 Kanban / selos
 
@@ -673,7 +677,12 @@ então a trava `ACCESS EXCLUSIVE` fica só no resto do arquivo, não no arquivo 
 - Sheet do Desenvolvimento (`src/components/desenvolvimento/`) — intocado até a F5.
 - Qualquer parte da geração de SKU em si (RPCs, colunas de sigla, Config do Formato do SKU) — já
   especificada em `docs/superpowers/specs/2026-09-24-sku-automatico-design.md`; esta spec só
-  consome esses objetos na seção Códigos, não os redesenha.
+  consome esses objetos na seção Códigos, não os redesenha. **Exceção decidida pelo dono em 25/set
+  (§10):** o "Tamanho em" deixa de ter padrão da loja — isso redefine as 4 funções do SKU que
+  aplicavam o padrão e tira o campo da Config.
+- "Tamanho em" nos cards do Plan. Tecido / Produto Acabado / Importado (D2 do dono, 25/set: frente
+  separada) e a trava do Preço anterior no servidor (D1: frente "Reforço de segurança no banco").
+- A tela FUTURA do super admin que vai usar as Keywords da loja (§10).
 - Exportação de Título/Peso/medidas/NCM/SKU para o ERP — só a nota em
   `docs/api-integracao-erp.md` quanto a "não ler `titulo_pagina` cru"; a integração em si é etapa
   futura.
@@ -725,3 +734,23 @@ no corpo do documento (§5.1, §5.2, §9). Registro aqui só como rastro da deci
    2 para as medidas), não só no banco. Ver §5.1 (Peso/medidas).
 
 Nenhuma dúvida nova ficou pendente desta rodada (Preço anterior, ruling 11).
+
+## 10. Acréscimos do dono (25/set, depois do G-plano — TRAVADOS)
+
+1. **"Tamanho em" SEM padrão da loja** ("sim, porque é um toggle obrigatório para definir sku"):
+   o card nasce sem escolha (`modelos.tamanho_tipo` NULL); o campo é obrigatório só para GERAR os
+   SKUs (1ª geração e "Regerar") — o Salvar do card segue livre; a Config da Loja perde o campo
+   "Tamanho em (padrão)" e a prévia do Formato do SKU mostra Letra e Número; o banco não tem mais
+   fallback (a matriz devolve `sem_tamanho`, depois de `sem_formato` e `aguardando_ref`, com só os
+   SKUs já gravados; a chave legada `sku_config.tamanho_padrao` é ignorada, sem erro, e nenhum
+   DML/COMMENT toca `tenant_config`). SKU já gravado continua gravado.
+2. **D1:** a trava do Preço anterior no servidor vai para a frente "Reforço de segurança no banco".
+3. **D2:** "Tamanho em" nos cards do Plan. Tecido / Produto Acabado / Importado = frente separada.
+4. **D3:** a QA em produção (Loja Teste, card existente) pode gravar SKU à mão, confirmar o
+   "Regerar" e aprovar/remover serviço de MO, desfazendo no fim; o que a tela não desfaz (SKU
+   manual, SKUs gerados, "Tamanho em" escolhido) é avisado ao dono antes.
+5. **D4:** o "Replicar card(s)" leva o "Tamanho em" (§5.2).
+6. **Keywords da loja:** campo novo "Keywords" (texto longo, `tenant_config.keywords text NULL`) na
+   Configuração da Loja; vê e edita quem já acessa a Config (admin da loja e super admin), sem
+   permissão nova; entra no MESMO roteiro de produção desta frente; serve a uma tela FUTURA só de
+   super admin, por loja (fora desta spec).
