@@ -72,15 +72,18 @@ describe("nota-entrada — base, payload, textos e invalidação", () => {
       tecido: "oc_tecido_id", aviamento: "oc_aviamento_id", etiqueta: "oc_etiqueta_id", p_acabado: "oc_p_acabado_id",
     });
   });
-  it("D7 (decidido pelo dono 24/set): data futura ou antes do pedido é recusada com o MESMO texto do banco", () => {
+  it("D7 (decidido pelo dono 24/set; trava do pedido REVOGADA em 25/set — DECISÃO NOVA): só futura é recusada", () => {
     const hoje = "2026-09-24";
     expect(validarDataNota("2026-09-25", "2026-09-01", hoje)).toBe("A Data da Nota de Entrada (25/09/2026) não pode ser no futuro.");
-    expect(validarDataNota("2026-08-31", "2026-09-01", hoje))
-      .toBe("A Data da Nota de Entrada (31/08/2026) não pode ser anterior à data do pedido (01/09/2026).");
+    // NOVO (25/set): anterior ao pedido agora é ACEITA — a trava foi tirada a pedido do dono.
+    expect(validarDataNota("2026-08-31", "2026-09-01", hoje)).toBeNull();
+    expect(validarDataNota("2026-01-01", "2026-09-01", hoje)).toBeNull(); // bem antes do pedido: ok também
     expect(validarDataNota("2026-09-01", "2026-09-01", hoje)).toBeNull(); // = pedido: ok
     expect(validarDataNota("2026-09-24", "2026-09-01", hoje)).toBeNull(); // = hoje: ok
     expect(validarDataNota("2026-09-10", "", hoje)).toBeNull();           // sem pedido: só a regra do futuro
     expect(validarDataNota("", "2026-09-01", hoje)).toBeNull();           // vazio: nada a validar (limpar é permitido)
+    // futura CONTINUA recusada mesmo sem data de pedido (não foi pedido tirar essa regra)
+    expect(validarDataNota("2026-09-25", "", hoje)).toBe("A Data da Nota de Entrada (25/09/2026) não pode ser no futuro.");
   });
   it("invalidarVencimentos: Financeiro (calendário/lista/resumo), dashboard, visão da OC e o aviso da OC", () => {
     const chaves: unknown[] = [];

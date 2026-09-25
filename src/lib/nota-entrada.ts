@@ -69,17 +69,17 @@ export function payloadDataNota(v: string | null | undefined): string | null {
 
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
-/** D7 (decidida pelo dono em 24/set): a data não pode ser FUTURA (> hoje no fuso da loja) nem ANTERIOR à data do
- *  pedido. Espelho EXATO das mensagens do gatilho `fn_oc_nota_entrada_valida` do banco (que é quem garante). */
+/** D7 (decidida pelo dono em 24/set; a trava "anterior à data do pedido" foi REVOGADA pelo dono em 25/set — pedido
+ *  explícito no chat: "deixe sem essa trava"). Resta só: a data não pode ser FUTURA (> hoje no fuso da loja).
+ *  Espelho EXATO da mensagem do gatilho `fn_oc_nota_entrada_valida` do banco (que é quem garante).
+ *  `dataPedido` fica no parâmetro (sem uso aqui) só para não mexer nos 5 pontos de chamada (`useValidarDataNota` em
+ *  `NotaEntrada.tsx` e as 5 telas de OC) — fora do escopo desta mudança (brief 2026-09-25-nota-sem-trava-pedido). */
 export function validarDataNota(
-  dataNota: string | null | undefined, dataPedido: string | null | undefined, hojeISO: string,
+  dataNota: string | null | undefined, _dataPedido: string | null | undefined, hojeISO: string,
 ): string | null {
   if (!temDataNota(dataNota)) return null;
   const n = (dataNota as string).trim();
   if (hojeISO && n > hojeISO) return `A Data da Nota de Entrada (${br(n)}) não pode ser no futuro.`;
-  if (temDataNota(dataPedido) && n < (dataPedido as string).trim()) {
-    return `A Data da Nota de Entrada (${br(n)}) não pode ser anterior à data do pedido (${br((dataPedido as string).trim())}).`;
-  }
   return null;
 }
 
