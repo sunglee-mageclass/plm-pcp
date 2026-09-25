@@ -342,10 +342,11 @@ export function KanbanAutomaticoBloco({ ligado, disponivel, travadoMotivo, cols,
         className="mt-0.5"
       />
       <div className="min-w-0 space-y-1">
-        <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+        {/* div (não <p>): o StatusBadge renderiza <div> — <div> dentro de <p> é HTML inválido (aviso de hidratação). */}
+        <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
           <Zap className="h-4 w-4" />Kanban automático
           <StatusBadge tone={ligado ? "info" : "neutral"} className="normal-case tracking-normal">{ligado ? "ligado" : "desligado"}</StatusBadge>
-        </p>
+        </div>
         <p className="text-sm text-muted-foreground">
           Ligado, os cards andam sozinhos entre as colunas conforme os campos salvos. Coluna{" "}
           <span className="font-semibold text-foreground">com requisito</span> = automática (em cascata: só entra quem cumpre esta e todas as
