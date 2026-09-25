@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   agruparPorVariante, avisoSku, deveGerarPrimeiraVez, lerMatriz, resumoGeracao, rotuloTamanho, rotuloVariante,
   seloCodigos, siglasDoGrupo, situacaoSku, skuDigitadoParaSalvar, type LinhaSku, type MatrizSkus,
@@ -184,5 +186,49 @@ describe("seloCodigos (selo da seção — spec §5.3)", () => {
     expect(seloCodigos(matriz({
       linhas: [linha({ estado: "ok", id: "s", sku: "X" }), linha({ estado: "manual", id: "t", sku: "Y", tamanho_key: "36|PP" })],
     }))).toEqual({ tone: "ok", texto: "2 SKUs" });
+  });
+});
+
+const fonte = (rel: string) => readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
+
+describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", () => {
+  it("DevEquipeSection não tem mais a REF", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection.tsx");
+    expect(s).not.toContain('data-colab-path="ref"');
+    expect(s).not.toMatch(/refVisivel/);
+  });
+  it("CodigosSecao: REF, 'Tamanho em' SEM padrão (rádio + frase do mockup), SKU com data-colab-path próprio, Regerar com AlertDialog e o texto do mockup", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    expect(s).toContain('data-colab-path="ref"');
+    expect(s).toContain('data-colab-path="tamanho_tipo"');
+    expect(s).toContain('type="radio"');
+    expect(s).toContain("· obrigatório p/ gerar os SKUs (começa sem escolha)");
+    expect(s).not.toContain("Padrão da loja"); // R10 — dono 25/set: sem padrão da loja
+    expect(s).not.toMatch(/tamanho_padrao|TAMANHO_PADRAO/);
+    expect(s).toContain("Escolha “Tamanho em” (Letra ou Número) e salve o card para gerar os SKUs.");
+    expect(s).not.toContain("AvisoCamposDev"); // R29 — só o input da REF trava
+    expect(s).toContain("rotuloVariante(g, siglasDoGrupo(g, siglas.cores, siglas.apelidos))"); // R11
+    expect(s).toContain("data-colab-path={`sku:${linha.variante_key}:${linha.tamanho_key}`}");
+    expect(s).toContain("Regerar SKUs");
+    expect(s).toMatch(/<AlertDialog\b/);
+    expect(s).toContain("SKUs editados à mão não mudam");
+    expect(s).toContain("SKUs por variante e tamanho");
+    expect(s).toContain(
+      "As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' pede confirmação e nunca muda os editados à mão.",
+    );
+  });
+  it("PlanejamentoDetail: seção 3 = 'Desenvolvimento'; 'Códigos' logo depois; 1ª geração no pós-Salvar; SKUs relidos pelo colab", () => {
+    const s = fonte("src/components/planejamento/PlanejamentoDetail.tsx");
+    const iDev = s.indexOf('<Secao id="desenvolvimento" titulo="Desenvolvimento"');
+    const iCod = s.indexOf('<Secao id="codigos" titulo="Códigos"');
+    const iProva = s.indexOf('<Secao id="prova"');
+    expect(iDev).toBeGreaterThan(0);
+    expect(iCod).toBeGreaterThan(iDev);
+    expect(iProva).toBeGreaterThan(iCod);
+    expect(s).not.toContain("Desenvolvimento — equipe e cronograma");
+    expect(s).toMatch(/const aoSalvar = \(\) => \{[^}]*skus\.gerarSeFaltar\(\)/);
+    expect(s).toContain('qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });');
+    expect(/<DevEquipeSection[^>]*refVisivel=/.test(s)).toBe(false); // [^>]: não atravessa o `/>` até a CodigosSecao
+    expect(s).not.toContain("motivoTravaRef"); // R29
   });
 });

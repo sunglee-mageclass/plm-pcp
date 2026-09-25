@@ -95,6 +95,9 @@ import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
+import { CodigosSecao } from "@/components/planejamento/planejamento-detail/codigos/CodigosSecao";
+import { useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
+import { seloCodigos } from "@/components/planejamento/planejamento-detail/codigos/sku-card";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
@@ -158,6 +161,9 @@ function PlanejamentoDetailConteudo({
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
   const podeEditarDev = canEdit("criacao_desenvolvimento");
   const podeVerDev = canView("criacao_desenvolvimento");
+  // F3.6 (seção "4. Códigos" — F3.5b do SKU): SKUs = ver/editar o Planejamento (spec SKU §4.4; o servidor confere no wrapper).
+  const podeVerPlanejamento = canView("criacao_planejamento");
+  const podeEditarPlanejamento = canEdit("criacao_planejamento");
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
@@ -713,13 +719,15 @@ function PlanejamentoDetailConteudo({
   // Etapa do kanban (estado SALVO) + config da loja: coluna efetiva, gate do campo REF (refCampoVisivel, com
   // a posição DERIVADA quando a chave está ligada — decisão 10) e Reprovado (Motivo do Cancelamento).
   const kanbanCard = useFichaKanban({ modeloId, modeloData, enviada, lancado });
-  // REF editável = a seção "Desenvolvimento" mostra o campo (etapa configurada) e os campos do Dev estão livres.
+  // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
   const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel;
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
+  // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + Regerar / SKU à mão + 1ª geração pós-Salvar (R12).
+  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -821,7 +829,9 @@ function PlanejamentoDetailConteudo({
 
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
   // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo).
-  const aoSalvar = () => { setEditandoDev(false); onSaved(); };
+  // F3.6 — 1ª geração automática dos SKUs depois do Salvar que deixa o card com REF e sem SKU (spec SKU §4.2; só cria o que
+  // falta — `_regerar=false`; SKU já gravado nunca muda aqui). Sem await: o card já foi salvo; erro vira toast próprio.
+  const aoSalvar = () => { setEditandoDev(false); onSaved(); if (isEdit) void skus.gerarSeFaltar(); };
 
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
@@ -897,6 +907,8 @@ function PlanejamentoDetailConteudo({
     onMudancaServidor: () => {
       qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
       qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
+      // F3.6 — REF/grade/variantes mudaram no servidor ⇒ a matriz de SKUs relê.
+      qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });
     },
     campoFocado,
   });
@@ -1136,6 +1148,7 @@ function PlanejamentoDetailConteudo({
     // F3.4 (acréscimo do controlador, comparação Dev × Planejamento) — paridade com `s1` (esconde "Informações
     // Básicas" no Dev): hoje sempre true (`revendaCampoVisivel("s1")` sempre devolve true), sem efeito visível.
     desenvolvimento: isEdit && podeVerDev && secFicha.equipe,
+    codigos: isEdit && !!modeloId,
     prova: isEdit && !!modeloId && podeVerDev && campoVisivelDev("prova"),
     tecidos: fichaVisivel && secFicha.tecidos, aviamentos: fichaVisivel && secFicha.aviamentos,
     insumos: fichaVisivel && secFicha.insumos, grade: fichaVisivel && secFicha.gradeTecido, cad: fichaVisivel && secFicha.cad,
@@ -1198,6 +1211,7 @@ function PlanejamentoDetailConteudo({
     totalGeral: gradeComprado.totalGeralRevenda,
     nVariantes: gradeComprado.variantesRevenda.length,
   });
+  selos.codigos = seloCodigos(skus.matriz);
   const seloDe = (k: SecaoSheetKey) => {
     const s = selos[k];
     return s ? <SeloBadge selo={s} /> : undefined;
@@ -1416,23 +1430,39 @@ function PlanejamentoDetailConteudo({
             </div>
           </Secao>
 
-          {/* Desenvolvimento — equipe e cronograma (veio do Dev, F3.1). Sempre visível — independe da etapa —
-              p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no card existente. O
-              <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
+          {/* Desenvolvimento (veio do Dev, F3.1; F3.6: título sem "— equipe e cronograma" e SEM a REF, que foi para "Códigos").
+              Sempre visível — independe da etapa — p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no
+              card existente. O <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
           {vis.desenvolvimento && (
-            <Secao id="desenvolvimento" titulo="Desenvolvimento — equipe e cronograma" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} defaultOpen={false}>
+            <Secao id="desenvolvimento" titulo="Desenvolvimento" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <DevEquipeSection
                   draft={draft}
                   setDraftTracked={setDraftTracked}
-                  refVisivel={kanbanCard.refVisivel}
                   campoVisivel={campoVisivelDev}
                   bloqueado={devBloqueado}
                   camposCopiados={ficha.camposCopiados}
                   onCampoEditado={ficha.onCampoEditado}
                 />
               </fieldset>
+            </Secao>
+          )}
+
+          {/* F3.6 — "4. Códigos" (spec 2026-09-25 §5.1; F3.5b do SKU): a REF que saiu da seção 3 (mesma exibição/trava) +
+              "Tamanho em" + SKUs por variante × tamanho. Só no card existente. */}
+          {vis.codigos && modeloId && (
+            <Secao id="codigos" titulo="Códigos" numero={numeros.codigos} selo={seloDe("codigos")} defaultOpen={false}>
+              <CodigosSecao
+                draft={draft}
+                setDraftTracked={setDraftTracked}
+                rotuloRef={fl("ref")}
+                refVisivel={kanbanCard.refVisivel}
+                refEditavel={refEditavel}
+                skus={skus}
+                podeVerSkus={podeVerPlanejamento}
+                podeEditarSkus={podeEditarPlanejamento}
+              />
             </Secao>
           )}
 

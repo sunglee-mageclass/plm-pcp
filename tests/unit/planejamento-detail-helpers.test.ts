@@ -294,3 +294,9 @@ describe("CAMPOS_DEV_DRAFT — F3.2 (lista ÚNICA com a F3.1)", () => {
     expect(p.nome).toBe("M");
   });
 });
+
+describe("rotuloConflitoPlan — F3.6 (seção Códigos)", () => {
+  it("'Tamanho em'", () => {
+    expect(rotuloConflitoPlan("tamanho_tipo")).toBe("Tamanho em");
+  });
+});

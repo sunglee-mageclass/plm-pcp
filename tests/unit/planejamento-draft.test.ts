@@ -39,3 +39,13 @@ describe("Draft F3.1", () => {
     for (const k of [...UUIDS, ...TEXTOS]) expect(a[k]).toEqual(b[k]);
   });
 });
+
+describe("Draft F3.6 — 'Tamanho em' (modelos.tamanho_tipo, coluna da F3.5a)", () => {
+  it("emptyDraft null (= sem escolha — SEM padrão da loja, R10); draftFromModeloRow só aceita letra|numero", () => {
+    expect(emptyDraft().tamanho_tipo).toBeNull();
+    expect(draftFromModeloRow({ tamanho_tipo: "numero" }).tamanho_tipo).toBe("numero");
+    expect(draftFromModeloRow({ tamanho_tipo: "letra" }).tamanho_tipo).toBe("letra");
+    expect(draftFromModeloRow({ tamanho_tipo: "cm" }).tamanho_tipo).toBeNull();
+    expect(draftFromModeloRow({}).tamanho_tipo).toBeNull();
+  });
+});

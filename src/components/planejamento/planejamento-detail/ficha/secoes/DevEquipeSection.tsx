@@ -1,4 +1,4 @@
-// Seção "Desenvolvimento — equipe e cronograma" do Sheet unificado do Planejamento (F3.1). CÓPIA ADAPTADA do
+// Seção "Desenvolvimento" do Sheet unificado do Planejamento (F3.1). CÓPIA ADAPTADA do
 // cluster "Desenvolvimento" + "Cronograma & pilotos" + "Observações Técnicas" do `ModeloInfoSection` do Dev
 // (src/components/desenvolvimento/modelo-detail/ModeloInfoSection.tsx:214-365), que fica INTOCADO (decisão 8).
 // Diferenças deliberadas:
@@ -11,6 +11,7 @@
 //  • grid de 2 colunas e ordem Piloto 1 → bloco Piloto 2 → bloco Piloto 3 → Data Desenho Técnico → Data
 //    Aprovação (mockup `gen_anotado.py` §s3 e paridade com ModeloInfoSection.tsx:318-339 — as datas de
 //    desenho/aprovação vêm DEPOIS dos pilotos, não junto do Piloto 1).
+// F3.6 — a REF saiu daqui (vai para a seção "4. Códigos").
 // O estado mora no orquestrador (`draft`/`setDraftTracked`); a trava (enviado à Explosão / sem permissão) é o
 // <fieldset disabled> em volta, no orquestrador — MAS o Radix Select (usado pelo FieldSelect) abre no
 // `pointerdown` e só respeita a prop `disabled` do próprio componente, não o atributo HTML `disabled` herdado
@@ -23,7 +24,6 @@ import { Plus, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateField } from "@/components/shared/DateField";
@@ -61,11 +61,9 @@ const CAMPOS_CRONOGRAMA = [
   "data_desenho_tecnico", "data_aprovacao",
 ] as const;
 
-export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisivel, bloqueado, camposCopiados, onCampoEditado }: {
+export function DevEquipeSection({ draft, setDraftTracked, campoVisivel, bloqueado, camposCopiados, onCampoEditado }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
-  /** Campo REF a partir da etapa configurada (refCampoVisivel; posição derivada c/ a chave ligada). */
-  refVisivel: boolean;
   /** Interno: sempre true. Comprado: config "Fluxo de Revenda" (revendaCampoVisivel). */
   campoVisivel: (key: string) => boolean;
   /** = `devBloqueado` do orquestrador. Repassado a TODO FieldSelect (Radix Select ignora o fieldset —
@@ -105,24 +103,18 @@ export function DevEquipeSection({ draft, setDraftTracked, refVisivel, campoVisi
 
   return (
     <div className="space-y-3">
-      {(refVisivel || verModelista) && (
+      {/* F3.6 (spec 2026-09-25 §5.1) — a REF saiu desta seção: mora na "4. Códigos" (CodigosSecao), com a mesma regra
+          de exibição (etapa configurada) e a mesma trava do input de hoje. */}
+      {verModelista && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {refVisivel && (
-            <div className="grid gap-1">
-              <Label>{fl("ref")}</Label>
-              <Input className="font-mono" value={draft.ref} onChange={(e) => set({ ref: e.target.value })} data-colab-path="ref" />
-            </div>
-          )}
-          {verModelista && (
-            <FieldSelect
-              label={fl("modelista")}
-              value={draft.modelista_id}
-              onChange={(v) => set({ modelista_id: v })}
-              onLimpar={() => set({ modelista_id: null })}
-              options={modelistas}
-              disabled={bloqueado}
-            />
-          )}
+          <FieldSelect
+            label={fl("modelista")}
+            value={draft.modelista_id}
+            onChange={(v) => set({ modelista_id: v })}
+            onLimpar={() => set({ modelista_id: null })}
+            options={modelistas}
+            disabled={bloqueado}
+          />
         </div>
       )}
 

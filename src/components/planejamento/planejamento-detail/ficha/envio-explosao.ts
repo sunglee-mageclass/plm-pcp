@@ -67,7 +67,8 @@ export function pendenciasEnvioExplosao(i: {
   const out: PendenciaEnvio[] = [];
   const d = i.draft;
   const vazio = (s: string | null | undefined) => (s ?? "").trim() === "";
-  if (vazio(d.ref)) out.push({ label: i.rotuloRef, secao: "desenvolvimento" });
+  // F3.6 (Ruling R2) — a REF mora na seção "4. Códigos" (saiu de "Desenvolvimento").
+  if (vazio(d.ref)) out.push({ label: i.rotuloRef, secao: "codigos" });
   if (vazio(d.nome)) out.push({ label: "Nome", secao: "info" });
   if (!d.estilista_id) out.push({ label: "Estilista", secao: "info" });
   if (!d.categoria_principal_id) out.push({ label: "Categoria", secao: "info" });

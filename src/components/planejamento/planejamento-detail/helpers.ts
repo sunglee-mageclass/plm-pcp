@@ -29,6 +29,8 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   ficha_medida_url: "Ficha de Medidas", descricao_produto: "Descrição do produto",
   // F3.2 — colunas do Dev editadas nas seções Grade e Preço e Custos.
   proporcoes: "Proporções da grade", custos_adicionais: "Custos adicionais",
+  // F3.6 — seção "4. Códigos".
+  tamanho_tipo: "Tamanho em",
 };
 export function rotuloConflitoPlan(path: string): string {
   // F3.2 — conflito de SEÇÃO do BOM: mesmo path e rótulo do Desenvolvimento (ModeloDetailPanel.tsx:160-163).

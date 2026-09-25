@@ -8,14 +8,15 @@ import type { EstadoMO } from "@/lib/mao-obra";
 import { seloDeSecao, seloPorChaves, type SeloSecao } from "./selos-bom";
 
 export type SecaoSheetKey =
-  | "info" | "colecao" | "desenvolvimento" | "prova"
+  | "info" | "colecao" | "desenvolvimento" | "codigos" | "prova"
   | "tecidos" | "aviamentos" | "insumos" | "grade" | "cad"
   | "tecidos_novo" | "preco" | "mao_obra" | "produto_acabado" | "grade_revenda"
   | "anexos" | "observacoes" | "lancamento" | "relacionado";
 
-/** Ordem do mockup aprovado (gen_main.py:106) + "Tecidos" do Dialog e as 2 seções da revenda onde o JSX as põe. */
+/** Ordem do mockup aprovado (gen_main.py:106) + F3.6 (spec 2026-09-25 §5.1): "Códigos" logo depois de "Desenvolvimento"
+ *  + "Tecidos" do Dialog e as 2 seções da revenda onde o JSX as põe. */
 export const ORDEM_SECOES_SHEET: readonly SecaoSheetKey[] = [
-  "info", "colecao", "desenvolvimento", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
+  "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
   "tecidos_novo", "preco", "mao_obra", "produto_acabado", "grade_revenda", "anexos", "observacoes", "lancamento", "relacionado",
 ];
 

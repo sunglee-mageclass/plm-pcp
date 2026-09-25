@@ -128,6 +128,10 @@ export type Draft = {
   // ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts).
   proporcoes: Record<string, number>;
   custos_adicionais: { descricao: string; valor: number }[];
+  // F3.6 (seção "4. Códigos", F3.5b do SKU): "Tamanho em" do card — coluna `modelos.tamanho_tipo` da F3.5a
+  // (`letra`|`numero`; NULL = o card ainda não escolheu — SEM padrão da loja, obrigatório p/ GERAR os SKUs; dono 25/set,
+  // R10). Grava no Salvar (campo do Planejamento; o Salvar segue livre com NULL).
+  tamanho_tipo: "letra" | "numero" | null;
 };
 export const emptyDraft = (): Draft => ({
   nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -145,6 +149,7 @@ export const emptyDraft = (): Draft => ({
   descricao_produto: "",
   proporcoes: {},
   custos_adicionais: [],
+  tamanho_tipo: null,
 });
 
 // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto). Extraída como função PURA (era
@@ -198,5 +203,6 @@ export function draftFromModeloRow(data: any): Draft {
     descricao_produto: data.descricao_produto ?? "",
     proporcoes: (data.proporcoes ?? {}) as Record<string, number>,
     custos_adicionais: (data.custos_adicionais ?? []) as { descricao: string; valor: number }[],
+    tamanho_tipo: data.tamanho_tipo === "letra" || data.tamanho_tipo === "numero" ? data.tamanho_tipo : null,
   };
 }

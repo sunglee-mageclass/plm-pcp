@@ -16,6 +16,13 @@ describe("numerarSecoes", () => {
     const v = new Set<SecaoSheetKey>(["info", "colecao", "tecidos_novo", "mao_obra", "anexos"]);
     expect(numerarSecoes(v, { dialogNovo: true })).toEqual({ info: 1, colecao: 2 });
   });
+  it("F3.6 — '4. Códigos' logo depois de '3. Desenvolvimento' (a Mão de obra ainda é seção até a Task 3)", () => {
+    const v = new Set<SecaoSheetKey>([
+      "info", "colecao", "desenvolvimento", "codigos", "prova", "tecidos", "aviamentos", "insumos", "grade", "cad",
+      "preco", "mao_obra", "anexos", "observacoes", "lancamento", "relacionado",
+    ]);
+    expect(numerarSecoes(v)).toMatchObject({ desenvolvimento: 3, codigos: 4, prova: 5, preco: 11, mao_obra: 12, relacionado: 16 });
+  });
 });
 
 describe("seloPorChaves (selos-bom) — regra do reqBadge do Dev para qualquer lista", () => {
