@@ -3,13 +3,13 @@
 **Status:** desenho APROVADO pelo dono em 24/set/2026 ("aprovo o desenho"). Autoridade:
 `.superpowers/sdd/2026-09-24-nota-entrada/desenho-aprovado.md` (checkout principal, não versionado).
 **Plano de implementação:** `docs/superpowers/plans/2026-09-24-data-nota-entrada.md`.
-**Frente:** paralela e independente da campanha do Planejamento; worktree própria. **Produção:** depois da F1 e do Aviso Global.
+**Frente:** paralela e independente da campanha do Planejamento; worktree própria. **Produção:** ordem NOVA do dono (24/set ~22h — "Aviso Global deixaremos por último, não é tão importante no momento, preciso do kanban automático, e fusão prontos"): **F1 → Nota → SKU → Aviso Global** (supera o "depois da F1 e do Aviso Global" original; ver G-migration A-RA1/B-R2 e o diário do guardião, `guardiao.md` 25/set ~01h30).
 **Revisão:** G-plano (guardião) APROVOU `05561ae` COM RESSALVAS R1–R8, aplicadas nesta versão (§4.6, §7, §8, §10); R9 =
 ponto do coordenador (travas no arquivo e hook `supautils.policy_grants`, lição do Aviso Global — §4.6 e §7). Reconferência
 de `57c01b6`: R1–R8 fechadas; **R9-a** (volta medida com OCs datadas; tempo próprio do inverso; ida conferida) aplicada em
 §4.6, §7 e §8. Reconferência de `25b1ad3`: R9-a fechada; **R9-b** (medição numa transação DESFEITA, sem resíduo na cópia;
 repasse do laço depois do DROP TRIGGER; teste do inverso com as 4 famílias e a ordem conferida) aplicada em §4.6, §7 e §8.
-D6 e D7 (§10) estão **pendentes do dono**; o plano implementa a recomendação.
+D6 e D7 (§10) foram **DECIDIDAS pelo dono em 24/set** ("D2 a D7 aprovados, guarde a resposta") — o plano implementa a recomendação.
 
 ---
 
@@ -226,7 +226,7 @@ recebida congela valores" do P. Acabado/Importado.
   `base_nova + dias[i]` (ou `+ i×30`); **Σ parcelas = total da OC**; OC não recebida (Tecido/Aviamento/Insumo) não ganha
   parcela; Importado idêntico antes/depois de gravar a data.
 
-### 4.4b Validar a data no servidor (D7 — pendente do dono; o plano implementa a recomendação)
+### 4.4b Validar a data no servidor (D7 — DECIDIDA pelo dono 24/set; o plano implementa a recomendação)
 
 Função `fn_oc_nota_entrada_valida()` (SECURITY DEFINER, EXECUTE revogado dos 3 — #9) e gatilho `trg_nota_entrada_valida`
 BEFORE INSERT OR UPDATE OF `data_nota_entrada` nas **5** OCs. Só age quando a data é informada e mudou (re-salvar sem mudar
@@ -343,11 +343,11 @@ Só estas linhas mudam (o resto é byte a byte o texto de 24/set):
   no Tecido).
 - **Aviso na OC** (4 famílias, OC recebida e campo vazio no rascunho): faixa em tom warning no topo do formulário, com ícone,
   texto exato **"Falta a Data da Nota de Entrada — os vencimentos estão provisórios"**. Some assim que o campo é preenchido (o
-  selo de "alterações não salvas" lembra de salvar). **D6 (pendente do dono — recomendação implementada):** OC recebida SEM
+  selo de "alterações não salvas" lembra de salvar). **D6 (DECIDIDA pelo dono 24/set — recomendação implementada):** OC recebida SEM
   parcela a pagar (toda paga ou valor 0) também acende a bolinha e o aviso, mas o aviso diz só **"Falta a Data da Nota de
   Entrada"** (sem "provisórios" — não há vencimento provisório). O aviso conta as parcelas não pagas da OC (mesma régua do
   banco: `status ≠ 'pago'` e `data_pagamento` vazia); enquanto carrega, mostra o texto curto (nunca afirma algo falso).
-- **Validação da data (D7 — pendente do dono, recomendação implementada):** o calendário do `<DateField>` não oferece dia
+- **Validação da data (D7 — DECIDIDA pelo dono 24/set, recomendação implementada):** o calendário do `<DateField>` não oferece dia
   futuro (`max` = hoje no fuso da loja, `todayISOInStoreTZ(useStoreTimezone())`); no Salvar, `validarDataNota` recusa data
   futura ou anterior à data do pedido com o MESMO texto do banco (§4.4b), mostrado por `mensagemErro`. O banco valida de novo
   (a regra vale mesmo sem o front).
@@ -445,7 +445,7 @@ UPDATE direto também é recusado.
 ## 9. Fora de escopo
 
 - Mudar o gerador/etapas do Importado; qualquer efeito da data no Importado além de registrar.
-- Exigir a data para receber. (Validar a data futura/anterior ao pedido saiu daqui: é a D7, pendente do dono, e o plano
+- Exigir a data para receber. (Validar a data futura/anterior ao pedido saiu daqui: é a D7, DECIDIDA pelo dono 24/set, e o plano
   implementa a recomendação.)
 - Backfill de datas das OCs antigas (D1).
 - Unificar o parser de prazo do P. Acabado (`/`) com o do core (regex) — divergência pré-existente.
