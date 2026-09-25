@@ -115,26 +115,29 @@ describe("normalizarSlotDistribuicao (R6)", () => {
 describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar)", () => {
   const LIG = { ligado: true, tamanhos: GRADE };
   const arvDe = (s: PtSlot): PtArvore => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [s] }] }] });
+  // T5 fix2 (item 2): `opts` de `efeitoDaCarga` é OBRIGATÓRIO — sem caminho "retrocompat" que caia em silêncio no
+  // comportamento antigo. Todo teste manda o objeto explícito; este é o caso NEUTRO (nem eco, nem travado).
+  const SEM_EFEITO = { ecoDoSave: false, travado: () => false };
   it("normalização sem mudança ⇒ NÃO fica sujo, sem aviso; base = a própria árvore", () => {
     const n = normalizarSlotDistribuicao(slot([mat("tecido", 1, T1), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]), LIG);
-    const e = efeitoDaCarga(arvDe(n), LIG, true);
+    const e = efeitoDaCarga(arvDe(n), LIG, true, SEM_EFEITO);
     expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
     expect(e.arvore).toBe(e.base);
   });
   it("forro gravado com pç ≠ soma das cores atendidas ⇒ FICA SUJO, aviso com N cores e o slot tocado; a base é a árvore CRUA", () => {
     const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7), v("fr-bege", "cor-bege", 12)])]));
-    const e = efeitoDaCarga(cru, LIG, true);
+    const e = efeitoDaCarga(cru, LIG, true, SEM_EFEITO);
     expect(e).toMatchObject({ tocados: ["s1"], recalculadasForaT1: 1, sujo: true });
     expect(e.base).toBe(cru);
     expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes.map((x) => x.grade_total)).toEqual([71, 12]);
   });
   it("sem permissão de editar ⇒ o aviso aparece mas NÃO suja (não dá para salvar)", () => {
     const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
-    expect(efeitoDaCarga(cru, LIG, false)).toMatchObject({ recalculadasForaT1: 1, sujo: false });
+    expect(efeitoDaCarga(cru, LIG, false, SEM_EFEITO)).toMatchObject({ recalculadasForaT1: 1, sujo: false });
   });
   it("módulo desligado ⇒ nada muda (R4)", () => {
     const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
-    expect(efeitoDaCarga(cru, { ligado: false, tamanhos: GRADE }, true)).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
+    expect(efeitoDaCarga(cru, { ligado: false, tamanhos: GRADE }, true, SEM_EFEITO)).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
   });
   it("Lote A fix1 · C1: chaves de `grades`/`distribuicao` REORDENADAS (como o jsonb do Postgres devolve — por tamanho da\n" +
      "     chave, depois por bytes) NÃO deixam o slot sujo; a normalização segue idempotente", () => {
@@ -153,7 +156,7 @@ describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar
         })),
       })),
     });
-    const e = efeitoDaCarga(reordenado, LIG, true);
+    const e = efeitoDaCarga(reordenado, LIG, true, SEM_EFEITO);
     expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
     expect(e.arvore).toBe(e.base);
     // idempotência (normalizar o já-reordenado devolve o MESMO objeto)
@@ -179,10 +182,10 @@ describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar
     });
   });
 
-  describe("efeitoDaCarga com opts (T5 fix1 · C1 + I2)", () => {
-    it("C1: com opts.ecoDoSave, um slot que a normalização mudou NÃO fica sujo/tocado e NÃO conta pro aviso", () => {
+  describe("efeitoDaCarga com opts (T5 fix1 · C1 + I2; T5 fix2 · item 2 — opts obrigatório)", () => {
+    it("C1: com opts.ecoDoSave=true, um slot que a normalização mudou NÃO fica sujo/tocado e NÃO conta pro aviso", () => {
       const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
-      const e = efeitoDaCarga(cru, LIG, true, { ecoDoSave: true });
+      const e = efeitoDaCarga(cru, LIG, true, { ecoDoSave: true, travado: () => false });
       expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
       // a árvore exibida SEGUE derivada (o usuário vê o pç certo, só não suja/toca)
       expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes[0].grade_total).toBe(71);
@@ -190,13 +193,13 @@ describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar
     it("I2: com opts.travado marcando o slot, ele NÃO fica sujo/tocado e NÃO conta — mas o derivado aparece igual", () => {
       const s = slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]);
       const cru = arvDe(s);
-      const e = efeitoDaCarga(cru, LIG, true, { travado: (slotArg) => slotArg.id === s.id });
+      const e = efeitoDaCarga(cru, LIG, true, { ecoDoSave: false, travado: (slotArg) => slotArg.id === s.id });
       expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false });
       expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes[0].grade_total).toBe(71);
     });
-    it("sem opts (retrocompat): comportamento idêntico ao de antes (assinatura de 3 argumentos continua válida)", () => {
+    it("item 2: opts explícito {ecoDoSave:false, travado:()=>false} reproduz o comportamento normal de sempre (nenhum caminho oculto)", () => {
       const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
-      expect(efeitoDaCarga(cru, LIG, true)).toMatchObject({ tocados: ["s1"], recalculadasForaT1: 1, sujo: true });
+      expect(efeitoDaCarga(cru, LIG, true, SEM_EFEITO)).toMatchObject({ tocados: ["s1"], recalculadasForaT1: 1, sujo: true });
     });
   });
 });

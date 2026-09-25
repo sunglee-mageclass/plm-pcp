@@ -27,9 +27,12 @@ export function AtendeAPopover({ materialKey, cor, bloco, t1, at, consumo, rotul
   readOnly: boolean;
   onChange: (atende: string[] | null) => void;
 }) {
-  // M1 (T5 fix1): proteção extra — mesmo se o popover for aberto por outro caminho (bug de prop), a
-  // permissão de EDITAR ainda é checada aqui, direto do contexto de permissão da tela.
-  const bloqueado = readOnly || useReadOnly();
+  // M1 (T5 fix2, lint real — rules-of-hooks): o hook precisa ser chamado de forma INCONDICIONAL, nunca
+  // dentro de uma expressão `||` (onde o curto-circuito pode pular a chamada dependendo de `readOnly`).
+  // Proteção extra — mesmo se o popover for aberto por outro caminho (bug de prop), a permissão de
+  // EDITAR ainda é checada aqui, direto do contexto de permissão da tela.
+  const roPagina = useReadOnly();
+  const bloqueado = readOnly || roPagina;
   const kb = varKey(cor);
   const servidas = at.porCor.get(kb) ?? [];
   const path = pathAtende(materialKey, kb);

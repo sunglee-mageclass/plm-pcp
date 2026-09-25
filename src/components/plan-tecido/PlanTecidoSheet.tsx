@@ -787,10 +787,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
   const srcRef = useRef<{ seed: unknown; models: unknown; dist?: unknown } | null>(null);
 
   // C1 (T5 fix1, Critical): liga no `onSuccess` do Salvar ANTES de invalidar a árvore, desliga só DEPOIS
-  // que o auto-aplicar + `invalidarBomVivo` terminarem e os modelos novos chegarem (ver `salvarMut`).
-  // Enquanto ligada, a carga que roda nesse intervalo é o ECO do próprio save (modelos ainda com o BOM
-  // velho) — sem isto ela sujava/tocava o slot com o valor VELHO e um 2º Salvar gravava esse valor velho.
+  // que a refetch da ÁRVORE e o auto-aplicar (que já espera `invalidarBomVivo`) TERMINAM AS DUAS — N1 (T5
+  // fix2): esperar só o auto-aplicar (que sai cedo sem alvo) desligava o eco antes da árvore chegar, e o
+  // effect re-semeava com o `salvo` AINDA VELHO. Enquanto ligada, a carga que roda nesse intervalo é o ECO
+  // do próprio save — sem isto ela sujava/tocava o slot com o valor VELHO e um 2º Salvar gravava esse valor
+  // velho de volta no BOM.
   const ecoDoSaveRef = useRef(false);
+  // N3 (T5 fix2, Minor): contador de gerações — cada Salvar incrementa; o `.finally()` do save só desliga o
+  // eco/zera `srcRef` se a SUA geração ainda for a atual (2 Salvares seguidos não se atrapalham).
+  const ecoGeracaoRef = useRef(0);
   // C1(b): true quando o `dirty` atual veio SÓ da carga (efeitoDaCarga), nunca de uma edição do usuário.
   // `patch` (funil de edição do usuário) zera esta ref; com ela ligada, o ramo `dirty` do effect abaixo
   // PODE re-semear quando a fonte mudar — não há edição de verdade a perder.
@@ -861,6 +866,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       setDirty(true);
     } else if (tratarComoLimpo) {
       sujoSoDaCargaRef.current = false;
+      // N2 (T5 fix2): zero slots tocados nesta passada (ex.: o eco do save terminou sem sobrar
+      // sujeira nenhuma) — sem isto o Sheet ficava "não salvo" à toa (dirty!==false de uma passada
+      // anterior que nunca foi limpa por aqui).
+      if (dirty) setDirty(false);
     }
   }, [seed, salvo, modelosReais, modelosDb, dirty, arvore, tamanhosProntos, modulosProntos, distOpts, paginaSoLeitura, lancadoSet, enviadoCadSet]);
 
@@ -1011,13 +1020,23 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       // CAPTURA os slots que editei ANTES de zerar o touched — o auto-aplicar (regra do dono, bug #9)
       // usa exatamente esse conjunto (dirty por card; NUNCA a coleção inteira em massa).
       const touched = new Set(touchedSlotIdsRef.current);
-      // C1 (T5 fix1, Critical): liga o eco ANTES de qualquer invalidação. Sequência real: invalida a
+      // C1 (T5 fix1/fix2, Critical): liga o eco ANTES de qualquer invalidação. Sequência real: invalida a
       // árvore → auto-aplicar (grava no BOM) → invalidarBomVivo → os modelos novos chegam. Entre o 1º
       // passo e o último, um refetch da árvore roda `efeitoDaCarga` com os modelos AINDA VELHOS (o
       // auto-aplicar não terminou) — sem a ref, isso sujava/tocava o slot com o valor velho, e um 2º
-      // Salvar gravava esse valor velho de volta no BOM. Só desliga (abaixo) depois que
-      // `invalidarBomVivo` (dentro de `autoAplicarDirty`) confirma que os modelos novos chegaram.
+      // Salvar gravava esse valor velho de volta no BOM.
+      // N1 (T5 fix2 — REGRESSÃO do fix1): desligar cedo demais (só esperando `autoAplicarDirty`, que sai
+      // CEDO quando não há alvo — rascunho sem modelo, travado, lançado, comprado, ou módulo desligado)
+      // fazia o effect re-semear com a ÁRVORE (`salvo`) AINDA VELHA — a refetch de
+      // `["plan-tecido-arvore", colecaoId]` roda em paralelo e pode não ter chegado ainda quando o
+      // `.finally` dispara (é só uma invalidação FIRE-AND-FORGET, não awaited). As edições recém-salvas
+      // sumiam da tela. Corrigido: o eco só desliga depois que a REFETCH DA ÁRVORE e `autoAplicarDirty`
+      // (que já espera `invalidarBomVivo`) TERMINAM AS DUAS — `Promise.all`.
       ecoDoSaveRef.current = true;
+      // N3 (T5 fix2, Minor — mesmo mecanismo): CONTADOR de gerações em vez de booleano. Cada Salvar
+      // incrementa; o `finally` só desliga o eco/zera `srcRef` se a SUA geração ainda for a atual —
+      // 2 Salvares seguidos não se atrapalham (o 1º `finally` que chegar tarde não desliga por baixo do 2º).
+      const geracao = ++ecoGeracaoRef.current;
       setDirty(false);
       sujoSoDaCargaRef.current = false; // salvou: a sujeira anterior (se só da carga) já foi persistida
       // O que acabei de salvar já É a base "servidor" — evita que o eco do Realtime (meu próprio
@@ -1030,15 +1049,15 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, modoInicial, foc
       setRecalculadas(0);
       setRecalculadasT1(0);
       toast.success("Planejamento de tecido salvo.");
-      qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
+      const refetchArvore = qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo
       // Espelha as edições pré-explosão no BOM vivo (fim do "reverteu"). O save já committou; o
-      // auto-aplicar refaz o BOM vivo e invalida a query que alimenta a exibição do card. C1: SÓ desliga
-      // o eco (e re-semeia com dado limpo, `srcRef.current = null`) depois que essa cadeia termina —
-      // `autoAplicarDirty` agora ESPERA `invalidarBomVivo` (a invalidação de `["plan-tecido-modelos",
-      // colecaoId]`) antes de retornar.
-      void autoAplicarDirty(touched).finally(() => {
+      // auto-aplicar refaz o BOM vivo e invalida a query que alimenta a exibição do card. N1: SÓ desliga
+      // o eco (e re-semeia com dado limpo, `srcRef.current = null`) depois que AMBAS terminam — a árvore
+      // (`salvo`) NÃO pode ser re-semeada com dado anterior ao save.
+      void Promise.all([refetchArvore, autoAplicarDirty(touched)]).finally(() => {
+        if (ecoGeracaoRef.current !== geracao) return; // N3: um Salvar mais novo já assumiu — não desliga por baixo dele
         ecoDoSaveRef.current = false;
         srcRef.current = null; // força a re-semeadura com os modelos NOVOS na próxima passada do effect
       });

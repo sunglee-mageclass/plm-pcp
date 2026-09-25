@@ -177,22 +177,23 @@ export function decidirEfeitoDaCarga({ ecoDoSave, travado, podeEditar }: { ecoDo
   return { suja: podeEditar, toca: true, conta: true };
 }
 
-/** Carga do Plan. Tecido (G-plano R3 — PR12; T5 fix1 — C1/I2). Normaliza a árvore CRUA (o que o banco tem). Se a
+/** Carga do Plan. Tecido (G-plano R3 — PR12; T5 fix1/fix2 — C1/I2). Normaliza a árvore CRUA (o que o banco tem). Se a
  *  normalização MUDOU algum slot (pç derivado da distribuição ou do "atende a" ≠ o gravado), o slot fica "não salvo":
  *  a base do merge colab segue a CRUA, os slots mudados entram como tocados e o Sheet mostra o aviso — assim, depois
  *  do 1º Salvar, o número do card é o mesmo que o Resumo/Modo Plano/Fazer pedido (servidor) leem. Sem mudança ⇒ nada
  *  sujo. Sem permissão ⇒ só o aviso. `opts.ecoDoSave` (C1) e `opts.travado` (I2, por slot — enviado à Explosão OU
- *  lançado) suprimem sujo/tocado/aviso desse slot (via `decidirEfeitoDaCarga`) — o card segue exibindo o derivado. */
+ *  lançado) suprimem sujo/tocado/aviso desse slot (via `decidirEfeitoDaCarga`) — o card segue exibindo o derivado.
+ *  T5 fix2 (item 2): `opts` é OBRIGATÓRIO — sem retrocompat implícito (mesma classe do N3 do Lote A): todo chamador
+ *  precisa decidir explicitamente o eco e o travado, nunca cair em silêncio no comportamento antigo. */
 export function efeitoDaCarga(
   cru: PtArvore,
   o: OpcoesDist,
   podeEditar: boolean,
-  opts?: { ecoDoSave?: boolean; travado?: (slot: PtSlot) => boolean },
+  opts: { ecoDoSave: boolean; travado: (slot: PtSlot) => boolean },
 ): EfeitoCarga {
   const arvore = normalizarArvoreDistribuicao(cru, o);
   if (arvore === cru) return { arvore, base: cru, tocados: [], recalculadasForaT1: 0, recalculadasT1: 0, sujo: false };
-  const ecoDoSave = !!opts?.ecoDoSave;
-  const travado = opts?.travado ?? (() => false);
+  const { ecoDoSave, travado } = opts;
   const tocados: string[] = [];
   let algumSujo = false;
   let foraT1 = 0;

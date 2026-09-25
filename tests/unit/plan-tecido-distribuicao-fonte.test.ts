@@ -31,7 +31,7 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(sheet).toContain("if (carga.sujo) {");
     expect(conta(sheet, ", distOpts)")).toBeGreaterThanOrEqual(2); // os 2 merges (dirty e retry P0409) seguem normalizando
   });
-  it("T5 fix1 · C1 (Critical): eco do próprio Salvar não suja/toca/avisa; liga ANTES de invalidar, desliga só depois do auto-aplicar+invalidarBomVivo (modelos novos)", () => {
+  it("T5 fix1 · C1 (Critical): eco do próprio Salvar não suja/toca/avisa; liga ANTES de invalidar", () => {
     expect(sheet).toContain("const ecoDoSaveRef = useRef(false);");
     expect(sheet).toContain("const sujoSoDaCargaRef = useRef(false);");
     // liga ANTES de qualquer invalidação de query no onSuccess
@@ -40,20 +40,46 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     const primeiraInvalidacaoIdx = sheet.indexOf('qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });', onSuccessIdx);
     expect(ecoLigaIdx).toBeGreaterThan(onSuccessIdx);
     expect(ecoLigaIdx).toBeLessThan(primeiraInvalidacaoIdx);
-    // desliga só DEPOIS que autoAplicarDirty (que agora ESPERA invalidarBomVivo) termina
-    expect(sheet).toContain("void autoAplicarDirty(touched).finally(() => {\n        ecoDoSaveRef.current = false;\n        srcRef.current = null;");
-    // invalidarBomVivo devolve a Promise de ["plan-tecido-modelos", colecaoId] e autoAplicarDirty a ESPERA
-    expect(sheet).toContain("const pModelos = qc.invalidateQueries({ queryKey: [\"plan-tecido-modelos\", colecaoId] });");
-    expect(sheet).toContain("return pModelos;");
-    expect(sheet).toContain("await invalidarBomVivo(alvos.map((a) => a.modeloId));");
     // ecoDoSave entra no efeitoDaCarga
     expect(sheet).toContain("ecoDoSave: ecoDoSaveRef.current,");
     // C1(b): patch() (edição do usuário) e reverterArvore() (Descartar) zeram a ref de "sujo só da carga"
     expect(sheet).toContain("sujoSoDaCargaRef.current = false; // C1(b): a partir daqui há edição REAL do usuário a preservar");
     expect(sheet).toContain('sujoSoDaCargaRef.current = false; // C1(b): "Descartar" some com qualquer sujeira (da carga ou do usuário)');
   });
+  it("T5 fix2 · N1 (Important, obrigatório): o eco só desliga depois que a REFETCH DA ÁRVORE e o auto-aplicar terminam AS DUAS (Promise.all) — não só o auto-aplicar (regressão do fix1)", () => {
+    // a árvore refetcha via invalidateQueries CAPTURADO numa variável (não fire-and-forget solto)
+    expect(sheet).toContain('const refetchArvore = qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });');
+    // o finally só roda depois que AMBAS terminam
+    expect(sheet).toContain("void Promise.all([refetchArvore, autoAplicarDirty(touched)]).finally(() => {");
+    // não sobrou nenhum `.finally` preso só no autoAplicarDirty (a regressão do fix1)
+    expect(sheet).not.toMatch(/autoAplicarDirty\(touched\)\.finally\(/);
+    // invalidarBomVivo continua devolvendo a Promise de ["plan-tecido-modelos", colecaoId] e autoAplicarDirty a ESPERA
+    expect(sheet).toContain('const pModelos = qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });');
+    expect(sheet).toContain("return pModelos;");
+    expect(sheet).toContain("await invalidarBomVivo(alvos.map((a) => a.modeloId));");
+  });
+  it("T5 fix2 · N3 (Minor, mesmo mecanismo): contador de gerações — 2 Salvares seguidos não se atrapalham", () => {
+    expect(sheet).toContain("const ecoGeracaoRef = useRef(0);");
+    // incrementa ANTES do finally ser armado, dentro do onSuccess
+    expect(sheet).toContain("const geracao = ++ecoGeracaoRef.current;");
+    // o finally só desliga se a geração dele ainda for a atual
+    expect(sheet).toContain("if (ecoGeracaoRef.current !== geracao) return;");
+    // a checagem de geração vem ANTES de desligar o eco (senão um save velho desligaria por baixo do novo)
+    const geracaoCheckIdx = sheet.indexOf("if (ecoGeracaoRef.current !== geracao) return;");
+    const desligaEcoIdx = sheet.indexOf("ecoDoSaveRef.current = false;", geracaoCheckIdx);
+    expect(desligaEcoIdx).toBeGreaterThan(geracaoCheckIdx);
+  });
   it("T5 fix1 · I2 (Important): slot travado (enviado à Explosão) ou lançado não suja/toca/avisa na carga — só exibe o derivado", () => {
     expect(sheet).toContain("travado: (s) => !!s.modelo_id && (lancadoSet.has(s.modelo_id) || enviadoCadSet.has(s.modelo_id)),");
+  });
+  it("T5 fix2 · item 2 (Important): opts de efeitoDaCarga é OBRIGATÓRIO — sem caminho retrocompat que caia em silêncio", () => {
+    const atendimento = ler("src/lib/plan-tecido/atendimento.ts");
+    expect(atendimento).toContain("opts: { ecoDoSave: boolean; travado: (slot: PtSlot) => boolean },");
+    expect(atendimento).not.toMatch(/opts\?:/);
+  });
+  it("T5 fix2 · N2 (Minor): ramo tratarComoLimpo zera o dirty quando não sobrou slot tocado (0 tocados)", () => {
+    expect(sheet).toContain("} else if (tratarComoLimpo) {\n      sujoSoDaCargaRef.current = false;");
+    expect(sheet).toContain("if (dirty) setDirty(false);");
   });
   it("payload do aplicar/criar card com casamento só com o módulo (R3/R4); nada de buildMateriaisAplicar cru", () => {
     expect(conta(sheet, "materiaisParaAplicar(slot, distribOn)")).toBe(2);
@@ -93,9 +119,12 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(pop).toContain("escolhida à mão");
     expect(pop).toContain("padrão (mesma cor base)");
   });
-  it("T5 fix1 · M1: AtendeAPopover checa useReadOnly() além da prop readOnly (proteção extra contra outro caminho de abrir editável)", () => {
+  it("T5 fix2 · M1 (lint real, rules-of-hooks): AtendeAPopover chama useReadOnly() de forma INCONDICIONAL (nunca dentro de ||)", () => {
     expect(pop).toContain('import { useReadOnly } from "@/components/RequirePermission";');
-    expect(pop).toContain("const bloqueado = readOnly || useReadOnly();");
+    expect(pop).toContain("const roPagina = useReadOnly();");
+    expect(pop).toContain("const bloqueado = readOnly || roPagina;");
+    // a versão antiga (hook dentro do ||, violação de rules-of-hooks) não pode voltar
+    expect(pop).not.toContain("readOnly || useReadOnly()");
     expect(pop).toContain("disabled={bloqueado || deOutra}");
     expect(pop).toContain("{at.manual.has(kb) && !bloqueado && (");
   });
