@@ -1609,13 +1609,19 @@ function PlanejamentoDetailConteudo({
                 // F3.6 (R16) — a M.O. entra na tabela (linha "Mão de obra" + Obs. abaixo do "Custo total").
                 blocoMaoObra={moBlocoVisivel ? editorMaoObra : null}
                 obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
+                // F3.6 (ruling 11) — Preço anterior (grava no Salvar; payload só com podeEditarPreco — usePlanejamentoSave).
+                precoAnterior={draft.preco_anterior}
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
               // bidirecional) + Preço atacado/varejo FIXO (preço exato digitado, sem derivar do markup).
               <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft}
-                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null} />
+                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
+                podeEditarPreco={podeEditarPreco}
+                precoAnterior={draft.preco_anterior}
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
             )}
           </Secao>
           )}

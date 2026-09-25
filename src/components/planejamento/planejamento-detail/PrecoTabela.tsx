@@ -14,12 +14,13 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { brl, fmtNum } from "@/lib/format";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SeloCusto } from "@/components/planejamento/planejamento-detail/custo-base";
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
+import { precoAnteriorExibido } from "@/components/planejamento/planejamento-detail/helpers";
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -49,6 +50,9 @@ export function PrecoTabela(props: {
   // distingue, na Obs, se está usando o preço do usuário ou o sugerido.
   precoBase: number; precoDigitado: number;
   draftPrecoVenda: number | null | undefined; onPrecoVenda: (v: string) => void;
+  // F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o preço EFETIVO (`precoBase` — o digitado ou o sugerido, o
+  // mesmo da linha "Preço de venda"); não-NULL = fixado à mão até o ↺. Editar = `podeEditarPreco` (mesma permissão).
+  precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
   // F3.2 (decisão F3 #6): custo-base ÚNICO (o MESMO que o markup usa) + selo de 3 estados —
   // real (CAD enviado ao corte) › previsto (BOM) › estimado (tecido + materiais + M.O.).
   seloCusto: SeloCusto; custoBase: number;
@@ -79,6 +83,7 @@ export function PrecoTabela(props: {
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
+    precoAnterior, onPrecoAnterior,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
@@ -172,6 +177,42 @@ export function PrecoTabela(props: {
         <tbody className="align-middle">
           {/* ── PARTE 1: Preços (digitáveis) ── */}
           <tr className="bg-muted/40"><td colSpan={4} className="py-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Preços</td></tr>
+          {/* F3.6 (ruling 11) — Preço anterior ANTES do Preço de venda. Automático (NULL): mostra o EFETIVO e acompanha ao vivo
+              qualquer mudança do preço de venda; qualquer valor digitado FIXA (R5 — é o "congelar o preço atual"); ↺ volta ao
+              automático. Sem a permissão: só leitura. */}
+          <tr className="border-t">
+            {/* mockup v3 (R34): o selo "automático" (ou "editado") mora na 1ª coluna, junto do rótulo; o ↺ vem ANTES do input. */}
+            <td className="py-2 pr-3">
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                Preço anterior
+                <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
+                  {precoAnterior === null ? "automático" : "editado"}
+                </StatusBadge>
+              </span>
+            </td>
+            <td className="py-2 px-2 text-right text-muted-foreground">—</td>
+            <td className="py-2 px-2 text-right">
+              {podeEditarPreco ? (
+                <span className="ml-auto inline-flex items-center justify-end gap-1">
+                  <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground" disabled={precoAnterior === null}
+                    aria-label="Preço anterior: voltar ao automático" title="Voltar ao automático" onClick={() => onPrecoAnterior(null)}>
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                  <MoneyInput
+                    fixedDecimals
+                    className="h-8 w-32 text-right tabular-nums"
+                    value={precoAnteriorExibido(precoAnterior, precoBase) ?? ""}
+                    placeholder="0,00"
+                    data-colab-path="preco_anterior"
+                    onChange={(e) => onPrecoAnterior(e.target.value === "" ? null : Number(e.target.value))}
+                  />
+                </span>
+              ) : (
+                <span className="tabular-nums">{(() => { const v = precoAnteriorExibido(precoAnterior, precoBase); return v != null ? brl(v) : "—"; })()}</span>
+              )}
+            </td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">acompanha o preço de venda até ser editado · ↺ volta ao automático</td>
+          </tr>
           <tr className="border-t">
             <td className="py-2 pr-3"><b>Preço de venda</b></td>
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
@@ -382,8 +423,9 @@ export function PrecoTabela(props: {
           </tr>
           {/* F3.6 — serviços de M.O. (valor, aprovar/reprovar p/ quem tem permissão, remover, "+ adicionar") DENTRO da tabela.
               Célula única (colSpan): um <fieldset>/lista não cabe em <tbody>; a trava é por `disabled` em cada controle, como
-              nas linhas do BOM. No mobile a tabela rola na horizontal — o bloco fica PRESO à esquerda com a largura visível
-              (Sheet em tela cheia, `px-6` = 3rem), senão os botões de aprovar ficariam fora da tela. */}
+              nas linhas do BOM. No mobile a tabela rola na horizontal — o bloco fica PRESO à esquerda com a largura visível:
+              <640px o Sheet é tela cheia (`100vw-4rem`, `px-6`+`px-2` da célula); 640–767px o Sheet é `sm:w-[70vw]`
+              (`70vw-4rem`, mesmo `px-6`+`px-2`) — senão os botões de aprovar ficariam fora da tela. */}
           {blocoMaoObra && (
             <tr className="border-t">
               <td colSpan={4} className="py-2 px-2">
