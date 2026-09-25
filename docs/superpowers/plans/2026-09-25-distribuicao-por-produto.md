@@ -22,7 +22,7 @@
 
 **Banco**
 - ⛔ PRODUÇÃO: o agente NÃO toca — nem `SELECT`, nem `psql "$(cat /tmp/dburl.txt)"`. Produção só na Task 11, PELO DONO, no Terminal dele, pelos scripts da Task 10.
-- Cópia local = `postgresql://postgres:postgres@127.0.0.1:54422/postgres` (também é o app de teste `:5188` do dono). DDL/migration na cópia SÓ (a) dentro da txn revertida das suítes (`DIST_MIG_TXN=1`) ou (b) pelos scripts `.superpowers/distribuicao/{copia.sh,mig/ensaio-local.sh}` e pela medição da Task 9 Step 1. Antes de cada uma: o CONTROLADOR avisa o dono no chat (texto do `n3.sh`) e, com o OK, `DIST_DONO_AVISADO=sim bash .superpowers/distribuicao/n3.sh antes <passo>`. Leitura: `PGOPTIONS='-c default_transaction_read_only=on' psql …`.
+- Cópia local = `postgresql://postgres:postgres@127.0.0.1:54422/postgres` (também é o app de teste `:5188` do dono). DDL/migration na cópia SÓ (a) dentro da txn revertida das suítes (`DIST_MIG_TXN=1`) ou (b) pelos scripts `.superpowers/distribuicao/{copia.sh,mig/ensaio-local.sh}` e pela medição da Task 9 Step 1. Antes de cada uma (PR17): o CONTROLADOR publica o aviso no PAINEL da campanha (texto do `n3.sh`), registra o id do aviso no ledger `.superpowers/distribuicao/avisos.md` (`- <data hora> <passo> aviso=<id> ok=<dispensado-P-37|texto do OK do dono>`) e só então roda `DIST_DONO_AVISADO=sim bash .superpowers/distribuicao/n3.sh antes <passo>` (o `n3.sh` recusa sem a linha do passo no ledger). Enquanto a P-37 não for respondida — ou se o dono disser que a P-30 B NÃO vale para esta frente — espera também o OK dele (colado no chat); o script é o mesmo, muda só o controlador. Leitura: `PGOPTIONS='-c default_transaction_read_only=on' psql …`.
 - ⛔ NUNCA `\i` de migration dentro de transação de teste (incidente 15/set). ⛔ NUNCA DDL em transação de teste contra produção (incidente 23/set).
 - TODO vitest — unit (inclusive nos gates) E integração — com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` EXPLÍCITO (nunca `env -u DATABASE_URL`: o fallback de `tests/integration/db.ts` é `/tmp/dburl.txt` = PRODUÇÃO — incidente 24/set) e com caminhos de arquivo LITERAIS.
 - Migrations: `supabase/migrations/20261006100000_distribuicao_por_produto.sql` (+ `supabase/rollback/20261006100000_distribuicao_por_produto_down.sql`) e `supabase/migrations/20261006110000_distribuicao_antiga_remover.sql` (+ `supabase/rollback/20261006110000_distribuicao_antiga_remover_down.sql`). GERADAS por `.superpowers/distribuicao/mig/gerar_sql.py` e `gerar_remocao.py` a partir do texto VIVO (dump só-leitura da cópia) — nunca editadas à mão. Cada arquivo: 1 `BEGIN;` e 1 `COMMIT;` em linha própria, com `SET LOCAL lock_timeout = '500ms';` e `SET LOCAL transaction_timeout = '3s';` logo depois do `BEGIN;`; guarda md5 EXATA (o md5 VIVO lido na cópia — o plano NÃO crava); ACL #9 (`REVOKE … FROM PUBLIC, anon, authenticated` nas internas; `tenant_module_enabled` com ACL INTOCADA); nenhuma DML/COMMENT em `tenant_config`; nenhuma DDL de policy na aditiva (a remoção não tem `CREATE/DROP POLICY` explícito; o inverso dela recria a policy POR ÚLTIMO).
@@ -35,13 +35,13 @@
 - Dialog novo = `<DialogContent fixedFooter mobileFull>`; rodapé Voltar (esq.) · Salvar (`ml-auto`); montar `{open && <Dialog/>}` (nasce limpo); "Descartar alterações?" em AlertDialog.
 - Colaboração: nenhum mecanismo novo (plan_rev/P0409 + merge por slot; Direcionamento `direcionamento_controle.rev`). `data-colab-path` NOVOS (spec §5.4): `dist:{slot}:prop:{tam}`, `dist:{slot}:{loja}:{varKey}:base`, `dist:{slot}:{loja}:{varKey}:{tam}`, `pt-atende:{material}:{varKey}`; marcador `dist:{slot}:aberto`. O dialog monta o PRÓPRIO `ColabPresenceOverlay` (R19).
 - Mobile 360/390 sem estouro horizontal (medido na QA); tabelas com rolagem horizontal própria e 1ª coluna `sticky`.
-- Textos EXATOS (mockup/spec §5.3): "Distribuir por loja"; "distribuído"; "Só leitura — muda pelo Distribuir por loja"; "Soma das cores do Tecido 1 que ele atende"; "atende a"; "Atende a · cores do Tecido 1"; "já atendida por: {cor}"; "padrão"; "mesma cor base (automático)"; "escolhida à mão"; "pç deste {forro|tecido}"; "Padrão: a mesma cor base. Mudar aqui só troca a amarração — a metragem segue o consumo do {forro|tecido} ({consumo} m/pç)."; "↺ padrão (mesma cor base)"; "Sem cor deste {forro|tecido}: …"; "Não atende nenhuma cor do Tecido 1"; "Loja / Cor"; "Base" + "você digita"; "Tamanhos: proporção × Base · dá para corrigir à mão"; "Total" + "da cor na loja"; "Proporção por tamanho" + "do card"; "Total {loja}"; "● editado à mão — passe o mouse para ver o calculado e voltar a ele (↺). Os totais já contam o valor editado."; "Editado à mão · calculado seria {N}"; "Voltar ao calculado"; "Total por cor × tamanho"; "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card."; "soma das lojas"; "= pç no card"; "sem distribuição · pç do card {N}"; "Salvar preenche o pç das {N} cores no card. Grava de vez no Salvar do plano."; "Enviado à Explosão — só leitura (ver e imprimir)."; "Por loja · deslize para o lado"; "Plano de distribuição do modelo"; "só leitura"; "do Plan. Tecido › Distribuir por loja"; "Preencher com o plano"; "Reaplica a regra: preenche onde bate com a Grade Real"; "Total do plano"; "Distribua à mão"; "faltam {N}"; "Grade Real = o que voltou da recepção dos serviços, já sem os defeitos do CQ."; "{N} modelos direcionados".
+- Textos EXATOS (mockup/spec §5.3): "Distribuir por loja"; "distribuído"; "Só leitura — muda pelo Distribuir por loja"; "Soma das cores do Tecido 1 que ele atende"; "atende a"; "Atende a · cores do Tecido 1"; "já atendida por: {cor}"; "padrão"; "mesma cor base (automático)"; "escolhida à mão"; "pç deste {forro|tecido}"; "Padrão: a mesma cor base. Mudar aqui só troca a amarração — a metragem segue o consumo do {forro|tecido} ({consumo} m/pç)."; "↺ padrão (mesma cor base)"; "Sem cor deste {forro|tecido}: …"; "Não atende nenhuma cor do Tecido 1"; "Loja / Cor"; "Base" + "você digita"; "Tamanhos: proporção × Base · dá para corrigir à mão"; "Total" + "da cor na loja"; "Proporção por tamanho" + "do card"; "Total {loja}"; "● editado à mão — passe o mouse ou toque no ponto para ver o calculado; o ↺ volta a ele. Os totais já contam o valor editado." (PR16 — o mockup dizia "passe o mouse para ver o calculado e voltar a ele (↺)"); "Editado à mão · calculado seria {N}"; "Voltar ao calculado"; "{N} cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar" (PR12); "Total por cor × tamanho"; "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card."; "soma das lojas"; "= pç no card"; "sem distribuição · pç do card {N}"; "Salvar preenche o pç das {N} cores no card. Grava de vez no Salvar do plano."; "Enviado à Explosão — só leitura (ver e imprimir)."; "Por loja · deslize para o lado"; "Plano de distribuição do modelo"; "só leitura"; "do Plan. Tecido › Distribuir por loja"; "Preencher com o plano"; "Reaplica a regra: preenche onde bate com a Grade Real"; "Total do plano"; "Distribua à mão"; "faltam {N}"; "Grade Real = o que voltou da recepção dos serviços, já sem os defeitos do CQ."; "{N} modelos direcionados".
 
 **QA**
-- Gravação SÓ na cópia (`:5188`, Loja Teste, card/modelo combinados com o dono — P-35); `:5173` (PRODUÇÃO) só leitura. Playwright com `E2E_BASE_URL` explícito. Sem semear dado; nunca trocar a loja ativa do usuário compartilhado; nunca subir/matar `:5173`/`:5188`.
+- Gravação SÓ na cópia (`:5188`, Loja Teste, card/modelo ESCOLHIDOS pelo controlador e aprovados pelo dono no painel — P-35 = A, Task 11 Step 7a); `:5173` (PRODUÇÃO) só leitura. Playwright com `E2E_BASE_URL` explícito. Sem semear dado; nunca trocar a loja ativa do usuário compartilhado; nunca subir/matar `:5173`/`:5188`.
 
 **Processo**
-- SDD: implementador Sonnet por task (não despacha subagente); revisor Opus por task/lote (§4); o `code-reviewer` roda sem pedir. Tasks 4 e 9 (banco): **G-migration** = 2 revisões Opus INDEPENDENTES + guardião `guardiao-unificacao`. O guardião acompanha TODOS os portões (§4) e registra no diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (checkout principal). Avisos e OKs do dono SÓ por chat (nunca `ExitPlanMode`).
+- SDD: implementador Sonnet por task (não despacha subagente); revisor Opus por task/lote (§4); o `code-reviewer` roda sem pedir. Tasks 4 e 9 (banco): **G-migration** = 2 revisões Opus INDEPENDENTES + guardião `guardiao-unificacao`. O guardião acompanha TODOS os portões (§4) e registra no diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (checkout principal). Avisos e perguntas ao dono SÓ pelo PAINEL da campanha (P-xx com botão Copiar; o dono responde no chat — memória `feedback_comunicar_pelo_painel`); nunca `ExitPlanMode`.
 - O código do plano NÃO foi executado pelo planejador: erro de sintaxe ⇒ corrigir o MÍNIMO e registrar em `.superpowers/distribuicao/desvios.md` (erro literal, causa, correção). Diferença de REGRA (TS × SQL, número do mockup) ⇒ PARE e chame o controlador.
 
 ---
@@ -59,8 +59,8 @@
 - md5 VIVOS de referência (cópia = retrato de produção `fidelidade_prod_pos_sem_trava_detalhe.txt`, 25/set 13:08 — o gerador RELÊ, não usa estes): `_salvar_plan_tecido_core` `ddadff5e…`, `_plan_tecido_arvore_core` `d8685568…`, `_plan_tecido_gravar_bom_core` `3cc5d45c…`, `_plan_tecido_snapshot` `c9492de3…`, `tenant_module_enabled` `0b87d95b…`; a remover: `direcionamento_resumo_subcolecao` `d431e4ed…`, `distribuicao_resumo` `dc8b90c4…`, `salvar_distribuicao_tabela` `0227b0fa…`, `excluir_distribuicao_tabela` `ee38685a…`.
 - Retrato de fidelidade (`FIDEL_DET` do `bloco_apoio_v2.sh` da F1) tem SÓ as categorias `colunas`, `event_triggers`, `funcoes`, `gatilhos`, `indices`, `policies` (NÃO existe `tabelas`). Chaves: `funcoes:public.<nome>(<tipos>)`, `colunas:public.<tabela>.<coluna>`, `gatilhos:public.<tabela>.<gatilho>`, `indices:public.<índice>`, `policies:public.<tabela>.<policy>` e `policies:public.<tabela>.(rls)`. A tabela antiga ocupa 17 linhas (12 colunas, 1 gatilho, 2 policies, 2 índices) + 4 funções = 21. A F1 NÃO mexeu em nenhuma chave desta frente (conferido: `comm` pré×pós F1).
 - `tenant_config.tamanhos_grade` formato `"34|PPP"`; Ark Store usa itens soltos; `modelos.tamanho_tipo` NULL na cópia (a reorg põe `DEFAULT 'letra'` + backfill; o front trata NULL como Letra). `NumberInput` transforma vazio em `"0"`. `DialogBody` NÃO repassa `ref` (o dialog usa uma `<div>` com as mesmas classes `min-h-0 overflow-y-auto` para ter o `scopeRef`).
-- `pathDoElemento` (`src/lib/colab/colab-field-path.ts`) só aceita `input/textarea/select/[contenteditable]` ANTES de ler `data-colab-path`; nenhum botão do repo usa `data-colab-path` (grep). Eventos React de foco atravessam portal (o `onFocusCapture` do `<main>` do Plan. Tecido recebe o foco dos campos do dialog e do popover).
-- Vitest roda em `environment: "node"` (sem DOM): testes de presença são de função pura (com elemento-stub) e de FONTE.
+- `pathDoElemento` (`src/lib/colab/colab-field-path.ts`) só aceita `input/textarea/select/[contenteditable]` ANTES de ler `data-colab-path`. **Correção do G-plano (R5):** há 10 `SelectTrigger` com `data-colab-path` — `ProdutoCard.tsx:637/650/665/678/825/829` e `ProdutoImportadoCard.tsx:70/583/587/718` (Produto Acabado/Importado, que usam `pathDoElemento`); com o R20 a presença passa a disparar neles — ACEITO (PR14). Dev/Explosão não têm elemento não-campo com `data-colab-path` (conferido pelo guardião). Eventos React de foco atravessam portal (o `onFocusCapture` do `<main>` do Plan. Tecido recebe o foco dos campos do dialog e do popover).
+- Vitest roda em `environment: "node"` (sem DOM): testes de presença são de função pura (com elemento-stub) e de FONTE. O `tsconfig.json` só inclui `src/**`: os testes NÃO passam pelo `tsc` (nota N8 do G-plano) — os testes das Tasks 2/3 usam campos que a Task 3 cria; o esbuild do vitest não checa tipo, e a revisão do Lote A confere os tipos dos testes à mão.
 - `src/routeTree.gen.ts` é VERSIONADO e regenerado pelo `vite build` (o plugin do TanStack Router roda no build). A worktree não tem `node_modules` (Task 0 instala).
 
 ## 2. Rulings do plano (os de desenho estão na spec §3 — R1…R39)
@@ -76,6 +76,16 @@
 | PR7 | Suítes de integração com modo `DIST_MIG_TXN=1` (aplica o SQL dentro da txn revertida — sem as 2 travas `SET LOCAL` do arquivo) e modo "já aplicada" (depois do ensaio/cópia). | Molde da reorg. | Nenhum. |
 | PR8 | A medição de travas do `DROP TABLE` (Task 9 Step 1) roda na CÓPIA numa txn REVERTIDA com o N3 (aviso ao dono) e o resultado vai para `.superpowers/distribuicao/travas-drop.txt`; se aparecer trava em `auth.*`/`storage.*`/`realtime.*` o controlador leva ao dono antes de seguir (a remoção fica em horário calmo de qualquer jeito). | Memória `reference_policy_ddl_trava_auth` (DDL de policy trava auth/storage) + o `DROP TABLE` derruba a policy e os gatilhos de FK em `tenants`/`colecoes`. | Um PARE a mais. |
 | PR9 | A QA do plano de escrita usa a cópia; o QA spec NÃO é versionado (`tests/e2e/distribuicao-qa.spec.ts`, apagado na limpeza). | R35 + molde. | Nenhum. |
+| PR10 | **Lições da G-migration da reorg (G-plano R1)** nas 2 migrations e nos 2 inversos: `SET client_encoding = 'UTF8';` ANTES do `BEGIN;`; bloco `DO $pos$` imediatamente antes do `NOTIFY`/`COMMIT` (md5 "depois" das 5 redefinidas + 2 novas, colunas e CHECKs — na volta, md5 "antes" e o que saiu; RAISE desfaz TUDO) + 1 teste por suíte que prova a recusa (md5/condição adulterada); `NOTIFY pgrst, 'reload schema';` antes do `COMMIT`; `export PGCLIENTENCODING=UTF8` em TODO script que aplica SQL (`extra.sh`/`aplica.sh`, ida, remover, voltas, `copia.sh`, `ensaio-local.sh` — a prova confere); trava explícita (`LOCK TABLE … IN ACCESS EXCLUSIVE MODE`) ANTES da guarda nos 2 arquivos que APAGAM dado (inverso da aditiva: `plan_tecido_variantes`; remoção: `distribuicao_tabelas`, dentro de `DO $trava$` p/ seguir idempotente); cabeçalho "Aplicar SÓ via <script>". Referências: reorg `task-6-fix1.md` F1–F6 e `task-7-adendo.md`. | Os SQL têm acento; o `aplica_v2` manda o arquivo por `psql -c` (o SET de dentro do arquivo não protege); conferir só DEPOIS do COMMIT deixaria texto corrompido gravado. | Nenhum (só mais checagem). |
+| PR11 | **"Atende a" automático não vira "à mão" depois do 1º aplicar (G-plano R2):** no `slotDeModeloReal`, o casamento do BOM IGUAL ao automático — toda cor casada do Tecido 1 com a MESMA cor base da cor do bloco — volta como `atende = null` (helper `atendeDoBom`); casamento com outra cor base segue lista à mão. Teste: cor NOVA do T1 com a mesma cor base é atendida sozinha. | Senão o aplicar grava o casamento automático, o reload o lê como lista à mão e a cor nova cai em "Sem cor deste forro" — contraria a P-17. | Uma escolha à mão que por acaso = cor base volta a ser automática (visível no popover; ↺ não muda nada). |
+| PR12 | **Número do card = Resumo/Pedido depois do 1º Salvar (G-plano R3 + P-31):** a carga não-suja roda `efeitoDaCarga(cru, distOpts, podeEditar)` (Task 2): se a normalização MUDOU algum slot (pç derivado ≠ gravado), a base do merge colab = a árvore CRUA, os slots mudados entram como tocados, o Sheet fica "não salvo" e mostra no topo "N cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar"; sem mudança ⇒ nada sujo; sem permissão de editar ⇒ só o aviso. "Descartar" re-deriva (volta a sujar). QA confere card = Resumo depois de salvar. | O Resumo, o Modo Plano e o Fazer pedido leem o `grade_total` SALVO no servidor (`_plan_tecido_nec_variante_core`); só o card via a soma. | Quem só abre a coleção recebe "Descartar alterações?" até alguém salvar 1× (é o aviso pedido). |
+| PR13 | **Casamento preservado só com as cores ATUAIS do Tecido 1 (G-plano R4):** no `_plan_tecido_gravar_bom_core`, o ramo "chave ausente" também filtra `x.id = any(v_t1_ids)`; teste: a cor casada sai do T1 ⇒ sai do casamento e a reserva (`_grade_soma_pares`) segue com as que ficaram (não zera em silêncio — #4). | Antes o bug "apaga sempre" escondia isso. | Nenhum. |
+| PR14 | **R20 liga a presença também nos 10 `SelectTrigger` de Produto Acabado/Importado (G-plano R5) — ACEITO**, alinhado ao roadmap "ring de presença em todas as telas editáveis"; a QA a 2 confere o anel nesses selects. | É o efeito natural do `data-colab-path` explícito; restringir exigiria um filtro por tag sem ganho. | Anel aparece onde antes não aparecia (desejável). |
+| PR15 | **Espera dos módulos por `isFetched` (G-plano R6 / PR3):** `useTenantModules` passa a devolver também `isFetched` (aditivo); o Plan. Tecido semeia só com `tamanhosProntos && modulosProntos`; `distOpts` entra na "fonte" da semeadura (`srcRef`), então grade/módulos que chegam ou mudam depois RE-SEMEIAM (limpo) — o efeito de carga não sai cedo em silêncio. Teste de fonte. | Com a query desabilitada (tenant ainda não resolvido) `isLoading` é false e a 1ª carga leria o módulo como desligado (DEFAULTS). | Meio segundo a mais na 1ª carga. |
+| PR16 | **P-09 no celular (G-plano R7):** o ponto da célula à mão abre um balão (Popover; toque/clique abre, mouse vê o `title`) com "Editado à mão · calculado seria N" e um botão ↺ "Voltar ao calculado" SEPARADO; tocar no ponto NUNCA volta sozinho. Legenda ajustada. | O `title` nativo não aparece no toque e o ponto voltava direto. | Nenhum. |
+| PR17 | **N3 pelo PAINEL (G-plano R8):** o texto do `n3.sh` manda avisar no PAINEL; `DIST_DONO_AVISADO=sim` só depois do aviso publicado pelo controlador; cada aviso tem o id registrado no ledger `.superpowers/distribuicao/avisos.md` e o `n3.sh` recusa sem a linha do passo. P-37 (pergunta do controlador): a autorização P-30 B (N3 só com aviso) vale para esta frente? Se não, o aviso passa a exigir OK — o script é o mesmo. | Feedback do dono 25/set ("comunicar pelo painel"); rastro de cada aviso (nota 7 da reorg). | Um passo a mais por rodada na cópia. |
+| PR18 | **Notas baratas do G-plano:** N2 — a RPC nova resolve `colecao_id` pela coleção-texto quando falta (como a antiga); N3 — `loja_id` por `CASE WHEN d.key ~* <uuid> THEN d.key::uuid END` (chave que não é uuid não derruba a RPC) + fixture "lixo" no teste; N4 — o checklist do G-scripts diz "frase na remoção e na volta da aditiva; a volta da remoção só recria (sem frase)"; N8 — nota nos fatos (§1). Registrados sem mudança: N1 (a P-31 também muda o forro do PLANO de card já enviado à Explosão — o BOM não muda porque o auto-aplicar pula os enviados; levado ao dono no Task 11 Step 3), N5 (já no Step 3(b)), N6 (derivas justificadas: R33 e R14), N7 (aba antiga pós-deploy — "abas recarregadas" já no RODAR). | Custo baixo, sem risco. | Nenhum. |
+| PR19 | **Respostas do dono (25/set):** P-31 = A (todos os cards; sem amarração mantém o pç digitado + aviso âmbar); **P-32 = B** (o semi-preenchimento do Direcionamento NÃO conta como não salvo: `resetBaseline(p ? p.obj : obj)` na Task 7 (g), `touched` mantido); P-33 = A; P-34 = A; **P-35 = A** (o controlador escolhe card/modelo da QA na cópia, publica os ids no painel e espera o OK — Task 11 Step 7); **P-36 = B** (Imprimir só no desktop: `max-sm:hidden` no botão; a `PrintArea` fica). | Decisões do dono (spec §2). | — |
 
 ## 3. Mapa de arquivos
 
@@ -105,7 +115,7 @@
 | `src/routes/_authenticated/expedicao.direcionamento.$modeloId.tsx` | Sai a tira; entra plano, contador, preenchimento, rótulos, InfoHover | 7 |
 | `tests/unit/direcionamento-plano-fonte.test.ts` (novo) | FONTE: paths `dir:` nas células, RPC nova, sem RPC antiga | 7 |
 | `src/routes/_authenticated/distribuicao.index.tsx`, `src/components/distribuicao/{DistribuicaoTabela,ResumoColecao}.tsx`, `src/lib/distribuicao.ts`, `tests/unit/distribuicao.test.ts` (APAGADOS) | Página antiga | 8 |
-| `src/lib/nav.ts`, `src/lib/permissions-catalog.ts`, `src/components/app-sidebar.tsx`, `src/hooks/useTenantModules.ts`, `src/routes/_authenticated/admin/lojas.tsx`, `src/routeTree.gen.ts` | Sai a página; fica o módulo | 8 |
+| `src/lib/nav.ts`, `src/lib/permissions-catalog.ts`, `src/components/app-sidebar.tsx`, `src/hooks/useTenantModules.ts`, `src/routes/_authenticated/admin/lojas.tsx`, `src/routeTree.gen.ts` | Sai a página; fica o módulo (+ `useTenantModules` devolve `isFetched` — PR15, Task 5) | 5, 8 |
 | `tests/unit/distribuicao-remocao.test.ts` (novo) | FONTE da remoção | 8 |
 | `supabase/migrations/20261006110000_distribuicao_antiga_remover.sql` + `supabase/rollback/…_down.sql` (gerados) | DROP das 4 RPCs + tabela; inverso recria | 9 |
 | `tests/integration/distribuicao-antiga-remover.test.ts` (novo) | Estático + banco (SÓ cópia) da remoção | 9 |
@@ -195,7 +205,7 @@ echo "BASE $(cut -c1-8 .superpowers/distribuicao/BASE)"
 10. Tela: `mensagemErro`, cor só por token/classe, textos do plano verbatim, `data-colab-path` do plano.
 11. Não subir/derrubar servidor; nunca `:5173`/`:5188`. Não despachar subagentes. Nunca imprimir senha/.env.
 12. Erro de sintaxe do código do plano: corrigir o mínimo e registrar em `.superpowers/distribuicao/desvios.md`. Diferença de
-    REGRA (número do mockup, TS × SQL) ou dúvida de negócio: PARE e chame o controlador (ele leva ao dono por chat).
+    REGRA (número do mockup, TS × SQL) ou dúvida de negócio: PARE e chame o controlador (ele leva ao dono pelo painel).
 ```
 
 - [ ] **Step 4: Lista permitida — `.superpowers/distribuicao/permitidos.txt`**
@@ -325,18 +335,22 @@ if [ "$QUANDO" = antes ]; then
   [ "$N" = 0 ] || { echo "PARE: $N sessão(ões) ativa(s) na cópia — outra frente usando; esperar"; exit 1; }
   if [ "${DIST_DONO_AVISADO:-}" != sim ]; then
     cat <<'MSG'
-PARE: avise o dono no chat ANTES e espere o OK (depois rode de novo com DIST_DONO_AVISADO=sim):
+PARE (PR17): o CONTROLADOR publica este aviso no PAINEL da campanha ANTES, registra o id do aviso no ledger
+.superpowers/distribuicao/avisos.md (linha "- <data hora> <passo> aviso=<id> ok=<dispensado-P-37|texto do OK>") e só
+então roda de novo com DIST_DONO_AVISADO=sim. Se a P-37 disser que a P-30 B NÃO vale para esta frente (ou enquanto
+ela não for respondida), espere também o OK do dono (colado no chat). Texto do aviso:
   "Vou rodar <passo> da Distribuição por produto na cópia local agora (~<N> min). Enquanto roda, o app de teste :5188
-   pode congelar por alguns segundos de cada vez (ALTER/DROP dentro de transação). Se estiver usando o :5188, salve e me
-   avise quando posso começar."
+   pode congelar por alguns segundos de cada vez (ALTER/DROP dentro de transação). Se estiver usando o :5188, salve."
 MSG
     exit 1
   fi
+  AVISO=$(grep -E "^- .* $PASSO aviso=[^ ]+" .superpowers/distribuicao/avisos.md 2>/dev/null | tail -1 | sed -E 's/.* aviso=([^ ]+).*/\1/')
+  [ -n "$AVISO" ] || { echo "PARE: sem o aviso do painel para '$PASSO' no ledger .superpowers/distribuicao/avisos.md (formato: - <data hora> $PASSO aviso=<id> ok=<…>)"; exit 1; }
 fi
 E=$(PGOPTIONS='-c default_transaction_read_only=on' psql "$LOCAL" -X -A -t -c "select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public') || '|' || (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal) || '|A=' || (to_regprocedure('public.direcionamento_plano_modelo(uuid)') is not null) || '|antiga=' || (to_regclass('public.distribuicao_tabelas') is not null)") \
   || { echo "PARE: não li o estado da cópia"; exit 1; }
 P=$(lsof -nP -iTCP:5188 -sTCP:LISTEN -t 2>/dev/null | head -1)
-AV=""; [ "$QUANDO" = antes ] && AV=" · dono avisado"
+AV=""; [ "$QUANDO" = antes ] && AV=" · dono avisado (painel, aviso ${AVISO:-?})"
 echo "$(date '+%F %T') $QUANDO $PASSO: funções|gatilhos|aditiva|antiga = $E · :5188 $([ -n "$P" ] && echo "no ar (PID $P)" || echo "fora do ar")$AV" \
   | tee -a .superpowers/distribuicao/logs/n3.log
 [ "$QUANDO" = antes ] && echo "OK (N3): pode rodar $PASSO"
@@ -805,15 +819,15 @@ git show --stat HEAD
 
 **Interfaces:**
 - Consumes: `varKey`, `buildMateriaisAplicar` (`src/lib/plan-tecido/calc.ts`, existentes); da Task 1: `normalizarDistribuicao`, `tamanhosDoTipo`, `temDistribuicao`, `tipoDoProduto`, `totaisDaDistribuicao`; tipos `PtArvore`, `PtMaterial`, `PtSlot`, `PtVariante` (a Task 3 acrescenta `distribuicao`/`atende`/`tamanho_tipo` — ATÉ a Task 3, os testes desta task usam objetos com esses campos via `as` e o `tsc` dos gates PASSA porque o arquivo acessa os campos por `(v as PtVarianteDist)` — ver o tipo local abaixo).
-- Produces (Tasks 3, 5, 6): `ehTecido1(m)`, `resolverChaveT1(k, t1): string | null`, `type Atendimento = { porCor: Map<string, string[]>; servidaPor: Map<string, string>; manual: Set<string> }`, `atendimentoDoBloco(t1, bloco): Atendimento`, `pcAtendido(t1, servidas)`, `alternarAtende(at, kb, kt): string[]`, `complementaReal(servidas): string[]`, `type OpcoesDist = { ligado: boolean; tamanhos: string[] }`, `normalizarSlotDistribuicao(slot, o): PtSlot`, `normalizarArvoreDistribuicao(arv, o): PtArvore`, `materiaisParaAplicar(slot, ligado)`.
+- Produces (Tasks 3, 5, 6): `ehTecido1(m)`, `resolverChaveT1(k, t1): string | null`, `type Atendimento = { porCor: Map<string, string[]>; servidaPor: Map<string, string>; manual: Set<string> }`, `atendimentoDoBloco(t1, bloco): Atendimento`, `pcAtendido(t1, servidas)`, `alternarAtende(at, kb, kt): string[]`, `complementaReal(servidas): string[]`, `type OpcoesDist = { ligado: boolean; tamanhos: string[] }`, `normalizarSlotDistribuicao(slot, o): PtSlot`, `normalizarArvoreDistribuicao(arv, o): PtArvore`, `type EfeitoCarga`, `efeitoDaCarga(cru, o, podeEditar): EfeitoCarga` (PR12), `materiaisParaAplicar(slot, ligado)`.
 
 - [ ] **Step 1: Escrever o teste (falha)** — `tests/unit/plan-tecido-atendimento.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
 import {
-  alternarAtende, atendimentoDoBloco, complementaReal, materiaisParaAplicar, normalizarArvoreDistribuicao, normalizarSlotDistribuicao,
-  pcAtendido, resolverChaveT1,
+  alternarAtende, atendimentoDoBloco, complementaReal, efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao,
+  normalizarSlotDistribuicao, pcAtendido, resolverChaveT1,
 } from "@/lib/plan-tecido/atendimento";
 import { definirBase, definirCelula, type Distribuicao } from "@/lib/distribuicao-produto";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
@@ -921,6 +935,32 @@ describe("normalizarSlotDistribuicao (R6)", () => {
     const s = normalizarSlotDistribuicao(slot([mat("tecido", 1, T1)]), LIG);
     const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [s] }] }] };
     expect(normalizarArvoreDistribuicao(arv, LIG)).toBe(arv);
+  });
+});
+
+describe("efeitoDaCarga (G-plano R3 — PR12: card = Resumo depois do 1º Salvar)", () => {
+  const LIG = { ligado: true, tamanhos: GRADE };
+  const arvDe = (s: PtSlot): PtArvore => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [s] }] }] });
+  it("normalização sem mudança ⇒ NÃO fica sujo, sem aviso; base = a própria árvore", () => {
+    const n = normalizarSlotDistribuicao(slot([mat("tecido", 1, T1), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]), LIG);
+    const e = efeitoDaCarga(arvDe(n), LIG, true);
+    expect(e).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
+    expect(e.arvore).toBe(e.base);
+  });
+  it("forro gravado com pç ≠ soma das cores atendidas ⇒ FICA SUJO, aviso com N cores e o slot tocado; a base é a árvore CRUA", () => {
+    const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7), v("fr-bege", "cor-bege", 12)])]));
+    const e = efeitoDaCarga(cru, LIG, true);
+    expect(e).toMatchObject({ tocados: ["s1"], recalculadasForaT1: 1, sujo: true });
+    expect(e.base).toBe(cru);
+    expect(e.arvore.subcolecoes[0].linhas[0].slots[0].materiais[1].variantes.map((x) => x.grade_total)).toEqual([71, 12]);
+  });
+  it("sem permissão de editar ⇒ o aviso aparece mas NÃO suja (não dá para salvar)", () => {
+    const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
+    expect(efeitoDaCarga(cru, LIG, false)).toMatchObject({ recalculadasForaT1: 1, sujo: false });
+  });
+  it("módulo desligado ⇒ nada muda (R4)", () => {
+    const cru = arvDe(slot([mat("tecido", 1, [v("vt-marrom", MARROM, 71)]), mat("forro", 1, [v("fr-marrom", MARROM, 7)])]));
+    expect(efeitoDaCarga(cru, { ligado: false, tamanhos: GRADE }, true)).toMatchObject({ tocados: [], recalculadasForaT1: 0, sujo: false });
   });
 });
 
@@ -1096,6 +1136,34 @@ export function normalizarArvoreDistribuicao(arv: PtArvore, o: OpcoesDist): PtAr
   return mudou ? { ...arv, subcolecoes } : arv;
 }
 
+export type EfeitoCarga = { arvore: PtArvore; base: PtArvore; tocados: string[]; recalculadasForaT1: number; sujo: boolean };
+
+/** Carga do Plan. Tecido (G-plano R3 — PR12). Normaliza a árvore CRUA (o que o banco tem). Se a normalização MUDOU algum
+ *  slot (pç derivado da distribuição ou do "atende a" ≠ o gravado), o slot fica "não salvo": a base do merge colab segue
+ *  a CRUA, os slots mudados entram como tocados e o Sheet mostra o aviso — assim, depois do 1º Salvar, o número do card é
+ *  o mesmo que o Resumo/Modo Plano/Fazer pedido (servidor) leem. Sem mudança ⇒ nada sujo. Sem permissão ⇒ só o aviso. */
+export function efeitoDaCarga(cru: PtArvore, o: OpcoesDist, podeEditar: boolean): EfeitoCarga {
+  const arvore = normalizarArvoreDistribuicao(cru, o);
+  if (arvore === cru) return { arvore, base: cru, tocados: [], recalculadasForaT1: 0, sujo: false };
+  const tocados: string[] = [];
+  let slotsMudados = 0;
+  let foraT1 = 0;
+  cru.subcolecoes.forEach((sub, i) => sub.linhas.forEach((ln, j) => ln.slots.forEach((s, k) => {
+    const n = arvore.subcolecoes[i].linhas[j].slots[k];
+    if (n === s) return;
+    slotsMudados++;
+    if (s.id) tocados.push(s.id);
+    s.materiais.forEach((m, mi) => {
+      if (ehTecido1(m)) return;
+      m.variantes.forEach((v, vi) => {
+        const nv = n.materiais[mi]?.variantes[vi];
+        if (nv && (Number(nv.grade_total) !== Number(v.grade_total) || !igual(nv.grades ?? {}, v.grades ?? {}))) foraT1++;
+      });
+    });
+  })));
+  return { arvore, base: cru, tocados, recalculadasForaT1: foraT1, sujo: podeEditar && slotsMudados > 0 };
+}
+
 /** Payload de `plan_tecido_aplicar_ao_modelo`/`plan_tecido_criar_card(s)` = o de sempre (`buildMateriaisAplicar`, fonte
  *  única) + `complementa_variante_ids` em cada cor de bloco que NÃO é o T1, SÓ com o módulo ligado (R3/R4). Sem o módulo a
  *  chave não vai e o servidor PRESERVA o casamento que o BOM já tinha. */
@@ -1151,9 +1219,9 @@ git show --stat HEAD
 
 **Interfaces:**
 - Consumes: `varKey` (`calc.ts`); `ehTecido1` (Task 2); `Distribuicao` (Task 1).
-- Produces: `PtVariante.distribuicao?: Distribuicao`, `PtVariante.atende?: string[] | null`, `PtSlot.tamanho_tipo?: "letra" | "numero" | null` (só exibição — o servidor não lê); `ModeloRealMaterial.variantes[].cor_id?`, `.complementa_variante_ids?`; `ModeloReal.tamanho_tipo?`; `comDistribuicaoDoPlano(vivos, salvos)`, `comAtendeDoPlano(vivos, salvos)`.
+- Produces: `PtVariante.distribuicao?: Distribuicao`, `PtVariante.atende?: string[] | null`, `PtSlot.tamanho_tipo?: "letra" | "numero" | null` (só exibição — o servidor não lê); `ModeloRealMaterial.variantes[].cor_id?`, `.complementa_variante_ids?`; `ModeloReal.tamanho_tipo?`; `atendeDoBom(v, corDoT1)` (PR11); `comDistribuicaoDoPlano(vivos, salvos)`, `comAtendeDoPlano(vivos, salvos)`.
 
-- [ ] **Step 1: Teste (falha)** — acrescentar ao FIM de `tests/unit/plan-tecido-engine.test.ts` (e `comDistribuicaoDoPlano, comAtendeDoPlano` no import do topo):
+- [ ] **Step 1: Teste (falha)** — acrescentar ao FIM de `tests/unit/plan-tecido-engine.test.ts` (e `comDistribuicaoDoPlano, comAtendeDoPlano, atendeDoBom` no import do topo do engine + `import { atendimentoDoBloco } from "@/lib/plan-tecido/atendimento";`):
 
 ```ts
 describe("plan-tecido/engine — Distribuição por produto (Task 3)", () => {
@@ -1161,18 +1229,32 @@ describe("plan-tecido/engine — Distribuição por produto (Task 3)", () => {
     id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
     proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
   });
-  it("slotDeModeloReal: cor_id em todas; casamento do BOM vira 'atende' fora do T1; tamanho_tipo no slot", () => {
+  it("slotDeModeloReal: cor_id em todas; casamento do BOM vira 'atende' fora do T1 (igual ao automático ⇒ NULL — PR11); tamanho_tipo no slot", () => {
     const s = slotDeModeloReal(baseMr([
-      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: null }] },
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: null },
+        { variante_tecido_id: "vt2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: null },
+      ] },
       { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
-        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] },
-        { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: null },
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }, // = automático (mesma cor base)
+        { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: ["vt1"] }, // à mão (outra cor base)
+        { variante_tecido_id: "fr3", ordem: 3, multiplicador: 1, cor_id: "c3", complementa_variante_ids: null },
       ] },
     ]), 0);
     expect(s.tamanho_tipo).toBe("numero");
     expect(s.materiais[0].variantes[0]).toMatchObject({ cor_id: "c1" });
     expect(s.materiais[0].variantes[0]).not.toHaveProperty("atende");
-    expect(s.materiais[1].variantes.map((v) => v.atende)).toEqual([["vt1"], null]);
+    expect(s.materiais[1].variantes.map((v) => v.atende)).toEqual([null, ["vt1"], null]);
+  });
+  it("PR11 (G-plano R2): depois do 1º aplicar, uma cor NOVA do T1 com a mesma cor base é atendida sozinha (P-17)", () => {
+    const s = slotDeModeloReal(baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull();
+    const t1 = [...s.materiais[0].variantes, { ...s.materiais[0].variantes[0], variante_tecido_id: "vt1b", ordem: 2 }];
+    expect(atendimentoDoBloco(t1, s.materiais[1].variantes).porCor.get("fr1")).toEqual(["vt1", "vt1b"]);
+    expect(atendeDoBom({ cor_id: "c1", complementa_variante_ids: ["vt1", "vt2"] }, new Map([["vt1", "c1"], ["vt2", "c2"]]))).toEqual(["vt1", "vt2"]);
   });
   it("comDistribuicaoDoPlano: leva a distribuição salva para a cor viva do T1 (por chave e, planejada→real, por cor+apelido)", () => {
     const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
@@ -1281,14 +1363,39 @@ import { ehTecido1 } from "./atendimento";
           cor_nome: v.cor_nome ?? null,
           label: v.label ?? undefined,
           cor_id: v.cor_id ?? null,
-          // Distribuição por produto (R3/R7): o casamento do BOM é o "atende a" fora do Tecido 1 (NULL = automático).
-          ...(g.tipo === "tecido" && numero === 1
-            ? {}
-            : { atende: Array.isArray(v.complementa_variante_ids) && v.complementa_variante_ids.length ? [...v.complementa_variante_ids] : null }),
+          // Distribuição por produto (R3/R7): o casamento do BOM é o "atende a" fora do Tecido 1 (NULL = automático);
+          // igual ao automático (mesma cor base) volta NULL — PR11.
+          ...(g.tipo === "tecido" && numero === 1 ? {} : { atende: atendeDoBom(v, corDoT1) }),
         };
 ```
 
-e, no objeto do slot retornado (logo depois de `proporcoes: mr.proporcoes ?? null,`), acrescentar `tamanho_tipo: mr.tamanho_tipo ?? null,`.
+e, no objeto do slot retornado (logo depois de `proporcoes: mr.proporcoes ?? null,`), acrescentar `tamanho_tipo: mr.tamanho_tipo ?? null,`. Em `slotDeModeloReal`, logo DEPOIS do laço que monta `grupos` (antes de `const seqPorTipo`), acrescentar:
+
+```ts
+  // PR11: cor base de cada variante do Tecido 1 do BOM — o 1º grupo de tecido (o mesmo que puxa a grade do Dev), com os
+  // substitutos — p/ reconhecer o casamento igual ao automático.
+  const gT1 = Array.from(grupos.values()).find((x) => x.tipo === "tecido");
+  const corDoT1 = new Map(
+    (gT1?.mats ?? []).flatMap((m) => m.variantes.map((x) => [x.variante_tecido_id, x.cor_id ?? null] as const)),
+  );
+```
+
+e, no nível do módulo (logo antes de `slotDeModeloReal`), o helper:
+
+```ts
+// PR11 (G-plano R2): o casamento do BOM (complementa_variante_ids) vira o "atende a" do plano. IGUAL ao automático —
+// toda cor casada do Tecido 1 tem a MESMA cor base da cor do bloco — volta NULL (automático): senão, depois do 1º aplicar,
+// uma cor NOVA do T1 com a mesma cor base deixaria de ser atendida sozinha (P-17). Outra cor base = lista à mão.
+export function atendeDoBom(
+  v: { cor_id?: string | null; complementa_variante_ids?: string[] | null },
+  corDoT1: Map<string, string | null>,
+): string[] | null {
+  const ids = Array.isArray(v.complementa_variante_ids) ? v.complementa_variante_ids.filter(Boolean) : [];
+  if (ids.length === 0) return null;
+  if (v.cor_id && ids.every((id) => corDoT1.get(id) === v.cor_id)) return null;
+  return [...ids];
+}
+```
 
 (e) Depois de `comGradeDoPlano` (fim da função, antes do comentário de `artigoTecido1Do`), acrescentar:
 
@@ -1391,7 +1498,7 @@ git commit --only -m "feat(plan-tecido): distribuição e 'atende a' atravessam 
 git show --stat HEAD
 ```
 
-- [ ] **Step 7: Revisão Lote A (Opus)** — o controlador despacha 1 revisor Opus com as Tasks 1–3 (diffs + testes + spec R1–R17): números do mockup; regra do "atende a" (manual vence, 1 por cor, sem amarração = digitado); normalização idempotente e devolvendo o mesmo objeto; merge sem perda (chave e planejada→real); nenhum import circular (`calc` NÃO importa `atendimento`); `buildMateriaisAplicar` intocado. Achados ⇒ corrigir na task de origem (novo commit), repetir os testes.
+- [ ] **Step 7: Revisão Lote A (Opus)** — o controlador despacha 1 revisor Opus com as Tasks 1–3 (diffs + testes + spec R1–R17 + PR11/PR12): números do mockup; regra do "atende a" (manual vence, 1 por cor, sem amarração = digitado; casamento do BOM = automático ⇒ NULL — PR11); `efeitoDaCarga` (sem mudança ⇒ limpo; com mudança ⇒ sujo + aviso — PR12); tipos dos testes conferidos à mão (o `tsc` não os vê — N8); normalização idempotente e devolvendo o mesmo objeto; merge sem perda (chave e planejada→real); nenhum import circular (`calc` NÃO importa `atendimento`); `buildMateriaisAplicar` intocado. Achados ⇒ corrigir na task de origem (novo commit), repetir os testes.
 
 ---
 ## Task 4: Migration aditiva `20261006100000` + inverso GERADOS do texto vivo + suíte de integração  *(G-migration A: 2 Opus independentes + guardião)*
@@ -1554,12 +1661,18 @@ describe("Distribuição A — arquivos (estático, sem banco)", () => {
     expect(v).toContain("DROP FUNCTION IF EXISTS public.direcionamento_plano_modelo(uuid);");
     expect(v).toContain("DROP FUNCTION IF EXISTS public._direcionamento_plano_modelo_core(uuid, uuid);");
   });
-  it("travas: 1 BEGIN/1 COMMIT e as 2 SET LOCAL logo depois do BEGIN; NENHUMA DDL de policy; nada em tenant_config; nada da reorg", () => {
+  it("travas: encoding ANTES do BEGIN; 1 BEGIN/1 COMMIT e as 2 SET LOCAL logo depois; $pos$ → NOTIFY → COMMIT (PR10); NENHUMA DDL de policy; nada em tenant_config; nada da reorg", () => {
     for (const f of [MIG, INV]) {
       const t = ler(f);
       const linhas = t.split("\n");
       const i = linhas.findIndex((l) => l === "BEGIN;");
+      expect(t.replace(/^--[^\n]*\n/gm, "").trimStart().startsWith("SET client_encoding = 'UTF8';\nBEGIN;\n"), f).toBe(true);
       expect(linhas.slice(i + 1, i + 3), f).toEqual(["SET LOCAL lock_timeout = '500ms';", "SET LOCAL transaction_timeout = '3s';"]);
+      const iPos = t.indexOf("DO $pos$"), iNot = t.indexOf("NOTIFY pgrst, 'reload schema';"), iCom = t.indexOf("\nCOMMIT;\n");
+      expect(iPos, f).toBeGreaterThan(0);
+      expect(iNot, f).toBeGreaterThan(t.indexOf("END $pos$;", iPos));
+      expect(iCom, f).toBeGreaterThan(iNot);
+      expect(t, f).toMatch(/Aplicar SÓ via \.superpowers\/distribuicao\/mig\//);
       expect(linhas.filter((l) => l === "BEGIN;"), f).toHaveLength(1);
       expect(linhas.filter((l) => l === "COMMIT;"), f).toHaveLength(1);
       expect(t, f).not.toMatch(/^[ \t]*(CREATE|DROP|ALTER)[ \t]+POLICY\b/im);
@@ -1568,14 +1681,15 @@ describe("Distribuição A — arquivos (estático, sem banco)", () => {
       expect(t, f).not.toMatch(/(REVOKE|GRANT)[^;]*tenant_module_enabled/); // ACL INTOCADA (R5)
     }
   });
-  it("ordem da migration: guarda → 4 redefinidas → core → wrapper → ACL → ALTER → CHECKs → COMMENT → árvore (sql) → COMMIT", () => {
+  it("ordem da migration: guarda → 4 redefinidas → core → wrapper → ACL → ALTER → CHECKs → COMMENT → árvore (sql) → $pos$ → NOTIFY → COMMIT", () => {
     const m = ler(MIG);
     const pos = (s: string) => m.indexOf(s);
     const ord = [
       "DO $guarda$", REDEF[0].cria, REDEF[1].cria, REDEF[2].cria, REDEF[3].cria, NOVAS[0].cria, NOVAS[1].cria,
       "REVOKE EXECUTE ON FUNCTION public._direcionamento_plano_modelo_core(uuid, uuid) FROM PUBLIC, anon, authenticated;",
       "ALTER TABLE public.plan_tecido_variantes\n  ADD COLUMN IF NOT EXISTS distribuicao jsonb NOT NULL DEFAULT '{}'::jsonb,",
-      "DO $ck$", "COMMENT ON COLUMN public.plan_tecido_variantes.distribuicao", REDEF[4].cria, "COMMIT;",
+      "DO $ck$", "COMMENT ON COLUMN public.plan_tecido_variantes.distribuicao", REDEF[4].cria, "DO $pos$",
+      "NOTIFY pgrst, 'reload schema';", "\nCOMMIT;\n",
     ].map(pos);
     ord.forEach((p, i) => expect(p, `item ${i}`).toBeGreaterThan(i === 0 ? m.indexOf("SET LOCAL transaction_timeout") : ord[i - 1]));
     expect(m).toContain("GRANT EXECUTE ON FUNCTION public.direcionamento_plano_modelo(uuid) TO authenticated;");
@@ -1584,8 +1698,11 @@ describe("Distribuição A — arquivos (estático, sem banco)", () => {
       expect(m).toContain(`REVOKE EXECUTE ON FUNCTION ${s} FROM PUBLIC, anon, authenticated;`);
     expect(m).not.toMatch(/DROP\s+(COLUMN|TABLE|FUNCTION)/i);
   });
-  it("inverso: confirmação + LIFO (exige a tabela antiga) → árvore ANTES → demais → DROP das novas → DROP COLUMN POR ÚLTIMO", () => {
+  it("inverso: trava explícita → confirmação + LIFO (exige a tabela antiga) → árvore ANTES → demais → DROP das novas → DROP COLUMN POR ÚLTIMO → $pos$", () => {
     const v = ler(INV);
+    const iLock = v.indexOf("LOCK TABLE public.plan_tecido_variantes IN ACCESS EXCLUSIVE MODE;"); // PR10: antes da guarda
+    expect(iLock).toBeGreaterThan(v.indexOf("SET LOCAL transaction_timeout"));
+    expect(iLock).toBeLessThan(v.indexOf("DO $guarda$"));
     expect(v).toContain("app.confirmo_apagar_distribuicao_por_produto");
     expect(v).toContain("to_regclass('public.distribuicao_tabelas') IS NULL");
     const iArv = v.indexOf(REDEF[4].cria), iSalvar = v.indexOf(REDEF[0].cria), iDrop = v.indexOf("DROP FUNCTION IF EXISTS public.direcionamento_plano_modelo(uuid);");
@@ -1594,8 +1711,8 @@ describe("Distribuição A — arquivos (estático, sem banco)", () => {
     expect(iSalvar).toBeGreaterThan(iArv);
     expect(iDrop).toBeGreaterThan(iSalvar);
     expect(iAlter).toBeGreaterThan(iDrop);
-    expect(v.slice(iAlter).replace(/--[^\n]*/g, "").trim()).toBe(
-      "ALTER TABLE public.plan_tecido_variantes\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_atende_array,\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_distribuicao_objeto,\n  DROP COLUMN IF EXISTS atende,\n  DROP COLUMN IF EXISTS distribuicao;\n\nCOMMIT;");
+    expect(v.slice(iAlter, v.indexOf("DO $pos$")).replace(/--[^\n]*/g, "").trim()).toBe(
+      "ALTER TABLE public.plan_tecido_variantes\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_atende_array,\n  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_distribuicao_objeto,\n  DROP COLUMN IF EXISTS atende,\n  DROP COLUMN IF EXISTS distribuicao;");
   });
 });
 
@@ -1764,7 +1881,7 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
     });
   });
 
-  it("gravar BOM: casamento do payload (só ids REAIS do T1 do payload); T1 nunca casa; chave ausente PRESERVA; [] limpa (R3)", async () => {
+  it("gravar BOM: casamento do payload (só ids REAIS do T1 do payload); T1 nunca casa; chave ausente PRESERVA só as cores que seguem no T1 (PR13); [] limpa (R3)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       await lojaComModulos(c, true);
@@ -1788,6 +1905,17 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       expect((await um<{ s: string }>(c, "select public._grade_soma_pares($1, $2::uuid[])::text s", [m.id, [k.vtMarrom, k.vtPreto]])).s).toBe("12");
       await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payload({})]); // SEM a chave
       expect((await comp())[2]).toEqual(["forro", [k.vtMarrom, k.vtPreto].sort()]);
+      // PR13 (G-plano R4): SEM a chave e o Preto SAIU do Tecido 1 ⇒ o Preto sai do casamento; a reserva do forro segue pelo
+      // que ficou (não zera em silêncio — #4).
+      await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, JSON.stringify([
+        { tipo: "tecido", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [
+          { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: { "38|P": 5 }, grade_total: 5 }] },
+        { tipo: "forro", numero: 1, artigo_id: k.artigo, consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1 }] },
+      ])]);
+      expect((await comp())[1]).toEqual(["forro", [k.vtMarrom]]);
+      expect((await um<{ s: string }>(c,
+        `select public._grade_soma_pares($1, mtv.complementa_variante_ids)::text s from modelo_tecido_variantes mtv
+           join modelo_tecidos mt on mt.id = mtv.modelo_tecido_id where mt.modelo_id = $1 and mt.tipo = 'forro'`, [m.id])).s).toBe("5");
       await c.query("select public._plan_tecido_gravar_bom_core($1, $2::jsonb)", [m.id, payload({ complementa_variante_ids: [] })]);
       expect((await comp())[2]).toEqual(["forro", null]);
     });
@@ -1809,7 +1937,8 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       await c.query("select public.salvar_plan_tecido($1, $2::jsonb)", [k.col, JSON.stringify(arvore([{ modelo_id: mo.id, slot_index: 0, materiais: [
         { artigo_id: k.artigo, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
           { variante_tecido_id: k.vtMarrom, ordem: 1, multiplicador: 1, grades: {}, grade_total: 7, distribuicao: { ...dist(L1, 5, { "38|P": 4, "40|M": 10 }, ["38|P"]), ...dist(L2, 1, { "38|P": 1.6 }) } },
-          { variante_tecido_id: k.vtPreto, ordem: 2, multiplicador: 1, grades: {}, grade_total: 3, distribuicao: dist(L1, 3, { "38|P": 3 }) },
+          { variante_tecido_id: k.vtPreto, ordem: 2, multiplicador: 1, grades: {}, grade_total: 3,
+            distribuicao: { ...dist(L1, 3, { "38|P": 3 }), lixo: { base: 1, grades: { "38|P": 1 }, manuais: [] } } }, // N3: chave que não é uuid é ignorada
           { variante_tecido_id: null, cor_id: k.corVinho, ordem: 3, multiplicador: 1, grades: {}, grade_total: 2, distribuicao: dist(L2, 2, { "40|M": 2 }) },
           { variante_tecido_id: null, cor_id: k.corPreto, cor_apelido_id: null, ordem: 4, multiplicador: 1, grades: {}, grade_total: 0 },
         ] },
@@ -1850,6 +1979,27 @@ describe.skipIf(!PRONTO)("Distribuição A — banco (cópia local, txn revertid
       try { await aplica(c, MIG); } catch (e) { erro = String((e as Error).message); }
       await c.query("ROLLBACK TO SAVEPOINT g");
       expect(erro).toMatch(/_plan_tecido_snapshot mudou/);
+    });
+  });
+
+  it("PR10 — pós-condição: md5 'depois' adulterado (simula corrupção pós-CREATE) ⇒ a ida RECUSA e desfaz TUDO", async () => {
+    if (!MIG_TXN) return; // só no modo txn (a cópia sem a migration)
+    await withTx(async (c) => {
+      exigeBancoLocal();
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      const antes = await Promise.all(REDEF.map((f) => def(c, f.fn)));
+      const mig = ler(MIG);
+      const real = guardas(MIG)[2].depois; // _plan_tecido_snapshot — a função é CRIADA com o texto real; só o $pos$ exige outro
+      const falso = real.slice(0, -1) + (real.at(-1) === "0" ? "1" : "0");
+      const alvo = `IF v_md5 IS DISTINCT FROM '${real}' THEN\n    RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou`;
+      expect(mig.split(alvo).length - 1).toBe(1);
+      const forjada = mig.replace(alvo, alvo.replace(real, falso));
+      let erro = "";
+      try { await aplicarSql(c, semTravas(forjada, "migration forjada"), "migration forjada"); } catch (e) { erro = String((e as Error).message); }
+      expect(erro).toMatch(/pós-condição falhou/);
+      expect(await Promise.all(REDEF.map((f) => def(c, f.fn)))).toEqual(antes);
+      expect((await um<{ n: number }>(c, "select count(*)::int n from information_schema.columns where table_name = 'plan_tecido_variantes' and column_name in ('distribuicao','atende')")).n).toBe(0);
+      expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.direcionamento_plano_modelo(uuid)') is null ok")).ok).toBe(true);
     });
   });
 
@@ -1950,9 +2100,11 @@ INSERT_VAR_DEPOIS = (
     "                                      then v->'complementa_variante_ids' else '[]'::jsonb end) as e(val)\n"
     "                         where e.val ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') x\n"
     "                  where x.id = any(v_t1_ids))\n"
-    "                else (\n"
-    "                  select array_agg((e.val)::uuid)\n"
-    "                  from jsonb_array_elements_text(v_comp_antes -> (v_tipo || '|' || v_num || '|' || (v->>'variante_tecido_id'))) as e(val))\n"
+    "                else (   -- chave ausente: PRESERVA o casamento anterior, SÓ com cores que seguem no Tecido 1 (PR13)\n"
+    "                  select nullif(array_agg(distinct x.id), '{}'::uuid[])\n"
+    "                  from (select (e.val)::uuid as id\n"
+    "                          from jsonb_array_elements_text(v_comp_antes -> (v_tipo || '|' || v_num || '|' || (v->>'variante_tecido_id'))) as e(val)) x\n"
+    "                  where x.id = any(v_t1_ids))\n"
     "              end);\n"
 )
 T1_SQL = "coalesce(v_mat->>'tipo','tecido') = 'tecido' and coalesce((v_mat->>'numero')::int,1) = 1"
@@ -2025,6 +2177,12 @@ CORE = "".join([
     "  IF NOT FOUND THEN\n",
     "    RAISE EXCEPTION 'Modelo não encontrado' USING ERRCODE = 'P0001';\n",
     "  END IF;\n",
+    "  -- Coleção-texto sem colecao_id (legado): resolve como a RPC antiga (PR18 — nota N2 do G-plano).\n",
+    "  IF v_colecao_id IS NULL AND v_colecao IS NOT NULL THEN\n",
+    "    SELECT c.id INTO v_colecao_id FROM colecoes c\n",
+    "     WHERE c.tenant_id = _tenant AND public._import_nome_norm(c.nome) = public._import_nome_norm(v_colecao)\n",
+    "     ORDER BY c.created_at LIMIT 1;\n",
+    "  END IF;\n",
     "\n",
     "  -- \"X modelos direcionados\" (P-16 = C): a mesma conta da RPC antiga direcionamento_resumo_subcolecao.\n",
     "  IF v_subcolecao IS NOT NULL THEN\n",
@@ -2082,7 +2240,8 @@ CORE = "".join([
     "    WHERE pm.slot_id = v_slot AND pm.tipo = 'tecido' AND pm.numero = 1\n",
     "      AND jsonb_typeof(pv.distribuicao) = 'object' AND pv.distribuicao <> '{}'::jsonb\n",
     "  ), cel AS (   -- 1 linha por (cor × loja), grade saneada (inteiro >= 0)\n",
-    "    SELECT t1.variante_numero, t1.ordem, t1.cor_nome, t1.apelido_nome, (d.key)::uuid AS loja_id,\n",
+    "    SELECT t1.variante_numero, t1.ordem, t1.cor_nome, t1.apelido_nome,\n",
+    "           CASE WHEN d.key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (d.key)::uuid END AS loja_id, -- PR18/N3\n",
     "           COALESCE((SELECT jsonb_object_agg(g.key, round((g.value)::numeric)::int)\n",
     "                       FROM jsonb_each_text(CASE WHEN jsonb_typeof(d.value -> 'grades') = 'object'\n",
     "                                                 THEN d.value -> 'grades' ELSE '{}'::jsonb END) g\n",
@@ -2189,11 +2348,58 @@ md5_antes = [md5(antes[a]) for a, _, _ in REDEF]
 md5_depois = [md5(depois[a]) for a, _, _ in REDEF]
 md5_novas = [md5(t) for _, t in NOVAS]
 
+ENCODING = "SET client_encoding = 'UTF8';\n"  # PR10/F1: 1ª instrução, ANTES do BEGIN (os textos têm acento)
 TRAVAS = "BEGIN;\nSET LOCAL lock_timeout = '500ms';\nSET LOCAL transaction_timeout = '3s';\n"
+NOTIFY = "NOTIFY pgrst, 'reload schema';\n"  # PR10/F5: só é entregue no COMMIT
+LOCK_INV = "LOCK TABLE public.plan_tecido_variantes IN ACCESS EXCLUSIVE MODE;\n"  # PR10/F4: antes da guarda do inverso
 
 
 def sem_nl(t: str) -> str:
     return t[:-1] if t.endswith("\n") else t
+
+
+def _pos_md5(fn: str, esperado: str, sentido: str, oque: str) -> list:
+    nome = fn.split("(")[0].replace("public.", "")
+    return [
+        f"  v_md5 := md5(pg_get_functiondef(to_regprocedure('{fn}')));\n",
+        f"  IF v_md5 IS DISTINCT FROM '{esperado}' THEN\n",
+        f"    RAISE EXCEPTION 'distribuicao_produto{sentido}: pós-condição falhou — {nome} {oque} (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';\n",
+        "  END IF;\n",
+    ]
+
+
+def pos_ida() -> str:  # PR10/F2: DO $pos$ imediatamente antes do NOTIFY/COMMIT da ida
+    out = ["DO $pos$\nDECLARE\n  v_md5 text;\nBEGIN\n"]
+    for (_a, fn, _acl), md in zip(REDEF, md5_depois):
+        out += _pos_md5(fn, md, "", "não ficou com o texto esperado")
+    for (fn, _t), mn in zip(NOVAS, md5_novas):
+        out += _pos_md5(fn, mn, "", "não ficou com o texto esperado")
+    out += [
+        "  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'plan_tecido_variantes'\n",
+        "        AND column_name IN ('distribuicao', 'atende')) <> 2\n",
+        "     OR (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.plan_tecido_variantes'::regclass\n",
+        "        AND conname IN ('plan_tecido_variantes_distribuicao_objeto', 'plan_tecido_variantes_atende_array')) <> 2 THEN\n",
+        "    RAISE EXCEPTION 'distribuicao_produto: pós-condição falhou — colunas/CHECKs de plan_tecido_variantes incompletos — desfazendo tudo' USING ERRCODE = 'P0001';\n",
+        "  END IF;\n",
+        "END $pos$;\n",
+    ]
+    return "".join(out)
+
+
+def pos_volta() -> str:  # PR10/F2: DO $pos$ imediatamente antes do NOTIFY/COMMIT do inverso
+    out = ["DO $pos$\nDECLARE\n  v_md5 text;\nBEGIN\n"]
+    for (_a, fn, _acl), ma in zip(REDEF, md5_antes):
+        out += _pos_md5(fn, ma, " (volta)", "não voltou ao texto de antes")
+    out += [
+        "  IF to_regprocedure('public.direcionamento_plano_modelo(uuid)') IS NOT NULL\n",
+        "     OR to_regprocedure('public._direcionamento_plano_modelo_core(uuid,uuid)') IS NOT NULL\n",
+        "     OR (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'plan_tecido_variantes'\n",
+        "           AND column_name IN ('distribuicao', 'atende')) <> 0 THEN\n",
+        "    RAISE EXCEPTION 'distribuicao_produto (volta): pós-condição falhou — RPCs novas/colunas ainda presentes — desfazendo tudo' USING ERRCODE = 'P0001';\n",
+        "  END IF;\n",
+        "END $pos$;\n",
+    ]
+    return "".join(out)
 
 
 def guarda_redef(sentido: str) -> str:
@@ -2241,9 +2447,12 @@ CABEC = (
     "-- • RPC nova direcionamento_plano_modelo (+ _core revogado dos 3): o plano SALVO por modelo p/ o Direcionamento.\n"
     "-- • Contagem: +2 funções, +0 gatilhos. Nenhuma DDL de policy; nada em tenant_config. A árvore (LANGUAGE sql, valida\n"
     "--   as colunas no CREATE) vem DEPOIS da coluna nova, no fim — a trava em plan_tecido_variantes dura ms.\n"
-    "-- Aplicar SÓ pelo aplica_v2 dos scripts (pré-voo + backup). Inverso: supabase/rollback/" + NOME + "_down.sql.\n\n"
+    "-- Aplicar SÓ via .superpowers/distribuicao/mig/ida-producao.sh (produção) ou copia.sh / ensaio-local.sh (cópia): pré-voo,\n"
+    "-- backup e aplica_v2 (que reinjeta as travas — inofensivo). NÃO psql -f solto. PR10: `SET client_encoding = 'UTF8'` ANTES\n"
+    "-- do BEGIN (os textos têm acento); pós-condição $pos$ (md5 \"depois\" das 7 funções + colunas/CHECKs) e NOTIFY pgrst\n"
+    "-- ANTES do COMMIT — qualquer divergência desfaz tudo. Inverso: supabase/rollback/" + NOME + "_down.sql.\n\n"
 )
-mig = [CABEC, TRAVAS, "\n",
+mig = [CABEC, ENCODING, TRAVAS, "\n",
        "DO $guarda$\nDECLARE\n  v_md5 text;\nBEGIN\n", guarda_redef(""), guarda_novas(), "END $guarda$;\n\n"]
 for arq, _fn, _acl in REDEF[:4]:
     mig.append(sem_nl(depois[arq]) + ";\n\n")
@@ -2278,14 +2487,16 @@ mig += [
     "-- A árvore é LANGUAGE sql (valida as colunas no CREATE) — por isso só agora.\n",
     sem_nl(depois["arvore"]) + ";\n",
     revoke("public._plan_tecido_arvore_core(uuid)"),
-    "\nCOMMIT;\n",
+    "\n", pos_ida(), "\n", NOTIFY, "\nCOMMIT;\n",
 ]
 inv = [
     "-- INVERSO da Distribuição por produto (aditiva 20261006100000) — GERADO por gerar_sql.py (NÃO editar à mão).\n"
     "-- DESTRUTIVO: o DROP COLUMN apaga a distribuição e o \"atende a\" digitados (o script da volta EXPORTA antes).\n"
     "-- LIFO (R37): a remoção da Distribuição antiga (20261006110000) precisa ter voltado ANTES (o front revertido usa a\n"
-    "-- tabela e as RPCs antigas). Exige SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'.\n\n",
-    TRAVAS, "\n",
+    "-- tabela e as RPCs antigas). Exige SET LOCAL app.confirmo_apagar_distribuicao_por_produto = 'sim'.\n"
+    "-- Aplicar SÓ via .superpowers/distribuicao/mig/volta-producao.sh (produção) ou copia.sh volta (cópia). PR10: encoding ANTES\n"
+    "-- do BEGIN; trava explícita em plan_tecido_variantes ANTES da guarda; pós-condição $pos$ e NOTIFY antes do COMMIT.\n\n",
+    ENCODING, TRAVAS, LOCK_INV, "\n",
     "DO $guarda$\nDECLARE\n  v_md5 text;\nBEGIN\n",
     "  IF coalesce(current_setting('app.confirmo_apagar_distribuicao_por_produto', true), '') <> 'sim' THEN\n",
     "    RAISE EXCEPTION 'distribuicao_produto (volta): o DROP COLUMN apaga a distribuição e o atende a digitados — rode com SET LOCAL app.confirmo_apagar_distribuicao_por_produto = ''sim'' (o script da volta exporta antes)' USING ERRCODE = 'P0001';\n",
@@ -2313,7 +2524,7 @@ inv += [
     "  DROP CONSTRAINT IF EXISTS plan_tecido_variantes_distribuicao_objeto,\n",
     "  DROP COLUMN IF EXISTS atende,\n",
     "  DROP COLUMN IF EXISTS distribuicao;\n",
-    "\nCOMMIT;\n",
+    "\n", pos_volta(), "\n", NOTIFY, "\nCOMMIT;\n",
 ]
 MIG.write_text("".join(mig), encoding="utf-8")
 INV.write_text("".join(inv), encoding="utf-8")
@@ -2343,7 +2554,7 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest 
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest run --no-file-parallelism tests/integration/plan-tecido.test.ts tests/integration/plan-tecido-aplicar.test.ts tests/integration/casar-variantes-reserva.test.ts tests/integration/direcionamento-multilojas.test.ts 2>&1 | tail -8
 ```
 
-Expected: modo `DIST_MIG_TXN=1` → **14 passed** (5 estáticos + 9 de banco). `n3.sh depois` mostra `…|A=f|antiga=t` (nada vazou). Modo sem a variável (cópia SEM a migration) → 5 passed, 9 skipped. (Com a migration JÁ aplicada — ensaio/cópia — também 14 passed: os 2 testes só-txn saem cedo.) Vizinhas: as mesmas falhas herdadas da linha de base (nenhuma nova). Falhas previsíveis e o que fazer:
+Expected: modo `DIST_MIG_TXN=1` → **15 passed** (5 estáticos + 10 de banco). `n3.sh depois` mostra `…|A=f|antiga=t` (nada vazou). Modo sem a variável (cópia SEM a migration) → 5 passed, 10 skipped. (Com a migration JÁ aplicada — ensaio/cópia — também 15 passed: os 3 testes só-txn saem cedo.) Vizinhas: as mesmas falhas herdadas da linha de base (nenhuma nova). Falhas previsíveis e o que fazer:
 - "texto canônico do PG" ≠ `corpo(MIG,…)+"\n"` numa das 2 novas ⇒ o template `CORE`/`WRAPPER` do gerador não bate com o formato do `pg_get_functiondef`: copiar a forma impressa na mensagem do vitest para o template, regerar (Step 4) e repetir — registrar em `desvios.md`. Nunca "consertar" o teste.
 - Erro de sintaxe/nome no SQL novo ⇒ corrigir o MÍNIMO no gerador, regerar, registrar em `desvios.md`. Diferença de REGRA (números do teste) ⇒ PARE.
 - Qualquer resíduo (`n3.sh depois` com `A=t`) ⇒ PARE e avise o controlador (algo vazou da txn).
@@ -2363,7 +2574,7 @@ git show --stat HEAD
 
 - [ ] **Step 7: G-migration A — 2 revisões Opus INDEPENDENTES + guardião**
 
-O controlador despacha 2 revisores Opus em paralelo, cada um SEM ver o parecer do outro, com: o plano, a spec, os 2 SQL, o `gerar_sql.py`, o `dump_antes.sh`, a suíte e os logs do Step 5. **Checklist:** (1) cada redefinida = texto vivo com SÓ as trocas (âncoras 1×) e o inverso = o vivo; (2) guarda md5 exata nos 2 arquivos (antes/depois) + novas (ausente ou = texto novo) e a recusa provada ("outra frente"); (3) travas no arquivo; zero DDL de policy; nada em `tenant_config`; nada de `_replicar_cards_plan_tecido_core`; (4) `ALTER` no fim e a árvore (`sql`) depois dele; `ADD COLUMN IF NOT EXISTS` + CHECKs idempotentes; (5) ACL #9: 5 internas fechadas (`has_function_privilege`), wrapper só `authenticated`, `tenant_module_enabled` INTOCADA (policies); (6) regra do salvar (T1/fora do T1/forma/DEDUP) e do gravar do BOM (filtro às ids reais do T1 do payload; T1 NULL; chave ausente preserva; `[]` limpa) — e a reserva (#4) só muda de quem preenche; (7) RPC: IDOR pelo tenant do chamador, módulo `producao` no wrapper e `distribuicao` no plano, tradução pelo T1 do BOM, cor sem correspondência, lojas só do tenant, grade saneada, "direcionados" = conta antiga; STABLE e sem escrita; (8) inverso: confirmação, LIFO (exige a tabela antiga), árvore antes, DROP COLUMN por último, idempotência; (9) +2|+0. Depois, o guardião `guardiao-unificacao` (G-migration A) com os 2 pareceres. BLOQUEIA ⇒ corrigir no GERADOR, regerar, repetir Steps 5–6 e as revisões.
+O controlador despacha 2 revisores Opus em paralelo, cada um SEM ver o parecer do outro, com: o plano, a spec, os 2 SQL, o `gerar_sql.py`, o `dump_antes.sh`, a suíte e os logs do Step 5. **Checklist:** (1) cada redefinida = texto vivo com SÓ as trocas (âncoras 1×) e o inverso = o vivo; (2) guarda md5 exata nos 2 arquivos (antes/depois) + novas (ausente ou = texto novo) e a recusa provada ("outra frente"); PR10: encoding antes do BEGIN, `$pos$` (md5 depois das 7 + colunas/CHECKs; na volta, antes + ausências) com a recusa provada, NOTIFY antes do COMMIT, trava explícita no inverso, cabeçalho "Aplicar SÓ via"; (3) travas no arquivo; zero DDL de policy; nada em `tenant_config`; nada de `_replicar_cards_plan_tecido_core`; (4) `ALTER` no fim e a árvore (`sql`) depois dele; `ADD COLUMN IF NOT EXISTS` + CHECKs idempotentes; (5) ACL #9: 5 internas fechadas (`has_function_privilege`), wrapper só `authenticated`, `tenant_module_enabled` INTOCADA (policies); (6) regra do salvar (T1/fora do T1/forma/DEDUP) e do gravar do BOM (filtro às ids reais do T1 do payload; T1 NULL; chave ausente preserva SÓ as cores que seguem no T1 — PR13; `[]` limpa) — e a reserva (#4) só muda de quem preenche; (7) RPC: IDOR pelo tenant do chamador, módulo `producao` no wrapper e `distribuicao` no plano, tradução pelo T1 do BOM, cor sem correspondência, lojas só do tenant (chave que não é uuid ignorada — PR18), grade saneada, fallback coleção-texto (PR18), "direcionados" = conta antiga; STABLE e sem escrita; (8) inverso: confirmação, LIFO (exige a tabela antiga), árvore antes, DROP COLUMN por último, idempotência; (9) +2|+0. Depois, o guardião `guardiao-unificacao` (G-migration A) com os 2 pareceres. BLOQUEIA ⇒ corrigir no GERADOR, regerar, repetir Steps 5–6 e as revisões.
 
 ---
 ## Task 5: Card do Plan. Tecido — pç só leitura, "atende a", normalização no funil, casamento no aplicar, presença  *(individual Opus)*
@@ -2374,10 +2585,11 @@ O controlador despacha 2 revisores Opus em paralelo, cada um SEM ver o parecer d
 - Modify: `src/components/plan-tecido/MaterialBlock.tsx`
 - Modify: `src/components/plan-tecido/ModelCard.tsx`
 - Modify: `src/components/plan-tecido/PlanTecidoSheet.tsx`
+- Modify: `src/hooks/useTenantModules.ts` (PR15: devolve também `isFetched` — aditivo; a Task 8 mexe em outra linha do mesmo arquivo)
 - Test: `tests/unit/colab-field-path-explicito.test.ts`, `tests/unit/plan-tecido-distribuicao-fonte.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 1–3 (`temDistribuicao`, `atendimentoDoBloco`, `alternarAtende`, `normalizarArvoreDistribuicao`, `materiaisParaAplicar`, `ehTecido1`, `OpcoesDist`); `PresencaColab` (`@/hooks/useColabRegistro`); `useTenantModules().isModuleEnabled/isLoading`.
+- Consumes: Tasks 1–3 (`temDistribuicao`, `atendimentoDoBloco`, `alternarAtende`, `normalizarArvoreDistribuicao`, `efeitoDaCarga`, `materiaisParaAplicar`, `ehTecido1`, `OpcoesDist`); `PresencaColab` (`@/hooks/useColabRegistro`); `useTenantModules().isModuleEnabled/isFetched` (PR15); `useReadOnly` (`@/components/RequirePermission`).
 - Produces (Task 6): `MaterialBlock` props `dist?: { ligado: boolean; t1?: PtVariante[] }` e `acaoExtra?: ReactNode`; `ModelCard` props `distribuicaoLigada?: boolean`, `presentesColab?: PresencaColab[]`, `onFocoDistribuicao?: (path: string | null) => void`; `AtendeAPopover` + `pathAtende(materialKey, corKey)`; no `PlanTecidoSheet`, `campoFocado = campoFocadoColab ?? focoDistribuicao`.
 
 - [ ] **Step 1: Testes (falham)**
@@ -2427,7 +2639,21 @@ describe("Plan. Tecido — card com a Distribuição por produto (Task 5)", () =
     expect(sheet).toContain('isModuleEnabled("distribuicao")');
     expect(sheet).toMatch(/return normalizarArvoreDistribuicao\(limparSlotsOrfaos\(/);
     expect(sheet).toMatch(/const patch = \(next0: PtArvore\) => \{\n\s+const next = normalizarArvoreDistribuicao\(next0, distOpts\);/);
-    expect(sheet).toContain("if (!tamanhosProntos || modulosCarregando) return;");
+  });
+  it("PR15 (G-plano R6): espera os módulos por isFetched e re-semeia quando a grade/os módulos chegam ou mudam", () => {
+    expect(sheet).toContain("if (!tamanhosProntos || !modulosProntos) return;");
+    expect(sheet).toContain("srcRef.current.dist !== distOpts");
+    expect(sheet).not.toContain("modulosCarregando");
+    expect(ler("src/hooks/useTenantModules.ts")).toContain("return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };");
+  });
+  it("PR12 (G-plano R3 + P-31): carga que recalcula ⇒ 'não salvo' + aviso no topo; base = árvore CRUA; descartar re-deriva", () => {
+    expect(sheet).toContain("const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura);");
+    expect(sheet).toContain("planBaseRef.current = carga.base;");
+    expect(sheet).toContain("touchedSlotIdsRef.current = new Set(carga.tocados);");
+    expect(sheet).toContain("if (carga.sujo) setDirty(true);");
+    expect(sheet).toContain("cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar");
+    expect(sheet).toContain("srcRef.current = null; // PR12");
+    expect(conta(sheet, ", distOpts)")).toBeGreaterThanOrEqual(2); // os 2 merges (dirty e retry P0409) seguem normalizando
   });
   it("payload do aplicar/criar card com casamento só com o módulo (R3/R4); nada de buildMateriaisAplicar cru", () => {
     expect(conta(sheet, "materiaisParaAplicar(slot, distribOn)")).toBe(2);
@@ -2781,7 +3007,7 @@ import type { PresencaColab } from "@/hooks/useColabRegistro";
 
 ```ts
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
+import { efeitoDaCarga, materiaisParaAplicar, normalizarArvoreDistribuicao, type OpcoesDist } from "@/lib/plan-tecido/atendimento";
 ```
 
 (b) `computeFreshArvore` — trocar
@@ -2798,13 +3024,14 @@ por
 ```ts
 function computeFreshArvore(seed: SeedInput, modelos: ModeloReal[], salvo: PtArvore | null, modelosDb: any[], dist: OpcoesDist): PtArvore {
   const validIds = new Set(modelosDb.map((m) => m.id as string));
-  // Distribuição por produto (R6): o pç derivado (distribuição do T1 e forro/T2 amarrado) já nasce normalizado — a base do
-  // merge colab e a árvore exibida são a MESMA coisa, então abrir não "suja" o plano.
+  // Distribuição por produto (R6): o pç derivado (distribuição do T1 e forro/T2 amarrado) é re-derivado aqui. Com
+  // `SEM_DERIVAR` devolve a árvore CRUA (o que o banco tem) — a carga normal passa por `efeitoDaCarga` (PR12, item f2).
   return normalizarArvoreDistribuicao(limparSlotsOrfaos(mergeArvore(semearComModelos({ ...seed, modelos }), salvo), validIds), dist);
 }
+const SEM_DERIVAR: OpcoesDist = { ligado: false, tamanhos: [] };
 ```
 
-e acrescentar `, distOpts` como 5º argumento nas 3 chamadas `computeFreshArvore(seed, modelosReais, …, modelosDb as any[])` (merge colab do `useEffect`, carga normal do `useEffect` e o `retry` do P0409 — conferir com `grep -n "computeFreshArvore(" src/components/plan-tecido/PlanTecidoSheet.tsx`: 4 linhas = a definição + 3 chamadas).
+e acrescentar `, distOpts` como 5º argumento nas 2 chamadas de MERGE `computeFreshArvore(seed, modelosReais, …, modelosDb as any[])` (merge colab do ramo `dirty` do `useEffect` e o `retry` do P0409); a da carga normal (ramo não-`dirty`) é trocada no item (f2). Conferir com `grep -n "computeFreshArvore(" src/components/plan-tecido/PlanTecidoSheet.tsx`: 4 linhas = a definição + 3 chamadas.
 
 (c) Query dos modelos: trocar `proporcoes, lancado,` por `proporcoes, tamanho_tipo, lancado,` e `modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, ` por `modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, complementa_variante_ids, variante:variante_tecido_id(artigo_id, cor_id, `.
 
@@ -2820,19 +3047,59 @@ e, no objeto `ModeloReal` retornado, depois de `proporcoes: (m.proporcoes ?? nul
 (e) Tamanhos + gate: trocar `const { data: tamanhos = [] } = useQuery({` por `const { data: tamanhos = [], isFetched: tamanhosProntos } = useQuery({` e, logo depois do fim desse `useQuery`, acrescentar:
 
 ```ts
-  // Distribuição por produto (spec R4/R6): gate do módulo + opções da normalização (a grade da loja).
-  const { isModuleEnabled, isLoading: modulosCarregando } = useTenantModules();
+  // Distribuição por produto (spec R4/R6): gate do módulo + opções da normalização (a grade da loja). PR15: `isFetched` —
+  // com a query desabilitada (tenant ainda não resolvido) `isLoading` é FALSE e a 1ª carga leria o módulo "desligado".
+  const { isModuleEnabled, isFetched: modulosProntos } = useTenantModules();
   const distribOn = isModuleEnabled("distribuicao");
   const distOpts = useMemo<OpcoesDist>(() => ({ ligado: distribOn, tamanhos }), [distribOn, tamanhos]);
+  // PR12: sem permissão de editar, a carga que recalcula só AVISA (não suja — não dá para salvar).
+  const paginaSoLeitura = useReadOnly();
+  const [recalculadas, setRecalculadas] = useState(0);
 ```
+
+(acrescentar `import { useReadOnly } from "@/components/RequirePermission";` e `efeitoDaCarga` ao import de `@/lib/plan-tecido/atendimento` do item (a)). Em `src/hooks/useTenantModules.ts` (PR15, aditivo): trocar `const { data, isLoading } = useQuery({` por `const { data, isLoading, isFetched } = useQuery({` e `return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading };` por `return { modules, isModuleEnabled, isStockOnly, firstActiveModulePath, isLoading, isFetched };`.
 
 (f) No `useEffect` da semeadura (o que começa com `if (!seed || salvo === undefined || modelosDb === undefined) return;`), acrescentar logo depois dessa linha:
 
 ```ts
-    if (!tamanhosProntos || modulosCarregando) return; // PR3: normalizar sem a grade/sem o gate daria outro pç
+    if (!tamanhosProntos || !modulosProntos) return; // PR3/PR15: normalizar sem a grade/sem o gate daria outro pç
 ```
 
-e acrescentar `tamanhosProntos, modulosCarregando, distOpts` ao array de dependências do efeito.
+trocar `const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais;` por `const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais || srcRef.current.dist !== distOpts; // PR15: grade/módulos que chegam ou mudam RE-SEMEIAM`, trocar `srcRef.current = { seed, models: modelosReais };` por `srcRef.current = { seed, models: modelosReais, dist: distOpts };`, o tipo do ref `useRef<{ seed: unknown; models: unknown } | null>` por `useRef<{ seed: unknown; models: unknown; dist?: unknown } | null>`, e acrescentar `tamanhosProntos, modulosProntos, distOpts, paginaSoLeitura` ao array de dependências do efeito.
+
+(f2) PR12 (G-plano R3 + P-31) — carga não-`dirty`: trocar
+
+```ts
+    const merged = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[]);
+    planBaseRef.current = merged;
+    touchedSlotIdsRef.current = new Set();
+```
+
+por
+
+```ts
+    // PR12: a base do merge colab = o que o BANCO tem; se a normalização MUDOU algum slot (pç derivado ≠ gravado), ele entra
+    // "não salvo" (tocado) + aviso no topo — depois do 1º Salvar o número do card = o do Resumo/Modo Plano/Fazer pedido.
+    const carga = efeitoDaCarga(computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[], SEM_DERIVAR), distOpts, !paginaSoLeitura);
+    const merged = carga.arvore;
+    planBaseRef.current = carga.base;
+    touchedSlotIdsRef.current = new Set(carga.tocados);
+    setRecalculadas(carga.recalculadasForaT1);
+```
+
+e, logo depois do `setArvore(merged);` desse mesmo ramo, acrescentar `if (carga.sujo) setDirty(true);`.
+
+(f3) `reverterArvore` ("Descartar"): logo depois de `setDirty(false);` acrescentar `srcRef.current = null; // PR12: re-deriva na próxima passada (a base é a árvore crua)`. E no `onSuccess` do `salvarMut`, logo depois de `setDirty(false);`, acrescentar `setRecalculadas(0);`.
+
+(f4) Aviso no topo — logo DEPOIS do `<ColabBanner … />` do cabeçalho sticky do Sheet, acrescentar:
+
+```tsx
+          {recalculadas > 0 && (
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              {recalculadas} cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar
+            </p>
+          )}
+```
 
 (g) Funil `patch` — trocar
 
@@ -2881,15 +3148,15 @@ Expected: PASS; `tsc` sem erro.
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/distribuicao-produto"
 bash .superpowers/distribuicao/gates.sh
-git add -- src/lib/colab/colab-field-path.ts src/components/plan-tecido/AtendeAPopover.tsx src/components/plan-tecido/MaterialBlock.tsx src/components/plan-tecido/ModelCard.tsx src/components/plan-tecido/PlanTecidoSheet.tsx tests/unit/colab-field-path-explicito.test.ts tests/unit/plan-tecido-distribuicao-fonte.test.ts
+git add -- src/lib/colab/colab-field-path.ts src/components/plan-tecido/AtendeAPopover.tsx src/components/plan-tecido/MaterialBlock.tsx src/components/plan-tecido/ModelCard.tsx src/components/plan-tecido/PlanTecidoSheet.tsx src/hooks/useTenantModules.ts tests/unit/colab-field-path-explicito.test.ts tests/unit/plan-tecido-distribuicao-fonte.test.ts
 git commit --only -m "feat(plan-tecido): pç distribuído só leitura, 'atende a' do forro/Tecido 2, normalização no funil e casamento no aplicar (T5)" \
   -m "Gate = módulo distribuicao; data-colab-path explícito vale em botão (R20); presença do dialog pelo campoFocado. Plano 2026-09-25, Task 5." \
   -m "Co-Authored-By: Claude <seu modelo real> <noreply@anthropic.com>" \
-  -- src/lib/colab/colab-field-path.ts src/components/plan-tecido/AtendeAPopover.tsx src/components/plan-tecido/MaterialBlock.tsx src/components/plan-tecido/ModelCard.tsx src/components/plan-tecido/PlanTecidoSheet.tsx tests/unit/colab-field-path-explicito.test.ts tests/unit/plan-tecido-distribuicao-fonte.test.ts
+  -- src/lib/colab/colab-field-path.ts src/components/plan-tecido/AtendeAPopover.tsx src/components/plan-tecido/MaterialBlock.tsx src/components/plan-tecido/ModelCard.tsx src/components/plan-tecido/PlanTecidoSheet.tsx src/hooks/useTenantModules.ts tests/unit/colab-field-path-explicito.test.ts tests/unit/plan-tecido-distribuicao-fonte.test.ts
 git show --stat HEAD
 ```
 
-- [ ] **Step 9: Revisão individual Opus** — colab (presença pelo `campoFocado`; nada de mecanismo novo de merge; `data-colab-path` sem efeito em telas que não marcam botão), gate do módulo (card idêntico com ele desligado — conferir o `normalizarSlotDistribuicao` com `ligado:false` devolvendo o mesmo objeto), payload (sem a chave sem o módulo), Modo Plano (a linha não cresce: selo/gatilho em `h-6`/`text-[10px]`), `patch` não marca `touched` à toa (normalização idempotente), a query com as 3 colunas novas.
+- [ ] **Step 9: Revisão individual Opus** — colab (presença pelo `campoFocado`; nada de mecanismo novo de merge; `data-colab-path` explícito liga a presença também nos 10 `SelectTrigger` de Produto Acabado/Importado — PR14, aceito), PR12 (carga que recalcula ⇒ sujo + aviso, base crua, tocados = slots mudados, sem permissão só avisa, descartar re-deriva, salvar limpa o aviso), PR15 (`isFetched` + re-semeadura por `distOpts`), gate do módulo (card idêntico com ele desligado — conferir o `normalizarSlotDistribuicao` com `ligado:false` devolvendo o mesmo objeto), payload (sem a chave sem o módulo), Modo Plano (a linha não cresce: selo/gatilho em `h-6`/`text-[10px]`), `patch` não marca `touched` à toa (normalização idempotente), a query com as 3 colunas novas.
 
 ---
 ## Task 6: Dialog "Distribuir por loja" (desktop, celular, impressão, presença)  *(individual Opus)*
@@ -2936,6 +3203,16 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     expect(dlg).toContain("printWithImages()");
     expect(dlg).toContain("setZeradas(nomes)");
   });
+  it("PR16 (G-plano R7, P-09 no celular): o ponto abre um balão com o calculado e um ↺ SEPARADO; tocar no ponto não volta sozinho", () => {
+    expect(tab).toContain("function PontoManual(");
+    expect(tab).toContain("onClick={() => { onVoltar(); setAberto(false); }}");
+    expect(tab).not.toContain("clique para voltar ao calculado");
+    expect(conta(tab, "onVoltar(")).toBe(1);
+  });
+  it("P-36 = B: Imprimir só no desktop (a PrintArea fica)", () => {
+    expect(dlg).toContain('size="sm" className="max-sm:hidden" onClick={() => void printWithImages()}');
+    expect(dlg).toContain("<PrintArea>");
+  });
   it("o card monta o botão (Tecido 1, com o módulo) e o dialog só quando aberto", () => {
     expect(card).toContain("Distribuir por loja");
     expect(card).toMatch(/acaoExtra=\{distribuicaoLigada && ehTecido1\(m\) \?/);
@@ -2959,7 +3236,9 @@ Expected: FAIL — `ENOENT … DistribuirPorLojaDialog.tsx`.
 // Total, com a linha "Proporção por tamanho" do card e o subtotal por loja; (2) "Total por cor × tamanho" (= pç no card).
 // UM componente para a TELA (inputs, `data-colab-path` por campo — R19) e a IMPRESSÃO (texto, sem botões). Celular:
 // rolagem horizontal só dentro da tabela, 1ª coluna fixa com nome ABREVIADO (toque abre o nome completo).
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -2996,6 +3275,28 @@ function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
         </Popover>
       )}
     </div>
+  );
+}
+
+/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7): o mouse vê "calculado seria N" no hover (`title`);
+ *  clique/TOQUE abre o balão com o calculado e um botão ↺ SEPARADO — tocar no ponto NUNCA volta sozinho ao calculado. */
+function PontoManual({ calculado, bloqueado, onVoltar }: { calculado: number; bloqueado: boolean; onVoltar: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <button type="button" title={`Editado à mão · calculado seria ${calculado}`} aria-label={`Editado à mão · calculado seria ${calculado}`}
+          className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full bg-primary max-md:h-4 max-md:w-4" />
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs">
+        <p>Editado à mão · calculado seria {calculado}</p>
+        {!bloqueado && (
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => { onVoltar(); setAberto(false); }}>
+            <RotateCcw className="h-3 w-3" />Voltar ao calculado
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -3076,10 +3377,7 @@ export function DistribuicaoTabelas(p: {
                               {cel.manual && (imp ? (
                                 <span aria-hidden> •</span>
                               ) : (
-                                <button type="button" disabled={bloqueado} onClick={() => p.onVoltar?.(c.key, l.id, t)}
-                                  title={`Editado à mão · calculado seria ${cel.calculado} · clique para voltar ao calculado`}
-                                  aria-label={`Voltar ao calculado (${cel.calculado})`}
-                                  className="absolute right-0.5 top-0.5 h-3 w-3 rounded-full bg-primary max-md:h-4 max-md:w-4" />
+                                <PontoManual calculado={cel.calculado} bloqueado={bloqueado} onVoltar={() => p.onVoltar?.(c.key, l.id, t)} />
                               ))}
                             </td>
                           );
@@ -3101,7 +3399,7 @@ export function DistribuicaoTabelas(p: {
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
-        <span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary align-middle" />editado à mão — passe o mouse para ver o calculado e voltar a ele (↺). Os totais já contam o valor editado.
+        <span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary align-middle" />editado à mão — passe o mouse ou toque no ponto para ver o calculado; o ↺ volta a ele. Os totais já contam o valor editado.
       </p>
 
       <div className="space-y-1">
@@ -3338,7 +3636,8 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           <DialogHeader className="space-y-2 text-left">
             <div className="flex items-center gap-2 pr-8">
               <DialogTitle className="flex-1">Distribuir por loja</DialogTitle>
-              <Button variant="outline" size="sm" onClick={() => void printWithImages()} aria-label="Imprimir" disabled={!lojasProntas}>
+              {/* P-36 = B (dono 25/set): Imprimir SÓ no desktop — a PrintArea fica. */}
+              <Button variant="outline" size="sm" className="max-sm:hidden" onClick={() => void printWithImages()} aria-label="Imprimir" disabled={!lojasProntas}>
                 <Printer className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Imprimir</span>
               </Button>
             </div>
@@ -3490,7 +3789,7 @@ git commit --only -m "feat(plan-tecido): dialog 'Distribuir por loja' — Base �
 git show --stat HEAD
 ```
 
-- [ ] **Step 7: Revisão individual Opus** — as regras do dialog batem com a lib (Base/manual/↺/proporção); Salvar aplica sobre o slot vivo e só mexe no Tecido 1 + proporção (se mudou); zerar pede confirmação; Voltar com rascunho pergunta; só leitura travado/sem permissão; presença: overlay próprio com scope no corpo rolável, marcador `aberto` limpo ao fechar, banner filtrado pelo produto; mobile (390: rolagem só na tabela, coluna fixa abreviada, rodapé fixo só-ícone); impressão (só com o dialog aberto; sem botões); nenhuma cor/px solta.
+- [ ] **Step 7: Revisão individual Opus** — as regras do dialog batem com a lib (Base/manual/↺/proporção); Salvar aplica sobre o slot vivo e só mexe no Tecido 1 + proporção (se mudou); zerar pede confirmação; Voltar com rascunho pergunta; só leitura travado/sem permissão; presença: overlay próprio com scope no corpo rolável, marcador `aberto` limpo ao fechar, banner filtrado pelo produto; mobile (390: rolagem só na tabela, coluna fixa abreviada, rodapé fixo só-ícone, ponto à mão abre o balão com ↺ separado — PR16, sem o botão Imprimir — P-36 = B); impressão (só no desktop, com o dialog aberto; sem botões); nenhuma cor/px solta.
 
 ---
 ## Task 7: Direcionamento — plano do modelo, "X modelos direcionados" e semi-preenchimento  *(individual Opus)*
@@ -3837,9 +4136,9 @@ describe("Direcionamento — plano do modelo (Task 7)", () => {
     expect(conta("data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}")).toBe(2);
     expect(tela).toContain("placeholder={est.placeholder}");
   });
-  it("rascunho do plano conta como MINHA edição (merge 3-vias) e como alteração não salva (mockup)", () => {
+  it("rascunho do plano conta como MINHA edição (merge 3-vias) e NÃO como alteração não salva (P-32 = B)", () => {
     expect(tela).toContain("touchedRef.current = new Set(p?.escritas ?? []);");
-    expect(tela).toContain("resetBaseline(obj);");
+    expect(tela).toContain("resetBaseline(p ? p.obj : obj);");
     expect(tela).toContain("setState(p ? p.obj : obj);");
   });
   it("textos: Grade Real com InfoHover, 'faltam N', callout e 'Preencher com o plano?'", () => {
@@ -3942,14 +4241,15 @@ por
 
 ```ts
     // Distribuição por produto (R22/P-12): sem direcionamento salvo, ainda pendente e editável ⇒ abre SEMI-PREENCHIDO pelo
-    // plano. É RASCUNHO: a base (guarda de "não salvo" e merge 3-vias) continua sendo o estado do SERVIDOR — o
-    // preenchimento conta como alteração minha (mockup: "alterações não salvas"; P-32).
+    // plano. É RASCUNHO refeito a cada abertura enquanto nada for salvo: NÃO conta como "alteração não salva" (P-32 = B,
+    // dono 25/set — o guarda nasce do estado PREENCHIDO); a base do merge 3-vias segue o SERVIDOR e as células escritas
+    // pelo preenchimento contam como minhas (touched).
     const preencher = !!plano && (existing as any[]).length === 0 && (cad as any)?.direcionamento_status !== "separado" && !readOnly;
     const p = preencher ? aplicarPlano(obj) : null;
     setState(p ? p.obj : obj);
     // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
-    // explícito — o estado recém-setado ainda está stale neste tick).
-    resetBaseline(obj);
+    // explícito — o estado recém-setado ainda está stale neste tick). P-32 = B: o preenchido.
+    resetBaseline(p ? p.obj : obj);
     // Baseline do MERGE: o que veio do servidor é a base 3-vias; o "tocado" = as células que o preenchimento escreveu.
     baseGradeRef.current = stateToGradeDir(obj);
     touchedRef.current = new Set(p?.escritas ?? []);
@@ -4463,11 +4763,18 @@ const guardas = (rel: string) => [...ler(rel).matchAll(/v_md5 <> '([0-9a-f]{32})
 const semComent = (s: string) => s.replace(/--[^\n]*/g, "");
 
 describe("Remoção B — arquivos (estático)", () => {
-  it("travas; 1 BEGIN/1 COMMIT; nada em tenant_config; a remoção SEM DDL de policy explícita", () => {
+  it("travas; encoding ANTES do BEGIN; 1 BEGIN/1 COMMIT; $pos$ → NOTIFY → COMMIT (PR10); nada em tenant_config; a remoção SEM DDL de policy explícita", () => {
     for (const f of [MIG, INV]) {
-      const l = ler(f).split("\n");
+      const t = ler(f);
+      const l = t.split("\n");
       const i = l.findIndex((x) => x === "BEGIN;");
+      expect(t.replace(/^--[^\n]*\n/gm, "").trimStart().startsWith("SET client_encoding = 'UTF8';\nBEGIN;\n"), f).toBe(true);
       expect(l.slice(i + 1, i + 3), f).toEqual(["SET LOCAL lock_timeout = '500ms';", "SET LOCAL transaction_timeout = '3s';"]);
+      const iPos = t.indexOf("DO $pos$"), iNot = t.indexOf("NOTIFY pgrst, 'reload schema';"), iCom = t.indexOf("\nCOMMIT;\n");
+      expect(iPos, f).toBeGreaterThan(0);
+      expect(iNot, f).toBeGreaterThan(t.indexOf("END $pos$;", iPos));
+      expect(iCom, f).toBeGreaterThan(iNot);
+      expect(t, f).toMatch(/Aplicar SÓ via \.superpowers\/distribuicao\/mig\//);
       expect(l.filter((x) => x === "BEGIN;"), f).toHaveLength(1);
       expect(l.filter((x) => x === "COMMIT;"), f).toHaveLength(1);
       expect(ler(f), f).not.toMatch(/(UPDATE|INSERT INTO|DELETE FROM|ALTER TABLE|COMMENT ON COLUMN) public\.tenant_config/);
@@ -4483,7 +4790,10 @@ describe("Remoção B — arquivos (estático)", () => {
     for (const s of ["DROP FUNCTION IF EXISTS public.direcionamento_resumo_subcolecao(uuid);", "DROP FUNCTION IF EXISTS public.distribuicao_resumo(uuid, text);",
       "DROP FUNCTION IF EXISTS public.salvar_distribuicao_tabela(jsonb);", "DROP FUNCTION IF EXISTS public.excluir_distribuicao_tabela(uuid);"])
       expect(m.indexOf(s), s).toBeGreaterThan(m.indexOf("END $guarda$;"));
-    expect(semComent(m.slice(iDrop)).trim()).toBe("DROP TABLE IF EXISTS public.distribuicao_tabelas;\n\nCOMMIT;");
+    expect(semComent(m.slice(iDrop, m.indexOf("DO $pos$"))).trim()).toBe("DROP TABLE IF EXISTS public.distribuicao_tabelas;");
+    const iLock = m.indexOf("LOCK TABLE public.distribuicao_tabelas IN ACCESS EXCLUSIVE MODE;"); // PR10: antes da guarda
+    expect(iLock).toBeGreaterThan(m.indexOf("SET LOCAL transaction_timeout"));
+    expect(iLock).toBeLessThan(m.indexOf("DO $guarda$"));
   });
   it("inverso: DDL da tabela = o da migration original; 4 funções; ACL; policy POR ÚLTIMO", () => {
     const v = ler(INV), o = ler(ORIG);
@@ -4494,6 +4804,7 @@ describe("Remoção B — arquivos (estático)", () => {
     const iPol = v.indexOf("DROP POLICY IF EXISTS distribuicao_tabelas_tenant ON public.distribuicao_tabelas;");
     expect(iPol).toBeGreaterThan(v.lastIndexOf("GRANT EXECUTE ON FUNCTION"));
     expect(semComent(v.slice(v.indexOf("CREATE POLICY distribuicao_tabelas_tenant"))).trim().endsWith("COMMIT;")).toBe(true);
+    expect(v.indexOf("DO $pos$")).toBeGreaterThan(v.indexOf("CREATE POLICY distribuicao_tabelas_tenant")); // a policy segue a última DDL
   });
 });
 
@@ -4558,6 +4869,21 @@ describe.skipIf(!(hasDb && LOCAL && MIG_TXN))("Remoção B — banco (cópia, tx
       expect((await contagens(c)).split("|").map(Number)).toEqual([antes[0] - 4, antes[1] - 1]);
       expect(await outras()).toBe(o0);
       await aplica(c, MIG); // idempotente
+    });
+  });
+  it("PR10 — pós-condição da remoção adulterada ⇒ RECUSA e desfaz (tabela e as 4 RPCs antigas continuam)", async () => {
+    await withTx(async (c) => {
+      exigeBancoLocal();
+      await c.query("SET LOCAL lock_timeout = '3s'");
+      await aplica(c, MIG_A);
+      await c.query("SET LOCAL app.confirmo_apagar_distribuicao_antiga = 'sim'");
+      const m = ler(MIG).replace(RE_TRAVAS, "-- [teste] trava removida");
+      const alvo = "IF to_regclass('public.distribuicao_tabelas') IS NOT NULL THEN\n    RAISE EXCEPTION 'distribuicao_antiga: pós-condição falhou";
+      expect(m.split(alvo).length - 1).toBe(1);
+      const forjada = m.replace(alvo, alvo.replace("IS NOT NULL", "IS NULL"));
+      expect(await tenta(c, () => aplicarSql(c, forjada, "remoção forjada"))).toMatch(/pós-condição falhou/);
+      expect((await um<{ ok: boolean }>(c, "select to_regclass('public.distribuicao_tabelas') is not null ok")).ok).toBe(true);
+      for (const a of ANTIGAS) expect((await um<{ ok: boolean }>(c, "select to_regprocedure($1) is not null ok", [a.fn])).ok, a.fn).toBe(true);
     });
   });
   it("inverso: recria a tabela IDÊNTICA (colunas, índices, gatilho, policy, RLS, FKs) e as 4 RPCs (md5 de antes; ACL só authenticated)", async () => {
@@ -4649,11 +4975,51 @@ for (arq, _fn, _sig), mv in zip(ANTIGAS, md5_vivo):
         pare(f"{arq}: o dump não reproduz o md5 VIVO ({md5(t)} ≠ {mv})")
     textos[arq] = t
 
+ENCODING = "SET client_encoding = 'UTF8';\n"  # PR10/F1
 TRAVAS = "BEGIN;\nSET LOCAL lock_timeout = '500ms';\nSET LOCAL transaction_timeout = '3s';\n"
+NOTIFY = "NOTIFY pgrst, 'reload schema';\n"  # PR10/F5
+# PR10/F4: trava explícita ANTES da guarda (a tabela pode já não existir — reaplicação idempotente).
+TRAVA_TAB = ("DO $trava$\nBEGIN\n  IF to_regclass('public.distribuicao_tabelas') IS NOT NULL THEN\n"
+             "    LOCK TABLE public.distribuicao_tabelas IN ACCESS EXCLUSIVE MODE;\n  END IF;\nEND $trava$;\n")
+LISTA_ANTIGAS = ", ".join(f"'{fn}'" for _a, fn, _s in ANTIGAS)
 
 
 def sem_nl(t: str) -> str:
     return t[:-1] if t.endswith("\n") else t
+
+
+def pos_remocao() -> str:  # PR10/F2: antes do NOTIFY/COMMIT da remoção
+    return (
+        "DO $pos$\nBEGIN\n"
+        "  IF to_regclass('public.distribuicao_tabelas') IS NOT NULL THEN\n"
+        "    RAISE EXCEPTION 'distribuicao_antiga: pós-condição falhou — distribuicao_tabelas ainda existe — desfazendo tudo' USING ERRCODE = 'P0001';\n"
+        "  END IF;\n"
+        f"  IF (SELECT count(*) FROM unnest(ARRAY[{LISTA_ANTIGAS}]) f WHERE to_regprocedure(f) IS NOT NULL) <> 0\n"
+        "     OR to_regprocedure('public.direcionamento_plano_modelo(uuid)') IS NULL THEN\n"
+        "    RAISE EXCEPTION 'distribuicao_antiga: pós-condição falhou — RPCs antigas presentes ou a aditiva ausente — desfazendo tudo' USING ERRCODE = 'P0001';\n"
+        "  END IF;\n"
+        "END $pos$;\n"
+    )
+
+
+def pos_volta_remocao() -> str:  # PR10/F2: antes do NOTIFY/COMMIT do inverso (depois da policy)
+    out = ["DO $pos$\nDECLARE\n  v_md5 text;\nBEGIN\n"]
+    for (_a, fn, _s), mv in zip(ANTIGAS, md5_vivo):
+        nome = fn.split("(")[0].replace("public.", "")
+        out += [
+            f"  v_md5 := md5(pg_get_functiondef(to_regprocedure('{fn}')));\n",
+            f"  IF v_md5 IS DISTINCT FROM '{mv}' THEN\n",
+            f"    RAISE EXCEPTION 'distribuicao_antiga (volta): pós-condição falhou — {nome} não voltou ao texto de antes (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';\n",
+            "  END IF;\n",
+        ]
+    out += [
+        "  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'distribuicao_tabelas') <> 12\n",
+        "     OR NOT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = 'public.distribuicao_tabelas'::regclass AND polname = 'distribuicao_tabelas_tenant') THEN\n",
+        "    RAISE EXCEPTION 'distribuicao_antiga (volta): pós-condição falhou — tabela/policy incompletas — desfazendo tudo' USING ERRCODE = 'P0001';\n",
+        "  END IF;\n",
+        "END $pos$;\n",
+    ]
+    return "".join(out)
 
 
 def guarda(sentido: str) -> str:
@@ -4677,8 +5043,10 @@ mig = [
     "-- no ar (o front publicado antes dele usa a tabela e a RPC do resumo), com export CSV + backup antes e frase digitada.\n"
     "-- Some: distribuicao_tabelas (+ índices, gatilho set_tenant_id_distribuicao, policy) e 4 RPCs. Contagem: −4|−1.\n"
     "-- O DROP da tabela vem POR ÚLTIMO: ele tira os gatilhos de FK em tenants/colecoes (trava até o COMMIT — ms).\n"
-    "-- Inverso (estrutura; os dados voltam do CSV pelo script): supabase/rollback/" + NOME + "_down.sql.\n\n",
-    TRAVAS, "\n",
+    "-- Inverso (estrutura; os dados voltam do CSV pelo script): supabase/rollback/" + NOME + "_down.sql.\n"
+    "-- Aplicar SÓ via .superpowers/distribuicao/mig/remover-producao.sh (produção) ou copia.sh remover (cópia). PR10: encoding\n"
+    "-- ANTES do BEGIN; trava explícita na tabela ANTES da guarda; pós-condição $pos$ e NOTIFY antes do COMMIT.\n\n",
+    ENCODING, TRAVAS, TRAVA_TAB, "\n",
     "DO $guarda$\nDECLARE\n  v_md5 text;\n  v_n int;\nBEGIN\n",
     "  IF coalesce(current_setting('app.confirmo_apagar_distribuicao_antiga', true), '') <> 'sim' THEN\n",
     "    RAISE EXCEPTION 'distribuicao_antiga: isto APAGA a Distribuição antiga — rode com SET LOCAL app.confirmo_apagar_distribuicao_antiga = ''sim'' (o script exporta e faz backup antes)' USING ERRCODE = 'P0001';\n",
@@ -4699,14 +5067,16 @@ mig += [f"DROP FUNCTION IF EXISTS {sig};\n" for _a, _f, sig in ANTIGAS]
 mig += [
     "-- POR ÚLTIMO (R29): leva índices, gatilho e policy da tabela e os gatilhos de FK em tenants/colecoes.\n",
     "DROP TABLE IF EXISTS public.distribuicao_tabelas;\n",
-    "\nCOMMIT;\n",
+    "\n", pos_remocao(), "\n", NOTIFY, "\nCOMMIT;\n",
 ]
 inv = [
     "-- INVERSO da remoção da Distribuição antiga (20261006110000) — GERADO por gerar_remocao.py (NÃO editar à mão).\n"
     "-- Recria a ESTRUTURA (DDL da migration original 20260922120000 + as 4 RPCs no texto vivo + ACL); os DADOS voltam do CSV\n"
     "-- exportado antes da remoção (volta-remocao-producao.sh). A policy vem POR ÚLTIMO (hook supautils.policy_grants trava\n"
-    "-- auth/storage até o COMMIT). LIFO: esta volta vem ANTES da volta da aditiva.\n\n",
-    TRAVAS, "\n",
+    "-- auth/storage até o COMMIT). LIFO: esta volta vem ANTES da volta da aditiva.\n"
+    "-- Aplicar SÓ via .superpowers/distribuicao/mig/volta-remocao-producao.sh (produção) ou copia.sh volta-remover (cópia).\n"
+    "-- PR10: encoding ANTES do BEGIN; pós-condição $pos$ (md5 das 4 = antes, 12 colunas, policy) e NOTIFY antes do COMMIT.\n\n",
+    ENCODING, TRAVAS, "\n",
     "DO $guarda$\nDECLARE\n  v_md5 text;\nBEGIN\n", guarda(" (volta)"), "END $guarda$;\n\n",
     DDL_TAB, "\n",
 ]
@@ -4715,7 +5085,7 @@ for arq, _fn, _sig in ANTIGAS:
 for _a, _f, sig in ANTIGAS:
     inv.append(f"REVOKE EXECUTE ON FUNCTION {sig} FROM PUBLIC, anon, authenticated;\n")
     inv.append(f"GRANT EXECUTE ON FUNCTION {sig} TO authenticated;\n")
-inv += ["\n", DDL_POL, "\nCOMMIT;\n"]
+inv += ["\n", DDL_POL, "\n", pos_volta_remocao(), "\n", NOTIFY, "\nCOMMIT;\n"]
 MIG.write_text("".join(mig), encoding="utf-8")
 INV.write_text("".join(inv), encoding="utf-8")
 print(f"OK: {MIG.name} + {INV.name} gerados · antigas {'|'.join(m[:8] for m in md5_vivo)}")
@@ -4737,7 +5107,7 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres DIST_MIG_TX
 bash .superpowers/distribuicao/n3.sh depois t9s5
 ```
 
-Expected: remoção → 6 passed | 1 skipped (3 estáticos + 3 de banco; o do "já aplicada" pula); aditiva → 14 passed. `n3.sh depois` = `…|A=f|antiga=t`. Diferença de `estrutura` no inverso ⇒ o DDL/ACL do inverso não reproduz o vivo: PARE e chame o controlador (não "consertar" o teste).
+Expected: remoção → 7 passed | 1 skipped (3 estáticos + 4 de banco; o do "já aplicada" pula); aditiva → 15 passed. `n3.sh depois` = `…|A=f|antiga=t`. Diferença de `estrutura` no inverso ⇒ o DDL/ACL do inverso não reproduz o vivo: PARE e chame o controlador (não "consertar" o teste).
 
 - [ ] **Step 6: Gates e commit**
 
@@ -4752,7 +5122,7 @@ git commit --only -m "feat(distribuicao): migration 20261006110000 — remoção
 git show --stat HEAD
 ```
 
-- [ ] **Step 7: G-migration B — 2 revisões Opus INDEPENDENTES + guardião** — mesmo formato da Task 4 Step 7, com: o plano, a spec, os 2 SQL, o `gerar_remocao.py`, o `dump_remocao.sh`, a suíte, o `travas-drop.txt` e os logs. **Checklist:** guarda (confirmação, aditiva aplicada, md5 das 4 = vivo, 12 colunas); nada além das 4 RPCs e da tabela; `DROP TABLE` último; nenhuma DDL de policy explícita; travas medidas e aceitáveis (sem `auth/storage/realtime` — senão, decisão do dono); inverso = DDL original + texto vivo + ACL (`authenticated` sim, anon não) + policy por último, idempotente, estrutura idêntica provada; −4|−1; LIFO com a aditiva (o inverso da aditiva EXIGE a tabela antiga).
+- [ ] **Step 7: G-migration B — 2 revisões Opus INDEPENDENTES + guardião** — mesmo formato da Task 4 Step 7, com: o plano, a spec, os 2 SQL, o `gerar_remocao.py`, o `dump_remocao.sh`, a suíte, o `travas-drop.txt` e os logs. **Checklist:** guarda (confirmação, aditiva aplicada, md5 das 4 = vivo, 12 colunas); PR10 (encoding antes do BEGIN, `DO $trava$` na tabela antes da guarda, `$pos$` com a recusa provada, NOTIFY antes do COMMIT, cabeçalho "Aplicar SÓ via"); nada além das 4 RPCs e da tabela; `DROP TABLE` último; nenhuma DDL de policy explícita; travas medidas e aceitáveis (sem `auth/storage/realtime` — senão, decisão do dono); inverso = DDL original + texto vivo + ACL (`authenticated` sim, anon não) + policy por último, idempotente, estrutura idêntica provada; −4|−1; LIFO com a aditiva (o inverso da aditiva EXIGE a tabela antiga).
 
 ---
 ## Task 10: Ensaio na cópia + scripts de PRODUÇÃO (molde Nota/SKU/Sheet) + provas com `psql`/`docker` falsos  *(Opus + guardião — G-scripts)*
@@ -4772,6 +5142,9 @@ git show --stat HEAD
 # monta-aplica.sh. Só DEFINE variáveis e funções (nada roda sozinho). Uso: num BASH, de dentro da worktree:
 #   source .superpowers/distribuicao/mig/aplica.sh
 M=.superpowers/distribuicao/mig
+# PR10 (N1 do B-fix1 da reorg): o aplica_v2 manda o arquivo por `psql -c` — o SET client_encoding de DENTRO do arquivo não
+# protege o texto enviado; exportar aqui cobre todo script que faz `source aplica.sh` (a prova confere).
+export PGCLIENTENCODING=UTF8
 DS="${DIST_DS:-/Users/sunglee/PLM + Criação/savepoints/pre-apply-distribuicao}"
 BF1="${DIST_BF1:-/Users/sunglee/PLM + Criação/savepoints/pre-apply-f1-kanban-auto}"
 BK="/Users/sunglee/PLM + Criação/banco-local/backups"
@@ -4819,18 +5192,22 @@ confere_md5_sql() {  # uso: confere_md5_sql A|B — os 2 SQL da etapa no disco =
   [ "$(md5_arquivo "$inv")" = "$(md5_de "$M/md5-$e-inv.txt")" ] || { echo "FALHOU (pré-voo): $inv ≠ o ensaiado"; return 1; }
   echo "OK (pré-voo): SQL da etapa $e = md5 do ensaio"
 }
-confere_arquivos() {  # travas nos 4 arquivos; DDL de policy SÓ no inverso da remoção
+confere_arquivos() {  # travas + encoding + $pos$ + NOTIFY nos 4 arquivos (PR10); DDL de policy SÓ no inverso da remoção
   local f tt
   for f in "$MIG_A" "$INV_A" "$MIG_B" "$INV_B"; do
     tt="$(sed -n "s/^SET LOCAL transaction_timeout = '\([0-9][0-9]*\)s';\$/\1/p" "$f" | head -1)"
     [ "$tt" = 3 ] || { echo "FALHOU (pré-voo): $f — transaction_timeout tem de ser 3s (achei '${tt}s')"; return 1; }
     [ "$(grep -A2 -x 'BEGIN;' "$f")" = "$(printf '%s\n' 'BEGIN;' "SET LOCAL lock_timeout = '500ms';" "SET LOCAL transaction_timeout = '3s';")" ] \
       || { echo "FALHOU (pré-voo): $f sem as 2 travas logo depois do BEGIN;"; return 1; }
+    [ "$(grep -B1 -x 'BEGIN;' "$f" | head -1)" = "SET client_encoding = 'UTF8';" ] \
+      || { echo "FALHOU (pré-voo): $f sem SET client_encoding = 'UTF8' logo antes do BEGIN;"; return 1; }
+    grep -qx 'DO $pos$' "$f" && grep -qx "NOTIFY pgrst, 'reload schema';" "$f" \
+      || { echo "FALHOU (pré-voo): $f sem a pós-condição \$pos\$ e/ou o NOTIFY antes do COMMIT"; return 1; }
   done
   for f in "$MIG_A" "$INV_A" "$MIG_B"; do
     if grep -Eiq '^[[:space:]]*(create|drop|alter)[[:space:]]+policy' "$f"; then echo "FALHOU (pré-voo): $f tem DDL de policy"; return 1; fi
   done
-  echo "OK (pré-voo): travas 500ms/3s nos 4 arquivos; DDL de policy só no inverso da remoção"
+  echo "OK (pré-voo): encoding + travas 500ms/3s + \$pos\$ + NOTIFY nos 4 arquivos; DDL de policy só no inverso da remoção"
 }
 # Backup = receita PROVADA (Nota/SKU/Sheet): 2 dumps POR SCHEMA (public + auth) com o pg_dump 17.6 do CONTAINER da cópia.
 # URL pela ENTRADA PADRÃO; umask 077 + chmod 600; exige TABLE DATA > 0 e que o dump abra. PARA em qualquer falha.
@@ -5011,6 +5388,7 @@ case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode 
 cd "$TOP"
 source .superpowers/distribuicao/mig/aplica.sh || exit 1
 S=.superpowers/distribuicao
+export PGCLIENTENCODING=UTF8   # PR10 (também no aplica.sh; explícito aqui)
 case "${1:-}" in ida|volta|remover|volta-remover) ;; *) echo "uso: copia.sh ida|volta|remover|volta-remover"; exit 2;; esac
 echo "== CÓPIA · alvo: 127.0.0.1:54422 · HEAD $(git rev-parse --short HEAD) · $1"
 bash "$S/n3.sh" antes "copia-$1" || exit 1
@@ -5056,14 +5434,16 @@ echo "== CÓPIA: $1 OK ($ANTES → $DEPOIS)"
 # ENSAIO GERAL na CÓPIA (Task 10): N3 → backup → vizinhas antes → A (ida real) → conferências → suíte A aplicada → vizinhas
 # depois → B (remoção real, com o CSV da tabela antiga exportado) → suíte B aplicada → volta B (+ dados) → re-remove →
 # volta B (+ dados) → volta A → reida A → volta A. Termina com a cópia IGUAL a antes (contagens, outras funções, linhas
-# da tabela antiga) e grava o md5 dos 4 SQL ENSAIADOS. Uso (de dentro da worktree, SÓ depois do OK do dono no chat):
+# da tabela antiga) e grava o md5 dos 4 SQL ENSAIADOS. Uso (de dentro da worktree, SÓ depois do aviso no painel — N3/PR17):
 #   DIST_DONO_AVISADO=sim /bin/bash .superpowers/distribuicao/mig/ensaio-local.sh 2>&1 | tee .superpowers/distribuicao/logs/ensaio.log
+# (SÓ depois do aviso no PAINEL + id no ledger avisos.md — PR17/P-37)
 set -uo pipefail
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode de dentro da worktree distribuicao-produto"; exit 1;; esac
 cd "$TOP"
 source .superpowers/distribuicao/mig/aplica.sh || exit 1
 S=.superpowers/distribuicao
+export PGCLIENTENCODING=UTF8   # PR10 (também no aplica.sh; explícito aqui)
 q() { psql "$LOCAL" -X -q -A -t -v ON_ERROR_STOP=1 -c "$1"; }
 echo "== ENSAIO · alvo: 127.0.0.1:54422 (cópia) · HEAD $(git rev-parse --short HEAD)"
 bash "$S/n3.sh" antes t10 || exit 1
@@ -5107,8 +5487,8 @@ viz antes
 aplica_v2 "$LOCAL" "$MIG_A" || exit 1
 confere_ida_a "$LOCAL" "$CONT0" "$FN0" || { volta_a; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/distribuicao-produto.test.ts > "$S/logs/ensaio-suite-a.log" 2>&1
-grep -qE "Tests +14 passed" "$S/logs/ensaio-suite-a.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite-a.log" \
-  || { tail -8 "$S/logs/ensaio-suite-a.log"; echo "FALHOU: com a aditiva aplicada a suíte A tem de dar 14 passed"; volta_a; exit 1; }
+grep -qE "Tests +15 passed" "$S/logs/ensaio-suite-a.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite-a.log" \
+  || { tail -8 "$S/logs/ensaio-suite-a.log"; echo "FALHOU: com a aditiva aplicada a suíte A tem de dar 15 passed"; volta_a; exit 1; }
 viz depois
 NOVAS="$(comm -13 "$S/logs/viz-falhas-antes.txt" "$S/logs/viz-falhas-depois.txt")"
 TA="$(total "$S/logs/viz-antes.log")"; TD="$(total "$S/logs/viz-depois.log")"
@@ -5120,8 +5500,8 @@ else
 fi
 remove_b || { volta_a; exit 1; }
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/distribuicao-antiga-remover.test.ts > "$S/logs/ensaio-suite-b.log" 2>&1
-grep -qE "Tests +3 passed \| 3 skipped|Tests +4 passed \| 3 skipped" "$S/logs/ensaio-suite-b.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite-b.log" \
-  || { tail -8 "$S/logs/ensaio-suite-b.log"; echo "FALHOU: suíte B com a remoção aplicada (esperado 3 estáticos + 1 'já aplicada' passed; 3 só-txn skipped)"; volta_b; volta_a; exit 1; }
+grep -qE "Tests +4 passed \| 4 skipped" "$S/logs/ensaio-suite-b.log" && ! grep -qE "[0-9]+ failed" "$S/logs/ensaio-suite-b.log" \
+  || { tail -8 "$S/logs/ensaio-suite-b.log"; echo "FALHOU: suíte B com a remoção aplicada (esperado 3 estáticos + 1 'já aplicada' passed; 4 só-txn skipped)"; volta_b; volta_a; exit 1; }
 volta_b || exit 1
 remove_b || { volta_b; volta_a; exit 1; }
 volta_b || exit 1
@@ -5139,7 +5519,7 @@ bash "$S/n3.sh" depois t10
 echo "== ENSAIO OK — cópia limpa ($CONT0; antiga com $N0 linha(s)); md5 A $(cat "$M/md5-A-mig.txt")/$(cat "$M/md5-A-inv.txt") · B $(cat "$M/md5-B-mig.txt")/$(cat "$M/md5-B-inv.txt")"
 ```
 
-(A linha de conferência da suíte B aceita as 2 formas porque o `withTx` do bloco "já aplicada" roda com a cópia REMOVIDA: 3 estáticos + 1 = 4 passed e os 3 só-txn skipped. Se o formato do vitest for outro, conferir à mão e ajustar SÓ o `grep` — registrar em `desvios.md`.)
+(Suíte B com a cópia REMOVIDA: 3 estáticos + 1 "já aplicada" = 4 passed e os 4 só-txn skipped. Se o formato do vitest for outro, conferir à mão e ajustar SÓ o `grep` — registrar em `desvios.md`.)
 
 - [ ] **Step 5: `.superpowers/distribuicao/mig/ida-producao.sh` (ADITIVA — roda o DONO)**
 
@@ -5154,6 +5534,7 @@ echo "== ENSAIO OK — cópia limpa ($CONT0; antiga com $N0 linha(s)); md5 A $(c
 set -uo pipefail
 umask 077
 unset EXTRA_SQL
+export PGCLIENTENCODING=UTF8   # PR10: o aplica_v2 manda o SQL por psql -c (também no aplica.sh; explícito aqui)
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode de dentro da worktree distribuicao-produto (achei $TOP)"; exit 1;; esac
 cd "$TOP"
@@ -5192,6 +5573,7 @@ echo "== IDA OK $(date '+%T') — contagens $CONT_ANTES → $(cat "$DS/cont-depo
 set -uo pipefail
 umask 077
 unset EXTRA_SQL
+export PGCLIENTENCODING=UTF8   # PR10: o aplica_v2 manda o SQL por psql -c (também no aplica.sh; explícito aqui)
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode de dentro da worktree distribuicao-produto (achei $TOP)"; exit 1;; esac
 cd "$TOP"
@@ -5315,6 +5697,7 @@ echo "OK (referência nova p/ a volta da F1): $REF_NOVA — base $(basename "$R"
 set -uo pipefail
 umask 077
 unset EXTRA_SQL
+export PGCLIENTENCODING=UTF8   # PR10: o aplica_v2 manda o SQL por psql -c (também no aplica.sh; explícito aqui)
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode de dentro da worktree distribuicao-produto (achei $TOP)"; exit 1;; esac
 cd "$TOP"
@@ -5350,6 +5733,7 @@ ativ_vazio "$PROD" && EXTRA_SQL="SET LOCAL app.confirmo_apagar_distribuicao_por_
 set -uo pipefail
 umask 077
 unset EXTRA_SQL
+export PGCLIENTENCODING=UTF8   # PR10: o aplica_v2 manda o SQL por psql -c (também no aplica.sh; explícito aqui)
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 case "$TOP" in */.claude/worktrees/distribuicao-produto) ;; *) echo "PARE: rode de dentro da worktree distribuicao-produto (achei $TOP)"; exit 1;; esac
 cd "$TOP"
@@ -5393,6 +5777,7 @@ FALHAS=0; ok() { echo "OK (prova): $1"; }; ruim() { echo "FALHOU (prova): $1"; F
 
 # 1) guarda de URL (regex ANCORADA)
 source "$M/aplica.sh"
+unset PGCLIENTENCODING   # PR10: cada script tem de exportar sozinho (a prova confere "enc=UTF8" em todo APPLY)
 while IFS='|' read -r esperado url; do
   if printf '%s\n' "$url" | grep -Eq "$REGEX_URL_PROD"; then got=aceita; else got=recusa; fi
   [ "$got" = "$esperado" ] && ok "regex $esperado ${url%%@*}@…" || ruim "regex: $url → $got (esperado $esperado)"
@@ -5407,16 +5792,16 @@ URLS
 # 2) fakes — o psql responde pelo TEXTO da consulta; estado ∈ antes | a | b (aditiva aplicada | + remoção)
 cat > "$FB/psql" <<'FAKE'
 #!/usr/bin/env bash
-SC="${DIST_PROVA_SC:?}"; sql=""; saida=""
+SC="${DIST_PROVA_SC:?}"; sql=""; saida=""; ENC="${PGCLIENTENCODING:-}"
 while [ $# -gt 0 ]; do case "$1" in -c) sql="$2"; shift 2;; -o) saida="$2"; shift 2;; *) shift;; esac; done
 printf '%s\n' "$(printf '%s' "$sql" | tr '\n' ' ' | cut -c1-140)" >> "$SC/psql.log"
 est="$(cat "$SC/estado")"
 r() { if [ -n "$saida" ]; then printf '%s\n' "$1" > "$saida"; else printf '%s\n' "$1"; fi; }
 case "$sql" in
-  *"DROP COLUMN IF EXISTS distribuicao"*) echo "APPLY INV_A" >> "$SC/psql.log"; echo antes > "$SC/estado"; exit 0;;
-  *"DROP TABLE IF EXISTS public.distribuicao_tabelas"*) echo "APPLY MIG_B" >> "$SC/psql.log"; echo b > "$SC/estado"; exit 0;;
-  *"CREATE TABLE IF NOT EXISTS public.distribuicao_tabelas"*) echo "APPLY INV_B" >> "$SC/psql.log"; echo a > "$SC/estado"; exit 0;;
-  *"ADD COLUMN IF NOT EXISTS distribuicao jsonb"*) echo "APPLY MIG_A" >> "$SC/psql.log"; echo a > "$SC/estado"; exit 0;;
+  *"DROP COLUMN IF EXISTS distribuicao"*) echo "APPLY INV_A enc=$ENC" >> "$SC/psql.log"; echo antes > "$SC/estado"; exit 0;;
+  *"DROP TABLE IF EXISTS public.distribuicao_tabelas"*) echo "APPLY MIG_B enc=$ENC" >> "$SC/psql.log"; echo b > "$SC/estado"; exit 0;;
+  *"CREATE TABLE IF NOT EXISTS public.distribuicao_tabelas"*) echo "APPLY INV_B enc=$ENC" >> "$SC/psql.log"; echo a > "$SC/estado"; exit 0;;
+  *"ADD COLUMN IF NOT EXISTS distribuicao jsonb"*) echo "APPLY MIG_A enc=$ENC" >> "$SC/psql.log"; echo a > "$SC/estado"; exit 0;;
   *"\\copy ("*) p=$(printf '%s' "$sql" | sed -n "s/.* to '\([^']*\)'.*/\1/p"); [ -n "$p" ] && printf 'id\n' > "$p"; exit 0;;
   *"\\copy public."*) exit 0;;
   *"NOTIFY pgrst"*) exit 0;;
@@ -5484,6 +5869,7 @@ echo antes > "$SC/estado"; roda "$M/ida-producao.sh"
 grep -q "== IDA OK" "$SC/out.txt" && ok "ida A: IDA OK" || { tail -15 "$SC/out.txt"; ruim "ida A sem IDA OK"; }
 grep -q "pg_dump" "$SC/docker.log" && ok "ida A: backup (public+auth) rodou" || ruim "ida A sem backup"
 grep -q "APPLY MIG_A" "$SC/psql.log" && ok "ida A: apply rodou" || ruim "ida A sem apply"
+grep -q "APPLY MIG_A enc=UTF8" "$SC/psql.log" && ok "ida A: PGCLIENTENCODING=UTF8 exportado (PR10)" || ruim "ida A sem PGCLIENTENCODING=UTF8"
 roda "$M/ref-volta-f1.sh" aditiva
 grep -q "CONT esperado da volta: 454|233" "$SC/out.txt" && ok "ref aditiva: 452|233 + 2|0 = 454|233" || { tail -15 "$SC/out.txt"; ruim "ref aditiva"; }
 [ "$(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_distribuicao_detalhe.txt")" = "$(( $(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_sem_trava_detalhe.txt") + 4 ))" ] \
@@ -5500,7 +5886,7 @@ roda "$SC/remover-errado.sh"
 grep -q "cancelado — nada foi feito" "$SC/out.txt" && ! grep -q "APPLY MIG_B" "$SC/psql.log" && [ ! -s "$SC/docker.log" ] && ok "remoção com a frase errada ⇒ cancelada antes do export/backup" || ruim "remoção com frase errada"
 touch -t 203001010000 "$SC/bf1/fidelidade_ref_volta_f1_pos_distribuicao_detalhe.txt"   # garante que é a mais nova por mtime
 roda "$SC/remover-prova.sh"
-grep -q "== REMOÇÃO OK" "$SC/out.txt" && grep -q "APPLY MIG_B" "$SC/psql.log" && ok "remoção: OK com export + backup + apply" || { tail -15 "$SC/out.txt"; ruim "remoção"; }
+grep -q "== REMOÇÃO OK" "$SC/out.txt" && grep -q "APPLY MIG_B enc=UTF8" "$SC/psql.log" && ok "remoção: OK com export + backup + apply (enc=UTF8)" || { tail -15 "$SC/out.txt"; ruim "remoção"; }
 roda "$M/ref-volta-f1.sh" remocao
 grep -q "CONT esperado da volta: 450|232" "$SC/out.txt" && ok "ref remoção: 454|233 − 4|1 = 450|232" || { tail -15 "$SC/out.txt"; ruim "ref remoção"; }
 [ "$(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_distribuicao_remocao_detalhe.txt")" = "$(( $(wc -l < "$SC/bf1/fidelidade_ref_volta_f1_pos_distribuicao_detalhe.txt") - 21 ))" ] \
@@ -5556,13 +5942,13 @@ Quem roda: o DONO, num Terminal NOVO (nada de variável DIST_* exportada). Pasta
 ## Antes
 1. A Reorganização do Sheet (20261005100000) JÁ está em produção COM a referência dela da volta da F1 (ref-volta-f1 da
    reorganização). O pré-voo confere a reorganização por objeto e a cadeia — divergência = PARA, de propósito.
-2. O controlador avisou no chat "pode rodar a Distribuição" (G-migration A/B + G-scripts aprovados; seu OK registrado).
+2. O controlador avisou no PAINEL "pode rodar a Distribuição" (G-migration A/B + G-scripts aprovados; seu OK registrado).
 3. Horário calmo.
 4. Conferir os scripts: `cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/distribuicao-produto" && shasum -a 256 .superpowers/distribuicao/mig/{aplica,ida-producao,ref-volta-f1,remover-producao,volta-producao,volta-remocao-producao}.sh | cut -c1-16`
    Tem de dar: aplica `<sha>` · ida-producao `<sha>` · ref-volta-f1 `<sha>` · remover-producao `<sha>` · volta-producao `<sha>` · volta-remocao-producao `<sha>`.
 
 ## MOMENTO 1 — ADITIVA (antes do merge do front)
-### Passo 1 — ida (o backup completo public + auth é feito DENTRO do script, antes de aplicar)
+### Passo 1 — ida (o backup completo public + auth é feito DENTRO do script, antes de aplicar; a migration confere a si mesma — $pos$ — e recarrega o PostgREST antes do COMMIT)
     cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/distribuicao-produto"
     bash .superpowers/distribuicao/mig/ida-producao.sh 2>&1 | tee -a .superpowers/distribuicao/logs/prod-ida.log
 Esperado no fim: `== IDA OK … contagens N|M → N+2|M`. No pré-voo aparece `INFO (pré-voo, não bloqueia): lojas com o módulo |
@@ -5599,7 +5985,7 @@ chmod +x .superpowers/distribuicao/copia.sh .superpowers/distribuicao/mig/*.sh
 DIST_DONO_AVISADO=sim /bin/bash .superpowers/distribuicao/mig/ensaio-local.sh 2>&1 | tee .superpowers/distribuicao/logs/ensaio.log | tail -40
 ```
 
-Expected: `OK (IDA: …)` ×7, `14 passed`, `OK (vizinhas): nenhuma falha nova …`, `OK (REMOÇÃO: …)` ×4, as voltas `OK (VOLTA …)` e `== ENSAIO OK — cópia limpa (<CONT0>; antiga com 4 linha(s))`. Qualquer FALHOU ⇒ o script já devolveu a cópia — PARE e reporte.
+Expected: `OK (IDA: …)` ×7, `15 passed`, `OK (vizinhas): nenhuma falha nova …`, `OK (REMOÇÃO: …)` ×4, as voltas `OK (VOLTA …)` e `== ENSAIO OK — cópia limpa (<CONT0>; antiga com 4 linha(s))`. Registrar no relatório e no RODAR o tempo `real` que o `aplica_v2` imprime em cada ida/volta/remoção (referência da reorg: ~135 ms). Qualquer FALHOU ⇒ o script já devolveu a cópia — PARE e reporte.
 
 - [ ] **Step 12: Provas dos scripts + sha256 no RODAR**
 
@@ -5609,9 +5995,9 @@ bash .superpowers/distribuicao/mig/prova-scripts.sh 2>&1 | tee .superpowers/dist
 shasum -a 256 .superpowers/distribuicao/mig/{aplica,ida-producao,ref-volta-f1,remover-producao,volta-producao,volta-remocao-producao}.sh | cut -c1-16
 ```
 
-Expected: `== PROVAS OK` (≈ 25 `OK (prova)`); o controlador copia as 6 sha256 para o `RODAR-distribuicao.md`.
+Expected: `== PROVAS OK` (≈ 27 `OK (prova)`, inclusive `PGCLIENTENCODING=UTF8 exportado`); o controlador copia as 6 sha256 para o `RODAR-distribuicao.md`.
 
-- [ ] **Step 13: G-scripts — revisão Opus + guardião** — com o plano, os scripts, o `aplica.sh`, os logs do ensaio e das provas. Checklist: guarda de URL ancorada antes de qualquer `psql`; `umask 077`; `unset EXTRA_SQL`; backup public+auth (TABLE DATA > 0, `pg_restore -l`) ANTES de cada apply em produção; export CSV antes de cada coisa que apaga dado; md5 dos SQL = ensaiados; pré-voo SÓ LEITURA completo (F1, reorganização, objetos, md5 das redefinidas/antigas, travas, cadeia da F1 com PAT pelas categorias reais, `ativ_vazio`); pós-condições antes do "OK"; contagens por diferença (+2|0, −4|−1); frase digitada na remoção e nas voltas; LIFO nas voltas; referências da F1 encadeadas (a mais nova por mtime, nunca cravada); provas só com fakes.
+- [ ] **Step 13: G-scripts — revisão Opus + guardião** — com o plano, os scripts, o `aplica.sh`, os logs do ensaio e das provas. Checklist: guarda de URL ancorada antes de qualquer `psql`; `umask 077`; `unset EXTRA_SQL`; `export PGCLIENTENCODING=UTF8` em todo script que aplica SQL (PR10 — a prova confere `enc=UTF8`); `confere_arquivos` exigindo encoding antes do BEGIN, `$pos$` e NOTIFY; backup public+auth (TABLE DATA > 0, `pg_restore -l`) ANTES de cada apply em produção; export CSV antes de cada coisa que apaga dado; md5 dos SQL = ensaiados; pré-voo SÓ LEITURA completo (F1, reorganização, objetos, md5 das redefinidas/antigas, travas, cadeia da F1 com PAT pelas categorias reais, `ativ_vazio`); pós-condições antes do "OK"; contagens por diferença (+2|0, −4|−1); frase digitada na remoção e na volta da aditiva (a volta da remoção só RECRIA e devolve dados — sem frase; nota N4); LIFO nas voltas; referências da F1 encadeadas (a mais nova por mtime, nunca cravada); provas só com fakes.
 
 ---
 ## Task 11: Portões finais, PRODUÇÃO A (dono) → merge + cópia → QA → deploy → REMOÇÃO (dono) → docs  *(controlador + guardião + dono — não é código)*
@@ -5633,19 +6019,19 @@ PGOPTIONS='-c default_transaction_read_only=on' espera "$LOCAL" "$MD5_REDEF" "$(
   || PGOPTIONS='-c default_transaction_read_only=on' espera "$LOCAL" "$MD5_REDEF" "$(md5_de "$M/md5-redef-depois.txt")" "cópia: as 5 já no texto desta frente"
 ```
 
-Repetir o Task 0 Step 8 (sobreposição com a reorganização e com outras frentes que entraram na `feature/plan-tecido-a1`) — `SOBREPOE-BANCO` ou md5 da cópia fora dos 2 esperados (outra frente redefiniu uma das 5 funções) ⇒ PARE (a Task 4 é refeita: novo dump, novo gerador, nova G-migration A, novo ensaio). Se o rebase trouxe algo, com o OK do dono (N3): `DIST_DONO_AVISADO=sim bash .superpowers/distribuicao/n3.sh antes t11s1` e as suítes `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres DIST_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/distribuicao-produto.test.ts` → `14 passed` e `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres DIST_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/distribuicao-antiga-remover.test.ts` → `6 passed | 1 skipped`; `bash .superpowers/distribuicao/n3.sh depois t11s1`.
+Repetir o Task 0 Step 8 (sobreposição com a reorganização e com outras frentes que entraram na `feature/plan-tecido-a1`) — `SOBREPOE-BANCO` ou md5 da cópia fora dos 2 esperados (outra frente redefiniu uma das 5 funções) ⇒ PARE (a Task 4 é refeita: novo dump, novo gerador, nova G-migration A, novo ensaio). Se o rebase trouxe algo, com o aviso no painel + ledger (N3/PR17): `DIST_DONO_AVISADO=sim bash .superpowers/distribuicao/n3.sh antes t11s1` e as suítes `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres DIST_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/distribuicao-produto.test.ts` → `15 passed` e `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres DIST_MIG_TXN=1 npx vitest run --no-file-parallelism tests/integration/distribuicao-antiga-remover.test.ts` → `7 passed | 1 skipped`; `bash .superpowers/distribuicao/n3.sh depois t11s1`.
 
 - [ ] **Step 2: G-commit (guardião)**
 
-Entregar ao `guardiao-unificacao`: `git log --oneline "$(cat .superpowers/distribuicao/BASE)"..HEAD`, `git diff --stat` do mesmo intervalo, `gates.sh` verde, os pareceres (Lote A, T5, T6, T7, T8, G-migration A, G-migration B com a medição de travas, G-scripts), o gate "Dev intocado" (vazio), o gate "arquivos da reorg intocados" (vazio) e este plano. Checklist: decisões travadas do dono (spec §2); rulings R1–R39; nenhum arquivo fora do `permitidos.txt`; Dev intocado; save point `savepoint-pre-unificacao-2026-09-22` preservado; ordem de produção R36 e voltas LIFO R37. BLOQUEIA ⇒ parar.
+Entregar ao `guardiao-unificacao`: `git log --oneline "$(cat .superpowers/distribuicao/BASE)"..HEAD`, `git diff --stat` do mesmo intervalo, `gates.sh` verde, os pareceres (G-plano com as ressalvas R1–R8 atendidas — PR10–PR18 —, Lote A, T5, T6, T7, T8, G-migration A, G-migration B com a medição de travas, G-scripts), o gate "Dev intocado" (vazio), o gate "arquivos da reorg intocados" (vazio) e este plano. Checklist: decisões travadas do dono (spec §2); rulings R1–R39; nenhum arquivo fora do `permitidos.txt`; Dev intocado; save point `savepoint-pre-unificacao-2026-09-22` preservado; ordem de produção R36 e voltas LIFO R37. BLOQUEIA ⇒ parar.
 
-- [ ] **Step 3: OK EXPLÍCITO do dono (chat, sem popup)**
+- [ ] **Step 3: OK EXPLÍCITO do dono (pelo PAINEL; o dono responde no chat; sem popup)**
 
-Apresentar em PT-BR simples: (a) o que muda na tela — botão "Distribuir por loja" no Tecido 1 do card do Plan. Tecido (só nas lojas com o módulo "Distribuição por produto" ligado), pç da cor distribuída só leitura, "atende a" no forro/Tecido 2 com pç = soma, o dialog (desktop, celular, imprimir), o Direcionamento com o plano do modelo, "X modelos direcionados" e o semi-preenchimento, e a página antiga "Distribuição" SUMINDO do menu; (b) o que muda no banco — 2 colunas vazias em `plan_tecido_variantes`, 5 funções redefinidas (entre elas: o "aplicar" do plano deixa de APAGAR o casamento de variantes feito no BOM — conserto de um bug de hoje, R3), 2 funções novas, e a remoção (tabela `distribuicao_tabelas` + 4 RPCs antigas) num 2º momento, com CSV + backup antes; (c) o efeito P-31 nos cards que já existem (forro/T2 passa a somar o Tecido 1 de mesma cor base — o "a comprar" do forro muda; o kanban automático, onde estiver ligado, pode mover card quando a grade aplicada muda); (d) a ordem (reorganização ANTES; aditiva; merge; QA; deploy; remoção DEPOIS do deploy no ar); (e) o aviso para salvar e fechar o Plan. Tecido/Direcionamento abertos antes de cada passo; (f) o plano de volta (Step 13, LIFO); (g) as respostas de P-31…P-36 (§6) — se o dono ainda não respondeu, a recomendação implementada; (h) os ids para a QA (P-35) e os RESÍDUOS da QA na cópia (Step 7). Registrar a resposta literal + data no diário. Sem "sim" ⇒ parar.
+Apresentar em PT-BR simples: (a) o que muda na tela — botão "Distribuir por loja" no Tecido 1 do card do Plan. Tecido (só nas lojas com o módulo "Distribuição por produto" ligado), pç da cor distribuída só leitura, "atende a" no forro/Tecido 2 com pç = soma, o dialog (desktop, celular, imprimir), o Direcionamento com o plano do modelo, "X modelos direcionados" e o semi-preenchimento, e a página antiga "Distribuição" SUMINDO do menu; (b) o que muda no banco — 2 colunas vazias em `plan_tecido_variantes`, 5 funções redefinidas (entre elas: o "aplicar" do plano deixa de APAGAR o casamento de variantes feito no BOM — conserto de um bug de hoje, R3), 2 funções novas, e a remoção (tabela `distribuicao_tabelas` + 4 RPCs antigas) num 2º momento, com CSV + backup antes; (c) o efeito P-31 = A nos cards que já existem (forro/T2 passa a somar o Tecido 1 de mesma cor base — o "a comprar" do forro muda; na 1ª abertura a coleção fica "não salva" com o aviso "N cor(es) de forro/Tecido 2 recalculada(s) pela amarração — salve para gravar" até alguém salvar — PR12; também em card já enviado à Explosão o forro do PLANO muda, o BOM não — nota N1; o kanban automático, onde estiver ligado, pode mover card quando a grade aplicada muda); (d) a ordem (reorganização ANTES; aditiva; merge; QA; deploy; remoção DEPOIS do deploy no ar); (e) o aviso para salvar e fechar o Plan. Tecido/Direcionamento abertos antes de cada passo; (f) o plano de volta (Step 13, LIFO); (g) as decisões P-31…P-36 já tomadas (§6) e a resposta da P-37 (N3); (h) os ids da QA escolhidos pelo controlador (P-35 = A — Step 7a) e os RESÍDUOS da QA na cópia (Step 7). Registrar a resposta literal + data no diário. Sem "sim" ⇒ parar.
 
 - [ ] **Step 4: PRODUÇÃO A — o DONO, no Terminal, pelo `RODAR-distribuicao.md` (Momento 1)**
 
-Pré-condição: a reorganização do Sheet (`20261005100000`) está em produção COM a referência dela da volta da F1 (a mais nova por mtime em `pre-apply-f1-kanban-auto/`). O dono confere as sha256 e roda o `ida-producao.sh` (Passo 1) e o `ref-volta-f1.sh aditiva` (Passo 2). O controlador NÃO roda nada disso. Qualquer PARE do pré-voo (inclusive "reorganização … no banco" ou "cadeia da volta da F1 … NÃO bate") ⇒ o controlador leva ao dono com o log; NUNCA contornar a checagem. A linha `INFO (pré-voo …)` (lojas com o módulo | casamentos no BOM | permissões órfãs) vai ao dono no chat e ao diário (R30/P-31).
+Pré-condição: a reorganização do Sheet (`20261005100000`) está em produção COM a referência dela da volta da F1 (a mais nova por mtime em `pre-apply-f1-kanban-auto/`). O dono confere as sha256 e roda o `ida-producao.sh` (Passo 1) e o `ref-volta-f1.sh aditiva` (Passo 2). O controlador NÃO roda nada disso. Qualquer PARE do pré-voo (inclusive "reorganização … no banco" ou "cadeia da volta da F1 … NÃO bate") ⇒ o controlador leva ao dono com o log; NUNCA contornar a checagem. A linha `INFO (pré-voo …)` (lojas com o módulo | casamentos no BOM | permissões órfãs) vai ao dono pelo painel e ao diário (R30/P-31).
 
 - [ ] **Step 5: G-produção A (guardião) — logs do dono**
 
@@ -5653,7 +6039,7 @@ O guardião lê `.superpowers/distribuicao/logs/prod-ida.log` e `prod-ref-volta-
 
 - [ ] **Step 6: Merge do front + ida na CÓPIA na mesma hora (controlador)**
 
-Avisar o dono por chat: salvar e fechar o Plan. Tecido e o Direcionamento abertos no `:5173` E no `:5188` (o código novo vale no reload; a cópia congela alguns segundos na ida). Com o OK — um comando só:
+Avisar o dono no PAINEL (e registrar no ledger `avisos.md` — N3/PR17): salvar e fechar o Plan. Tecido e o Direcionamento abertos no `:5173` E no `:5188` (o código novo vale no reload; a cópia congela alguns segundos na ida). Com o OK — um comando só:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/distribuicao-produto"
@@ -5667,9 +6053,13 @@ DIST_DONO_AVISADO=sim bash .superpowers/distribuicao/copia.sh ida \
 
 Expected: `== CÓPIA: ida OK (N|M → N+2|M)` (ou `a cópia JÁ tem a aditiva`) e o ff com os commits desta frente no topo. A ida falhou ⇒ o merge NÃO roda. O ff falhou (a principal andou) ⇒ `git rebase feature/plan-tecido-a1` na worktree, `gates.sh`, repetir SÓ o `merge --ff-only`. Avisar as outras frentes: "a cópia local passa a ter a Distribuição por produto (aditiva): funções +2; classificadores que esperam a contagem anterior passam a dizer INESPERADO".
 
+- [ ] **Step 7a: ids da QA (P-35 = A — o CONTROLADOR escolhe, o dono aprova)**
+
+O controlador escolhe, com consulta SÓ LEITURA na cópia (`PGOPTIONS='-c default_transaction_read_only=on'`): (1) um card da Loja Teste no Plan. Tecido com Tecido 1 de 2+ cores e forro, **sem distribuição** (nenhuma `plan_tecido_variantes.distribuicao <> '{}'` no slot) — anota `colecao_id`, `sub` (se houver) e o nome do card; (2) um modelo da Loja Teste com Grade Real e CQ liberado, **sem linha em `direcionamento_lojas`**; e, para a rodada SÓ LEITURA em produção, um card e um modelo equivalentes (nomes/ids que o dono reconheça). **Publica os ids no PAINEL** (nome + id + por que foi escolhido + os resíduos do Step 7 na cópia) e **ESPERA o OK do dono** (colado no chat), registrado no ledger `avisos.md` e no diário. Sem OK ⇒ a QA não roda (os testes de escrita pulam e o deploy espera).
+
 - [ ] **Step 7: QA Playwright — `:5188` (cópia, com gravação) e `:5173` (produção, SÓ leitura)**
 
-Pré-condições: `:5173` e `:5188` do dono no ar e RECARREGADOS (NÃO subir/matar nada; fora do ar ⇒ PEDIR ao dono); ids combinados com o dono por chat (P-35): na CÓPIA, `DIST_QA_COLECAO` (id da URL `?colecao=`), `DIST_QA_SUB` (opcional, `&sub=`), `DIST_QA_CARD` (nome do card da Loja Teste com Tecido 1 de 2+ cores e forro, **sem distribuição**) e `DIST_QA_MODELO_DIR` (modelo com Grade Real e CQ liberado, **sem direcionamento salvo**); em PRODUÇÃO, ids equivalentes de um card/modelo que o dono indicar (a QA só abre e fecha). Módulo `distribuicao` ligado na Loja Teste da cópia (se não estiver, o dono liga em Gerenciar Lojas — ação dele, não da QA). **Resíduos na CÓPIA** (avisar o dono ANTES): o card da QA passa por distribuir → salvar → desfazer; ficam `plan_rev` +2, 2 blindagens em `plan_tecido_snapshots`, linhas no `audit_log` e — se o card tiver modelo real — 2 auto-aplicações em `modelo_grades` (a 2ª devolve o pç de antes). No Direcionamento NADA é salvo.
+Pré-condições: `:5173` e `:5188` do dono no ar e RECARREGADOS (NÃO subir/matar nada; fora do ar ⇒ PEDIR ao dono); ids APROVADOS no Step 7a (P-35 = A): na CÓPIA, `DIST_QA_COLECAO` (id da URL `?colecao=`), `DIST_QA_SUB` (opcional, `&sub=`), `DIST_QA_CARD` (nome do card da Loja Teste com Tecido 1 de 2+ cores e forro, **sem distribuição**) e `DIST_QA_MODELO_DIR` (modelo com Grade Real e CQ liberado, **sem direcionamento salvo**); em PRODUÇÃO, ids equivalentes de um card/modelo que o dono indicar (a QA só abre e fecha). Módulo `distribuicao` ligado na Loja Teste da cópia (se não estiver, o dono liga em Gerenciar Lojas — ação dele, não da QA). **Resíduos na CÓPIA** (avisar o dono ANTES): o card da QA passa por distribuir → salvar → desfazer; ficam `plan_rev` +2, 2 blindagens em `plan_tecido_snapshots`, linhas no `audit_log` e — se o card tiver modelo real — 2 auto-aplicações em `modelo_grades` (a 2ª devolve o pç de antes). No Direcionamento NADA é salvo.
 
 Criar `tests/e2e/distribuicao-qa.spec.ts` (NÃO versionar):
 
@@ -5823,9 +6213,19 @@ test.describe("Distribuição por produto — QA", () => {
     for (const p of paths) expect(p).toMatch(/^dir:[^:]+:[^:]+:.+$/);
     test.info().annotations.push({ type: "pendentes (–)", description: String(await page.locator('[title="Distribua à mão"]').count()) });
     if (await comPlano.isVisible()) await expect(page.getByRole("button", { name: /Preencher com o plano/ })).toBeVisible();
+    // P-32 = B: o semi-preenchimento NÃO conta como alteração não salva ⇒ sair sem editar não pergunta nada.
     await page.getByRole("button", { name: "Voltar" }).first().click();
-    const d = page.getByRole("button", { name: "Descartar" });
-    if (await d.isVisible().catch(() => false)) await d.click();
+    await expect(page.getByText("Descartar alterações?")).toHaveCount(0);
+  });
+
+  test("ESCRITA (só cópia) — PR12: se a carga recalculou forro/Tecido 2, o aviso some depois do 1º Salvar (card = Resumo)", async ({ page }) => {
+    test.skip(!ESCRITA, "Só com DIST_QA_ESCRITA=1 no :5188 (cópia) — P-35");
+    await abrirColecao(page);
+    const aviso = page.getByText(/recalculada\(s\) pela amarração — salve para gravar/);
+    test.skip((await aviso.count()) === 0, "nada a recalcular nesta coleção (já salva depois do módulo) — registrar no diário");
+    await salvarPlano(page);
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(aviso).toHaveCount(0);
   });
 });
 ```
@@ -5839,7 +6239,7 @@ E2E_BASE_URL=http://localhost:5173 DIST_QA_COLECAO="<id prod>" DIST_QA_CARD="<no
   npx playwright test tests/e2e/distribuicao-qa.spec.ts --reporter=list 2>&1 | tee .superpowers/distribuicao/logs/qa-producao.log | tail -30
 ```
 
-Expected: cópia — todos PASS (ou `skipped` com o motivo registrado); produção — PASS/`skipped` e o teste de ESCRITA `skipped`. Seletores que não baterem (o card, o Salvar do plano) ⇒ ajustar SÓ o seletor, registrar em `desvios.md` e repetir; regra diferente ⇒ achado. Presença a 2 (estilo Google Sheets): o controlador pede ao dono para abrir o MESMO card no `:5188` em 2 abas/usuários e conferir o anel com o nome no campo focado do dialog e no "atende a" (evidência: print no diário). Achado ⇒ correção na branch (task nova, revisão), `gates.sh`, novo `merge --ff-only`, repetir a QA — o deploy espera. Opcional: `mobile-ui-auditor` (report-only) no mesmo card a 360/390/768 e no Direcionamento.
+Expected: cópia — todos PASS (ou `skipped` com o motivo registrado); produção — PASS/`skipped` e o teste de ESCRITA `skipped`. Seletores que não baterem (o card, o Salvar do plano) ⇒ ajustar SÓ o seletor, registrar em `desvios.md` e repetir; regra diferente ⇒ achado. Presença a 2 (estilo Google Sheets): o controlador pede ao dono (pelo painel) para abrir o MESMO card no `:5188` em 2 abas/usuários e conferir o anel com o nome no campo focado do dialog e no "atende a", e também nos selects de Produto Acabado e Importado (`ProdutoCard`/`ProdutoImportadoCard` — os 10 `SelectTrigger` que o R20 liga, PR14) (evidência: print no diário). PR12 à mão: depois do teste de escrita, abrir o Resumo da coleção e conferir que o pç do forro/T2 amarrado no card = o do Resumo/"a comprar" (registrar os números no diário). Achado ⇒ correção na branch (task nova, revisão), `gates.sh`, novo `merge --ff-only`, repetir a QA — o deploy espera. Opcional: `mobile-ui-auditor` (report-only) no mesmo card a 360/390/768 e no Direcionamento.
 
 - [ ] **Step 8: Deploy — SÓ o dono, pelo portão (G-deploy: guardião antes)**
 
@@ -5877,11 +6277,11 @@ Expected: `feature/plan-tecido-a1`, `OK (deploy): pré-requisitos…`, `OK (depl
 
 - [ ] **Step 9: PRODUÇÃO B — REMOÇÃO — o DONO, pelo `RODAR-distribuicao.md` (Momento 2)**
 
-Pré-condições: deploy do Step 8 NO AR; abas recarregadas; G-deploy registrado; horário calmo (o `DROP TABLE` trava `tenants`/`colecoes` por milissegundos — R29, medição da Task 9). O dono roda o `remover-producao.sh` (Passo 4 — exporta a tabela em CSV, faz o backup e pede "APAGAR A DISTRIBUIÇÃO ANTIGA") e o `ref-volta-f1.sh remocao` (Passo 5). O controlador NÃO roda nada disso; qualquer PARE ⇒ leva ao dono com o log.
+Pré-condições: deploy do Step 8 NO AR; abas recarregadas; G-deploy registrado; aviso no PAINEL ("vou pedir a remoção"); horário calmo (o `DROP TABLE` trava `tenants`/`colecoes` por milissegundos — R29, medição da Task 9). O dono roda o `remover-producao.sh` (Passo 4 — exporta a tabela em CSV, faz o backup e pede "APAGAR A DISTRIBUIÇÃO ANTIGA") e o `ref-volta-f1.sh remocao` (Passo 5). O controlador NÃO roda nada disso; qualquer PARE ⇒ leva ao dono com o log.
 
 - [ ] **Step 10: G-produção B (guardião) + remoção na CÓPIA (controlador)**
 
-O guardião lê `prod-remocao.log` e `prod-ref-volta-f1.log`: frase digitada; CSV exportado (caminho no log) ANTES do backup; backup public+auth com TABLE DATA>0; pré-voo B OK (aditiva `2|2|2`, antiga `1|4`, md5 das 4 = `md5-antigas-antes.txt`, cadeia); `== REMOÇÃO OK` com `N|M → N−4|M−1`; `FN_PRE` igual; referência nova `…_pos_distribuicao_remocao_detalhe.txt` = anterior − 21 linhas, CONT = anterior − `4|1`. Registrar no diário. Depois, com o OK do dono (N3 — a cópia congela alguns ms no `DROP TABLE`):
+O guardião lê `prod-remocao.log` e `prod-ref-volta-f1.log`: frase digitada; CSV exportado (caminho no log) ANTES do backup; backup public+auth com TABLE DATA>0; pré-voo B OK (aditiva `2|2|2`, antiga `1|4`, md5 das 4 = `md5-antigas-antes.txt`, cadeia); `== REMOÇÃO OK` com `N|M → N−4|M−1`; `FN_PRE` igual; referência nova `…_pos_distribuicao_remocao_detalhe.txt` = anterior − 21 linhas, CONT = anterior − `4|1`. Registrar no diário. Depois, com o aviso no painel + ledger (N3/PR17 — a cópia congela alguns ms no `DROP TABLE`):
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/distribuicao-produto"
@@ -5925,9 +6325,15 @@ Copiar `.superpowers/distribuicao/{copia.sh,n3.sh,mig/,logs/}` para `/Users/sung
 | Forro/T2 dos cards existentes muda (P-31) e a reserva do forro passa a ser pela soma do par | "casar variantes" (`_grade_soma_pares`, #4) | R14 (sem amarração ⇒ pç digitado + aviso âmbar), só com o módulo ligado (R4), INFO no pré-voo, citado no OK do dono (Step 3) |
 | Casamento do BOM apagado a cada "aplicar" (bug de HOJE) | `_plan_tecido_gravar_bom_core` vivo | R3: grava do payload e PRESERVA quando a chave falta (front antigo ou módulo desligado) |
 | Distribuição perdida no merge "Dev vence" | `slotDeModeloReal` refaz as variantes do BOM | R7 (`comDistribuicaoDoPlano`/`comAtendeDoPlano`) + testes do engine (Task 3) |
-| Normalização sem grade/sem gate na 1ª carga | Merge inicial antes de `tamanhos`/módulos | PR3 (espera `tamanhosProntos` e `!modulosCarregando`) |
+| Normalização sem grade/sem gate na 1ª carga | Merge inicial antes de `tamanhos`/módulos | PR3/PR15 (espera `tamanhosProntos` e `modulosProntos` = `isFetched`; re-semeia por `distOpts`) |
 | Presença não alcança o dialog (portal) nem o botão do "atende a" | `scopeRef` no `<main>`; `pathDoElemento` só campos | R19 (overlay próprio) + R20 (path explícito em qualquer elemento) + testes de fonte/unit + conferência a 2 na QA |
-| Direcionamento: prefill conta como "não salvo" | Mockup com o selo | P-32 (A implementado; B = 1 linha) |
+| Direcionamento: prefill perguntaria "Descartar alterações?" a quem só olha | Mockup com o selo | P-32 = B (dono): o guarda nasce do estado preenchido (`resetBaseline(p ? p.obj : obj)`); `touched` mantido p/ o merge |
+| Card mostra a soma e o Resumo/Pedido mostram o valor salvo até alguém salvar (P-31 = A) | `_plan_tecido_nec_variante_core` lê o `grade_total` gravado | PR12: carga que recalcula ⇒ "não salvo" + aviso; QA confere card = Resumo |
+| "Atende a" automático vira "à mão" depois do 1º aplicar | O BOM guarda o casamento automático | PR11 (`atendeDoBom`: igual ao automático ⇒ NULL) + teste da cor nova |
+| Casamento preservado com cor que saiu do T1 zera a reserva do forro | `_grade_soma_pares` só soma pares existentes | PR13 (preserva só ids atuais do T1) + teste |
+| Texto das funções corrompido por `client_encoding` e só descoberto depois do COMMIT | Acentos nos SQL; `psql -c` | PR10 (encoding antes do BEGIN, `PGCLIENTENCODING`, `$pos$` dentro da txn, recusa provada) |
+| 1ª carga com o módulo lido como desligado | `isLoading` falso com a query desabilitada | PR15 (`isFetched` + re-semeadura por `distOpts`) |
+| Presença passa a aparecer em selects de Produto Acabado/Importado | 10 `SelectTrigger` com `data-colab-path` | PR14 (aceito; QA a 2 confere) |
 | Payload maior (Ave Rara) | ~406 variantes T1 × lojas × tamanhos | Aceito (estudo R10); medido na QA da cópia (PR4) |
 | Janela aditiva → deploy com o front antigo | O front antigo repassa as chaves da árvore (spread) e não manda `complementa_variante_ids` (⇒ preserva) | R35: não distribuir antes do deploy; nenhum dado some |
 | QA grava em produção | Salvar do Plan. Tecido grava a coleção inteira + auto-aplica | R35/PR9: gravação SÓ no `:5188`; o spec lança erro se `DIST_QA_ESCRITA=1` fora do `:5188`; produção só abre/fecha |
@@ -5952,17 +6358,18 @@ Copiar `.superpowers/distribuicao/{copia.sh,n3.sh,mig/,logs/}` para `/Users/sung
 | P-14 = B | Distribuição antiga APAGADA no mesmo roteiro, com backup | Tasks 8, 9, 10, 11 (R28, R29) |
 | Mobile | Rolagem só na tabela; 1ª coluna fixa com nomes abreviados | Tasks 1 (`abreviarNome`), 6, 11 (QA 360/390) |
 | P-26 = A | Em paralelo à reorganização; migration > `20261005100000`, aplicada DEPOIS | Global Constraints, `REORG_OK` no pré-voo, R36 |
+| P-31 = A (25/set) | Todos os cards; cor de forro/T2 sem amarração mantém o pç digitado + aviso âmbar | Tasks 2, 5 (R14) + PR12 (aviso de recalculadas) |
+| **P-32 = B** (25/set) | O semi-preenchimento do Direcionamento NÃO conta como alteração não salva | Task 7 (g): `resetBaseline(p ? p.obj : obj)` + teste de fonte; `touched` mantido |
+| P-33 = A (25/set) | "Replicar card(s)" não leva distribuição nem "atende a" | R25 (nada a fazer) |
+| P-34 = A (25/set) | Distribuir herda a edição do Plan. Tecido (sem permissão nova) | R27 |
+| **P-35 = A** (25/set) | O controlador escolhe card e modelo da QA na cópia, publica no painel e espera o OK | Task 11 Step 7a |
+| **P-36 = B** (25/set) | Imprimir só no desktop (`max-sm:hidden`); a `PrintArea` fica | Task 6 (dialog) + teste de fonte |
 
-Perguntas ainda abertas (levar por chat antes da Task 11 Step 3; o plano segue a recomendação):
+Pergunta ainda aberta (o CONTROLADOR leva ao dono pelo painel — P-37):
 
-| # | Pergunta | Recomendação implementada | Se o dono disser outra coisa |
+| # | Pergunta | O que o plano faz | Se o dono disser não |
 |---|---|---|---|
-| P-31 | Forro/Tecido 2 dos cards que JÁ existem: aplicar o "atende a" automático a todos? | A — todos, mas cor SEM amarração mantém o pç digitado (+ aviso âmbar) | B (só cards com T1 distribuído) = 1 condição em `normalizarSlotDistribuicao` + testes (Task 2); C (sem amarração = 0) = trocar o ramo "sem amarração" (Task 2) |
-| P-32 | Direcionamento pré-preenchido conta como "alteração não salva"? | A — conta (fiel ao mockup) | B = trocar `resetBaseline(obj)` por `resetBaseline(p ? p.obj : obj)` (1 linha na Task 7 Step (g)) + ajustar o teste de fonte |
-| P-33 | "Replicar card(s)" leva distribuição e "atende a"? | A — não leva | B = frente seguinte, depois da reorg em produção (`_replicar_cards_plan_tecido_core` é dela) |
-| P-34 | Permissão própria para distribuir? | A — herda a edição do Plan. Tecido | B = seção `criacao_plan_tecido:distribuicao` no `permissions-catalog` + `readOnly` do dialog/"atende a" (task nova; sem servidor) |
-| P-35 | Card/modelo da QA (cópia) e de produção (só leitura) | O dono indica os ids | O controlador propõe e o dono confirma |
-| P-36 | Imprimir no celular? | A — mostrar (mockup) | B = `max-sm:hidden` no botão (1 classe, Task 6) |
+| P-37 | A autorização P-30 B (N3 na cópia só com AVISO no painel, sem esperar OK) vale para esta frente? | `n3.sh` exige o aviso no painel + o id no ledger `avisos.md` (PR17); até a resposta, o controlador espera também o OK | O aviso passa a exigir OK do dono a cada rodada — o script é o mesmo; muda só o controlador |
 
 ## 7. Autorrevisão (cobertura da spec e do brief)
 
@@ -6004,4 +6411,14 @@ Perguntas ainda abertas (levar por chat antes da Task 11 Step 3; o plano segue a
 | Brief: integração SÓ na cópia com `DATABASE_URL` literal; nunca `\i` em txn; provas de produção só com `psql`/`docker` falsos | Global Constraints, Tasks 4, 9, 10 (`prova-scripts.sh`) |
 | Brief: SDD (Sonnet implementa, Opus revisa), G-migration (2 Opus + guardião) nas tasks de banco, Task 0 com gates próprios em `.superpowers/distribuicao/` | §4, Task 0 |
 | Brief: proibidos (`git stash`, `git add .`, `pkill`, push, `types.ts`, Dev/Produção fora do permitido — gate "Dev intocado") | Global Constraints, `gates.sh`, `regras.md` |
-| Addendum do coordenador: perguntas ao dono numeradas a partir de P-31 | Spec §10 e §6 acima (P-31…P-36) |
+| Addendum do coordenador: perguntas ao dono numeradas a partir de P-31 | Spec §10 e §6 acima (P-31…P-36 respondidas; P-37 aberta) |
+| Emenda (25/set) — respostas do dono P-31 A, P-32 B, P-33 A, P-34 A, P-35 A, P-36 B | PR19; §6; Task 7 (g) + teste; Task 11 Step 7a; Task 6 (Imprimir `max-sm:hidden`) + teste; spec §2 |
+| Emenda — G-plano R1 (lições da G-migration da reorg) | PR10; Task 4 (gerador: encoding, `$pos$`, NOTIFY, LOCK no inverso, cabeçalho; testes estáticos + recusa); Task 9 (idem + `DO $trava$`); Task 10 (`PGCLIENTENCODING` em `extra.sh` e nos scripts; `confere_arquivos`; prova `enc=UTF8`; tempos reais no ensaio) |
+| Emenda — G-plano R2 (automático não vira à mão) | PR11; Task 3 (`atendeDoBom` + 2 testes) |
+| Emenda — G-plano R3 (card × Resumo até salvar) | PR12; Task 2 (`efeitoDaCarga` + 4 testes); Task 5 (f2–f4 + teste de fonte); Task 11 Step 7 (teste de escrita + conferência card = Resumo) |
+| Emenda — G-plano R4 (preserva só cores atuais do T1) | PR13; Task 4 (`INSERT_VAR_DEPOIS` + teste com `_grade_soma_pares`) |
+| Emenda — G-plano R5 (presença em `SelectTrigger`) | PR14 (aceito); §1; spec R20; Task 5 Step 9; Task 11 Step 7 (QA a 2) |
+| Emenda — G-plano R6 (`isFetched`) | PR15; Task 5 (e)/(f) + `useTenantModules` aditivo + teste de fonte |
+| Emenda — G-plano R7 (P-09 no celular) | PR16; Task 6 (`PontoManual` + legenda + teste de fonte) |
+| Emenda — G-plano R8 (N3 pelo painel) | PR17; Global Constraints; Task 0 Step 6 (`n3.sh` + ledger); P-37 |
+| Emenda — notas N1–N8 | PR18 (N2, N3, N4, N8 aplicadas; N1, N5, N6, N7 registradas) |
