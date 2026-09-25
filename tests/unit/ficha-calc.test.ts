@@ -659,4 +659,20 @@ describe("cadSujoNaCaptura — CAD esperado (D2) E sujo em relação ao baseline
   it("não tocado ⇒ false, mesmo esperado e divergente", () => {
     expect(cadSujoNaCaptura(true, false, "y", "x")).toBe(false);
   });
+  // Fix M1 (revisão Opus, rodada 1) — a fiação real (useFichaTecnica.ts) monta `cadEsperadoNaCaptura`
+  // como `!compradoRef.current && (existe || ordemEnviada)`: o Planejamento NUNCA grava o CAD do
+  // comprado (nasce no recebimento da OC), mas a sincronia BOM→CAD/folhas automáticas rodam pra ele
+  // quando a seção Tecidos é visível pelo Fluxo de Revenda — sem o `!isComprado`, o CAD do comprado
+  // contaria como "esperado" e ficaria preso "tocado" mesmo sem o Salvar poder gravá-lo (a F3.4
+  // original tinha essa exclusão via `cadGravavelRef` composto com `!isComprado`, perdida quando o
+  // Fix pós-rebase I1 da F3.3 trocou o gate — este teste documenta a combinação correta pós-união).
+  it("comprado (isComprado=true): NUNCA esperado, mesmo com CAD existente/ordem enviada — cadEsperado é sempre false", () => {
+    const isComprado = true;
+    expect(cadSujoNaCaptura(!isComprado && (true || false), true, "y", "x")).toBe(false);
+    expect(cadSujoNaCaptura(!isComprado && (false || true), true, "y", "x")).toBe(false);
+  });
+  it("interno (isComprado=false): esperado normalmente quando existe/ordem enviada", () => {
+    const isComprado = false;
+    expect(cadSujoNaCaptura(!isComprado && (true || false), true, "y", "x")).toBe(true);
+  });
 });

@@ -632,9 +632,18 @@ export function useFichaTecnica(a: {
       // ENTRE a edição e o Salvar apagava a edição em silêncio). O CAD só conta como "esperado" por D2
       // (`cadCapturaRef.current.existe || .ordemEnviada` — o CAD era pra existir, com ou sem permissão de gravá-lo
       // AGORA); ver `cadSujoNaCaptura` em ficha-calc.ts.
+      // Fix M1 (revisão Opus, rodada 1) — união com a F3.4: o CAD do COMPRADO nunca conta como sujo. O
+      // Planejamento NUNCA grava o CAD do comprado (nasce no recebimento da OC — `_receber_oc_p_acabado_core`;
+      // `salvar_cad_completo` não é chamado por este fluxo, ver `cadGravavel`/`deveGravarCad` acima), mas a
+      // sincronia BOM→CAD e as folhas automáticas RODAM para o comprado quando a seção Tecidos está visível
+      // pelo Fluxo de Revenda (`comprado.ts`) — sem o `!compradoRef.current`, `snapCad` podia divergir de
+      // `baseCad` mesmo sem o usuário poder salvar aquilo, e a ficha ficava "tocada" com o Salvar não
+      // regravando nada (toast de "alterações NÃO foram salvas" preso). A F3.4 original tinha essa exclusão
+      // (via `cadGravavelRef` composto com `!isComprado`, removido pelo Fix pós-rebase I1 acima) — este fix
+      // reintroduz só o `!compradoRef.current`, sem voltar ao `podeEditar` (a causa raiz que o I1 corrigiu).
       const baseCad = guardaCad.baselineRef.current;
       const snapCad = snapshotCad(cad.linhasRef.current);
-      const cadEsperadoNaCaptura = cadCapturaRef.current.existe || cadCapturaRef.current.ordemEnviada;
+      const cadEsperadoNaCaptura = !compradoRef.current && (cadCapturaRef.current.existe || cadCapturaRef.current.ordemEnviada);
       const cadSujo = cadSujoNaCaptura(cadEsperadoNaCaptura, bom.colecoesTouchadasRef.current, snapCad, baseCad);
       return {
         estado: e,
