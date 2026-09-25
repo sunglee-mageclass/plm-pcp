@@ -37,7 +37,9 @@ export function CampoDataNotaEntrada({
   return (
     <div className={cn("grid gap-1", className)}>
       <Label htmlFor={id}>{ROTULO_DATA_NOTA}</Label>
+      {/* Largura só da data (dono 25/set: "não precisa ser esse width todo") — mesmo teto das datas de entrega. */}
       <DateField
+        className="w-full max-w-[200px]"
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
