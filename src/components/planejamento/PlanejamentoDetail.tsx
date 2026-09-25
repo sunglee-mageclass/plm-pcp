@@ -72,7 +72,7 @@ import { PrecoRevendaBloco, ProdutoAcabadoSecao, GradeRevendaSecao } from "@/com
 import { usePlanejamentoSave } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { useFichaKanban } from "@/components/planejamento/planejamento-detail/ficha/useFichaKanban";
 import { opcoesMoverHoje } from "@/components/planejamento/planejamento-detail/ficha/etapa-kanban";
-import { opcoesMoverAuto, proximaEtapa } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
+import { ehEcoDoMove, opcoesMoverAuto, proximaEtapa, proximoEcoMove, type EcoMoveVars } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
 import { useMoverEtapa } from "@/components/planejamento/planejamento-detail/ficha/useMoverEtapa";
 import { EtapaHeader } from "@/components/planejamento/planejamento-detail/ficha/EtapaHeader";
 import { etapaDoModelo } from "@/lib/kanban-auto-ui";
@@ -557,14 +557,16 @@ function PlanejamentoDetailConteudo({
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
-  // M4 (fix round 1, opcional) — o "Mover para…" pode fazer o SERVIDOR revelar a REF (invariante
-  // 11: atingir a etapa configurada copia `ref_auto → ref`) sem eu ter tocado o campo. O refetch
-  // que segue então marca `ref` como "atualizado" no merge e o ColabBanner atribuiria isso a
-  // "Alguém salvou agora" — só que fui EU, pelo meu próprio movimento. Sem mexer no merge
-  // compartilhado (`@/lib/colab/merge`, que não sabe QUEM mudou), a marca fica só localmente
-  // aqui: liga por 1 ciclo de merge após o `moverPara`, consumida (e desligada) no `useEffect`
-  // de merge abaixo — se o ÚNICO resultado desse ciclo for a REF revelada, o banner não dispara.
-  const ecoProprioMoveRef = useRef(false);
+  // M4 (fix round 1→2) — o "Mover para…" pode fazer o SERVIDOR revelar a REF (invariante 11:
+  // atingir a etapa configurada copia `ref_auto → ref`) sem eu ter tocado o campo. O refetch que
+  // segue então marca `ref` como "atualizado" no merge e o ColabBanner atribuiria isso a "Alguém
+  // salvou agora" — só que fui EU, pelo meu próprio movimento. Sem mexer no merge compartilhado
+  // (`@/lib/colab/merge`, que não sabe QUEM mudou), a marca fica só localmente aqui — round 2:
+  // CASA O REV (não um prazo por tempo — `proximoEcoMove`/`ehEcoDoMove`, `etapa-mover.ts`): o
+  // `rev` que este move GRAVOU (RPC ou UPDATE) é comparado com o `freshRev` do próximo merge; só
+  // o MESMO evento consome a marca. Armada só quando o move realmente grava algo (`proximoEcoMove`
+  // desarma sozinho em erro/bloqueado/"nada mudou" — `res.rev === revAntes`).
+  const ecoProprioMoveRef = useRef<EcoMoveVars>(null);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -605,14 +607,13 @@ function PlanejamentoDetailConteudo({
     baseRef.current = { draft: freshDraft };
     revRef.current = freshRev;
 
-    // M4 (fix round 1, opcional) — consome a marca do "Mover para…" (`ecoProprioMoveRef`) NESTE
-    // ciclo, uma vez, pra não vazar pro próximo merge de verdade. Se o ÚNICO campo que mudou foi
-    // `ref` (a única coisa que um move pode revelar sozinho — invariante 11) e não há conflito,
-    // é o ECO do meu próprio movimento: aplica o valor normalmente, mas NÃO atribui a "alguém
-    // salvou agora" (o merge compartilhado, `@/lib/colab/merge`, não sabe QUEM mudou — a marca
-    // fica só aqui, local).
-    const ehEcoDoMeuMove = ecoProprioMoveRef.current && md.conflitos.length === 0 && md.atualizados.every((k) => k === "ref");
-    ecoProprioMoveRef.current = false;
+    // M4 (fix round 2) — consome a marca do "Mover para…" (`ecoProprioMoveRef`) NESTE ciclo: se o
+    // `freshRev` que chegou é EXATAMENTE o `rev` que o move gravou (`ehEcoDoMove`, casa o rev — não
+    // um prazo), é o MESMO evento; aplica o valor normalmente, mas NÃO atribui a "alguém salvou
+    // agora" (o merge compartilhado, `@/lib/colab/merge`, não sabe QUEM mudou — a marca fica só
+    // aqui, local). Consumida sempre (mesmo sem bater), pra não vazar pro próximo merge de verdade.
+    const ehEcoDoMeuMove = ehEcoDoMove(ecoProprioMoveRef.current, freshRev);
+    ecoProprioMoveRef.current = null;
 
     // ⚠️ Um save do OUTRO USUÁRIO pode disparar mais de 1 evento UPDATE em sequência; passadas
     // SEGUINTES à que achou o conflito comparam `base` (já avançado) com o MESMO `fresh` → 0
@@ -841,13 +842,15 @@ function PlanejamentoDetailConteudo({
   // também exige — kanban_auto_4_rpcs.sql:49-51) e as condições carregadas (a dica não pode mentir).
   const selo = etapaDoModelo(kanbanCard.modeloKanban, kanbanCard.kanbanCfg);
   const podeMover = isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && kanbanCard.condProntas;
-  // M6 (fix round 1): quando o card ESTÁ no kanban e o usuário poderia editar o Dev, mas ainda
-  // não pode mover porque as duas queries (config da loja + condições) não chegaram, o selo
-  // ganha um `title` de "carregando" em vez de parecer indistinguível de "sem permissão"/"fora
-  // do kanban". `FichaKanban` não expõe erro separado de pendente (`useFichaKanban.ts` fora do
-  // escopo deste fix) — tratamos "ainda não pronto" como "carregando" (cobre o caso comum).
-  const seloCarregando: "carregando" | false =
-    isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && !kanbanCard.condProntas ? "carregando" : false;
+  // M6 (fix round 1→2, item 5 opcional): quando o card ESTÁ no kanban e o usuário poderia editar
+  // o Dev, mas ainda não pode mover porque as duas queries (config da loja + condições) não
+  // chegaram, o selo ganha um texto de "carregando"/"erro" em vez de parecer indistinguível de
+  // "sem permissão"/"fora do kanban". Round 2 expôs `regrasComErro` (`useFichaKanban.ts`,
+  // `isError` das 2 queries) — "erro" quando alguma falhou de verdade; "carregando" senão.
+  const seloCarregando: "carregando" | "erro" | false =
+    !(isEdit && !!modeloId && podeEditarDev && selo.fase === "kanban" && !kanbanCard.condProntas)
+      ? false
+      : kanbanCard.regrasComErro ? "erro" : "carregando";
   const origemSalva = kanbanCard.modeloKanban.origem ?? null;
   const opcoesMover = !podeMover
     ? []
@@ -857,13 +860,24 @@ function PlanejamentoDetailConteudo({
   // "Próxima: X — falta: Y" só com a chave ligada (card automático) — igual ao "próx.: falta X" do board da F2.
   const proxima = kanbanCard.kanbanCfg.kanban_automatico ? proximaEtapa(kanbanCard.derivacao, kanbanCard.kanbanCfg) : null;
   const moverPara = (para: string) => {
-    // M4: liga a marca ANTES de disparar — o refetch (rev novo) que a mutation invalida no
-    // `onSettled` pode chegar bem depois da resposta; o consumo mora no merge (1 ciclo).
-    ecoProprioMoveRef.current = true;
-    moverEtapa.mutate({
-      para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado,
-      cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond,
-    });
+    // M4 (fix round 2): a marca só arma DEPOIS da resposta (não mais otimista antes de disparar —
+    // `proximoEcoMove` decide com o `rev` REAL que saiu do move), e é DESARMADA (`null`) sempre que
+    // o movimento não grava nada: erro (`onError`), bloqueado (chave desligada reprova), ou (chave
+    // ligada) `res.r.rev === revRef.current` — o `kanban_mover` não bateu em coluna nenhuma que
+    // mude algo e devolveu o MESMO rev de antes (ex.: ação "nada" da tabela única de arraste).
+    moverEtapa.mutate(
+      { para, origem: origemSalva, statusAntes: kanbanCard.statusSalvo, fixadoAntes: !!kanbanCard.derivacao?.fixado, cfg: kanbanCard.kanbanCfg, cond: kanbanCard.cond },
+      {
+        onSuccess: (res) => {
+          const p =
+            res.tipo === "bloqueado" ? proximoEcoMove({ tipo: "bloqueado" }, revRef.current)
+            : res.tipo === "auto" ? proximoEcoMove({ tipo: "auto", rev: res.r.rev }, revRef.current)
+            : proximoEcoMove({ tipo: "hoje", rev: res.rev }, revRef.current);
+          ecoProprioMoveRef.current = p;
+        },
+        onError: () => { ecoProprioMoveRef.current = proximoEcoMove({ tipo: "erro" }, revRef.current); },
+      },
+    );
   };
 
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé

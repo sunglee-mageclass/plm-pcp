@@ -32,6 +32,10 @@ export type FichaKanban = {
   derivacao: Derivacao | null;
   refVisivel: boolean;
   isReprovado: boolean;
+  /** (Opcional, fix round 2, item 5) — a config da loja OU as condições do card falharam ao
+   *  carregar (`isError` das 2 queries). Distingue "ainda carregando" de "não vai carregar
+   *  sozinho" pro selo (`EtapaHeader` mostra "erro, recarregue" em vez de um spinner infinito). */
+  regrasComErro: boolean;
 };
 
 export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
@@ -41,7 +45,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   lancado: boolean;
 }): FichaKanban {
   const tenantId = useActiveTenantId();
-  const { data: cfgRow, isSuccess: cfgOk } = useQuery({
+  const { data: cfgRow, isSuccess: cfgOk, isError: cfgErro } = useQuery({
     queryKey: ["tenant-plan-ficha-config", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -57,7 +61,7 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
   const refExibirStatus = (cfgRow?.ref_exibir_status as string | null | undefined) ?? null;
 
   const noKanban = !!modeloId && enviada && !lancado;
-  const { data: condData, isSuccess: condOk } = useQuery({
+  const { data: condData, isSuccess: condOk, isError: condErro } = useQuery({
     queryKey: ["plan-kanban-cond", modeloId],
     enabled: noKanban,
     queryFn: async () => {
@@ -90,5 +94,9 @@ export function useFichaKanban({ modeloId, modeloData, enviada, lancado }: {
     // "Lançado" no board, criacao.desenvolvimento.tsx:538) — nunca é "Reprovado" mesmo que o
     // status salvo/efetivo tenha ficado nessa coluna antes de lançar.
     isReprovado: !lancado && statusEfetivo === "reprovado",
+    // (Opcional, fix round 2, item 5) — SÓ enquanto o card está no kanban (`noKanban`): fora dele
+    // a query de condições nem roda (`enabled: noKanban`), então `condErro` ficaria sempre false
+    // e não deve contar como "erro nas regras" pra um card que nem precisa delas ainda.
+    regrasComErro: cfgErro || (noKanban && condErro),
   };
 }

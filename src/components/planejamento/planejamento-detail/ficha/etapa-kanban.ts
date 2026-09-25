@@ -5,8 +5,9 @@
  *  • a coluna EFETIVA do card (≡ board: status fora do board/nulo cai na 1ª coluna);
  *  • o gate do campo REF (≡ Dev, `refCampoVisivel`), com a posição DERIVADA quando a chave está ligada
  *    (decisão 10 — `statusParaGate`);
- *  • o "podeEntrar" de HOJE (chave desligada): espelho LITERAL de `criacao.desenvolvimento.tsx:322-332`
- *    (o board não exporta a função) — cascata p/ interno; fluxo de comprado sem cascata.
+ *  • o "podeEntrar" de HOJE (chave desligada): espelho LITERAL de `podeEntrar` (`criacao.desenvolvimento.tsx`,
+ *    usado no gate do `onMove`/Select de status; o board não exporta a função) — cascata p/ interno; fluxo
+ *    de comprado sem cascata.
  */
 import { requisitosEfetivos, requisitosOk, type Condicao } from "@/lib/kanban-condicoes";
 import { normalizeKanbanStatuses, refCampoVisivel } from "@/lib/kanban-status";
@@ -97,7 +98,11 @@ export function podeEntrarHoje(o: {
   return requisitosOk(requisitosEfetivos(o.para, ordem, o.cfg.kanban_requisitos, o.cfg.kanban_requisitos_excecoes), o.cond);
 }
 
-/** "Mover para…" com a chave DESLIGADA: todas as colunas do board menos a atual, anotando o que falta. */
+/** "Mover para…" com a chave DESLIGADA: todas as colunas do board menos a atual, anotando o que falta.
+ *  M6 (fix round 2): SEM ícone de modo — o "modo da coluna" (automática/manual/entrada) só existe como
+ *  conceito quando o Kanban Automático está LIGADO (é o que rege se o card anda sozinho); com a chave
+ *  desligada toda coluna se comporta igual (entra/sai arrastado) — mesma régua do board (F2), que só
+ *  calcula `modoColuna` quando `kanbanAuto` é true. `modo: null` (não omite o campo — mantém o shape). */
 export function opcoesMoverHoje(o: {
   origem: string | null | undefined;
   statusEfetivo: string | null;
@@ -110,12 +115,12 @@ export function opcoesMoverHoje(o: {
       const { ok, faltando } = podeEntrarHoje({ origem: o.origem, para: c.key, cfg: o.cfg, cond: o.cond });
       return {
         key: c.key, label: c.label, nota: ok ? "" : `falta ${faltando.map((f) => f.label).join(", ")}`, bloqueada: !ok,
-        modo: modoDoDestino(c.key, o.origem, o.cfg),
+        modo: null,
       };
     });
 }
 
-/** Mesmo texto do board (criacao.desenvolvimento.tsx:585-590). */
+/** Mesmo texto do board (`criacao.desenvolvimento.tsx`, `onMove`/`moverAuto` — toast de bloqueio). */
 export function mensagemBloqueioHoje(faltando: { label: string }[]): string {
   return `Não pode entrar aqui. Faltam: ${faltando.map((f) => f.label).join(", ")}`;
 }

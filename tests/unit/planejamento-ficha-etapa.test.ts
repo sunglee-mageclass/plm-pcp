@@ -104,10 +104,10 @@ describe("opcoesMoverHoje + mensagemBloqueioHoje", () => {
     const ops = opcoesMoverHoje({ origem: "interno", statusEfetivo: "em_modelagem", cfg: cfg({ kanban_requisitos: { em_pilotagem: ["data_piloto1"] } }), cond: {} });
     expect(ops.map((o) => o.key)).not.toContain("em_modelagem");
     expect(ops).toHaveLength(13);
-    // M6 (fix round 1): ganhou o campo `modo` (ícone do menu) — `em_pilotagem` tem requisito
-    // próprio nesta config (automática), `corte_piloto_1` não (manual).
-    expect(ops.find((o) => o.key === "em_pilotagem")).toEqual({ key: "em_pilotagem", label: "Em Pilotagem", nota: "falta Data de Piloto I preenchida", bloqueada: true, modo: "automatica" });
-    expect(ops.find((o) => o.key === "corte_piloto_1")).toEqual({ key: "corte_piloto_1", label: "Corte de Piloto I", nota: "", bloqueada: false, modo: "manual" });
+    // M6 (fix round 2): SEM ícone de modo com a chave DESLIGADA — `modo` é sempre `null` aqui
+    // (o conceito de automática/manual só existe com o Kanban Automático ligado, igual ao board).
+    expect(ops.find((o) => o.key === "em_pilotagem")).toEqual({ key: "em_pilotagem", label: "Em Pilotagem", nota: "falta Data de Piloto I preenchida", bloqueada: true, modo: null });
+    expect(ops.find((o) => o.key === "corte_piloto_1")).toEqual({ key: "corte_piloto_1", label: "Corte de Piloto I", nota: "", bloqueada: false, modo: null });
   });
   it("texto do bloqueio = o do board", () => {
     expect(mensagemBloqueioHoje([{ label: "A" }, { label: "B" }])).toBe("Não pode entrar aqui. Faltam: A, B");

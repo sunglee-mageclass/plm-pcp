@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { derivarModelo, type KanbanAutoConfig, type ModeloKanban } from "@/lib/kanban-auto";
-import { opcoesMoverAuto, planoMoverEtapa, proximaEtapa } from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
+import {
+  ehEcoDoMove, opcoesMoverAuto, planoMoverEtapa, proximaEtapa, proximoEcoMove,
+} from "@/components/planejamento/planejamento-detail/ficha/etapa-mover";
 
 // F3.1 — "Mover para…" do selo com a chave LIGADA: a tabela única de arraste da F1 (destinoDrop) + os textos da
 // F2 (notaMoverPara). O servidor (kanban_mover) é quem decide; isto é só a dica no menu.
@@ -55,6 +57,33 @@ describe("planoMoverEtapa (M5b, fix round 1 — decisão PURA extraída do useMo
     const p = planoMoverEtapa({ modeloId: "m1", para: "em_pilotagem", origem: "interno", cfg: c, cond: { data_piloto1: true } });
     expect(p).toEqual({ tipo: "update", modeloId: "m1", payload: { status_desenvolvimento: "em_pilotagem" } });
     if (p.tipo === "update") expect(Object.keys(p.payload)).toEqual(["status_desenvolvimento"]);
+  });
+});
+
+describe("proximoEcoMove + ehEcoDoMove (M4, fix round 2 — arma/desarma o eco do próprio move, CASANDO O REV)", () => {
+  it("erro: desarma (null)", () => {
+    expect(proximoEcoMove({ tipo: "erro" }, 5)).toBeNull();
+  });
+  it("bloqueado (chave desligada reprova): desarma — nada foi gravado", () => {
+    expect(proximoEcoMove({ tipo: "bloqueado" }, 5)).toBeNull();
+  });
+  it("chave ligada (RPC kanban_mover): rev mudou → arma com o rev NOVO", () => {
+    expect(proximoEcoMove({ tipo: "auto", rev: 6 }, 5)).toEqual({ rev: 6 });
+  });
+  it("chave ligada: rev IGUAL ao de antes ('nada' na tabela única de arraste) → desarma, não há evento novo", () => {
+    expect(proximoEcoMove({ tipo: "auto", rev: 5 }, 5)).toBeNull();
+  });
+  it("chave desligada liberado ('hoje'): rev mudou → arma com o rev NOVO", () => {
+    expect(proximoEcoMove({ tipo: "hoje", rev: 9 }, 8)).toEqual({ rev: 9 });
+  });
+  it("chave desligada 'hoje' sem rev no retorno (defensivo): não arma", () => {
+    expect(proximoEcoMove({ tipo: "hoje", rev: null }, 8)).toBeNull();
+  });
+  it("ehEcoDoMove: só bate quando o freshRev é EXATAMENTE o rev armado", () => {
+    expect(ehEcoDoMove({ rev: 6 }, 6)).toBe(true);
+    expect(ehEcoDoMove({ rev: 6 }, 7)).toBe(false);
+    expect(ehEcoDoMove(null, 6)).toBe(false);
+    expect(ehEcoDoMove({ rev: 6 }, null)).toBe(false);
   });
 });
 

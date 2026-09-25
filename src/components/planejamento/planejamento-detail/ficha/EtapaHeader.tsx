@@ -67,7 +67,9 @@ export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima
                     {/* M6: ícone do MODO da coluna-destino (Zap=automática, Hand=manual…) — reusa o
                         badge da F2 (Config da Loja), não duplica ícone/rótulo. */}
                     <ModoColunaBadge modo={o.modo ?? null} />
-                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    {/* Nit (fix round 2): rótulos longos truncam (`truncate`) — `title` mostra o
+                        texto inteiro no hover/toque longo. */}
+                    <span className="min-w-0 flex-1 truncate" title={o.label}>{o.label}</span>
                   </span>
                   {o.nota && <span className="w-full whitespace-normal break-words text-xs text-muted-foreground opacity-80">{o.nota}</span>}
                 </button>
@@ -76,12 +78,26 @@ export function EtapaHeader({ selo, podeMover, opcoes, onMover, movendo, proxima
           </PopoverContent>
         </Popover>
       ) : carregando && selo.fase === "kanban" ? (
-        // M6: quando a etapa está no kanban mas ainda não dá pra mover por CARGA/ERRO das regras
-        // (config/condições), um `title` no WRAPPER explica — `EtapaKanbanBadge` (F2, não editar
-        // aqui) sempre define o próprio `title` a partir de `tituloSelo`, então a dica fica num
-        // `span` por fora em vez de tentar sobrescrever a da F2.
-        <span title={carregando === "erro" ? "Não foi possível carregar as regras — recarregue" : "Carregando as regras do quadro…"}>
+        // M6 (fix round 1) + Minor (fix round 2): quando a etapa está no kanban mas ainda não dá
+        // pra mover por CARGA/ERRO das regras (config/condições), o `title` no WRAPPER explica no
+        // hover — `EtapaKanbanBadge` (F2, não editar aqui) sempre define o próprio `title` a partir
+        // de `tituloSelo`, então essa dica não pode sobrescrevê-lo — MAS um `title` só no hover fica
+        // ESCONDIDO (o usuário não sabe que há algo a esperar sem passar o mouse). O Minor pede um
+        // texto CURTO e VISÍVEL ao lado, com o `Loader2` (já importado p/ o "movendo"): "Carregando
+        // regras…" enquanto pendente; "erro" fica sem ícone de spinner (não está mais carregando).
+        <span
+          className="inline-flex min-w-0 items-center gap-1.5"
+          title={carregando === "erro" ? "Não foi possível carregar as regras — recarregue" : "Carregando as regras do quadro…"}
+        >
           <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
+          {carregando === "carregando" ? (
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+              Carregando regras…
+            </span>
+          ) : (
+            <span className="shrink-0 text-xs text-[var(--tone-danger-fg)]">Erro ao carregar as regras</span>
+          )}
         </span>
       ) : (
         <EtapaKanbanBadge selo={selo} testId="etapa-kanban-selo-header" />
