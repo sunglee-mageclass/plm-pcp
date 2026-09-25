@@ -16,7 +16,8 @@ import { fmtInt } from "@/lib/format";
 import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -596,27 +597,29 @@ export function ModelCard({
                         variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
                         dist={distribuicaoLigada ? { ligado: true, t1: t1Variantes ?? [] } : undefined}
                         acaoExtra={distribuicaoLigada && ehTecido1(m) ? (
-                          // Ruling do controlador (revisão T5/M1): este bloco vive dentro do <fieldset disabled> do
-                          // SheetContent (modo só-leitura da PÁGINA — src/components/ui/sheet.tsx). Um <button> nativo
-                          // aqui seria desabilitado pelo fieldset mesmo sem `disabled` explícito, e a spec exige "ver e
-                          // imprimir sem permissão". Mesmo padrão já usado em ImagePreview.tsx para escapar de um
-                          // fieldset ancestral: `role="button"` (não <button>) + tabIndex + Enter/Espaço. O dialog em
-                          // si trata o só-leitura por campo (readOnly), então segue abrindo normalmente.
+                          // Ruling do controlador (revisão T5/M1, fix1 · m2): este bloco vive dentro do fieldset
+                          // (disabled=readOnly de página) do SheetContent — um <button> nativo aqui seria
+                          // desabilitado mesmo sem `disabled` explícito, e a spec exige "ver e imprimir sem
+                          // permissão". Mesmo padrão já usado em ImagePreview.tsx para escapar de um fieldset
+                          // ancestral: `role="button"` (não elemento nativo) + tabIndex + Enter/Espaço. O visual
+                          // usa `buttonVariants` (não classes copiadas à mão) — mesmo `outline`/`sm` dos botões
+                          // vizinhos, `max-md:h-11` de toque incluso. NÃO trava o ponteiro à força quando não há
+                          // cores: o handler bloqueia o clique/tecla, e o `title` continua aparecendo no hover/foco.
                           <div
                             role="button"
-                            tabIndex={m.variantes.length === 0 ? -1 : 0}
+                            tabIndex={0}
                             aria-disabled={m.variantes.length === 0}
                             onClick={() => { if (m.variantes.length > 0) setDistOpen(true); }}
                             onKeyDown={(e) => {
-                              if ((e.key === "Enter" || e.key === " ") && m.variantes.length > 0) {
+                              if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                setDistOpen(true);
+                                if (m.variantes.length > 0) setDistOpen(true);
                               }
                             }}
                             title={m.variantes.length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
-                            className={`inline-flex h-7 cursor-pointer select-none items-center justify-center gap-1 whitespace-nowrap rounded-md border border-input bg-background px-3 text-[11px] font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-2 ${m.variantes.length === 0 ? "pointer-events-none cursor-not-allowed bg-muted text-muted-foreground shadow-none" : ""}`}
+                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.length === 0 && "cursor-not-allowed text-muted-foreground")}
                           >
-                            <Store className="h-3 w-3" />Distribuir por loja
+                            <Store className="h-4 w-4" />Distribuir por loja
                           </div>
                         ) : undefined}
                         onChange={(nm) => {

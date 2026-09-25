@@ -164,8 +164,11 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     for (const s of ["Loja / Cor", "você digita", "Tamanhos: proporção × Base · dá para corrigir à mão", "da cor na loja",
       "Proporção por tamanho", "do card", "Total por cor × tamanho", "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card.",
       "soma das lojas", "= pç no card", "sem distribuição · pç do card", "Editado à mão · calculado seria"]) expect(tab, s).toContain(s);
-    for (const s of ["Distribuir por loja", "Salvar preenche o pç das", "Grava de vez no Salvar do plano.", "Por loja · deslize para o lado",
+    for (const s of ["Distribuir por loja", "Salvar preenche o pç", "Grava de vez no Salvar do plano.", "Por loja · deslize para o lado",
       "Descartar alterações?", "TEXTO_AJUDA_DIST"]) expect(dlg, s).toContain(s);
+  });
+  it("T6 fix1 · m9: rodapé do Salvar no singular ('da 1 cor') e no plural ('das N cores')", () => {
+    expect(dlg).toContain("n === 1 ? `da ${n} cor` : `das ${n} cores`");
   });
   it("impressão = o que o dialog mostra, sem botões; salvar/zerar/descartar", () => {
     expect(dlg).toContain("<PrintArea>");
@@ -193,7 +196,7 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
   it("Ruling do controlador (revisão T5/M1): o gatilho 'Distribuir por loja' NÃO é um <button> nativo — o fieldset do " +
     "SheetContent (modo só-leitura da página) o desabilitaria em silêncio; usa role=\"button\" + tabIndex, igual ao " +
     "padrão já usado em ImagePreview.tsx para escapar de um fieldset ancestral", () => {
-    const idx = card.indexOf('<Store className="h-3 w-3" />Distribuir por loja');
+    const idx = card.indexOf('<Store className="h-4 w-4" />Distribuir por loja');
     expect(idx).toBeGreaterThan(-1);
     const trechoAntes = card.slice(Math.max(0, idx - 1600), idx);
     // é uma <div role="button">, não um <button>
@@ -220,5 +223,79 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     expect(conta(tab, 'PopoverTrigger asChild')).toBe(2);
     expect(conta(tab, 'role="button"')).toBe(2);
     expect(tab).not.toMatch(/<button/);
+  });
+});
+
+describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
+  const dlg = ler("src/components/plan-tecido/DistribuirPorLojaDialog.tsx");
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+  const card = ler("src/components/plan-tecido/ModelCard.tsx");
+  const atendimento = ler("src/lib/plan-tecido/atendimento.ts");
+
+  it("T6 fix1 · I1: nenhuma célula fixa (COL1) usa fundo translúcido (bg-*/NN) — só tons OPACOS", () => {
+    // toda ocorrência de `${COL1}` (ou COL1 sozinho) é seguida de um `!bg-` opaco (sem fração /NN logo depois
+    // do nome do tom) OU não tem bg- nenhum na mesma string (herda o `!bg-background` da constante).
+    const usos = [...tab.matchAll(/\$\{COL1\}[^`]*`/g)].map((m) => m[0]);
+    expect(usos.length).toBeGreaterThan(0);
+    for (const u of usos) {
+      const comFracao = u.match(/!?bg-[a-z]+\/\d+/);
+      expect(comFracao, u).toBeNull();
+    }
+    // a constante COL1 em si é opaca (!bg-background, sem /NN)
+    expect(tab).toContain('const COL1 = "sticky left-0 z-10 border !bg-background px-2 py-1 text-left";');
+  });
+  it("T6 fix1 · m1: a versão de impressão do cabeçalho NÃO leva o InfoHover (impressão sem botões)", () => {
+    expect(dlg).toContain("const cabecalho = (impressao: boolean) =>");
+    expect(dlg).toContain("{!impressao && (");
+    expect(dlg).toContain("{cabecalho(true)}");
+    expect(dlg).toContain("{cabecalho(false)}");
+  });
+  it("T6 fix1 · m2: o gatilho do card usa buttonVariants (não classes copiadas), ícone 16px, sem pointer-events-none", () => {
+    expect(card).toContain('import { Button, buttonVariants } from "@/components/ui/button";');
+    expect(card).toContain('cn(buttonVariants({ variant: "outline", size: "sm" })');
+    expect(card).toContain('<Store className="h-4 w-4" />Distribuir por loja');
+    expect(card).not.toContain("pointer-events-none");
+  });
+  it("T6 fix1 · m3: erro na query de lojas mostra toast + aviso — não abre a tabela como se estivesse vazia", () => {
+    expect(dlg).toContain('import { toast } from "sonner";');
+    expect(dlg).toContain("isError: lojasErro");
+    expect(dlg).toContain("toast.error(mensagemErro(lojasErroObj");
+    expect(dlg).toContain("lojasErro ? (");
+    expect(dlg).toContain("const podeImprimir = lojasProntas && !lojasErro;");
+  });
+  it("T6 fix1 · m4: comDado une as chaves do rascunho ATUAL e do SNAPSHOT da abertura (loja inativa não some ao editar)", () => {
+    expect(dlg).toContain("...Object.values(dists).flatMap((d) => Object.keys(d)),");
+    expect(dlg).toContain("...Object.values(inicial.dists).flatMap((d) => Object.keys(d)),");
+  });
+  it("T6 fix1 · m5: dirty usa comparação CANÔNICA (igual/canon de atendimento.ts) — nada de JSON.stringify cru", () => {
+    expect(atendimento).toContain("export function canon(");
+    expect(atendimento).toContain("export const igual = ");
+    expect(dlg).toContain('import { ehTecido1, igual } from "@/lib/plan-tecido/atendimento";');
+    expect(dlg).toContain("const dirty = !igual({ prop, dists }, inicial);");
+    expect(dlg).toContain("const propMudou = !igual(prop, inicial.prop);");
+    expect(dlg).not.toMatch(/JSON\.stringify\(\{ ?prop, ?dists ?\}\)/);
+  });
+  it("T6 fix1 · m6: no desktop o balão do ponto abre no HOVER do mouse; clique/toque continua abrindo; ↺ separado", () => {
+    expect(tab).toContain("onMouseEnter={() => { cancelarFechar(); setAberto(true); }}");
+    expect(tab).toContain("onMouseEnter={cancelarFechar} onMouseLeave={agendarFechar}");
+    expect(tab).toContain("onClick={() => { onVoltar(); setAberto(false); }}");
+  });
+  it("T6 fix1 · m7: nome da cor abreviado em 2 linhas; rótulo curto 'Proporção'/'Total' abaixo de 640px", () => {
+    expect(tab).toContain("const corAbrev = abreviarNome(c.cor);");
+    expect(tab).toContain("const apelidoAbrev = c.apelido ? abreviarNome(c.apelido) : null;");
+    expect(tab).toContain('<span className="block truncate">{corAbrev}</span>');
+    expect(tab).toContain('<span className="sm:hidden">Proporção</span>');
+    expect(tab).toContain('<span className="sm:hidden">Total</span>');
+  });
+  it("T6 fix1 · m8: em só-leitura a célula mostra TEXTO (igual à impressão), não um input desabilitado esmaecido", () => {
+    expect(tab).toContain("bloqueado ? (");
+    expect(tab).toContain("<span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>");
+    expect(tab).not.toContain("disabled={bloqueado}");
+  });
+  it("T6 fix1 · m9: preventDefault no Espaço do nome abreviado; foco visível nos 2 gatilhos; zerar mostra cor+apelido", () => {
+    expect(tab).toContain('onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}');
+    expect(conta(tab, "focus-visible:ring")).toBeGreaterThanOrEqual(2);
+    expect(dlg).toContain("const rotuloCor = (v: PtVariante): string => {");
+    expect(dlg).toContain("nomes.push(rotuloCor(v));");
   });
 });

@@ -2,7 +2,7 @@
 // Total, com a linha "Proporção por tamanho" do card e o subtotal por loja; (2) "Total por cor × tamanho" (= pç no card).
 // UM componente para a TELA (inputs, `data-colab-path` por campo — R19) e a IMPRESSÃO (texto, sem botões). Celular:
 // rolagem horizontal só dentro da tabela, 1ª coluna fixa com nome ABREVIADO (toque abre o nome completo).
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,10 +19,18 @@ export type CorDist = { key: string; cor: string; apelido: string | null; swatch
 
 const TH = "border px-2 py-1 text-center text-xs font-medium";
 const TD = "border px-1 py-0.5 text-center tabular-nums";
-const COL1 = "sticky left-0 z-10 border bg-background px-2 py-1 text-left";
+// T6 fix1 · I1: fundo SEMPRE opaco na célula fixa (`!bg-*`, precedente TabelaAnalise.tsx:109) — sem o `!`, o
+// tom (bg-muted/30|40|50|60) empilhava sobre o bg-background e o CSS deixava valer o translúcido; no celular
+// os números da coluna que rola passavam por baixo do texto da coluna fixa. Cada chamada soma o TOM próprio
+// (ex.: `${COL1} !bg-muted`) por cima deste `!bg-background` default.
+const COL1 = "sticky left-0 z-10 border !bg-background px-2 py-1 text-left";
 
 function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
   const completo = c.apelido ? `${c.cor} · ${c.apelido}` : c.cor;
+  // T6 fix1 · m7 (fiel ao mockup): cor e apelido abreviados CADA UM na sua palavra e empilhados em 2 LINHAS
+  // ("Marr." / "Can.") — não mais um só texto truncado numa linha.
+  const corAbrev = abreviarNome(c.cor);
+  const apelidoAbrev = c.apelido ? abreviarNome(c.apelido) : null;
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       <VarianteSwatch nome={c.swatch ?? c.cor} />
@@ -36,9 +44,12 @@ function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
             {/* div com role de botão (não elemento nativo) — o DialogContent embrulha os filhos no PRÓPRIO fieldset
                 (disabled=readOnly de página): um elemento nativo aqui ficaria travado em modo só-leitura, mas o nome
                 completo tem que continuar abrindo (P-22 "ver"). Mesmo padrão de ImagePreview.tsx p/ escapar do fieldset. */}
-            <div role="button" tabIndex={0} className="truncate text-left font-medium md:hidden" title={completo}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); }}>
-              {abreviarNome(`${c.cor}${c.apelido ? ` ${c.apelido}` : ""}`)}
+            <div role="button" tabIndex={0}
+              className="rounded text-left font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+              title={completo}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}>
+              <span className="block truncate">{corAbrev}</span>
+              {apelidoAbrev && <span className="block truncate text-[10px] text-muted-foreground">{apelidoAbrev}</span>}
             </div>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-2 text-xs">{completo}</PopoverContent>
@@ -48,20 +59,29 @@ function NomeCor({ c, impressao }: { c: CorDist; impressao: boolean }) {
   );
 }
 
-/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7): o mouse vê "calculado seria N" no hover (`title`);
- *  clique/TOQUE abre o balão com o calculado e um botão ↺ SEPARADO — tocar no ponto NUNCA volta sozinho ao calculado. */
+/** Ponto da célula corrigida à mão (P-09 + PR16, G-plano R7; T6 fix1 · m6): no DESKTOP o balão abre no HOVER do
+ *  mouse (mesmo padrão de ponteiro do `InfoHover` — mouse = hover, toque/caneta = toque, teclado = alterna);
+ *  continua abrindo por clique/toque também. O ↺ segue SEPARADO dentro do balão — tocar/passar o mouse no
+ *  ponto NUNCA volta sozinho ao calculado. */
 function PontoManual({ calculado, bloqueado, onVoltar }: { calculado: number; bloqueado: boolean; onVoltar: () => void }) {
   const [aberto, setAberto] = useState(false);
+  // Sai do hover (do ponto OU do balão) com um atraso curto — dá tempo do mouse atravessar a distância até o
+  // ↺ sem fechar no meio do caminho (mesma folga de um hover-card comum); qualquer novo enter cancela o timer.
+  const fecharTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelarFechar = () => { if (fecharTimer.current) { clearTimeout(fecharTimer.current); fecharTimer.current = null; } };
+  const agendarFechar = () => { cancelarFechar(); fecharTimer.current = setTimeout(() => setAberto(false), 150); };
   return (
     <Popover open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger asChild>
         {/* div com role de botão (não elemento nativo) — mesmo motivo do nome abreviado acima: o balão do calculado
             tem que abrir também em modo só-leitura (P-22 "ver"), senão ficaria travado pelo fieldset do DialogContent. */}
         <div role="button" tabIndex={0} title={`Editado à mão · calculado seria ${calculado}`} aria-label={`Editado à mão · calculado seria ${calculado}`}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setAberto(true); } }}
-          className="absolute right-0.5 top-0.5 h-3 w-3 cursor-pointer rounded-full bg-primary max-md:h-4 max-md:w-4" />
+          onMouseEnter={() => { cancelarFechar(); setAberto(true); }}
+          onMouseLeave={agendarFechar}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setAberto((o) => !o); } }}
+          className="absolute right-0.5 top-0.5 h-3 w-3 cursor-pointer rounded-full bg-primary max-md:h-4 max-md:w-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1" />
       </PopoverTrigger>
-      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs">
+      <PopoverContent side="top" className="w-auto space-y-1.5 p-2 text-xs" onMouseEnter={cancelarFechar} onMouseLeave={agendarFechar}>
         <p>Editado à mão · calculado seria {calculado}</p>
         {!bloqueado && (
           <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => { onVoltar(); setAberto(false); }}>
@@ -93,11 +113,13 @@ export function DistribuicaoTabelas(p: {
   const esmaecido = (t: string) => ((p.prop[t] ?? 0) > 0 ? "" : "opacity-50");
   const somaProp = p.tamanhos.reduce((s, t) => s + (p.prop[t] ?? 0), 0);
   const vista = (corKey: string, loja: string) => linhaVista(p.dists[corKey]?.[loja], p.prop, p.tamanhos);
+  // T6 fix1 · m8: em modo só-leitura (sem permissão de editar) a célula mostra TEXTO, igual à impressão — não
+  // um NumberInput desabilitado esmaecido. O pedido é "ver e imprimir", não "ver um formulário travado".
   const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
-    imp ? (
-      <span className={extra}>{valor || 0}</span>
+    bloqueado ? (
+      <span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
-      <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path} disabled={bloqueado}
+      <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
         className={`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
     );
@@ -110,7 +132,7 @@ export function DistribuicaoTabelas(p: {
         <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
           <thead className="bg-muted/50">
             <tr>
-              <th rowSpan={2} className={`${COL1} bg-muted/50 text-xs font-medium`}>Loja / Cor</th>
+              <th rowSpan={2} className={`${COL1} !bg-muted text-xs font-medium`}>Loja / Cor</th>
               <th rowSpan={2} className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">você digita</span></th>
               <th colSpan={p.tamanhos.length} className={TH}>Tamanhos: proporção × Base · dá para corrigir à mão</th>
               <th rowSpan={2} className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">da cor na loja</span></th>
@@ -119,7 +141,12 @@ export function DistribuicaoTabelas(p: {
           </thead>
           <tbody>
             <tr className="bg-muted/30">
-              <td className={`${COL1} bg-muted/30`}>Proporção por tamanho<span className="block text-[10px] text-muted-foreground">do card</span></td>
+              {/* T6 fix1 · m7 (fiel ao mockup): abaixo de 640px (`sm`) mostra só "Proporção" — o texto completo
+                  ("Proporção por tamanho" + "do card") some; a coluna fixa é estreita no celular. */}
+              <td className={`${COL1} !bg-muted`}>
+                <span className="max-sm:hidden">Proporção por tamanho<span className="block text-[10px] text-muted-foreground">do card</span></span>
+                <span className="sm:hidden">Proporção</span>
+              </td>
               <td className={`${TD} text-muted-foreground`}>—</td>
               {p.tamanhos.map((t) => (
                 <td key={t} className={`${TD} ${esmaecido(t)}`}>
@@ -133,14 +160,18 @@ export function DistribuicaoTabelas(p: {
               const sub = somaVistas(vistas, p.tamanhos);
               return (
                 <Fragment key={l.id}>
+                  {/* T6 fix1 · I1: a faixa do nome da loja vira 2 <td> — a 1ª FIXA e OPACA (`!bg-secondary`, sem
+                      fração — nome preso ao rolar), a 2ª cobre o resto das colunas com o tom translúcido de
+                      sempre (seguro: não fica embaixo de nenhuma célula fixa). */}
                   <tr className={l.inativa ? "opacity-60" : ""}>
-                    <td colSpan={p.tamanhos.length + 3} className="border bg-muted/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide">{l.nome}</td>
+                    <td className={`${COL1} !bg-secondary text-xs font-semibold uppercase tracking-wide`}>{l.nome}</td>
+                    <td colSpan={p.tamanhos.length + 2} className="border bg-muted/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide" />
                   </tr>
                   {p.cores.map((c, i) => {
                     const v = vistas[i];
                     return (
                       <tr key={c.key} className={l.inativa ? "opacity-60" : ""}>
-                        <td className={COL1}><NomeCor c={c} impressao={imp} /></td>
+                        <td className={`${COL1} !bg-background`}><NomeCor c={c} impressao={imp} /></td>
                         <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold")}</td>
                         {p.tamanhos.map((t) => {
                           const cel = v.celulas[t];
@@ -160,7 +191,11 @@ export function DistribuicaoTabelas(p: {
                     );
                   })}
                   <tr className="bg-muted/40 font-semibold">
-                    <td className={`${COL1} bg-muted/40`}>Total {l.nome}</td>
+                    {/* T6 fix1 · m7: idem — "Total {loja}" completo só a partir de 640px; abaixo, só "Total". */}
+                    <td className={`${COL1} !bg-accent`}>
+                      <span className="max-sm:hidden">Total {l.nome}</span>
+                      <span className="sm:hidden">Total</span>
+                    </td>
                     <td className={TD}>{sub.base}</td>
                     {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{sub.grades[t]}</td>)}
                     <td className={TD}>{sub.total}</td>
@@ -182,7 +217,7 @@ export function DistribuicaoTabelas(p: {
           <table className="w-full min-w-[560px] border-collapse text-sm" aria-label="Total por cor e tamanho">
             <thead className="bg-muted/50">
               <tr>
-                <th className={`${COL1} bg-muted/50 text-xs font-medium`}>Cor</th>
+                <th className={`${COL1} !bg-muted text-xs font-medium`}>Cor</th>
                 <th className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">soma das lojas</span></th>
                 {p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}
                 <th className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">= pç no card</span></th>
@@ -194,7 +229,7 @@ export function DistribuicaoTabelas(p: {
                 const tot = somaVistas(p.lojas.map((l) => vista(c.key, l.id)), p.tamanhos);
                 return (
                   <tr key={c.key}>
-                    <td className={COL1}><NomeCor c={c} impressao={imp} /></td>
+                    <td className={`${COL1} !bg-background`}><NomeCor c={c} impressao={imp} /></td>
                     {tem ? (
                       <>
                         <td className={TD}>{tot.base}</td>
@@ -210,7 +245,7 @@ export function DistribuicaoTabelas(p: {
             </tbody>
             <tfoot>
               <tr className="bg-muted/40 font-semibold">
-                <td className={`${COL1} bg-muted/40`}>Total</td>
+                <td className={`${COL1} !bg-accent`}>Total</td>
                 <td className={TD}>{totalGeral.base}</td>
                 {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{totalGeral.grades[t]}</td>)}
                 <td className={TD}>{totalGeral.total}</td>

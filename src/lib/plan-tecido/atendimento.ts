@@ -90,7 +90,10 @@ export type OpcoesDist = { ligado: boolean; tamanhos: string[] };
 // (por tamanho da chave, depois por bytes) — comparar por JSON.stringify direto (chaves na ordem de
 // inserção) acusava mudança onde não havia, deixando o slot "sujo" para sempre. Ordena as chaves de
 // objeto recursivamente; arrays mantêm a ordem (são dado, não mapa).
-function canon(v: unknown): unknown {
+// Exportada (T6 fix1 · m5): o dialog "Distribuir por loja" reusa esta MESMA função para o `dirty` — um
+// `JSON.stringify` cru (chaves na ordem de inserção) acusaria "alterado" só por causa da reordenação, o
+// que travava Voltar/fechar num "Descartar alterações?" falso mesmo sem edição real do usuário.
+export function canon(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(canon);
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
@@ -100,7 +103,7 @@ function canon(v: unknown): unknown {
   }
   return v;
 }
-const igual = (a: unknown, b: unknown) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+export const igual = (a: unknown, b: unknown) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
 /** Deriva o pç do slot (R6): (1) cada cor do T1 com distribuição → células não-manuais recalculadas (proporção × Base),
  *  `grades`/`grade_total` = totais; distribuição que esvazia fica `{}` SEM zerar o pç (R10); (2) cada cor de outro

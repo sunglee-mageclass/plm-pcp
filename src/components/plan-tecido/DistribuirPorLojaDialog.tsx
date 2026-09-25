@@ -10,10 +10,12 @@
 // em `ImagePreview.tsx` para escapar de um fieldset ancestral.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Printer, Save } from "lucide-react";
+import { toast } from "sonner";
+import { AlertTriangle, ArrowLeft, Printer, Save } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import type { PresencaColab } from "@/hooks/useColabRegistro";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -26,7 +28,7 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { ColabPresenceOverlay } from "@/components/shared/ColabPresenceOverlay";
 import { printWithImages } from "@/lib/print";
 import { varKey } from "@/lib/plan-tecido/calc";
-import { ehTecido1 } from "@/lib/plan-tecido/atendimento";
+import { ehTecido1, igual } from "@/lib/plan-tecido/atendimento";
 import type { PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 import {
   TEXTO_AJUDA_DIST, chaveSlot, definirBase, definirCelula, definirProporcao, normalizarDistribuicao, pathDistAberto,
@@ -44,6 +46,13 @@ export function partesCor(v: PtVariante): { cor: string; apelido: string | null 
   const apelido = v.label && v.cor_nome && v.label.startsWith(`${v.cor_nome} - `) ? v.label.slice(v.cor_nome.length + 3) : null;
   return { cor, apelido: apelido || null };
 }
+
+/** T6 fix1 · m9: rótulo completo (cor + apelido) da variante — a confirmação de zerar não pode mostrar só a
+ *  cor base quando há apelido (2 cores "Marrom" de apelidos diferentes ficariam indistinguíveis no aviso). */
+const rotuloCor = (v: PtVariante): string => {
+  const { cor, apelido } = partesCor(v);
+  return apelido ? `${cor} · ${apelido}` : cor;
+};
 
 export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoSoLeitura, presentes, onFoco, onSalvar, onClose }: {
   slot: PtSlot;
@@ -69,12 +78,14 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   }));
   const [prop, setProp] = useState(inicial.prop);
   const [dists, setDists] = useState(inicial.dists);
-  const dirty = JSON.stringify({ prop, dists }) !== JSON.stringify(inicial);
+  // T6 fix1 · m5: comparação CANÔNICA (chaves ordenadas) — reusa `igual`/`canon` de atendimento.ts, não
+  // JSON.stringify cru (o jsonb do Postgres reordena chaves; comparar bruto acusaria "sujo" sem edição real).
+  const dirty = !igual({ prop, dists }, inicial);
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [zeradas, setZeradas] = useState<string[] | null>(null);
   const corpoRef = useRef<HTMLDivElement>(null);
 
-  const { data: lojasDb, isFetched: lojasProntas } = useQuery({
+  const { data: lojasDb, isFetched: lojasProntas, isError: lojasErro, error: lojasErroObj, refetch: refetchLojas } = useQuery({
     queryKey: ["dist-produto-lojas", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -87,16 +98,29 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
       return ((data ?? []) as unknown) as LojaDb[];
     },
   });
+  // T6 fix1 · m3: erro na query de lojas ganha toast + aviso no corpo do dialog — não pode abrir a tabela
+  // como se estivesse simplesmente vazia (sem loja nenhuma pareceria "sem distribuição" por engano).
+  useEffect(() => {
+    if (lojasErro) toast.error(mensagemErro(lojasErroObj, "Não foi possível carregar as lojas."));
+  }, [lojasErro, lojasErroObj]);
+  // `isFetched` fica true depois de QUALQUER settle (sucesso OU erro) — Imprimir/impressão só quando deu certo.
+  const podeImprimir = lojasProntas && !lojasErro;
   // R13: ativas + qualquer loja com dado (inativa/excluída, esmaecida e editável — dá para zerar).
+  // T6 fix1 · m4: `comDado` une as chaves do RASCUNHO ATUAL (`dists`) com as do SNAPSHOT da abertura
+  // (`inicial.dists`) — sem isso, zerar a última linha manual de uma loja inativa fazia `dists` perder a
+  // chave e a loja sumia da lista NO MEIO da edição (antes de salvar), quebrando "dá para zerar" (R13).
   const lojas = useMemo<LojaDist[]>(() => {
-    const comDado = new Set(Object.values(dists).flatMap((d) => Object.keys(d)));
+    const comDado = new Set([
+      ...Object.values(dists).flatMap((d) => Object.keys(d)),
+      ...Object.values(inicial.dists).flatMap((d) => Object.keys(d)),
+    ]);
     const out: LojaDist[] = (lojasDb ?? [])
       .filter((l) => l.ativo || comDado.has(l.id))
       .map((l) => ({ id: l.id, nome: l.ativo ? l.nome : `${l.nome} (inativa)`, inativa: !l.ativo }));
     const conhecidas = new Set((lojasDb ?? []).map((l) => l.id));
     for (const id of comDado) if (!conhecidas.has(id)) out.push({ id, nome: "Loja excluída", inativa: true });
     return out;
-  }, [lojasDb, dists]);
+  }, [lojasDb, dists, inicial.dists]);
   const cores = useMemo<CorDist[]>(
     () => (t1?.variantes ?? []).map((v) => {
       const { cor, apelido } = partesCor(v);
@@ -137,18 +161,18 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           const antes = Number(v.grade_total) || 0;
           if (temDistribuicao(d)) {
             const tot = totaisDaDistribuicao(d);
-            if (antes > 0 && tot.total === 0) nomes.push(partesCor(v).cor);
+            if (antes > 0 && tot.total === 0) nomes.push(rotuloCor(v));
             return { ...v, distribuicao: d, grades: tot.grades, grade_total: tot.total };
           }
           if (temDistribuicao(v.distribuicao)) { // tinha e perdeu todas as linhas → 0 (R10)
-            if (antes > 0) nomes.push(partesCor(v).cor);
+            if (antes > 0) nomes.push(rotuloCor(v));
             return { ...v, distribuicao: {}, grades: {}, grade_total: 0 };
           }
           return v;
         }),
       };
     });
-    const propMudou = JSON.stringify(prop) !== JSON.stringify(inicial.prop);
+    const propMudou = !igual(prop, inicial.prop);
     const novo: PtSlot = { ...slot, ...(propMudou ? { proporcoes: { ...(slot.proporcoes ?? {}), ...prop } } : {}), materiais };
     return { novo, nomes };
   };
@@ -160,16 +184,21 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
   };
 
   const n = cores.length;
-  const cabecalho = (
+  // T6 fix1 · m1: a versão de IMPRESSÃO não leva o InfoHover — é um <button> (não tocamos o componente
+  // compartilhado; o controlador registrou o problema geral dele dentro de fieldset para uma frente própria)
+  // e a impressão é "sem botões" por definição (P-36). A versão de TELA continua com o "i".
+  const cabecalho = (impressao: boolean) => (
     <div className="flex items-start gap-3">
       <ModeloThumb path={slot.thumb_path ?? slot.referencia_paths?.[0] ?? null} className="h-16 w-12 shrink-0" zoom alt={slot.nome ?? "Produto"} />
       <div className="min-w-0 space-y-0.5">
         <p className="truncate font-semibold">{slot.nome ?? "Produto sem nome"}{slot.ref ? ` · ${slot.ref}` : ""}</p>
         <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
           Tecido 1: {t1?.artigo_nome ?? "—"} · {n} {n === 1 ? "cor" : "cores"} · tamanhos em {tipo === "numero" ? "Número" : "Letra"}
-          <InfoHover ariaLabel="De onde vêm as lojas e os tamanhos">
-            O “Tamanho em” vem do Planejamento de Produto (seção Códigos). Lojas ativas de Cadastro › Lojas; todos os tamanhos da grade da loja.
-          </InfoHover>
+          {!impressao && (
+            <InfoHover ariaLabel="De onde vêm as lojas e os tamanhos">
+              O “Tamanho em” vem do Planejamento de Produto (seção Códigos). Lojas ativas de Cadastro › Lojas; todos os tamanhos da grade da loja.
+            </InfoHover>
+          )}
         </p>
       </div>
     </div>
@@ -192,19 +221,19 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
                   seria desabilitado em modo só-leitura — quebraria "ver e imprimir sem permissão". `asChild` troca o
                   elemento renderizado por um `role="button"` (não nativo), que o fieldset não desabilita; mantém o
                   MESMO visual/props do Button (outline/sm) e o clique. */}
-              <Button asChild variant="outline" size="sm" className="max-sm:hidden" onClick={() => void printWithImages()} aria-label="Imprimir" disabled={!lojasProntas}>
+              <Button asChild variant="outline" size="sm" className="max-sm:hidden" onClick={() => void printWithImages()} aria-label="Imprimir" disabled={!podeImprimir}>
                 {/* `asChild` (Radix Slot) troca o <button> nativo por este elemento — o onClick acima só dispara aqui
                     porque o span não tem bloqueio nativo de `disabled` (diferente de um <button>), então a checagem
                     de "pronto" precisa ficar no MEIO do clique/tecla, não delegada ao atributo. */}
-                <span role="button" tabIndex={lojasProntas ? 0 : -1} aria-disabled={!lojasProntas}
-                  onClickCapture={(e) => { if (!lojasProntas) { e.preventDefault(); e.stopPropagation(); } }}
-                  onKeyDown={(e) => { if (lojasProntas && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); void printWithImages(); } }}>
+                <span role="button" tabIndex={podeImprimir ? 0 : -1} aria-disabled={!podeImprimir}
+                  onClickCapture={(e) => { if (!podeImprimir) { e.preventDefault(); e.stopPropagation(); } }}
+                  onKeyDown={(e) => { if (podeImprimir && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); void printWithImages(); } }}>
                   <Printer className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Imprimir</span>
                 </span>
               </Button>
             </div>
             <DialogDescription className="sr-only">Distribuição do produto por loja, cor e tamanho</DialogDescription>
-            {cabecalho}
+            {cabecalho(false)}
             <ColabBanner presentes={presentesAqui} ultimoMerge={null} />
           </DialogHeader>
           {/* Corpo rolável = scope do overlay de presença (DialogBody não repassa ref; mesmas classes). */}
@@ -213,7 +242,13 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
             <p className="text-xs text-muted-foreground md:hidden">Por loja · deslize para o lado</p>
             {/* Sem fieldset travando o corpo inteiro: ele desligaria também os balões de LEITURA (ponto à mão — PR16 — e
                 nome abreviado no celular); o só-leitura vem de `readOnly` → cada NumberInput `disabled` e o ↺ escondido. */}
-            {lojasProntas ? tabelas("edicao") : <p className="py-6 text-center text-sm text-muted-foreground">Carregando lojas…</p>}
+            {lojasErro ? (
+              <div className="flex flex-col items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 py-6 text-center text-sm text-destructive">
+                <AlertTriangle className="h-5 w-5" aria-hidden />
+                <p>Não foi possível carregar as lojas.</p>
+                <Button variant="outline" size="sm" onClick={() => void refetchLojas()}>Tentar de novo</Button>
+              </div>
+            ) : lojasProntas ? tabelas("edicao") : <p className="py-6 text-center text-sm text-muted-foreground">Carregando lojas…</p>}
           </div>
           <DialogFooter className="-mx-4 -mb-4 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
             {/* Mesmo motivo do Imprimir acima: em modo só-leitura de página este <button> nativo ficaria desabilitado
@@ -229,8 +264,9 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
               <span className="ml-auto text-xs text-muted-foreground">{motivoSoLeitura}</span>
             ) : (
               <>
+                {/* T6 fix1 · m9: singular "da 1 cor" / plural "das N cores" — antes sempre dizia "das 1 cores". */}
                 <span className="hidden flex-1 text-xs text-muted-foreground sm:block">
-                  Salvar preenche o pç das {n} cores no card. Grava de vez no Salvar do plano.
+                  Salvar preenche o pç {n === 1 ? `da ${n} cor` : `das ${n} cores`} no card. Grava de vez no Salvar do plano.
                 </span>
                 <Button className="ml-auto max-sm:aspect-square max-sm:px-0" onClick={() => salvar()} aria-label="Salvar">
                   <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Salvar</span>
@@ -271,11 +307,11 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
           )}
         </DialogContent>
       </Dialog>
-      {lojasProntas && (
+      {podeImprimir && (
         <PrintArea>
           <div className="space-y-4 p-6">
             <h1 className="text-lg font-semibold">Distribuir por loja</h1>
-            {cabecalho}
+            {cabecalho(true)}
             {tabelas("impressao")}
           </div>
         </PrintArea>
