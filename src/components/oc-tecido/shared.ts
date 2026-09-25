@@ -69,6 +69,8 @@ export type OC = {
   // Responsável pelo recebimento (seção 4) — espelha o par responsavel_id/nome do pedido.
   recebimento_responsavel_id: string | null;
   recebimento_responsavel_nome: string | null;
+  // Data da Nota de Entrada (spec 2026-09-24): base do vencimento; vazia em OC recebida = vencimento provisório.
+  data_nota_entrada?: string | null;
 };
 
 export type ParcelaRecebimento = { data: string; recebido: boolean };
@@ -86,6 +88,7 @@ export type Draft = {
   observacoes_entrega: string;
   observacoes_defeitos: string;
   data_entrega: string;
+  data_nota_entrada: string; // ISO yyyy-MM-dd ou "" (sem data)
   anexo_pedido_url: string | null;
   modelo_sugerido_url: string | null;
   nf_url: string | null;
@@ -142,6 +145,7 @@ export function emptyDraft(): Draft {
     observacoes_entrega: "",
     observacoes_defeitos: "",
     data_entrega: "",
+    data_nota_entrada: "",
     anexo_pedido_url: null,
     modelo_sugerido_url: null,
     nf_url: null,

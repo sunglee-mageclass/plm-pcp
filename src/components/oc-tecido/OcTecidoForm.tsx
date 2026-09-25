@@ -2,6 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
+import { CampoDataNotaEntrada } from "@/components/shared/NotaEntrada";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -106,6 +107,7 @@ export function OcTecidoForm({
   const cPrazo = campo("prazo_pagamento");
   const cDataPedido = campo("data_pedido");
   const cDataEntrega = campo("data_prevista_entrega");
+  const cNota = campo("data_nota_entrada");
 
   // Preview ao vivo do Número do Pedido (T-…): só em CRIAÇÃO (colab: não dispara dirty
   // numa OC existente). materialId = artigo_id do 1º item do Tecido 1 (vazio → null).
@@ -205,6 +207,18 @@ export function OcTecidoForm({
             {/* Contagem de parcelas — inteiro ("4"), nunca decimal ("4,00"). */}
             <NumberInput type="number" integer value={draft.quantidade_prazos} readOnly disabled />
           </div>
+          {/* Data da Nota de Entrada (spec 2026-09-24): o prazo acima conta a partir dela. Editável mesmo com a OC recebida. */}
+          <CampoDataNotaEntrada
+            className="sm:col-span-2"
+            value={draft.data_nota_entrada}
+            onChange={(v) => setDraft((d) => ({ ...d, data_nota_entrada: v }))}
+            colabPath={cNota["data-colab-path"]}
+            inputClassName={cNota.className}
+          >
+            {cNota.conflito && (
+              <ConflitoAviso conflito={cNota.conflito} onResolver={(useDele) => colab.onResolverConflito(cNota.conflito!, useDele)} />
+            )}
+          </CampoDataNotaEntrada>
         </div>
 
         {/* Nova OC: entregas parceladas (recebimento) editáveis já na criação —

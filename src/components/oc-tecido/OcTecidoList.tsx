@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { BolinhaFaltaNota } from "@/components/shared/NotaEntrada";
+import { faltaNotaEntrada } from "@/lib/nota-entrada";
 import { SortHead, useSort } from "@/components/shared/sort";
 import { fmtDate, fmtMoney, type OC, type OcTecidoTab } from "./shared";
 import { EstoqueTecidosTable, type useEstoqueTecidos } from "./EstoqueTecidosTab";
@@ -119,7 +121,7 @@ export function OcTecidoList({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("tecido", o)} />
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" />
                   </div>
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
@@ -159,7 +161,7 @@ export function OcTecidoList({
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                   <TableCell className="font-medium">
                     <div className="flex flex-col items-start gap-0.5">
-                      {o.numero_pedido ?? "—"}
+                      <span className="inline-flex items-center gap-2">{o.numero_pedido ?? "—"}<BolinhaFaltaNota show={faltaNotaEntrada("tecido", o)} /></span>
                       <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" />
                     </div>
                   </TableCell>
@@ -221,7 +223,7 @@ export function OcTecidoList({
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span><BolinhaFaltaNota show={faltaNotaEntrada("tecido", o)} />
                     {ab && <StatusBadge tone={ab.tone}>{ab.label}</StatusBadge>}
                     <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />
                   </div>
@@ -266,6 +268,7 @@ export function OcTecidoList({
                     <div className="flex flex-col items-start gap-0.5">
                       <span className="inline-flex items-center gap-2">
                         {o.numero_pedido ?? "—"}
+                        <BolinhaFaltaNota show={faltaNotaEntrada("tecido", o)} />
                         {ab && <StatusBadge tone={ab.tone}>{ab.label}</StatusBadge>}
                       </span>
                       <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />

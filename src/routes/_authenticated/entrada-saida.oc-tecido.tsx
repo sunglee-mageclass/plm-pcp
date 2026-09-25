@@ -7,6 +7,8 @@ import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Check, AlertTriangle
 import { addDays, format as formatDate, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { baseVencimento, faltaNotaEntrada, invalidarVencimentos, payloadDataNota, ROTULO_DATA_NOTA } from "@/lib/nota-entrada";
+import { AvisoFaltaNota, useValidarDataNota } from "@/components/shared/NotaEntrada";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -439,6 +441,7 @@ function draftFromOc(oc: any): Draft {
     observacoes_entrega: oc.observacoes_entrega ?? "",
     observacoes_defeitos: oc.observacoes_defeitos ?? "",
     data_entrega: oc.data_entrega ?? "",
+    data_nota_entrada: oc.data_nota_entrada ?? "",
     anexo_pedido_url: oc.anexo_pedido_url,
     modelo_sugerido_url: oc.modelo_sugerido_url,
     nf_url: oc.nf_url,
@@ -466,6 +469,7 @@ const ROTULO_CONFLITO: Record<string, string> = {
   observacoes_entrega: "Obs. de entrega",
   observacoes_defeitos: "Obs. de defeitos",
   data_entrega: "Data de entrega",
+  data_nota_entrada: ROTULO_DATA_NOTA,
   anexo_pedido_url: "Anexo do pedido",
   modelo_sugerido_url: "Modelo sugerido",
   nf_url: "Nota fiscal",
@@ -507,7 +511,7 @@ type ParcelaPrevistaRow = { numero: number; vencimento: string; valor: number; p
 // Preview das parcelas a pagar geradas ao marcar recebido — ESPELHO da regra do servidor
 // (gerar_parcelas_oc_tecido / recalcular_parcelas, migração 20260619440000):
 // dias = todos os números do prazo_pagamento; n = len(dias) (cap 24) ou quantidade_prazos;
-// vencimento_i = base + dias[i] (fallback base + i*30), base = data de entrega (senão hoje);
+// vencimento_i = base + dias[i] (fallback base + i*30), base = Data da Nota de Entrada, senão data de entrega, senão hoje;
 // cota = round2(restante ÷ nº livres) e a ÚLTIMA a inserir absorve o resto do arredondamento;
 // parcelas PAGAS são preservadas e o restante = total − Σ pagas só preenche os números livres.
 function previewParcelas({
@@ -649,6 +653,7 @@ function OcDialog({
   onDelete?: () => void;
 }) {
   const isEdit = !!ocId;
+  const validarNota = useValidarDataNota(); // D7 (decidido pelo dono 24/set): não futura, não antes do pedido
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);
@@ -1176,6 +1181,7 @@ function OcDialog({
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
+      { const erroNota = validarNota(draft.data_nota_entrada, draft.data_pedido); if (erroNota) throw new Error(erroNota); } // D7
       const selecionados = items.filter((i) => i.variante_tecido_id && i.artigo_id);
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
         throw new Error("Informe a quantidade (maior que zero) de cada variante selecionada.");
@@ -1198,6 +1204,7 @@ function OcDialog({
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nfs[0]?.url ?? null, // NF primária = primeira da lista (compat)
         data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
+        data_nota_entrada: payloadDataNota(draft.data_nota_entrada), // chave SEMPRE presente: "" limpa (spec §4.3)
         parcelas_recebimento: parcelas,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
@@ -1327,6 +1334,7 @@ function OcDialog({
       setConflitos([]);
       setUltimoMerge(null);
       markClean();
+      invalidarVencimentos(qc); // Data da Nota de Entrada: vencimentos podem ter mudado (Financeiro, dashboard, visão da OC)
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
@@ -1679,6 +1687,7 @@ function OcDialog({
             }}
             onBlurCapture={() => setCampoFocado(null)}
           >
+          <AvisoFaltaNota show={faltaNotaEntrada("tecido", { status, data_nota_entrada: draft.data_nota_entrada })} familia="tecido" ocId={ocId} />
           <OcTecidoForm
             draft={draft}
             setDraft={setDraftTracked}
@@ -1849,7 +1858,7 @@ function OcDialog({
           ocId={ocId}
           prazoPagamento={draft.prazo_pagamento}
           quantidadePrazos={draft.quantidade_prazos}
-          baseDataISO={ultimaDataEntrega(draft)}
+          baseDataISO={baseVencimento(draft.data_nota_entrada, ultimaDataEntrega(draft))}
           totalReal={totalReal}
           pending={saveMutation.isPending}
           onCancel={() => setConfirmReceber(false)}
