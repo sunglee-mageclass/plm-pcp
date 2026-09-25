@@ -1170,6 +1170,8 @@ function PlanejamentoDetailConteudo({
     // permissões, não só a page-level do Planejamento).
     podeVerCustos: veCustos,
     infoCompleta: !!draft.nome.trim() && !!draft.estilista_id && !!draft.categoria_principal_id,
+    // Brief 25/set — "vazia" (nome, estilista E categoria vazios) ≠ "incompleta" (`infoCompleta` já usa AND).
+    infoVazia: !draft.nome.trim() && !draft.estilista_id && !draft.categoria_principal_id,
     colecaoResumo: resumoColecao({
       colecao: draft.colecao || null,
       subcolecao: draft.subcolecao || null,
@@ -1179,6 +1181,11 @@ function PlanejamentoDetailConteudo({
       ano: anos.find((x) => x.id === draft.ano_id)?.nome ?? null,
     }),
     desenvolvimentoCompleto: desenvolvimentoCompleto(draft, campoVisivelDev),
+    // Brief 25/set — nenhum de modelista, piloteiros 1–3, datas de piloto 1–3, desenho técnico, aprovação,
+    // obs. técnicas preenchido (sem nova query — os campos já vêm do `draft`).
+    desenvolvimentoVazia: !draft.modelista_id && !draft.piloteiro1_id && !draft.piloteiro2_id && !draft.piloteiro3_id
+      && !draft.data_piloto1 && !draft.data_piloto2 && !draft.data_piloto3 && !draft.data_desenho_tecnico
+      && !draft.data_aprovacao && !draft.observacoes_tecnicas.trim(),
     preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
     maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },

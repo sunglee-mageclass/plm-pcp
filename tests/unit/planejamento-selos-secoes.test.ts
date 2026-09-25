@@ -26,15 +26,23 @@ describe("seloPorChaves (selos-bom) — regra do reqBadge do Dev para qualquer l
     expect(s?.texto).toBe("falta data de piloto i preenchida");
     expect(s?.condicaoUnica?.key).toBe("data_piloto1");
   });
-  it("seloSecaoBom (F3.2) segue igual", () => {
-    expect(seloSecaoBom("grade", new Set(["grade_preenchida"]), { grade_preenchida: true }, { nTecidos: 0, todosBlocosComArtigoTemVariante: true, nAviamentos: 0, nInsumos: 0, gradeTotalGeral: 0 })).toEqual({ tone: "ok", texto: "ok" });
+  it("seloSecaoBom (F3.2) segue igual — requisito satisfeito numa seção NÃO vazia", () => {
+    expect(seloSecaoBom("grade", new Set(["grade_preenchida"]), { grade_preenchida: true }, { nTecidos: 0, todosBlocosComArtigoTemVariante: true, nAviamentos: 0, nInsumos: 0, gradeTotalGeral: 5 })).toEqual({ tone: "ok", texto: "ok" });
+  });
+  it("seloSecaoBom — requisito satisfeito numa seção VAZIA (gradeTotalGeral===0) ⇒ sem selo (pedido do dono 25/set)", () => {
+    expect(seloSecaoBom("grade", new Set(["grade_preenchida"]), { grade_preenchida: true }, { nTecidos: 0, todosBlocosComArtigoTemVariante: true, nAviamentos: 0, nInsumos: 0, gradeTotalGeral: 0 })).toBeUndefined();
   });
 });
 
+// Decisão do dono (25/set): seção sem NADA preenchido não mostra selo nenhum — exceto o aviso âmbar "falta …" de
+// um requisito do kanban daquela seção (`seloDeSecao`, selos-bom.ts). Os `expect` marcados MUDOU abaixo antes
+// esperavam um selo cinza ("faltam dados"/"vazio"/"sem serviço"/"sem data") para seção VAZIA; agora esperam
+// `undefined`.
 describe("selosSecoesSheet", () => {
   const base: EntradaSelosSheet = {
     requeridas: new Set(), satisfeitas: null, podeVerCustos: true,
-    infoCompleta: true, colecaoResumo: "Verão 2027 · Casual · lanç. 2 · mar/2027", desenvolvimentoCompleto: false,
+    infoCompleta: true, infoVazia: false, colecaoResumo: "Verão 2027 · Casual · lanç. 2 · mar/2027",
+    desenvolvimentoCompleto: false, desenvolvimentoVazia: true,
     preco: { efetivo: 289.9, markup: 2.91 }, maoObra: { estado: "aprovada", total: 35 },
     anexos: { fotoModelo: true, fotoReferencia: true, desenho: true, croqui: true }, lancamento: { lancado: false, data: "2027-03-15" },
   };
@@ -42,19 +50,32 @@ describe("selosSecoesSheet", () => {
     const s = selosSecoesSheet(base);
     expect(s.info).toEqual({ tone: "ok", texto: "completa" });
     expect(s.colecao).toEqual({ tone: "muted", texto: "Verão 2027 · Casual · lanç. 2 · mar/2027" });
-    expect(s.desenvolvimento).toEqual({ tone: "muted", texto: "faltam dados" });
+    // MUDOU: era { tone: "muted", texto: "faltam dados" } — `base.desenvolvimentoVazia=true` (nenhum campo da
+    // equipe/cronograma preenchido) e sem requisito do kanban ⇒ sem selo.
+    expect(s.desenvolvimento).toBeUndefined();
     expect(s.preco?.texto).toMatch(/^Preço de venda R\$\s?289,90 · markup 2,91×$/);
     expect(s.mao_obra?.texto.startsWith("aprovada · ")).toBe(true);
     expect(s.anexos).toEqual({ tone: "ok", texto: "anexos ok" });
     expect(s.lancamento).toEqual({ tone: "muted", texto: "15/03/2027" });
   });
-  it("requisito da loja numa seção vence o informativo (estado SALVO)", () => {
+  it("Desenvolvimento com dado preenchido mas incompleto (não vazio) → volta o informativo 'faltam dados'", () => {
+    const s = selosSecoesSheet({ ...base, desenvolvimentoVazia: false });
+    expect(s.desenvolvimento).toEqual({ tone: "muted", texto: "faltam dados" });
+  });
+  it("requisito da loja numa seção vazia NÃO satisfeito → mantém o aviso âmbar 'falta …'", () => {
     const s = selosSecoesSheet({ ...base, requeridas: new Set(["data_piloto1"]), satisfeitas: { data_piloto1: false } });
     expect(s.desenvolvimento?.tone).toBe("warn");
     expect(s.desenvolvimento?.texto).toBe("falta data de piloto i preenchida");
   });
-  it("condições ainda não carregadas ⇒ só o informativo (nunca 'falta' no escuro)", () => {
-    expect(selosSecoesSheet({ ...base, requeridas: new Set(["data_piloto1"]), satisfeitas: null }).desenvolvimento).toEqual({ tone: "muted", texto: "faltam dados" });
+  it("requisito da loja SATISFEITO numa seção vazia → sem selo (não é mais 'ok' vácuo — pedido do dono)", () => {
+    const s = selosSecoesSheet({ ...base, requeridas: new Set(["data_piloto1"]), satisfeitas: { data_piloto1: true } });
+    // MUDOU: era { tone: "ok", texto: "ok" } — o requisito vacuamente satisfeito numa seção sem NADA preenchido
+    // não deve mais acender "ok".
+    expect(s.desenvolvimento).toBeUndefined();
+  });
+  it("condições ainda não carregadas ⇒ seção vazia sem selo (nunca 'falta' no escuro)", () => {
+    // MUDOU: era { tone: "muted", texto: "faltam dados" }.
+    expect(selosSecoesSheet({ ...base, requeridas: new Set(["data_piloto1"]), satisfeitas: null }).desenvolvimento).toBeUndefined();
   });
   it("invariante #12: sem ver custos, nada em R$ nos selos de Preço e Mão de obra", () => {
     const s = selosSecoesSheet({ ...base, podeVerCustos: false });
@@ -62,15 +83,39 @@ describe("selosSecoesSheet", () => {
     expect(s.mao_obra).toEqual({ tone: "ok", texto: "aprovada" });
   });
   it("estados da mão de obra e do lançamento", () => {
-    expect(selosSecoesSheet({ ...base, maoObra: { estado: "sem_servico", total: 0 } }).mao_obra).toEqual({ tone: "muted", texto: "sem serviço" });
+    // MUDOU: era { tone: "muted", texto: "sem serviço" } — MO vazia (sem_servico) sem requisito ⇒ sem selo.
+    expect(selosSecoesSheet({ ...base, maoObra: { estado: "sem_servico", total: 0 } }).mao_obra).toBeUndefined();
     expect(selosSecoesSheet({ ...base, maoObra: { estado: "pendente", total: 10 } }).mao_obra).toEqual({ tone: "warn", texto: "pendente" });
     expect(selosSecoesSheet({ ...base, lancamento: { lancado: true, data: "2027-03-15" } }).lancamento).toEqual({ tone: "ok", texto: "lançado" });
+  });
+  it("mão de obra vazia (sem_servico) com requisito do kanban satisfeito → sem selo (não 'ok' vácuo)", () => {
+    const s = selosSecoesSheet({
+      ...base, maoObra: { estado: "sem_servico", total: 0 },
+      requeridas: new Set(["servico_mo_decidido"]), satisfeitas: { servico_mo_decidido: true },
+    });
+    expect(s.mao_obra).toBeUndefined();
+  });
+  it("mão de obra vazia (sem_servico) com requisito do kanban NÃO satisfeito → mantém o aviso âmbar", () => {
+    const s = selosSecoesSheet({
+      ...base, maoObra: { estado: "sem_servico", total: 0 },
+      requeridas: new Set(["servico_mo_preenchido"]), satisfeitas: { servico_mo_preenchido: false },
+    });
+    expect(s.mao_obra?.tone).toBe("warn");
+  });
+  it("mão de obra com 1 linha (não vazia) → selo de hoje (informativo, sem requisito configurado)", () => {
+    const s = selosSecoesSheet({ ...base, maoObra: { estado: "pendente", total: 10 } });
+    expect(s.mao_obra).toEqual({ tone: "warn", texto: "pendente" });
+  });
+  it("lançamento vazio (não lançado e sem data) sem requisito ⇒ sem selo", () => {
+    // MUDOU: era { tone: "muted", texto: "sem data" }.
+    expect(selosSecoesSheet({ ...base, lancamento: { lancado: false, data: null } }).lancamento).toBeUndefined();
   });
   // Decisão do dono (25/set): são 4 anexos totais (foto do modelo, foto de referência, desenho técnico,
   // croqui — a Ficha de Medida NÃO conta). Substitui a regra antiga de "texto do 1º anexo presente".
   it("anexos: contagem de 4 (0/1/2/4 presentes)", () => {
+    // MUDOU: era { tone: "muted", texto: "vazio" } — 0 de 4 anexos, sem requisito ⇒ sem selo.
     expect(selosSecoesSheet({ ...base, anexos: { fotoModelo: false, fotoReferencia: false, desenho: false, croqui: false } }).anexos)
-      .toEqual({ tone: "muted", texto: "vazio" });
+      .toBeUndefined();
     const umSo = selosSecoesSheet({ ...base, anexos: { fotoModelo: true, fotoReferencia: false, desenho: false, croqui: false } }).anexos;
     expect(umSo).toEqual({
       tone: "muted", texto: "1 de 4 anexos",
@@ -84,22 +129,37 @@ describe("selosSecoesSheet", () => {
     expect(selosSecoesSheet({ ...base, anexos: { fotoModelo: true, fotoReferencia: true, desenho: true, croqui: true } }).anexos)
       .toEqual({ tone: "ok", texto: "anexos ok" });
   });
+  it("anexos 0 de 4 com requisito do kanban NÃO satisfeito → mantém o aviso âmbar", () => {
+    const s = selosSecoesSheet({
+      ...base, anexos: { fotoModelo: false, fotoReferencia: false, desenho: false, croqui: false },
+      requeridas: new Set(["anexo_croqui"]), satisfeitas: { anexo_croqui: false },
+    });
+    expect(s.anexos?.tone).toBe("warn");
+  });
 });
 
 describe("selos auxiliares", () => {
-  it("CAD: vazio / antes da Ordem / falta X / ok; requisito cad_preenchido vence", () => {
-    expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 0, faltas: [], antesDaOrdem: false })).toEqual({ tone: "muted", texto: "vazio" });
+  it("CAD: vazio (linhas===0) sem requisito ⇒ sem selo; com requisito NÃO satisfeito ⇒ aviso âmbar", () => {
+    // MUDOU: era { tone: "muted", texto: "vazio" } — CAD vazio (linhas===0), sem requisito ⇒ sem selo.
+    expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 0, faltas: [], antesDaOrdem: false })).toBeUndefined();
+    const s = seloCadSecao({ requeridas: new Set(["cad_preenchido"]), satisfeitas: { cad_preenchido: false }, linhas: 0, faltas: [], antesDaOrdem: false });
+    expect(s?.tone).toBe("warn");
+  });
+  it("CAD não vazio: antes da Ordem / falta X / ok; requisito cad_preenchido vence", () => {
     expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 2, faltas: [], antesDaOrdem: true })).toEqual({ tone: "muted", texto: "após a Ordem de Criação" });
-    expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 2, faltas: ["metragem planejada"], antesDaOrdem: false }).texto).toBe("falta metragem planejada");
+    expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 2, faltas: ["metragem planejada"], antesDaOrdem: false })?.texto).toBe("falta metragem planejada");
     expect(seloCadSecao({ requeridas: new Set(), satisfeitas: null, linhas: 2, faltas: [], antesDaOrdem: false })).toEqual({ tone: "ok", texto: "ok" });
     expect(seloCadSecao({ requeridas: new Set(["cad_preenchido"]), satisfeitas: { cad_preenchido: true }, linhas: 2, faltas: ["consumo"], antesDaOrdem: false })).toEqual({ tone: "ok", texto: "ok" });
   });
-  it("Prova, Observações, Produto Relacionado", () => {
-    expect(seloProva(0)).toEqual({ tone: "muted", texto: "sem ajustes" });
+  it("Prova, Observações, Produto Relacionado — decisão do dono 25/set: vazio (0/sem conjunto) ⇒ sem selo (não têm requisito de kanban nessas seções)", () => {
+    // MUDOU: era { tone: "muted", texto: "sem ajustes" }.
+    expect(seloProva(0)).toBeUndefined();
     expect(seloProva(2)).toEqual({ tone: "info", texto: "2 abertos" });
     expect(seloObservacoes(1)).toEqual({ tone: "muted", texto: "1 observação" });
-    expect(seloObservacoes(0)).toEqual({ tone: "muted", texto: "nenhuma" });
-    expect(seloRelacionado(false)).toEqual({ tone: "muted", texto: "nenhum" });
+    // MUDOU: era { tone: "muted", texto: "nenhuma" }.
+    expect(seloObservacoes(0)).toBeUndefined();
+    // MUDOU: era { tone: "muted", texto: "nenhum" }.
+    expect(seloRelacionado(false)).toBeUndefined();
   });
   it("datas e resumo da coleção", () => {
     expect(dataBR("2027-03-15")).toBe("15/03/2027");

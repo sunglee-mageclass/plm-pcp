@@ -57,6 +57,14 @@ function seloPorRequisito(secao: SecaoBomKey, requeridas: ReadonlySet<string>, s
   return seloPorChaves(CONDICOES_SECAO_BOM[secao], requeridas, satisfeitas);
 }
 
+/** Decisão do dono (25/set) — seção sem NADA preenchido não mostra selo nenhum; EXCEÇÃO: se um requisito do
+ *  kanban daquela seção não está cumprido, mantém o aviso âmbar "falta …". Seção com algo preenchido segue o
+ *  comportamento de hoje (`req ?? informativo`). Único lugar que decide isso — todo selo de seção passa por aqui. */
+export function seloDeSecao(vazia: boolean, req: SeloSecao | null, informativo: SeloSecao | undefined): SeloSecao | undefined {
+  if (vazia) return req?.tone === "warn" ? req : undefined;
+  return req ?? informativo;
+}
+
 function seloInformativo(secao: SecaoBomKey, r: ResumoBom): SeloSecao {
   switch (secao) {
     case "tecidos":
@@ -72,7 +80,20 @@ function seloInformativo(secao: SecaoBomKey, r: ResumoBom): SeloSecao {
   }
 }
 
-/** Selo da seção: pelos requisitos da loja (estado SALVO) quando há; senão o informativo. */
-export function seloSecaoBom(secao: SecaoBomKey, requeridas: ReadonlySet<string>, satisfeitas: Record<string, boolean>, resumo: ResumoBom): SeloSecao {
-  return seloPorRequisito(secao, requeridas, satisfeitas) ?? seloInformativo(secao, resumo);
+/** "Vazia" por seção do BOM (brief 25/set): Tecidos `nTecidos===0`; Aviamentos idem; Insumos idem; Grade sem
+ *  nenhuma quantidade (`gradeTotalGeral===0`). */
+function secaoBomVazia(secao: SecaoBomKey, r: ResumoBom): boolean {
+  switch (secao) {
+    case "tecidos": return r.nTecidos === 0;
+    case "aviamentos": return r.nAviamentos === 0;
+    case "insumos": return r.nInsumos === 0;
+    case "grade": return r.gradeTotalGeral === 0;
+  }
+}
+
+/** Selo da seção: pelos requisitos da loja (estado SALVO) quando há; senão o informativo — seção vazia não mostra
+ *  selo nenhum, exceto o aviso âmbar "falta …" do requisito do kanban (decisão do dono 25/set, `seloDeSecao`). */
+export function seloSecaoBom(secao: SecaoBomKey, requeridas: ReadonlySet<string>, satisfeitas: Record<string, boolean>, resumo: ResumoBom): SeloSecao | undefined {
+  const req = seloPorRequisito(secao, requeridas, satisfeitas);
+  return seloDeSecao(secaoBomVazia(secao, resumo), req, seloInformativo(secao, resumo));
 }

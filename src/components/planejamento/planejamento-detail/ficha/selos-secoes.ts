@@ -5,7 +5,7 @@
 // (:2793-2795 Informações, :2837-2838 Prova, :2886-2890 CAD, :3068-3072 Anexos). Puro — planejamento-selos-secoes.test.ts.
 import { brl, fmtNum, mesLimpo } from "@/lib/format";
 import type { EstadoMO } from "@/lib/mao-obra";
-import { seloPorChaves, type SeloSecao } from "./selos-bom";
+import { seloDeSecao, seloPorChaves, type SeloSecao } from "./selos-bom";
 
 export type SecaoSheetKey =
   | "info" | "colecao" | "desenvolvimento" | "prova"
@@ -80,8 +80,13 @@ export type EntradaSelosSheet = {
   satisfeitas: Record<string, boolean> | null;
   podeVerCustos: boolean;
   infoCompleta: boolean;
+  /** Nome, estilista E categoria vazios (brief 25/set — "vazia" ≠ "incompleta"; praticamente nunca ocorre). */
+  infoVazia: boolean;
   colecaoResumo: string;
   desenvolvimentoCompleto: boolean;
+  /** Nenhum de modelista, piloteiros 1–3, datas de piloto 1–3, desenho técnico, aprovação, obs. técnicas
+   *  preenchido (brief 25/set). */
+  desenvolvimentoVazia: boolean;
   /** null = revenda (a tabela de preço é outra) → sem selo. */
   preco: { efetivo: number; markup: number } | null;
   maoObra: { estado: EstadoMO; total: number };
@@ -113,55 +118,69 @@ function seloAnexos(a: EntradaSelosSheet["anexos"]): SeloSecao {
   };
 }
 
-/** Selos das seções do Planejamento + as simples do Dev. BOM/CAD/Prova/Observações/Relacionado: funções próprias. */
+/** Selos das seções do Planejamento + as simples do Dev. BOM/CAD/Prova/Observações/Relacionado: funções próprias.
+ *  Decisão do dono (25/set): seção sem NADA preenchido não mostra selo — exceto o aviso âmbar "falta …" de um
+ *  requisito do kanban daquela seção (`seloDeSecao`, único lugar que decide isso). */
 export function selosSecoesSheet(e: EntradaSelosSheet): Partial<Record<SecaoSheetKey, SeloSecao>> {
   const r = (k: SecaoSheetKey) => seloRequisito(k, e.requeridas, e.satisfeitas);
   const out: Partial<Record<SecaoSheetKey, SeloSecao>> = {};
-  out.info = r("info") ?? (e.infoCompleta ? { tone: "ok", texto: "completa" } : { tone: "muted", texto: "faltam dados" });
-  out.colecao = r("colecao") ?? { tone: "muted", texto: e.colecaoResumo || "vazio" };
-  out.desenvolvimento = r("desenvolvimento") ?? (e.desenvolvimentoCompleto ? { tone: "ok", texto: "completa" } : { tone: "muted", texto: "faltam dados" });
-  // Invariante #12: valor em R$ só p/ quem vê custos (o selo aparece com a seção FECHADA).
-  const precoReq = r("preco");
-  if (precoReq) out.preco = precoReq;
-  else if (e.podeVerCustos && e.preco && e.preco.efetivo > 0) {
-    out.preco = { tone: "muted", texto: `Preço de venda ${brl(e.preco.efetivo)}${e.preco.markup > 0 ? ` · markup ${fmtNum(e.preco.markup)}×` : ""}` };
-  }
+  out.info = seloDeSecao(e.infoVazia, r("info"), e.infoCompleta ? { tone: "ok", texto: "completa" } : { tone: "muted", texto: "faltam dados" });
+  out.colecao = seloDeSecao(!e.colecaoResumo, r("colecao"), { tone: "muted", texto: e.colecaoResumo });
+  out.desenvolvimento = seloDeSecao(
+    e.desenvolvimentoVazia, r("desenvolvimento"),
+    e.desenvolvimentoCompleto ? { tone: "ok", texto: "completa" } : { tone: "muted", texto: "faltam dados" },
+  );
+  // Invariante #12: valor em R$ só p/ quem vê custos (o selo aparece com a seção FECHADA). Vazia = sem preço de
+  // venda digitado E sem custo (o `efetivo` já cai pro sugerido — custo×markup — quando não há preço digitado;
+  // `efetivo<=0` só acontece quando NENHUM dos dois existe). O informativo hoje só aparece com `efetivo>0` —
+  // mantido (brief).
+  const precoInformativo = e.podeVerCustos && e.preco && e.preco.efetivo > 0
+    ? { tone: "muted" as const, texto: `Preço de venda ${brl(e.preco.efetivo)}${e.preco.markup > 0 ? ` · markup ${fmtNum(e.preco.markup)}×` : ""}` }
+    : undefined;
+  out.preco = seloDeSecao(!e.preco || e.preco.efetivo <= 0, r("preco"), precoInformativo);
   const mo = e.maoObra;
-  out.mao_obra = r("mao_obra") ?? (
-    mo.estado === "sem_servico" ? { tone: "muted", texto: "sem serviço" }
-      : mo.estado === "aprovada" ? { tone: "ok", texto: e.podeVerCustos ? `aprovada · ${brl(mo.total)}` : "aprovada" }
-        : mo.estado === "reprovada" ? { tone: "warn", texto: "reprovada" }
-          : { tone: "warn", texto: "pendente" });
-  out.anexos = r("anexos") ?? seloAnexos(e.anexos);
-  out.lancamento = r("lancamento") ?? (
-    e.lancamento.lancado ? { tone: "ok", texto: "lançado" }
-      : e.lancamento.data ? { tone: "muted", texto: dataBR(e.lancamento.data) }
-        : { tone: "muted", texto: "sem data" });
+  const moInformativo: SeloSecao = mo.estado === "sem_servico" ? { tone: "muted", texto: "sem serviço" }
+    : mo.estado === "aprovada" ? { tone: "ok", texto: e.podeVerCustos ? `aprovada · ${brl(mo.total)}` : "aprovada" }
+      : mo.estado === "reprovada" ? { tone: "warn", texto: "reprovada" }
+        : { tone: "warn", texto: "pendente" };
+  out.mao_obra = seloDeSecao(mo.estado === "sem_servico", r("mao_obra"), moInformativo);
+  out.anexos = seloDeSecao(
+    e.anexos.fotoModelo === false && e.anexos.fotoReferencia === false && e.anexos.desenho === false && e.anexos.croqui === false,
+    r("anexos"), seloAnexos(e.anexos),
+  );
+  const lancamentoInformativo: SeloSecao = e.lancamento.lancado ? { tone: "ok", texto: "lançado" }
+    : e.lancamento.data ? { tone: "muted", texto: dataBR(e.lancamento.data) }
+      : { tone: "muted", texto: "sem data" };
+  out.lancamento = seloDeSecao(!e.lancamento.lancado && !e.lancamento.data, r("lancamento"), lancamentoInformativo);
   return out;
 }
 
-/** Selo da seção CAD (Dev :2886-2890 + requisito `cad_preenchido`). */
+/** Selo da seção CAD (Dev :2886-2890 + requisito `cad_preenchido`). Vazia = sem linha (`linhas===0`) — decisão do
+ *  dono 25/set: sem selo, exceto o aviso âmbar do requisito do kanban (`seloDeSecao`). */
 export function seloCadSecao(i: {
   requeridas: ReadonlySet<string>; satisfeitas: Record<string, boolean> | null;
   linhas: number; faltas: string[]; antesDaOrdem: boolean;
-}): SeloSecao {
+}): SeloSecao | undefined {
   const req = seloRequisito("cad", i.requeridas, i.satisfeitas);
-  if (req) return req;
-  if (i.linhas === 0) return { tone: "muted", texto: "vazio" };
-  if (i.antesDaOrdem) return { tone: "muted", texto: "após a Ordem de Criação" };
-  if (i.faltas.length > 0) return { tone: "warn", texto: `falta ${i.faltas.join(", ")}`, title: `Falta: ${i.faltas.join(", ")}` };
-  return { tone: "ok", texto: "ok" };
+  const informativo = (): SeloSecao => {
+    if (i.antesDaOrdem) return { tone: "muted", texto: "após a Ordem de Criação" };
+    if (i.faltas.length > 0) return { tone: "warn", texto: `falta ${i.faltas.join(", ")}`, title: `Falta: ${i.faltas.join(", ")}` };
+    return { tone: "ok", texto: "ok" };
+  };
+  return seloDeSecao(i.linhas === 0, req, i.linhas === 0 ? undefined : informativo());
 }
 
-/** Prova (Dev :2836-2838). */
-export function seloProva(abertos: number): SeloSecao {
-  return abertos > 0 ? { tone: "info", texto: `${abertos} aberto${abertos > 1 ? "s" : ""}` } : { tone: "muted", texto: "sem ajustes" };
+/** Prova (Dev :2836-2838). Vazia = 0 comentários abertos — decisão do dono 25/set: sem selo (sem requisito de
+ *  kanban nesta seção, então nunca há âmbar a preservar). */
+export function seloProva(abertos: number): SeloSecao | undefined {
+  return abertos > 0 ? { tone: "info", texto: `${abertos} aberto${abertos > 1 ? "s" : ""}` } : undefined;
 }
-/** Observações (mockup: "1 observação"). A Composição automática não é linha da tabela. */
-export function seloObservacoes(n: number): SeloSecao {
-  return n > 0 ? { tone: "muted", texto: `${n} ${n > 1 ? "observações" : "observação"}` } : { tone: "muted", texto: "nenhuma" };
+/** Observações (mockup: "1 observação"). A Composição automática não é linha da tabela. Vazia = 0 observações —
+ *  decisão do dono 25/set: sem selo. */
+export function seloObservacoes(n: number): SeloSecao | undefined {
+  return n > 0 ? { tone: "muted", texto: `${n} ${n > 1 ? "observações" : "observação"}` } : undefined;
 }
-/** Produto Relacionado (mockup: "nenhum"). */
-export function seloRelacionado(emConjunto: boolean): SeloSecao {
-  return emConjunto ? { tone: "info", texto: "em conjunto" } : { tone: "muted", texto: "nenhum" };
+/** Produto Relacionado (mockup: "nenhum"). Vazia = sem conjunto — decisão do dono 25/set: sem selo. */
+export function seloRelacionado(emConjunto: boolean): SeloSecao | undefined {
+  return emConjunto ? { tone: "info", texto: "em conjunto" } : undefined;
 }

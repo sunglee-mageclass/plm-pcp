@@ -7,7 +7,7 @@ import { REVENDA_COND_NA } from "@/lib/kanban-condicoes";
 import { normalizarOrigem, type Origem } from "@/lib/origem";
 import type { GradeRow } from "@/components/desenvolvimento/modelo-detail/types";
 import type { Draft } from "@/components/planejamento/modelo-shared";
-import { seloPorChaves, type SeloSecao } from "./ficha/selos-bom";
+import { seloDeSecao, seloPorChaves, type SeloSecao } from "./ficha/selos-bom";
 import type { GradeRowDb } from "./ficha/ficha-calc";
 
 // ── Origem (decisão F3 #3 + D1; R3/R7 do G-plano F3.4) ─────────────────────────────────────────────────────────────
@@ -172,15 +172,19 @@ export function requeridasPorOrigem(isComprado: boolean, requeridas: ReadonlySet
   return out;
 }
 
-/** Selo da seção "Grade" cor × tamanho: requisito `grade_preenchida` (estado SALVO) vence; senão o informativo. */
+/** Selo da seção "Grade" cor × tamanho: requisito `grade_preenchida` (estado SALVO) vence; senão o informativo.
+ *  Vazia = grade sem nenhuma quantidade (`totalGeral===0`) — decisão do dono 25/set: sem selo, exceto o aviso
+ *  âmbar do requisito do kanban (`seloDeSecao`; mesma regra da Grade do BOM interno). */
 export function seloGradeComprado(i: {
   requeridas: ReadonlySet<string>; satisfeitas: Record<string, boolean> | null; totalGeral: number; nVariantes: number;
-}): SeloSecao {
+}): SeloSecao | undefined {
   const req = i.satisfeitas ? seloPorChaves(["grade_preenchida"], i.requeridas, i.satisfeitas) : null;
-  if (req) return req;
-  if (i.nVariantes === 0) return { tone: "muted", texto: "sem variantes" };
-  if (i.totalGeral > 0) return { tone: "ok", texto: `${fmtInt(i.totalGeral)} ${i.totalGeral === 1 ? "peça" : "peças"}` };
-  return { tone: "warn", texto: "falta preencher" };
+  const informativo = (): SeloSecao => {
+    if (i.nVariantes === 0) return { tone: "muted", texto: "sem variantes" };
+    if (i.totalGeral > 0) return { tone: "ok", texto: `${fmtInt(i.totalGeral)} ${i.totalGeral === 1 ? "peça" : "peças"}` };
+    return { tone: "warn", texto: "falta preencher" };
+  };
+  return seloDeSecao(i.totalGeral === 0, req, i.totalGeral === 0 ? undefined : informativo());
 }
 
 const CAMPOS_COMPLETUDE_DEV = ["modelista_id", "piloteiro1_id", "data_piloto1", "data_desenho_tecnico"] as const;

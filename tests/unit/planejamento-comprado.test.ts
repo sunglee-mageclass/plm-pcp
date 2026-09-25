@@ -144,16 +144,22 @@ describe("requeridasPorOrigem", () => {
   });
 });
 
+// Decisão do dono (25/set): grade sem nenhuma quantidade (`totalGeral===0`) é "vazia" — sem selo, exceto o aviso
+// âmbar de um requisito do kanban NÃO satisfeito (`seloDeSecao`, mesma regra da Grade do BOM interno).
 describe("seloGradeComprado", () => {
   it("requisito grade_preenchida vence; sem requisito ⇒ informativo", () => {
-    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: true }, totalGeral: 0, nVariantes: 2 })).toEqual({ tone: "ok", texto: "ok" });
-    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: false }, totalGeral: 0, nVariantes: 2 }).tone).toBe("warn");
+    // MUDOU (25/set): era { tone: "ok", texto: "ok" } — grade vazia (totalGeral===0) com requisito SATISFEITO
+    // não acende mais "ok" vácuo.
+    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: true }, totalGeral: 0, nVariantes: 2 })).toBeUndefined();
+    expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: { grade_preenchida: false }, totalGeral: 0, nVariantes: 2 })?.tone).toBe("warn");
     expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 150, nVariantes: 2 })).toEqual({ tone: "ok", texto: "150 peças" });
     expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 1, nVariantes: 1 })).toEqual({ tone: "ok", texto: "1 peça" });
     // F3.4 acréscimo (fix Lote A) — milhar formatado, mas peça é inteiro: "1.500 peças", nunca "1.500,00 peças".
     expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 1500, nVariantes: 2 })).toEqual({ tone: "ok", texto: "1.500 peças" });
-    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 2 })).toEqual({ tone: "warn", texto: "falta preencher" });
-    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 0 })).toEqual({ tone: "muted", texto: "sem variantes" });
+    // MUDOU (25/set): era { tone: "warn", texto: "falta preencher" } — grade vazia, sem requisito do kanban ⇒ sem selo.
+    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 2 })).toBeUndefined();
+    // MUDOU (25/set): era { tone: "muted", texto: "sem variantes" } — idem (totalGeral===0 é vazia, independente de nVariantes).
+    expect(seloGradeComprado({ requeridas: new Set(), satisfeitas: null, totalGeral: 0, nVariantes: 0 })).toBeUndefined();
   });
   it("condições ainda não carregadas ⇒ só o informativo (nunca 'falta' no escuro)", () => {
     expect(seloGradeComprado({ requeridas: new Set(["grade_preenchida"]), satisfeitas: null, totalGeral: 10, nVariantes: 1 })).toEqual({ tone: "ok", texto: "10 peças" });

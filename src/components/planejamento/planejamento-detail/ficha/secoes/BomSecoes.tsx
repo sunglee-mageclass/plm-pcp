@@ -78,7 +78,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
 
   return (
     <>
-      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" numero={numeros?.tecidos} selo={<SeloBadge selo={ficha.selos.tecidos} />} oculta={!vv.tecidos}>
+      <SecaoBom id="tecidos" titulo="Tecidos / Forros / Entretelas" numero={numeros?.tecidos} selo={ficha.selos.tecidos && <SeloBadge selo={ficha.selos.tecidos} />} oculta={!vv.tecidos}>
         {!carregando && !ordemEnviada && ficha.podeEditar && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -104,7 +104,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="aviamentos" titulo="Aviamentos" numero={numeros?.aviamentos} selo={<SeloBadge selo={ficha.selos.aviamentos} />} oculta={!vv.aviamentos}>
+      <SecaoBom id="aviamentos" titulo="Aviamentos" numero={numeros?.aviamentos} selo={ficha.selos.aviamentos && <SeloBadge selo={ficha.selos.aviamentos} />} oculta={!vv.aviamentos}>
         {corpo(
           <ModeloAviamentosSection
             rows={estado.aviamentos}
@@ -118,7 +118,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="insumos" titulo="Insumos" numero={numeros?.insumos} selo={<SeloBadge selo={ficha.selos.insumos} />} oculta={!vv.insumos}>
+      <SecaoBom id="insumos" titulo="Insumos" numero={numeros?.insumos} selo={ficha.selos.insumos && <SeloBadge selo={ficha.selos.insumos} />} oculta={!vv.insumos}>
         {corpo(
           <ModeloEtiquetasSection
             rows={estado.etiquetas}
@@ -133,7 +133,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
         )}
       </SecaoBom>
 
-      <SecaoBom id="grade" titulo="Grade" numero={numeros?.grade} selo={<SeloBadge selo={ficha.selos.grade} />} oculta={!vv.gradeTecido}>
+      <SecaoBom id="grade" titulo="Grade" numero={numeros?.grade} selo={ficha.selos.grade && <SeloBadge selo={ficha.selos.grade} />} oculta={!vv.gradeTecido}>
         {corpo(
           <ModeloGradeSection
             tamanhos={dados.tamanhos}
@@ -154,7 +154,7 @@ export function BomSecoes({ ficha, modeloId, estoque, ordemEnviada, proporcoes, 
       {/* F3.3 — seção CAD (Dev :2881-2912): o MESMO `CadTecidosSection` (reusado SEM modificar — decisão 8), sem a coluna
           "a Separar/Enviar" (é da Explosão). Grava no MESMO Salvar do BOM (decisão F3 #7). Antes da Ordem de Criação e
           sem CAD fica só-leitura (D2 — o Planejamento não cria o CAD antes da Ordem). */}
-      <SecaoBom id="cad" titulo="CAD" numero={numeros?.cad} selo={<SeloBadge selo={ficha.seloCad} />} oculta={!vv.cad}>
+      <SecaoBom id="cad" titulo="CAD" numero={numeros?.cad} selo={ficha.seloCad && <SeloBadge selo={ficha.seloCad} />} oculta={!vv.cad}>
         {corpo(
           ficha.cad.linhas.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção Tecidos / Forros / Entretelas.</p>

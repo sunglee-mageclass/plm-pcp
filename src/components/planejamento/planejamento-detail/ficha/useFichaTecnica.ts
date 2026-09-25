@@ -419,7 +419,7 @@ export function useFichaTecnica(a: {
     () => requeridasPorOrigem(a.isComprado, requisitosUniao(a.isComprado ? dados.revendaCfg.requisitos : (dados.tenantCfg as any)?.kanban_requisitos)),
     [a.isComprado, dados.revendaCfg, dados.tenantCfg],
   );
-  const selos: Record<SecaoBomKey, SeloSecao> = {
+  const selos: Partial<Record<SecaoBomKey, SeloSecao>> = {
     tecidos: seloSecaoBom("tecidos", requeridas, dados.condicoes, resumo),
     aviamentos: seloSecaoBom("aviamentos", requeridas, dados.condicoes, resumo),
     insumos: seloSecaoBom("insumos", requeridas, dados.condicoes, resumo),

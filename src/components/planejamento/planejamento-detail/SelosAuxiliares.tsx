@@ -7,9 +7,10 @@ import { useProvaAbertosCount } from "@/components/desenvolvimento/modelo-detail
 import { SeloBadge } from "@/components/planejamento/planejamento-detail/ficha/secoes/SeloBadge";
 import { seloObservacoes, seloProva, seloRelacionado } from "@/components/planejamento/planejamento-detail/ficha/selos-secoes";
 
-/** Ajustes na Prova (Dev :2836-2838) — nº de comentários abertos. */
+/** Ajustes na Prova (Dev :2836-2838) — nº de comentários abertos. Decisão do dono 25/set: 0 abertos = sem selo. */
 export function SeloProvaBadge({ modeloId }: { modeloId: string }) {
-  return <SeloBadge selo={seloProva(useProvaAbertosCount(modeloId))} />;
+  const selo = seloProva(useProvaAbertosCount(modeloId));
+  return selo ? <SeloBadge selo={selo} /> : null;
 }
 
 /** Observações — `ModeloObservacoes.tsx:52-65` (key + select + ordem idênticos). */
@@ -27,7 +28,8 @@ export function SeloObservacoesBadge({ modeloId }: { modeloId: string }) {
       return (data ?? []) as unknown[];
     },
   });
-  return <SeloBadge selo={seloObservacoes(data.length)} />;
+  const selo = seloObservacoes(data.length);
+  return selo ? <SeloBadge selo={selo} /> : null;
 }
 
 /** Produto Relacionado — `ProdutoRelacionadoSetor.tsx:37-43` (key + select idênticos). */
@@ -40,5 +42,6 @@ export function SeloRelacionadoBadge({ modeloId }: { modeloId: string }) {
       return ((data as { conjunto_id?: string | null } | null)?.conjunto_id) ?? null;
     },
   });
-  return <SeloBadge selo={seloRelacionado(!!conjuntoId)} />;
+  const selo = seloRelacionado(!!conjuntoId);
+  return selo ? <SeloBadge selo={selo} /> : null;
 }
