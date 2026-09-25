@@ -13,7 +13,7 @@
 ## Global Constraints
 
 **Repositório e worktree**
-- Worktree: `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg`, branch `sheet/reorganizacao` (base = a ponta da `feature/plan-tecido-a1` — hoje `adb57add`, com F1–F4, Data da Nota, SKU F3.5a, Nota sem trava e o "i" com hover de 25/set; o controlador rebaseou o plano sobre ela). Caminhos relativos = raiz da worktree. TODO comando de git/gate/script roda DE DENTRO da worktree e imprime o alvo + `HEAD` (os scripts desta frente conferem o caminho e param fora dela). `.superpowers/` é gitignored: regras, gates, scripts, logs e evidências ficam em `.superpowers/sheet/` (não versionados).
+- Worktree: `/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sheet-reorg`, branch `sheet/reorganizacao` (base = a ponta da `feature/plan-tecido-a1` — hoje `13ec1dae` (rebase do controlador 25/set 14:4x: + InfoHover com toque/teclado e motivos AGRUPADOS por motivo, fix do <div> no KanbanAutomaticoDialog, docs), com F1–F4, Data da Nota, SKU F3.5a, Nota sem trava e o "i" com hover de 25/set). Caminhos relativos = raiz da worktree. TODO comando de git/gate/script roda DE DENTRO da worktree e imprime o alvo + `HEAD` (os scripts desta frente conferem o caminho e param fora dela). `.superpowers/` é gitignored: regras, gates, scripts, logs e evidências ficam em `.superpowers/sheet/` (não versionados).
 - Commits: `git add -- <paths exatos>` + `git commit --only -m "<msg>" -- <paths>` + `git show --stat HEAD`. Mensagem termina com a linha `Co-Authored-By:` do SEU modelo real (ex.: `Co-Authored-By: Claude Sonnet … <noreply@anthropic.com>`).
 - ⛔ PROIBIDO: `git stash` (pilha compartilhada entre worktrees), `git add .`/`-A`/`commit -a`, `pkill`/`killall`, `push`, editar `src/integrations/supabase/types.ts` (colunas novas via `as any`/tipo próprio do `Draft`, como o resto do repo), commitar `src/routeTree.gen.ts` (o build o regera: `git checkout -- src/routeTree.gen.ts`), imprimir senha/URL com senha/`.env`.
 - Só os arquivos de `.superpowers/sheet/permitidos.txt` (Task 0) mudam — o `gates.sh` confere.
@@ -1140,7 +1140,7 @@ export function useSiglasCores(ativo: boolean): { cores: CorSigla[]; apelidos: A
 ```tsx
 // Seção "4. Códigos" do Sheet do Planejamento (F3.6 — spec 2026-09-25 §5.1; F3.5b da spec do SKU §4.3).
 // L1: REF (o MESMO campo que saiu da seção 3 — aparece a partir da etapa configurada, `refVisivel`, e só o INPUT trava com
-// `refEditavel`, como hoje; sem AvisoCamposDev aqui — R29) · "Tamanho em" (rádio Letra | Número SEM padrão da loja — nasce
+// `refEditavel`, como hoje; sem aviso de campos do Dev nesta seção — R29) · "Tamanho em" (rádio Letra | Número SEM padrão da loja — nasce
 // sem escolha e é obrigatório p/ GERAR os SKUs; Draft → `modelos.tamanho_tipo`, grava no Salvar — R10) · "Regerar SKUs"
 // (AlertDialog; nunca muda os editados à mão). Tabela "SKUs por variante e tamanho": o SKU GRAVADO (editável à mão — RPC
 // imediata `salvar_sku_manual` com `_rev_base`, fora do Salvar da página; NÃO trava depois da Explosão — spec SKU §4.2) e a
