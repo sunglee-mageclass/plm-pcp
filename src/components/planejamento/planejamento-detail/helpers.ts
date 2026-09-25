@@ -31,6 +31,9 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   proporcoes: "Proporções da grade", custos_adicionais: "Custos adicionais",
   // F3.6 — seção "4. Códigos".
   tamanho_tipo: "Tamanho em",
+  // F3.6 (Parte B) — seção 1 e Preço e Custos.
+  titulo_pagina: "Título para a página", peso_kg: "Peso (kg)", comprimento_cm: "Comprimento (cm)", largura_cm: "Largura (cm)",
+  altura_cm: "Altura (cm)", ncm: "NCM do Produto", preco_anterior: "Preço anterior",
 };
 export function rotuloConflitoPlan(path: string): string {
   // F3.2 — conflito de SEÇÃO do BOM: mesmo path e rótulo do Desenvolvimento (ModeloDetailPanel.tsx:160-163).
@@ -91,6 +94,49 @@ export function textoOuNull(s: string | null | undefined): string | null {
   return s != null && s.trim() !== "" ? s : null;
 }
 
+// ── F3.6 (Parte B — spec 2026-09-25 §5.2) — campos novos do Planejamento no payload / Duplicar / eco do Salvar ─────────
+/** NCM do Produto (ruling 3): só dígitos e pontos, até 10 caracteres — sem tabela oficial nem sugestão (validação no cliente).
+ *  R30: a vírgula vira ponto ANTES do filtro (o `inputMode="decimal"` do iOS pt-BR mostra "," no lugar de "."). */
+export function filtrarNcm(s: string | null | undefined): string {
+  return (s ?? "").replace(/,/g, ".").replace(/[^0-9.]/g, "").slice(0, 10);
+}
+/** Número do Draft → coluna: vazio/null/inválido ⇒ NULL; senão arredondado às `casas` da coluna. 0 VALE (CHECK >= 0). */
+export function numeroOuNull(v: unknown, casas: number): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const f = 10 ** casas;
+  return Math.round(n * f) / f;
+}
+/** O valor canônico que o MoneyInput emite ("" = vazio) → Draft. */
+export function numeroDoInput(v: string): number | null {
+  const n = Number(v);
+  return v === "" || !Number.isFinite(n) ? null : n;
+}
+/** Preço anterior (ruling 11): mesmo padrão do preço de venda — vazio/0 = NULL = automático (não "preço zero"). */
+export function precoAnteriorOuNull(v: unknown): number | null {
+  const n = numeroOuNull(v, 2);
+  return n !== null && n > 0 ? n : null;
+}
+/** O que a linha "Preço anterior" mostra: o fixado à mão; senão o preço EFETIVO (o digitado ou o sugerido); 0 ⇒ vazio. */
+export function precoAnteriorExibido(fixado: number | null | undefined, efetivo: number): number | null {
+  if (fixado !== null && fixado !== undefined) return fixado;
+  return efetivo > 0 ? efetivo : null;
+}
+/** Os 6 campos novos que vão em TODO payload (o Preço anterior tem regra de permissão própria — no save). Título aparado. */
+export function camposNovosParaPayload(
+  d: Pick<Draft, "titulo_pagina" | "ncm" | "peso_kg" | "comprimento_cm" | "largura_cm" | "altura_cm">,
+) {
+  return {
+    titulo_pagina: textoOuNull((d.titulo_pagina ?? "").trim()),
+    ncm: textoOuNull(filtrarNcm(d.ncm)),
+    peso_kg: numeroOuNull(d.peso_kg, 3),
+    comprimento_cm: numeroOuNull(d.comprimento_cm, 2),
+    largura_cm: numeroOuNull(d.largura_cm, 2),
+    altura_cm: numeroOuNull(d.altura_cm, 2),
+  };
+}
+
 /**
  * Aplica ao payload (UPDATE ou INSERT de `modelos`) as regras dos campos vindos do Dev. PURO: devolve cópia.
  *  • podeEditarDev → normaliza vazios para NULL (paridade com o Dev, ModeloDetailPanel.tsx:1877-1898 —
@@ -135,12 +181,16 @@ export function aplicarRegrasCamposDev(
  * Duplicar (decisão F3 #9): a nova versão herda o de HOJE — Planejamento + tecidos (só o artigo) + Obs. Gerais —
  * e o resto do Desenvolvimento nasce vazio. Tira REF (a nova versão gera a própria), versão e base (o chamador
  * recalcula) e os campos do Dev. A Descrição do produto VAI (é do Planejamento).
+ * F3.6 (ruling 5, decisão do dono 25/set): Título e Preço anterior voltam ao AUTOMÁTICO (ficam FORA, como ref/versão/base);
+ * NCM e Peso/medidas VÃO (mesmo tipo de produto), já normalizados como no Salvar.
  */
 export function camposParaDuplicar(draft: Draft): Record<string, unknown> {
-  const { versao: _v, modelo_base_id: _b, ref: _r, ...rest } = draft;
+  const { versao: _v, modelo_base_id: _b, ref: _r, titulo_pagina: _t, preco_anterior: _pa, ...rest } = draft;
   const out: Record<string, unknown> = { ...rest };
   for (const k of CAMPOS_DEV_DRAFT) if (k !== "observacoes_gerais") delete out[k];
   out.descricao_produto = textoOuNull(draft.descricao_produto);
+  const { titulo_pagina: _tn, ...novos } = camposNovosParaPayload(draft);
+  Object.assign(out, novos);
   return out;
 }
 
@@ -168,7 +218,15 @@ export function draftParaSalvar(draftLiveRefCurrent: Draft | null | undefined, d
  * (ex.: `" ABC "` ou `"   "`) enquanto o banco gravou o normalizado (`"ABC"` ou `NULL`); no
  * próximo refetch, o merge via `mergeDraft` comparava base≠fresh nesses 2 campos e mostrava
  * "Alguém salvou agora — 1 campo" para o PRÓPRIO save de quem acabou de clicar Salvar.
+ * F3.6: + Título/NCM/Peso/medidas/Preço anterior (camposNovosParaPayload/precoAnteriorOuNull).
  */
 export function normalizarDraftSalvo(d: Draft): Draft {
-  return { ...d, ref: (d.ref ?? "").trim(), descricao_produto: textoOuNull(d.descricao_produto) ?? "" };
+  return {
+    ...d,
+    ref: (d.ref ?? "").trim(),
+    descricao_produto: textoOuNull(d.descricao_produto) ?? "",
+    // F3.6 — os 7 campos novos com as MESMAS regras do payload (senão o eco do próprio Salvar vira "alguém salvou agora").
+    ...camposNovosParaPayload(d),
+    preco_anterior: precoAnteriorOuNull(d.preco_anterior),
+  };
 }

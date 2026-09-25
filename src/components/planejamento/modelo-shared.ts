@@ -134,6 +134,16 @@ export type Draft = {
   // Draft nunca fica NULL — `draftFromModeloRow` normaliza qualquer valor estranho (NULL/legado) p/ "letra".
   // Grava no Salvar (campo do Planejamento).
   tamanho_tipo: "letra" | "numero";
+  // F3.6 (Parte B — spec 2026-09-25 §5.2; migration 20261005100000): campos NOVOS do Planejamento (seção 1 e Preço e Custos).
+  // NULL = automático (Título: nome em título + " | " + loja; Preço anterior: acompanha o preço de venda EFETIVO) ou vazio
+  // (Peso/medidas/NCM). Não são do Dev (fora de CAMPOS_DEV_DRAFT). Fora do types.ts até regenerar — o Draft é tipo próprio.
+  titulo_pagina: string | null;
+  peso_kg: number | null;
+  comprimento_cm: number | null;
+  largura_cm: number | null;
+  altura_cm: number | null;
+  ncm: string | null;
+  preco_anterior: number | null;
 };
 export const emptyDraft = (): Draft => ({
   nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -152,6 +162,7 @@ export const emptyDraft = (): Draft => ({
   proporcoes: {},
   custos_adicionais: [],
   tamanho_tipo: "letra",
+  titulo_pagina: null, peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null, ncm: null, preco_anterior: null,
 });
 
 // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto). Extraída como função PURA (era
@@ -206,6 +217,13 @@ export function draftFromModeloRow(data: any): Draft {
     proporcoes: (data.proporcoes ?? {}) as Record<string, number>,
     custos_adicionais: (data.custos_adicionais ?? []) as { descricao: string; valor: number }[],
     tamanho_tipo: tamanhoTipoNormalizado(data.tamanho_tipo),
+    titulo_pagina: data.titulo_pagina ?? null,
+    peso_kg: data.peso_kg ?? null,
+    comprimento_cm: data.comprimento_cm ?? null,
+    largura_cm: data.largura_cm ?? null,
+    altura_cm: data.altura_cm ?? null,
+    ncm: data.ncm ?? null,
+    preco_anterior: data.preco_anterior ?? null,
   };
 }
 

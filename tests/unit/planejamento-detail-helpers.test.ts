@@ -9,6 +9,12 @@ import {
   camposParaDuplicar,
   draftParaSalvar,
   normalizarDraftSalvo,
+  filtrarNcm,
+  numeroOuNull,
+  numeroDoInput,
+  precoAnteriorOuNull,
+  precoAnteriorExibido,
+  camposNovosParaPayload,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -298,5 +304,73 @@ describe("CAMPOS_DEV_DRAFT — F3.2 (lista ÚNICA com a F3.1)", () => {
 describe("rotuloConflitoPlan — F3.6 (seção Códigos)", () => {
   it("'Tamanho em'", () => {
     expect(rotuloConflitoPlan("tamanho_tipo")).toBe("Tamanho em");
+  });
+});
+
+describe("F3.6 (Parte B) — campos novos: rótulos, NCM, números e Preço anterior", () => {
+  it("rótulos PT do banner de conflito", () => {
+    expect(rotuloConflitoPlan("titulo_pagina")).toBe("Título para a página");
+    expect(rotuloConflitoPlan("peso_kg")).toBe("Peso (kg)");
+    expect(rotuloConflitoPlan("comprimento_cm")).toBe("Comprimento (cm)");
+    expect(rotuloConflitoPlan("largura_cm")).toBe("Largura (cm)");
+    expect(rotuloConflitoPlan("altura_cm")).toBe("Altura (cm)");
+    expect(rotuloConflitoPlan("ncm")).toBe("NCM do Produto");
+    expect(rotuloConflitoPlan("preco_anterior")).toBe("Preço anterior");
+  });
+  it("filtrarNcm: vírgula vira ponto (teclado decimal do iOS pt-BR — R30); só dígitos e pontos, até 10 (ruling 3)", () => {
+    expect(filtrarNcm("6204.43.00")).toBe("6204.43.00");
+    expect(filtrarNcm("6204,43,00")).toBe("6204.43.00");
+    expect(filtrarNcm("62ab04.43,00x")).toBe("6204.43.00");
+    expect(filtrarNcm("62044300999")).toBe("6204430099");
+    expect(filtrarNcm(null)).toBe("");
+  });
+  it("numeroOuNull: vazio/null/inválido = NULL; 0 VALE (CHECK >= 0); arredonda às casas da coluna", () => {
+    expect(numeroOuNull("", 3)).toBeNull();
+    expect(numeroOuNull(null, 2)).toBeNull();
+    expect(numeroOuNull("abc", 2)).toBeNull();
+    expect(numeroOuNull(0, 3)).toBe(0);
+    expect(numeroOuNull("0.3456", 3)).toBe(0.346);
+    expect(numeroOuNull(12.346, 2)).toBe(12.35);
+  });
+  it("numeroDoInput: o '' do MoneyInput = NULL (vazio), o resto vira número", () => {
+    expect(numeroDoInput("")).toBeNull();
+    expect(numeroDoInput("0")).toBe(0);
+    expect(numeroDoInput("1.5")).toBe(1.5);
+  });
+  it("precoAnteriorOuNull: vazio/0 = NULL = automático (não 'preço zero' — ruling 11)", () => {
+    expect(precoAnteriorOuNull(null)).toBeNull();
+    expect(precoAnteriorOuNull("")).toBeNull();
+    expect(precoAnteriorOuNull(0)).toBeNull();
+    expect(precoAnteriorOuNull("199.9")).toBe(199.9);
+    expect(precoAnteriorOuNull(199.999)).toBe(200);
+  });
+  it("precoAnteriorExibido: o fixado; senão o preço EFETIVO; efetivo 0 = vazio", () => {
+    expect(precoAnteriorExibido(150, 199.9)).toBe(150);
+    expect(precoAnteriorExibido(null, 199.9)).toBe(199.9);
+    expect(precoAnteriorExibido(undefined, 0)).toBeNull();
+  });
+  it("camposNovosParaPayload: título aparado (vazio = NULL = automático), NCM filtrado, números normalizados", () => {
+    expect(camposNovosParaPayload({
+      titulo_pagina: "  Meu título  ", ncm: "6204.43.00x", peso_kg: 0.3456, comprimento_cm: 60, largura_cm: null, altura_cm: 0,
+    })).toEqual({ titulo_pagina: "Meu título", ncm: "6204.43.00", peso_kg: 0.346, comprimento_cm: 60, largura_cm: null, altura_cm: 0 });
+    expect(camposNovosParaPayload({
+      titulo_pagina: "   ", ncm: "", peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null,
+    })).toEqual({ titulo_pagina: null, ncm: null, peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null });
+  });
+  it("camposParaDuplicar: Título e Preço anterior voltam ao AUTOMÁTICO (fora do objeto); NCM/peso/medidas/descrição/'Tamanho em' vão", () => {
+    const d = {
+      ...emptyDraft(), nome: "Vestido", titulo_pagina: "Título à mão", preco_anterior: 199.9, ncm: "6204.43.00",
+      peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, descricao_produto: "Desc", tamanho_tipo: "numero" as const,
+    };
+    const out = camposParaDuplicar(d);
+    expect(out).not.toHaveProperty("titulo_pagina");
+    expect(out).not.toHaveProperty("preco_anterior");
+    expect(out).toMatchObject({ ncm: "6204.43.00", peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, descricao_produto: "Desc", tamanho_tipo: "numero" });
+  });
+  it("normalizarDraftSalvo: os 7 com as MESMAS regras do payload (base do merge sem eco do próprio Salvar)", () => {
+    const n = normalizarDraftSalvo({
+      ...emptyDraft(), titulo_pagina: "  ", ncm: "62.04x", peso_kg: 0.3456, preco_anterior: 0,
+    });
+    expect(n).toMatchObject({ titulo_pagina: null, ncm: "62.04", peso_kg: 0.346, preco_anterior: null });
   });
 });

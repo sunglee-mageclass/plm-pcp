@@ -81,3 +81,24 @@ describe("Draft F3.6 — 'Tamanho em' (modelos.tamanho_tipo, coluna da F3.5a)", 
     expect(payload.tamanho_tipo).toBe("letra");
   });
 });
+
+describe("Draft F3.6 (Parte B) — Título, Peso/medidas, NCM e Preço anterior", () => {
+  const NOVOS = ["titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm", "ncm", "preco_anterior"] as const;
+  it("emptyDraft: os 7 nascem null (NULL = automático / vazio)", () => {
+    const d = emptyDraft();
+    for (const k of NOVOS) expect(d[k]).toBeNull();
+  });
+  it("draftFromModeloRow lê as colunas (?? null)", () => {
+    const d = draftFromModeloRow({
+      titulo_pagina: "Título à mão", peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, ncm: "6204.43.00", preco_anterior: 199.9,
+    });
+    expect(d).toMatchObject({
+      titulo_pagina: "Título à mão", peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, ncm: "6204.43.00", preco_anterior: 199.9,
+    });
+  });
+  it("linha vazia ≡ emptyDraft nos 7 (senão o card abriria 'não salvo' à toa)", () => {
+    const a = draftFromModeloRow({});
+    const b = emptyDraft();
+    for (const k of NOVOS) expect(a[k]).toEqual(b[k]);
+  });
+});

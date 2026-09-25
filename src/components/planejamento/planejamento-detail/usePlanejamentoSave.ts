@@ -15,7 +15,7 @@ import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
-import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -226,6 +226,9 @@ export function usePlanejamentoSave({
         // Campo NOVO (F3.1): vazio/só-espaço vira NULL.
         descricao_produto: textoOuNull(d.descricao_produto),
       }, d, { podeEditarDev, refEditavel });
+      // F3.6 (Parte B) — Título/NCM/Peso/medidas: campos do Planejamento (fora de CAMPOS_DEV_DRAFT), com as MESMAS regras do
+      // `normalizarDraftSalvo` (base do merge). O Preço anterior tem regra de permissão própria, junto do preço (abaixo).
+      Object.assign(payload, camposNovosParaPayload(d));
       // Fix round 4 (item 10, acréscimo do controlador) — "esta captura ia gravar algo do Dev" também cobre os
       // CAMPOS SIMPLES do Dev da F3.1 (modelista, pilotos, datas, obs. técnicas…), que vão no payload por
       // `podeEditarDev` via `aplicarRegrasCamposDev` acima — não só o BOM/colunas derivadas. Lê o PRÓPRIO
@@ -301,6 +304,12 @@ export function usePlanejamentoSave({
         }
         payload.preco_atacado = numOr0(d.preco_atacado) > 0 ? numOr0(d.preco_atacado) : null;
       }
+      // F3.6 (Parte B, ruling 11 / R9) — Preço anterior: a MESMA permissão do preço de venda
+      // (`criacao_planejamento:preco_venda`), nos DOIS ramos (manufaturado/importado E revenda — na revenda ele acompanha o
+      // VAREJO); sem ela, não reenvia o valor herdado do `...d`. Trava só no cliente (D1 do dono: o servidor fica p/ a frente
+      // "Reforço de segurança no banco").
+      if (podeEditarPreco) payload.preco_anterior = precoAnteriorOuNull(d.preco_anterior);
+      else delete payload.preco_anterior;
       // F3.2 — colunas do Desenvolvimento no UPDATE: proporções/custos adicionais (só com permissão), custos
       // derivados do BOM e `tecidos_planejados` DERIVADO (só quando o BOM grava). Regras: save-ficha.ts.
       const moServidor = moBaseRef.current.reduce((s, l) => s + (Number(l.valor) || 0), 0);
