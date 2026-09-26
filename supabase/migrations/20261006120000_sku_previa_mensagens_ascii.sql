@@ -15,12 +15,14 @@
 -- funções ('… não encontrado(a).') e o P0001 de _skus_plano continuam com acento (P0001 é 400 — não afetado pelo bug).
 -- ARQUIVO GERADO por .superpowers/sku-previa/mig-ascii/gerar_sql.py a partir do texto VIVO da cópia (dump_antes.sh) —
 -- NÃO editar à mão. Guarda de entrada: md5 das 4 = o texto de ANTES OU o de DEPOIS desta migration (idempotente:
--- reaplicar é no-op, senão RAISE). $acl$: confere que o proacl das 4 não mudou (CREATE OR REPLACE preserva). $pos$:
--- md5 das 4 = o esperado E toda linha de RAISE com P0409 nas 4 é ASCII (R2 do G-plano: por COMANDO, não por linha;
--- comentário -- com acento continua permitido). SÓ FUNÇÕES: nenhuma DDL de tabela/policy. Contagens (funções|gatilhos):
--- +0 | +0 (as 4 já existem — CREATE OR REPLACE). Aplicar SÓ pelos scripts de mig-ascii/ (Task 7b) — não psql -f solto.
+-- reaplicar é no-op, senão RAISE). $acl$: confere que o proacl das 4 não mudou (CREATE OR REPLACE preserva). $ascii$:
+-- todo comando RAISE...P0409 nas 4 funções é ASCII, e a contagem por função bate com o esperado 3|4|1|2 (R2 do
+-- G-plano: por COMANDO, não por linha; comentário -- com acento continua permitido; SÓ a IDA tem este bloco — o
+-- inverso restaura os acentos de propósito). $pos$: md5 das 4 = o texto exato esperado. SÓ FUNÇÕES: nenhuma DDL de
+-- tabela/policy. Contagens (funções|gatilhos): +0 | +0 (as 4 já existem — CREATE OR REPLACE). Aplicar SÓ pelos
+-- scripts de mig-ascii/ (Task 7b) — não psql -f solto.
 -- Inverso: supabase/rollback/20261006120000_sku_previa_mensagens_ascii_down.sql (não apaga dado — SKUs/blocos/CQ
--- gravados ficam; só o TEXTO das mensagens dos 4 RAISE muda de volta).
+-- gravados ficam; só o TEXTO dos 7 literais RAISE muda de volta ao acentuado; SEM $ascii$ — ver comentário no gerador).
 -- LIFO (N2/N4 do G-plano): esta migration (20261006120000) é MAIS NOVA que a Distribuição (20261006100000) e que o
 -- SKU em prévia (20261005110000). Para voltar a prévia (20261005110000) ou a Distribuição, volte ESTA antes.
 SET client_encoding = 'UTF8';
@@ -521,20 +523,28 @@ $acl$;
 DO $ascii$
 DECLARE
   fn text;
+  n_esperado int;
   corpo text;
   sem_comentarios text;
   v_cmd text;
+  n_achado int;
 BEGIN
-  FOR fn IN SELECT unnest(ARRAY['public._aplicar_skus_modelo_core(uuid,jsonb,text,text)', 'public._skus_executar_plano(uuid,uuid,jsonb,boolean)', 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)']) LOOP
+  FOR fn, n_esperado IN SELECT * FROM (VALUES ('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)', 3), ('public._skus_executar_plano(uuid,uuid,jsonb,boolean)', 4), ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 1), ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', 2)) AS x(fn, n) LOOP
     corpo := pg_get_functiondef(to_regprocedure(fn));
     sem_comentarios := regexp_replace(corpo, '--[^\n]*', '', 'g');
+    n_achado := 0;
     FOR v_cmd IN
-      SELECT m[1] FROM regexp_matches(sem_comentarios, '(RAISE\s+EXCEPTION\b.*?;)', 'gs') AS m
+      SELECT m[1] FROM regexp_matches(sem_comentarios, '(RAISE\s+EXCEPTION\y[^;]*;)', 'g') AS m
     LOOP
-      IF v_cmd LIKE '%P0409%' AND octet_length(v_cmd) <> char_length(v_cmd) THEN
+      CONTINUE WHEN v_cmd NOT LIKE '%P0409%';
+      n_achado := n_achado + 1;
+      IF octet_length(v_cmd) <> char_length(v_cmd) THEN
         RAISE EXCEPTION 'sku_previa_mensagens_ascii: comando RAISE...P0409 fora de ASCII em % (R2 do G-plano) — %', fn, v_cmd USING ERRCODE = 'P0001';
       END IF;
     END LOOP;
+    IF n_achado IS DISTINCT FROM n_esperado THEN
+      RAISE EXCEPTION 'sku_previa_mensagens_ascii: % tem % comando(s) RAISE...P0409 (esperado %) — o cheque ASCII (R2) não pode ficar vazio', fn, n_achado, n_esperado USING ERRCODE = 'P0001';
+    END IF;
   END LOOP;
 END
 $ascii$;

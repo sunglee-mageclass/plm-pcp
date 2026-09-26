@@ -180,7 +180,9 @@ describe("mensagens, Regerar e selo", () => {
       .toEqual({ erro: true, texto: "SKUs gravados: 3 novo(s), 0 atualizado(s), 0 removido(s), 0 à mão. 1 SKU não gravado: SKU AA34 já existe em X (REF Y). Edite este SKU à mão ou mude a sigla." });
   });
   it("mensagemAplicarSkus: P0409 = texto do SKU (não o genérico); o resto = 'O card foi salvo, mas os SKUs não…' + a mensagem", () => {
-    expect(mensagemAplicarSkus({ code: "P0409", message: "previa_desatualizada: os SKUs mudaram desde a prévia" })).toBe(MSG_PREVIA_DESATUALIZADA);
+    // Mensagens ASCII (P-58 A / P-59 A, Task 7a): entrada em ASCII (o texto real que o servidor devolve depois da
+    // migration 20261006120000) — realismo; o mapeamento é SÓ pelo `code`, então o resultado não muda.
+    expect(mensagemAplicarSkus({ code: "P0409", message: "previa_desatualizada: os SKUs mudaram desde a previa" })).toBe(MSG_PREVIA_DESATUALIZADA);
     expect(mensagemAplicarSkus({ code: "P0001", message: "O SKU X já existe em Y (REF Z). Escolha outro." }))
       .toBe(`${PREFIXO_SKUS_NAO_GRAVADOS}O SKU X já existe em Y (REF Z). Escolha outro.`);
     expect(mensagemErroPrevia({ variante_key: K1, tamanho_key: "34|PPP", code: "P0409", mensagem: "x" }))

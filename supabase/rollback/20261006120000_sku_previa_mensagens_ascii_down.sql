@@ -1,6 +1,8 @@
 -- Inverso de 20261006120000_sku_previa_mensagens_ascii — devolve as 4 funções ao texto ASCII->acentuado de ANTES
 -- (não apaga dado gravado). GERADO por .superpowers/sku-previa/mig-ascii/gerar_sql.py — NÃO editar à mão. Guarda de
--- entrada: md5 das 4 = o de DEPOIS OU o de ANTES desta migration (idempotente). $pos$: md5 das 4 = o de ANTES.
+-- entrada: md5 das 4 = o de DEPOIS OU o de ANTES desta migration (idempotente). $acl$: confere o proacl (igual à
+-- ida). SEM $ascii$ de propósito: este arquivo RESTAURA os 7 literais acentuados (é a volta de emergência) — um
+-- cheque ASCII aqui recusaria sempre a própria volta (G-migration rodada 1, achado 1). $pos$: md5 das 4 = o de ANTES.
 -- LIFO (N4): aplicar ESTE inverso ANTES de voltar a prévia (20261005110000) ou a Distribuição (20261006100000).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -491,32 +493,11 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES ('public._aplicar_skus_modelo_core(uuid,jsonb,text,text)', '{postgres=X/postgres,service_role=X/postgres}'), ('public._skus_executar_plano(uuid,uuid,jsonb,boolean)', '{postgres=X/postgres,service_role=X/postgres}'), ('public.salvar_terceirizados(uuid,jsonb,text,jsonb)', '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'), ('public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)', '{postgres=X/postgres,service_role=X/postgres}')) AS x(fn, acl) LOOP
     SELECT proacl::text INTO v_acl FROM pg_proc WHERE oid = to_regprocedure(r.fn);
     IF v_acl IS DISTINCT FROM r.acl THEN
-      RAISE EXCEPTION 'sku_previa_mensagens_ascii: ACL de % mudou (esperado %, achei %) — esta migration só troca texto de mensagem (invariante #9)', r.fn, r.acl, v_acl USING ERRCODE = 'P0001';
+      RAISE EXCEPTION 'sku_previa_mensagens_ascii_down: ACL de % mudou (esperado %, achei %) — esta migration só troca texto de mensagem (invariante #9)', r.fn, r.acl, v_acl USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
 END
 $acl$;
-
-DO $ascii$
-DECLARE
-  fn text;
-  corpo text;
-  sem_comentarios text;
-  v_cmd text;
-BEGIN
-  FOR fn IN SELECT unnest(ARRAY['public._aplicar_skus_modelo_core(uuid,jsonb,text,text)', 'public._skus_executar_plano(uuid,uuid,jsonb,boolean)', 'public.salvar_terceirizados(uuid,jsonb,text,jsonb)', 'public._salvar_cq_core(uuid,jsonb,jsonb,jsonb,boolean,jsonb)']) LOOP
-    corpo := pg_get_functiondef(to_regprocedure(fn));
-    sem_comentarios := regexp_replace(corpo, '--[^\n]*', '', 'g');
-    FOR v_cmd IN
-      SELECT m[1] FROM regexp_matches(sem_comentarios, '(RAISE\s+EXCEPTION\b.*?;)', 'gs') AS m
-    LOOP
-      IF v_cmd LIKE '%P0409%' AND octet_length(v_cmd) <> char_length(v_cmd) THEN
-        RAISE EXCEPTION 'sku_previa_mensagens_ascii_down: comando RAISE...P0409 fora de ASCII em % (R2 do G-plano) — %', fn, v_cmd USING ERRCODE = 'P0001';
-      END IF;
-    END LOOP;
-  END LOOP;
-END
-$ascii$;
 
 DO $pos$
 DECLARE

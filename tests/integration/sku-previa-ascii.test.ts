@@ -203,6 +203,27 @@ describe("SKU/PCP/CQ — mensagens ASCII: arquivos da migration (estático, sem 
       expect(depoisCab, f.fn).toBe(antesCab);
     }
   });
+
+  // G-migration rodada 1 (achado 1, os 3 revisores): o $ascii$ original era VÁCUO (\b = BACKSPACE no ARE do
+  // Postgres, não fronteira de palavra) — o regex corrigido é \y[^;]*; e o bloco SÓ vai na ida. O inverso RESTAURA
+  // os 7 literais acentuados de propósito (volta de emergência); um $ascii$ ali recusaria SEMPRE a própria volta.
+  it("$ascii$: regex corrigido (\\y[^;]*;, não \\b.*?;); o bloco existe SÓ na migration, NUNCA no inverso", () => {
+    const mig = ler(MIG);
+    expect(mig).toContain("RAISE\\s+EXCEPTION\\y[^;]*;");
+    expect(mig).not.toContain("RAISE\\s+EXCEPTION\\b.*?;"); // a forma antiga, provada inerte pelos 3 revisores
+    expect(mig).toContain("DO $ascii$");
+    const inv = ler(INV);
+    expect(inv).not.toContain("DO $ascii$");
+    expect(inv).not.toContain("RAISE\\s+EXCEPTION\\y[^;]*;");
+  });
+
+  it("$ascii$: afirma a contagem esperada por função (3|4|1|2) — não pode ficar vazio por construção", () => {
+    const mig = ler(MIG);
+    const bloco = mig.slice(mig.indexOf("DO $ascii$"), mig.indexOf("$ascii$;"));
+    const pares = [...bloco.matchAll(/'(public\.[^']+)', (\d+)\)/g)].map((m) => [m[1], Number(m[2])] as const);
+    expect(pares).toEqual(FNS.map((f) => [f.fn, f.nP0409] as const));
+    expect(bloco).toContain("o cheque ASCII (R2) não pode ficar vazio");
+  });
 });
 
 describe.skipIf(!PRONTO)("SKU/PCP/CQ — mensagens ASCII: comportamento e ACL na cópia", () => {
@@ -250,6 +271,44 @@ describe.skipIf(!PRONTO)("SKU/PCP/CQ — mensagens ASCII: comportamento e ACL na
         expect(cmds.length, f.fn).toBe(f.nP0409);
         for (const cmd of cmds) expect(ehAscii(cmd), `${f.fn}: ${cmd}`).toBe(true);
       }
+    });
+  });
+});
+
+describe.skipIf(!PRONTO_ANTES)("SKU/PCP/CQ — mensagens ASCII: $ascii$ NÃO é vácuo (G-migration rodada 1, achado 1)", () => {
+  /** O bloco DO $ascii$ EXATO do arquivo da migration, extraído (do "DO $ascii$" ao "$ascii$;" inclusive). */
+  function blocoAsciiDaMigration(): string {
+    const t = ler(MIG);
+    const i = t.indexOf("DO $ascii$");
+    const f = t.indexOf("$ascii$;", i) + "$ascii$;".length;
+    if (i < 0 || f < 0) throw new Error("DO $ascii$ não achado na migration");
+    return t.slice(i, f);
+  }
+
+  it("rodado contra o estado ANTES (acentuado, o de hoje na cópia) ⇒ DISPARA 'fora de ASCII'", async () => {
+    await withTx(async (c) => {
+      await prepara(c, { aplicar: false }); // as 4 funções seguem no texto VIVO (acentuado)
+      const antes = await todas(FNS, (f) => def(c, f.fn));
+      const erro = await falha(c, blocoAsciiDaMigration());
+      expect(erro.message).toMatch(/fora de ASCII/);
+      // nada mudou (o $ascii$ é só leitura via pg_get_functiondef; não grava)
+      for (const [i, f] of FNS.entries()) expect(await def(c, f.fn), f.fn).toBe(antes[i]);
+    });
+  });
+
+  it("rodado contra o estado DEPOIS (ASCII, dentro da txn após aplicar a migration) ⇒ PASSA sem erro", async () => {
+    await withTx(async (c) => {
+      await prepara(c); // aplica a migration nesta txn (MIG_TXN=1) — as 4 ficam no texto ASCII
+      await c.query(blocoAsciiDaMigration()); // não deve lançar
+    });
+  });
+
+  it("o inverso NÃO contém DO $ascii$ (estático, redundante de propósito — prova negativa direta no arquivo aplicado)", async () => {
+    await withTx(async (c) => {
+      await prepara(c); // aplica a migration (estado ASCII)
+      await aplicarSql(c, ler(INV), INV); // volta ao acentuado — se o inverso tivesse $ascii$, isto teria de falhar
+      const depoisDaVolta = await todas(FNS, (f) => def(c, f.fn));
+      FNS.forEach((f, i) => expect(depoisDaVolta[i], f.fn).toBe(corpo(INV, f.cria))); // acentuado, restaurado com sucesso
     });
   });
 });
