@@ -55,13 +55,13 @@ BEGIN
   END IF;
   IF to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)')));
-    IF v_md5 <> 'd81a8266cb41fe8709f52f6e9d5ad522' THEN
+    IF v_md5 <> 'cb24674981bb1097e1dbd7698fdee6e3' THEN
       RAISE EXCEPTION 'sku_previa: _skus_plano já existe com outro texto (md5 %) — PARE e avise o controlador', v_md5 USING ERRCODE = 'P0001';
     END IF;
   END IF;
   IF to_regprocedure('public._skus_executar_plano(uuid,uuid,jsonb,boolean)') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_executar_plano(uuid,uuid,jsonb,boolean)')));
-    IF v_md5 <> '033544145bb52651fdd24733bdd7e412' THEN
+    IF v_md5 <> '8dd67dd676fac312cfc3c73459342427' THEN
       RAISE EXCEPTION 'sku_previa: _skus_executar_plano já existe com outro texto (md5 %) — PARE e avise o controlador', v_md5 USING ERRCODE = 'P0001';
     END IF;
   END IF;

@@ -523,6 +523,36 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
     });
   });
 
+  it("B1 do G-migration: SKU à mão numa linha SEM registro (rev null) — outra pessoa grava a MESMA chave no meio ⇒ P0409 e o dela intacto; 'manter o meu' (rev novo) grava", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      // A linha kA|34|PPP está SEM registro (nunca gerou): o "a gravar" de A nasce com rev: null.
+      const manA = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-a", rev: null }];
+      const pA = await previa(c, k.m, "PV-T1", "numero", manA, "manuais");
+      expect(linhaDe(pA, k.kA, "34|PPP").previa).toMatchObject({ acao: "manual_novo", sku_para: "MEU-A" });
+      // Outra pessoa (B) grava a MESMA chave antes de A salvar: cria o registro do zero (mesma RPC de sempre, _id NULL = linha ainda sem SKU).
+      await v(c, "SELECT public.salvar_sku_manual(NULL, 'dela-b', NULL, $1::uuid, $2::uuid, $3::text) AS v", [k.m, k.kA, "34|PPP"]);
+      const antes = await estado(c, k.m);
+      expect(antes.find((g) => g.vk === k.kA && g.tk === "34|PPP")?.sku).toBe("DELA-B");
+      // A tenta salvar com a assinatura da SUA prévia (rev ainda null): a linha já tem registro agora ⇒ P0409, nada muda.
+      expect(await falha(c, Q_APLICAR, [k.m, JSON.stringify(manA), "manuais", pA.assinatura]))
+        .toEqual({ code: "P0409", message: "conflito_versao: a linha do SKU foi gravada por outra pessoa" });
+      expect(await estado(c, k.m)).toEqual(antes); // o DELA-B de B sobrevive intacto
+      // A prévia nova (sem refazer) já marca a linha em erro/P0409.
+      const pA2 = await previa(c, k.m, "PV-T1", "numero", manA, "manuais");
+      expect(linhaDe(pA2, k.kA, "34|PPP").previa).toMatchObject({ acao: "erro", code: "P0409" });
+      // "Manter o meu": A relê o rev novo e tenta de novo — passa e grava o dele.
+      const { rev: revB } = await idRev(c, k.m, k.kA, "34|PPP");
+      const manA2 = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-a", rev: revB }];
+      const pA3 = await previa(c, k.m, "PV-T1", "numero", manA2, "manuais");
+      expect(pA3.erros).toEqual([]);
+      expect((await aplicar(c, k.m, manA2, "manuais", pA3.assinatura)).manuais).toBe(1);
+      expect((await estado(c, k.m)).find((g) => g.vk === k.kA && g.tk === "34|PPP")?.sku).toBe("MEU-A");
+    });
+  });
+
   it("N2: o 'a gravar' que sobrou de um Salvar em voo (rev velho) e JÁ está gravado igual, à mão ⇒ nada muda, sem P0409", async () => {
     await withTx(async (c) => {
       await prepara(c);
@@ -572,6 +602,30 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
       expect((await falha(c, Q_PREVIA, [k.m, "PV-T1", "numero", JSON.stringify([{ variante_key: "x" }]), "manuais"])).message).toBe("SKUs à mão inválidos.");
       expect((await falha(c, Q_PREVIA, [k.m, "PV-T1", "grande", "[]", "manuais"])).message).toBe("\"Tamanho em\" inválido: use letra ou número.");
       expect((await falha(c, Q_PREVIA, [k.m, "PV-T1", "numero", "[]", "apagar"])).message).toBe("Modo da prévia dos SKUs inválido.");
+    });
+  });
+
+  it("A#1 do G-migration: SKU digitado com ERRO numa linha que o Regerar (mesma chave) também mudaria — a linha fica 'erro', não vira 'muda'/'sai'/'conflito'", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      // Digitado inválido na linha kA|34|PPP; "Tamanho em" trocado no rascunho ⇒ TODAS as automáticas divergem (viravam 'muda').
+      const invalido = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "a#b", rev: 0 }];
+      const p = await previa(c, k.m, "PV-T1", "letra", invalido, "regerar");
+      expect(linhaDe(p, k.kA, "34|PPP").previa).toMatchObject({ acao: "erro", code: "P0001" });
+      expect(p.erros.map((e: any) => e.mensagem)).toContain("SKU inválido: use só letras, números e - . _ /.");
+      expect(p.status).toBe("ok"); // as outras 3 linhas continuam calculáveis
+      // A mesma linha, mas agora "sai" (fora da grade) no lugar de "muda": digitado com rev velho ⇒ erro 'erro'/P0409, não 'sai'.
+      const { rev } = await idRev(c, k.m, k.kA, "34|PPP");
+      await v(c, "SELECT public.salvar_sku_manual($1::uuid, 'dela-x') AS v", [(await idRev(c, k.m, k.kA, "34|PPP")).id]); // rev + 1
+      const revVelho = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-y", rev }];
+      await c.query(`UPDATE public.modelo_grades SET grades = '{"34|PPP": 0, "36|PP": 1}'::jsonb WHERE modelo_id = $1 AND variante_numero = 1`, [k.m]);
+      const p2 = await previa(c, k.m, "PV-T1", "numero", revVelho, "regerar");
+      expect(linhaDe(p2, k.kA, "34|PPP").previa).toMatchObject({ acao: "erro", code: "P0409" });
+      expect(await falha(c, Q_APLICAR, [k.m, JSON.stringify(revVelho), "regerar", p2.assinatura])).toEqual(
+        { code: "P0409", message: "conflito_versao: o SKU foi alterado por outra pessoa" });
     });
   });
 });
@@ -644,7 +698,9 @@ describe.skipIf(!PRONTO_ANTES)("SKU em prévia — inverso (round-trip) e idempo
     await withTx(async (c) => {
       await prepara(c, { aplicar: false });
       const def = async (fn: string) => (await um<{ d: string | null }>(c, "SELECT pg_get_functiondef(to_regprocedure($1)) AS d", [fn])).d;
-      const vivas = await Promise.all(REDEF.map((f) => def(f.fn)));
+      // B7 do G-migration: em SÉRIE (não Promise.all) — o mesmo pg.Client não aceita consultas concorrentes (DeprecationWarning; quebra no pg@9).
+      const vivas: (string | null)[] = [];
+      for (const f of REDEF) vivas.push(await def(f.fn));
       REDEF.forEach((f, i) => expect(vivas[i], f.fn).toBe(corpo(INV, f.cria)));
       await aplica(c, MIG);
       await aplica(c, MIG); // idempotente
@@ -660,6 +716,98 @@ describe.skipIf(!PRONTO_ANTES)("SKU em prévia — inverso (round-trip) e idempo
       await aplica(c, INV); // inverso idempotente
       await aplica(c, MIG);
       for (const f of NOVAS) expect(await def(f.fn), f.fn).toBe(corpo(MIG, f.cria));
+    });
+  });
+});
+
+describe.skipIf(!PRONTO)("SKU em prévia — executor (ramos estritos/não-estritos, A#5a) e passo 1 × salvar_sku_manual (A#5b)", () => {
+  it("A#5a: executor ESTRITO — atualizar linha MANUAL/id inexistente ⇒ P0409; inserir SKU de outro card ⇒ P0409 (unique_violation); a pós-conferência confere o gravado", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      const idA = (await idRev(c, k.m, k.kA, "34|PPP")).id;
+      await v(c, "SELECT public.salvar_sku_manual($1::uuid, 'trava-a') AS v", [idA]); // vira manual
+      const Q_EXEC = "SELECT public._skus_executar_plano($1::uuid, $2::uuid, $3::jsonb, $4::boolean) AS v";
+      // 'atualizar' numa linha que é manual (id existe, mas .manual=true): o executor SÓ atualiza `NOT s.manual` ⇒ 0 linhas ⇒ estrito = P0409.
+      const planoManual = { ops: [{ op: "atualizar", id: idA, vkey: k.kA, tkey: "34|PPP", sku: "NAOVAI" }] };
+      expect(await falha(c, Q_EXEC, [k.m, T, JSON.stringify(planoManual), true])).toMatchObject({ code: "P0409" });
+      // 'remover' de um id que não existe mais ⇒ P0409 estrito.
+      const planoRemoverFalso = { ops: [{ op: "remover", id: "00000000-0000-0000-0000-000000000000", vkey: k.kA, tkey: "34|PPP", sku: "X" }] };
+      expect(await falha(c, Q_EXEC, [k.m, T, JSON.stringify(planoRemoverFalso), true])).toMatchObject({ code: "P0409" });
+      // 'inserir' um SKU que já existe em OUTRA linha do mesmo card ⇒ unique_violation ⇒ P0409 estrito ("outra pessoa gravou").
+      const skuExistente = (await estado(c, k.m))[0].sku;
+      const planoInserirDup = { ops: [{ op: "inserir", vkey: k.kB, tkey: "36|PP", sku: skuExistente }] };
+      expect(await falha(c, Q_EXEC, [k.m, T, JSON.stringify(planoInserirDup), true])).toMatchObject({ code: "P0409" });
+      // Não-estrito (gerar): a mesma colisão vira CONFLITO na resposta, sem RAISE.
+      const rNaoEstrito = await v(c, Q_EXEC, [k.m, T, JSON.stringify(planoInserirDup), false]);
+      expect(rNaoEstrito.conflitos).toHaveLength(1);
+      expect(rNaoEstrito.conflitos[0].mensagem).toMatch(/outra pessoa gravou esta linha agora/);
+      expect(await estado(c, k.m)).not.toContainEqual(expect.objectContaining({ vk: k.kB, tk: "36|PP", sku: skuExistente }));
+      // Pós-conferência do aplicar: se o gravado divergir da assinatura da prévia por qualquer motivo, P0409 (provado indiretamente
+      // pelo teste de P0409 já existente — aqui confirmamos que o aplicar chama a pós-conferência sempre que estrito=true).
+      const p = await previa(c, k.m, "PV-T1", "numero");
+      const r = await aplicar(c, k.m, [], "regerar", p.assinatura);
+      expect(r.conflitos).toEqual([]);
+    });
+  });
+
+  it("A#5b: passo 1 (SKU à mão) é equivalente a salvar_sku_manual — réplica (mesma REF) aceita; 2 digitados do MESMO lote colidindo; 'Informe o SKU.'", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c, FMT_REF);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      // Réplica: outro card com a MESMA REF pode usar o mesmo SKU na mesma chave (D5) — o digitado não conflita.
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34");
+      const replica = [{ variante_key: k.kB, tamanho_key: "34|PPP", sku: "PV-T1-BB34", rev: (await idRev(c, k.m, k.kB, "34|PPP")).rev }];
+      const pRep = await previa(c, k.m, "PV-T1", "numero", replica, "manuais");
+      expect(pRep.erros).toEqual([]);
+      expect(linhaDe(pRep, k.kB, "34|PPP").previa).toMatchObject({ acao: "manual_novo", sku_para: "PV-T1-BB34" });
+      // 2 digitados do MESMO lote colidindo entre si (mesmo SKU em 2 chaves diferentes do MESMO card): o 2º acha o 1º como "dono".
+      const colidem = [
+        { variante_key: k.kA, tamanho_key: "34|PPP", sku: "mesmo-sku", rev: (await idRev(c, k.m, k.kA, "34|PPP")).rev },
+        { variante_key: k.kA, tamanho_key: "36|PP", sku: "mesmo-sku", rev: (await idRev(c, k.m, k.kA, "36|PP")).rev },
+      ];
+      const pCol = await previa(c, k.m, "PV-T1", "numero", colidem, "manuais");
+      expect(pCol.erros).toHaveLength(1);
+      expect(pCol.erros[0].mensagem).toBe("O SKU MESMO-SKU já está em outra linha deste produto.");
+      // "Informe o SKU." — sku vazio/só espaço, mesma mensagem de _sku_norm_manual.
+      const vazio = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "   ", rev: (await idRev(c, k.m, k.kA, "34|PPP")).rev }];
+      const pVazio = await previa(c, k.m, "PV-T1", "numero", vazio, "manuais");
+      expect(pVazio.erros.map((e: any) => e.mensagem)).toEqual(["Informe o SKU."]);
+    });
+  });
+});
+
+describe.skipIf(!PRONTO_ANTES)("SKU em prévia — negativos da guarda md5 e do $pos$ (A#5c), SÓ na janela N3", () => {
+  it.skipIf(!MIG_TXN)("guarda: _skus_modelo_calc com OUTRO texto (outra frente) ⇒ a migration RECUSA e nada fica", async () => {
+    await withTx(async (c) => {
+      await prepara(c, { aplicar: false });
+      const antes = (await um<{ d: string }>(c, "SELECT pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')) AS d")).d;
+      const mexida = antes.replace("mo.tamanho_tipo AS mtipo,", "mo.tamanho_tipo AS mtipo, -- outra frente");
+      expect(mexida).not.toBe(antes);
+      await c.query(mexida); // DDL na txn do TESTE, só na cópia
+      await expect(aplica(c, MIG)).rejects.toThrow(/outra frente mudou/);
+      expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok).toBe(false);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("F2 — pós-condição: md5 esperado de _skus_modelo_calc adulterado (simula corrupção pós-CREATE) ⇒ a ida RECUSA e desfaz TUDO", async () => {
+    await withTx(async (c) => {
+      await prepara(c, { aplicar: false });
+      const mig = ler(MIG);
+      const mdReal = "34d27675526dbed96ca6d514e9665771"; // md5 "depois" de _skus_modelo_calc (Task 2)
+      const mdFalso = mdReal.slice(0, -1) + (mdReal.at(-1) === "0" ? "1" : "0");
+      const alvo = `IF v_md5 IS DISTINCT FROM '${mdReal}' THEN\n    RAISE EXCEPTION 'sku_previa: pós-condição falhou — _skus_modelo_calc`;
+      expect(mig.split(alvo).length - 1, "âncora 1×").toBe(1);
+      const forjada = mig.replace(alvo, `IF v_md5 IS DISTINCT FROM '${mdFalso}' THEN\n    RAISE EXCEPTION 'sku_previa: pós-condição falhou — _skus_modelo_calc`);
+      expect(forjada).not.toBe(mig);
+      await expect(aplicarSql(c, semTravas(forjada, "migration forjada"), "migration forjada")).rejects.toThrow(/pós-condição falhou/);
+      expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok).toBe(false);
+      const depois = (await um<{ d: string }>(c, "SELECT pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')) AS d")).d;
+      expect(depois).toBe(corpo(INV, REDEF[0].cria)); // desfeito — volta ao texto vivo (a migration inteira é 1 txn)
     });
   });
 });

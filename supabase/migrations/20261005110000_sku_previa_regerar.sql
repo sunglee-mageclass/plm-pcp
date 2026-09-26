@@ -71,13 +71,13 @@ BEGIN
   END IF;
   IF to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)')));
-    IF v_md5 <> 'd81a8266cb41fe8709f52f6e9d5ad522' THEN
+    IF v_md5 <> 'cb24674981bb1097e1dbd7698fdee6e3' THEN
       RAISE EXCEPTION 'sku_previa: _skus_plano já existe com outro texto (md5 %) — PARE e avise o controlador', v_md5 USING ERRCODE = 'P0001';
     END IF;
   END IF;
   IF to_regprocedure('public._skus_executar_plano(uuid,uuid,jsonb,boolean)') IS NOT NULL THEN
     v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_executar_plano(uuid,uuid,jsonb,boolean)')));
-    IF v_md5 <> '033544145bb52651fdd24733bdd7e412' THEN
+    IF v_md5 <> '8dd67dd676fac312cfc3c73459342427' THEN
       RAISE EXCEPTION 'sku_previa: _skus_executar_plano já existe com outro texto (md5 %) — PARE e avise o controlador', v_md5 USING ERRCODE = 'P0001';
     END IF;
   END IF;
@@ -388,7 +388,8 @@ BEGIN
                  OR lower(x.value ->> 'variante_key') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                  OR jsonb_typeof(x.value -> 'tamanho_key') IS DISTINCT FROM 'string'
                  OR jsonb_typeof(x.value -> 'sku') IS DISTINCT FROM 'string'
-                 OR coalesce(jsonb_typeof(x.value -> 'rev'), 'null') NOT IN ('number', 'null'))
+                 OR coalesce(jsonb_typeof(x.value -> 'rev'), 'null') NOT IN ('number', 'null')
+                 OR (jsonb_typeof(x.value -> 'rev') = 'number' AND (x.value ->> 'rev') !~ '^[0-9]{1,9}$'))
      OR (SELECT count(*) FROM jsonb_array_elements(_manuais)) <>
         (SELECT count(DISTINCT lower(x.value ->> 'variante_key') || '|' || (x.value ->> 'tamanho_key'))
            FROM jsonb_array_elements(_manuais) AS x(value)) THEN
@@ -438,6 +439,14 @@ BEGIN
     -- está gravado igual não é conflito: nada muda, nenhuma escrita (sem lost update possível).
     IF v_msg IS NULL AND v_atual IS NOT NULL AND (v_atual ->> 'manual')::boolean AND v_atual ->> 'sku' = v_sku THEN
       CONTINUE;  -- já é este SKU, à mão: nada muda
+    END IF;
+    -- B1 do G-migration (rodada 1): a linha JÁ tem registro gravado (v_atual não nulo) mas o "a gravar" veio SEM rev
+    -- (rev null — a linha estava sem SKU quando o usuário começou a editar): sem isto, outra pessoa podia gravar a MESMA
+    -- chave no meio e o Salvar sobrescrevia em silêncio (a assinatura só olha o estado final). Mesma mensagem/ERRCODE do
+    -- ramo de corrida do INSERT em _salvar_sku_manual_core.
+    IF v_msg IS NULL AND v_atual IS NOT NULL AND jsonb_typeof(v_e -> 'rev') IS DISTINCT FROM 'number' THEN
+      v_msg := 'conflito_versao: a linha do SKU foi gravada por outra pessoa';
+      v_code := 'P0409';
     END IF;
     IF v_msg IS NULL AND v_atual IS NOT NULL AND jsonb_typeof(v_e -> 'rev') = 'number'
        AND (v_atual ->> 'rev')::integer IS DISTINCT FROM (v_e ->> 'rev')::integer THEN
@@ -489,6 +498,7 @@ BEGIN
   -- 2. 'regerar': as automáticas que saíram da grade saem ANTES de gerar (manual nunca)
   IF v_gera AND _modo = 'regerar' THEN
     FOR v_k, v_atual IN SELECT x.key, x.value FROM jsonb_each(v_estado) AS x(key, value) ORDER BY x.key COLLATE "C" LOOP
+      CONTINUE WHEN v_linhas -> v_k ->> 'acao' = 'erro';  -- A#1 do G-migration: não sobrescreve o 'erro' do passo 1 (a linha da tela mostraria "sai" e o erro só ficaria em erros[])
       CONTINUE WHEN (v_atual ->> 'manual')::boolean OR v_calc ? v_k;
       v_ops := v_ops || jsonb_build_array(jsonb_build_object('op', 'remover', 'id', v_atual -> 'id', 'vkey', v_atual -> 'vkey',
                  'tkey', v_atual -> 'tkey', 'sku', v_atual -> 'sku'));
@@ -504,6 +514,7 @@ BEGIN
                FROM public._skus_calc_ref_tipo(_modelo_id, _ref, _tipo) AS c
               ORDER BY c.variante_ordem, c.tamanho_ordem, c.tamanho_key, c.variante_key LOOP
       v_k := r.variante_key::text || '|' || r.tamanho_key;
+      CONTINUE WHEN v_linhas -> v_k ->> 'acao' = 'erro';  -- A#1 do G-migration: não sobrescreve o 'erro' do passo 1 (idem passo 2)
       v_atual := v_estado -> v_k;
       CONTINUE WHEN v_atual IS NOT NULL AND (v_atual ->> 'manual')::boolean;                 -- editado à mão: nunca (Q2)
       CONTINUE WHEN r.sku IS NULL;                                                             -- falta sigla (Q4) / vazio
@@ -597,9 +608,15 @@ DECLARE
   n_manuais integer := 0;
   v_conflitos jsonb := '[]'::jsonb;
 BEGIN
+  -- A#3 do G-migration: o chamador lê a loja do modelo sob a mesma trava (aplicar/gerar) — aqui só CONFIRMA que bate, em
+  -- vez de confiar cegamente no parâmetro (endurecimento; hoje os 2 chamadores já passam a loja certa).
+  IF _tenant IS DISTINCT FROM (SELECT mo.tenant_id FROM public.modelos mo WHERE mo.id = _modelo_id) THEN
+    RAISE EXCEPTION 'Loja do plano não confere com o modelo.' USING ERRCODE = 'P0001';
+  END IF;
   FOR v_op IN SELECT x.value FROM jsonb_array_elements(coalesce(_plano -> 'ops', '[]'::jsonb)) WITH ORDINALITY AS x(value, n)
                ORDER BY x.n LOOP
-    CONTINUE WHEN v_op ->> 'op' NOT IN ('remover', 'manual', 'inserir', 'atualizar');
+    -- A#2 do G-migration: op nula/desconhecida pula (antes, NULL NOT IN (...) não pulava e caía no ELSE = 'atualizar').
+    CONTINUE WHEN v_op ->> 'op' IS NULL OR v_op ->> 'op' NOT IN ('remover', 'manual', 'inserir', 'atualizar');
     BEGIN
       IF v_op ->> 'op' = 'remover' THEN
         DELETE FROM public.modelo_skus s
@@ -627,7 +644,7 @@ BEGIN
         INSERT INTO public.modelo_skus (tenant_id, modelo_id, variante_key, tamanho_key, sku, manual, gerado_em)
         VALUES (_tenant, _modelo_id, (v_op ->> 'vkey')::uuid, v_op ->> 'tkey', v_op ->> 'sku', false, now());
         n_criados := n_criados + 1;
-      ELSE
+      ELSIF v_op ->> 'op' = 'atualizar' THEN
         UPDATE public.modelo_skus s
            SET sku = v_op ->> 'sku', gerado_em = now(), rev = s.rev + 1
          WHERE s.id = (v_op ->> 'id')::uuid AND s.modelo_id = _modelo_id AND NOT s.manual;
@@ -636,6 +653,8 @@ BEGIN
         ELSIF _estrito THEN
           RAISE EXCEPTION 'previa_desatualizada: um SKU que mudaria já não está como na prévia' USING ERRCODE = 'P0409';
         END IF;
+      ELSE
+        RAISE EXCEPTION 'Operação de SKU desconhecida: %', v_op ->> 'op' USING ERRCODE = 'P0001';
       END IF;
     EXCEPTION WHEN unique_violation THEN
       IF _estrito THEN
@@ -915,11 +934,11 @@ BEGIN
     RAISE EXCEPTION 'sku_previa: pós-condição falhou — _skus_matriz_ref_tipo não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)')));
-  IF v_md5 IS DISTINCT FROM 'd81a8266cb41fe8709f52f6e9d5ad522' THEN
+  IF v_md5 IS DISTINCT FROM 'cb24674981bb1097e1dbd7698fdee6e3' THEN
     RAISE EXCEPTION 'sku_previa: pós-condição falhou — _skus_plano não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_executar_plano(uuid,uuid,jsonb,boolean)')));
-  IF v_md5 IS DISTINCT FROM '033544145bb52651fdd24733bdd7e412' THEN
+  IF v_md5 IS DISTINCT FROM '8dd67dd676fac312cfc3c73459342427' THEN
     RAISE EXCEPTION 'sku_previa: pós-condição falhou — _skus_executar_plano não ficou com o texto esperado (md5 %); possível corrupção (client_encoding?) — desfazendo tudo', v_md5 USING ERRCODE = 'P0001';
   END IF;
   v_md5 := md5(pg_get_functiondef(to_regprocedure('public._skus_previa_core(uuid,text,text,jsonb,text)')));
