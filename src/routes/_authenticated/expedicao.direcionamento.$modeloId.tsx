@@ -412,6 +412,10 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         if (!obj[d.variante_numero]) obj[d.variante_numero] = { variante_numero: d.variante_numero, real: {}, linhas: {} };
         obj[d.variante_numero].linhas[d.loja_id] = d.grades ?? {};
       });
+      // N2 (T7 fix3): "atualizados" pelo formato real do mergeGradeDir (`tocadas` vazio — nada aqui é "meu" de
+      // verdade) para o `ColabBanner` mostrar "alguém salvou agora" também nesse caminho de re-hidratação —
+      // sem isso a pessoa não teria como saber por que o rascunho sumiu.
+      const mgReseed = mergeGradeDir({ base: baseGradeRef.current, meu: stateToGradeDir(state), fresh, tocadas: new Set() });
       setState(obj);
       resetBaseline(obj);
       baseGradeRef.current = fresh;
@@ -419,7 +423,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       setPreench({ aplicado: false, pendentes: [], doPlano: new Set() });
       conflitosRef.current = [];
       setConflitos([]);
-      setUltimoMerge(null);
+      setUltimoMerge({ atualizados: mgReseed.atualizados.length, conflitos: [] });
       return;
     }
     const meu = stateToGradeDir(state);

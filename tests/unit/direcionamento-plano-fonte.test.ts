@@ -58,4 +58,13 @@ describe("Direcionamento — plano do modelo (Task 7)", () => {
   it("M7 (T7 fix2): o callout de referência do plano só aparece com alguma variante na tela", () => {
     expect(tela).toContain("{preench.aplicado && plano && variantes.length > 0 && (() => {");
   });
+  it("N1 (T7 fix3): base é OBRIGATÓRIA em preencherComPlano — nada cai em silêncio no 'servidor vazio'", () => {
+    // A rota sempre passa `baseServidor` explícito (nunca omite o parâmetro `base`).
+    expect(tela).toContain("base: baseServidor");
+  });
+  it("N2 (T7 fix3): a re-hidratação do rascunho intacto avisa 'alguém salvou agora' (ultimoMerge real, não null)", () => {
+    expect(tela).toContain("const mgReseed = mergeGradeDir({ base: baseGradeRef.current, meu: stateToGradeDir(state), fresh, tocadas: new Set() });");
+    expect(tela).toContain("setUltimoMerge({ atualizados: mgReseed.atualizados.length, conflitos: [] });");
+    expect(tela).not.toContain("setUltimoMerge(null);\n      return;\n    }\n    const meu = stateToGradeDir(state);");
+  });
 });

@@ -64,25 +64,29 @@ export type Preenchimento = {
 };
 
 /** Valor de uma célula na BASE (o que está salvo no servidor); ausente ≡ 0 (mesma regra do merge 3-vias). */
-type BaseCel = Record<number, Record<string, Record<string, number>>>;
-const valorBase = (base: BaseCel | undefined, vn: number, lojaId: string, t: string): number =>
+export type BaseCel = Record<number, Record<string, Record<string, number>>>;
+const valorBase = (base: BaseCel, vn: number, lojaId: string, t: string): number =>
   Number(base?.[vn]?.[lojaId]?.[t] ?? 0) || 0;
 
 /** Regra do semi-preenchimento (R22), por variante × tamanho da Grade Real, só nas lojas EDITÁVEIS daquela variante:
  *  Σ plano = real ⇒ cada loja recebe o plano (0 onde a loja não tem a cor); ≠ ⇒ a célula fica VAZIA em todas as lojas
  *  (pendente — "distribua à mão"). Nunca inventa rateio. `doPlano` = as que o plano preencheu (azul-claro até editar).
- *  `escritas` = só as células cujo valor DIFERE da `base` (o que está salvo no servidor; ausente ≡ 0) — pendentes
- *  (ficam vazias/undefined) e células que o plano escreveu IGUAIS à base (ex.: 0 numa loja sem essa cor, quando a
- *  base também já é 0) NÃO entram: marcá-las como "minhas" faria o merge 3-vias acusar conflito falso quando outra
- *  pessoa salva um valor ali — o rascunho não tocou aquela célula de fato (T7 fix2, I1). `base` é opcional (default:
- *  tudo 0/ausente, como na 1ª hidratação sem `existing`). */
+ *  `escritas` = só as células cujo valor DIFERE da `base` (o que está salvo no servidor; ausente ≡ 0):
+ *  - célula que bateu com o plano e o valor escrito difere da base ⇒ escrita.
+ *  - célula PENDENTE (fica vazia/undefined) que na base tinha valor ≠ 0 ⇒ TAMBÉM escrita (T7 fix3, N1): "Preencher"
+ *    LIMPOU um valor que estava salvo — isso É uma edição minha (apagar conta tanto quanto escrever), senão um save
+ *    alheio nessa célula sobrescreveria a limpeza em silêncio (mesma classe do N3 do Lote A: nada cai em silêncio
+ *    no "servidor vazio"). Célula pendente que já era 0/ausente na base não entra (nunca tocou nada de fato).
+ *  Marcar como "minhas" só as que realmente mudam algo evita o merge 3-vias acusar conflito falso quando outra
+ *  pessoa salva um valor numa célula que o rascunho nunca tocou de fato (T7 fix2, I1). `base` é OBRIGATÓRIO — nada
+ *  cai em silêncio no "servidor vazio" por omissão (chame com `{}` explícito quando não há nada salvo ainda). */
 export function preencherComPlano(a: {
   variantes: { variante_numero: number; real: Record<string, number> }[];
   tamanhos: string[];
   lojas: { id: string }[];
   podeEditar: (lojaId: string, vnum: number) => boolean;
   plano: PlanoModelo | null;
-  base?: BaseCel;
+  base: BaseCel;
 }): Preenchimento {
   const linhas: Preenchimento["linhas"] = {};
   const pendentes: Pendente[] = [];
@@ -104,7 +108,9 @@ export function preencherComPlano(a: {
         }
       } else {
         pendentes.push({ variante_numero: vn, tamanho: t, real, plano });
-        // Pendente = célula fica VAZIA (undefined) — nunca escreve valor nenhum, então nunca é "minha" edição.
+        // Pendente = célula fica VAZIA (undefined). Se a base tinha algo ali, "Preencher" LIMPOU um valor
+        // salvo — conta como escrita (N1, T7 fix3), senão um save alheio ali sobrescreveria em silêncio.
+        for (const id of editaveis) if (valorBase(a.base, vn, id, t) !== 0) escritas.push(pathDirCel(vn, id, t));
       }
     }
   }
