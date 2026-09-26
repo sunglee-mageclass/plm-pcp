@@ -512,8 +512,13 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
       await v(c, "SELECT public.salvar_sku_manual($1::uuid, 'dela-1') AS v", [(await idRev(c, k.m, k.kB, "36|PP")).id]); // a outra pessoa
       await c.query("UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE id = $1", [k.m]);
       const antes = await estado(c, k.m);
-      expect(await falha(c, Q_APLICAR, [k.m, "[]", "regerar", p.assinatura]))
-        .toEqual({ code: "P0409", message: "previa_desatualizada: os SKUs mudaram desde a prévia" });
+      // Mensagens ASCII (P-58 A / P-59 A, Task 7a): este bloco roda SEM env, contra o texto VIVO da cópia — que pode
+      // ser o de ANTES da migration ascii (acentuado) ou, depois dela aplicada de vez na linha principal, o DEPOIS
+      // (ASCII). O `code` P0409 é o que a tela usa (sku-previa.ts:205-206); o TEXTO aceita os dois, com regex
+      // explícita, para esta suíte continuar verde nos dois lados da migration ascii (20261006120000).
+      const r516 = await falha(c, Q_APLICAR, [k.m, "[]", "regerar", p.assinatura]);
+      expect(r516.code).toBe("P0409");
+      expect(r516.message).toMatch(/^previa_desatualizada: os SKUs mudaram desde a pr[eé]via$/);
       expect(await estado(c, k.m)).toEqual(antes);
       expect((await falha(c, Q_APLICAR, [k.m, "[]", "regerar", null])).code).toBe("P0409");
       expect((await falha(c, Q_APLICAR, [k.m, "[]", "regerar", "lixo"])).code).toBe("P0409");
