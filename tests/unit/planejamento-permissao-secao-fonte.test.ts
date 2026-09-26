@@ -85,8 +85,13 @@ describe("Sheet do Planejamento trava POR SEÇÃO pelas 2 permissões (P-53 A) �
     expect(DETALHE).toMatch(/<fieldset disabled=\{perm\.compartilhadoBloqueado\} className="contents">\s*<MaoObraEditor/);
     expect(DETALHE).toMatch(/<fieldset disabled=\{perm\.compartilhadoBloqueado\} className="contents">\s*<ObsMaoObraField/);
   });
-  it("grade da revenda vira só-leitura com perm.compartilhadoBloqueado (motivo próprio)", () => {
-    expect(DETALHE).toMatch(/perm\.compartilhadoBloqueado\s*\n\s*\? "Sem permissão para editar esta grade\."/);
+  // Fix 2 (item 4, N-1) — mensagem da grade condicionada a podeEditarDev; texto antigo do importado
+  // continua alcançável.
+  it("grade da revenda vira só-leitura com perm.compartilhadoBloqueado, com mensagem por podeEditarDev", () => {
+    expect(DETALHE).toMatch(/perm\.compartilhadoBloqueado\s*\n\s*\? \(podeEditarDev\s*\n\s*\? "Card enviado à Explosão: para alterar a grade, use o botão Editar\."\s*\n\s*: "Sem permissão para editar esta grade\."\)/);
+  });
+  it("texto antigo do importado ('a grade do importado trava junto com a ficha') segue alcançável", () => {
+    expect(DETALHE).toContain('"Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."');
   });
 
   // Fix 1 (m-3) — preço editável só com AS DUAS permissões (seção de preço E editar o Planejamento).
@@ -103,5 +108,33 @@ describe("Sheet do Planejamento trava POR SEÇÃO pelas 2 permissões (P-53 A) �
   // Fix 1 (sugestão barata) — aviso discreto quando só o Dev está liberado.
   it("aviso discreto aparece com planBloqueado && !sheetSomenteLeitura", () => {
     expect(DETALHE).toMatch(/\{perm\.planBloqueado && !perm\.sheetSomenteLeitura && \(/);
+  });
+
+  // Fix 2 (item 6) — texto do aviso atualizado.
+  it("aviso discreto usa o texto atualizado do fix 2", () => {
+    expect(DETALHE).toContain("Sem permissão para editar o Planejamento — os campos só do Planejamento estão travados.");
+  });
+
+  // Fix 2 (item 2) — Coleção texto livre (lojas SEM OTB) trava SÓ com planBloqueado, por cima do
+  // fieldset compartilhado da seção inteira.
+  it("Coleção texto livre (sem OTB) tem fieldset próprio com perm.planBloqueado", () => {
+    expect(DETALHE).toMatch(/<fieldset disabled=\{perm\.planBloqueado\} className="contents">\s*<FieldText label=\{fl\("colecao"\)\}/);
+  });
+
+  // Fix 2 (item 5, N-2) — mensagem de "sem produto vinculado" quando falta podeEditarPlanejamento.
+  it("motivoSemProdutoComprado usa o texto novo quando !podeEditarPlanejamento", () => {
+    expect(DETALHE).toMatch(/const motivoSemProdutoComprado: string \| null = !podeEditarPlanejamento\s*\n\s*\? "Este card ainda não tem produto vinculado — quem edita o Planejamento o cria ao salvar\."/);
+  });
+});
+
+// Fix 2 (item 1) — markup_editado/modelo_base_id em CAMPOS_SO_PLANEJAMENTO_DRAFT; item 3 — ref em
+// CAMPOS_DEV_DRAFT.
+describe("Reclassificação de campos (P-53 A, fix 2)", () => {
+  const HELPERS = readFileSync(ROOT + "src/components/planejamento/planejamento-detail/helpers.ts", "utf8");
+  it("markup_editado e modelo_base_id estão em CAMPOS_SO_PLANEJAMENTO_DRAFT", () => {
+    expect(HELPERS).toMatch(/CAMPOS_SO_PLANEJAMENTO_DRAFT = \[[\s\S]*?"markup_editado", "modelo_base_id",[\s\S]*?\];/);
+  });
+  it("ref está em CAMPOS_DEV_DRAFT", () => {
+    expect(HELPERS).toMatch(/CAMPOS_DEV_DRAFT = \[[\s\S]*?"ref",[\s\S]*?\];/);
   });
 });

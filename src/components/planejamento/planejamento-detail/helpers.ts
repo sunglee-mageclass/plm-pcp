@@ -86,6 +86,13 @@ export const CAMPOS_DEV_DRAFT = [
   // o Duplicar não os leva (camposParaDuplicar, decisão F3 #9). Vão como estão (vazio = {} / [] é
   // valor válido — sem normalização em aplicarRegrasCamposDev, ao contrário dos escalares acima).
   "proporcoes", "custos_adicionais",
+  // Fix 2 (item 3, re-revisão P-53 A) — `ref`: no Sheet unificado só o Dev edita a REF (regra própria em
+  // `aplicarRegrasCamposDev`, linhas ~243-245 abaixo, fora deste loop — `refEditavel` soma-se a
+  // `podeEditarDev`). Entra aqui só para CLASSIFICAÇÃO/inventário (o teste de classificação total exige
+  // toda chave do Draft em exatamente 1 lista); o comportamento de gravação da REF não muda — ela
+  // continua saindo do payload pela lógica dedicada, não por este `for` (delete de uma chave que ainda
+  // não existe no `out` nesse ponto é inócuo).
+  "ref",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
 
@@ -103,25 +110,30 @@ export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
 // Fix 1 (m-4, RULING) — `descricao_produto` entra: o Dev antigo NUNCA teve esse campo (o brief da
 // rodada 1 errou ao listá-lo como compartilhado — o princípio "nem ganha nem perde" vence sobre o
 // texto do brief anterior). Só existe desde a F3.1, sempre como campo do Planejamento.
+// Fix 2 (item 1, re-revisão) — `markup_editado`/`modelo_base_id` entram: o Dev antigo NÃO os gravava
+// (só leitura/derivados por lá); tirar do payload de quem não edita o Planejamento não tira NENHUMA
+// capacidade que o Dev já tinha (paridade com `custo_simulado`/`descricao_produto` — o princípio "nem
+// ganha nem perde" tratava esses 2 como "nunca gated" na rodada 1, mas o mais correto é classificá-los
+// como plan-only, já que só o Sheet do Planejamento os toca de fato).
 export const CAMPOS_SO_PLANEJAMENTO_DRAFT = [
   "status_planejamento", "origem", "titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm",
   "tamanho_tipo", "versao", "preco_venda", "preco_atacado", "preco_anterior", "data_lancamento", "ncm",
-  "custo_simulado", "descricao_produto",
+  "custo_simulado", "descricao_produto", "markup_editado", "modelo_base_id",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoSoPlanejamentoDraft = (typeof CAMPOS_SO_PLANEJAMENTO_DRAFT)[number];
 
 // ── P-53 A (fix 1, m-6i) — campos COMPARTILHADOS: o Dev antigo também gravava (payload do Salvar,
-// ModeloDetailPanel.tsx:1878-1945) ou o campo pareia 1:1 com um que ele grava (ex.: `colecao` texto
-// livre é o par de `colecao_id`, `ref` tem regra própria em `aplicarRegrasCamposDev` mas é editado
-// nos DOIS Sheets). Editável se QUALQUER um dos 2 Sheets deixava (`perm.compartilhadoBloqueado`).
-// `markup_editado`/`modelo_base_id`: nenhum Sheet os torna editáveis por um campo de formulário do
-// Salvar (só leitura/derivados — `modelo_base_id` só muda via Duplicar, mutation própria); ficam aqui
-// (nunca foram gated antes — não são plan-only) para não tirar um poder que nunca existiu de fato.
+// ModeloDetailPanel.tsx:1878-1945) ou o campo pareia 1:1 com um que ele grava. Editável se QUALQUER
+// um dos 2 Sheets deixava (`perm.compartilhadoBloqueado`).
+// Fix 2 (item 3) — `ref` SAIU daqui e foi para `CAMPOS_DEV_DRAFT`: no Sheet unificado só o Dev edita a
+// REF (o campo em si tem regra própria em `aplicarRegrasCamposDev`/`refEditavel`, que não muda de
+// comportamento — ela já saía do payload à parte; o revisor confirmou que a reclassificação é só de
+// inventário/documentação).
 export const CAMPOS_COMPARTILHADOS_DRAFT = [
-  "nome", "ref", "estilista_id", "linha_id", "colecao", "colecao_id", "subcolecao", "semana",
+  "nome", "estilista_id", "linha_id", "colecao", "colecao_id", "subcolecao", "semana",
   "mes_id", "ano_id", "categoria_principal_id", "subcategoria1_id", "subcategoria2_id",
   "croqui_url", "desenho_tecnico_url", "fotos_modelo", "fotos_referencia", "observacoes_mao_obra",
-  "tecidos_planejados", "modelo_base_id", "markup_editado",
+  "tecidos_planejados",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoCompartilhadoDraft = (typeof CAMPOS_COMPARTILHADOS_DRAFT)[number];
 

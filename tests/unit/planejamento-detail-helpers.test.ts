@@ -133,6 +133,9 @@ describe("aplicarRegrasCamposDev", () => {
   it("sem permissão de editar o Dev: nenhum campo do Dev (nem a REF) vai no payload", () => {
     const d = base();
     const p = aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: false, refEditavel: true });
+    // Fix 2 (item 3) — `ref` agora está DENTRO de CAMPOS_DEV_DRAFT (reclassificação de inventário); o
+    // loop abaixo já cobre a REF, mas a asserção explícita continua (prova a regra PRÓPRIA da REF,
+    // que roda fora do loop, também nega o payload — dupla garantia, não redundância morta).
     for (const k of CAMPOS_DEV_DRAFT) expect(p).not.toHaveProperty(k);
     expect(p).not.toHaveProperty("ref");
     expect(p.nome).toBe("M");
@@ -431,7 +434,7 @@ describe("CAMPOS_SO_PLANEJAMENTO_DRAFT", () => {
     const dev = new Set(CAMPOS_DEV_DRAFT as readonly string[]);
     for (const k of CAMPOS_SO_PLANEJAMENTO_DRAFT) expect(dev.has(k)).toBe(false);
   });
-  it("inclui os campos-referência do brief (status, origem, título, medidas, tamanho_tipo, versão, preços, lançamento, NCM) + fix 1 (custo_simulado, descricao_produto)", () => {
+  it("inclui os campos-referência do brief (status, origem, título, medidas, tamanho_tipo, versão, preços, lançamento, NCM) + fix 1 (custo_simulado, descricao_produto) + fix 2 (markup_editado, modelo_base_id)", () => {
     for (const k of [
       "status_planejamento", "origem", "titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm",
       "tamanho_tipo", "versao", "preco_venda", "preco_atacado", "preco_anterior", "data_lancamento", "ncm",
@@ -439,6 +442,8 @@ describe("CAMPOS_SO_PLANEJAMENTO_DRAFT", () => {
       "custo_simulado",
       // Fix 1 (m-4, RULING) — descricao_produto é SÓ-PLANEJAMENTO: o Dev antigo nunca teve esse campo.
       "descricao_produto",
+      // Fix 2 (item 1, re-revisão) — o Dev antigo não gravava markup_editado/modelo_base_id.
+      "markup_editado", "modelo_base_id",
     ]) expect(CAMPOS_SO_PLANEJAMENTO_DRAFT).toContain(k);
   });
   it("NUNCA inclui os campos compartilhados (o Dev também gravava)", () => {
@@ -448,6 +453,26 @@ describe("CAMPOS_SO_PLANEJAMENTO_DRAFT", () => {
       "fotos_referencia", "desenho_tecnico_url", "croqui_url", "ficha_medida_url", "observacoes_gerais",
       "observacoes_mao_obra", "custos_adicionais", "proporcoes",
     ]) expect(CAMPOS_SO_PLANEJAMENTO_DRAFT).not.toContain(k);
+  });
+});
+
+// Fix 2 (item 3, re-revisão) — `ref` mudou de CAMPOS_COMPARTILHADOS_DRAFT p/ CAMPOS_DEV_DRAFT: no
+// Sheet unificado só o Dev edita a REF. A reclassificação é só de INVENTÁRIO — o comportamento real
+// (aplicarRegrasCamposDev, linhas próprias fora do loop de CAMPOS_DEV_DRAFT) não muda.
+describe("ref — reclassificada para CAMPOS_DEV_DRAFT (fix 2, item 3)", () => {
+  it("ref está em CAMPOS_DEV_DRAFT, não mais em CAMPOS_COMPARTILHADOS_DRAFT", () => {
+    expect(CAMPOS_DEV_DRAFT).toContain("ref");
+    expect(CAMPOS_COMPARTILHADOS_DRAFT).not.toContain("ref");
+  });
+  it("aplicarRegrasCamposDev continua com o MESMO comportamento da REF (regra própria, refEditavel)", () => {
+    const d: Draft = { ...emptyDraft(), ref: " QA9999 " };
+    // Com permissão e refEditavel: vai aparada (regra própria, não pelo loop de CAMPOS_DEV_DRAFT).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: true, refEditavel: true }).ref).toBe("QA9999");
+    // Sem permissão do Dev: sai do payload (agora TAMBÉM coberta pelo loop de CAMPOS_DEV_DRAFT, além
+    // da regra própria — resultado idêntico ao de antes).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: false, refEditavel: true })).not.toHaveProperty("ref");
+    // Com permissão do Dev mas sem refEditavel: sai do payload (regra própria).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: true, refEditavel: false })).not.toHaveProperty("ref");
   });
 });
 

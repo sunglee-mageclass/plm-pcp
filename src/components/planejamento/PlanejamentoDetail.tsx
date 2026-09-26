@@ -1146,14 +1146,24 @@ function PlanejamentoDetailConteudo({
   const origemTrocadaPendente = draft.origem !== origemComprado;
   // P-53 A (fix 1, m-2) — a grade do comprado é COMPARTILHADA (paridade com o `locked` do Dev antigo): sem
   // `perm.compartilhadoBloqueado` livre (nenhum dos 2 Sheets destrava), a trava pós-Explosão sozinha
-  // (`ficha.podeEditar`) era contornável por quem só edita o Planejamento.
+  // (`ficha.podeEditar`) era contornável por quem só edita o DEV com o card já enviado à Explosão (fix 2,
+  // item 7 — o comentário da rodada 1 dizia "Planejamento" por engano).
+  // Fix 2 (item 4, N-1) — mensagem mais específica: se a pessoa AINDA edita o Dev (só não tem a
+  // permissão de Planejamento que faltava aqui — cenário raro, já que quem edita só o Dev normalmente
+  // passa pelo ramo `compartilhadoBloqueado=false`), reaproveita o texto "use o botão Editar" (é o
+  // mesmo mecanismo do card enviado à Explosão); senão, mensagem genérica de falta de permissão.
   const motivoGradeSomenteLeitura: string | null = origemTrocadaPendente
     ? "Salve a troca de Origem antes de editar a grade."
     : perm.compartilhadoBloqueado
-      ? "Sem permissão para editar esta grade."
+      ? (podeEditarDev
+        ? "Card enviado à Explosão: para alterar a grade, use o botão Editar."
+        : "Sem permissão para editar esta grade.")
       : origemComprado === "importado" && !ficha.podeEditar
         ? ficha.motivoSomenteLeitura === "enviado"
           // D3 (informado ao dono): depois de enviado à Explosão, a grade do importado trava JUNTO com a ficha.
+          // (texto antigo do importado — segue alcançável quando compartilhadoBloqueado=false, ou seja,
+          // quem edita o Planejamento OU o Dev sem trava pós-Explosão, mas a ficha do importado específica
+          // está travada por outro motivo, ex.: sem canEdit do Dev mas com podeEditarPlanejamento)
           ? "Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."
           : "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera aqui (com a ficha carregada)."
         : null;
@@ -1162,7 +1172,14 @@ function PlanejamentoDetailConteudo({
   // Dev) — mantém o genérico. Já com a ficha travada no importado (`motivoGradeSomenteLeitura` do outro ramo), o
   // Salvar do Planejamento sozinho NÃO cria nada (precisa do Dev) — nesse caso o texto de "sem produto" mostra o
   // motivo REAL (`motivoGradeSomenteLeitura`) em vez do "salve para criar" enganoso.
-  const motivoSemProdutoComprado: string | null = origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
+  // Fix 2 (item 5, N-2) — desde o fix 1 (m-1), a auto-criação do espelho no Salvar exige `podeEditarPlanejamento`
+  // (não só `paOn`/`piOn`). Sem essa permissão, o texto genérico "Salve o card… para o sistema criá-lo" ficaria
+  // enganoso (o Salvar dessa pessoa não cria nada) — mesmo no ramo `origemTrocadaPendente`, onde antes o motivo
+  // ficava `null` (texto genérico). Prioridade MÁXIMA: falta de permissão de Planejamento explica por si só por
+  // que "sem produto" persiste, então checa ANTES de `origemTrocadaPendente`.
+  const motivoSemProdutoComprado: string | null = !podeEditarPlanejamento
+    ? "Este card ainda não tem produto vinculado — quem edita o Planejamento o cria ao salvar."
+    : origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
   // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
   // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
   const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
@@ -1307,8 +1324,8 @@ function PlanejamentoDetailConteudo({
   // `producao_servico_aprovacao` (invariante #12); ver/digitar valor = `veCustos` (união das 2 permissões, decisão F3 #2).
   // P-53 A (fix 1, m-2) — M.O. (valores + observação) é COMPARTILHADA: o Dev antigo também editava
   // (payload :1878-1945). A trava pós-Explosão (`devBloqueado`) sozinha era contornável por quem só
-  // edita o Planejamento; agora exige `perm.compartilhadoBloqueado` (livre se qualquer um dos 2
-  // Sheets deixava editar).
+  // edita o DEV com o card já pós-Explosão (fix 2, item 7: o comentário original dizia "Planejamento"
+  // por engano) — agora exige `perm.compartilhadoBloqueado` (livre se qualquer um dos 2 Sheets deixava editar).
   const editorMaoObra = (
     <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
       <MaoObraEditor
@@ -1441,7 +1458,7 @@ function PlanejamentoDetailConteudo({
             (tokens — border-dashed + text-muted-foreground —, sem cor solta). */}
         {perm.planBloqueado && !perm.sheetSomenteLeitura && (
           <p className="mx-6 mt-3 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-            Sem permissão para editar o Planejamento — só as partes do Desenvolvimento estão liberadas.
+            Sem permissão para editar o Planejamento — os campos só do Planejamento estão travados.
           </p>
         )}
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
@@ -1474,7 +1491,14 @@ function PlanejamentoDetailConteudo({
                   options={colecoes.map((c) => ({ id: c.id, nome: orcLabel(c.nome, orc.colecao(c.id)) }))}
                 />
               ) : (
-                <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraftTracked((d) => ({ ...d, colecao: v }))} />
+                // Fix 2 (item 2, re-revisão) — Coleção texto livre (lojas SEM OTB): o Dev antigo nem
+                // MOSTRAVA esse campo sem OTB (era um campo só do Sheet do Planejamento nesse modo) —
+                // trava adicional SÓ aqui com `perm.planBloqueado`, por cima do fieldset compartilhado
+                // da seção inteira (Coleção permanece em CAMPOS_COMPARTILHADOS_DRAFT — o select do OTB
+                // grava junto do `colecao_id`, que é compartilhado de verdade).
+                <fieldset disabled={perm.planBloqueado} className="contents">
+                  <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraftTracked((d) => ({ ...d, colecao: v }))} />
+                </fieldset>
               )}
               {otbOn ? (
                 <FieldSelect
@@ -1685,7 +1709,8 @@ function PlanejamentoDetailConteudo({
 
           {/* SETOR 5 — Anexos. P-53 A (fix 1, m-2): croqui/desenho/fotos são COMPARTILHADOS (o Dev antigo também
               gravava — payload :1878-1945); a trava pós-Explosão (devBloqueado, abaixo) sozinha era contornável
-              por quem só edita o Planejamento — agora exige perm.compartilhadoBloqueado também. */}
+              por quem só edita o DEV com o card já pós-Explosão (fix 2, item 7: comentário original dizia
+              "Planejamento" por engano) — agora exige perm.compartilhadoBloqueado também. */}
           <Secao id="anexos" titulo="Anexos" numero={numeros.anexos} selo={seloDe("anexos")} defaultOpen={false}>
             <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
             <div className="grid sm:grid-cols-2 gap-4">
