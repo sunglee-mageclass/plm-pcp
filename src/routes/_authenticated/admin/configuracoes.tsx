@@ -533,7 +533,11 @@ function ConfiguracoesLojaPage() {
   // Fix hidratação rodada 1 (achado I1 da revisão): carga com ERRO nunca deve cair nos DEFAULTS —
   // mostra o aviso + "Tentar de novo" no lugar do formulário. Nenhum hook depois deste ponto
   // (mesma verificação já feita para o `isLoading` abaixo).
-  if (cfgLoadErrored) {
+  // Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): `&& !data` — uma vez que a 1ª
+  // carga teve sucesso, um erro de REFETCH posterior (foco de janela, invalidate de outra tela)
+  // NÃO pode trocar a página inteira pelo aviso e esconder o formulário com a edição em curso; o
+  // TanStack v5 mantém `data` (o último bom) mesmo quando o refetch falha.
+  if (cfgLoadErrored && !data) {
     return (
       <div className="p-6 space-y-3 text-sm">
         <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>

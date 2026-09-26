@@ -137,7 +137,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha
   // histórica). E-commerce (default) primeiro, depois ordem.
-  const { data: lojas = [], isFetched: lojasFetched, isFetching: lojasFetching, isSuccess: lojasOk, isError: lojasErrored } = useQuery({
+  const { data: lojas = [], isFetched: lojasFetched, isFetching: lojasFetching, isSuccess: lojasOk, isError: lojasErrored, refetch: refetchLojas } = useQuery({
     queryKey: ["dir-lojas", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -151,7 +151,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     },
   });
 
-  const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching, isSuccess: gradesOk, isError: gradesErrored } = useQuery({
+  const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching, isSuccess: gradesOk, isError: gradesErrored, refetch: refetchCadGrades } = useQuery({
     // Sufixo "reais": esta tela lê só variante_numero+grades_reais. A Oficina usa a
     // mesma raiz com colunas diferentes ("full") — sufixo evita shape errado no cache.
     // O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
@@ -268,7 +268,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   });
 
   // Rev da âncora de colaboração (direcionamento_controle) — base do rev-check otimista (P0409).
-  const { data: dirControle } = useQuery({
+  // Fix hidratação rodada 2 (achado N4 da re-revisão): expõe `isError`/`refetch` — um erro aqui
+  // travava o Salvar mudo (dirControle===undefined, achado M4) sem banner nem "Tentar de novo".
+  const { data: dirControle, isError: dirControleErrored, refetch: refetchDirControle } = useQuery({
     queryKey: ["dir-controle", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -323,7 +325,10 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // ERRO (TanStack v5); sem isso, uma falha de rede hidratava como "sem linhas" e o Salvar
   // mandaria `_rows:[]` (caso GRAVE — invariante #10, `_salvar_direcionamento_core` apaga tudo).
   const dataSettled = gradesFetched && !gradesFetching && gradesOk && existingFetched && !existingFetching && existingOk && planoFetched && lojasFetched && lojasOk;
-  const dirLoadError = gradesErrored || existingErrored || lojasErrored;
+  // Fix hidratação rodada 2 (achado N4): `dir-controle` (a âncora de rev) entra no `dirLoadError`
+  // — antes, uma falha nela travava o Salvar mudo (M4: `dirControle === undefined`) sem banner
+  // nem "Tentar de novo", indistinguível de "ainda carregando".
+  const dirLoadError = gradesErrored || existingErrored || lojasErrored || dirControleErrored;
 
   // Loja EDITÁVEL numa variante (ativa, ou inativa com par histórico) — usada pela regra do preenchimento
   // E pelos totais do plano exibidos na tela (M2, T7 fix2): o "plano N" da Grade Real Total, o total do
@@ -761,22 +766,36 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         </Button>
       </div>
       {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (dataSettled exige
-          isSuccess) — banner no lugar do formulário, com "Tentar de novo". */}
-      {cad?.id && dirLoadError && !hydrated && (
+          isSuccess) — banner no lugar do formulário, com "Tentar de novo".
+          Fix hidratação rodada 2 (achado N2 da re-revisão): "Tentar de novo" refazia SÓ
+          `direcionamento-lojas` (`refetch()`) — agora refaz as 4 queries que entram no gate
+          (`cad_grades`, `lojas_direcionamento`, `direcionamento_lojas` e a âncora `dir-controle`,
+          achado N4), senão um erro em `cad_grades`/`lojas`/`dir-controle` deixava a tela presa no
+          aviso até um refetch por foco de janela.
+          Fix hidratação rodada 2 (achado N4): `hydrated` (de `dataSettled`) NÃO depende de
+          `dirControle` — um erro SÓ em `dir-controle` deixava `hydrated=true` (o banner nunca
+          aparecia, gated por `!hydrated`) enquanto os botões ficavam travados mudos (M4:
+          `dirControle === undefined`). O banner usa a MESMA condição "ainda não pronto" dos
+          botões: `!hydrated || dirControle === undefined`. */}
+      {cad?.id && dirLoadError && (!hydrated || dirControle === undefined) && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => { refetch(); }}
+            onClick={() => { refetch(); refetchCadGrades(); refetchLojas(); refetchDirControle(); }}
           >
             <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
           </Button>
         </Card>
       )}
 
-      {!(cad?.id && dirLoadError && !hydrated) && (
+      {/* Fix hidratação rodada 2 (achado N4): espelha a condição do banner acima — o fieldset só
+          renderiza quando NÃO está no caso "erro + ainda não pronto" (hydrated E dirControle
+          resolvido). Corpo por `hydrated` continua sozinho quando JÁ pronto (achado N1 — um erro
+          de refetch POSTERIOR não esconde o formulário). */}
+      {!(cad?.id && dirLoadError && (!hydrated || dirControle === undefined)) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">

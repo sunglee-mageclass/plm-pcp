@@ -180,6 +180,29 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(botaoPorTexto("Salvar alterações")).toBeNull();
   });
 
+  // Achado N1 da re-revisão (regressão da rodada 1): `if (cfgLoadErrored)` trocava a página
+  // INTEIRA pelo aviso mesmo quando `data` já tinha carregado com sucesso antes — um erro de
+  // REFETCH posterior (foco de janela, invalidate) escondia o formulário com a edição em curso.
+  // Prova: hidrata, digita, depois um refetch de `tenant_config` falha — o formulário continua
+  // visível com o que foi digitado.
+  it("N1: refetch falha DEPOIS de hidratado — a página CONTINUA mostrando o formulário (não vira o aviso)", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(PaginaComRealtime, { semRealtime: true })));
+    desmontar = m.desmontar;
+    await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
+    await digitar(kw()!, `${ORIGINAL}, Sardinha`);
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+
+    FAKE.falhar("tenant_config", 4);
+    await qc.invalidateQueries({ queryKey: ["tenant-config", "u1"] });
+    await esperar(150);
+
+    // O formulário continua na tela, com a edição preservada — NÃO virou o aviso de erro.
+    expect(document.body.textContent).not.toContain("Não foi possível carregar os dados.");
+    expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`);
+    expect(botaoPorTexto("Salvar alterações")).not.toBeNull();
+  });
+
   // Achado I2 da revisão (review.md): a "re-hidratação só FUNDE" valia para os campos gerais
   // (Keywords, acima) mas NÃO para as 5 colunas de kanban (Status do Kanban, Requisitos,
   // Exceções, Fluxo de Revenda) — `resolverEcoKanban` fora da janela protegida sempre adotava o

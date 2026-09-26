@@ -136,11 +136,23 @@ export function resolverEcoKanban(
  * (`kanbanBase.cfg`, o último servidor aplicado) está "tocada" e sobrevive; uma coluna igual à
  * base adota o servidor novo (não é edição minha, é uma mudança alheia/legítima chegando).
  */
+/**
+ * Fix hidratação rodada 2 (achado N3 da re-revisão): uma coluna onde `local` diverge da base MAS
+ * CONVERGIU para o mesmo valor que o servidor (`local ≡ servidorNovo`) não é mais tratada como
+ * "tocada" — mesmo princípio do `mergeDraft` quando `draft ≡ fresh`. Casos reais: o `update(diff)`
+ * gravou no servidor mas a resposta se perdeu (falha parcial, ver `resolverEcoKanban`) e um retry
+ * comparava contra a base ANTIGA achando conflito falso; ou outro admin fez a MESMA edição. Sem
+ * isso, `conflitoKanban` acusava a coluna em TODO save seguinte até a página recarregar.
+ */
+function colunaTocada(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor, c: KanbanCol): boolean {
+  if (jsonCanonico(local[c] ?? null) === jsonCanonico(servidorNovo[c] ?? null)) return false;
+  return jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
+}
+
 export function mesclarKanbanPorColuna(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor): KanbanColsValor {
   const out: KanbanColsValor = {};
   for (const c of KANBAN_COLS) {
-    const tocada = jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
-    out[c] = tocada ? local[c] : servidorNovo[c];
+    out[c] = colunaTocada(local, servidorNovo, base, c) ? local[c] : servidorNovo[c];
   }
   return out;
 }
@@ -155,7 +167,9 @@ export function rebasearKanban(local: KanbanColsValor, servidorNovo: KanbanColsV
   const cfg: KanbanColsValor = {};
   const servidor: KanbanColsValor = {};
   for (const c of KANBAN_COLS) {
-    const tocada = jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
+    // N3: convergida (local ≡ servidorNovo) não conta como tocada — re-baseia normalmente,
+    // mesmo quando isso difere de `base` (ver `colunaTocada`).
+    const tocada = colunaTocada(local, servidorNovo, base, c);
     // Tocada: NÃO re-baseia (fica com o valor de ANTES da minha edição) — o próximo
     // `diffKanban(kanbanBase.cfg, cfg)` precisa continuar vendo `base[c] !== local[c]` para
     // gravar a mudança; se `cfg[c]` virasse `local[c]` aqui, o diff daria vazio e o Salvar

@@ -107,4 +107,50 @@ describe("[fix hidratação] CQ Pré — Salvar/Confirmar travam ANTES da hidrat
     await esperar(200);
     expect(salvar()!.disabled).toBe(true);
   });
+
+  // Achado N1 da re-revisão (regressão da rodada 1): o corpo era renderizado por `(!cad?.id ||
+  // (!cqLoadError && hydrated))` — uma vez hidratado, se um REFETCH posterior falhasse, o corpo
+  // sumia (nem banner nem fieldset renderizavam), mas Salvar/Confirmar (que só olham `hydrated`)
+  // continuavam habilitados. Prova: hidrata com sucesso, depois um refetch de
+  // `controle_qualidade` falha — o formulário continua visível.
+  it("N1: refetch falha DEPOIS de hidratado — o corpo do CQ Pré CONTINUA visível", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    await aguardar(() => !!salvar() && salvar()!.disabled === false, "hidratou (Salvar habilitado)");
+    expect(document.body.textContent).toContain("Observações do Controle de Qualidade");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+
+    FAKE.falhar("controle_qualidade", 4);
+    await qc.invalidateQueries({ queryKey: ["cq", "c1"] });
+    await esperar(150);
+
+    // O corpo continua na tela e o Salvar continua HABILITADO (hydrated não regride).
+    expect(document.body.textContent).toContain("Observações do Controle de Qualidade");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+    expect(salvar()!.disabled).toBe(false);
+  });
+
+  // Achado R1 da re-revisão: as queries auxiliares (`cq-main-fabric`, `cq-blocos-fonte`,
+  // `cq-cats-servico`, `cq-confeccao-prioridade`) ainda engoliam erro e `fonteSettled` usava só
+  // `isFetched` — uma falha nelas fazia a tela hidratar "sem fonte" e o `_rev_base.fonte` ia
+  // `null`, pulando o rev-check da grade compartilhada com o PCP no servidor.
+  it("R1: cq-blocos-fonte (bloco-fonte da grade cortada) falha ao carregar — Salvar continua DESABILITADO e aparece 'Tentar de novo'", async () => {
+    FAKE.falhar("producao_terceirizados", 4); // cq-blocos-fonte lê producao_terceirizados
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    await aguardar(() => !!salvar(), "botão Salvar na tela");
+    await esperar(120);
+    expect(salvar()!.disabled).toBe(true); // ← R1: nunca hidrata com a fonte em erro
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
+  });
 });

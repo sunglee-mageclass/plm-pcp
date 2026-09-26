@@ -171,6 +171,30 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
       expect(r.cfg.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] });
       expect(r.servidor.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] });
     });
+
+    // Achado N3 da re-revisão (review-fix1.md): coluna que DIVERGE da base mas CONVERGIU para o
+    // MESMO valor que o servidor (ex.: o `update(diff)` gravou mas a resposta se perdeu — falha
+    // parcial — e um retry compararia contra a base velha; ou outro admin fez a MESMA edição) não
+    // pode ficar "tocada para sempre". Sem o fix, `conflitoKanban` acusaria um conflito FALSO em
+    // TODO save seguinte, até a página recarregar.
+    it("N3: coluna CONVERGIU (local ≡ servidorNovo, mas ambos ≠ base) NÃO fica tocada — adota e re-baseia normalmente", () => {
+      const base = pickKanban({ status_kanban: ["A"] });
+      // Minha edição local E o servidor (outro admin fez a mesma coisa, ou meu save gravou e o
+      // ack se perdeu) chegaram no MESMO valor ["A","B"] — nenhum dos dois é mais "a base antiga".
+      const local = pickKanban({ status_kanban: ["A", "B"] });
+      const servidorNovo = pickKanban({ status_kanban: ["A", "B"] });
+
+      const fundido = mesclarKanbanPorColuna(local, servidorNovo, base);
+      expect(fundido.status_kanban).toEqual(["A", "B"]); // valor correto (convergiu)
+
+      const r = rebasearKanban(local, servidorNovo, base);
+      // Re-baseou nos dois lados — NÃO ficou preso na base antiga ["A"].
+      expect(r.cfg.status_kanban).toEqual(["A", "B"]);
+      expect(r.servidor.status_kanban).toEqual(["A", "B"]);
+      // Sem conflito falso no próximo diff/conflito.
+      expect(diffKanban(r.cfg, pickKanban({ status_kanban: ["A", "B"] }))).toEqual({});
+      expect(conflitoKanban(r.servidor, { status_kanban: ["A", "B"] })).toEqual([]);
+    });
   });
 });
 

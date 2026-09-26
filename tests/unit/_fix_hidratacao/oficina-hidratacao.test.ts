@@ -98,4 +98,29 @@ describe("[fix hidratação] Oficina — Salvar trava ANTES da hidratação (P-5
     await esperar(200);
     expect(salvar()!.disabled).toBe(true);
   });
+
+  // Achado N1 da re-revisão (regressão da rodada 1): o corpo era renderizado por `(!cad?.id ||
+  // (!existingErrored && hydrated))` — uma vez hidratado, um erro de REFETCH posterior escondia o
+  // corpo (a Card com o fieldset), mas o Salvar (que só olha `hydrated`) continuava habilitado.
+  // Prova: hidrata, depois falha um refetch de `producao_oficina` — o corpo continua visível.
+  it("N1: refetch falha DEPOIS de hidratado — o corpo da Oficina CONTINUA visível", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    await aguardar(() => !!salvar() && salvar()!.disabled === false, "hidratou (Salvar habilitado)");
+    // "Preço por Peça" só existe dentro do fieldset gated (fora do PrintArea, que sempre
+    // renderiza) — prova real de que o corpo EDITÁVEL está visível.
+    expect(document.body.textContent).toContain("Preço por Peça");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+
+    FAKE.falhar("producao_oficina", 4);
+    await qc.invalidateQueries({ queryKey: ["producao-oficina", "c1"] });
+    await esperar(150);
+
+    expect(document.body.textContent).toContain("Preço por Peça");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+    expect(salvar()!.disabled).toBe(false);
+  });
 });

@@ -275,7 +275,9 @@ function OficinaDetailPage() {
         {/* Fix hidratação rodada 1 (achado I1, "por uniformidade"): carga com ERRO nunca hidrata
             — banner no lugar do formulário, com "Tentar de novo".
             Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado —
-            "Carregando…" no lugar do formulário, como pedia o brief original. */}
+            "Carregando…" no lugar do formulário, como pedia o brief original.
+            Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): o corpo renderiza por
+            `hydrated` SOZINHO — um erro de REFETCH posterior não pode esconder o formulário. */}
         {cad?.id && existingErrored && !hydrated && (
           <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
             <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -288,7 +290,7 @@ function OficinaDetailPage() {
           <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
         )}
 
-        {(!cad?.id || (!existingErrored && hydrated)) && (
+        {(!cad?.id || hydrated) && (
         <Card className="p-5 space-y-4">
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">

@@ -124,4 +124,37 @@ describe("[fix hidratação] Direcionamento — Salvar trava ANTES da hidrataç�
     soltarControle();
     await aguardar(() => salvar()!.disabled === false, "destrava após a âncora chegar", 2000);
   });
+
+  // Achado N2 da re-revisão: "Tentar de novo" só refazia `direcionamento-lojas` (a query
+  // `existing`). Uma falha em `cad_grades` (ou `lojas_direcionamento`/`dir-controle`) deixava a
+  // tela presa no aviso PARA SEMPRE, mesmo clicando "Tentar de novo" — só um refetch por foco de
+  // janela recuperava.
+  it("N2: 'Tentar de novo' refaz cad_grades também (não só direcionamento-lojas) — clicar recupera de um erro em cad_grades", async () => {
+    FAKE.falhar("cad_grades", 1); // só a 1ª falha — o retry (via "Tentar de novo") deve suceder
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(120);
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
+    expect(salvar()?.disabled ?? true).toBe(true);
+
+    const tentarDeNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").includes("Tentar de novo"))!;
+    await clicar(tentarDeNovo);
+    await aguardar(() => salvar()?.disabled === false, "hidrata após o retry recuperar cad_grades", 2000);
+  });
+
+  // Achado N4 da re-revisão: erro em `dir-controle` (a âncora de rev, achado M4) travava o Salvar
+  // MUDO — sem banner nem "Tentar de novo", indistinguível de "ainda carregando".
+  it("N4: dir-controle falha ao carregar — aparece o banner de erro (não trava mudo)", async () => {
+    FAKE.falhar("direcionamento_controle", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(120);
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+  });
 });

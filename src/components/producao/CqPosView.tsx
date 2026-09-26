@@ -268,8 +268,13 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
   return (
     <div className="space-y-4">
-      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata — banner no lugar
-          do formulário, com "Tentar de novo". */}
+      {/* Fix hidratação rodada 2 (achado N1 da re-revisão — regressão da rodada 1): o corpo tem
+          que renderizar por `hydrated` SOZINHO — uma vez hidratado, um erro de REFETCH posterior
+          (ex.: foco de janela, invalidate de outra tela) NÃO pode esconder o formulário nem virar
+          "vazio": no TanStack v5 um refetch que falha mantém `data` (o último bom) e vira
+          `isError=true`, então `hasLoadError && !hydrated` sozinho já cobria a 1ª carga, mas
+          `!hasLoadError && hydrated` escondia o corpo depois de hidratado. O banner de erro só
+          aparece ANTES da 1ª hidratação (erro real, nada pra mostrar ainda). */}
       {hasLoadError && !hydrated && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -290,7 +295,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
       {!hasLoadError && !hydrated && (
         <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
       )}
-      {!hasLoadError && hydrated && (
+      {hydrated && (
       <>
       {/* Grade real do Pré (base do acabamento) — leitura. */}
       <Card className="p-5 space-y-3">

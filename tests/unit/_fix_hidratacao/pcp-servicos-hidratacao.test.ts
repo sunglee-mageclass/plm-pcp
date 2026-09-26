@@ -94,4 +94,28 @@ describe("[fix hidratação] PCP Serviços — Salvar trava ANTES da hidrataçã
     expect(salvar()!.disabled).toBe(true);
     expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_terceirizados")).toBe(false);
   });
+
+  // Achado N1 da re-revisão (regressão da rodada 1): o corpo era renderizado por `(!cad?.id ||
+  // (!existingErrored && hydrated))` — uma vez hidratado, um erro de REFETCH posterior escondia o
+  // corpo (nem banner nem "Carregando…"/fieldset apareciam), mas o Salvar (que só olha `hydrated`)
+  // continuava habilitado. Prova: hidrata, depois falha um refetch de `producao_terceirizados` —
+  // o corpo continua visível e o Salvar continua no estado correto (habilitado).
+  it("N1: refetch falha DEPOIS de hidratado — o corpo do PCP CONTINUA visível", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
+    await aguardar(() => !!salvar() && salvar()!.disabled === false, "hidratou (Salvar habilitado)");
+    expect(document.body.textContent).toContain("Status Geral");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+
+    FAKE.falhar("producao_terceirizados", 4);
+    await qc.invalidateQueries({ queryKey: ["producao-terc", "c1"] });
+    await esperar(150);
+
+    expect(document.body.textContent).toContain("Status Geral");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar");
+    expect(salvar()!.disabled).toBe(false);
+  });
 });

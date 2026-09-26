@@ -134,4 +134,32 @@ describe("[fix hidratação] CQ Pós — Salvar/Confirmar/Desmarcar travam ANTES
     await esperar(200);
     expect(salvarPos()?.disabled ?? true).toBe(true);
   });
+
+  // Achado N1 da re-revisão (regressão da rodada 1): o corpo era renderizado por
+  // `!hasLoadError && hydrated` — uma vez hidratado, se um REFETCH posterior falhasse (foco de
+  // janela, invalidate de outra tela), `hasLoadError` virava true e o corpo SUMIA (nem banner nem
+  // "Carregando…" — os 3 ramos de render davam falso), mas os botões (que só olham `hydrated`)
+  // continuavam habilitados. Prova: hidrata com sucesso (a "Grade real" e a "Observações do CQ
+  // Pós" aparecem — parte do corpo FORA do card por-serviço), depois um refetch de
+  // `producao_terceirizados` falha — o corpo continua visível, sem "Carregando…" nem sumir.
+  it("N1: refetch falha DEPOIS de hidratado — o corpo do Pós CONTINUA visível (não vira banner/vazio)", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await aguardar(() => !!botaoPorTexto("Pós (acabamento)"), "aba Pós na tela");
+    await clicar(botaoPorTexto("Pós (acabamento)")!);
+    await aguardar(() => document.body.textContent?.includes("Observações do CQ Pós") ?? false, "hidratou (corpo do Pós aparece)");
+    expect(document.body.textContent).not.toContain("Carregando…");
+
+    // Refetch de `producao_terceirizados` falha (ex.: eco de Realtime, foco de janela).
+    FAKE.falhar("producao_terceirizados", 4);
+    await qc.invalidateQueries({ queryKey: ["cqpos-servicos", "c1"] });
+    await esperar(150);
+
+    // O corpo continua na tela — NÃO sumiu, NÃO virou "Carregando…" nem banner de erro.
+    expect(document.body.textContent).toContain("Observações do CQ Pós");
+    expect(document.body.textContent).toContain("Grade real (do CQ Pré)");
+    expect(document.body.textContent).not.toContain("Carregando…");
+  });
 });

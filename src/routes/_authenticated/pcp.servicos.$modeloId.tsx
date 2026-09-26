@@ -1140,11 +1140,12 @@ export function TerceirizadosDetail({
   ) : (
     // Fix hidratação (P-57 A, metade 1): `salvar_terceirizados` audita como ESTADO COMPLETO em
     // `producao_terceirizados` — `DELETE FROM producao_terceirizados WHERE cad_id=_cad_id AND
-    // NOT (id=ANY(v_ids))` (não é diff incremental nem upsert-só-por-bloco: um payload `_blocos:
-    // []` apaga TODOS os blocos do CAD, exceto os que têm parcela paga, que abortam a operação
-    // inteira). O `grade_detalhe` destrinchado é gravado como objeto OPACO por bloco — travar o
-    // Salvar até `hydrated && moldeHydrated` é barato e fecha a classe (ver
-    // `.superpowers/fix-hidratacao/review.md`, auditoria das RPCs).
+    // NOT (id=ANY(v_ids))` (não é diff incremental nem upsert-só-por-bloco). Um payload
+    // `_blocos: []`: se ALGUM bloco removido (ausente do payload) tem parcela paga, o RAISE
+    // ABORTA A OPERAÇÃO INTEIRA (nada é gravado); senão, o DELETE apaga TODOS os blocos do CAD —
+    // não é um apagamento parcial nos dois casos. O `grade_detalhe` destrinchado é gravado como
+    // objeto OPACO por bloco — travar o Salvar até `hydrated && moldeHydrated` é barato e fecha a
+    // classe (ver `.superpowers/fix-hidratacao/review.md`, auditoria das RPCs).
     <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || !moldeHydrated} aria-label="Salvar">
       <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
     </Button>
@@ -1650,7 +1651,11 @@ export function TerceirizadosDetail({
       {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (o gate exige
           `existingOk`) — banner no lugar do formulário, com "Tentar de novo".
           Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado — "Carregando…"
-          no lugar do corpo (Status Geral/blocos), como pedia o brief original. */}
+          no lugar do corpo (Status Geral/blocos), como pedia o brief original.
+          Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): o corpo renderiza por
+          `hydrated` SOZINHO — uma vez hidratado, um erro de REFETCH posterior não esconde o
+          formulário nem deixa Salvar habilitado "por engano" (o botão só olha `hydrated`, então
+          escondê-lo sem travar o Salvar era pior). */}
       {cad?.id && existingErrored && !hydrated && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -1663,7 +1668,7 @@ export function TerceirizadosDetail({
         <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
       )}
 
-      {(!cad?.id || (!existingErrored && hydrated)) && (
+      {(!cad?.id || hydrated) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
