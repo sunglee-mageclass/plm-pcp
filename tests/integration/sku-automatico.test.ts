@@ -15,6 +15,8 @@
  *  • sem a variável — exige a F3.5a JÁ aplicada na cópia (ensaio da Task 6 / QA da Task 10); sem ela, pula.
  * O teste "estático" (travas no arquivo + lista de acentos TS = SQL) não usa banco: roda sempre.
  * Dados de teste: criados na própria txn (cores "SKU-T …", artigos, variantes, modelos, produtos) na Loja Teste.
+ * F3.6 (plano 2026-09-25, Task 6 — dono 25/set): o "Tamanho em" NÃO tem mais padrão da loja. Com SKU_MIG_TXN=1 a suíte aplica
+ *   TAMBÉM a 20261005100000 depois da F3.5a (as 4 funções do SKU são redefinidas lá); sem a variável, exige as DUAS na cópia.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -32,6 +34,7 @@ import {
 
 const MIG = "supabase/migrations/20261003100000_sku_automatico.sql";
 const INV = "supabase/rollback/20261003100000_sku_automatico_down.sql";
+const MIG_SHEET = "supabase/migrations/20261005100000_modelo_titulo_peso_ncm_preco_anterior.sql";
 const LOCAL = ehBancoLocal();
 const MIG_TXN = process.env.SKU_MIG_TXN === "1";
 if (MIG_TXN && hasDb) exigeBancoLocal(); // recusa na COLETA, antes de qualquer conexão
@@ -62,7 +65,7 @@ async function prepara(c: PgClient): Promise<void> {
   exigeBancoLocal();
   await c.query("SET LOCAL lock_timeout = '3s'");
   await c.query("SET LOCAL statement_timeout = '60s'");
-  if (MIG_TXN) await aplica(c, MIG);
+  if (MIG_TXN) { await aplica(c, MIG); await aplica(c, MIG_SHEET); } // F3.6: o SKU sem padrão da loja mora na 20261005100000
 }
 
 /** Roda e ESPERA erro; volta ao savepoint (a txn segue usável — o RAISE abortaria o resto do teste). */
@@ -83,7 +86,6 @@ const T = TENANT_TESTE;
 const CFG = {
   partes: ["ref", "cor_base", "cor_apelido", "tamanho"],
   separadores: { "ref|cor_base": "-", "cor_apelido|tamanho": "-" },
-  tamanho_padrao: "numero",
 };
 const TSKU = { "34": "34", "36": "36", "38": "38", PPP: "ppp", PP: "PP", P: "P" };
 const GRADE = ["34|PPP", "36|PP", "38|P"];
@@ -113,8 +115,10 @@ async function tecido1(c: PgClient, mt: string, vts: string[], desde = 1): Promi
     );
   }
 }
-const modelo = (c: PgClient, nome: string, ref: string, origem = "interno") =>
-  novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, $2, $3, $4) RETURNING id", [T, nome, ref, origem]);
+// F3.6 (dono 25/set): SEM padrão da loja — o card de teste escolhe o "Tamanho em" ('numero', o que o CFG antigo dava pela
+// loja); `null` = card sem escolha (handover do produto espelho).
+const modelo = (c: PgClient, nome: string, ref: string, origem = "interno", tipo: string | null = "numero") =>
+  novoId(c, "INSERT INTO public.modelos (tenant_id, nome, ref, origem, tamanho_tipo) VALUES ($1, $2, $3, $4, $5) RETURNING id", [T, nome, ref, origem, tipo]);
 /** Modelo interno com o Tecido 1 = as variantes dadas (na ordem) — para réplica/conflito. */
 async function internoCom(c: PgClient, artigo: string, nome: string, ref: string, vts: string[]): Promise<string> {
   const m = await modelo(c, nome, ref);
@@ -326,9 +330,11 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect(r.sku_config).toEqual({
         partes: ["ref", "cor_base", "cor_apelido", "tamanho"],
         separadores: { "ref|cor_base": "-", "cor_apelido|tamanho": "-" },
-        tamanho_padrao: "numero",
       });
       expect(r.tamanhos_sku).toEqual({ "34": "34", "36": "36", "38": "38", PPP: "PPP", PP: "PP", P: "P" });
+      // F3.6 (R24): a chave legada tamanho_padrao é IGNORADA pelo gatilho (sem erro) e sai do jsonb gravado
+      await lojaSku(c, { ...CFG, tamanho_padrao: "numero" });
+      expect((await um<any>(c, "SELECT sku_config FROM public.tenant_config WHERE tenant_id = $1", [T])).sku_config).not.toHaveProperty("tamanho_padrao");
       const e = await falha(c, "UPDATE public.tenant_config SET sku_config = '{\"partes\":[\"ref\",\"cor\"]}'::jsonb WHERE tenant_id = $1", [T]);
       expect(e).toEqual({ code: "P0001", message: 'Parte do SKU desconhecida: "cor".' });
       const e2 = await falha(c, "UPDATE public.tenant_config SET tamanhos_sku = '{\"34\": 34}'::jsonb WHERE tenant_id = $1", [T]);
@@ -344,7 +350,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
     });
   });
 
-  it("tamanho_tipo: CHECK letra|numero (NOT VALID — vale p/ escrita nova) em modelos/produtos; NULL = padrão da loja", async () => {
+  it("tamanho_tipo: CHECK letra|numero (NOT VALID — vale p/ escrita nova) em modelos/produtos; NULL = sem escolha (F3.6: obrigatório p/ gerar)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -375,7 +381,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       await prepara(c);
       const pa = await novoId(c, "INSERT INTO public.produtos_acabados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T PA', 'SKU-PA0', 'numero') RETURNING id", [T]);
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.produtos_acabados WHERE id = $1", [pa])).tamanho_tipo).toBe("numero");
-      const m1 = await modelo(c, "SKU-T PA", "SKU-PA0", "revenda");
+      const m1 = await modelo(c, "SKU-T PA", "SKU-PA0", "revenda", null); // sem escolha: o produto passa o dele
       await c.query("UPDATE public.produtos_acabados SET modelo_id = $1 WHERE id = $2", [m1, pa]);
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.modelos WHERE id = $1", [m1])).tamanho_tipo).toBe("numero");
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.produtos_acabados WHERE id = $1", [pa])).tamanho_tipo).toBeNull();
@@ -385,8 +391,10 @@ describe.skipIf(!PRONTO)("SKU F3.5a — colunas, gatilhos e tabela", () => {
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.produtos_acabados WHERE id = $1", [pa])).tamanho_tipo).toBeNull();
       // importado apontando p/ modelo de OUTRA loja: o modelo alheio NÃO é tocado
       const alheio = await um<{ id: string }>(c,
-        "SELECT id FROM public.modelos WHERE tenant_id <> $1 AND tamanho_tipo IS NULL AND NOT EXISTS (SELECT 1 FROM public.produtos_importados p WHERE p.modelo_id = modelos.id) ORDER BY id LIMIT 1", [T]);
+        "SELECT id FROM public.modelos WHERE tenant_id <> $1 AND NOT EXISTS (SELECT 1 FROM public.produtos_importados p WHERE p.modelo_id = modelos.id) ORDER BY id LIMIT 1", [T]);
       expect(alheio?.id, "a cópia precisa de 1 modelo de outra loja").toBeTruthy();
+      // o backfill da 20261005100000 (R41) preenche "Tamanho em" em TODAS as lojas — o NULL alheio é montado aqui, na txn revertida (NULL explícito segue possível — R23)
+      await c.query("UPDATE public.modelos SET tamanho_tipo = NULL WHERE id = $1", [alheio.id]);
       const pi = await novoId(c, "INSERT INTO public.produtos_importados (tenant_id, nome, ref, tamanho_tipo) VALUES ($1, 'SKU-T PI', 'SKU-PI0', 'letra') RETURNING id", [T]);
       await c.query("UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2", [alheio.id, pi]);
       expect((await um<any>(c, "SELECT tamanho_tipo FROM public.modelos WHERE id = $1", [alheio.id])).tamanho_tipo).toBeNull();
@@ -454,7 +462,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       const r = await gerar(c, k.interno);
       expect(r.status).toBe("ok");
       expect(r.criados).toBe(3);
-      expect(r.tamanho_tipo).toBe("numero"); // card sem valor = padrão da loja
+      expect(r.tamanho_tipo).toBe("numero"); // o "Tamanho em" do card (modelo() grava 'numero' — F3.6: sem padrão da loja)
       expect(await skus(c, k.interno)).toEqual([
         { variante_key: k.kAm, tamanho_key: "34|PPP", sku: "SKU-T1-AM-34", manual: false },
         { variante_key: k.kAm, tamanho_key: "36|PP", sku: "SKU-T1-AM-36", manual: false },
@@ -561,7 +569,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       expect(linha(r, k.kVdMus, "36|PP")).toMatchObject({ estado: "ok", sku: "SKU-T1-VDMUS-36" });
       expect(linha(r, k.kVdMus, "38|P")).toMatchObject({ estado: "manual", sku: "VD-MAO" }); // o manual nunca muda
       // Formato SÓ com cor_apelido (sem cor_base): sem apelido ⇒ a sigla da cor base no lugar
-      await lojaSku(c, { partes: ["ref", "cor_apelido", "tamanho"], separadores: { "ref|cor_apelido": "-", "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      await lojaSku(c, { partes: ["ref", "cor_apelido", "tamanho"], separadores: { "ref|cor_apelido": "-", "cor_apelido|tamanho": "-" } });
       const mz = await matriz(c, k.interno);
       expect(linha(mz, k.kAm, "34|PPP").sku_previsto).toBe("SKU-T1-AM-34");
       expect(linha(mz, k.kAmCan, "34|PPP").sku_previsto).toBe("SKU-T1-CAN-34");
@@ -647,7 +655,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       await prepara(c);
       const k = await cenario(c);
       await comoUsuario(c);
-      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" } });
       await gerar(c, k.interno);
       const rep = await internoCom(c, k.artigo, "SKU-T Blusa v2", "SKU-T1", [k.vtAm]);
       await grade(c, rep, 1, { "34|PPP": 1 });
@@ -670,7 +678,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       await prepara(c);
       const k = await cenario(c);
       await comoUsuario(c);
-      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" }, tamanho_padrao: "numero" });
+      await lojaSku(c, { partes: ["cor_base", "cor_apelido", "tamanho"], separadores: { "cor_apelido|tamanho": "-" } });
       await gerar(c, k.interno);
       const m3 = await internoCom(c, k.artigo, "SKU-T Outra", "SKU-T9", [k.vtAm]);
       await grade(c, m3, 1, { "34|PPP": 1 });
@@ -744,7 +752,7 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
     });
   });
 
-  it("revenda: variantes do Produto Acabado; 'Tamanho em' do card (letra) vence o padrão da loja (número)", async () => {
+  it("revenda: variantes do Produto Acabado; o 'Tamanho em' do card (letra) decide o lado (F3.6: sem padrão da loja)", async () => {
     await withTx(async (c) => {
       await prepara(c);
       const k = await cenario(c);
@@ -833,8 +841,9 @@ describe.skipIf(!PRONTO)("SKU F3.5a — gerar_skus_modelo / salvar_sku_manual / 
       await prepara(c);
       const k = await cenario(c);
       await comoUsuario(c);
-      await lojaSku(c, { ...CFG, tamanho_padrao: "letra" }, { "36": "36", PP: "PP", "34": "34", PPP: "PPP" }, ["36", "38", "PP", "P", "34|PPP"]);
+      await lojaSku(c, CFG, { "36": "36", PP: "PP", "34": "34", PPP: "PPP" }, ["36", "38", "PP", "P", "34|PPP"]);
       await c.query("UPDATE public.modelo_grades SET grades = '{\"36\": 1, \"PP\": 1, \"34|PPP\": 1}'::jsonb WHERE modelo_id = $1 AND variante_numero = 1", [k.interno]);
+      await c.query("UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE id = $1", [k.interno]); // F3.6: o card escolhe
       let mz = await matriz(c, k.interno);
       expect(mz.tamanho_tipo).toBe("letra");
       expect(linha(mz, k.kAm, "36").sku_previsto).toBe("SKU-T1-AM-36");

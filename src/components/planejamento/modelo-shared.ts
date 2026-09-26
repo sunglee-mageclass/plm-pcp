@@ -128,6 +128,22 @@ export type Draft = {
   // ÚNICA `CAMPOS_DEV_DRAFT` (helpers.ts).
   proporcoes: Record<string, number>;
   custos_adicionais: { descricao: string; valor: number }[];
+  // F3.6 (seção "4. Códigos", F3.5b do SKU): "Tamanho em" do card — coluna `modelos.tamanho_tipo` da F3.5a
+  // (`letra`|`numero`). SEM padrão da LOJA (nada na Config) — decisão P-25 do dono (25/set 14:57): todo produto
+  // NASCE marcado em Letra e pode trocar para Número; legado/NULL também migra p/ "letra" (T6, no banco). O
+  // Draft nunca fica NULL — `draftFromModeloRow` normaliza qualquer valor estranho (NULL/legado) p/ "letra".
+  // Grava no Salvar (campo do Planejamento).
+  tamanho_tipo: "letra" | "numero";
+  // F3.6 (Parte B — spec 2026-09-25 §5.2; migration 20261005100000): campos NOVOS do Planejamento (seção 1 e Preço e Custos).
+  // NULL = automático (Título: nome em título + " | " + loja; Preço anterior: acompanha o preço de venda EFETIVO) ou vazio
+  // (Peso/medidas/NCM). Não são do Dev (fora de CAMPOS_DEV_DRAFT). Fora do types.ts até regenerar — o Draft é tipo próprio.
+  titulo_pagina: string | null;
+  peso_kg: number | null;
+  comprimento_cm: number | null;
+  largura_cm: number | null;
+  altura_cm: number | null;
+  ncm: string | null;
+  preco_anterior: number | null;
 };
 export const emptyDraft = (): Draft => ({
   nome: "", ref: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -145,6 +161,8 @@ export const emptyDraft = (): Draft => ({
   descricao_produto: "",
   proporcoes: {},
   custos_adicionais: [],
+  tamanho_tipo: "letra",
+  titulo_pagina: null, peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null, ncm: null, preco_anterior: null,
 });
 
 // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto). Extraída como função PURA (era
@@ -198,5 +216,22 @@ export function draftFromModeloRow(data: any): Draft {
     descricao_produto: data.descricao_produto ?? "",
     proporcoes: (data.proporcoes ?? {}) as Record<string, number>,
     custos_adicionais: (data.custos_adicionais ?? []) as { descricao: string; valor: number }[],
+    tamanho_tipo: tamanhoTipoNormalizado(data.tamanho_tipo),
+    titulo_pagina: data.titulo_pagina ?? null,
+    peso_kg: data.peso_kg ?? null,
+    comprimento_cm: data.comprimento_cm ?? null,
+    largura_cm: data.largura_cm ?? null,
+    altura_cm: data.altura_cm ?? null,
+    ncm: data.ncm ?? null,
+    preco_anterior: data.preco_anterior ?? null,
   };
+}
+
+// Rodada 2 (Minor 5) — extraído de dentro de `draftFromModeloRow` p/ ser a MESMA função usada por quem precisa do
+// "Tamanho em" SALVO fora do Draft (ex.: `tamanhoTipoSalvo` em PlanejamentoDetail.tsx, comparado contra o rascunho
+// p/ travar o Regerar) — evita reimplementar a regra "qualquer coisa ≠ 'numero' vira 'letra'" inline em 2 lugares.
+/** P-25 (dono 25/set) — qualquer valor que não seja "numero" vira "letra" (NULL do legado, valor estranho, etc.);
+ *  a migration T6 já move o legado NULL para "letra" no banco, isto é só a rede de proteção no front. */
+export function tamanhoTipoNormalizado(v: unknown): "letra" | "numero" {
+  return v === "numero" ? "numero" : "letra";
 }

@@ -9,6 +9,13 @@ import {
   camposParaDuplicar,
   draftParaSalvar,
   normalizarDraftSalvo,
+  filtrarNcm,
+  numeroOuNull,
+  numeroDoInput,
+  precoAnteriorOuNull,
+  precoAnteriorExibido,
+  camposNovosParaPayload,
+  aplicarPrecoAnterior,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -292,5 +299,138 @@ describe("CAMPOS_DEV_DRAFT — F3.2 (lista ÚNICA com a F3.1)", () => {
     expect(p).not.toHaveProperty("proporcoes");
     expect(p).not.toHaveProperty("custos_adicionais");
     expect(p.nome).toBe("M");
+  });
+});
+
+describe("rotuloConflitoPlan — F3.6 (seção Códigos)", () => {
+  it("'Tamanho em'", () => {
+    expect(rotuloConflitoPlan("tamanho_tipo")).toBe("Tamanho em");
+  });
+});
+
+describe("F3.6 (Parte B) — campos novos: rótulos, NCM, números e Preço anterior", () => {
+  it("rótulos PT do banner de conflito", () => {
+    expect(rotuloConflitoPlan("titulo_pagina")).toBe("Título para a página");
+    expect(rotuloConflitoPlan("peso_kg")).toBe("Peso (kg)");
+    expect(rotuloConflitoPlan("comprimento_cm")).toBe("Comprimento (cm)");
+    expect(rotuloConflitoPlan("largura_cm")).toBe("Largura (cm)");
+    expect(rotuloConflitoPlan("altura_cm")).toBe("Altura (cm)");
+    expect(rotuloConflitoPlan("ncm")).toBe("NCM do Produto");
+    expect(rotuloConflitoPlan("preco_anterior")).toBe("Preço anterior");
+  });
+  it("filtrarNcm: vírgula vira ponto (teclado decimal do iOS pt-BR — R30); só dígitos e pontos, até 10 (ruling 3)", () => {
+    expect(filtrarNcm("6204.43.00")).toBe("6204.43.00");
+    expect(filtrarNcm("6204,43,00")).toBe("6204.43.00");
+    expect(filtrarNcm("62ab04.43,00x")).toBe("6204.43.00");
+    expect(filtrarNcm("62044300999")).toBe("6204430099");
+    expect(filtrarNcm(null)).toBe("");
+  });
+  // P8 (fix1, revisão Opus do Lote B1 — parqueado da T8): colar um texto com PREFIXO (ex.: "NCM: 6204.43.00") tem que
+  // extrair os dígitos/pontos corretos, não truncar pelos primeiros 10 CARACTERES do texto colado (o bug era o
+  // `maxLength={10}` do <Input> cortando ANTES de `filtrarNcm` rodar — aqui provamos que a função pura já filtra certo;
+  // remover o `maxLength` no componente é o que deixa esse resultado chegar até o Draft).
+  it("filtrarNcm: texto colado com prefixo — extrai os dígitos/pontos certos, não os 10 primeiros caracteres crus", () => {
+    expect(filtrarNcm("NCM: 6204.43.00")).toBe("6204.43.00");
+    expect(filtrarNcm("Código NCM 6204.43.00")).toBe("6204.43.00");
+  });
+  it("numeroOuNull: vazio/null/inválido = NULL; 0 VALE (CHECK >= 0); arredonda às casas da coluna", () => {
+    expect(numeroOuNull("", 3)).toBeNull();
+    expect(numeroOuNull(null, 2)).toBeNull();
+    expect(numeroOuNull("abc", 2)).toBeNull();
+    expect(numeroOuNull(0, 3)).toBe(0);
+    expect(numeroOuNull("0.3456", 3)).toBe(0.346);
+    expect(numeroOuNull(12.346, 2)).toBe(12.35);
+  });
+  it("numeroDoInput: o '' do MoneyInput = NULL (vazio), o resto vira número", () => {
+    expect(numeroDoInput("")).toBeNull();
+    expect(numeroDoInput("0")).toBe(0);
+    expect(numeroDoInput("1.5")).toBe(1.5);
+  });
+  it("precoAnteriorOuNull: vazio/0 = NULL = automático (não 'preço zero' — ruling 11)", () => {
+    expect(precoAnteriorOuNull(null)).toBeNull();
+    expect(precoAnteriorOuNull("")).toBeNull();
+    expect(precoAnteriorOuNull(0)).toBeNull();
+    expect(precoAnteriorOuNull("199.9")).toBe(199.9);
+    expect(precoAnteriorOuNull(199.999)).toBe(200);
+  });
+  it("precoAnteriorExibido: o fixado; senão o preço EFETIVO; efetivo 0 = vazio", () => {
+    expect(precoAnteriorExibido(150, 199.9)).toBe(150);
+    expect(precoAnteriorExibido(null, 199.9)).toBe(199.9);
+    expect(precoAnteriorExibido(undefined, 0)).toBeNull();
+  });
+  it("camposNovosParaPayload: título aparado (vazio = NULL = automático), NCM filtrado, números normalizados", () => {
+    expect(camposNovosParaPayload({
+      titulo_pagina: "  Meu título  ", ncm: "6204.43.00x", peso_kg: 0.3456, comprimento_cm: 60, largura_cm: null, altura_cm: 0,
+    })).toEqual({ titulo_pagina: "Meu título", ncm: "6204.43.00", peso_kg: 0.346, comprimento_cm: 60, largura_cm: null, altura_cm: 0 });
+    expect(camposNovosParaPayload({
+      titulo_pagina: "   ", ncm: "", peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null,
+    })).toEqual({ titulo_pagina: null, ncm: null, peso_kg: null, comprimento_cm: null, largura_cm: null, altura_cm: null });
+  });
+  it("camposParaDuplicar: Título e Preço anterior voltam ao AUTOMÁTICO (fora do objeto); NCM/peso/medidas/descrição/'Tamanho em' vão", () => {
+    const d = {
+      ...emptyDraft(), nome: "Vestido", titulo_pagina: "Título à mão", preco_anterior: 199.9, ncm: "6204.43.00",
+      peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, descricao_produto: "Desc", tamanho_tipo: "numero" as const,
+    };
+    const out = camposParaDuplicar(d);
+    expect(out).not.toHaveProperty("titulo_pagina");
+    expect(out).not.toHaveProperty("preco_anterior");
+    expect(out).toMatchObject({ ncm: "6204.43.00", peso_kg: 0.35, comprimento_cm: 60, largura_cm: 40, altura_cm: 2.5, descricao_produto: "Desc", tamanho_tipo: "numero" });
+  });
+  it("normalizarDraftSalvo: os 7 com as MESMAS regras do payload (base do merge sem eco do próprio Salvar)", () => {
+    const n = normalizarDraftSalvo({
+      ...emptyDraft(), titulo_pagina: "  ", ncm: "62.04x", peso_kg: 0.3456, preco_anterior: 0,
+    });
+    expect(n).toMatchObject({ titulo_pagina: null, ncm: "62.04", peso_kg: 0.346, preco_anterior: null });
+  });
+});
+
+// Ruling R-a (revisão do Lote B1, mesmo tema da T9): `aplicarPrecoAnterior` extraída de `usePlanejamentoSave.ts`
+// como função PURA — a MESMA regra de permissão do preço de venda, aplicada no MESMO ponto pros dois ramos
+// (manufaturado/importado e revenda).
+describe("aplicarPrecoAnterior (ruling R-a)", () => {
+  it("com permissão: grava precoAnteriorOuNull(d.preco_anterior) — 0/vazio/negativo viram NULL", () => {
+    const payload: Record<string, unknown> = {};
+    aplicarPrecoAnterior(payload, { ...emptyDraft(), preco_anterior: 199.9 }, true);
+    expect(payload.preco_anterior).toBe(199.9);
+
+    const p0: Record<string, unknown> = {};
+    aplicarPrecoAnterior(p0, { ...emptyDraft(), preco_anterior: 0 }, true);
+    expect(p0.preco_anterior).toBeNull();
+
+    const pNeg: Record<string, unknown> = {};
+    aplicarPrecoAnterior(pNeg, { ...emptyDraft(), preco_anterior: -10 }, true);
+    expect(pNeg.preco_anterior).toBeNull();
+
+    const pNull: Record<string, unknown> = {};
+    aplicarPrecoAnterior(pNull, { ...emptyDraft(), preco_anterior: null }, true);
+    expect(pNull.preco_anterior).toBeNull();
+  });
+  it("sem permissão: a chave NÃO entra no payload (nem para apagar um valor já presente)", () => {
+    const payload: Record<string, unknown> = { preco_anterior: 150, nome: "M" };
+    aplicarPrecoAnterior(payload, { ...emptyDraft(), preco_anterior: 199.9 }, false);
+    expect(payload).not.toHaveProperty("preco_anterior");
+    expect(payload.nome).toBe("M");
+  });
+});
+
+// Ruling R-b (revisão do Lote B1): sem `podeEditarPreco`, `normalizarDraftSalvo` NÃO normaliza `preco_anterior` —
+// usa o valor CRU do servidor (o payload não o manda nesse caso), evitando o falso "Alguém salvou agora" quando
+// o banco tem 0/negativo (dado legado) e quem salvou não tinha a permissão de ver/mexer no preço.
+describe("normalizarDraftSalvo — R-b (permissão de preço)", () => {
+  it("sem permissão + servidor com 0: mantém 0 (não normaliza para NULL)", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 0 }, false);
+    expect(n.preco_anterior).toBe(0);
+  });
+  it("sem permissão + servidor com valor negativo (dado legado): mantém o valor cru", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: -5 }, false);
+    expect(n.preco_anterior).toBe(-5);
+  });
+  it("com permissão (default do parâmetro): normaliza — 0 vira NULL, como antes", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 0 });
+    expect(n.preco_anterior).toBeNull();
+  });
+  it("com permissão explícita=true: idêntico ao default", () => {
+    const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 199.9 }, true);
+    expect(n.preco_anterior).toBe(199.9);
   });
 });

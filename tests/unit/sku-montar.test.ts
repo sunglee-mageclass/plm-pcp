@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { aparar, ehNumeroTamanho, ladoTamanho, parseTamanho } from "@/lib/tamanho";
 import {
   ACENTOS_DE, ACENTOS_PARA, canonico, ladosDaGrade, mesclarSiglasTamanho, montarSku, normalizarRefSku, normalizarSigla,
@@ -124,5 +126,21 @@ describe("sku-montar.ts — apoio às telas", () => {
     expect(mesclarSiglasTamanho(fresco, base, { "34": "", PPP: "PPP" })).toEqual({ PPP: "PPP", "36": "36" });
     expect(mesclarSiglasTamanho(null, null, {})).toBeNull();
     expect(mesclarSiglasTamanho({ P: "P" }, { P: "P" }, { P: "" })).toBeNull();
+  });
+});
+
+describe("F3.6 — 'Tamanho em' SEM padrão da loja (dono 25/set; R10/R24)", () => {
+  it("normalizarSkuConfig IGNORA a chave legada tamanho_padrao (sem erro, fora da saída)", () => {
+    expect(normalizarSkuConfig({ partes: ["ref"], tamanho_padrao: "numero" })).toEqual({ ok: true, valor: { partes: ["ref"], separadores: {} } });
+    expect(normalizarSkuConfig({ partes: ["ref"], tamanho_padrao: "grande" })).toEqual({ ok: true, valor: { partes: ["ref"], separadores: {} } });
+    expect(normalizarSkuConfig({ partes: [], tamanho_padrao: "letra" })).toEqual({ ok: true, valor: null });
+  });
+  it("FormatoSkuCard (fonte): sem o campo 'Tamanho em (padrão da loja)'; prévia nas 2 formas", () => {
+    const s = readFileSync(fileURLToPath(new URL("../../src/components/configuracoes/FormatoSkuCard.tsx", import.meta.url)), "utf8");
+    expect(s).not.toContain("tamanho_padrao");
+    expect(s).not.toContain("Tamanho em (padrão da loja)");
+    expect(s).not.toContain("Card novo nasce com este padrão");
+    expect(s).toContain('{ tipo: "letra", rotulo: "Letra" }, { tipo: "numero", rotulo: "Número" }');
+    expect(s).toContain("previa(ex?.apelido ?? null, tipo)");
   });
 });

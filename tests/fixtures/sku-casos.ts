@@ -74,7 +74,7 @@ export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | {
   { entrada: {}, esperado: null },
   {
     entrada: { partes: ["ref", "cor_base", "tamanho"] },
-    esperado: { partes: ["ref", "cor_base", "tamanho"], separadores: {}, tamanho_padrao: "letra" },
+    esperado: { partes: ["ref", "cor_base", "tamanho"], separadores: {} },
   },
   {
     entrada: {
@@ -86,12 +86,11 @@ export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | {
     esperado: {
       partes: ["ref", "cor_base", "cor_apelido", "tamanho"],
       separadores: { "ref|cor_base": "-", "cor_apelido|tamanho": "/" },
-      tamanho_padrao: "numero",
     },
   },
-  { entrada: { partes: ["ref"], tamanho_padrao: "" }, esperado: { partes: ["ref"], separadores: {}, tamanho_padrao: "letra" } },
-  { entrada: { partes: ["ref"], tamanho_padrao: null }, esperado: { partes: ["ref"], separadores: {}, tamanho_padrao: "letra" } },
-  { entrada: { partes: ["ref"], separadores: null }, esperado: { partes: ["ref"], separadores: {}, tamanho_padrao: "letra" } },
+  { entrada: { partes: ["ref"], tamanho_padrao: "" }, esperado: { partes: ["ref"], separadores: {} } },
+  { entrada: { partes: ["ref"], tamanho_padrao: null }, esperado: { partes: ["ref"], separadores: {} } },
+  { entrada: { partes: ["ref"], separadores: null }, esperado: { partes: ["ref"], separadores: {} } },
   { entrada: [], erro: "Formato do SKU inválido." },
   { entrada: "x", erro: "Formato do SKU inválido." },
   { entrada: { partes: "ref" }, erro: "Formato do SKU inválido: partes." },
@@ -103,10 +102,11 @@ export const CASOS_CONFIG: ({ entrada: unknown; esperado: SkuConfig | null } | {
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "- " } }, erro: "Separador do SKU: use só - . _ /." },
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "#" } }, erro: "Separador do SKU: use só - . _ /." },
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "_/" } },
-    esperado: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "_/" }, tamanho_padrao: "letra" } },
+    esperado: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "_/" } } },
   { entrada: { partes: ["ref", "tamanho"], separadores: { "ref|tamanho": "----" } }, erro: "Separador do SKU: no máximo 3 caracteres." },
-  { entrada: { partes: ["ref"], tamanho_padrao: "grande" }, erro: "Tamanho padrão do SKU inválido (use letra ou número)." },
-  { entrada: { partes: ["ref"], tamanho_padrao: 5 }, erro: "Tamanho padrão do SKU inválido (use letra ou número)." },
+  // F3.6 (dono 25/set, R24): a chave legada tamanho_padrao é IGNORADA — qualquer valor, sem erro; a saída não a tem.
+  { entrada: { partes: ["ref"], tamanho_padrao: "grande" }, esperado: { partes: ["ref"], separadores: {} } },
+  { entrada: { partes: ["ref"], tamanho_padrao: 5 }, esperado: { partes: ["ref"], separadores: {} } },
 ];
 
 export const CASOS_TAMANHOS_SKU: ({ entrada: unknown; esperado: Record<string, string> | null } | { entrada: unknown; erro: string })[] = [
@@ -127,13 +127,11 @@ export const CASOS_TAMANHOS_SKU: ({ entrada: unknown; esperado: Record<string, s
 const F_TODAS: SkuConfig = {
   partes: ["ref", "cor_base", "cor_apelido", "tamanho"],
   separadores: { "ref|cor_base": "-", "cor_base|cor_apelido": ".", "cor_apelido|tamanho": "/" },
-  tamanho_padrao: "letra",
 };
-const F_COLADO: SkuConfig = { partes: ["ref", "cor_base", "tamanho"], separadores: {}, tamanho_padrao: "letra" };
+const F_COLADO: SkuConfig = { partes: ["ref", "cor_base", "tamanho"], separadores: {} };
 const F_APELIDO_1O: SkuConfig = {
   partes: ["cor_apelido", "ref", "tamanho"],
   separadores: { "cor_apelido|ref": "_", "ref|tamanho": "-" },
-  tamanho_padrao: "numero",
 };
 
 export const CASOS_MONTAR: { cfg: SkuConfig; valores: Record<string, string | null>; esperado: string }[] = [
@@ -194,13 +192,13 @@ export const CASOS_RESOLVER: CasoResolver[] = [
   { entrada: { cfg: F_COLADO, ref: "R1", cor: AM, apelido: null, tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
     esperado: { sku: null, faltas: [{ atributo: "tamanho", id: null, nome: "GG" }], avisos: [] } },
   // o Formato não usa cor_apelido: apelido sem sigla não conta (nem falta, nem aviso)
-  { entrada: { cfg: { partes: ["ref", "cor_base"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: MUS_SEM,
+  { entrada: { cfg: { partes: ["ref", "cor_base"], separadores: {} }, ref: "R1", cor: AM, apelido: MUS_SEM,
       tamanhoKey: "44|GG", tipo: "letra", tamanhosSku: null },
     esperado: { sku: "R1AM", faltas: [], avisos: [] } },
   // D4, Formato SEM cor_base: sem apelido ⇒ a sigla da cor base vai na posição do apelido — sem ela, falta (bloqueia)
   { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: VD_SEM, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
     esperado: { sku: null, faltas: [{ atributo: "cor_base", id: VD_SEM.id, nome: "Verde" }], avisos: [] } },
-  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: AM, apelido: null,
+  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {} }, ref: "R1", cor: AM, apelido: null,
       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
     esperado: { sku: "AM", faltas: [], avisos: [] } },
   // D4 (casos novos)
@@ -218,7 +216,7 @@ export const CASOS_RESOLVER: CasoResolver[] = [
   { entrada: { cfg: F_APELIDO_1O, ref: "R1", cor: null, apelido: null, tamanhoKey: "34|PPP", tipo: "numero", tamanhosSku: TSKU },
     esperado: { sku: null, faltas: [{ atributo: "cor_base", id: null, nome: null }], avisos: [] } },
   // apelido COM sigla: a cor base não é exigida quando o Formato não tem cor_base
-  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {}, tamanho_padrao: "letra" }, ref: "R1", cor: VD_SEM, apelido: CAN,
+  { entrada: { cfg: { partes: ["cor_apelido"], separadores: {} }, ref: "R1", cor: VD_SEM, apelido: CAN,
       tamanhoKey: "34|PPP", tipo: "letra", tamanhosSku: TSKU },
     esperado: { sku: "CAN", faltas: [], avisos: [] } },
   // tamanhoKey = nome de propriedade do protótipo ("constructor"): tamanhosSku[lado] em JS puro devolveria a

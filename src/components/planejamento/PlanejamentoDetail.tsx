@@ -52,12 +52,13 @@ import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelaci
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 import { ehOrigemComprada } from "@/lib/origem";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useTenantBranding } from "@/hooks/useTenantBranding";
 
 import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
   uploadFile,
   numOr0,
-  emptyDraft, draftFromModeloRow,
+  emptyDraft, draftFromModeloRow, tamanhoTipoNormalizado,
   type ArtigoOpt, type SubOpt, type Draft,
 } from "@/components/planejamento/modelo-shared";
 import {
@@ -95,6 +96,9 @@ import { somaCustosAdicionais } from "@/lib/custo";
 import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-detail/ficha/ficha-calc";
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
+import { CodigosSecao } from "@/components/planejamento/planejamento-detail/codigos/CodigosSecao";
+import { useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
+import { seloCodigos } from "@/components/planejamento/planejamento-detail/codigos/sku-card";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
@@ -158,6 +162,9 @@ function PlanejamentoDetailConteudo({
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
   const podeEditarDev = canEdit("criacao_desenvolvimento");
   const podeVerDev = canView("criacao_desenvolvimento");
+  // F3.6 (seção "4. Códigos" — F3.5b do SKU): SKUs = ver/editar o Planejamento (spec SKU §4.4; o servidor confere no wrapper).
+  const podeVerPlanejamento = canView("criacao_planejamento");
+  const podeEditarPlanejamento = canEdit("criacao_planejamento");
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
@@ -545,6 +552,9 @@ function PlanejamentoDetailConteudo({
   );
 
   const tenantIdAtivo = useActiveTenantId();
+  // F3.6 (ruling 1) — a MARCA da loja (`tenants.nome`, não o WISH360) p/ o Título automático da seção 1; mesma query cacheada
+  // dos relatórios (useTenantBranding).
+  const { nome: nomeLoja } = useTenantBranding();
   // Toggle opt-in (Config da Loja): mostra os 2 blocos de análise de markup por faixa. Default OFF.
   // Reflete no próximo refetch/reabrir do Sheet (config muda raro). Ver [[project_markup_min_ideal_max]].
   const { data: markupFaixaOn = false } = useQuery({
@@ -713,13 +723,15 @@ function PlanejamentoDetailConteudo({
   // Etapa do kanban (estado SALVO) + config da loja: coluna efetiva, gate do campo REF (refCampoVisivel, com
   // a posição DERIVADA quando a chave está ligada — decisão 10) e Reprovado (Motivo do Cancelamento).
   const kanbanCard = useFichaKanban({ modeloId, modeloData, enviada, lancado });
-  // REF editável = a seção "Desenvolvimento" mostra o campo (etapa configurada) e os campos do Dev estão livres.
+  // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
   const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel;
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
+  // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + Regerar / SKU à mão + 1ª geração pós-Salvar (R12).
+  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento);
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -821,7 +833,9 @@ function PlanejamentoDetailConteudo({
 
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
   // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo).
-  const aoSalvar = () => { setEditandoDev(false); onSaved(); };
+  // F3.6 — 1ª geração automática dos SKUs depois do Salvar que deixa o card com REF e sem SKU (spec SKU §4.2; só cria o que
+  // falta — `_regerar=false`; SKU já gravado nunca muda aqui). Sem await: o card já foi salvo; erro vira toast próprio.
+  const aoSalvar = () => { setEditandoDev(false); onSaved(); if (isEdit) void skus.gerarSeFaltar(); };
 
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
@@ -897,6 +911,8 @@ function PlanejamentoDetailConteudo({
     onMudancaServidor: () => {
       qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
       qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
+      // F3.6 — REF/grade/variantes mudaram no servidor ⇒ a matriz de SKUs relê.
+      qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });
     },
     campoFocado,
   });
@@ -1077,7 +1093,7 @@ function PlanejamentoDetailConteudo({
   // do botão desabilitado no setor Lançamento.
   const lancarBloqueios: string[] = [];
   if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Mão de obra).");
+  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Preço e Custos).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   // Selo da etapa no HEADER (decisão 5: Nome → REF → selo). "Planejamento" antes da Ordem de Criação, "Lançado"
@@ -1130,22 +1146,24 @@ function PlanejamentoDetailConteudo({
   // Salvar do Planejamento sozinho NÃO cria nada (precisa do Dev) — nesse caso o texto de "sem produto" mostra o
   // motivo REAL (`motivoGradeSomenteLeitura`) em vez do "salve para criar" enganoso.
   const motivoSemProdutoComprado: string | null = origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
+  // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
+  // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
+  const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
   const vis: Record<SecaoSheetKey, boolean> = {
     info: true,
     colecao: true,
     // F3.4 (acréscimo do controlador, comparação Dev × Planejamento) — paridade com `s1` (esconde "Informações
     // Básicas" no Dev): hoje sempre true (`revendaCampoVisivel("s1")` sempre devolve true), sem efeito visível.
     desenvolvimento: isEdit && podeVerDev && secFicha.equipe,
+    codigos: isEdit && !!modeloId,
     prova: isEdit && !!modeloId && podeVerDev && campoVisivelDev("prova"),
     tecidos: fichaVisivel && secFicha.tecidos, aviamentos: fichaVisivel && secFicha.aviamentos,
     insumos: fichaVisivel && secFicha.insumos, grade: fichaVisivel && secFicha.gradeTecido, cad: fichaVisivel && secFicha.cad,
     tecidos_novo: !isEdit && !isComprado,
+    // F3.6 (R1) — Dialog "Novo Modelo" (sem a seção Preço): a MO segue como seção SEM número (mockup gen_novo.py), chave
+    // própria como `tecidos_novo`. No Sheet ela mora dentro de "Preço e Custos" (`moBlocoVisivel`).
+    mao_obra_novo: !isEdit && moBlocoVisivel,
     preco: isEdit,
-    // Lote B (revisão do commit 6fac668, I2) — `veCustos` (união das 2 permissões, decisão F3 #2), não
-    // `podeVerCustos` sozinho: quem só tem `criacao_desenvolvimento:custos` (não `criacao_planejamento:custos`)
-    // precisa ver a seção Mão de obra igual às demais seções gated por custo (linhas 1174/1216/1224 já usam
-    // `veCustos`) — a exibição da SEÇÃO não pode ficar mais restrita que o conteúdo dela.
-    mao_obra: (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra)),
     // F3.4 — a mesma chave serve à seção do produto do IMPORTADO ("Produto Importado").
     produto_acabado: isEdit && ((isRevenda && paOn) || (draft.origem === "importado" && piOn)),
     // F3.4 — decisão F3 #4: a grade cor × tamanho é A grade do comprado (revenda E importado), pela seção "s4".
@@ -1187,7 +1205,9 @@ function PlanejamentoDetailConteudo({
       && !draft.data_piloto1 && !draft.data_piloto2 && !draft.data_piloto3 && !draft.data_desenho_tecnico
       && !draft.data_aprovacao && !draft.observacoes_tecnicas.trim(),
     preco: isRevenda ? { efetivo: piRevenda.efetivo, markup: piRevenda.markupReal } : { efetivo: precoEfetivo, markup: markupReal },
-    maoObra: { estado: moEstadoLocal, total: maoObraDevLive },
+    // F3.6 (R15 — item 13 do G-plano): MO pendente/reprovada no selo de Preço, p/ interno E comprado; o estado já está
+    // carregado aqui (`moLinhas` → `moEstadoLocal`); só quando o bloco de MO é visível p/ este usuário.
+    maoObraAviso: moBlocoVisivel && (moEstadoLocal === "pendente" || moEstadoLocal === "reprovada") ? moEstadoLocal : null,
     anexos: { fotoModelo: draft.fotos_modelo.length > 0, fotoReferencia: draft.fotos_referencia.length > 0, desenho: !!draft.desenho_tecnico_url, croqui: !!draft.croqui_url },
     lancamento: { lancado, data: draft.data_lancamento },
   });
@@ -1198,6 +1218,7 @@ function PlanejamentoDetailConteudo({
     totalGeral: gradeComprado.totalGeralRevenda,
     nVariantes: gradeComprado.variantesRevenda.length,
   });
+  selos.codigos = seloCodigos(skus.matriz);
   const seloDe = (k: SecaoSheetKey) => {
     const s = selos[k];
     return s ? <SeloBadge selo={s} /> : undefined;
@@ -1263,6 +1284,31 @@ function PlanejamentoDetailConteudo({
   const podeEnviarExplosaoAgora = mostraEnviarExplosao && motivoEnvioBloqueado === null && ficha.podeEditar
     && !enviarExplosao.isPending && !save.isPending;
 
+  // F3.6 (R16) — o editor de M.O. POR SERVIÇO (spec 2026-08-06) e a Obs. de M.O., montados UMA vez e encaixados: na tabela
+  // de "Preço e Custos" (manufaturado e importado), no bloco de preço da revenda, ou na seção sem número do Dialog "Novo
+  // Modelo". VALOR = rascunho `moLinhas` (grava no Salvar); aprovar/reprovar = RPC imediata gated por
+  // `producao_servico_aprovacao` (invariante #12); ver/digitar valor = `veCustos` (união das 2 permissões, decisão F3 #2).
+  const editorMaoObra = (
+    <MaoObraEditor
+      linhas={moLinhas}
+      categorias={catsServico}
+      podeVerCustos={veCustos}
+      podeAprovar={isEdit && podeAprovarMaoObra}
+      onChangeLinhas={(ls) => setMoLinhas(ls)}
+      onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
+      onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+      pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
+      linhasPersistidas={moLinhasPersistidas}
+    />
+  );
+  // F3.6 (mockup v3; R34): "Observação de mão de obra" pelo `label` que o ObsMaoObraField JÁ aceita (o Dev segue com o dele).
+  const obsMaoObra = veCustos ? (
+    <ObsMaoObraField
+      label="Observação de mão de obra"
+      value={draft.observacoes_mao_obra}
+      onChange={(v) => setDraftTracked((d) => ({ ...d, observacoes_mao_obra: v }))}
+    />
+  ) : null;
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
@@ -1370,6 +1416,7 @@ function PlanejamentoDetailConteudo({
             grupoSel={grupoSel} setGrupoSel={setGrupoSel}
             grupos={grupos} categorias={categorias} estilistas={estilistas}
             sub1Opts={sub1Opts} sub2Opts={sub2Opts} fl={fl} origemOpcoes={origemOpcoesLista}
+            nomeLoja={nomeLoja}
           />
 
           {/* SETOR 2 — Coleção */}
@@ -1416,23 +1463,46 @@ function PlanejamentoDetailConteudo({
             </div>
           </Secao>
 
-          {/* Desenvolvimento — equipe e cronograma (veio do Dev, F3.1). Sempre visível — independe da etapa —
-              p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no card existente. O
-              <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
+          {/* Desenvolvimento (veio do Dev, F3.1; F3.6: título sem "— equipe e cronograma" e SEM a REF, que foi para "Códigos").
+              Sempre visível — independe da etapa — p/ quem vê o Desenvolvimento (decisão F3 #8); recolhida (decisão 6); só no
+              card existente. O <fieldset> fica DENTRO da seção (o cabeçalho continua abrindo/fechando com o card travado). */}
           {vis.desenvolvimento && (
-            <Secao id="desenvolvimento" titulo="Desenvolvimento — equipe e cronograma" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} defaultOpen={false}>
+            <Secao id="desenvolvimento" titulo="Desenvolvimento" numero={numeros.desenvolvimento} selo={seloDe("desenvolvimento")} defaultOpen={false}>
               <AvisoCamposDev motivo={motivoTravaDev} />
               <fieldset disabled={devBloqueado} className="contents">
                 <DevEquipeSection
                   draft={draft}
                   setDraftTracked={setDraftTracked}
-                  refVisivel={kanbanCard.refVisivel}
                   campoVisivel={campoVisivelDev}
                   bloqueado={devBloqueado}
                   camposCopiados={ficha.camposCopiados}
                   onCampoEditado={ficha.onCampoEditado}
                 />
               </fieldset>
+            </Secao>
+          )}
+
+          {/* F3.6 — "4. Códigos" (spec 2026-09-25 §5.1; F3.5b do SKU): a REF que saiu da seção 3 (mesma exibição/trava) +
+              "Tamanho em" + SKUs por variante × tamanho. Só no card existente. */}
+          {vis.codigos && modeloId && (
+            <Secao id="codigos" titulo="Códigos" numero={numeros.codigos} selo={seloDe("codigos")} defaultOpen={false}>
+              <CodigosSecao
+                draft={draft}
+                setDraftTracked={setDraftTracked}
+                rotuloRef={fl("ref")}
+                refVisivel={kanbanCard.refVisivel}
+                refEditavel={refEditavel}
+                // Minor (4) da revisão Opus — o Regerar lê o FORMATO/siglas/"Tamanho em" SALVOS (mensagem do
+                // AlertDialog); com REF/"Tamanho em" digitados e ainda não salvos, regerar agora usaria um valor que
+                // o servidor nem tem — trava até o próximo Salvar (`draftFromModeloRow` normaliza igual ao Draft).
+                refSalva={(modeloData as any)?.ref ?? ""}
+                // Minor (5) da rodada 2 — reusa a MESMA normalização de `draftFromModeloRow` (não reimplementa a
+                // regra ≠"numero"→"letra" inline).
+                tamanhoTipoSalvo={tamanhoTipoNormalizado((modeloData as any)?.tamanho_tipo)}
+                skus={skus}
+                podeVerSkus={podeVerPlanejamento}
+                podeEditarSkus={podeEditarPlanejamento}
+              />
             </Secao>
           )}
 
@@ -1480,6 +1550,14 @@ function PlanejamentoDetailConteudo({
           </Secao>
           )}
 
+          {/* F3.6 (R1) — só no Dialog "Novo Modelo" (a seção Preço não existe nele): a MESMA M.O. da tabela do Sheet. */}
+          {vis.mao_obra_novo && (
+            <Secao id="mao_obra_novo" titulo="Mão de obra" numero={numeros.mao_obra_novo} defaultOpen={false}>
+              {editorMaoObra}
+              {obsMaoObra && <div className="mt-3">{obsMaoObra}</div>}
+            </Secao>
+          )}
+
           {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
           {vis.preco && (
           <Secao id="preco" titulo="Preço e Custos" numero={numeros.preco} selo={seloDe("preco")} defaultOpen={false}>
@@ -1497,7 +1575,8 @@ function PlanejamentoDetailConteudo({
               // Dev; migra o `custo_simulado.consumo_tecido`). Custos: enquanto o BOM não confirma
               // (estimado), Tecido = consumo×preço/m + Materiais editável (= aviamento, migra
               // `custo_simulado.aviamento`) + M.O. do Dev; quando confirma (real), vira Materiais
-              // real + M.O. real do BOM. A seção "Mão de obra" (MaoObraEditor) fica logo ABAIXO.
+              // real + M.O. real do BOM. F3.6: a Mão de obra (MaoObraEditor) mora DENTRO desta tabela — não é mais
+              // seção própria (slots `blocoMaoObra`/`obsMaoObra`, logo abaixo da linha "Mão de obra"/"Custo total").
               <PrecoTabela
                 markupReal={markupReal} precoSug={precoSug} precoBase={precoBaseMO} precoDigitado={precoVendaDigitado}
                 draftPrecoVenda={draft.preco_venda}
@@ -1527,59 +1606,24 @@ function PlanejamentoDetailConteudo({
                   copiados: ficha.camposCopiados,
                   onEditado: ficha.onCampoEditado,
                 } : null}
+                // F3.6 (R16) — a M.O. entra na tabela (linha "Mão de obra" + Obs. abaixo do "Custo total").
+                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null}
+                obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
+                // F3.6 (ruling 11) — Preço anterior (grava no Salvar; payload só com podeEditarPreco — usePlanejamentoSave).
+                precoAnterior={draft.preco_anterior}
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))}
               />
             ) : (
               // REVENDA — fora do escopo aprovado do §K: segue como CampoRO + os 2 markups
               // digitáveis (mesma fonte de ProdutoCard.tsx no planejador Produto Acabado,
               // bidirecional) + Preço atacado/varejo FIXO (preço exato digitado, sem derivar do markup).
-              <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft} />
+              <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft}
+                blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
+                podeEditarPreco={podeEditarPreco}
+                precoAnterior={draft.preco_anterior}
+                onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
             )}
           </Secao>
-          )}
-
-          {/* Mão de obra POR SERVIÇO (spec 2026-08-06) — LOGO ABAIXO da seção Preço (set/2026,
-              decisão do dono): a de cima calcula quanto de M.O. cabe por faixa; esta é onde se
-              ADICIONA cada serviço com valor. Lista de serviços com valor (R$), estado por linha
-              (pendente/aprovado/reprovado) e aprovar/reprovar por serviço. Gated: ver custos
-              (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar da página (fica no
-              rascunho `moLinhas` até lá — NÃO exige salvar o modelo antes de digitar); aprovar/
-              reprovar é imediato. REVENDA/IMPORTADO (set/2026): a MO é a MESMA fonte
-              `modelo_servico_mo` (chaveada por modelo_id) — a seção aparece igual ao manufaturado,
-              e a MO entra na BASE do markup (banco: _pa/_imp_recomputar). Comprado só mostra com
-              `isEdit` (o modelo espelho já existe p/ gravar; senão não há onde persistir). */}
-          {/* Fix round 4 (item 2) — gate de EXIBIR a seção usa `veCustos` (união das 2 permissões, decisão F3
-              #2): quem só tem `criacao_desenvolvimento:custos` não perde a seção.
-              Fix pós-rebase (item 6 — paridade com o Dev, comparação item 70) — o `MaoObraEditor` também recebe
-              `veCustos` (ver valores + digitar/adicionar/remover serviço): no Dev quem tem `criacao_desenvolvimento:custos`
-              edita a M.O.; o Salvar (usePlanejamentoSave) aceita as 2 permissões. Servidor conferido: a RPC
-              `salvar_modelo_servico_mo` só checa módulo `criacao` + tenant (savepoint funcoes.sql:15695/:7723) — não
-              recusa quem só tem a permissão do Dev; e `modelo_mo_resumo` desmascara os valores p/ `_pode_ver_custos()`, que
-              inclui `criacao_desenvolvimento:custos` (invariante #12). Aprovar/reprovar segue SÓ com
-              `producao_servico_aprovacao` (`podeAprovar`, invariante #12 — intocado). */}
-          {vis.mao_obra && (
-            <Secao id="mao_obra" titulo="Mão de obra" numero={numeros.mao_obra} selo={seloDe("mao_obra")} defaultOpen={false}>
-              <MaoObraEditor
-                linhas={moLinhas}
-                categorias={catsServico}
-                podeVerCustos={veCustos}
-                podeAprovar={isEdit && podeAprovarMaoObra}
-                onChangeLinhas={(ls) => setMoLinhas(ls)}
-                onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
-                onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
-                pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
-                linhasPersistidas={moLinhasPersistidas}
-              />
-              {veCustos && (
-                <div className="mt-3">
-                  {/* F3.1 (mockup aprovado): rótulo "Obs. Mão de Obra", igual ao do Dev (ModeloDetailPanel.tsx:3051-3055). */}
-                  <ObsMaoObraField
-                    label="Obs. Mão de Obra"
-                    value={draft.observacoes_mao_obra}
-                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
-                  />
-                </div>
-              )}
-            </Secao>
           )}
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}

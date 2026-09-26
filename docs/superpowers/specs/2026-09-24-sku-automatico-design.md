@@ -22,7 +22,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 |---|---|---|
 | Q1 | SKU gravado ou calculado na hora? | **Gerado automaticamente, mas editável.** Fica gravado. |
 | Q2 | Depois de gerado, acompanha mudanças de sigla, formato ou tamanho? | **Fica fixo.** Só muda pelo botão **"Regerar SKUs"**. O SKU **editado à mão nunca é sobrescrito**, nem pelo Regerar. |
-| Q3 | "Tamanho em: Letra \| Número" | **Um OU outro por card.** O card novo nasce com o **padrão da loja**, definido na Config. |
+| Q3 | "Tamanho em: Letra \| Número" | **Um OU outro por card.** *(Revisto pelo dono em 25/set — F3.6: SEM padrão da loja. O card nasce sem escolha e o "Tamanho em" é obrigatório para gerar os SKUs; a Config perde o campo e a prévia mostra as duas formas.)* |
 | Q4 | Falta sigla (cor base ou tamanho) | **Não gera o SKU daquela linha.** Mostra **"Falta sigla: \<atributo\> \<nome\>"** com link para o cadastro; depois de cadastrar, usa-se "Regerar". *Cor apelido: ver D4 (24/set) — não bloqueia.* |
 | D4 (24/set) | Apelido ausente ou sem sigla | Dono: *"dizer que falta sigla na cor apelido, mas utilizar a cor base caso apelido não tenha sido cadastrado ou usado"*. **Gera com a cor base:** com a parte cor base no Formato, a parte apelido some (com o separador); com só a parte apelido, vai a sigla da cor base. Apelido que existe sem sigla ⇒ **aviso** "Falta sigla na cor apelido: \<nome\>" (não bloqueia); cadastrada a sigla, o "Regerar" atualiza o automático; o manual nunca muda. Apelidos diferentes sem sigla na mesma cor base dão o mesmo SKU ⇒ a 2ª linha fica em conflito até cadastrar a sigla ou editar à mão. |
 | — | Encaixe na campanha | Fase própria **F3.5**. A **F3.5a** (banco + cadastros + Config) roda em paralelo. A **F3.5b** (card do Planejamento + "Tamanho em" nos quatro cards) vem depois da F3.4, porque mexe nos mesmos arquivos. |
@@ -58,10 +58,10 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - Tamanho solto (sem "|") é classificado automaticamente: só dígitos → **Número**, o resto → **Letra**.
   - Helper puro **único** `parseTamanho("34|PPP") → { numero: "34", letra: "PPP" }`, com espelho SQL e teste anti-drift. Os ~15 splits espalhados NÃO são migrados nesta fase (fora de escopo), mas código novo usa só o helper.
 - `tenant_config.sku_config jsonb`:
-  `{ partes: ["ref","cor_base","cor_apelido","tamanho"], separadores: { "<parteA>|<parteB>": "<sep>" }, tamanho_padrao: "letra" | "numero" }`.
+  `{ partes: ["ref","cor_base","cor_apelido","tamanho"], separadores: { "<parteA>|<parteB>": "<sep>" }, tamanho_padrao: "letra" | "numero" }` *(F3.6: `tamanho_padrao` é legado — ignorado pelo normalizador, sem erro.)*.
   - Partes ausentes da lista não entram no SKU. Separador vazio = sem separador.
   - Sem `sku_config`, a loja não gera SKU e a seção mostra "Configure o Formato do SKU".
-- `modelos.tamanho_tipo text check in ('letra','numero')`, onde null = padrão da loja. Fonte ÚNICA por card:
+- `modelos.tamanho_tipo text check in ('letra','numero')`, onde null = sem escolha (F3.6: obrigatório para gerar; sem padrão da loja). Fonte ÚNICA por card:
   - os cards do Plan. Tecido são `modelos`;
   - os Sheets de Produto Acabado e Importado mostram e editam o do **modelo espelho** (1:1, invariante #13);
   - antes de existir o espelho, o produto guarda o valor e o passa ao espelho quando o card nasce.
@@ -80,6 +80,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
   - para cada **variante do produto** × **tamanho da grade com quantidade > 0**, monta o SKU pelas `partes`/`separadores`;
   - usa a REF (`modelos.ref`), as siglas de cor base/apelido da variante e a sigla do lado do tamanho escolhido pelo `tamanho_tipo`;
   - sem REF → não gera nada e devolve "aguardando REF";
+  - sem "Tamanho em" no card → não gera nada e devolve "sem_tamanho" (F3.6, 25/set; precedência: sem formato → aguardando REF → sem tamanho);
   - falta sigla de cor base ou de tamanho → não gera aquela linha e devolve `faltas[] = {atributo, id, nome}` (bloqueiam); apelido ausente ou sem sigla → gera com a cor base e, se o apelido existe sem sigla, devolve `avisos[]` (não bloqueiam — D4);
   - linha `manual=true` → **nunca** é tocada;
   - `_regerar=false` → só cria as linhas que faltam;
@@ -98,7 +99,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 - **Config da Loja (F3.5a):** no card do Formato da REF, um bloco "Formato do SKU" com:
   - escolher e ordenar as partes (chips/arrastar ou setas);
   - campo curto de separador entre cada par;
-  - "Tamanho em (padrão)";
+  - ~~"Tamanho em (padrão)"~~ — removido na F3.6 (25/set): a prévia mostra Letra e Número;
   - **pré-visualização ao vivo** com um exemplo real da loja.
   - Salva só `sku_config`, sem upsert da linha inteira (lição RP3 da F2).
 - **Planejamento — seção "REF e SKUs" (F3.5b):**
@@ -123,7 +124,7 @@ Exemplo (formato `REF · Cor · Tamanho`, sem separador):
 - **REF NÃO é única** *(correção do G-plano, 24/set — o texto anterior dizia "impossíveis pela REF única")*: há 7 pares de cards com a mesma REF na cópia (8 em produção em 22/set), quase todos redigitados à mão (v1/v2), e o Replicar do Plan. Tecido MANTÉM a REF por regra do dono (7c4486b). Réplica/versão reusa o SKU do original (D5, pendente do dono); REF igual por engano em produtos diferentes também dividiria o SKU nas linhas de mesma cor/tamanho — a lista de REFs repetidas vai ao dono antes de gerar. SKU manual pode colidir; o servidor devolve o conflito em PT.
 - **Loja com tamanhos soltos:** a classificação automática número/letra pode errar num caso raro (ex.: "3M"). A sigla é editável e resolve.
 - **Revenda/importado:** as variantes vêm do produto espelho. Se a F3.4 mudar a grade do comprado, a F3.5b segue a grade única da F3.4.
-- **`tamanho_tipo` em cards antigos:** null = padrão da loja. Nenhum dado existente muda.
+- **`tamanho_tipo` em cards antigos:** null = sem escolha desde a F3.6 (25/set). Nenhum dado muda: SKU já gravado fica; gerar/Regerar só depois de escolher o "Tamanho em" no card.
 
 ## 7. Verificação
 

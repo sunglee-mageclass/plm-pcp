@@ -113,6 +113,19 @@ async function privs(c: Client) {
     [FN],
   );
 }
+// F3.6 (Parte B, T7 — ruling do controlador 25/set): a reorganização do Sheet (migration
+// 20261005100000) REDEFINE este MESMO `_replicar_cards_plan_tecido_core` (acrescenta 7 campos +
+// tamanho_tipo no INSERT — R14/R23–R26). Com ela viva, o corpo AO VIVO já não bate com a
+// transformação ESTÁTICA que `MIG` (F3.1, 20260930180000) escreveria por cima — mesmo caso do R27
+// no sku-automatico. Detectada por `_titulo_pagina_calculado`, único da reorg.
+async function reorgViva(c: Client): Promise<boolean> {
+  return (
+    await um<{ v: boolean }>(
+      c,
+      `select to_regprocedure('public._titulo_pagina_calculado(text,text)') is not null v`,
+    )
+  ).v;
+}
 
 describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia local, txn revertida)", () => {
   it("base: sem a coluna; função = corpo vivo (âncoras 1× cada); ACL fechada", async () => {
@@ -133,6 +146,23 @@ describe.skipIf(!hasDb || !LOCAL)("F3.1 — modelos.descricao_produto (cópia lo
       await prepara(c);
       const antes = await def(c);
       const aclAntes = await acl(c);
+      if (await reorgViva(c)) {
+        // R14/R23–R26 (T7, ruling do controlador 25/set): a reorg do Sheet (20261005100000) já
+        // redefiniu `_replicar_cards_plan_tecido_core` com 7 campos + tamanho_tipo A MAIS no
+        // INSERT — `antes` já não termina em `ref_auto` (COL_ANTES/VAL_ANTES deixam de bater), e
+        // aplicar o `MIG` estático da F3.1 por cima SOBRESCREVERIA o corpo com a versão pré-reorg,
+        // mascarando o que está em produção. Não aplicamos `MIG` aqui: reafirmamos o essencial da
+        // F3.1 (coluna existe, ACL igual, e a função — já com a reorg — leva a descrição) sem a
+        // comparação byte-a-byte, que só é exata no caminho SEM a reorg (ramo `else` abaixo).
+        expect(await coluna(c)).toEqual({ data_type: "text", is_nullable: "YES", column_default: null });
+        expect(antes).toContain("descricao_produto");
+        expect(antes).toContain("o.descricao_produto");
+        expect(await acl(c)).toBe(aclAntes);
+        const p = await privs(c);
+        expect(p.anon).toBe(false);
+        expect(p.auth).toBe(false);
+        return;
+      }
       await aplicarArquivo(c, MIG);
       expect(await coluna(c)).toEqual({ data_type: "text", is_nullable: "YES", column_default: null });
       expect(await def(c)).toBe(antes.replace(COL_ANTES, COL_DEPOIS).replace(VAL_ANTES, VAL_DEPOIS));

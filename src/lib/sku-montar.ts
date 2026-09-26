@@ -17,8 +17,8 @@
 //    SKU: A–Z, 0–9 e - . _ / (o resto sai). SKU manual: A–Z, 0–9 e - . _ / (outro caractere = erro). Separador:
 //    só - . _ / (até 3; vazio = colado). Ordem sempre: tira acento → filtra → MAIÚSCULAS (só ASCII chega ao upper).
 //  - Formato: `partes` ⊆ {ref, cor_base, cor_apelido, tamanho}, sem repetir, na ordem do SKU; lista vazia ⇒ sem
-//    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). `tamanho_padrao` =
-//    "letra" (padrão) | "numero".
+//    formato (null = a loja não gera SKU). `separadores` só entre partes VIZINHAS ("a|b"). F3.6 (dono 25/set): SEM padrão
+//    da loja p/ o "Tamanho em" — a chave legada `tamanho_padrao` é IGNORADA (o lado vem SÓ do card: `modelos.tamanho_tipo`).
 //  - Montagem: o separador ANDA COM A PARTE QUE VEM DEPOIS dele. Parte ausente na linha (apelido que não entra — D4;
 //    tamanho "UN" sem sigla — D1) some JUNTO com o separador que a antecede.
 //  - Cor apelido (D4 — decidido pelo dono 24/set): apelido COM sigla entra. Variante SEM apelido, ou apelido SEM
@@ -37,7 +37,7 @@ export const SKU_PARTE_LABEL: Record<SkuParte, string> = {
   cor_apelido: "Cor apelido",
   tamanho: "Tamanho",
 };
-export type SkuConfig = { partes: SkuParte[]; separadores: Record<string, string>; tamanho_padrao: TamanhoTipo };
+export type SkuConfig = { partes: SkuParte[]; separadores: Record<string, string> };
 export type SkuFalta = { atributo: "cor_base" | "cor_apelido" | "tamanho"; id: string | null; nome: string | null };
 export type SkuCor = { id: string; nome: string; sigla: string | null };
 export type Normalizado<T> = { ok: true; valor: T } | { ok: false; erro: string };
@@ -116,12 +116,8 @@ export function normalizarSkuConfig(raw: unknown): Normalizado<SkuConfig | null>
     if (nChars(v) > SKU_SEP_MAX) return { ok: false, erro: `Separador do SKU: no máximo ${SKU_SEP_MAX} caracteres.` };
     if (v !== "") separadores[k] = v;
   }
-  const tp = raw.tamanho_padrao;
-  const tipo = tp === null || tp === undefined || tp === "" ? "letra" : tp;
-  if (tipo !== "letra" && tipo !== "numero") {
-    return { ok: false, erro: "Tamanho padrão do SKU inválido (use letra ou número)." };
-  }
-  return { ok: true, valor: { partes, separadores, tamanho_padrao: tipo } };
+  // F3.6 (R24): a chave legada `tamanho_padrao` é IGNORADA — sem erro, fora da saída (= `_sku_config_normaliza`, Task 6).
+  return { ok: true, valor: { partes, separadores } };
 }
 
 /**

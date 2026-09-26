@@ -59,7 +59,7 @@ describe("pendenciasEnvioExplosao", () => {
     const d = { ...completo(), ref: "", nome: "", data_piloto1: "", piloteiro2_id: "p2" };
     const out = pendenciasEnvioExplosao({ draft: d, blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF" });
     expect(out).toEqual([
-      { label: "REF", secao: "desenvolvimento" },
+      { label: "REF", secao: "codigos" },
       { label: "Nome", secao: "info" },
       { label: "ao menos 1 tecido com variante", secao: "tecidos" },
       { label: "grade preenchida", secao: "grade" },
@@ -92,7 +92,7 @@ describe("pendenciasEnvioExplosao — F3.4 comprado (Dev ModeloDetailPanel.tsx:1
   it("os mínimos (REF, Nome, Estilista, Categoria) valem sempre, mesmo com tudo oculto", () => {
     expect(pendenciasEnvioExplosao({
       draft: { ...minimos(), ref: "", estilista_id: null }, blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF", campoVisivel: () => false,
-    })).toEqual([{ label: "REF", secao: "desenvolvimento" }, { label: "Estilista", secao: "info" }]);
+    })).toEqual([{ label: "REF", secao: "codigos" }, { label: "Estilista", secao: "info" }]);
   });
   it("sem `campoVisivel`: o fluxo interno de sempre (F3.3)", () => {
     expect(pendenciasEnvioExplosao({ draft: minimos(), blocks: makeEmptyBlocks(), grades: [], rotuloRef: "REF" }).map((p) => p.label))

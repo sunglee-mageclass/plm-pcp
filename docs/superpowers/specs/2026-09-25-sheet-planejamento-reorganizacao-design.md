@@ -73,6 +73,12 @@ Este documento é só o DESENHO (schema, telas, regras) — sem código, sem mig
   Relacionado.
 - Título: "se alguém editar, não é automaticamente mudado até que cliquem em ↺" — acompanha o nome
   enquanto ninguém editar; marca = nome da loja.
+- **"Tamanho em" nasce em Letra (decisão P-25 do dono, 25/set 14:57):** "nasce marcado em Letra".
+  Todo produto nasce com o "Tamanho em" = **Letra** e pode trocar para Número; continua SEM padrão
+  da loja (a Config não ganha campo — §10 item 1). **Ruling do controlador:** os cards que já
+  existem sem escolha (`tamanho_tipo` NULL) também viram Letra, UMA vez, no banco (DEFAULT `'letra'`
+  + backfill na mesma migration — §5.2); a trava do banco para NULL (status `sem_tamanho`, sem SKU)
+  fica como rede de segurança. Supera o "nasce sem escolha" da primeira versão do §10 item 1.
 
 ## 3. Rulings do controlador (decisões travadas — "custo se errado")
 
@@ -348,9 +354,18 @@ em produção antes do deploy):**
   `desenvolvimento` e antes de `prova`/`tecidos` no `ORDEM_SECOES_SHEET`.
 - L1: REF (mesmo campo/estilo que saiu da seção 3 — `Input className="font-mono"` com
   `data-colab-path="ref"`, mesma trava `bloqueado`/`refVisivel` de hoje) | "Tamanho em" (Letra |
-  Número, radio ou segmentado — espelha a decisão Q3 da spec do SKU §2: "um OU outro por card"; o
-  card novo nasce com o padrão da loja) | botão "↻ Regerar SKUs" alinhado à direita (mockup linhas
-  150-158).
+  Número em rádio — "um OU outro por card"; **decisão do dono 25/set: SEM padrão da loja — a
+  Config perde o campo "Tamanho em (padrão)" e a prévia mostra as duas formas; o Salvar do card
+  segue livre; o banco não tem fallback de loja — ver §10. Decisão P-25 (25/set 14:57): o card
+  NASCE marcado em Letra (rádio já marcado pelo Draft) e pode trocar para Número; card legado sem
+  escolha também aparece em Letra e o banco o leva a Letra (§5.2)**; textos exatos (P-25, T2
+  `9dfdb000`): dica do rótulo "· nasce em Letra; troque para Número se o produto usa numeração";
+  card legado (`sem_tamanho`, só antes da migration) sem SKU: "Este card é de antes da migração do
+  “Tamanho em” — salve o card para atualizá-lo e gerar os SKUs."; com SKU gravado: "Card de antes
+  da migração do “Tamanho em” — salve o card para gerar ou regerar os SKUs."; selo "aguardando
+  migração do Tamanho em"; situação ilegível (`desconhecido`, fail-closed): "Não foi possível ler a
+  situação dos SKUs — recarregue a página." e selo "não foi possível ler o status")
+  | botão "↻ Regerar SKUs" alinhado à direita (mockup linhas 150-158).
 - Tabela "SKUs por variante e tamanho" (mockup linhas 159-174): colunas Variante/Tamanho | SKU |
   Situação. Uma linha de grupo por variante (rótulo "Variante N · Cor Base (SIGLA) · apelido Cor
   Apelido (SIGLA)" ou "sem apelido"), e abaixo uma linha por tamanho da Grade com:
@@ -456,6 +471,20 @@ recente"). `ALTER TABLE` de `modelos` por ÚLTIMO no arquivo (mesma receita de
 `20260930180000_modelo_descricao_produto.sql:12-16`: a tabela `modelos` é a mais usada do app,
 então a trava `ACCESS EXCLUSIVE` fica só no resto do arquivo, não no arquivo inteiro).
 
+**"Tamanho em" nasce em Letra (P-25, dono 25/set 14:57 — no MESMO `ALTER TABLE` de `modelos`):**
+```sql
+  ALTER COLUMN tamanho_tipo SET DEFAULT 'letra'          -- dentro do ALTER TABLE public.modelos
+UPDATE public.modelos SET tamanho_tipo = 'letra' WHERE tamanho_tipo IS NULL;   -- logo depois, 1 vez
+```
+O DEFAULT cobre quem grava `modelos` sem o Draft (criar card de Produto Acabado/Importado,
+Plan. Tecido, Replicar, simulação legada, importação em massa, criação em lote); o front já nasce
+em Letra pelo Draft. O backfill é um `UPDATE` simples (sem desligar gatilho nem
+`session_replication_role`): cada card convertido ganha `rev`+1 e 1 linha na Auditoria; na cópia
+(25/set) foram 272 cards em 131 ms, sem efeito em REF/MO/kanban. O pré-voo de produção PARA se o
+backfill arrastaria REF/MO (deriva), se passar de 2000 linhas ou se houver SKU gravado em loja com o
+padrão antigo 'numero' (decisão do dono). O inverso tira SÓ o DEFAULT — o backfill NÃO é desfeito
+(não há como saber quem era NULL) e o cabeçalho do inverso diz isso. Plano: R41–R46.
+
 **Helper do Título — dois espelhos, mesmo padrão de `ref-montar.ts`/`sku-montar.ts`:**
 - SQL: função `_titulo_pagina_calculado(nome text, tenant_nome text) RETURNS text` (ou nome
   equivalente), usada (a) por um helper de leitura para consumidores/ERP que precisam do título
@@ -518,6 +547,9 @@ então a trava `ACCESS EXCLUSIVE` fica só no resto do arquivo, não no arquivo 
   `descricao_produto` já faz — ver `tests/integration/modelo-descricao-produto.test.ts`, citado no
   comentário da migration linha 7). `preco_anterior` é copiado como está (automático `NULL` ou
   manual) — decisão explícita do dono (ruling 11): "Replicar: leva o valor manual, se houver".
+  **Acréscimo do dono (25/set, D4):** o Replicar leva também o "Tamanho em" (`tamanho_tipo`) — 8
+  campos nas mesmas 2 linhas (com o DEFAULT da P-25, a réplica sem o valor nasceria em Letra —
+  levar preserva o Número de quem trocou).
 
 ### 5.3 Kanban / selos
 
@@ -673,7 +705,13 @@ então a trava `ACCESS EXCLUSIVE` fica só no resto do arquivo, não no arquivo 
 - Sheet do Desenvolvimento (`src/components/desenvolvimento/`) — intocado até a F5.
 - Qualquer parte da geração de SKU em si (RPCs, colunas de sigla, Config do Formato do SKU) — já
   especificada em `docs/superpowers/specs/2026-09-24-sku-automatico-design.md`; esta spec só
-  consome esses objetos na seção Códigos, não os redesenha.
+  consome esses objetos na seção Códigos, não os redesenha. **Exceção decidida pelo dono em 25/set
+  (§10):** o "Tamanho em" deixa de ter padrão da loja — isso redefine as 4 funções do SKU que
+  aplicavam o padrão e tira o campo da Config — e (P-25) ganha o DEFAULT `'letra'` com o backfill
+  dos NULL (§5.2).
+- "Tamanho em" nos cards do Plan. Tecido / Produto Acabado / Importado (D2 do dono, 25/set: frente
+  separada) e a trava do Preço anterior no servidor (D1: frente "Reforço de segurança no banco").
+- A tela FUTURA do super admin que vai usar as Keywords da loja (§10).
 - Exportação de Título/Peso/medidas/NCM/SKU para o ERP — só a nota em
   `docs/api-integracao-erp.md` quanto a "não ler `titulo_pagina` cru"; a integração em si é etapa
   futura.
@@ -725,3 +763,30 @@ no corpo do documento (§5.1, §5.2, §9). Registro aqui só como rastro da deci
    2 para as medidas), não só no banco. Ver §5.1 (Peso/medidas).
 
 Nenhuma dúvida nova ficou pendente desta rodada (Preço anterior, ruling 11).
+
+## 10. Acréscimos do dono (25/set, depois do G-plano — TRAVADOS)
+
+1. **"Tamanho em" SEM padrão da loja** ("sim, porque é um toggle obrigatório para definir sku"):
+   ~~o card nasce sem escolha (`modelos.tamanho_tipo` NULL)~~ — **superado pela P-25 (item 7):
+   nasce em Letra**; sem "Tamanho em" (NULL, só legado/gravação à mão) não se GERAM os SKUs
+   (1ª geração e "Regerar") — o Salvar do card segue livre; a Config da Loja perde o campo
+   "Tamanho em (padrão)" e a prévia do Formato do SKU mostra Letra e Número; o banco não tem mais
+   fallback (a matriz devolve `sem_tamanho`, depois de `sem_formato` e `aguardando_ref`, com só os
+   SKUs já gravados; a chave legada `sku_config.tamanho_padrao` é ignorada, sem erro, e nenhum
+   DML/COMMENT toca `tenant_config`). SKU já gravado continua gravado.
+2. **D1:** a trava do Preço anterior no servidor vai para a frente "Reforço de segurança no banco".
+3. **D2:** "Tamanho em" nos cards do Plan. Tecido / Produto Acabado / Importado = frente separada.
+4. **D3:** a QA em produção (Loja Teste, card existente) pode gravar SKU à mão, confirmar o
+   "Regerar" e aprovar/remover serviço de MO, desfazendo no fim; o que a tela não desfaz (SKU
+   manual, SKUs gerados) é avisado ao dono antes (com a P-25 o "Tamanho em" já vem em Letra — não
+   é mais resíduo).
+5. **D4:** o "Replicar card(s)" leva o "Tamanho em" (§5.2).
+6. **Keywords da loja:** campo novo "Keywords" (texto longo, `tenant_config.keywords text NULL`) na
+   Configuração da Loja; vê e edita quem já acessa a Config (admin da loja e super admin), sem
+   permissão nova; entra no MESMO roteiro de produção desta frente; serve a uma tela FUTURA só de
+   super admin, por loja (fora desta spec).
+7. **P-25 (dono 25/set 14:57): "nasce marcado em Letra".** Todo produto nasce com o "Tamanho em" =
+   Letra e pode trocar para Número; sem padrão da loja (a Config não ganha campo; a Task 5b do
+   plano fica igual). Ruling do controlador: os NULL existentes viram Letra (DEFAULT + backfill na
+   migration desta frente — §5.2); a trava do NULL no banco fica como rede. Textos exatos da tela no
+   §5.1.
