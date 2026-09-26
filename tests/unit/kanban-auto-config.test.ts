@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   KANBAN_COLS, agruparMovimentos, avisosRestauracaoVisiveis, chaveKanbanMudou, conflitoKanban, descreverMudancasKanban,
   diffKanban, diffMudouDesdeAPrevia, formatarDataHora, jsonCanonico, juntarLista, MENSAGEM_CHAVE_KANBAN_MUDOU,
-  MENSAGEM_PREVIA_KANBAN_MUDOU, mensagemConflitoKanban, nCards, normalizarKanbanDefaults,
-  pickKanban, resolverEcoKanban, resumirFixados, separarPayloadKanban,
+  MENSAGEM_PREVIA_KANBAN_MUDOU, mensagemConflitoKanban, mesclarKanbanPorColuna, nCards, normalizarKanbanDefaults,
+  pickKanban, rebasearKanban, resolverEcoKanban, resumirFixados, separarPayloadKanban,
 } from "@/lib/kanban-auto-config";
 import type { PreviaCard, PreviaFixado } from "@/lib/kanban-auto-ui";
 
@@ -125,12 +125,79 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
       expect(conflito).toEqual([]);
     });
     it("(iv) sucesso (protegido=false) ⇒ volta ao normal: cfgKanban e kanbanBase adotam o servidor", () => {
-      const local = pickKanban({ status_kanban: ["A", "B"] }); // o que ficou na tela durante a falha
-      const servidorNovo = pickKanban({ status_kanban: ["A", "B"] }); // agora já gravado no banco
-      const baseAtual = { cfg: pickKanban({ status_kanban: ["A"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
+      // Reflete o invariante real do chamador (admin/configuracoes.tsx onSuccess, linha ~460):
+      // um save bem-sucedido RE-BASEIA `kanbanBase.cfg` para o próprio `cfg` recém-salvo de forma
+      // SÍNCRONA, antes do refetch invalidado resolver — então quando este eco roda, `local` já
+      // bate com `baseAtual.cfg` (nenhuma coluna fica "tocada" por engano contra o valor salvo).
+      const local = pickKanban({ status_kanban: ["A", "B"] }); // já salvo; nada mudou desde o save
+      const servidorNovo = pickKanban({ status_kanban: ["A", "B"] }); // eco do próprio save (ou de outra aba, mesmo valor)
+      const baseAtual = { cfg: pickKanban({ status_kanban: ["A", "B"] }), servidor: pickKanban({ status_kanban: ["A"] }) };
       const r = resolverEcoKanban(false, local, servidorNovo, baseAtual);
       expect(r.cfgKanban).toEqual(servidorNovo);
       expect(r.kanbanBase).toEqual({ cfg: servidorNovo, servidor: servidorNovo });
+    });
+  });
+
+  // Achado I2 da revisão (review.md): fora da janela protegida, `resolverEcoKanban` adotava o
+  // servidor por INTEIRO (as 5 colunas) mesmo quando havia uma edição LOCAL ainda não salva numa
+  // delas — ex.: editar "Status do Kanban" e depois salvar o diálogo "Editar nomenclaturas por
+  // módulo" (que também re-hidrata `data.cfg`, sem passar pelo `save` desta tela — `protegido`
+  // nunca liga) apagava a edição do kanban em silêncio. Fix: merge POR COLUNA contra
+  // `kanbanBase.cfg` (mesmo princípio do `mergeDraft`).
+  describe("mesclarKanbanPorColuna / rebasearKanban (fix hidratação rodada 1 — achado I2)", () => {
+    it("coluna TOCADA (local ≠ base) sobrevive; coluna intocada adota o servidor novo", () => {
+      const base = pickKanban({ status_kanban: ["A"], kanban_requisitos: { a: ["x"] } });
+      // Usuário editou localmente `status_kanban` (diverge da base); NÃO tocou `kanban_requisitos`.
+      const local = pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { a: ["x"] } });
+      // Servidor mudou por fora (ex.: outro admin, ou o diálogo Nomenclaturas re-hidratando a
+      // mesma linha): `kanban_requisitos` ganhou uma entrada nova; `status_kanban` no servidor
+      // continua o valor ANTIGO (a edição local ainda não foi salva).
+      const servidorNovo = pickKanban({ status_kanban: ["A"], kanban_requisitos: { a: ["x"], b: ["y"] } });
+      const fundido = mesclarKanbanPorColuna(local, servidorNovo, base);
+      expect(fundido.status_kanban).toEqual(["A", "B"]); // ← I2: minha edição NÃO some
+      expect(fundido.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] }); // coluna alheia adotada
+    });
+    it("rebasearKanban: coluna tocada mantém a base ANTIGA (diff/conflito continuam corretos); intocada re-baseia", () => {
+      const base = pickKanban({ status_kanban: ["A"], kanban_requisitos: { a: ["x"] } });
+      const local = pickKanban({ status_kanban: ["A", "B"], kanban_requisitos: { a: ["x"] } });
+      const servidorNovo = pickKanban({ status_kanban: ["A"], kanban_requisitos: { a: ["x"], b: ["y"] } });
+      const r = rebasearKanban(local, servidorNovo, base);
+      // status_kanban (tocada): cfg/servidor continuam a base antiga — diffKanban(cfg, cfgAtual)
+      // no próximo save ainda mostra a MINHA mudança; conflitoKanban(servidor, bancoAgora) ainda
+      // compara contra o valor de antes (não "esconde" um conflito real de outro admin nessa coluna).
+      expect(r.cfg.status_kanban).toEqual(["A"]);
+      expect(r.servidor.status_kanban).toEqual(["A"]);
+      // kanban_requisitos (intocada): re-baseia no servidor novo dos dois lados.
+      expect(r.cfg.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] });
+      expect(r.servidor.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] });
+    });
+
+    // Achado N3 da re-revisão (review-fix1.md; nit de escopo corrigido na rodada 3 — ver
+    // review-fix2.md): coluna que DIVERGE da base mas CONVERGIU para o MESMO valor que o
+    // servidor porque OUTRO ADMIN fez a MESMA edição (eco SEM save em voo — `protegido=false`)
+    // não pode ficar "tocada para sempre". Sem o fix, `conflitoKanban` acusaria um conflito FALSO
+    // em TODO save seguinte, até a página recarregar. ⚠️ Isto NÃO cobre o caso "o `update(diff)`
+    // gravou e o ack se perdeu" (falha parcial) — esse caso passa pelo ramo PROTEGIDO de
+    // `resolverEcoKanban` (kanbanProtegidoRef=true), que devolve `baseAtual` intacto sem chamar
+    // `colunaTocada`; o conflito falso desse caminho é pré-existente (F2 do kanban) e fica de
+    // fora de escopo aqui.
+    it("N3: outro admin fez a MESMA edição (eco não-protegido) — coluna CONVERGIDA NÃO fica tocada, adota e re-baseia normalmente", () => {
+      const base = pickKanban({ status_kanban: ["A"] });
+      // Minha edição local E o servidor (outro admin fez a MESMA edição, sem save meu em voo)
+      // chegaram no MESMO valor ["A","B"] — nenhum dos dois é mais "a base antiga".
+      const local = pickKanban({ status_kanban: ["A", "B"] });
+      const servidorNovo = pickKanban({ status_kanban: ["A", "B"] });
+
+      const fundido = mesclarKanbanPorColuna(local, servidorNovo, base);
+      expect(fundido.status_kanban).toEqual(["A", "B"]); // valor correto (convergiu)
+
+      const r = rebasearKanban(local, servidorNovo, base);
+      // Re-baseou nos dois lados — NÃO ficou preso na base antiga ["A"].
+      expect(r.cfg.status_kanban).toEqual(["A", "B"]);
+      expect(r.servidor.status_kanban).toEqual(["A", "B"]);
+      // Sem conflito falso no próximo diff/conflito.
+      expect(diffKanban(r.cfg, pickKanban({ status_kanban: ["A", "B"] }))).toEqual({});
+      expect(conflitoKanban(r.servidor, { status_kanban: ["A", "B"] })).toEqual([]);
     });
   });
 });

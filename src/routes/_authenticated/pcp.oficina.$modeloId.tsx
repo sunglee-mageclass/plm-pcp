@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Wrench, Save, Printer } from "lucide-react";
+import { ArrowLeft, Wrench, Save, Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -130,11 +130,16 @@ function OficinaDetailPage() {
     return [...ordered, ...extras];
   }, [tenantCfg, grades]);
 
-  const { data: existing, refetch } = useQuery({
+  const { data: existing, refetch, isSuccess: existingOk, isError: existingErrored, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-oficina", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("producao_oficina").select("*").eq("cad_id", cad!.id).maybeSingle();
+      // Fix hidratação rodada 1 (achado I1 da revisão, "por uniformidade" — Oficina): o erro era
+      // engolido (`return data` sem checar) — `data` de `maybeSingle()` some com erro vira `null`,
+      // não `undefined`, então a tela seguiria como "sem linha de oficina" (ramo INSERT) mesmo
+      // com uma falha real de rede.
+      const { data, error } = await supabase.from("producao_oficina").select("*").eq("cad_id", cad!.id).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
@@ -157,7 +162,16 @@ function OficinaDetailPage() {
   useEffect(() => {
     if (hydrated) return;
     // Espera as duas queries assentarem: producao_oficina e o cad (fonte do molde).
-    if (existing === undefined || cad === undefined) return;
+    // Fix hidratação rodada 1 (achado I1): exige `existingOk` (isSuccess) — sem isso, uma carga
+    // com ERRO em `producao_oficina` hidrataria como "sem linha" (ramo INSERT do save, que o
+    // trigger 1:1 bloqueia se a linha na verdade existir — ver auditoria do report.md).
+    // Fix hidratação — re-revisão final (achado m-D, review-final-2.md; pré-existente, idêntico
+    // em a8d2fa41): + `|| existingFetching` — voltar à tela (dentro do gcTime, com o cache ainda
+    // "morno") semeava do `existing` do cache ANTIGO enquanto o refetch de foco já estava em voo,
+    // sem esperar a resposta nova. Se outra pessoa mudou a linha nesse intervalo, o Salvar grava
+    // por cima os valores velhos. Tela legada, sem controle de concorrência (é "o último vence"
+    // por natureza), mas a correção é barata e fecha a janela de semear do cache desatualizado.
+    if (existing === undefined || cad === undefined || !existingOk || existingFetching) return;
     const molde = (cad as any)?.observacoes_molde ?? "";
     let next = form;
     if (existing) {
@@ -180,7 +194,7 @@ function OficinaDetailPage() {
     }
     resetBaseline(next);
     setHydrated(true);
-  }, [existing, cad, hydrated]);
+  }, [existing, cad, hydrated, existingOk, existingFetching]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -264,6 +278,25 @@ function OficinaDetailPage() {
           </div>
         </header>
 
+        {/* Fix hidratação rodada 1 (achado I1, "por uniformidade"): carga com ERRO nunca hidrata
+            — banner no lugar do formulário, com "Tentar de novo".
+            Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado —
+            "Carregando…" no lugar do formulário, como pedia o brief original.
+            Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): o corpo renderiza por
+            `hydrated` SOZINHO — um erro de REFETCH posterior não pode esconder o formulário. */}
+        {cad?.id && existingErrored && !hydrated && (
+          <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+            <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+              <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+            </Button>
+          </Card>
+        )}
+        {cad?.id && !existingErrored && !hydrated && (
+          <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
+        )}
+
+        {(!cad?.id || hydrated) && (
         <Card className="p-5 space-y-4">
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
@@ -340,6 +373,7 @@ function OficinaDetailPage() {
           </div>
           </fieldset>
         </Card>
+        )}
 
         {!cad?.id && (
           <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
@@ -439,7 +473,11 @@ function OficinaDetailPage() {
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — auditoria confirmou (26/set) que
+              `producao_oficina` não tem RPC própria: o Salvar faz `.update()`/`.insert()` direto
+              com TODO o `form` local; cedo demais, grava zeros por cima de um registro real
+              (mesma classe de dano do "estado completo", sem ser DELETE). */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench, Undo2 } from "lucide-react";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { toast } from "sonner";
@@ -37,6 +37,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useAuth } from "@/hooks/useAuth";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -111,6 +112,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const qc = useQueryClient();
   const permReadOnly = useReadOnly();
   const tenantId = useActiveTenantId();
+  // Fix hidratação rodada 4 (achado de controlador sobre o fix de N5): `tenantId===""` sozinho
+  // NÃO diferencia "a query do tenant ainda está em voo" (estado normal logo após o mount,
+  // ANTES de `user`/o fetch resolverem) de "a query assentou e realmente devolveu vazio" (o caso
+  // degenerado do N5). Sem essa distinção, `tenantIdErrored=!tenantId` piscava o banner de erro
+  // em TODA carga normal da tela, enquanto a loja ainda não tinha resolvido.
+  // NÃO mexemos em `useActiveTenantId` (32 consumidores, fora de escopo) — em vez disso, lemos o
+  // fetch da MESMA queryKey que o hook usa (`["active-tenant-id", user?.id]`, ver
+  // src/hooks/useActiveTenantId.ts) de fora, com `useIsFetching` (reativo, sem duplicar o
+  // queryFn): `> 0` só enquanto essa key está REALMENTE em voo agora. Combinado com "ainda não
+  // tenho `user?.id`" (a query nem começou, `enabled: false` no hook), cobre a janela de loading
+  // inteira sem exigir que a query chegue a um estado terminal (o que quebraria em qualquer
+  // teste que mocka o hook por valor fixo, sem nunca criar um fetch de verdade para essa key).
+  const { user } = useAuth();
+  const tenantIdFetching = useIsFetching({ queryKey: ["active-tenant-id", user?.id] }) > 0;
+  const tenantIdLoading = !user?.id || tenantIdFetching;
+  const tenantIdErrored = !tenantIdLoading && !tenantId;
 
   const { data: modelo } = useQuery({
     queryKey: ["cq-modelo", modeloId],
@@ -125,34 +142,56 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
   });
 
-  const { data: cad } = useQuery({
+  // Fix hidratação rodada 3 (nit da re-revisão): expõe `isError`/`refetch` — com erro, `cad`
+  // fica `undefined` (igual a "ainda carregando") e a tela mostrava "Este modelo ainda não tem
+  // registro de CAD" sem "Tentar de novo", texto enganoso (não é regressão de dado — o Salvar
+  // já ficava travado — só a mensagem confundia "sem CAD" com "falha ao carregar").
+  // Fix hidratação rodada 5 (nit da re-revisão, review-fix4.md): + `isFetched` — a MESMA
+  // ambiguidade existia entre "ainda carregando" e "carregou com sucesso e voltou vazio" (não só
+  // "carregou com erro"). Com `cad` em voo, `cadFetched=false` e a mensagem "sem CAD" mostrava
+  // cedo demais; agora ela só aparece quando a carga TERMINOU com sucesso e `cad` ficou vazio.
+  const { data: cad, isFetched: cadFetched, isError: cadErrored, refetch: refetchCad } = useQuery({
     queryKey: ["cq-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      const { data, error } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
 
   // Variantes do Tecido Principal (tipo=tecido, numero=1), rotuladas por cor.
-  const { data: mainFabric, isFetched: mainFabricFetched, isFetching: mainFabricFetching } = useQuery({
+  // Fix hidratação rodada 2 (achado R1 da re-revisão): throw em erro — antes o erro era engolido
+  // e a tela hidratava "sem fonte" (temFonte=false), o que pula o rev-check de `fonte` (o
+  // `_rev_base.fonte` vai null) e abre janela de lost-update na grade compartilhada com o PCP.
+  const { data: mainFabric, isFetched: mainFabricFetched, isFetching: mainFabricFetching, isSuccess: mainFabricOk, isError: mainFabricErrored, refetch: refetchMainFabric } = useQuery({
     queryKey: ["cq-main-fabric", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("cad_tecidos")
         .select("tipo, numero, cad_tecido_variantes(ordem, variante_tecido_id, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .eq("cad_id", cad!.id)
         .eq("tipo", "tecido")
         .eq("numero", 1)
         .maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
 
   // Grade cadastrada do modelo (define os Tamanhos exibidos no CQ).
-  const { data: modeloGrades = [] } = useQuery({
+  // Fix hidratação rodada 3 (achado R1-resto da re-revisão, PERDA DE DADO comprovada): throw em
+  // erro — `modeloGrades` alimenta `tamanhos` (quais tokens existem), que alimenta `realByNum`/
+  // `_reais` do payload de Salvar. Sem isso, uma falha única fazia `tamanhos` cair nos
+  // DEFAULT_TAMANHOS (tokens errados/zerados) e, num CQ CONFIRMADO, `_salvar_cq_core` faz UPSERT
+  // de `cad_grades.grades_reais ← _reais` em TODO save (não só ao confirmar) — Grade Real zerada.
+  const { data: modeloGrades = [], isFetched: modeloGradesFetched, isFetching: modeloGradesFetching, isSuccess: modeloGradesOk, isError: modeloGradesErrored, refetch: refetchModeloGrades } = useQuery({
     queryKey: ["cq-modelo-grades", modeloId],
-    queryFn: async () => (await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   // Comprado (Revenda/Importado): modelo comprado não tem Tecido Principal (nunca passa
@@ -185,42 +224,69 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
   });
 
-  const { data: tenantCfg } = useQuery({
+  // Fix hidratação rodada 3 (achado R1-resto): throw em erro — mesmo motivo de `modeloGrades`
+  // acima (alimenta `tamanhos`/`_reais`). ⚠️ Esta queryKey é COMPARTILHADA com o Direcionamento
+  // (`expedicao.direcionamento.$modeloId.tsx`) — o `queryFn` foi trocado IDENTICAMENTE nos dois
+  // arquivos (mesmo shape de sucesso, mesmo comportamento em erro), já que o cache é por key, não
+  // por arquivo: o observer que buscar primeiro dita o resultado para o outro.
+  const { data: tenantCfg, isFetched: tenantCfgFetched, isFetching: tenantCfgFetching, isSuccess: tenantCfgOk, isError: tenantCfgErrored, refetch: refetchTenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
 
-  // Datas de oficina: vêm de Serviços (producao_terceirizados).
+  // Datas de oficina: vêm de Serviços (producao_terceirizados). Fix hidratação rodada 2 (R1):
+  // throw em erro (só display, não entra em fonteSettled/_rev_base, mas segue o mesmo padrão
+  // por consistência — ver "Onde" do achado R1).
   const { data: tercs = [] } = useQuery({
     queryKey: ["cq-tercs", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("producao_terceirizados")
         .select("data_enviado, data_prevista, data_entregue, ativo")
         .eq("cad_id", cad!.id);
+      if (error) throw error;
       return (data ?? []).filter((t: any) => t.ativo !== false);
     },
   });
 
   // Blocos de Serviços + categorias + prioridade — p/ resolver o BLOCO-FONTE da grade cortada.
   // (types.ts ainda sem detalhado/grade_detalhe em producao_terceirizados → from cast p/ any.)
-  const { data: blocosFonte = [], isFetched: blocosFetched, isFetching: blocosFetching } = useQuery({
+  // Fix hidratação rodada 2 (achado R1): as 3 ganham throw + isSuccess/isError — entram no
+  // `fonteSettled` (isSuccess) e no `cqLoadError`/"Tentar de novo" (isError), porque decidem
+  // `temFonte`/`fonteGrade`, que alimentam `_rev_base.fonte` do save.
+  const { data: blocosFonte = [], isFetched: blocosFetched, isFetching: blocosFetching, isSuccess: blocosOk, isError: blocosErrored, refetch: refetchBlocosFonte } = useQuery({
     queryKey: ["cq-blocos-fonte", cad?.id],
     enabled: !!cad?.id,
-    queryFn: async () => (await (supabase.from("producao_terceirizados") as any)
-      .select("id, categoria_terceirizado_id, detalhado, ativo, created_at, grade_detalhe, rev").eq("cad_id", cad!.id)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("producao_terceirizados") as any)
+        .select("id, categoria_terceirizado_id, detalhado, ativo, created_at, grade_detalhe, rev").eq("cad_id", cad!.id);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
-  const { data: catsServico = [], isFetched: catsFetched, isFetching: catsFetching } = useQuery({
+  const { data: catsServico = [], isFetched: catsFetched, isFetching: catsFetching, isSuccess: catsOk, isError: catsErrored, refetch: refetchCatsServico } = useQuery({
     queryKey: ["cq-cats-servico", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => (await supabase.from("categorias_terceirizado").select("id, nome").eq("tenant_id", tenantId)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("categorias_terceirizado").select("id, nome").eq("tenant_id", tenantId);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
-  const { data: prioridade = [], isFetched: prioFetched, isFetching: prioFetching } = useQuery({
+  const { data: prioridade = [], isFetched: prioFetched, isFetching: prioFetching, isSuccess: prioOk, isError: prioErrored, refetch: refetchPrioridade } = useQuery({
     queryKey: ["cq-confeccao-prioridade", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => ((await supabase.from("tenant_config").select("confeccao_prioridade").eq("tenant_id", tenantId).maybeSingle()).data as any)?.confeccao_prioridade ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("confeccao_prioridade").eq("tenant_id", tenantId).maybeSingle();
+      if (error) throw error;
+      return (data as any)?.confeccao_prioridade ?? [];
+    },
   });
 
   // Enviado Oficina = data mais antiga; Prevista = mais recente; Entregue = mais recente.
@@ -315,20 +381,39 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   }, [blocosFonte, fonte.fonteId]);
   const temFonte = !!fonte.fonteId;
 
-  const { data: cqRow, refetch: refetchCq, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
+  const {
+    data: cqRow,
+    refetch: refetchCq,
+    isFetched: cqFetched,
+    isFetching: cqFetching,
+    isSuccess: cqOk,
+    isError: cqErrored,
+  } = useQuery({
     queryKey: ["cq", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("controle_qualidade").select("*").eq("cad_id", cad!.id).maybeSingle();
+      // Fix hidratação rodada 1 (achado I1 da revisão): antes o erro era engolido — a tela
+      // seguia como "sem CQ" (cqRow=null), `cqRevRef` ficava null e o rev-check do Salvar era
+      // pulado (`_rev_base.cq=null`). Agora propaga o erro p/ a query e a tela NÃO hidrata.
+      const { data, error } = await supabase.from("controle_qualidade").select("*").eq("cad_id", cad!.id).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
 
-  const { data: varRows = [], refetch: refetchVars, isFetched: varsFetched, isFetching: varsFetching } = useQuery({
+  const {
+    data: varRows = [],
+    refetch: refetchVars,
+    isFetched: varsFetched,
+    isFetching: varsFetching,
+    isSuccess: varsOk,
+    isError: varsErrored,
+  } = useQuery({
     queryKey: ["cq_variantes", cqRow?.id],
     enabled: !!cqRow?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("cq_variantes").select("*").eq("controle_qualidade_id", cqRow!.id);
+      const { data, error } = await supabase.from("cq_variantes").select("*").eq("controle_qualidade_id", cqRow!.id);
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -379,7 +464,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // As ações do Pós vivem no CqPosView; espelhamos o estado + ref p/ renderizar os
   // botões do Pós na MESMA barra do topo que os do Pré.
   const cqPosRef = useRef<CqPosHandle>(null);
-  const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false });
+  const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false, hydrated: false });
   const onPosStatus = useCallback((s: CqPosStatus) => setPosBtn(s), []);
   // Monta o Pós sob demanda e MANTÉM montado (escondido com CSS) — preserva o rascunho
   // não-salvo ao trocar de aba (senão o CqPosView desmontava e recarregava do banco).
@@ -402,15 +487,51 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   // Só hidrata quando as queries ASSENTARAM (fetched && !fetching) — senão, ao
   // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
-  const cqSettled = cqFetched && !cqFetching;
-  const varsSettled = !cqRow?.id || (varsFetched && !varsFetching);
+  // Fix hidratação rodada 1 (achado I1): `isFetched` sozinho também fica true depois de um
+  // ERRO (TanStack v5) — exige `isSuccess` (nunca hidrata a partir de uma carga que falhou).
+  const cqSettled = cqFetched && !cqFetching && cqOk;
+  const varsSettled = !cqRow?.id || (varsFetched && !varsFetching && varsOk);
+  // Fix hidratação rodada 2 (achado R1 da re-revisão): `mainFabric`/`blocosFonte`/`catsServico`/
+  // `prioridade` decidem `temFonte`/`fonteGrade`, que alimentam `_rev_base.fonte` do save — um
+  // erro engolido nelas fazia a tela hidratar "sem fonte" (temFonte=false), pulando o rev-check
+  // da grade compartilhada com o PCP (`_rev_base.fonte=null` no servidor). Entram no
+  // `cqLoadError` (nunca hidrata a partir de um erro) e no "Tentar de novo".
+  // Fix hidratação rodada 3 (achado R1-resto, PERDA DE DADO comprovada): `modeloGrades`/
+  // `tenantCfg` ("tamanhos") somados — alimentam `tamanhos`/`realByNum`/`_reais` do payload.
+  // Fix hidratação rodada 4 (achado N5 da re-revisão, PERDA DE DADO comprovada, review-fix3.md):
+  // `useActiveTenantId` engole o próprio erro e devolve `""` sem retry (nunca dá throw) — o
+  // tenant "não resolvido" é indistinguível de "loja realmente sem tenant" só pelo valor. O
+  // atalho `!tenantId ||` que `fonteSettled`/`tamanhosSettled` usavam tratava ESSE `""` como
+  // "settled" (retrocompat com o caso degenerado), pulando a espera de `tenantCfg`/`cats`/`prio` —
+  // com `modelo_grades` vazio, `tamanhos` caía em DEFAULT_TAMANHOS e o Salvar zerava a Grade Real
+  // num CQ já confirmado. NÃO mexemos em `useActiveTenantId` (32 consumidores, fora de escopo —
+  // ver fix4-brief.md); em vez disso, `tenantId` vazio SÓ conta como erro de carga depois que a
+  // query do tenant JÁ ASSENTOU (`tenantIdErrored`, calculado acima com `tenantIdLoading`) —
+  // enquanto ela ainda está em voo (toda carga normal passa por aí, antes de `user` resolver),
+  // conta como "ainda carregando" (achado do controlador na revisão desta correção: um
+  // `tenantIdErrored=!tenantId` cru piscava o banner de erro em TODA abertura do CQ Pré).
+  const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored || modeloGradesErrored || tenantCfgErrored || tenantIdErrored;
   // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
   // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
-  // tenantId vazio (degenerado) = escape p/ não pendurar (aí temFonte=false, retrocompat).
+  // Fix hidratação rodada 2 (R1): exige `isSuccess` das 4 (não só isFetched, que também fica
+  // true depois de erro no TanStack v5).
+  // Fix hidratação rodada 4 (N5): tirado o escape `!tenantId ||` — loja não resolvida (em erro OU
+  // ainda carregando) NÃO conta como "settled" (era o furo que deixava zerar a Grade Real).
+  // `!tenantIdLoading` garante que o gate também espera o tenant sair do "pending"/"fetching"
+  // antes de liberar (senão hidrataria de imediato com `tenantId=""` transitório).
   const fonteSettled =
-    mainFabricFetched && !mainFabricFetching &&
-    blocosFetched && !blocosFetching &&
-    (!tenantId || (catsFetched && !catsFetching && prioFetched && !prioFetching));
+    !tenantIdLoading &&
+    mainFabricFetched && !mainFabricFetching && mainFabricOk &&
+    blocosFetched && !blocosFetching && blocosOk &&
+    catsFetched && !catsFetching && catsOk && prioFetched && !prioFetching && prioOk;
+  // Fix hidratação rodada 3 (achado R1-resto): `modeloGrades` (sempre habilitada) e `tenantCfg`
+  // precisam assentar COM SUCESSO antes de hidratar — alimentam `tamanhos`, que decide `_reais`
+  // do save. Fix hidratação rodada 4 (N5): idem — tirado o escape `!tenantId ||`, exige
+  // `!tenantIdLoading`.
+  const tamanhosSettled =
+    !tenantIdLoading &&
+    modeloGradesFetched && !modeloGradesFetching && modeloGradesOk &&
+    tenantCfgFetched && !tenantCfgFetching && tenantCfgOk;
 
   // ===== Colab helpers (spec 2026-08-07) — puros sobre o closure atual =====
   // Escalares do CQ a partir de uma linha de controle_qualidade (mesmo shape do `form`).
@@ -483,7 +604,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   useEffect(() => {
     if (hydrated || !cad?.id) return;
-    if (!cqSettled || !varsSettled || !fonteSettled) return;
+    // Fix hidratação rodada 3 (achado R1-resto): + `tamanhosSettled` — sem isso, uma falha em
+    // `modeloGrades`/`tenantCfg` (tamanhos) hidratava a tela mesmo assim, com `tamanhos` errado
+    // (DEFAULT_TAMANHOS) e `realByNum`/`_reais` zerados para os tokens reais.
+    if (!cqSettled || !varsSettled || !fonteSettled || !tamanhosSettled) return;
     // Colab: 1ª carga (ou re-seed via cancel-edit) = base/touched limpos.
     touchedFormRef.current = new Set();
     touchedGradeRef.current = new Set();
@@ -557,7 +681,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       // base da grade = recebida/defeito derivados do fonteGrade nesta carga (por vid/tam).
       baseGradeRef.current = gradeDetalheDeFonte(fonteGrade);
     }
-  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
+  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, tamanhosSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
 
   // Colab: MERGE-no-refetch, SÓ para UPDATE alheio (realtime cross-tela/aba). O pós-save e o
   // reconcile P0409 re-baselinam MANUALMENTE (reseedingRef true) a partir de um snapshot
@@ -1054,10 +1178,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
-          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id} aria-label="Confirmar Controle de Qualidade">
+          {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — CQ Pré é "estado completo" nos
+              wrappers `salvar_cq`/`_salvar_cq_core` ([Σ]/[C1], invariante #6); um Salvar/Confirmar
+              cedo gravaria a grade real ainda não semeada.
+              Fix hidratação rodada 5 (achado N5b da re-revisão, PERDA DE DADO comprovada,
+              review-fix4.md): + `|| !tenantId` — N5/N5b cobrem o tenant sumir ANTES de hidratar
+              (banner), mas depois de hidratado o corpo fica na tela por design (N1). Se a query do
+              tenant refizer e FALHAR (o hook engole e assenta `""`), as queries dependentes
+              (`tenant_config`/`tamanhos`, `cq-cats-servico`, `cq-confeccao-prioridade`) desabilitam
+              SEM erro (ficam `disabled`, não `isError`) — `tamanhos` cai em DEFAULT_TAMANHOS e a
+              fonte pode sumir, mas nada disso reabre o banner (N1 esconde erro de REFETCH). Sem
+              esta trava, o Salvar mandaria `_reais` zerado com o CQ já confirmado. Num refetch
+              NORMAL (sem falha), o `tenantId` antigo continua em cache — sem flicker. */}
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id || !hydrated || !tenantId} aria-label="Confirmar Controle de Qualidade">
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Controle de Qualidade</span>
           </Button>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated || !tenantId} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1066,7 +1202,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); conflitosRef.current = []; setConflitos([]); setUltimoMerge(null); }} disabled={saveMut.isPending} aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A): mesma trava — o "Voltar" acima RE-arma `hydrated=false` de
+              propósito (re-hidrata ao reabrir edição); o Salvar tem que esperar o novo seed.
+              Fix hidratação rodada 5 (N5b): + `|| !tenantId`, mesmo motivo dos 2 botões acima. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated || !tenantId} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1085,12 +1224,25 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           </Button>
         </>
       ))}
+      {/* Fix hidratação (P-57 A, metade 1): + `!posBtn.hydrated` em Salvar/Confirmar/Desmarcar do
+          Pós — `CqPosView` reporta `hydrated` via onStatus (mesma semântica "estado completo"
+          dos wrappers `salvar_cq_pos`/`_salvar_cq_pos_core`, invariante #6).
+          Fix hidratação — revisão final (achado C1, PERDA DE DADO comprovada, review-final.md):
+          + `|| !hydrated` (o `hydrated` do Pré) nos 3 botões do Pós. `CqPosView.buildItens()`
+          itera o `variantList` que vem do PAI (via `mainFabric`/`modeloGrades`, achado R1/R1-resto
+          das rodadas 2-3), mas o gate interno do Pós (`posBtn.hydrated`) só espera as PRÓPRIAS
+          queries do Pós — nunca esperou o Pré assentar. Com `cad_tecidos`/`modelo_grades` em voo
+          OU em erro, `variantList=[]`, e o Pós hidratava mesmo assim (suas próprias queries
+          respondem): Salvar/Confirmar ficavam habilitados e mandavam `_itens: []`, que
+          `_salvar_cq_pos_core` grava como DELETE incondicional + reinsere só o vazio — apaga TODA
+          a contagem do Pós. `hydrated` (do Pré) já exige `mainFabricOk`/`modeloGradesOk` (via
+          `fonteSettled`/`tamanhosSettled`) e não regride num refetch com erro (N1). */}
       {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
         <>
           <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending}>
+          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated || !hydrated}>
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
         </>
@@ -1099,10 +1251,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           {posBtn.editing && (
             <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Voltar</Button>
           )}
-          <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
+          <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos || !posBtn.hydrated || !hydrated}>
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
           </Button>
-          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
+          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated || !hydrated}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </>
@@ -1176,16 +1328,92 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <CqPosView ref={cqPosRef} onStatus={onPosStatus} cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
         </div>
       )}
-      {view === "pos" && !cad?.id && (
+      {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia.
+          Fix hidratação rodada 5 (nit): + "Carregando…" enquanto `cad` ainda não assentou (nem
+          erro nem sucesso vazio ainda) — mesma ambiguidade do achado original, só que contra o
+          estado "ainda em voo" em vez de erro. */}
+      {view === "pos" && !cad?.id && cadErrored && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetchCad()}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {view === "pos" && !cad?.id && !cadErrored && !cadFetched && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+      {view === "pos" && !cad?.id && !cadErrored && cadFetched && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD.
         </Card>
       )}
 
-      {view === "pre" && (
+      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (cqSettled/varsSettled
+          exigem isSuccess) — mostra o banner no lugar do formulário, com "Tentar de novo".
+          Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado — "Carregando…"
+          no lugar do formulário (o estado inicial de `form`/`grades` é vazio/zerado e ficava
+          editável — nada perdido no servidor, mas a digitação sumia quando o seed chegasse).
+          Fix hidratação rodada 2 (achado N1 da re-revisão — regressão): o corpo renderiza por
+          `hydrated` SOZINHO — uma vez hidratado, um erro de REFETCH posterior não esconde o
+          formulário (o TanStack v5 mantém `data` num refetch que falha). O banner só aparece
+          ANTES da 1ª hidratação. */}
+      {view === "pre" && cad?.id && cqLoadError && !hydrated && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Fix hidratação rodada 2 (achado R1): refaz TODAS as queries que entram no gate de
+              // hidratação (cqSettled/varsSettled/fonteSettled), não só `cq`/`cq_variantes`.
+              // Fix hidratação rodada 3 (achado R1-resto): + `modeloGrades`/`tenantCfg`
+              // (tamanhosSettled).
+              // Fix hidratação rodada 4 (achado N5): a loja pode nunca ter resolvido
+              // (`tenantId===""`, o que agora TAMBÉM entra em `cqLoadError`) — sem refazer a query
+              // do `useActiveTenantId`, o "Tentar de novo" ficaria preso reexecutando queries
+              // `enabled: !!tenantId` que nunca disparam. NÃO mexemos no hook (32 consumidores,
+              // fora de escopo) — invalidamos por PREFIXO da key que ele usa
+              // (`["active-tenant-id", user?.id]`, ver src/hooks/useActiveTenantId.ts) para
+              // refazer o fetch sem precisar do `user?.id` aqui.
+              qc.invalidateQueries({ queryKey: ["active-tenant-id"] });
+              refetchCq();
+              if (cqRow?.id) refetchVars();
+              refetchMainFabric();
+              refetchBlocosFonte();
+              refetchCatsServico();
+              refetchPrioridade();
+              refetchModeloGrades();
+              if (tenantId) refetchTenantCfg();
+            }}
+          >
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {view === "pre" && cad?.id && !cqLoadError && !hydrated && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+
+      {view === "pre" && (!cad?.id || hydrated) && (
       <fieldset disabled={readOnly} className="contents">
 
-      {!cad?.id && (
+      {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia.
+          Fix hidratação rodada 5 (nit): + "Carregando…" enquanto `cad` ainda não assentou. */}
+      {!cad?.id && cadErrored && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetchCad()}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {!cad?.id && !cadErrored && !cadFetched && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+      {!cad?.id && !cadErrored && cadFetched && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>

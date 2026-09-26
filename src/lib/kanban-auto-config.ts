@@ -124,7 +124,65 @@ export function resolverEcoKanban(
   if (protegido) {
     return { cfgKanban: local, kanbanBase: baseAtual };
   }
-  return { cfgKanban: servidorNovo, kanbanBase: { cfg: servidorNovo, servidor: servidorNovo } };
+  return { cfgKanban: mesclarKanbanPorColuna(local, servidorNovo, baseAtual.cfg), kanbanBase: rebasearKanban(local, servidorNovo, baseAtual.cfg) };
+}
+
+/**
+ * Fix hidratação rodada 1 (achado I2 da revisão): fora da janela protegida, `resolverEcoKanban`
+ * devolvia o servidor por INTEIRO (as 5 colunas), mesmo quando o usuário tinha uma edição LOCAL
+ * ainda não salva numa delas — ex.: editar "Status do Kanban" e depois salvar o diálogo
+ * "Editar nomenclaturas por módulo" (que também re-hidrata `data.cfg`) apagava a edição do
+ * kanban em silêncio. Mesmo princípio do `mergeDraft`: uma coluna onde `local` diverge da BASE
+ * (`kanbanBase.cfg`, o último servidor aplicado) está "tocada" e sobrevive; uma coluna igual à
+ * base adota o servidor novo (não é edição minha, é uma mudança alheia/legítima chegando).
+ */
+/**
+ * Fix hidratação rodada 2 (achado N3 da re-revisão): uma coluna onde `local` diverge da base MAS
+ * CONVERGIU para o mesmo valor que o servidor (`local ≡ servidorNovo`) não é mais tratada como
+ * "tocada" — mesmo princípio do `mergeDraft` quando `draft ≡ fresh`. Caso real coberto AQUI: outro
+ * admin fez a MESMA edição que eu, no meio-tempo (eco SEM save em voo — `protegido=false`). Sem
+ * isso, `conflitoKanban` acusava a coluna em TODO save seguinte até a página recarregar.
+ * ⚠️ Nit da rodada 3 (a rodada 1 tinha isso errado): o caso "o `update(diff)` gravou no servidor
+ * mas o ack se perdeu" (falha PARCIAL, `geralOk` em `resolverEcoKanban`) NÃO passa por aqui — esse
+ * caso mantém `kanbanProtegidoRef=true` e cai no ramo `protegido=true`, que devolve `baseAtual`
+ * intacto sem chamar `colunaTocada`. Esse conflito falso do caminho protegido é PRÉ-EXISTENTE
+ * (vem das rodadas do F2 do kanban, antes deste branch) e fica de fora de escopo aqui — follow-up
+ * para quem cuida do F2 (ver review-fix2.md).
+ */
+function colunaTocada(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor, c: KanbanCol): boolean {
+  if (jsonCanonico(local[c] ?? null) === jsonCanonico(servidorNovo[c] ?? null)) return false;
+  return jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
+}
+
+export function mesclarKanbanPorColuna(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor): KanbanColsValor {
+  const out: KanbanColsValor = {};
+  for (const c of KANBAN_COLS) {
+    out[c] = colunaTocada(local, servidorNovo, base, c) ? local[c] : servidorNovo[c];
+  }
+  return out;
+}
+
+/**
+ * `kanbanBase` acompanha o merge por coluna: uma coluna tocada mantém a base ANTIGA (o
+ * `conflitoKanban` do save precisa continuar comparando contra o valor de antes, para acusar se
+ * outro admin mudou justamente essa coluna nesse meio-tempo); uma coluna não tocada re-baseia no
+ * servidor novo (senão um diff futuro compararia contra um valor desatualizado).
+ */
+export function rebasearKanban(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor): { cfg: KanbanColsValor; servidor: KanbanColsValor } {
+  const cfg: KanbanColsValor = {};
+  const servidor: KanbanColsValor = {};
+  for (const c of KANBAN_COLS) {
+    // N3: convergida (local ≡ servidorNovo) não conta como tocada — re-baseia normalmente,
+    // mesmo quando isso difere de `base` (ver `colunaTocada`).
+    const tocada = colunaTocada(local, servidorNovo, base, c);
+    // Tocada: NÃO re-baseia (fica com o valor de ANTES da minha edição) — o próximo
+    // `diffKanban(kanbanBase.cfg, cfg)` precisa continuar vendo `base[c] !== local[c]` para
+    // gravar a mudança; se `cfg[c]` virasse `local[c]` aqui, o diff daria vazio e o Salvar
+    // achando que essa coluna não mudou.
+    cfg[c] = tocada ? base[c] : servidorNovo[c];
+    servidor[c] = tocada ? base[c] : servidorNovo[c];
+  }
+  return { cfg, servidor };
 }
 
 const DESCRICAO_COL: Record<KanbanCol, string> = {
