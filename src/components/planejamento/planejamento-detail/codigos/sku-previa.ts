@@ -10,7 +10,12 @@ import { lerMatriz, situacaoSku, type LinhaSku, type MatrizSkus, type SituacaoSk
 export type ManualAGravar = { varianteKey: string; tamanhoKey: string; sku: string; id: string | null; rev: number | null };
 export type SkusAGravar = { regerar: boolean; manuais: Record<string, ManualAGravar> };
 export const SKUS_A_GRAVAR_VAZIO: SkusAGravar = { regerar: false, manuais: {} };
-export type ModoPrevia = "manuais" | "regerar";
+// Fix 1 (T5, revisão Opus C1) — 'criar' entra ao lado de 'manuais'/'regerar': card VIRGEM (nenhum SKU gravado) com algo
+// "a gravar" usa 'criar' — automáticas + digitados NUM PLANO SÓ, UMA assinatura só (o banco já aceita, migration :379).
+// Sem isto, `gerarSeFaltar` (que cria as automáticas OUTRAS que o digitado) e `aplicarAGravar` (modo 'manuais', que só
+// grava a linha digitada) brigavam pela mesma linha em duas chamadas — a 2ª sempre via P0409 (B1: rev null numa chave
+// que a 1ª chamada acabou de criar), e o SKU digitado nunca gravava no 1º Salvar de um card virgem.
+export type ModoPrevia = "manuais" | "regerar" | "criar";
 
 export const TEXTO_PREVIA =
   "Prévia — nada foi gravado ainda. Os SKUs só mudam quando você clicar em Salvar; Voltar ou Descartar mantém os atuais.";
@@ -18,6 +23,10 @@ export const TEXTO_BOM_SUJO =
   "A grade ou os tecidos têm alterações não salvas: a prévia usa a grade salva e é conferida de novo no Salvar.";
 export const MSG_PREVIA_CALCULANDO =
   "A prévia dos SKUs ainda estava sendo calculada — o card foi salvo, os SKUs não. Confira a prévia e clique em Salvar de novo.";
+// M3 (T5, revisão Opus) — texto PRÓPRIO para a prévia `desconhecida` (fail-closed: status/ação/assinatura que o front não
+// reconhece): o motivo real não é "ainda calculando", é "não deu pra ler" — recarregar resolve; esperar não.
+export const MSG_PREVIA_DESCONHECIDA =
+  "Não foi possível ler a prévia dos SKUs — o card foi salvo, os SKUs não. Recarregue a página e tente de novo.";
 export const MSG_PREVIA_DESATUALIZADA =
   "Os SKUs mudaram desde a prévia (outra pessoa gerou ou editou, ou mudou sigla, Formato ou grade). A prévia foi atualizada — confira e clique em Salvar de novo. O card já foi salvo.";
 export const PREFIXO_SKUS_NAO_GRAVADOS = "O card foi salvo, mas os SKUs não foram gravados: ";
@@ -25,7 +34,11 @@ export const TITULO_REGERAR = "Mostra como ficam os SKUs — só o Salvar grava.
 
 export const chaveLinhaSku = (varianteKey: string, tamanhoKey: string): string => `${varianteKey}|${tamanhoKey}`;
 export const nadaAGravar = (s: SkusAGravar): boolean => !s.regerar && Object.keys(s.manuais).length === 0;
-export const modoPrevia = (s: SkusAGravar): ModoPrevia => (s.regerar ? "regerar" : "manuais");
+/** Fix 1 (C1) — `virgem` é OBRIGATÓRIO (vem da matriz GRAVADA: nenhuma linha tem `id`). Regerar pedido vence sempre
+ *  ('regerar' também gera tudo, mas REMOVE órfãs — passo 2 do plano — o que 'criar' nunca faz); senão, card virgem com
+ *  algo "a gravar" usa 'criar' (gera as automáticas que faltam JUNTO do digitado); senão, 'manuais' (card já tem SKU:
+ *  só grava o que foi digitado, nunca gera sozinho aqui — a 1ª geração de resto é sempre via `gerarSeFaltar`). */
+export const modoPrevia = (s: SkusAGravar, virgem: boolean): ModoPrevia => (s.regerar ? "regerar" : virgem ? "criar" : "manuais");
 
 export function comRegerar(s: SkusAGravar): SkusAGravar {
   return s.regerar ? s : { ...s, regerar: true };
@@ -80,10 +93,13 @@ export function manuaisParaRpc(s: SkusAGravar): ManualRpc[] {
     .sort((a, b) => cmp(chaveLinhaSku(a.variante_key, a.tamanho_key), chaveLinhaSku(b.variante_key, b.tamanho_key)));
 }
 
-export type EntradaPrevia = { ref: string; tamanhoTipo: "letra" | "numero"; aGravar: SkusAGravar };
+// Fix 1 (C1) — `virgem` entra na ENTRADA da prévia: a matriz gravada decide 'criar' vs 'manuais' (modoPrevia), e o
+// aplicar tem que mandar o MESMO modo que a prévia vista usou (nunca recalcular `virgem` de novo no momento do Salvar
+// — a matriz pode ter mudado; o modo vem de `entradaDaChave(d.entrada).modo`, não de uma nova leitura).
+export type EntradaPrevia = { ref: string; tamanhoTipo: "letra" | "numero"; aGravar: SkusAGravar; virgem: boolean };
 /** Chave estável da entrada da prévia: é a queryKey e responde "a prévia na tela é a da entrada de agora?". */
 export function chaveEntradaPrevia(e: EntradaPrevia): string {
-  return JSON.stringify([e.ref.trim(), e.tamanhoTipo, modoPrevia(e.aGravar), manuaisParaRpc(e.aGravar)]);
+  return JSON.stringify([e.ref.trim(), e.tamanhoTipo, modoPrevia(e.aGravar, e.virgem), manuaisParaRpc(e.aGravar)]);
 }
 export function entradaDaChave(chave: string): { ref: string; tamanhoTipo: "letra" | "numero"; modo: ModoPrevia; manuais: ManualRpc[] } {
   const [ref, tamanhoTipo, modo, manuais] = JSON.parse(chave) as [string, "letra" | "numero", ModoPrevia, ManualRpc[]];
@@ -144,15 +160,18 @@ export function lerPrevia(raw: unknown, entrada: string): PreviaSkus {
 
 export type SituacaoPrevia = SituacaoSku & { aGravar: boolean; conflitoVersao: boolean };
 /** O que a linha diz com a prévia na tela: a ação do plano (vai mudar/não vai) ou, sem ação, o estado de hoje.
- *  Guardião R2 / A#1 (defesa em profundidade) — `erros[]` da MESMA chave (variante_key+tamanho_key) tem
- *  PRECEDÊNCIA sobre `previa.acao`: o SQL já preserva o erro separado da ação (ex.: uma linha órfã que teria
- *  `acao:"sai"` mas cujo SKU digitado à mão falhou na validação) — o front não pode esconder isso mostrando só
- *  a ação (`sai no Salvar`) quando na verdade aquela linha caiu em erro e não vai ser gravada. */
-export function situacaoPrevia(l: LinhaPrevia, erros: readonly ErroPrevia[] = []): SituacaoPrevia {
+ *  Fix 1 (T5, revisão Opus C2) — `erros` é OBRIGATÓRIO (produção sempre tem `previa.erros` à mão) e o erro da MESMA
+ *  chave (variante_key+tamanho_key) vira a `previa` da linha (com a MESMA forma de `PreviaLinha`, `acao:"erro"`),
+ *  caindo no MESMO `case "erro"` de sempre — o `switch` deixa de ter dois caminhos p/ erro (um morto, outro vivo):
+ *  P0409 continua marcando `conflitoVersao:true` (o botão "manter o meu · usar o novo" some SE a precedência
+ *  esconder isso) e o texto do P0001 é a mensagem PURA do servidor (nunca o prefixo do toast "O card foi salvo…" —
+ *  isso é só para o TOAST de depois do Salvar, não para o rótulo da linha ENQUANTO o usuário ainda está digitando). */
+export function situacaoPrevia(l: LinhaPrevia, erros: readonly ErroPrevia[]): SituacaoPrevia {
   const x = (s: SituacaoSku, aGravar = false, conflitoVersao = false): SituacaoPrevia => ({ ...s, aGravar, conflitoVersao });
   const erroDaLinha = erros.find((e) => e.variante_key === l.variante_key && e.tamanho_key === l.tamanho_key);
-  if (erroDaLinha) return x({ tom: "danger", texto: mensagemErroPrevia(erroDaLinha), cadastrar: false });
-  const p = l.previa;
+  const p: PreviaLinha | null = erroDaLinha
+    ? { acao: "erro", code: erroDaLinha.code, mensagem: erroDaLinha.mensagem, sku_de: l.previa?.sku_de ?? l.sku, sku_para: l.previa?.sku_para ?? null }
+    : l.previa;
   if (p) {
     switch (p.acao) {
       case "novo": return x({ tom: "warning", texto: "novo · a gravar", cadastrar: false }, true);
@@ -162,7 +181,7 @@ export function situacaoPrevia(l: LinhaPrevia, erros: readonly ErroPrevia[] = []
       case "conflito": return x({ tom: "danger", texto: `não será gravado — ${p.mensagem ?? "conflito"}`, cadastrar: false });
       case "erro":
         return p.code === "P0409"
-          ? x({ tom: "danger", texto: `Outra pessoa mudou este SKU para ${l.sku ?? "—"} — o seu (${p.sku_para ?? "—"}) ainda não foi gravado.`, cadastrar: false }, false, true)
+          ? x({ tom: "danger", texto: `Outra pessoa mudou este SKU para ${p.sku_de ?? l.sku ?? "—"} — o seu (${p.sku_para ?? "—"}) ainda não foi gravado.`, cadastrar: false }, false, true)
           : x({ tom: "danger", texto: p.mensagem ?? "SKU inválido.", cadastrar: false });
     }
   }

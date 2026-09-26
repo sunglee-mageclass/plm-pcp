@@ -147,18 +147,18 @@ describe("resumoGeracao", () => {
   });
 });
 
-describe("seloCodigos (selo da seção — spec §5.3)", () => {
+describe("seloCodigos (selo da seção — spec §5.3; M1 da revisão — 2º parâmetro OBRIGATÓRIO)", () => {
   it("vazia (nenhuma linha) ⇒ sem selo, nem 'aguardando REF' nem 'aguardando migração' (regra de seção vazia do dono, 25/set)", () => {
-    expect(seloCodigos(matriz({ status: "aguardando_ref" }))).toBeUndefined();
-    expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null }))).toBeUndefined();
-    expect(seloCodigos(undefined)).toBeUndefined();
+    expect(seloCodigos(matriz({ status: "aguardando_ref" }), false)).toBeUndefined();
+    expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null }), false)).toBeUndefined();
+    expect(seloCodigos(undefined, false)).toBeUndefined();
   });
   it("R23 + P-25 — SKUs gravados e card LEGADO sem 'Tamanho em' ⇒ cinza 'aguardando migração do Tamanho em' (não é mais uma escolha pendente do usuário)", () => {
-    expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null, linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
+    expect(seloCodigos(matriz({ status: "sem_tamanho", tamanho_tipo: null, linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] }), false))
       .toEqual({ tone: "muted", texto: "aguardando migração do Tamanho em" });
   });
   it("Minor (2) — status 'desconhecido' com SKUs gravados ⇒ cinza, sem virar 'ok'", () => {
-    expect(seloCodigos(matriz({ status: "desconhecido", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
+    expect(seloCodigos(matriz({ status: "desconhecido", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] }), false))
       .toEqual({ tone: "muted", texto: "não foi possível ler o status" });
   });
   it("falta sigla ⇒ âmbar 'N SKU(s) sem sigla' (vence o resto)", () => {
@@ -166,21 +166,21 @@ describe("seloCodigos (selo da seção — spec §5.3)", () => {
       linhas: [linha({ estado: "falta" }), linha({ estado: "falta", tamanho_key: "36|PP" }), linha({ estado: "conflito" })],
       faltas: [{ atributo: "tamanho", id: null, nome: "36" }],
     });
-    expect(seloCodigos(m)).toEqual({ tone: "warn", texto: "2 SKUs sem sigla", title: "Falta sigla: Tamanho 36" });
+    expect(seloCodigos(m, false)).toEqual({ tone: "warn", texto: "2 SKUs sem sigla", title: "Falta sigla: Tamanho 36" });
   });
   it("conflito ⇒ âmbar; aguardando REF / sem formato / a gerar ⇒ cinza; só aviso ⇒ info; tudo gravado ⇒ ok", () => {
-    expect(seloCodigos(matriz({ linhas: [linha({ estado: "conflito" })] }))).toEqual({ tone: "warn", texto: "1 em conflito" });
-    expect(seloCodigos(matriz({ status: "aguardando_ref", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
+    expect(seloCodigos(matriz({ linhas: [linha({ estado: "conflito" })] }), false)).toEqual({ tone: "warn", texto: "1 em conflito" });
+    expect(seloCodigos(matriz({ status: "aguardando_ref", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] }), false))
       .toEqual({ tone: "muted", texto: "aguardando REF" });
-    expect(seloCodigos(matriz({ status: "sem_formato", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] })))
+    expect(seloCodigos(matriz({ status: "sem_formato", linhas: [linha({ estado: "salvo", id: "s", sku: "X" })] }), false))
       .toEqual({ tone: "muted", texto: "sem formato de SKU" });
-    expect(seloCodigos(matriz({ linhas: [linha()] }))).toEqual({ tone: "muted", texto: "1 a gerar" });
+    expect(seloCodigos(matriz({ linhas: [linha()] }), false)).toEqual({ tone: "muted", texto: "1 a gerar" });
     expect(seloCodigos(matriz({
       linhas: [linha({ estado: "ok", id: "s", sku: "X" })], avisos: [{ atributo: "cor_apelido", id: "a", nome: "Musgo" }],
-    }))).toEqual({ tone: "info", texto: "aviso: apelido sem sigla", title: "Falta sigla na cor apelido: Musgo" });
+    }), false)).toEqual({ tone: "info", texto: "aviso: apelido sem sigla", title: "Falta sigla na cor apelido: Musgo" });
     expect(seloCodigos(matriz({
       linhas: [linha({ estado: "ok", id: "s", sku: "X" }), linha({ estado: "manual", id: "t", sku: "Y", tamanho_key: "36|PP" })],
-    }))).toEqual({ tone: "ok", texto: "2 SKUs" });
+    }), false)).toEqual({ tone: "ok", texto: "2 SKUs" });
   });
   it("SKU em prévia — algo 'a gravar' vence tudo (o card ainda não gravou nada)", () => {
     expect(seloCodigos(matriz({ linhas: [linha({ estado: "conflito" })] }), true)).toEqual({ tone: "warn", texto: "prévia a gravar" });
@@ -188,21 +188,35 @@ describe("seloCodigos (selo da seção — spec §5.3)", () => {
   });
 });
 
-// Guardião R2 / A#1 (adendo do controlador) — `situacaoPrevia` dá precedência ao `erros[]` da MESMA chave sobre
-// `previa.acao`: o SQL já preserva o erro (ex.: linha órfã que teria "sai" mas falhou na validação do digitado
-// à mão); o front NÃO pode esconder isso mostrando "sai no Salvar" quando na verdade a linha caiu em erro.
-describe("situacaoPrevia — precedência do erro (Guardião R2 / A#1)", () => {
+// Fix 1 (T5, revisão Opus C2) — `situacaoPrevia` exige `erros` (sem default: a produção SEMPRE tem `previa.erros` à
+// mão); o erro da MESMA chave vira a `previa` da linha (mesma forma de `PreviaLinha`) e cai no MESMO `case "erro"` do
+// switch — P0409 preserva `conflitoVersao:true` (o botão "manter o meu · usar o novo" continua aparecendo) e P0001
+// mostra a mensagem PURA do servidor (não o prefixo do toast "O card foi salvo…", que é só para o TOAST de depois do
+// Salvar). O caminho antigo (achar o erro e devolver direto, sem passar pelo switch) matava esse fluxo — corrigido.
+describe("situacaoPrevia — precedência do erro vira a `previa` da linha (Fix 1 · C2)", () => {
   const linhaPrevia = (p: Partial<LinhaPrevia> = {}): LinhaPrevia => ({ ...linha(), previa: null, ...p });
-  it("erros[] da MESMA chave vence previa.acao='sai' (linha que pareceria sair mas falhou)", () => {
+  it("erro P0409 da MESMA chave: cai no case 'erro', preserva conflitoVersao:true e o texto de 'manter o meu · usar o novo'", () => {
+    const l = linhaPrevia({
+      variante_key: "k1", tamanho_key: "34|PPP", sku: "REF1AM34",
+      previa: { acao: "sai", sku_de: "REF1AM34", sku_para: null, mensagem: null, code: null },
+    });
+    const erros: ErroPrevia[] = [{ variante_key: "k1", tamanho_key: "34|PPP", code: "P0409", mensagem: "conflito_versao: a linha do SKU foi gravada por outra pessoa" }];
+    const sit = situacaoPrevia(l, erros);
+    expect(sit.tom).toBe("danger");
+    expect(sit.conflitoVersao).toBe(true); // C2 — SEM isto, "manter o meu · usar o novo" nunca aparece na tela
+    expect(sit.texto).toContain("Outra pessoa mudou este SKU para REF1AM34");
+    expect(sit.texto).not.toContain("sai no Salvar");
+  });
+  it("erro P0001 (não-P0409) da MESMA chave: a mensagem é a PURA do servidor, sem o prefixo do toast", () => {
     const l = linhaPrevia({
       variante_key: "k1", tamanho_key: "34|PPP",
-      previa: { acao: "sai", sku_de: "REF1AM34", sku_para: null, mensagem: null, code: null },
+      previa: { acao: "novo", sku_de: null, sku_para: "REF1AM34", mensagem: null, code: null },
     });
     const erros: ErroPrevia[] = [{ variante_key: "k1", tamanho_key: "34|PPP", code: "P0001", mensagem: "SKU inválido: use só letras, números e - . _ /." }];
     const sit = situacaoPrevia(l, erros);
     expect(sit.tom).toBe("danger");
-    expect(sit.texto).toContain("SKU inválido");
-    expect(sit.texto).not.toContain("sai no Salvar");
+    expect(sit.conflitoVersao).toBe(false);
+    expect(sit.texto).toBe("SKU inválido: use só letras, números e - . _ /."); // mensagem PURA — sem "O card foi salvo…"
   });
   it("erro de OUTRA chave não interfere — a linha mostra a ação normal", () => {
     const l = linhaPrevia({
@@ -212,63 +226,9 @@ describe("situacaoPrevia — precedência do erro (Guardião R2 / A#1)", () => {
     const erros: ErroPrevia[] = [{ variante_key: "k9", tamanho_key: "99|G", code: "P0001", mensagem: "SKU inválido." }];
     expect(situacaoPrevia(l, erros).texto).toBe("novo · a gravar");
   });
-  it("sem erros[] (parâmetro omitido) — comportamento igual a antes (compat)", () => {
+  it("sem nenhum erro (produção sempre passa `[]`, nunca omite): comportamento igual ao de antes", () => {
     const l = linhaPrevia({ previa: { acao: "novo", sku_de: null, sku_para: "X", mensagem: null, code: null } });
-    expect(situacaoPrevia(l).texto).toBe("novo · a gravar");
-  });
-});
-
-// Adendo do controlador (A#R2-3 / P-50 A) — card SEM NENHUM SKU + 1 SKU digitado "a gravar": a 1ª geração automática
-// não pode ser pulada. Se `aplicarAGravar` (modo 'manuais', que só escreve a linha manual) rodasse ANTES de
-// `gerarSeFaltar`, a matriz deixaria de ser "virgem" (a linha manual já teria `id`) e `deveGerarPrimeiraVez` — que
-// exige `m.linhas.every((l) => !l.id)` — nunca mais geraria as demais linhas automaticamente. A correção escolhida
-// (permitida pelo adendo) é chamar `gerarSeFaltar` ANTES de `aplicarAGravar` no `aoSalvar`. Este teste prova a
-// escolha com um MODELO em memória do contrato das RPCs (sem banco): reproduz o suficiente de
-// `gerar_skus_modelo(_regerar:false)` (só cria o que falta, card virgem) e `aplicar_skus_modelo` (modo 'manuais' só
-// grava a(s) linha(s) manual(is)) para provar que a ORDEM importa.
-describe("P-50 A — 1ª geração automática não pode ser pulada por causa de um SKU 'a gravar' (adendo A#R2-3)", () => {
-  type LinhaFake = { variante_key: string; tamanho_key: string; sku: string | null; manual: boolean };
-  /** Espelho mínimo do que `gerar_skus_modelo(_regerar:false)` faz: card virgem (nenhuma linha com sku) ⇒ preenche
-   *  TODAS as linhas pendentes com o sku previsto. Card não-virgem (≥1 linha já tem sku) ⇒ não faz nada (mesma
-   *  guarda de `deveGerarPrimeiraVez`: `m.linhas.every((l) => !l.id)`). */
-  function fakeGerarSeFaltar(db: LinhaFake[]): void {
-    const virgem = db.every((l) => l.sku === null);
-    if (!virgem) return;
-    for (const l of db) l.sku = `AUTO-${l.variante_key}-${l.tamanho_key}`;
-  }
-  /** Espelho mínimo de `aplicar_skus_modelo` em modo 'manuais': só grava a(s) linha(s) "a gravar" — nunca toca nas
-   *  demais (não gera, não remove órfã). */
-  function fakeAplicarManuais(db: LinhaFake[], manuais: { variante_key: string; tamanho_key: string; sku: string }[]): void {
-    for (const m of manuais) {
-      const l = db.find((x) => x.variante_key === m.variante_key && x.tamanho_key === m.tamanho_key);
-      if (l) { l.sku = m.sku; l.manual = true; }
-    }
-  }
-  const cardVirgem = (): LinhaFake[] => [
-    { variante_key: "k1", tamanho_key: "34|PPP", sku: null, manual: false },
-    { variante_key: "k1", tamanho_key: "36|PP", sku: null, manual: false },
-  ];
-  const manualDigitado = [{ variante_key: "k1", tamanho_key: "34|PPP", sku: "MEUSKU34" }];
-
-  it("ORDEM CORRETA (gerarSeFaltar ANTES de aplicarAGravar): depois do Salvar existem os SKUs automáticos + o digitado", () => {
-    const db = cardVirgem();
-    fakeGerarSeFaltar(db); // 1ª geração automática (o card ainda está virgem — roda)
-    fakeAplicarManuais(db, manualDigitado); // grava o digitado por cima
-    const l34 = db.find((x) => x.tamanho_key === "34|PPP")!;
-    const l36 = db.find((x) => x.tamanho_key === "36|PP")!;
-    expect(l34.sku).toBe("MEUSKU34"); // o digitado venceu o automático NA MESMA linha
-    expect(l34.manual).toBe(true);
-    expect(l36.sku).toBe("AUTO-k1-36|PP"); // a OUTRA linha recebeu o automático — não ficou "a gerar" pra sempre
-  });
-
-  it("ORDEM ERRADA (aplicarAGravar ANTES de gerarSeFaltar) — o bug que o adendo bloqueia: a 2ª linha nunca gera", () => {
-    const db = cardVirgem();
-    fakeAplicarManuais(db, manualDigitado); // grava o digitado primeiro — a linha 34 já tem sku
-    fakeGerarSeFaltar(db); // o card NÃO está mais virgem (l34.sku !== null) — a guarda pula a geração
-    const l34 = db.find((x) => x.tamanho_key === "34|PPP")!;
-    const l36 = db.find((x) => x.tamanho_key === "36|PP")!;
-    expect(l34.sku).toBe("MEUSKU34");
-    expect(l36.sku).toBeNull(); // BUG que a ordem errada causaria: fica sem SKU pra sempre (P-50 A quebrado)
+    expect(situacaoPrevia(l, []).texto).toBe("novo · a gravar");
   });
 });
 
@@ -313,6 +273,10 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
       "As variantes vêm do Tecido 1 (seção Tecidos) e os tamanhos, da Grade. Formato: REF - cor base + apelido + tamanho (Config da Loja › Formato do SKU). 'Regerar SKUs' mostra a prévia e só o Salvar grava; os editados à mão nunca mudam.",
     );
   });
+  it("CodigosSecao (Fix 1 · C2): situacaoPrevia é chamada com skus.previa.erros (a chamada de produção nunca omite)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
+    expect(s).toMatch(/situacaoPrevia\(l as LinhaPrevia,\s*erros\)/);
+  });
   it("CodigosSecao preserva o dev-oculto (P-53 A): 'Tamanho em' e o botão Regerar exigem podeEditarSkus (= podeEditarPlanejamento)", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/codigos/CodigosSecao.tsx");
     expect(s).toContain("disabled={!podeEditarSkus}");
@@ -328,7 +292,25 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     expect(s).toContain("placeholderData: keepPreviousData");
     expect(s).toContain("o.aGravar.limparSe(s)");
   });
-  it("PlanejamentoDetail: seção 3 = 'Desenvolvimento'; 'Códigos' logo depois; o Salvar grava o modelo, DEPOIS os SKUs em prévia, DEPOIS a 1ª geração", () => {
+  it("useSkusModelo (Fix 1 · C1): `virgem` vem da matriz GRAVADA e o modo do aplicar é o da ENTRADA da prévia (nunca recalculado no momento do Salvar)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/useSkusModelo.ts");
+    expect(s).toMatch(/virgem = !!q\.data.*q\.data\.linhas\.every\(\(l\) => !l\.id\)/);
+    expect(s).toContain("chaveEntradaPrevia({ ref: o.refPrevia, tamanhoTipo: o.tamanhoTipo, aGravar, virgem })");
+    expect(s).toContain("_modo: e.modo"); // o aplicar manda o MESMO modo da entrada da prévia — não `modoPrevia(s)` recalculado
+  });
+  it("useSkusModelo (Fix 1 · I1): isFetching SAIU da condição que recusa o aplicarAGravar (não protegia nada; a garantia é a assinatura+entrada)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/useSkusModelo.ts");
+    expect(s).not.toMatch(/const buscandoRef = useRef/);
+    expect(s).not.toMatch(/if \(!d \|\| d\.entrada !== chaveRef\.current \|\| buscandoRef/);
+    expect(s).toContain('if (!d || d.entrada !== chaveRef.current) {');
+  });
+  it("useSkusModelo (Fix 1 · M3/M4): prévia 'desconhecida' tem toast PRÓPRIO (não o de 'ainda calculando'); a matriz do retorno do aplicar semeia o cache (sem os SKUs antigos piscando)", () => {
+    const s = fonte("src/components/planejamento/planejamento-detail/codigos/useSkusModelo.ts");
+    expect(s).toContain("MSG_PREVIA_DESCONHECIDA");
+    expect(s).toMatch(/if \(d\.desconhecida \|\| !d\.assinatura\)/);
+    expect(s).toContain("qc.setQueryData(chaveSkus(modeloId), lerMatriz(data))");
+  });
+  it("PlanejamentoDetail: seção 3 = 'Desenvolvimento'; 'Códigos' logo depois; o Salvar grava o modelo, DEPOIS os SKUs em prévia (aplicarAGravar), DEPOIS a 1ª geração (gerarSeFaltar)", () => {
     const s = fonte("src/components/planejamento/PlanejamentoDetail.tsx");
     const iDev = s.indexOf('<Secao id="desenvolvimento" titulo="Desenvolvimento"');
     const iCod = s.indexOf('<Secao id="codigos" titulo="Códigos"');
@@ -337,7 +319,10 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
     expect(iCod).toBeGreaterThan(iDev);
     expect(iProva).toBeGreaterThan(iCod);
     expect(s).not.toContain("Desenvolvimento — equipe e cronograma");
-    expect(s).toMatch(/const aoSalvar = async \(\) => \{[\s\S]*?await skus\.gerarSeFaltar\(\)[\s\S]*?await skus\.aplicarAGravar\(\)/);
+    // Fix 1 (T5, revisão Opus C1) — a ordem VOLTOU a ser aplicarAGravar → (se ≠ "falhou") gerarSeFaltar (spec §4.2.5 e
+    // §6), como o brief original mandava; o card virgem some do jogo porque a PRÉVIA/APLICAR já usam modo 'criar'
+    // (gerarSeFaltar continua existindo pra quando NADA foi digitado à mão — Regerar sozinho ou nada — P-50 A).
+    expect(s).toMatch(/const aoSalvar = async \(\) => \{[\s\S]*?const r = await skus\.aplicarAGravar\(\);[\s\S]*?if \(r !== "falhou"\) await skus\.gerarSeFaltar\(\);/);
     expect(s).toContain("|| !nadaAGravar(skusAGravar.aGravar)"); // "não salvo" inclui a prévia
     expect(s).toContain('qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });');
     expect(s).toContain('qc.invalidateQueries({ queryKey: ["plan-skus-previa", modeloId] });');

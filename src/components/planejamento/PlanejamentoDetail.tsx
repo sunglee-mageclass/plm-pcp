@@ -853,18 +853,24 @@ function PlanejamentoDetailConteudo({
   });
 
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
-  // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.5):
-  // o modelo JÁ foi gravado; agora a 1ª geração automática (`gerarSeFaltar`, só num card sem nenhum SKU — P-50 A) e DEPOIS os
-  // SKUs "a gravar" (a prévia vista — assinatura conferida no servidor). Adendo do controlador (A#R2-3): `gerarSeFaltar` roda
-  // ANTES de `aplicarAGravar` de propósito — se um SKU digitado à mão fosse aplicado primeiro num card virgem, a matriz
-  // deixaria de ser "virgem" (a linha manual já teria id) e a 1ª geração automática NUNCA rodaria para as demais linhas
-  // (`deveGerarPrimeiraVez` exige TODAS as linhas sem id). Aguardado pelo usePlanejamentoSave: o Salvar segue "salvando".
+  // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.5
+  // e §6): o modelo JÁ foi gravado; agora os SKUs "a gravar" (`aplicarAGravar` — a prévia vista, assinatura conferida no
+  // servidor) e, se não falharem, a 1ª geração automática (`gerarSeFaltar`, só num card que continua sem NENHUM SKU — P-50 A).
+  // Fix 1 (T5, revisão Opus C1) — a suspeita do adendo original (inverter a ordem porque um digitado num card virgem
+  // "roubava" a 1ª geração das outras linhas) tinha uma saída MELHOR do que inverter a ordem: card VIRGEM com algo "a
+  // gravar" usa modo 'criar' na prévia E no aplicar (useSkusModelo.ts) — um plano só, automáticas + digitado, sem
+  // depender de duas chamadas separadas. Com isso a ordem aplicarAGravar → gerarSeFaltar (a do spec) volta a ser
+  // correta: card virgem SEM nada "a gravar" continua caindo no `gerarSeFaltar` (P-50 A); card virgem COM algo "a
+  // gravar" já sai gerado por inteiro do `aplicarAGravar` (modo 'criar'), e o `gerarSeFaltar` que roda depois não
+  // encontra mais nada pendente (não repete trabalho, `deveGerarPrimeiraVez` já dá false). Erro no `aplicarAGravar`
+  // (`"falhou"`) NÃO tenta a 1ª geração — evita rodar sobre um estado que a prévia não confirmou. Aguardado pelo
+  // usePlanejamentoSave: o Salvar segue "salvando" até os dois passos terminarem.
   const aoSalvar = async () => {
     setEditandoDev(false);
     onSaved();
     if (!isEdit) return;
-    await skus.gerarSeFaltar();
-    await skus.aplicarAGravar();
+    const r = await skus.aplicarAGravar();
+    if (r !== "falhou") await skus.gerarSeFaltar();
   };
 
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`

@@ -28,11 +28,14 @@ const cruaLinha = (p: Record<string, unknown> = {}) => ({
 });
 
 describe("a gravar — rascunho dos SKUs (nada grava antes do Salvar)", () => {
-  it("vazio = nada a gravar (modo 'manuais'); Regerar entra, é idempotente e muda o modo", () => {
+  it("vazio = nada a gravar (modo 'manuais' num card NÃO virgem); Regerar entra, é idempotente e muda o modo (vence 'criar')", () => {
     expect(nadaAGravar(SKUS_A_GRAVAR_VAZIO)).toBe(true);
-    expect(modoPrevia(SKUS_A_GRAVAR_VAZIO)).toBe("manuais");
+    expect(modoPrevia(SKUS_A_GRAVAR_VAZIO, false)).toBe("manuais");
+    // Fix 1 (C1) — card VIRGEM (nenhum SKU gravado) com algo "a gravar" (e sem Regerar pedido) usa 'criar': automáticas
+    // + digitados num plano só (o banco já aceita, migration :379) — evita o P0409 falso de gerar+aplicar em 2 chamadas.
+    expect(modoPrevia(SKUS_A_GRAVAR_VAZIO, true)).toBe("criar");
     const r = comRegerar(SKUS_A_GRAVAR_VAZIO);
-    expect([nadaAGravar(r), modoPrevia(r)]).toEqual([false, "regerar"]);
+    expect([nadaAGravar(r), modoPrevia(r, false), modoPrevia(r, true)]).toEqual([false, "regerar", "regerar"]); // Regerar vence 'criar' (remove órfã)
     expect(comRegerar(r)).toBe(r);
   });
 
@@ -85,7 +88,7 @@ describe("a gravar — rascunho dos SKUs (nada grava antes do Salvar)", () => {
     b = digitarSku(b, linha(), "a").aGravar;
     b = digitarSku(b, linha({ variante_key: K2 }), "b").aGravar;
     expect(manuaisParaRpc(a).map((m) => m.variante_key)).toEqual([K1, K2]);
-    const e = { ref: "  REF1 ", tamanhoTipo: "letra" as const, aGravar: comRegerar(a) };
+    const e = { ref: "  REF1 ", tamanhoTipo: "letra" as const, aGravar: comRegerar(a), virgem: false };
     expect(chaveEntradaPrevia(e)).toBe(chaveEntradaPrevia({ ...e, ref: "REF1", aGravar: comRegerar(b) }));
     expect(entradaDaChave(chaveEntradaPrevia(e))).toEqual({
       ref: "REF1", tamanhoTipo: "letra", modo: "regerar",
@@ -94,6 +97,12 @@ describe("a gravar — rascunho dos SKUs (nada grava antes do Salvar)", () => {
         { variante_key: K2, tamanho_key: "34|PPP", sku: "B", rev: 0 },
       ],
     });
+    // Fix 1 (C1) — `virgem` muda o modo da chave (sem Regerar pedido): 'manuais' vs 'criar'. Com Regerar pedido,
+    // `virgem` não muda nada (Regerar sempre vence) — a chave dos dois "e"s com `aGravar` sem regerar é DIFERENTE.
+    const semRegerar = { ref: "REF1", tamanhoTipo: "letra" as const, aGravar: a, virgem: false };
+    expect(entradaDaChave(chaveEntradaPrevia(semRegerar)).modo).toBe("manuais");
+    expect(entradaDaChave(chaveEntradaPrevia({ ...semRegerar, virgem: true })).modo).toBe("criar");
+    expect(chaveEntradaPrevia(semRegerar)).not.toBe(chaveEntradaPrevia({ ...semRegerar, virgem: true }));
   });
 
   it("refParaPrevia: a do rascunho (aparada) só quando ela vai no Salvar; senão a SALVA", () => {
@@ -124,27 +133,42 @@ describe("lerPrevia — leitura tolerante e FAIL-CLOSED", () => {
   });
 });
 
-describe("situacaoPrevia — o que a linha diz", () => {
+describe("situacaoPrevia — o que a linha diz (FORMATO DE PRODUÇÃO: sempre com `erros`, mesmo que vazio)", () => {
   const p = (acao: NonNullable<LinhaPrevia["previa"]>["acao"], x: Partial<NonNullable<LinhaPrevia["previa"]>> = {}) =>
     comPrevia(linha(), { acao, sku_de: "AA34", sku_para: "AAPPP", mensagem: null, code: null, ...x });
   it("ações do plano (a gravar em âmbar; conflito/erro em vermelho; rev velho oferece manter/usar)", () => {
-    expect(situacaoPrevia(p("novo"))).toMatchObject({ tom: "warning", texto: "novo · a gravar", aGravar: true });
-    expect(situacaoPrevia(p("muda"))).toMatchObject({ tom: "warning", texto: "muda de AA34 · a gravar", aGravar: true });
-    expect(situacaoPrevia(p("sai"))).toMatchObject({ tom: "warning", texto: "sai no Salvar", aGravar: true });
-    expect(situacaoPrevia(p("manual_novo"))).toMatchObject({ tom: "warning", texto: "editado à mão · a gravar", aGravar: true });
-    expect(situacaoPrevia(p("conflito", { mensagem: "SKU AAPPP já existe em X (REF Y). Edite este SKU à mão ou mude a sigla." })))
+    expect(situacaoPrevia(p("novo"), [])).toMatchObject({ tom: "warning", texto: "novo · a gravar", aGravar: true });
+    expect(situacaoPrevia(p("muda"), [])).toMatchObject({ tom: "warning", texto: "muda de AA34 · a gravar", aGravar: true });
+    expect(situacaoPrevia(p("sai"), [])).toMatchObject({ tom: "warning", texto: "sai no Salvar", aGravar: true });
+    expect(situacaoPrevia(p("manual_novo"), [])).toMatchObject({ tom: "warning", texto: "editado à mão · a gravar", aGravar: true });
+    expect(situacaoPrevia(p("conflito", { mensagem: "SKU AAPPP já existe em X (REF Y). Edite este SKU à mão ou mude a sigla." }), []))
       .toMatchObject({ tom: "danger", texto: "não será gravado — SKU AAPPP já existe em X (REF Y). Edite este SKU à mão ou mude a sigla.", aGravar: false });
-    expect(situacaoPrevia(p("erro", { code: "P0001", mensagem: "O SKU X já está em outra linha deste produto." })))
+    expect(situacaoPrevia(p("erro", { code: "P0001", mensagem: "O SKU X já está em outra linha deste produto." }), []))
       .toMatchObject({ tom: "danger", texto: "O SKU X já está em outra linha deste produto.", conflitoVersao: false });
-    expect(situacaoPrevia(comPrevia(linha({ sku: "DELA" }), { acao: "erro", sku_de: "DELA", sku_para: "meu", mensagem: "conflito_versao", code: "P0409" })))
+    expect(situacaoPrevia(comPrevia(linha({ sku: "DELA" }), { acao: "erro", sku_de: "DELA", sku_para: "meu", mensagem: "conflito_versao", code: "P0409" }), []))
       .toMatchObject({ tom: "danger", texto: "Outra pessoa mudou este SKU para DELA — o seu (meu) ainda não foi gravado.", conflitoVersao: true });
   });
   it("sem ação (a linha não muda): igual / manual mantido / falta que mantém o gravado / o resto como hoje", () => {
-    expect(situacaoPrevia(comPrevia(linha(), null))).toMatchObject({ tom: "neutral", texto: "igual", aGravar: false });
-    expect(situacaoPrevia(comPrevia(linha({ estado: "manual", manual: true }), null))).toMatchObject({ tom: "info", texto: "editado à mão — mantido" });
+    expect(situacaoPrevia(comPrevia(linha(), null), [])).toMatchObject({ tom: "neutral", texto: "igual", aGravar: false });
+    expect(situacaoPrevia(comPrevia(linha({ estado: "manual", manual: true }), null), [])).toMatchObject({ tom: "info", texto: "editado à mão — mantido" });
     const falta = linha({ estado: "falta", faltas: [{ atributo: "cor_base", id: null, nome: "Amarelo" }] });
-    expect(situacaoPrevia(comPrevia(falta, null)).texto).toMatch(/ \(mantém AA34\)$/);
-    expect(situacaoPrevia(comPrevia(linha({ estado: "pendente", sku: null }), null))).toMatchObject({ texto: "a gerar", aGravar: false });
+    expect(situacaoPrevia(comPrevia(falta, null), []).texto).toMatch(/ \(mantém AA34\)$/);
+    expect(situacaoPrevia(comPrevia(linha({ estado: "pendente", sku: null }), null), [])).toMatchObject({ texto: "a gerar", aGravar: false });
+  });
+  // Fix 1 (T5, revisão Opus C2) — o `erros[]` da MESMA chave vira a `previa` da linha e cai no MESMO `case "erro"`:
+  // P0409 preserva `conflitoVersao:true` + o texto "manter o meu · usar o novo" continua fazendo sentido (os botões
+  // aparecem NA MESMA condição de antes); P0001 mostra a mensagem PURA do servidor (sem o prefixo do toast).
+  it("erros[] da MESMA chave (FORMATO DE PRODUÇÃO) vira a previa da linha: P0409 preserva conflitoVersao; P0001 é a mensagem pura", () => {
+    const l = linha({ sku: "DELA" });
+    const erroP0409 = [{ variante_key: K1, tamanho_key: "34|PPP", code: "P0409", mensagem: "conflito_versao: a linha do SKU foi gravada por outra pessoa" }];
+    expect(situacaoPrevia(comPrevia(l, { acao: "sai", sku_de: "DELA", sku_para: null, mensagem: null, code: null }), erroP0409))
+      .toMatchObject({ tom: "danger", conflitoVersao: true, texto: "Outra pessoa mudou este SKU para DELA — o seu (—) ainda não foi gravado." });
+    const erroP0001 = [{ variante_key: K1, tamanho_key: "34|PPP", code: "P0001", mensagem: "SKU inválido: use só letras, números e - . _ /." }];
+    expect(situacaoPrevia(comPrevia(l, { acao: "novo", sku_de: null, sku_para: "AAPPP", mensagem: null, code: null }), erroP0001))
+      .toMatchObject({ tom: "danger", conflitoVersao: false, texto: "SKU inválido: use só letras, números e - . _ /." });
+    // erro de OUTRA chave não interfere.
+    const outraChave = [{ variante_key: K2, tamanho_key: "99|G", code: "P0001", mensagem: "x" }];
+    expect(situacaoPrevia(p("novo"), outraChave)).toMatchObject({ texto: "novo · a gravar" });
   });
 });
 
@@ -174,9 +198,9 @@ describe("mensagens, Regerar e selo", () => {
     expect(podeRegerar({ ...base, refPrevia: "  " })).toEqual({ pode: false, motivo: "Preencha a REF para regerar." });
     expect(podeRegerar({ ...base, jaPedido: true }).pode).toBe(false);
   });
-  it("seloCodigos: com prévia vence tudo ('prévia a gravar'); sem prévia = como antes", () => {
+  it("seloCodigos: com prévia vence tudo ('prévia a gravar'); sem prévia = como antes (2º parâmetro OBRIGATÓRIO — M1)", () => {
     expect(seloCodigos(matriz({ linhas: [linha()] }), true)).toEqual({ tone: "warn", texto: "prévia a gravar" });
     expect(seloCodigos(undefined, true)).toEqual({ tone: "warn", texto: "prévia a gravar" });
-    expect(seloCodigos(matriz({ linhas: [linha()] }))).toEqual(seloCodigos(matriz({ linhas: [linha()] }), false));
+    expect(seloCodigos(matriz({ linhas: [linha()] }), false)).toEqual({ tone: "ok", texto: "1 SKU" });
   });
 });

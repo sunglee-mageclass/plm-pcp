@@ -661,6 +661,63 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
       }
     });
   });
+
+  // Revisão T5 (26/set) — C1/adendo P-50 A: card VIRGEM (nenhum SKU gravado) + 1 SKU "a gravar" tem que gravar as
+  // automáticas E o digitado no MESMO Salvar, num plano só (modo 'criar'), sem P0409 falso.
+  it("P-50 A (Fix 1 · C1) — card VIRGEM + 1 digitado: prévia e aplicar em modo 'criar' gravam as automáticas + o digitado, sem P0409", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      // NENHUM gerar() ainda: modelo_skus está vazio para k.m — este é o card "virgem" do cenário do adendo.
+      expect(await estado(c, k.m)).toEqual([]);
+      // O usuário digita 1 SKU numa das 4 linhas (kA|34|PPP), sem id/rev (a linha não tem registro).
+      const manual = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-virgem", rev: null }];
+      const p = await previa(c, k.m, "PV-T1", "numero", manual, "criar");
+      expect(p.status).toBe("ok");
+      expect(p.erros).toEqual([]);
+      // A prévia em modo 'criar' já mostra TODAS as linhas "a gravar": a digitada como manual_novo, as outras como novo.
+      expect(linhaDe(p, k.kA, "34|PPP").previa).toMatchObject({ acao: "manual_novo", sku_para: "MEU-VIRGEM" });
+      expect(linhaDe(p, k.kA, "36|PP").previa).toMatchObject({ acao: "novo", sku_para: "AA36" });
+      expect(linhaDe(p, k.kB, "34|PPP").previa).toMatchObject({ acao: "novo", sku_para: "BB34" });
+      expect(linhaDe(p, k.kB, "36|PP").previa).toMatchObject({ acao: "novo", sku_para: "BB36" });
+      // O Salvar do card (simulado: UPDATE em modelos) — o modo do aplicar é o MESMO da entrada da prévia ('criar').
+      await c.query("UPDATE public.modelos SET tamanho_tipo = 'numero' WHERE id = $1", [k.m]);
+      const r = await aplicar(c, k.m, manual, "criar", p.assinatura);
+      expect(r.conflitos).toEqual([]);
+      expect([r.criados, r.manuais]).toEqual([3, 1]); // 3 automáticas novas + 1 manual — SEM P0409
+      const final = await estado(c, k.m);
+      expect(final.find((g) => g.vk === k.kA && g.tk === "34|PPP")).toEqual({ vk: k.kA, tk: "34|PPP", sku: "MEU-VIRGEM", manual: true });
+      expect(final.find((g) => g.vk === k.kA && g.tk === "36|PP")).toEqual({ vk: k.kA, tk: "36|PP", sku: "AA36", manual: false });
+      expect(final.find((g) => g.vk === k.kB && g.tk === "34|PPP")).toEqual({ vk: k.kB, tk: "34|PPP", sku: "BB34", manual: false });
+      expect(final.find((g) => g.vk === k.kB && g.tk === "36|PP")).toEqual({ vk: k.kB, tk: "36|PP", sku: "BB36", manual: false });
+    });
+  });
+
+  it("P-50 A (Fix 1 · C1) — NEGATIVO: a ordem antiga da T5 (gerar_skus_modelo 'criar' e DEPOIS aplicar 'manuais' com rev null) dá P0409 — documenta o porquê do conserto", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      expect(await estado(c, k.m)).toEqual([]); // card virgem
+      const manual = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-antigo", rev: null }];
+      // Prévia calculada ANTES de qualquer geração (a mesma assinatura que a T5 antiga usaria no aplicar 'manuais').
+      const p = await previa(c, k.m, "PV-T1", "numero", manual, "manuais");
+      expect(p.status).toBe("ok");
+      expect(linhaDe(p, k.kA, "34|PPP").previa).toMatchObject({ acao: "manual_novo", sku_para: "MEU-ANTIGO" });
+      // A ordem da T5 original: gerarSeFaltar() ANTES do aplicar — `gerar_skus_modelo(_, false)` roda 'criar' e cria
+      // TODAS as chaves (inclusive a digitada, que ele não conhece), tal como o traço do revisor descreve (§1 da revisão).
+      await gerar(c, k.m, false);
+      const antes = await estado(c, k.m);
+      expect(antes.find((g) => g.vk === k.kA && g.tk === "34|PPP")).toEqual({ vk: k.kA, tk: "34|PPP", sku: "AA34", manual: false });
+      // O Salvar do card e o aplicar 'manuais' com a prévia ANTIGA (calculada antes do gerar): P0409, nada muda —
+      // exatamente o "beco sem saída" do achado C1 (B1: rev null numa chave que passou a ter registro).
+      await c.query("UPDATE public.modelos SET tamanho_tipo = 'numero' WHERE id = $1", [k.m]);
+      expect(await falha(c, Q_APLICAR, [k.m, JSON.stringify(manual), "manuais", p.assinatura]))
+        .toEqual({ code: "P0409", message: "conflito_versao: a linha do SKU foi gravada por outra pessoa" });
+      expect(await estado(c, k.m)).toEqual(antes); // o digitado NUNCA foi gravado — prova do bug que o Fix 1 corrige
+    });
+  });
 });
 
 describe.skipIf(!PRONTO)("SKU em prévia — permissões e ACL (#9)", () => {

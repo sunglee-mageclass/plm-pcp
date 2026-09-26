@@ -14,9 +14,9 @@ import {
   deveGerarPrimeiraVez, lerMatriz, resumoGeracao, type ApelidoSigla, type CorSigla, type LinhaSku, type MatrizSkus,
 } from "./sku-card";
 import {
-  MSG_PREVIA_CALCULANDO, SKUS_A_GRAVAR_VAZIO, chaveEntradaPrevia, comRegerar, digitarSku, entradaDaChave, lerPrevia,
-  manterMeu, manuaisParaRpc, mensagemAplicarSkus, mensagemErroPrevia, modoPrevia, nadaAGravar, resumoAplicacao, semManual,
-  type LinhaPrevia, type PreviaSkus, type SkusAGravar,
+  MSG_PREVIA_CALCULANDO, MSG_PREVIA_DESCONHECIDA, SKUS_A_GRAVAR_VAZIO, chaveEntradaPrevia, comRegerar, digitarSku,
+  entradaDaChave, lerPrevia, manterMeu, manuaisParaRpc, mensagemAplicarSkus, mensagemErroPrevia, modoPrevia, nadaAGravar,
+  resumoAplicacao, semManual, type LinhaPrevia, type PreviaSkus, type SkusAGravar,
 } from "./sku-previa";
 
 export const chaveSkus = (modeloId: string | null) => ["plan-skus", modeloId] as const;
@@ -80,7 +80,11 @@ export function useSkusModelo(
   });
   const aGravar = o.aGravar.aGravar;
   const temPrevia = !nadaAGravar(aGravar);
-  const chave = chaveEntradaPrevia({ ref: o.refPrevia, tamanhoTipo: o.tamanhoTipo, aGravar });
+  // Fix 1 (C1) — `virgem` vem da matriz GRAVADA (nenhuma linha tem `id`): decide 'criar' (card sem NENHUM SKU) vs
+  // 'manuais' (card já tem SKU) dentro de `modoPrevia`. Sem `q.data` ainda (carregando) trata como NÃO virgem — mais
+  // seguro (não force um 'criar' antes de saber o estado real; a prévia refaz sozinha assim que a matriz chegar).
+  const virgem = !!q.data && q.data.status === "ok" && q.data.linhas.length > 0 && q.data.linhas.every((l) => !l.id);
+  const chave = chaveEntradaPrevia({ ref: o.refPrevia, tamanhoTipo: o.tamanhoTipo, aGravar, virgem });
   const chaveAtrasada = useChaveAtrasada(chave, 300);
   const pq = useQuery({
     queryKey: [...prefixoPrevia(modeloId), chaveAtrasada],
@@ -100,8 +104,6 @@ export function useSkusModelo(
   chaveRef.current = chave;
   const previaRef = useRef<PreviaSkus | undefined>(pq.data);
   previaRef.current = pq.data;
-  const buscandoRef = useRef(pq.isFetching);
-  buscandoRef.current = pq.isFetching;
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: chaveSkus(modeloId) });
     qc.invalidateQueries({ queryKey: prefixoPrevia(modeloId) });
@@ -112,8 +114,21 @@ export function useSkusModelo(
     const s = o.aGravar.atual();
     if (nadaAGravar(s) || !modeloId) return "nada";
     const d = previaRef.current;
-    if (!d || d.entrada !== chaveRef.current || buscandoRef.current || !d.assinatura) {
+    // I1 (T5, revisão Opus) — `buscandoRef`/`isFetching` SAIU da condição: todo Salvar faz UPDATE em `modelos`, cujo eco
+    // Realtime invalida `plan-skus-previa` e refaz a prévia da MESMA entrada — se esse refetch estiver em voo bem no
+    // instante do `aplicarAGravar`, o cheque antigo recusava o Salvar à toa (e o Salvar seguinte cairia na MESMA corrida).
+    // A garantia real já está nas duas condições que ficam: `d.entrada !== chaveRef.current` (prévia de OUTRA entrada —
+    // com `keepPreviousData` o `d` mostrado enquanto a nova busca não chega é sempre o da entrada CERTA ou de uma mais
+    // velha, nunca "no ar") e `!d.assinatura` (fail-closed); a assinatura é CONFERIDA no servidor de qualquer forma.
+    if (!d || d.entrada !== chaveRef.current) {
       toast.error(MSG_PREVIA_CALCULANDO);
+      return "falhou";
+    }
+    // M3 (T5, revisão Opus) — prévia `desconhecida` (fail-closed: status/ação/assinatura que o front não reconhece) tem
+    // toast PRÓPRIO — o motivo real não é "ainda calculando" (`MSG_PREVIA_CALCULANDO` sugeriria esperar e tentar de novo
+    // sem mudar nada, mas esperar não resolve; só recarregar a página resolve).
+    if (d.desconhecida || !d.assinatura) {
+      toast.error(MSG_PREVIA_DESCONHECIDA);
       return "falhou";
     }
     if (d.erros.length > 0) {
@@ -121,11 +136,20 @@ export function useSkusModelo(
       return "falhou";
     }
     try {
+      const e = entradaDaChave(d.entrada);
+      // Fix 1 (C1) — o `_modo` do aplicar é o MESMO da entrada que gerou ESTA prévia (`e.modo`), nunca recalculado aqui:
+      // a matriz pode ter mudado desde que a prévia foi buscada (a assinatura cobre isso, mas o MODO tem que casar com
+      // o que o usuário efetivamente viu — 'criar' com um card que deixou de ser virgem no meio ainda é válido porque o
+      // servidor confere a assinatura do plano inteiro, não o modo isolado).
       const { data, error } = await supabase.rpc("aplicar_skus_modelo" as any, {
-        _modelo_id: modeloId, _manuais: manuaisParaRpc(s), _modo: modoPrevia(s), _assinatura: d.assinatura,
+        _modelo_id: modeloId, _manuais: manuaisParaRpc(s), _modo: e.modo, _assinatura: d.assinatura,
       });
       if (error) throw error;
       o.aGravar.limparSe(s);
+      // M4 (T5, revisão Opus) — semeia o cache com a matriz que `aplicar_skus_modelo` já devolve (`_skus_matriz_ref_tipo`
+      // no retorno da RPC): sem isto, entre o fim do Salvar e o refetch de `invalidar()` a tabela mostrava por um
+      // instante a matriz GRAVADA ainda velha (os SKUs antigos "piscando" antes de aparecer o resultado real).
+      qc.setQueryData(chaveSkus(modeloId), lerMatriz(data));
       const r = resumoAplicacao(data);
       if (r.erro) toast.error(r.texto);
       else toast.success(r.texto);
@@ -163,6 +187,11 @@ export function useSkusModelo(
     previa: temPrevia ? (pq.data ?? null) : null,
     previaCarregando: temPrevia && pq.isFetching,
     previaErro: temPrevia && pq.isError,
+    // M5 (T5, revisão Opus) — `keepPreviousData` mostra a prévia da entrada ANTERIOR enquanto a nova busca não chega
+    // (ex.: acabou de digitar um SKU novo); `previaAtual` diz se `previa.entrada` já é a de AGORA — `CodigosSecao`
+    // usa isto pra mostrar "calculando…" na linha recém-digitada em vez da situação (possivelmente enganosa) da prévia
+    // velha.
+    previaAtual: !temPrevia || pq.data?.entrada === chave,
     refazerPrevia: () => { void pq.refetch(); },
     aplicarAGravar,
     gerarSeFaltar,
