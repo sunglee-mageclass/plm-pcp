@@ -16,6 +16,9 @@ import {
   precoAnteriorExibido,
   camposNovosParaPayload,
   aplicarPrecoAnterior,
+  CAMPOS_SO_PLANEJAMENTO_DRAFT,
+  aplicarRegrasCamposPlanejamento,
+  CAMPOS_COMPARTILHADOS_DRAFT,
 } from "@/components/planejamento/planejamento-detail/helpers";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 
@@ -130,6 +133,9 @@ describe("aplicarRegrasCamposDev", () => {
   it("sem permissão de editar o Dev: nenhum campo do Dev (nem a REF) vai no payload", () => {
     const d = base();
     const p = aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: false, refEditavel: true });
+    // Fix 2 (item 3) — `ref` agora está DENTRO de CAMPOS_DEV_DRAFT (reclassificação de inventário); o
+    // loop abaixo já cobre a REF, mas a asserção explícita continua (prova a regra PRÓPRIA da REF,
+    // que roda fora do loop, também nega o payload — dupla garantia, não redundância morta).
     for (const k of CAMPOS_DEV_DRAFT) expect(p).not.toHaveProperty(k);
     expect(p).not.toHaveProperty("ref");
     expect(p.nome).toBe("M");
@@ -416,6 +422,126 @@ describe("aplicarPrecoAnterior (ruling R-a)", () => {
 // Ruling R-b (revisão do Lote B1): sem `podeEditarPreco`, `normalizarDraftSalvo` NÃO normaliza `preco_anterior` —
 // usa o valor CRU do servidor (o payload não o manda nesse caso), evitando o falso "Alguém salvou agora" quando
 // o banco tem 0/negativo (dado legado) e quem salvou não tinha a permissão de ver/mexer no preço.
+// P-53 A (set/2026) — espelho de CAMPOS_DEV_DRAFT/aplicarRegrasCamposDev, do lado do Planejamento:
+// sem `podeEditarPlanejamento`, os campos SÓ do Planejamento saem do payload; os compartilhados
+// (que o Dev também gravava) NUNCA são tocados por esta função.
+describe("CAMPOS_SO_PLANEJAMENTO_DRAFT", () => {
+  it("toda chave existe no Draft", () => {
+    const d = emptyDraft();
+    for (const k of CAMPOS_SO_PLANEJAMENTO_DRAFT) expect(d).toHaveProperty(k);
+  });
+  it("não tem interseção com CAMPOS_DEV_DRAFT (Planejamento-only vs Dev)", () => {
+    const dev = new Set(CAMPOS_DEV_DRAFT as readonly string[]);
+    for (const k of CAMPOS_SO_PLANEJAMENTO_DRAFT) expect(dev.has(k)).toBe(false);
+  });
+  it("inclui os campos-referência do brief (status, origem, título, medidas, tamanho_tipo, versão, preços, lançamento, NCM) + fix 1 (custo_simulado, descricao_produto) + fix 2 (markup_editado, modelo_base_id)", () => {
+    for (const k of [
+      "status_planejamento", "origem", "titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm",
+      "tamanho_tipo", "versao", "preco_venda", "preco_atacado", "preco_anterior", "data_lancamento", "ncm",
+      // Fix 1 (I-1a) — Consumo de tecido/Materiais (estimativa) gravam em custo_simulado.
+      "custo_simulado",
+      // Fix 1 (m-4, RULING) — descricao_produto é SÓ-PLANEJAMENTO: o Dev antigo nunca teve esse campo.
+      "descricao_produto",
+      // Fix 2 (item 1, re-revisão) — o Dev antigo não gravava markup_editado/modelo_base_id.
+      "markup_editado", "modelo_base_id",
+    ]) expect(CAMPOS_SO_PLANEJAMENTO_DRAFT).toContain(k);
+  });
+  it("NUNCA inclui os campos compartilhados (o Dev também gravava)", () => {
+    for (const k of [
+      "nome", "linha_id", "estilista_id", "categoria_principal_id", "subcategoria1_id", "subcategoria2_id",
+      "colecao_id", "subcolecao", "mes_id", "ano_id", "semana", "fotos_modelo",
+      "fotos_referencia", "desenho_tecnico_url", "croqui_url", "ficha_medida_url", "observacoes_gerais",
+      "observacoes_mao_obra", "custos_adicionais", "proporcoes",
+    ]) expect(CAMPOS_SO_PLANEJAMENTO_DRAFT).not.toContain(k);
+  });
+});
+
+// Fix 2 (item 3, re-revisão) — `ref` mudou de CAMPOS_COMPARTILHADOS_DRAFT p/ CAMPOS_DEV_DRAFT: no
+// Sheet unificado só o Dev edita a REF. A reclassificação é só de INVENTÁRIO — o comportamento real
+// (aplicarRegrasCamposDev, linhas próprias fora do loop de CAMPOS_DEV_DRAFT) não muda.
+describe("ref — reclassificada para CAMPOS_DEV_DRAFT (fix 2, item 3)", () => {
+  it("ref está em CAMPOS_DEV_DRAFT, não mais em CAMPOS_COMPARTILHADOS_DRAFT", () => {
+    expect(CAMPOS_DEV_DRAFT).toContain("ref");
+    expect(CAMPOS_COMPARTILHADOS_DRAFT).not.toContain("ref");
+  });
+  it("aplicarRegrasCamposDev continua com o MESMO comportamento da REF (regra própria, refEditavel)", () => {
+    const d: Draft = { ...emptyDraft(), ref: " QA9999 " };
+    // Com permissão e refEditavel: vai aparada (regra própria, não pelo loop de CAMPOS_DEV_DRAFT).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: true, refEditavel: true }).ref).toBe("QA9999");
+    // Sem permissão do Dev: sai do payload (agora TAMBÉM coberta pelo loop de CAMPOS_DEV_DRAFT, além
+    // da regra própria — resultado idêntico ao de antes).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: false, refEditavel: true })).not.toHaveProperty("ref");
+    // Com permissão do Dev mas sem refEditavel: sai do payload (regra própria).
+    expect(aplicarRegrasCamposDev({ ...d }, d, { podeEditarDev: true, refEditavel: false })).not.toHaveProperty("ref");
+  });
+});
+
+// Fix 1 (m-6i) — classificação TOTAL: cada chave do Draft cai em EXATAMENTE uma das 3 listas
+// (CAMPOS_DEV_DRAFT, CAMPOS_SO_PLANEJAMENTO_DRAFT, CAMPOS_COMPARTILHADOS_DRAFT). Uma chave nova sem
+// classificação (ou classificada 2×) derruba este teste — trava a disciplina "nem ganha nem perde"
+// contra o esquecimento ao adicionar campo novo ao Draft.
+describe("Classificação total dos campos do Draft (P-53 A, fix 1 — m-6i)", () => {
+  it("toda chave de emptyDraft() está em EXATAMENTE uma das 3 listas", () => {
+    const chaves = Object.keys(emptyDraft());
+    const dev = new Set(CAMPOS_DEV_DRAFT as readonly string[]);
+    const plano = new Set(CAMPOS_SO_PLANEJAMENTO_DRAFT as readonly string[]);
+    const compartilhado = new Set(CAMPOS_COMPARTILHADOS_DRAFT as readonly string[]);
+    const naoClassificadas: string[] = [];
+    const duplicadas: string[] = [];
+    for (const k of chaves) {
+      const n = (dev.has(k) ? 1 : 0) + (plano.has(k) ? 1 : 0) + (compartilhado.has(k) ? 1 : 0);
+      if (n === 0) naoClassificadas.push(k);
+      if (n > 1) duplicadas.push(k);
+    }
+    expect(naoClassificadas).toEqual([]);
+    expect(duplicadas).toEqual([]);
+  });
+  it("as 3 listas juntas não têm chave fora do Draft (sem lixo/typo)", () => {
+    const chaves = new Set(Object.keys(emptyDraft()));
+    for (const k of [...CAMPOS_DEV_DRAFT, ...CAMPOS_SO_PLANEJAMENTO_DRAFT, ...CAMPOS_COMPARTILHADOS_DRAFT])
+      expect(chaves.has(k)).toBe(true);
+  });
+});
+
+describe("aplicarRegrasCamposPlanejamento", () => {
+  const payloadCheio = (): Record<string, unknown> => ({
+    nome: "M", linha_id: "l1", status_planejamento: "em_planejamento", origem: "interno",
+    titulo_pagina: "T", peso_kg: 1, comprimento_cm: 2, largura_cm: 3, altura_cm: 4,
+    tamanho_tipo: "letra", versao: 1, preco_venda: 100, preco_atacado: 80, preco_anterior: 90,
+    data_lancamento: "2026-10-01", ncm: "6204.43.00",
+  });
+  it("com permissão: não mexe em nada (mesmas chaves e valores)", () => {
+    const p = payloadCheio();
+    const out = aplicarRegrasCamposPlanejamento({ ...p }, { podeEditarPlanejamento: true });
+    expect(out).toEqual(p);
+  });
+  it("sem permissão: apaga só a lista de CAMPOS_SO_PLANEJAMENTO_DRAFT presentes no payload", () => {
+    const p = payloadCheio();
+    const out = aplicarRegrasCamposPlanejamento({ ...p }, { podeEditarPlanejamento: false });
+    for (const k of CAMPOS_SO_PLANEJAMENTO_DRAFT) expect(out).not.toHaveProperty(k);
+  });
+  it("sem permissão: NUNCA apaga os campos compartilhados que vieram no payload", () => {
+    const p = { ...payloadCheio(), nome: "M", linha_id: "l1", colecao_id: "c1" };
+    const out = aplicarRegrasCamposPlanejamento(p, { podeEditarPlanejamento: false });
+    expect(out.nome).toBe("M");
+    expect(out.linha_id).toBe("l1");
+    expect(out.colecao_id).toBe("c1");
+  });
+  // Fix 1 (I-1a/m-4) — custo_simulado e descricao_produto são SÓ-PLANEJAMENTO: apagados sem permissão.
+  it("sem permissão: apaga custo_simulado e descricao_produto (fix 1 — antes ficavam sem gate)", () => {
+    const p = { ...payloadCheio(), custo_simulado: { aviamento: 5 }, descricao_produto: "d" };
+    const out = aplicarRegrasCamposPlanejamento(p, { podeEditarPlanejamento: false });
+    expect(out).not.toHaveProperty("custo_simulado");
+    expect(out).not.toHaveProperty("descricao_produto");
+  });
+  it("é pura: não muta o objeto `payload` recebido", () => {
+    const p = payloadCheio();
+    const antes = { ...p };
+    aplicarRegrasCamposPlanejamento(p, { podeEditarPlanejamento: false });
+    expect(p).toEqual(antes);
+  });
+});
+
 describe("normalizarDraftSalvo — R-b (permissão de preço)", () => {
   it("sem permissão + servidor com 0: mantém 0 (não normaliza para NULL)", () => {
     const n = normalizarDraftSalvo({ ...emptyDraft(), preco_anterior: 0 }, false);

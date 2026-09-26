@@ -58,7 +58,7 @@ const comMedida = (d: Draft, k: ChaveMedida, v: number | null): Draft => {
 
 export function InfoGeraisSecao({
   draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
-  nomeLoja,
+  nomeLoja, planBloqueado, compartilhadoBloqueado,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -77,85 +77,102 @@ export function InfoGeraisSecao({
   origemOpcoes: OpcaoOrigem[];
   /** F3.6 — `tenants.nome` (a MARCA da loja — ruling 1) p/ o Título automático; null enquanto carrega (título sem " | "). */
   nomeLoja: string | null;
+  /** P-53 A — campos que SÓ o Sheet antigo do Planejamento editava: Status, Origem, Versão, NCM, Título para a
+   *  página, Peso/Comprimento/Largura/Altura, Descrição do produto (fix 1, m-4: o Dev antigo nunca teve esse campo). */
+  planBloqueado: boolean;
+  /** P-53 A — campos que os DOIS Sheets antigos editavam: Nome, Estilista, Grupo/Categoria/Subcategorias. */
+  compartilhadoBloqueado: boolean;
 }) {
   const tituloCalculado = tituloPaginaCalculado(draft.nome, nomeLoja);
   const tituloAutomatico = draft.titulo_pagina === null;
   return (
           <Secao id="info" titulo="Informações Gerais do Produto" numero={numero} selo={selo}>
-            {/* L1: Status · Estilista · Origem (F3.6: o Nome foi para a L2) */}
+            {/* L1: Status · Estilista · Origem (F3.6: o Nome foi para a L2). P-53 A: Status/Origem são SÓ do
+                Planejamento; Estilista é COMPARTILHADO (o Dev também grava). */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="grid gap-1">
-                <Label>Status</Label>
-                <Select value={draft.status_planejamento} onValueChange={(v) => setDraftTracked((d) => ({ ...d, status_planejamento: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <FieldSelect
-                label={fl("estilista")}
-                value={draft.estilista_id}
-                onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))}
-                onLimpar={() => setDraftTracked((d) => ({ ...d, estilista_id: null }))}
-                options={estilistas}
-              />
-              <div className="grid gap-1">
-                {/* F3.4 — D1: por que a troca está travada (item desabilitado do Radix não mostra `title`). Dono 25/set:
-                    sem texto fixo embaixo do campo — o motivo aparece no "i" ao lado do rótulo, ao passar o mouse. */}
-                <div className="flex items-center gap-1.5">
-                  <Label>Origem</Label>
-                  <MotivosOrigemInfo opcoes={origemOpcoes} />
+              <fieldset disabled={planBloqueado} className="contents">
+                <div className="grid gap-1">
+                  <Label>Status</Label>
+                  <Select value={draft.status_planejamento} onValueChange={(v) => setDraftTracked((d) => ({ ...d, status_planejamento: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Select value={draft.origem} onValueChange={(v) => setDraftTracked((d) => ({ ...d, origem: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {origemOpcoes.map((o) => (
-                      <SelectItem key={o.value} value={o.value} disabled={o.disabled}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              </fieldset>
+              <fieldset disabled={compartilhadoBloqueado} className="contents">
+                <FieldSelect
+                  label={fl("estilista")}
+                  value={draft.estilista_id}
+                  onChange={(v) => setDraftTracked((d) => ({ ...d, estilista_id: v }))}
+                  onLimpar={() => setDraftTracked((d) => ({ ...d, estilista_id: null }))}
+                  options={estilistas}
+                />
+              </fieldset>
+              <fieldset disabled={planBloqueado} className="contents">
+                <div className="grid gap-1">
+                  {/* F3.4 — D1: por que a troca está travada (item desabilitado do Radix não mostra `title`). Dono 25/set:
+                      sem texto fixo embaixo do campo — o motivo aparece no "i" ao lado do rótulo, ao passar o mouse. */}
+                  <div className="flex items-center gap-1.5">
+                    <Label>Origem</Label>
+                    <MotivosOrigemInfo opcoes={origemOpcoes} />
+                  </div>
+                  <Select value={draft.origem} onValueChange={(v) => setDraftTracked((d) => ({ ...d, origem: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {origemOpcoes.map((o) => (
+                        <SelectItem key={o.value} value={o.value} disabled={o.disabled}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </fieldset>
             </div>
 
             {/* L2 (decisão do dono 25/set): Nome do Modelo 50% · Versão 25% · NCM do Produto 25%. Versão editável (versão≥2 =
                 repetição — badge ↻ vN; clamp mínimo 1, coluna NOT NULL). NCM = texto simples, sem tabela oficial nem sugestão
                 (ruling 3): só dígitos e pontos, até 10 — a vírgula do teclado decimal do iOS vira ponto (R30); vazio grava NULL. */}
             <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr] gap-3">
-              <FieldText
-                label="Nome do Modelo"
-                value={draft.nome}
-                onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
-                colabPath="nome"
-              />
-              <div className="grid gap-1">
-                <Label>Versão</Label>
-                <NumberInput
-                  integer
-                  value={draft.versao}
-                  onChange={(e) => {
-                    const n = Math.max(1, Math.trunc(Number(e.target.value) || 1));
-                    setDraftTracked((d) => ({ ...d, versao: n }));
-                  }}
-                  data-colab-path="versao"
+              <fieldset disabled={compartilhadoBloqueado} className="contents">
+                <FieldText
+                  label="Nome do Modelo"
+                  value={draft.nome}
+                  onChange={(v) => setDraftTracked((d) => ({ ...d, nome: v }))}
+                  colabPath="nome"
                 />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor="ncm-produto">NCM do Produto</Label>
-                {/* P8 (fix1) — SEM `maxLength`: cortava o texto COLADO antes de `filtrarNcm` rodar (ex.: "NCM: 6204.43.00"
-                    virava "6204." — o prefixo "NCM: " já consumia os 10 caracteres). `filtrarNcm` já limita a 10. */}
-                <Input
-                  id="ncm-produto"
-                  inputMode="decimal"
-                  placeholder="0000.00.00"
-                  value={draft.ncm ?? ""}
-                  onChange={(e) => { const v = filtrarNcm(e.target.value); setDraftTracked((d) => ({ ...d, ncm: v === "" ? null : v })); }}
-                  data-colab-path="ncm"
-                />
-              </div>
+              </fieldset>
+              <fieldset disabled={planBloqueado} className="contents">
+                <div className="grid gap-1">
+                  <Label>Versão</Label>
+                  <NumberInput
+                    integer
+                    value={draft.versao}
+                    onChange={(e) => {
+                      const n = Math.max(1, Math.trunc(Number(e.target.value) || 1));
+                      setDraftTracked((d) => ({ ...d, versao: n }));
+                    }}
+                    data-colab-path="versao"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="ncm-produto">NCM do Produto</Label>
+                  {/* P8 (fix1) — SEM `maxLength`: cortava o texto COLADO antes de `filtrarNcm` rodar (ex.: "NCM: 6204.43.00"
+                      virava "6204." — o prefixo "NCM: " já consumia os 10 caracteres). `filtrarNcm` já limita a 10. */}
+                  <Input
+                    id="ncm-produto"
+                    inputMode="decimal"
+                    placeholder="0000.00.00"
+                    value={draft.ncm ?? ""}
+                    onChange={(e) => { const v = filtrarNcm(e.target.value); setDraftTracked((d) => ({ ...d, ncm: v === "" ? null : v })); }}
+                    data-colab-path="ncm"
+                  />
+                </div>
+              </fieldset>
             </div>
 
-            {/* Linha 3: Grupo · Categoria · Subcategoria 1 · Subcategoria 2 */}
+            {/* Linha 3: Grupo · Categoria · Subcategoria 1 · Subcategoria 2 — COMPARTILHADOS (o Dev também grava). */}
+            <fieldset disabled={compartilhadoBloqueado} className="contents">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <FieldSelect
                 label="Grupo"
@@ -192,10 +209,13 @@ export function InfoGeraisSecao({
                 options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
               />
             </div>
+            </fieldset>
 
             {/* L4 (ruling 1): Título para a página. NULL = AUTOMÁTICO (Nome em iniciais maiúsculas + " | " + loja, ao vivo a
                 cada tecla no Nome; Nome vazio ⇒ vazio, nunca " | Loja" solto). Digitar algo DIFERENTE vira manual (R5); esvaziar
                 volta ao automático no blur (R6); ↺ grava NULL. O merge compara o campo como qualquer outro (ruling 9). */}
+            {/* P-53 A: Título para a página é SÓ do Planejamento. */}
+            <fieldset disabled={planBloqueado} className="contents">
             <div className="grid gap-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="titulo-pagina">Título para a página</Label>
@@ -231,10 +251,14 @@ export function InfoGeraisSecao({
               </div>
               <p className="text-xs text-muted-foreground">Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.</p>
             </div>
+            </fieldset>
 
             {/* Campo NOVO "Descrição do produto" (dono, 22/set): texto longo, largura total, ÚLTIMO campo da
                 seção 1 — no Sheet e no Dialog de card novo. Coluna `modelos.descricao_produto` (migration
                 20260930180000); o Salvar manda NULL quando vazio. Não vai para a Ficha Técnica (não pedido). */}
+            {/* P-53 A (fix 1, m-4 RULING): Descrição do produto é SÓ do Planejamento — o Dev antigo NUNCA teve
+                esse campo (o brief da rodada 1 errou ao classificá-lo como compartilhado). */}
+            <fieldset disabled={planBloqueado} className="contents">
             <div className="grid gap-1">
               <Label>Descrição do produto</Label>
               <Textarea
@@ -245,8 +269,11 @@ export function InfoGeraisSecao({
                 data-colab-path="descricao_produto"
               />
             </div>
+            </fieldset>
 
-            {/* L6 (ruling 2): Peso (kg, 3 casas) · Comprimento · Largura · Altura (cm, 2 casas). NULL = vazio; 0 vale. */}
+            {/* L6 (ruling 2): Peso (kg, 3 casas) · Comprimento · Largura · Altura (cm, 2 casas). NULL = vazio; 0 vale.
+                P-53 A: SÓ do Planejamento. */}
+            <fieldset disabled={planBloqueado} className="contents">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {MEDIDAS.map((m) => (
                 <div key={m.key} className="grid gap-1">
@@ -263,6 +290,7 @@ export function InfoGeraisSecao({
                 </div>
               ))}
             </div>
+            </fieldset>
           </Secao>
   );
 }

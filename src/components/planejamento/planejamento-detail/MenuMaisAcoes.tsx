@@ -10,7 +10,9 @@ const ITEM = "flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left te
 
 export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTitle, onImportar, onFichaTecnica, onCancelarOrdem, cancelandoOrdem }: {
   className?: string;
-  onDuplicar: () => void;
+  /** P-53 A (fix 1, m-5) — ausente = sem permissão de ações do Planejamento: o item SOME (como
+   *  Importar/Cancelar), em vez de ficar preso em "carregando…" pra sempre. */
+  onDuplicar?: () => void;
   duplicando: boolean;
   /**
    * Fix T9 I1 — dica quando `duplicando` vem `true` SÓ por "Carregando a ficha…" (round 4 da F3.2, item 7,
@@ -35,18 +37,20 @@ export function MenuMaisAcoes({ className, onDuplicar, duplicando, duplicandoTit
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-60 p-1">
-        <PopoverClose asChild>
-          <button
-            type="button"
-            className={ITEM}
-            onClick={onDuplicar}
-            disabled={duplicando}
-            title={duplicando ? duplicandoTitle : undefined}
-          >
-            <Copy className="h-4 w-4 shrink-0" /> Duplicar
-            {duplicando && duplicandoTitle && <span className="ml-auto text-xs text-muted-foreground">carregando…</span>}
-          </button>
-        </PopoverClose>
+        {onDuplicar && (
+          <PopoverClose asChild>
+            <button
+              type="button"
+              className={ITEM}
+              onClick={onDuplicar}
+              disabled={duplicando}
+              title={duplicando ? duplicandoTitle : undefined}
+            >
+              <Copy className="h-4 w-4 shrink-0" /> Duplicar
+              {duplicando && duplicandoTitle && <span className="ml-auto text-xs text-muted-foreground">carregando…</span>}
+            </button>
+          </PopoverClose>
+        )}
         {onImportar && (
           <PopoverClose asChild>
             <button type="button" className={ITEM} onClick={onImportar}>

@@ -24,6 +24,12 @@ export function useReadOnly() {
   return useContext(ReadOnlyContext);
 }
 
+/** Define o "somente leitura" de um trecho da árvore (ex.: o Sheet do Planejamento decide pelas próprias permissões,
+ *  sem herdar a trava da PÁGINA onde foi aberto). */
+export function ReadOnlyScope({ value, children }: { value: boolean; children: ReactNode }) {
+  return <ReadOnlyContext.Provider value={value}>{children}</ReadOnlyContext.Provider>;
+}
+
 export function RequirePermission({ page, anyOf, children }: Props) {
   const { canView, canEdit, loading } = useAuth();
   const { isStockOnly, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();

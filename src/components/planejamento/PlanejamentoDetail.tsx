@@ -30,6 +30,7 @@ import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
@@ -67,6 +68,7 @@ import {
 } from "@/components/planejamento/planejamento-detail/campos";
 import { PrecoTabela } from "@/components/planejamento/planejamento-detail/PrecoTabela";
 import { rotuloConflitoPlan, invalidarAposAprovarMO, camposParaDuplicar } from "@/components/planejamento/planejamento-detail/helpers";
+import { resolverPermissoesSheet } from "@/components/planejamento/planejamento-detail/permissoes-sheet";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { useRevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { useGradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
@@ -156,7 +158,6 @@ function PlanejamentoDetailConteudo({
   const podeEditarCustos = canEdit("criacao_planejamento:custos");
   // Permissão à parte SÓ p/ editar o preço de venda (banco enforça via trigger fn_modelo_preco_venda_gate).
   // VER o preço segue sob podeVerCustos; editar o preço passa a exigir esta section.
-  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // F3.1 — campos vindos do Desenvolvimento (decisão F3 #8): EDITAR exige canEdit da página do Dev; sem ela o
   // Salvar OMITE esses campos (`aplicarRegrasCamposDev`). VER (canView) entra com as seções (Task 5).
@@ -165,6 +166,13 @@ function PlanejamentoDetailConteudo({
   // F3.6 (seção "4. Códigos" — F3.5b do SKU): SKUs = ver/editar o Planejamento (spec SKU §4.4; o servidor confere no wrapper).
   const podeVerPlanejamento = canView("criacao_planejamento");
   const podeEditarPlanejamento = canEdit("criacao_planejamento");
+  // P-53 A (fix 1, m-3) — a permissão de preço (`criacao_planejamento:preco_venda`) é uma seção À PARTE,
+  // mas o Salvar do Planejamento é quem grava o valor digitado — sem TAMBÉM exigir `podeEditarPlanejamento`,
+  // quem tem só a seção de preço (mas não edita o Planejamento) via a UI destravada e o Salvar descarta o
+  // valor em silêncio (`aplicarRegrasCamposPlanejamento` apaga `preco_venda`/`preco_atacado`/`preco_anterior`
+  // do payload) — campo editável que nunca salva. Variável ÚNICA usada na UI (PrecoTabela/PrecoRevendaBloco)
+  // E no hook de save (mesmo nome que antes, para não espalhar o `&&` em vários pontos).
+  const podeEditarPreco = canEdit("criacao_planejamento:preco_venda") && podeEditarPlanejamento;
 
   // Colab (spec 2026-08-03, Task 2): o queryFn agora só BUSCA (sem side-effects de setState —
   // roda em TODO refetch, não só na 1ª carga). Seed/merge acontecem no useEffect mais abaixo.
@@ -190,6 +198,10 @@ function PlanejamentoDetailConteudo({
   const [editandoDev, setEditandoDev] = useState(false);
   const devBloqueado = !podeEditarDev || (enviadoCad && !editandoDev);
   const motivoTravaDev: MotivoTravaDev = !podeEditarDev ? "sem_permissao" : enviadoCad && !editandoDev ? "enviado" : null;
+  // P-53 A (revisão da parte 1, dono 26/set): o Sheet decide POR SEÇÃO pelas DUAS permissões — não herda mais a
+  // trava da PÁGINA onde foi aberto (ex.: kanban do Dev). "Nem ganha, nem perde": editável se algum dos 2 Sheets
+  // antigos deixava editar. Ver src/components/planejamento/planejamento-detail/permissoes-sheet.ts.
+  const perm = resolverPermissoesSheet({ podeEditarPlanejamento, podeEditarDev, devBloqueado });
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
   // `draft` principal; persiste no Salvar da página via RPC `salvar_modelo_servico_mo`. O
@@ -840,7 +852,7 @@ function PlanejamentoDetailConteudo({
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
-    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, categorias,
+    modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, categorias,
     refEditavel,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
@@ -1132,20 +1144,42 @@ function PlanejamentoDetailConteudo({
   // Grade cor × tamanho: a da origem SALVA. Só-leitura com a troca de Origem ainda não salva, ou no importado sem a ficha
   // editável (a grade dele grava pelo BOM — D3 (A)). Revenda: editável como hoje.
   const origemTrocadaPendente = draft.origem !== origemComprado;
+  // P-53 A (fix 1, m-2) — a grade do comprado é COMPARTILHADA (paridade com o `locked` do Dev antigo): sem
+  // `perm.compartilhadoBloqueado` livre (nenhum dos 2 Sheets destrava), a trava pós-Explosão sozinha
+  // (`ficha.podeEditar`) era contornável por quem só edita o DEV com o card já enviado à Explosão (fix 2,
+  // item 7 — o comentário da rodada 1 dizia "Planejamento" por engano).
+  // Fix 2 (item 4, N-1) — mensagem mais específica: se a pessoa AINDA edita o Dev (só não tem a
+  // permissão de Planejamento que faltava aqui — cenário raro, já que quem edita só o Dev normalmente
+  // passa pelo ramo `compartilhadoBloqueado=false`), reaproveita o texto "use o botão Editar" (é o
+  // mesmo mecanismo do card enviado à Explosão); senão, mensagem genérica de falta de permissão.
   const motivoGradeSomenteLeitura: string | null = origemTrocadaPendente
     ? "Salve a troca de Origem antes de editar a grade."
-    : origemComprado === "importado" && !ficha.podeEditar
-      ? ficha.motivoSomenteLeitura === "enviado"
-        // D3 (informado ao dono): depois de enviado à Explosão, a grade do importado trava JUNTO com a ficha.
-        ? "Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."
-        : "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera aqui (com a ficha carregada)."
-      : null;
+    : perm.compartilhadoBloqueado
+      ? (podeEditarDev
+        ? "Card enviado à Explosão: para alterar a grade, use o botão Editar."
+        : "Sem permissão para editar esta grade.")
+      : origemComprado === "importado" && !ficha.podeEditar
+        ? ficha.motivoSomenteLeitura === "enviado"
+          // D3 (informado ao dono): depois de enviado à Explosão, a grade do importado trava JUNTO com a ficha.
+          // (texto antigo do importado — segue alcançável quando compartilhadoBloqueado=false, ou seja,
+          // quem edita o Planejamento OU o Dev sem trava pós-Explosão, mas a ficha do importado específica
+          // está travada por outro motivo, ex.: sem canEdit do Dev mas com podeEditarPlanejamento)
+          ? "Card enviado à Explosão: a grade do importado trava junto com a ficha — para mudar, use o botão Editar."
+          : "A grade do importado grava junto com a ficha do Desenvolvimento — só quem edita o Desenvolvimento a altera aqui (com a ficha carregada)."
+        : null;
   // Fix minors (M1) — o texto de "sem produto vinculado" ("salve para criar") só faz sentido quando é O SALVAR do
   // Planejamento que resolve. Com `origemTrocadaPendente`, é exatamente esse Salvar que cria o produto (não exige o
   // Dev) — mantém o genérico. Já com a ficha travada no importado (`motivoGradeSomenteLeitura` do outro ramo), o
   // Salvar do Planejamento sozinho NÃO cria nada (precisa do Dev) — nesse caso o texto de "sem produto" mostra o
   // motivo REAL (`motivoGradeSomenteLeitura`) em vez do "salve para criar" enganoso.
-  const motivoSemProdutoComprado: string | null = origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
+  // Fix 2 (item 5, N-2) — desde o fix 1 (m-1), a auto-criação do espelho no Salvar exige `podeEditarPlanejamento`
+  // (não só `paOn`/`piOn`). Sem essa permissão, o texto genérico "Salve o card… para o sistema criá-lo" ficaria
+  // enganoso (o Salvar dessa pessoa não cria nada) — mesmo no ramo `origemTrocadaPendente`, onde antes o motivo
+  // ficava `null` (texto genérico). Prioridade MÁXIMA: falta de permissão de Planejamento explica por si só por
+  // que "sem produto" persiste, então checa ANTES de `origemTrocadaPendente`.
+  const motivoSemProdutoComprado: string | null = !podeEditarPlanejamento
+    ? "Este card ainda não tem produto vinculado — quem edita o Planejamento o cria ao salvar."
+    : origemTrocadaPendente ? null : motivoGradeSomenteLeitura;
   // F3.6 (Parte A — spec §5.1): a Mão de obra deixa de ser seção no Sheet e vira o bloco da linha "Mão de obra" DENTRO de
   // "Preço e Custos"; a condição de exibir é a MESMA de antes (ver custos OU aprovar; comprado só com o card salvo).
   const moBlocoVisivel = (!isComprado ? true : isEdit) && (veCustos || (isEdit && podeAprovarMaoObra));
@@ -1288,26 +1322,34 @@ function PlanejamentoDetailConteudo({
   // de "Preço e Custos" (manufaturado e importado), no bloco de preço da revenda, ou na seção sem número do Dialog "Novo
   // Modelo". VALOR = rascunho `moLinhas` (grava no Salvar); aprovar/reprovar = RPC imediata gated por
   // `producao_servico_aprovacao` (invariante #12); ver/digitar valor = `veCustos` (união das 2 permissões, decisão F3 #2).
+  // P-53 A (fix 1, m-2) — M.O. (valores + observação) é COMPARTILHADA: o Dev antigo também editava
+  // (payload :1878-1945). A trava pós-Explosão (`devBloqueado`) sozinha era contornável por quem só
+  // edita o DEV com o card já pós-Explosão (fix 2, item 7: o comentário original dizia "Planejamento"
+  // por engano) — agora exige `perm.compartilhadoBloqueado` (livre se qualquer um dos 2 Sheets deixava editar).
   const editorMaoObra = (
-    <MaoObraEditor
-      linhas={moLinhas}
-      categorias={catsServico}
-      podeVerCustos={veCustos}
-      podeAprovar={isEdit && podeAprovarMaoObra}
-      onChangeLinhas={(ls) => setMoLinhas(ls)}
-      onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
-      onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
-      pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
-      linhasPersistidas={moLinhasPersistidas}
-    />
+    <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
+      <MaoObraEditor
+        linhas={moLinhas}
+        categorias={catsServico}
+        podeVerCustos={veCustos}
+        podeAprovar={isEdit && podeAprovarMaoObra}
+        onChangeLinhas={(ls) => setMoLinhas(ls)}
+        onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
+        onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+        pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
+        linhasPersistidas={moLinhasPersistidas}
+      />
+    </fieldset>
   );
   // F3.6 (mockup v3; R34): "Observação de mão de obra" pelo `label` que o ObsMaoObraField JÁ aceita (o Dev segue com o dele).
   const obsMaoObra = veCustos ? (
-    <ObsMaoObraField
-      label="Observação de mão de obra"
-      value={draft.observacoes_mao_obra}
-      onChange={(v) => setDraftTracked((d) => ({ ...d, observacoes_mao_obra: v }))}
-    />
+    <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
+      <ObsMaoObraField
+        label="Observação de mão de obra"
+        value={draft.observacoes_mao_obra}
+        onChange={(v) => setDraftTracked((d) => ({ ...d, observacoes_mao_obra: v }))}
+      />
+    </fieldset>
   ) : null;
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
   // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
@@ -1409,6 +1451,16 @@ function PlanejamentoDetailConteudo({
             p-0 m-0` zera o default de UA do <fieldset> (min-width/border/padding/margin) para não
             mudar nada visual além de devolver os 24px. Não mexe no card EXISTENTE: `salvandoNovo`
             exige `!isEdit`. */}
+        {/* P-53 A (fix 1, sugestão barata) — aviso discreto quando o Sheet está aberto (não é
+            `sheetSomenteLeitura` — o usuário edita ALGUMA coisa aqui) mas os campos SÓ do Planejamento
+            estão travados: quem só edita o Dev (aberto pelo kanban, por ex.) vê por que Status/Origem/
+            NCM/Título/medidas/preços/etc. não respondem. Mesmo padrão visual do `AvisoCamposDev`
+            (tokens — border-dashed + text-muted-foreground —, sem cor solta). */}
+        {perm.planBloqueado && !perm.sheetSomenteLeitura && (
+          <p className="mx-6 mt-3 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+            Sem permissão para editar o Planejamento — os campos só do Planejamento estão travados.
+          </p>
+        )}
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")}
@@ -1417,10 +1469,15 @@ function PlanejamentoDetailConteudo({
             grupos={grupos} categorias={categorias} estilistas={estilistas}
             sub1Opts={sub1Opts} sub2Opts={sub2Opts} fl={fl} origemOpcoes={origemOpcoesLista}
             nomeLoja={nomeLoja}
+            planBloqueado={perm.planBloqueado}
+            compartilhadoBloqueado={perm.compartilhadoBloqueado}
           />
 
           {/* SETOR 2 — Coleção */}
           <Secao id="colecao" titulo="Coleção" numero={numeros.colecao} selo={seloDe("colecao")} defaultOpen={false}>
+            {/* P-53 A: Coleção/Subcoleção/Linha/Semana/Mês/Ano são COMPARTILHADOS — o Dev também os grava
+                (ModeloDetailPanel.tsx:1878-1945). Editável se qualquer um dos 2 Sheets deixava. */}
+            <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {otbOn ? (
                 <FieldSelect
@@ -1434,7 +1491,14 @@ function PlanejamentoDetailConteudo({
                   options={colecoes.map((c) => ({ id: c.id, nome: orcLabel(c.nome, orc.colecao(c.id)) }))}
                 />
               ) : (
-                <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraftTracked((d) => ({ ...d, colecao: v }))} />
+                // Fix 2 (item 2, re-revisão) — Coleção texto livre (lojas SEM OTB): o Dev antigo nem
+                // MOSTRAVA esse campo sem OTB (era um campo só do Sheet do Planejamento nesse modo) —
+                // trava adicional SÓ aqui com `perm.planBloqueado`, por cima do fieldset compartilhado
+                // da seção inteira (Coleção permanece em CAMPOS_COMPARTILHADOS_DRAFT — o select do OTB
+                // grava junto do `colecao_id`, que é compartilhado de verdade).
+                <fieldset disabled={perm.planBloqueado} className="contents">
+                  <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraftTracked((d) => ({ ...d, colecao: v }))} />
+                </fieldset>
               )}
               {otbOn ? (
                 <FieldSelect
@@ -1461,6 +1525,7 @@ function PlanejamentoDetailConteudo({
               {/* Data de Lançamento vive APENAS na seção Lançamento (junto do botão Lançar) — antes
                   aparecia duas vezes no mesmo Sheet, editando o mesmo campo (laudo jul/2026). */}
             </div>
+            </fieldset>
           </Secao>
 
           {/* Desenvolvimento (veio do Dev, F3.1; F3.6: título sem "— equipe e cronograma" e SEM a REF, que foi para "Códigos").
@@ -1594,6 +1659,7 @@ function PlanejamentoDetailConteudo({
                 // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
                 // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
                 podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
+                planBloqueado={perm.planBloqueado}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
                 // F3.4 — linhas "Custos do BOM" e custos adicionais só no INTERNO: no comprado não entram no custo
@@ -1620,6 +1686,7 @@ function PlanejamentoDetailConteudo({
               <PrecoRevendaBloco rv={revenda} custoReal={custoReal} piRevenda={piRevenda} draft={draft}
                 blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
                 podeEditarPreco={podeEditarPreco}
+                planBloqueado={perm.planBloqueado}
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
             )}
@@ -1628,7 +1695,7 @@ function PlanejamentoDetailConteudo({
 
           {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
           {vis.produto_acabado && (isRevenda ? (
-            <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} numero={numeros.produto_acabado} />
+            <ProdutoAcabadoSecao rv={revenda} contexto={contexto} modeloId={modeloId} navigate={navigate} numero={numeros.produto_acabado} podeAcoesPlanejamento={perm.podeAcoesPlanejamento} />
           ) : (
             <ProdutoImportadoSecao gc={gradeComprado} navigate={navigate} numero={numeros.produto_acabado} />
           ))}
@@ -1640,8 +1707,12 @@ function PlanejamentoDetailConteudo({
             <GradeRevendaSecao gc={gradeComprado} numero={numeros.grade_revenda} selo={seloDe("grade_revenda")} motivoSomenteLeitura={motivoGradeSomenteLeitura} motivoSemProduto={motivoSemProdutoComprado} />
           )}
 
-          {/* SETOR 5 — Anexos */}
+          {/* SETOR 5 — Anexos. P-53 A (fix 1, m-2): croqui/desenho/fotos são COMPARTILHADOS (o Dev antigo também
+              gravava — payload :1878-1945); a trava pós-Explosão (devBloqueado, abaixo) sozinha era contornável
+              por quem só edita o DEV com o card já pós-Explosão (fix 2, item 7: comentário original dizia
+              "Planejamento" por engano) — agora exige perm.compartilhadoBloqueado também. */}
           <Secao id="anexos" titulo="Anexos" numero={numeros.anexos} selo={seloDe("anexos")} defaultOpen={false}>
+            <fieldset disabled={perm.compartilhadoBloqueado} className="contents">
             <div className="grid sm:grid-cols-2 gap-4">
               <SingleFileField
                 label="Foto do Croqui"
@@ -1664,8 +1735,10 @@ function PlanejamentoDetailConteudo({
                 onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_referencia" })}
                 onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
             </div>
+            </fieldset>
             {/* Ficha de Medida + Observações Gerais (vieram do Dev — F3.1): card existente, quem vê o Dev e (comprado)
-                seção "s6" ligada no Fluxo de Revenda. Travam com as seções do Dev; o resto de Anexos segue livre. */}
+                seção "s6" ligada no Fluxo de Revenda. Travam com `devBloqueado` (regra própria — Observações Gerais
+                E Ficha de Medida são compartilhadas também, mas mantidas na trava do Dev como já era, ver AvisoCamposDev). */}
             {isEdit && modeloId && podeVerDev && campoVisivelDev("s6") && (
               <>
                 <AvisoCamposDev motivo={motivoTravaDev} />
@@ -1698,6 +1771,8 @@ function PlanejamentoDetailConteudo({
           {vis.lancamento && (
             <Secao id="lancamento" titulo="Lançamento" numero={numeros.lancamento} selo={seloDe("lancamento")} defaultOpen={false}>
               <div className="flex flex-wrap items-end gap-3">
+                {/* P-53 A: Data de Lançamento é SÓ do Planejamento. */}
+                <fieldset disabled={perm.planBloqueado} className="contents">
                 <div className="grid gap-1 flex-1 min-w-[180px]">
                   <Label>Data de Lançamento</Label>
                   {/* Editável aqui também: a data real pode não se cumprir, então o
@@ -1708,7 +1783,9 @@ function PlanejamentoDetailConteudo({
                     data-colab-path="data_lancamento"
                   />
                 </div>
-                {lancado ? (
+                </fieldset>
+                {/* P-53 A: Lançar/Cancelar Lançamento é ação de ciclo do Planejamento — só perm.podeAcoesPlanejamento. */}
+                {perm.podeAcoesPlanejamento && (lancado ? (
                   <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
                     Cancelar Lançamento
                   </Button>
@@ -1737,14 +1814,17 @@ function PlanejamentoDetailConteudo({
                       )}
                     </Tooltip>
                   </TooltipProvider>
-                )}
+                ))}
               </div>
               {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
             </Secao>
           )}
           {vis.relacionado && modeloId && (
             <Secao id="relacionado" titulo="Produto Relacionado" numero={numeros.relacionado} selo={<SeloRelacionadoBadge modeloId={modeloId} />} defaultOpen={false}>
-              <ProdutoRelacionadoSetor modeloId={modeloId} />
+              {/* P-53 A: adicionar/remover Produto Relacionado é ação de ciclo do Planejamento. */}
+              <fieldset disabled={!perm.podeAcoesPlanejamento} className="contents">
+                <ProdutoRelacionadoSetor modeloId={modeloId} />
+              </fieldset>
             </Secao>
           )}
 
@@ -1778,8 +1858,8 @@ function PlanejamentoDetailConteudo({
             <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
             <span className="max-sm:sr-only">Voltar</span>
           </Button>
-          {/* Excluir: logo ao lado do Voltar (só no modo edição). */}
-          {isEdit && (
+          {/* Excluir: logo ao lado do Voltar (só no modo edição). P-53 A: ação de ciclo do Planejamento. */}
+          {isEdit && perm.podeAcoesPlanejamento && (
             <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
               <Trash2 className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Excluir</span>
@@ -1805,7 +1885,10 @@ function PlanejamentoDetailConteudo({
           {isEdit && (
             <MenuMaisAcoes
               className={mostraFaltas ? "max-sm:ml-auto" : "ml-auto"}
-              onDuplicar={handleDuplicate}
+              // P-53 A (fix 1, m-5) — Duplicar é ação de ciclo do Planejamento: sem `perm.podeAcoesPlanejamento`
+              // o item nem aparece (paridade com Importar/Cancelar Ordem, que já somem sem a condição deles) —
+              // em vez de ficar preso em "carregando…" pra sempre.
+              onDuplicar={perm.podeAcoesPlanejamento ? handleDuplicate : undefined}
               // Fix T9 I1 — devolve a condição do round 4 da F3.2 (item 7, 67e363f ~:1387-1388), perdida quando
               // o Duplicar saiu do rodapé (solto) e virou item do MenuMaisAcoes (Task 9): a `mutationFn` do
               // Duplicar lê `fichaRef.current.carregado`/`.estado.blocks` — clicar ANTES de carregar caía no
@@ -1821,12 +1904,13 @@ function PlanejamentoDetailConteudo({
               // Fix T9 I3 (ruling do controlador) — com `enviado_cad=true` o card já foi p/ a Explosão (CQ/
               // Direcionamento podem ter avançado por cima do CAD); "Cancelar Ordem" volta o card pro
               // Planejamento mas NÃO desfaz nada da Explosão — some do menu pra não sugerir uma reversão que
-              // não existe.
-              onCancelarOrdem={enviada && !enviadoCad ? () => setConfirmCancelarOrdem(true) : undefined}
+              // não existe. P-53 A: Cancelar Ordem é ação de ciclo do Planejamento.
+              onCancelarOrdem={perm.podeAcoesPlanejamento && enviada && !enviadoCad ? () => setConfirmCancelarOrdem(true) : undefined}
               cancelandoOrdem={enviar.isPending}
             />
           )}
-          {isEdit && !enviada && (
+          {/* P-53 A: Enviar Ordem de Criação é ação de ciclo do Planejamento. */}
+          {isEdit && !enviada && perm.podeAcoesPlanejamento && (
             <TooltipProvider>
               <Tooltip>
                 {/* Botão desabilitado não dispara title nativo — o span recebe o hover e o tooltip lista o que falta. */}
@@ -1883,7 +1967,8 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Editar</span>
             </Button>
           )}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={save.isPending || enviarExplosao.isPending}>
+          {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página). */}
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
@@ -2023,21 +2108,29 @@ function PlanejamentoDetailConteudo({
   return (
     <>
       {isEdit ? (
-        <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-          <SheetContent
-            side="right"
-            size="editor"
-            className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
-          >
-            {conteudo}
-          </SheetContent>
-        </Sheet>
+        // P-53 A: ReadOnlyScope decide o fieldset do SheetContent pelas 2 permissões deste Sheet —
+        // NÃO herda mais a trava da PÁGINA onde foi aberto (RequirePermission/useReadOnly da rota).
+        <ReadOnlyScope value={perm.sheetSomenteLeitura}>
+          <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
+            <SheetContent
+              side="right"
+              size="editor"
+              className="flex flex-col gap-0 p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
+            >
+              {conteudo}
+            </SheetContent>
+          </Sheet>
+        </ReadOnlyScope>
       ) : (
-        <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
-          <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
-            {conteudo}
-          </DialogContent>
-        </Dialog>
+        // Criar card NOVO é ação de Planejamento — só `podeEditarPlanejamento` decide (o Dev não cria
+        // cards no Planejamento).
+        <ReadOnlyScope value={!podeEditarPlanejamento}>
+          <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
+            <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+              {conteudo}
+            </DialogContent>
+          </Dialog>
+        </ReadOnlyScope>
       )}
     </>
   );

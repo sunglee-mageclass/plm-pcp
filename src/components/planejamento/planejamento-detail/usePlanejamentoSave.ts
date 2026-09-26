@@ -15,7 +15,7 @@ import { type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor
 import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/components/planejamento/modelo-shared";
 import { ehOrigemComprada } from "@/lib/origem";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
-import { limparCustoSim, aplicarRegrasCamposDev, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
+import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -37,6 +37,9 @@ export type UsePlanejamentoSaveArgs = {
   podeVerCustos: boolean;
   /** F3.1: pode editar o Desenvolvimento? Sem isso os campos do Dev saem do payload (decisão F3 #8). */
   podeEditarDev: boolean;
+  /** P-53 A: pode editar o Planejamento? Sem isso os campos SÓ do Planejamento saem do payload
+   *  (`aplicarRegrasCamposPlanejamento`, espelho de `aplicarRegrasCamposDev`). */
+  podeEditarPlanejamento: boolean;
   /** F3.6: o campo REF está editável na seção "Códigos" (saiu de "Desenvolvimento" na F3.6)? Só então a REF vai no payload. */
   refEditavel: boolean;
   categorias: CatOpt[];
@@ -76,7 +79,7 @@ export type UsePlanejamentoSaveArgs = {
 };
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, refEditavel, categorias,
+  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, refEditavel, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado,
@@ -310,6 +313,18 @@ export function usePlanejamentoSave({
       // "Reforço de segurança no banco"). Extraída p/ `helpers.ts` (ruling R-a, revisão do Lote B1) — função PURA,
       // testável isolada de `usePlanejamentoSave`.
       aplicarPrecoAnterior(payload, d, podeEditarPreco);
+      // P-53 A — espelho de `aplicarRegrasCamposDev`: sem `podeEditarPlanejamento`, os campos SÓ do
+      // Planejamento (CAMPOS_SO_PLANEJAMENTO_DRAFT — status, origem, título, medidas, tamanho_tipo,
+      // versão, preços, data de lançamento, NCM) saem do payload (o banco fica com o que tinha).
+      // Roda DEPOIS dos passos acima que montam esses campos (camposNovosParaPayload/aplicarPrecoAnterior/
+      // preco_venda-atacado) — os gates de preço próprios (`podeEditarPreco`) continuam valendo; este é
+      // um gate ADICIONAL, não substitui aquele. `aplicarRegrasCamposPlanejamento` é PURA (devolve
+      // cópia com as chaves apagadas) — sem permissão, apaga do `payload` mutável (mesma referência que
+      // o resto do mutationFn usa) as chaves que a cópia não tem mais.
+      if (!podeEditarPlanejamento) {
+        const semPlanejamento = aplicarRegrasCamposPlanejamento(payload, { podeEditarPlanejamento });
+        for (const k of Object.keys(payload)) if (!(k in semPlanejamento)) delete payload[k];
+      }
       // F3.2 — colunas do Desenvolvimento no UPDATE: proporções/custos adicionais (só com permissão), custos
       // derivados do BOM e `tecidos_planejados` DERIVADO (só quando o BOM grava). Regras: save-ficha.ts.
       const moServidor = moBaseRef.current.reduce((s, l) => s + (Number(l.valor) || 0), 0);
@@ -505,8 +520,12 @@ export function usePlanejamentoSave({
       // Best-effort: qualquer erro aqui (inclusive a trava 1:1 `enforce_unique_fk` numa
       // corrida de save duplo) é capturado e NUNCA quebra o save do card — o "Modelo salvo"
       // já é verdade nesse ponto (header + MO já persistiram).
+      // P-53 A (fix 1, m-1) — a auto-criação do espelho é a MESMA ação do botão manual "Criar produto
+      // acabado" (ação de ciclo do Planejamento, gated por `perm.podeAcoesPlanejamento` na UI) — sem
+      // `podeEditarPlanejamento` aqui, quem só edita o Dev criaria o espelho pelo save de um campo
+      // do Dev (ex.: trocar a origem não é nem preciso; qualquer Salvar dispara este passo).
       let autoProduto: { criou: boolean; semColecao: boolean; tela?: string } | null = null;
-      if (savedId && d.origem === "revenda" && paOn) {
+      if (savedId && d.origem === "revenda" && paOn && podeEditarPlanejamento) {
         try {
           const { data: existente } = await supabase
             .from("produtos_acabados" as any)
@@ -562,7 +581,8 @@ export function usePlanejamentoSave({
       // chamada da tela do Produto Importado, ProdutoImportadoSheet.tsx:641-647).
       // R3 do G-plano F3.4 (invariante #13): confere os DOIS espelhos NA HORA — leitura com erro ⇒ lança ⇒ o catch mantém o
       // save do card e NÃO cria; produto acabado vinculado (card que já foi revenda) ⇒ não cria o 2º espelho.
-      if (savedId && d.origem === "importado" && piOn) {
+      // P-53 A (fix 1, m-1) — mesma trava da revenda acima: só quem edita o Planejamento cria o espelho.
+      if (savedId && d.origem === "importado" && piOn && podeEditarPlanejamento) {
         try {
           const { data: existenteImp, error: existenteImpErr } = await supabase
             .from("produtos_importados" as any)

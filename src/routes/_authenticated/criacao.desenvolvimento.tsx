@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
+import { PlanejamentoDetail } from "@/components/planejamento/PlanejamentoDetail";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
@@ -39,6 +40,12 @@ import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 
 
 import { RequirePermission } from "@/components/RequirePermission";
+
+// Dono 26/set (P-48 A): o Sheet antigo do Desenvolvimento (ModeloDetailPanel) fica OCULTO — o card do kanban abre o
+// Sheet do Planejamento (unificado). O código do Dev fica guardado para a aposentadoria (depois, em partes).
+// Reativar = SHEET_DEV_ATIVO = true.
+const SHEET_DEV_ATIVO = false;
+
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
   component: () => (
     <RequirePermission page="criacao_desenvolvimento">
@@ -264,6 +271,16 @@ function DesenvolvimentoPage() {
   // do SQL) dá a DICA e a RPC `kanban_mover` DECIDE (o servidor é a autoridade: as condições aqui podem
   // estar velhas). Sem a F1 aplicada o hook devolve ligado=false.
   const { cfg: kanbanCfg, ligado: kanbanAuto, carregando: kanbanCfgCarregando, isError: kanbanCfgErro } = useKanbanConfig();
+
+  // P-48 A: salvar/fechar o Sheet do Planejamento aberto por cima do kanban — refaz o que o quadro lê (cards, condições do
+  // arraste, selo de M.O., tecido do agrupamento) e a lista do Planejamento (mesmo card, outra tela).
+  const invalidarQuadro = () => {
+    qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+    qc.invalidateQueries({ queryKey: ["desenv-mo-resumo"] });
+    qc.invalidateQueries({ queryKey: ["desenv-modelo-tecidos"] });
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+  };
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-desenvolvimento"],
@@ -1154,14 +1171,29 @@ function DesenvolvimentoPage() {
         </Accordion>
       </div>
 
-      <ModeloDetailPanel
-        modeloId={openId}
-        onClose={() => {
-          setOpenId(null);
-          // Chave ligada: o Sheet pode ter mudado campos que as condições leem — a dica do arraste precisa delas frescas.
-          if (kanbanAuto) qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
-        }}
-      />
+      {SHEET_DEV_ATIVO ? (
+        <ModeloDetailPanel
+          modeloId={openId}
+          onClose={() => {
+            setOpenId(null);
+            // Chave ligada: o Sheet pode ter mudado campos que as condições leem — a dica do arraste precisa delas frescas.
+            if (kanbanAuto) qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
+          }}
+        />
+      ) : (
+        // P-48 A: o card abre o Sheet do Planejamento (unificado). Montado SÓ com openId — com modeloId null o
+        // PlanejamentoDetail abre o Dialog de "Novo" (card novo), o que aqui seria errado.
+        openId && (
+          <PlanejamentoDetail
+            modeloId={openId}
+            onClose={() => {
+              setOpenId(null);
+              invalidarQuadro();
+            }}
+            onSaved={invalidarQuadro}
+          />
+        )
+      )}
     </div>
   );
 }
