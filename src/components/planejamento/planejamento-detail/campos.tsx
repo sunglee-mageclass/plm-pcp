@@ -33,7 +33,10 @@ export function Secao({ id, titulo, numero, selo, children, defaultOpen = true }
   const ref = useRef<HTMLElement>(null);
   usePedidoAbertura(id, () => setOpen(true), ref);
   return (
-    <section ref={ref} className="space-y-3" data-secao={id}>
+    // Dono 26/set (print: textos e campos encostados na seção 1): `space-y-3` põe margem nos FILHOS DIRETOS — um
+    // `<fieldset className="contents">` (trava por seção, P-53 A) não tem caixa, então a margem dele some e as linhas
+    // de dentro encostam. `flex flex-col gap-3`: o gap vale para os filhos do fieldset "contents" também.
+    <section ref={ref} className="flex flex-col gap-3" data-secao={id}>
       <div className="flex items-center gap-2 border-b pb-1.5">
         <button
           type="button"

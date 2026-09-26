@@ -161,7 +161,10 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     expect(tab).toContain("data-colab-path={path}");
   });
   it("textos do mockup", () => {
-    for (const s of ["Loja / Cor", "você digita", "Tamanhos: proporção × Base · dá para corrigir à mão", "da cor na loja",
+    // Dono 26/set: "você digita" e "da cor na loja" saíram do cabeçalho (desnecessários).
+    expect(tab).not.toContain("você digita");
+    expect(tab).not.toContain("da cor na loja");
+    for (const s of ["Loja / Cor", "Tamanhos: proporção × Base · dá para corrigir à mão",
       "Proporção por tamanho", "do card", "Total por cor × tamanho", "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card.",
       "soma das lojas", "= pç no card", "sem distribuição · pç do card", "Editado à mão · calculado seria"]) expect(tab, s).toContain(s);
     for (const s of ["Distribuir por loja", "Salvar preenche o pç", "Grava de vez no Salvar do plano.", "Por loja · deslize para o lado",
@@ -289,7 +292,9 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
   });
   it("T6 fix1 · m8: em só-leitura a célula mostra TEXTO (igual à impressão), não um input desabilitado esmaecido", () => {
     expect(tab).toContain("bloqueado ? (");
-    expect(tab).toContain("<span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>");
+    // T6 fix1 · m8 original; a classe ganhou `block text-center` no pedido do dono 26/set (números
+    // centralizados) — o span só-leitura continua existindo, só a className mudou.
+    expect(tab).toContain("<span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>");
     expect(tab).not.toContain("disabled={bloqueado}");
   });
   it("T6 fix1 · m9: preventDefault no Espaço do nome abreviado; foco visível nos 2 gatilhos; zerar mostra cor+apelido", () => {
@@ -333,5 +338,82 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix2)", () => {
     expect(idxVizinho).toBeGreaterThan(-1);
     expect(card).toContain("hover:!bg-transparent");
     expect(card).toContain("hover:!text-muted-foreground");
+  });
+});
+
+describe("Plan. Tecido — dialog Distribuir por loja (impressão em paisagem + 2 colunas, pedido do dono 26/set)", () => {
+  const dlg = ler("src/components/plan-tecido/DistribuirPorLojaDialog.tsx");
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+  const css = ler("src/styles.css");
+
+  it("a impressão do Distribuir por loja é A4 PAISAGEM, só ENQUANTO o dialog está aberto (dentro da PrintArea)", () => {
+    expect(dlg).toContain('<style>{"@page { size: A4 landscape; margin: 10mm; }"}</style>');
+    // a tag de paisagem vem DEPOIS da abertura da PrintArea e ANTES do conteúdo impresso — só existe
+    // enquanto o dialog está montado (a PrintArea inteira é condicional a `podeImprimir`)
+    const printAreaIdx = dlg.indexOf("<PrintArea>");
+    const landscapeIdx = dlg.indexOf("@page { size: A4 landscape");
+    const conteudoIdx = dlg.indexOf('{tabelas("impressao")}');
+    expect(printAreaIdx).toBeGreaterThan(-1);
+    expect(landscapeIdx).toBeGreaterThan(printAreaIdx);
+    expect(conteudoIdx).toBeGreaterThan(landscapeIdx);
+  });
+
+  it("o @page global (retrato, styles.css) NÃO muda — só esta impressão vira paisagem, o resto do app continua A4 retrato", () => {
+    expect(css).toContain("@page { size: A4; margin: 12mm; }");
+    // landscape só aparece no dialog do Distribuir por loja — em nenhum outro arquivo fonte
+    expect(css).not.toContain("landscape");
+  });
+
+  it("regra de 2 colunas: limiar > 10 linhas de cor por tabela de loja, só na IMPRESSÃO (a tela em modo edicao não muda)", () => {
+    expect(tab).toContain("const LIMIAR_2_COLUNAS = 10;");
+    expect(tab).toContain("const duasColunas = imp && p.cores.length > LIMIAR_2_COLUNAS;");
+    // container de 2 colunas só é usado no ramo de impressão (`imp && duasColunas`)
+    expect(tab).toContain("{imp && duasColunas ? (");
+    expect(tab).toContain('<div className="print-2col" aria-label="Distribuição por loja e cor">');
+    // cada tabela de loja não pode partir ao meio entre colunas/páginas
+    expect(tab).toContain('className="print-quebra-evitar mb-3 w-full border-collapse text-sm"');
+  });
+
+  it("CSS do 2-colunas/quebra existe e está escopado à .print-area (não vaza pra fora da impressão)", () => {
+    expect(css).toContain(".print-area .print-2col { columns: 2; column-gap: 6mm; }");
+    expect(css).toContain(".print-area .print-quebra-evitar { page-break-inside: avoid; break-inside: avoid; }");
+  });
+
+  it("poucas variantes (≤10) continuam em 1 coluna/1 tabela só, como antes", () => {
+    // o ramo 'else' (1 tabela única com todas as lojas dentro) continua existindo para esse caso
+    expect(tab).toContain('<div className="overflow-x-auto rounded border">');
+    expect(tab).toContain('<table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">');
+  });
+});
+
+describe("Plan. Tecido — dialog Distribuir por loja (números centralizados, pedido do dono 26/set)", () => {
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+
+  it("a caixa TD (base de toda célula numérica da tabela) é text-center", () => {
+    expect(tab).toContain('const TD = "border px-1 py-0.5 text-center tabular-nums";');
+  });
+
+  it("o NumberInput de todo campo editável (proporção, Base, célula por tamanho) tem text-center", () => {
+    const idx = tab.indexOf("<NumberInput integer blankZero placeholder=\"0\"");
+    expect(idx).toBeGreaterThan(-1);
+    const trecho = tab.slice(idx, idx + 300);
+    expect(trecho).toMatch(/className=\{`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none/);
+  });
+
+  it("a CAIXA do campo fica no centro da célula (mx-auto): o <Input> base é `flex` (bloco), o text-center do <td> não a move", () => {
+    const idx = tab.indexOf("<NumberInput integer blankZero placeholder=\"0\"");
+    expect(tab.slice(idx, idx + 300)).toContain("mx-auto");
+  });
+
+  it("o <span> só-leitura (impressão OU sem permissão de editar) também é text-center (block, não só herdado do <td>)", () => {
+    expect(tab).toContain('<span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>');
+  });
+
+  it("os totais só-leitura (subtotal por loja, Total por cor×tamanho, Total geral) ficam em células TD (text-center) — mesma coluna alinhada aos campos editáveis", () => {
+    expect(tab).toContain("<td className={TD}>{sub.base}</td>");
+    expect(tab).toContain("<td className={TD}>{sub.total}</td>");
+    expect(tab).toContain("<td className={TD}>{tot.base}</td>");
+    expect(tab).toContain("<td className={TD}>{totalGeral.base}</td>");
+    expect(tab).toContain("<td className={TD}>{totalGeral.total}</td>");
   });
 });

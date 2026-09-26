@@ -219,6 +219,10 @@ export function InfoGeraisSecao({
             <div className="grid gap-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="titulo-pagina">Título para a página</Label>
+                {/* Dono 26/set: a explicação sai de baixo do campo e vira hover (padrão InfoHover — nunca texto fixo). */}
+                <InfoHover ariaLabel="Como funciona o Título para a página?">
+                  <p>Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.</p>
+                </InfoHover>
                 {tituloAutomatico && tituloCalculado !== "" && (
                   <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">automático</StatusBadge>
                 )}
@@ -249,7 +253,6 @@ export function InfoGeraisSecao({
                   <span className="max-sm:sr-only">automático</span>
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.</p>
             </div>
             </fieldset>
 

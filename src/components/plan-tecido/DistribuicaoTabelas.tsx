@@ -143,97 +143,137 @@ export function DistribuicaoTabelas(p: {
   const vista = (corKey: string, loja: string) => linhaVista(p.dists[corKey]?.[loja], p.prop, p.tamanhos);
   // T6 fix1 · m8: em modo só-leitura (sem permissão de editar) a célula mostra TEXTO, igual à impressão — não
   // um NumberInput desabilitado esmaecido. O pedido é "ver e imprimir", não "ver um formulário travado".
+  // Pedido do dono 26/set: todo campo numérico CENTRALIZADO (estavam deslocados p/ a esquerda) — `text-center`
+  // tanto no NumberInput (a própria caixa de texto) quanto no <span> só-leitura (`block` p/ o text-align valer
+  // por si, não só herdado do <td>), nas DUAS telas (dialog) e na impressão.
+  // Dono 26/set ("campos de número deslocados para a esquerda"): o <Input> base é `flex` (bloco) com w-14 — o text-center
+  // do <td> não centraliza a CAIXA, só o texto dentro dela; `mx-auto` centraliza a caixa na célula.
   const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
     bloqueado ? (
-      <span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
+      <span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
       <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
-        className={`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
+        className={`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
     );
   const comDist = p.cores.filter((c) => temDistribuicao(p.dists[c.key]));
   const totalGeral = somaVistas(comDist.flatMap((c) => p.lojas.map((l) => vista(c.key, l.id))), p.tamanhos);
 
+  // Pedido do dono 26/set: impressão em paisagem (ver <style> no PrintArea do dialog) e, com MUITAS
+  // variantes, em 2 colunas — senão uma tabela grande estoura por várias páginas soltas. Limiar =
+  // MAIS DE 10 linhas de cor numa tabela de loja (LIMIAR_2_COLUNAS; `cores` é a mesma lista em toda
+  // loja, então checar 1× basta). Só afeta a IMPRESSÃO: a tabela única da TELA (modo "edicao") não
+  // muda — por isso a impressão vira N tabelas (uma por loja), cada uma com `break-inside: avoid`
+  // para não partir ao meio entre colunas/páginas.
+  const LIMIAR_2_COLUNAS = 10;
+  const duasColunas = imp && p.cores.length > LIMIAR_2_COLUNAS;
+  const linhaProporcao = (
+    <tr className="bg-muted/30">
+      {/* T6 fix1 · m7 (fiel ao mockup): abaixo de 640px (`sm`) mostra só "Proporção" — o texto completo
+          ("Proporção por tamanho" + "do card") some; a coluna fixa é estreita no celular. */}
+      <td className={`${COL1} !bg-muted`}>
+        <span className="max-sm:hidden">Proporção por tamanho<span className="block text-[10px] text-muted-foreground">do card</span></span>
+        <span className="sm:hidden">Proporção</span>
+      </td>
+      <td className={`${TD} text-muted-foreground`}>—</td>
+      {p.tamanhos.map((t) => (
+        <td key={t} className={`${TD} ${esmaecido(t)}`}>
+          {campo(p.prop[t] ?? 0, (v) => p.onProp?.(t, v), pathDistProp(p.slotKey, t), `Proporção ${rotuloTamanho(t, p.tipo)}`)}
+        </td>
+      ))}
+      <td className={`${TD} font-semibold`}>{somaProp}</td>
+    </tr>
+  );
+  const linhasLoja = (l: LojaDist) => {
+    const vistas = p.cores.map((c) => vista(c.key, l.id));
+    const sub = somaVistas(vistas, p.tamanhos);
+    return (
+      <Fragment key={l.id}>
+        {/* T6 fix1 · I1: a faixa do nome da loja vira 2 <td> — a 1ª FIXA e OPACA (`!bg-secondary`, sem
+            fração — nome preso ao rolar), a 2ª cobre o resto das colunas com o tom translúcido de
+            sempre (seguro: não fica embaixo de nenhuma célula fixa). */}
+        <tr className={l.inativa ? "opacity-60" : ""}>
+          <td className={`${COL1} !bg-secondary text-xs font-semibold uppercase tracking-wide`}>{l.nome}</td>
+          <td colSpan={p.tamanhos.length + 2} className="border bg-muted/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide" />
+        </tr>
+        {p.cores.map((c, i) => {
+          const v = vistas[i];
+          return (
+            <tr key={c.key} className={l.inativa ? "opacity-60" : ""}>
+              <td className={`${COL1} !bg-background`}><NomeCor c={c} impressao={imp} /></td>
+              <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold")}</td>
+              {p.tamanhos.map((t) => {
+                const cel = v.celulas[t];
+                return (
+                  <td key={t} className={`${TD} relative ${esmaecido(t)}`}>
+                    {campo(cel.valor, (x) => p.onCel?.(c.key, l.id, t, x), pathDistCel(p.slotKey, l.id, c.key, t), `${l.nome} ${c.cor} ${rotuloTamanho(t, p.tipo)}`)}
+                    {cel.manual && (imp ? (
+                      <span aria-hidden> •</span>
+                    ) : (
+                      <PontoManual calculado={cel.calculado} bloqueado={bloqueado} onVoltar={() => p.onVoltar?.(c.key, l.id, t)} />
+                    ))}
+                  </td>
+                );
+              })}
+              <td className={`${TD} font-semibold`}>{v.total}</td>
+            </tr>
+          );
+        })}
+        <tr className="bg-muted/40 font-semibold">
+          {/* T6 fix1 · m7: idem — "Total {loja}" completo só a partir de 640px; abaixo, só "Total". */}
+          <td className={`${COL1} !bg-accent`}>
+            <span className="max-sm:hidden">Total {l.nome}</span>
+            <span className="sm:hidden">Total</span>
+          </td>
+          <td className={TD}>{sub.base}</td>
+          {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{sub.grades[t]}</td>)}
+          <td className={TD}>{sub.total}</td>
+        </tr>
+      </Fragment>
+    );
+  };
+  const cabecalhoTabela = (
+    <thead className="bg-muted/50">
+      <tr>
+        <th rowSpan={2} className={`${COL1} !bg-muted text-xs font-medium`}>Loja / Cor</th>
+        {/* Dono 26/set: os subtítulos de Base e Total saíram do cabeçalho (desnecessários). */}
+        <th rowSpan={2} className={TH}>Base</th>
+        <th colSpan={p.tamanhos.length} className={TH}>Tamanhos: proporção × Base · dá para corrigir à mão</th>
+        <th rowSpan={2} className={TH}>Total</th>
+      </tr>
+      <tr>{p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}</tr>
+    </thead>
+  );
+
   return (
     <div className="space-y-5">
-      <div className="overflow-x-auto rounded border">
-        <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
-          <thead className="bg-muted/50">
-            <tr>
-              <th rowSpan={2} className={`${COL1} !bg-muted text-xs font-medium`}>Loja / Cor</th>
-              <th rowSpan={2} className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">você digita</span></th>
-              <th colSpan={p.tamanhos.length} className={TH}>Tamanhos: proporção × Base · dá para corrigir à mão</th>
-              <th rowSpan={2} className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">da cor na loja</span></th>
-            </tr>
-            <tr>{p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}</tr>
-          </thead>
-          <tbody>
-            <tr className="bg-muted/30">
-              {/* T6 fix1 · m7 (fiel ao mockup): abaixo de 640px (`sm`) mostra só "Proporção" — o texto completo
-                  ("Proporção por tamanho" + "do card") some; a coluna fixa é estreita no celular. */}
-              <td className={`${COL1} !bg-muted`}>
-                <span className="max-sm:hidden">Proporção por tamanho<span className="block text-[10px] text-muted-foreground">do card</span></span>
-                <span className="sm:hidden">Proporção</span>
-              </td>
-              <td className={`${TD} text-muted-foreground`}>—</td>
-              {p.tamanhos.map((t) => (
-                <td key={t} className={`${TD} ${esmaecido(t)}`}>
-                  {campo(p.prop[t] ?? 0, (v) => p.onProp?.(t, v), pathDistProp(p.slotKey, t), `Proporção ${rotuloTamanho(t, p.tipo)}`)}
-                </td>
-              ))}
-              <td className={`${TD} font-semibold`}>{somaProp}</td>
-            </tr>
-            {p.lojas.map((l) => {
-              const vistas = p.cores.map((c) => vista(c.key, l.id));
-              const sub = somaVistas(vistas, p.tamanhos);
-              return (
-                <Fragment key={l.id}>
-                  {/* T6 fix1 · I1: a faixa do nome da loja vira 2 <td> — a 1ª FIXA e OPACA (`!bg-secondary`, sem
-                      fração — nome preso ao rolar), a 2ª cobre o resto das colunas com o tom translúcido de
-                      sempre (seguro: não fica embaixo de nenhuma célula fixa). */}
-                  <tr className={l.inativa ? "opacity-60" : ""}>
-                    <td className={`${COL1} !bg-secondary text-xs font-semibold uppercase tracking-wide`}>{l.nome}</td>
-                    <td colSpan={p.tamanhos.length + 2} className="border bg-muted/60 px-2 py-1 text-xs font-semibold uppercase tracking-wide" />
-                  </tr>
-                  {p.cores.map((c, i) => {
-                    const v = vistas[i];
-                    return (
-                      <tr key={c.key} className={l.inativa ? "opacity-60" : ""}>
-                        <td className={`${COL1} !bg-background`}><NomeCor c={c} impressao={imp} /></td>
-                        <td className={TD}>{campo(v.base, (x) => p.onBase?.(c.key, l.id, x), pathDistBase(p.slotKey, l.id, c.key), `Base ${l.nome} ${c.cor}`, "font-semibold")}</td>
-                        {p.tamanhos.map((t) => {
-                          const cel = v.celulas[t];
-                          return (
-                            <td key={t} className={`${TD} relative ${esmaecido(t)}`}>
-                              {campo(cel.valor, (x) => p.onCel?.(c.key, l.id, t, x), pathDistCel(p.slotKey, l.id, c.key, t), `${l.nome} ${c.cor} ${rotuloTamanho(t, p.tipo)}`)}
-                              {cel.manual && (imp ? (
-                                <span aria-hidden> •</span>
-                              ) : (
-                                <PontoManual calculado={cel.calculado} bloqueado={bloqueado} onVoltar={() => p.onVoltar?.(c.key, l.id, t)} />
-                              ))}
-                            </td>
-                          );
-                        })}
-                        <td className={`${TD} font-semibold`}>{v.total}</td>
-                      </tr>
-                    );
-                  })}
-                  <tr className="bg-muted/40 font-semibold">
-                    {/* T6 fix1 · m7: idem — "Total {loja}" completo só a partir de 640px; abaixo, só "Total". */}
-                    <td className={`${COL1} !bg-accent`}>
-                      <span className="max-sm:hidden">Total {l.nome}</span>
-                      <span className="sm:hidden">Total</span>
-                    </td>
-                    <td className={TD}>{sub.base}</td>
-                    {p.tamanhos.map((t) => <td key={t} className={`${TD} ${esmaecido(t)}`}>{sub.grades[t]}</td>)}
-                    <td className={TD}>{sub.total}</td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {imp && duasColunas ? (
+        // Impressão com muitas variantes: 1 tabela POR LOJA (a proporção repete no topo de cada uma,
+        // para a tabela ficar autocontida caso a coluna/página corte entre lojas) dentro de um
+        // container de 2 colunas CSS (`.print-2col`, styles.css) — cada tabela de loja leva
+        // `.print-quebra-evitar` (page-break-inside/break-inside: avoid) para não partir ao meio.
+        <div className="print-2col" aria-label="Distribuição por loja e cor">
+          {p.lojas.map((l) => (
+            <table key={l.id} className="print-quebra-evitar mb-3 w-full border-collapse text-sm">
+              {cabecalhoTabela}
+              <tbody>
+                {linhaProporcao}
+                {linhasLoja(l)}
+              </tbody>
+            </table>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded border">
+          <table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">
+            {cabecalhoTabela}
+            <tbody>
+              {linhaProporcao}
+              {p.lojas.map((l) => linhasLoja(l))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         <span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary align-middle" />editado à mão — passe o mouse ou toque no ponto para ver o calculado; o ↺ volta a ele. Os totais já contam o valor editado.
       </p>
