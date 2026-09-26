@@ -130,7 +130,7 @@ function OficinaDetailPage() {
     return [...ordered, ...extras];
   }, [tenantCfg, grades]);
 
-  const { data: existing, refetch, isSuccess: existingOk, isError: existingErrored } = useQuery({
+  const { data: existing, refetch, isSuccess: existingOk, isError: existingErrored, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-oficina", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -165,7 +165,13 @@ function OficinaDetailPage() {
     // Fix hidratação rodada 1 (achado I1): exige `existingOk` (isSuccess) — sem isso, uma carga
     // com ERRO em `producao_oficina` hidrataria como "sem linha" (ramo INSERT do save, que o
     // trigger 1:1 bloqueia se a linha na verdade existir — ver auditoria do report.md).
-    if (existing === undefined || cad === undefined || !existingOk) return;
+    // Fix hidratação — re-revisão final (achado m-D, review-final-2.md; pré-existente, idêntico
+    // em a8d2fa41): + `|| existingFetching` — voltar à tela (dentro do gcTime, com o cache ainda
+    // "morno") semeava do `existing` do cache ANTIGO enquanto o refetch de foco já estava em voo,
+    // sem esperar a resposta nova. Se outra pessoa mudou a linha nesse intervalo, o Salvar grava
+    // por cima os valores velhos. Tela legada, sem controle de concorrência (é "o último vence"
+    // por natureza), mas a correção é barata e fecha a janela de semear do cache desatualizado.
+    if (existing === undefined || cad === undefined || !existingOk || existingFetching) return;
     const molde = (cad as any)?.observacoes_molde ?? "";
     let next = form;
     if (existing) {
@@ -188,7 +194,7 @@ function OficinaDetailPage() {
     }
     resetBaseline(next);
     setHydrated(true);
-  }, [existing, cad, hydrated, existingOk]);
+  }, [existing, cad, hydrated, existingOk, existingFetching]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,

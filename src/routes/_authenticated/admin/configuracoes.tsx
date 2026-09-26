@@ -348,6 +348,13 @@ function ConfiguracoesLojaPage() {
     // loja nova).
     const mesmaLoja = cfgBaseTenantRef.current === (data.tenantId ?? null);
     cfgBaseTenantRef.current = data.tenantId ?? null;
+    // Fix hidratação — re-revisão final (achado m-B, review-final-2.md): sem isso, a flag
+    // `kanbanProtegidoRef` de uma falha parcial na loja A sobrevivia à troca de loja — o eco
+    // seguinte de uma mudança alheia na loja B (outro admin mexendo no kanban) deixava de ser
+    // adotado na tela até o próximo save bem-sucedido zerar a flag. Sem perda de dado (o
+    // `conflitoKanban` barrava um save nesse intervalo), mas a tela ficava "presa" mostrando um
+    // kanban desatualizado da loja nova.
+    if (!mesmaLoja) kanbanProtegidoRef.current = false;
     const r2 = mesmaLoja
       ? resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current)
       : { cfgKanban: pickKanban(next), kanbanBase: { cfg: pickKanban(next), servidor: pickKanban(next) } };
@@ -1815,8 +1822,19 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   // `if (error) throw error` — engolia o erro (`const { data } = ...`), e uma falha (ou o Salvar
   // clicado com a leitura ainda em voo, já que `hydrated` não travava o botão) fazia o upsert
   // gravar `{"tab_labels":{},"campos_editaveis":{}}` por cima das nomenclaturas reais da loja.
-  const { data: current } = useQuery({
-    queryKey: ["tenant_config", "nomenclaturas_edit"],
+  // Fix hidratação — re-revisão final (achado N7, PERDA/GRAVAÇÃO CRUZADA de dado comprovada,
+  // review-final-2.md; pré-existente, idêntico em a8d2fa41 — não é regressão desta branch): a
+  // key NÃO incluía o `tenantId`, então ao REABRIR o diálogo (2ª+ vez) ele hidratava do CACHE
+  // velho (`current` de uma abertura anterior, possivelmente de OUTRA loja) e ignorava a leitura
+  // nova em voo — `hydrated` já virava `true` com esse dado velho antes do refetch responder.
+  // Provado nos dois cenários: (a) super admin abre na loja A, troca para a loja B, reabre —
+  // o diálogo mostra as nomenclaturas da A e o Salvar grava a A NA B; (b) mesma loja, outro admin
+  // muda as nomenclaturas entre duas aberturas — o Salvar apaga a mudança alheia. Com `tenantId`
+  // na key, cada loja tem sua PRÓPRIA entrada de cache (não há mistura entre A e B); com
+  // `currentOk && !currentFetching` no gate de hidratação, só semeia depois que a leitura NOVA
+  // (não um cache antigo) assentar com sucesso.
+  const { data: current, isSuccess: currentOk, isFetching: currentFetching } = useQuery({
+    queryKey: ["tenant_config", "nomenclaturas_edit", tenantId],
     enabled: open && !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
@@ -1829,7 +1847,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   });
 
   useEffect(() => {
-    if (open && current && !hydrated) {
+    if (open && current && currentOk && !currentFetching && !hydrated) {
       setTabs(current.tab_labels);
       setCampos(current.campos_editaveis);
       resetNomBaseline({ tabs: current.tab_labels, campos: current.campos_editaveis });
@@ -1837,7 +1855,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       setHydrated(true);
     }
     if (!open) setHydrated(false);
-  }, [open, current, hydrated, enabledModules, selModule]);
+  }, [open, current, currentOk, currentFetching, hydrated, enabledModules, selModule]);
 
   const mod = PAGES_CATALOG.find((m) => m.module === selModule);
   const fieldKeys = MODULE_FIELD_KEYS[selModule] ?? [];
