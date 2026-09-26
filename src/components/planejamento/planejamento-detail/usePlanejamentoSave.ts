@@ -69,7 +69,8 @@ export type UsePlanejamentoSaveArgs = {
    *  por `salvar_grade_revenda`, que recusa origem ≠ revenda — plano F3.4 §3). */
   gradeCompradoPeloBom: boolean;
   qc: QueryClient;
-  onSaved: () => void;
+  /** SKU em prévia: aguardado no onSuccess — o Salvar fica "salvando" até os SKUs "a gravar" terminarem (aoSalvar). */
+  onSaved: () => void | Promise<void>;
   /** F3.1 — card NOVO: chamado com o id depois do INSERT (o `PlanejamentoDetail` remonta como Sheet dele). */
   onCreated?: (id: string) => void;
   /** F3.2 — API de gravação do BOM (inerte quando a ficha está desligada: card novo, comprado, sem permissão). */
@@ -659,7 +660,7 @@ export function usePlanejamentoSave({
         consumoOuAviamento: bom.gravar && (bom.flags.consumo || bom.flags.aviamentos),
       };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       const etapasMarcadas = result?.etapasMarcadas ?? [];
       if (etapasMarcadas.length > 0) {
         const nomes = etapasMarcadas.map((k) => STAGE_LABEL[k] ?? k).join(", ");
@@ -826,7 +827,8 @@ export function usePlanejamentoSave({
       // atualiza os cards do container por baixo; o card fica aberto pra continuar conferindo
       // (ex.: o preço/custo recalculado). `resetDraftBaseline` + `setMoLinhasBase` acima já apagaram o
       // selo "não salvo". Fechar é só pelo Voltar (`requestClose`). Não chamar `onClose()` aqui.
-      onSaved();
+      // SKU em prévia (spec 2026-09-25-sku-previa-regerar §4.2.5): AGUARDADO — o aoSalvar grava os SKUs "a gravar" DEPOIS do modelo.
+      await onSaved();
       // F3.1 — card NOVO: vira o Sheet do id criado (o `PlanejamentoDetail` remonta com a key nova).
       if (!isEdit && result?.savedId) onCreated?.(result.savedId);
     },

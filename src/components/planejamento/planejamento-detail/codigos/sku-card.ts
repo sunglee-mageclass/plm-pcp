@@ -1,14 +1,15 @@
 // Seção "4. Códigos" do Sheet do Planejamento (F3.6 — spec 2026-09-25-sheet-planejamento-reorganizacao §5.1/§5.3; é a
 // F3.5b da spec do SKU §4.3). Regras PURAS de exibição da matriz de SKUs que as RPCs `skus_modelo`/`gerar_skus_modelo`
 // (F3.5a, migration 20261003100000) devolvem — sem I/O. O SKU é gerado e gravado SÓ no servidor (fonte única); aqui só se
-// lê, agrupa, rotula, decide o selo, a 1ª geração automática pós-Salvar e o que fazer com um SKU digitado à mão.
+// lê, agrupa, rotula, decide o selo e a 1ª geração automática pós-Salvar (o SKU digitado à mão vira "a gravar" —
+// ./sku-previa.ts).
 // F3.6 — o "Tamanho em" NÃO tem padrão da LOJA (nada na Config). Decisão P-25 do dono (25/set 14:57, corrige a leitura
 // anterior "sem escolha"): todo produto NASCE marcado em Letra (front: `emptyDraft().tamanho_tipo`/
 // `draftFromModeloRow` em modelo-shared.ts); o `tamanho_tipo` null que a matriz ainda pode trazer (status
 // `sem_tamanho`, R23) é só o card LEGADO antes da migration T6 rodar no banco (que move o NULL existente p/ "letra").
 // Siglas do rótulo vêm de consulta própria da tela (`useSiglasCores`), casadas pelo nome (R11).
 import { ladoTamanho, type TamanhoTipo } from "@/lib/tamanho";
-import { normalizarSkuManual, textoAviso, textoFalta, type SkuFalta } from "@/lib/sku-montar";
+import { textoAviso, textoFalta, type SkuFalta } from "@/lib/sku-montar";
 import { seloDeSecao, type SeloSecao } from "@/components/planejamento/planejamento-detail/ficha/selos-bom";
 
 export type EstadoSku = "ok" | "manual" | "falta" | "pendente" | "divergente" | "conflito" | "vazio" | "orfa" | "salvo";
@@ -167,17 +168,6 @@ export function avisoSku(l: LinhaSku): string | null {
 export function deveGerarPrimeiraVez(m: MatrizSkus): boolean {
   return m.status === "ok" && m.tamanho_tipo_card !== null
     && m.linhas.length > 0 && m.linhas.every((l) => !l.id) && m.linhas.some((l) => l.estado === "pendente");
-}
-
-export type AcaoSkuDigitado = { acao: "nada" } | { acao: "erro"; erro: string } | { acao: "salvar"; sku: string };
-
-/** SKU digitado à mão → o que fazer no blur/Enter (mesma normalização/mensagens do `_sku_norm_manual` do SQL). */
-export function skuDigitadoParaSalvar(l: LinhaSku, texto: string): AcaoSkuDigitado {
-  const atual = l.sku ?? "";
-  if (texto.trim() === "" && atual === "") return { acao: "nada" };
-  const n = normalizarSkuManual(texto);
-  if (!n.ok) return { acao: "erro", erro: n.erro };
-  return n.valor === atual ? { acao: "nada" } : { acao: "salvar", sku: n.valor };
 }
 
 /** Texto do toast depois de `gerar_skus_modelo` (conflito = o servidor não gravou aquela linha — mensagem PT dele). */

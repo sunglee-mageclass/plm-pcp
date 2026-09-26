@@ -143,9 +143,15 @@ export function lerPrevia(raw: unknown, entrada: string): PreviaSkus {
 }
 
 export type SituacaoPrevia = SituacaoSku & { aGravar: boolean; conflitoVersao: boolean };
-/** O que a linha diz com a prévia na tela: a ação do plano (vai mudar/não vai) ou, sem ação, o estado de hoje. */
-export function situacaoPrevia(l: LinhaPrevia): SituacaoPrevia {
+/** O que a linha diz com a prévia na tela: a ação do plano (vai mudar/não vai) ou, sem ação, o estado de hoje.
+ *  Guardião R2 / A#1 (defesa em profundidade) — `erros[]` da MESMA chave (variante_key+tamanho_key) tem
+ *  PRECEDÊNCIA sobre `previa.acao`: o SQL já preserva o erro separado da ação (ex.: uma linha órfã que teria
+ *  `acao:"sai"` mas cujo SKU digitado à mão falhou na validação) — o front não pode esconder isso mostrando só
+ *  a ação (`sai no Salvar`) quando na verdade aquela linha caiu em erro e não vai ser gravada. */
+export function situacaoPrevia(l: LinhaPrevia, erros: readonly ErroPrevia[] = []): SituacaoPrevia {
   const x = (s: SituacaoSku, aGravar = false, conflitoVersao = false): SituacaoPrevia => ({ ...s, aGravar, conflitoVersao });
+  const erroDaLinha = erros.find((e) => e.variante_key === l.variante_key && e.tamanho_key === l.tamanho_key);
+  if (erroDaLinha) return x({ tom: "danger", texto: mensagemErroPrevia(erroDaLinha), cadastrar: false });
   const p = l.previa;
   if (p) {
     switch (p.acao) {

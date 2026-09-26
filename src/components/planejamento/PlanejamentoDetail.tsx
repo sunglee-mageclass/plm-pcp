@@ -59,7 +59,7 @@ import { usePlanejamentoOpts } from "@/hooks/usePlanejamentoOpts";
 import {
   uploadFile,
   numOr0,
-  emptyDraft, draftFromModeloRow, tamanhoTipoNormalizado,
+  emptyDraft, draftFromModeloRow,
   type ArtigoOpt, type SubOpt, type Draft,
 } from "@/components/planejamento/modelo-shared";
 import {
@@ -99,8 +99,9 @@ import { artigosTecidoPrincipais } from "@/components/planejamento/planejamento-
 import { gravarTecidosIniciais } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { DevEquipeSection } from "@/components/planejamento/planejamento-detail/ficha/secoes/DevEquipeSection";
 import { CodigosSecao } from "@/components/planejamento/planejamento-detail/codigos/CodigosSecao";
-import { useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
+import { useSkusAGravar, useSkusModelo } from "@/components/planejamento/planejamento-detail/codigos/useSkusModelo";
 import { seloCodigos } from "@/components/planejamento/planejamento-detail/codigos/sku-card";
+import { nadaAGravar, refParaPrevia } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 import { MotivoCancelamento } from "@/components/planejamento/planejamento-detail/ficha/secoes/MotivoCancelamento";
 import { AvisoCamposDev, type MotivoTravaDev } from "@/components/planejamento/planejamento-detail/ficha/secoes/AvisoCamposDev";
 import { revendaCampoVisivel } from "@/lib/revenda-config";
@@ -211,6 +212,9 @@ function PlanejamentoDetailConteudo({
   const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
   const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
   const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
+  // SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.1 — P-46): o Regerar e o SKU à mão ficam "a gravar" FORA do Draft
+  // (como as linhas de MO) — declarado AQUI, antes do `dirty`, que depende dele. Só o Salvar grava (aoSalvar).
+  const skusAGravar = useSkusAGravar();
   // Serviços de M.O. JÁ PERSISTIDOS (baseline do servidor) — aprovar/reprovar (RPC imediata) só
   // vale nesses; linha recém-adicionada (só no rascunho) pede Salvar antes (senão "linha não
   // encontrada"). Deriva do baseline, não de `moLinhas`, pra uma linha nova não se auto-habilitar.
@@ -653,7 +657,7 @@ function PlanejamentoDetailConteudo({
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
-  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty;
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty || ficha.dirty || !nadaAGravar(skusAGravar.aGravar);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   const setSim = (patch: Partial<CustoSimInput>) =>
     setDraftTracked((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
@@ -742,8 +746,13 @@ function PlanejamentoDetailConteudo({
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
   // "Mover para…" do selo (a etapa fica FORA do Salvar — decisão 13).
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
-  // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + Regerar / SKU à mão + 1ª geração pós-Salvar (R12).
-  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento);
+  // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + 1ª geração pós-Salvar (R12). SKU em PRÉVIA: a prévia usa a REF que
+  // o Salvar vai gravar (a do rascunho só quando ela vai no payload — refEditavel) e o "Tamanho em" do rascunho (vai sempre).
+  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento, {
+    refPrevia: refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" }),
+    tamanhoTipo: draft.tamanho_tipo,
+    aGravar: skusAGravar,
+  });
 
   // Colab (spec 2026-08-03, Task 2): 1ª carga semeia como sempre; refetch (Realtime/foco de
   // janela invalidando ["modelo", modeloId]) faz MERGE 3-vias em vez de sobrescrever o
@@ -844,10 +853,19 @@ function PlanejamentoDetailConteudo({
   });
 
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
-  // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo).
-  // F3.6 — 1ª geração automática dos SKUs depois do Salvar que deixa o card com REF e sem SKU (spec SKU §4.2; só cria o que
-  // falta — `_regerar=false`; SKU já gravado nunca muda aqui). Sem await: o card já foi salvo; erro vira toast próprio.
-  const aoSalvar = () => { setEditandoDev(false); onSaved(); if (isEdit) void skus.gerarSeFaltar(); };
+  // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.5):
+  // o modelo JÁ foi gravado; agora a 1ª geração automática (`gerarSeFaltar`, só num card sem nenhum SKU — P-50 A) e DEPOIS os
+  // SKUs "a gravar" (a prévia vista — assinatura conferida no servidor). Adendo do controlador (A#R2-3): `gerarSeFaltar` roda
+  // ANTES de `aplicarAGravar` de propósito — se um SKU digitado à mão fosse aplicado primeiro num card virgem, a matriz
+  // deixaria de ser "virgem" (a linha manual já teria id) e a 1ª geração automática NUNCA rodaria para as demais linhas
+  // (`deveGerarPrimeiraVez` exige TODAS as linhas sem id). Aguardado pelo usePlanejamentoSave: o Salvar segue "salvando".
+  const aoSalvar = async () => {
+    setEditandoDev(false);
+    onSaved();
+    if (!isEdit) return;
+    await skus.gerarSeFaltar();
+    await skus.aplicarAGravar();
+  };
 
   // Salvar (+ retry/merge do P0409) — extraído na F3.0 para `planejamento-detail/usePlanejamentoSave.ts`
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
@@ -925,6 +943,8 @@ function PlanejamentoDetailConteudo({
       qc.invalidateQueries({ queryKey: ["plan-kanban-cond", modeloId] });
       // F3.6 — REF/grade/variantes mudaram no servidor ⇒ a matriz de SKUs relê.
       qc.invalidateQueries({ queryKey: ["plan-skus", modeloId] });
+      // SKU em prévia — a prévia relê com o que a outra pessoa salvou (REF/"Tamanho em"/grade).
+      qc.invalidateQueries({ queryKey: ["plan-skus-previa", modeloId] });
     },
     campoFocado,
   });
@@ -1252,7 +1272,7 @@ function PlanejamentoDetailConteudo({
     totalGeral: gradeComprado.totalGeralRevenda,
     nVariantes: gradeComprado.variantesRevenda.length,
   });
-  selos.codigos = seloCodigos(skus.matriz);
+  selos.codigos = seloCodigos(skus.matriz, skus.temPrevia);
   const seloDe = (k: SecaoSheetKey) => {
     const s = selos[k];
     return s ? <SeloBadge selo={s} /> : undefined;
@@ -1557,14 +1577,11 @@ function PlanejamentoDetailConteudo({
                 rotuloRef={fl("ref")}
                 refVisivel={kanbanCard.refVisivel}
                 refEditavel={refEditavel}
-                // Minor (4) da revisão Opus — o Regerar lê o FORMATO/siglas/"Tamanho em" SALVOS (mensagem do
-                // AlertDialog); com REF/"Tamanho em" digitados e ainda não salvos, regerar agora usaria um valor que
-                // o servidor nem tem — trava até o próximo Salvar (`draftFromModeloRow` normaliza igual ao Draft).
-                refSalva={(modeloData as any)?.ref ?? ""}
-                // Minor (5) da rodada 2 — reusa a MESMA normalização de `draftFromModeloRow` (não reimplementa a
-                // regra ≠"numero"→"letra" inline).
-                tamanhoTipoSalvo={tamanhoTipoNormalizado((modeloData as any)?.tamanho_tipo)}
+                refPrevia={refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" })}
                 skus={skus}
+                aGravar={skusAGravar}
+                // R4 — grade/tecidos do rascunho ainda não salvos: a prévia usa a grade SALVA (só um aviso).
+                bomSujo={ficha.dirty || gradeRevendaDirty}
                 podeVerSkus={podeVerPlanejamento}
                 podeEditarSkus={podeEditarPlanejamento}
               />
