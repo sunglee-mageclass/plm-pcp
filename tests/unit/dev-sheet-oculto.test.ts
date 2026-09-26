@@ -15,8 +15,15 @@ describe("Sheet do Desenvolvimento OCULTO — o kanban abre o Sheet do Planejame
     expect(ROTA).toMatch(/onSaved=\{invalidarQuadro\}/);
   });
   it("salvar/fechar refaz o que o quadro lê", () => {
+    // m4 (revisão da parte 1): recorta SÓ o corpo de `invalidarQuadro` — procurar no arquivo inteiro
+    // daria falso-positivo com invalidações homônimas de outras funções.
+    const inicio = ROTA.indexOf("const invalidarQuadro = () => {");
+    expect(inicio).toBeGreaterThanOrEqual(0);
+    const fim = ROTA.indexOf("};", inicio);
+    expect(fim).toBeGreaterThan(inicio);
+    const corpo = ROTA.slice(inicio, fim);
     for (const k of ["modelos-desenvolvimento", "desenv-condicoes", "desenv-mo-resumo", "desenv-modelo-tecidos", "modelos-planejamento"])
-      expect(ROTA).toContain(`qc.invalidateQueries({ queryKey: ["${k}"] });`);
+      expect(corpo).toContain(`qc.invalidateQueries({ queryKey: ["${k}"] });`);
   });
   it("o Sheet antigo continua no código, só atrás da chave (nada apagado)", () => {
     expect(ROTA).toMatch(/import \{ ModeloDetailPanel \} from "@\/components\/desenvolvimento\/ModeloDetailPanel";/);

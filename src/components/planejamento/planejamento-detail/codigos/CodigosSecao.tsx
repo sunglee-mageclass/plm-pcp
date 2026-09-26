@@ -138,6 +138,9 @@ export function CodigosSecao({
                   value={o.v}
                   className="h-4 w-4 accent-primary"
                   checked={draft.tamanho_tipo === o.v}
+                  // P-53 A: "Tamanho em" é SÓ do Planejamento (não está em CAMPOS_DEV_DRAFT) — reusa a MESMA
+                  // permissão que já trava o Regerar/SKU nesta seção (podeEditarSkus = editar o Planejamento).
+                  disabled={!podeEditarSkus}
                   onChange={() => setDraftTracked((d) => ({ ...d, tamanho_tipo: o.v }))}
                 />
                 {o.rotulo}

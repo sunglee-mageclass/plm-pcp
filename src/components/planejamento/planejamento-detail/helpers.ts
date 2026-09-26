@@ -89,6 +89,41 @@ export const CAMPOS_DEV_DRAFT = [
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
 
+// ── P-53 A (set/2026) — campos SÓ do Planejamento no payload do Salvar ─────────────────────────────
+// Espelho de CAMPOS_DEV_DRAFT: chaves do payload do Salvar que NÃO estavam no payload do Dev antigo
+// (ModeloDetailPanel.tsx:1878-1945) nem em CAMPOS_DEV_DRAFT — ou seja, só o Sheet do Planejamento as
+// editava. Sem `podeEditarPlanejamento`, `aplicarRegrasCamposPlanejamento` as APAGA do payload (o banco
+// fica com o que tinha) — mesmo padrão de `aplicarRegrasCamposDev`, espelhado.
+// FORA da lista (compartilhados, o Dev também gravava — ver ModeloDetailPanel.tsx:1878-1945):
+// nome, linha_id, estilista_id, categoria_principal_id, subcategoria1_id, subcategoria2_id,
+// colecao_id, subcolecao, mes_id, ano_id, semana, descricao_produto, fotos_modelo, fotos_referencia,
+// desenho_tecnico_url, croqui_url, ficha_medida_url, observações, custos adicionais, proporcoes, MO.
+// preco_venda/preco_atacado/preco_anterior JÁ têm gate próprio (`podeEditarPreco`, independente da
+// página) — entram aqui TAMBÉM (defesa em profundidade, "nem ganha nem perde" por seção), mas o gate
+// de preço existente NÃO é removido (os dois continuam valendo).
+export const CAMPOS_SO_PLANEJAMENTO_DRAFT = [
+  "status_planejamento", "origem", "titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm",
+  "tamanho_tipo", "versao", "preco_venda", "preco_atacado", "preco_anterior", "data_lancamento", "ncm",
+] as const satisfies readonly (keyof Draft)[];
+export type CampoSoPlanejamentoDraft = (typeof CAMPOS_SO_PLANEJAMENTO_DRAFT)[number];
+
+/**
+ * P-53 A — espelho de `aplicarRegrasCamposDev`: apaga do payload as chaves SÓ do Planejamento
+ * (`CAMPOS_SO_PLANEJAMENTO_DRAFT`) quando `!podeEditarPlanejamento` (o banco fica com o que tinha).
+ * Com permissão, não mexe em nada (os valores já foram montados pelos passos normais do payload —
+ * `camposNovosParaPayload`/`aplicarPrecoAnterior`/o spread de `d` — esta função só GOVERNA se ficam
+ * ou saem). PURA: devolve cópia.
+ */
+export function aplicarRegrasCamposPlanejamento(
+  payload: Record<string, unknown>,
+  o: { podeEditarPlanejamento: boolean },
+): Record<string, unknown> {
+  if (o.podeEditarPlanejamento) return { ...payload };
+  const out: Record<string, unknown> = { ...payload };
+  for (const k of CAMPOS_SO_PLANEJAMENTO_DRAFT) delete out[k];
+  return out;
+}
+
 /** Texto vazio/só-espaço (ou ausente) → NULL; senão o texto como está. */
 export function textoOuNull(s: string | null | undefined): string | null {
   return s != null && s.trim() !== "" ? s : null;
