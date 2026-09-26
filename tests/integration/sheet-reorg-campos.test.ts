@@ -85,6 +85,11 @@ const LOCAL = ehBancoLocal();
 const MIG_TXN = process.env.SHEET_MIG_TXN === "1";
 if (MIG_TXN && hasDb) exigeBancoLocal(); // recusa na COLETA, antes de qualquer conexão
 
+// SKU em PRÉVIA (20261005110000 — plano 2026-09-25-sku-previa-regerar, Task 3, P4): ela redefine 3 das 4 funções do SKU
+// (_skus_modelo_calc/_skus_modelo_core/_gerar_skus_modelo_core). Com ela VIVA na cópia (LIFO), o texto esperado dessas 3 no
+// modo sem variável é o dela. (O modo SHEET_MIG_TXN=1 não é tocado: ele exige a cópia SEM esta reorganização — R2 do G-plano.)
+const MIG_PREVIA = "supabase/migrations/20261005110000_sku_previa_regerar.sql";
+
 const ler = (rel: string) => readFileSync(ROOT + rel, "utf8");
 const md5 = (s: string) => createHash("md5").update(s, "utf8").digest("hex");
 /** As 2 travas do arquivo (logo depois do BEGIN) saem da txn do teste — ver o cabeçalho. */
@@ -279,6 +284,9 @@ async function timeouts(c: Client, lock = "3s"): Promise<void> {
 async function prepara(c: Client): Promise<void> {
   await timeouts(c);
   if (MIG_TXN) await aplica(c, MIG);
+}
+async function previaViva(c: Client): Promise<boolean> {
+  return (await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok;
 }
 const def = async (c: Client, fn = FN) =>
   (await um<{ d: string | null }>(c, "select pg_get_functiondef(to_regprocedure($1)) d", [fn])).d;
@@ -521,10 +529,15 @@ describe.skipIf(!PRONTO)("F3.6 — banco (cópia local, txn revertida)", () => {
     await withTx(async (c) => {
       await prepara(c);
       const g = guardas(MIG);
+      const viva = !MIG_TXN && (await previaViva(c));
       for (const [i, f] of SKU_FNS.entries()) {
         const d = (await def(c, f.fn))!;
-        expect(d, f.arq).toBe(corpoSku(MIG, f.cria) + "\n");
-        expect(md5(d), f.arq).toBe(g[i + 1].depois);
+        if (viva && f.arq !== "sku_config_normaliza") {
+          expect(d, f.arq).toBe(corpoSku(MIG_PREVIA, f.cria) + "\n"); // P4 — redefinida pela prévia
+        } else {
+          expect(d, f.arq).toBe(corpoSku(MIG, f.cria) + "\n");
+          expect(md5(d), f.arq).toBe(g[i + 1].depois);
+        }
         expect(await acl(c, f.fn), f.arq).toBe("{postgres=X/postgres,service_role=X/postgres}");
         const p = await privs(c, f.fn);
         expect([p.anon, p.auth], f.arq).toEqual([false, false]);
