@@ -338,3 +338,49 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix2)", () => {
     expect(card).toContain("hover:!text-muted-foreground");
   });
 });
+
+describe("Plan. Tecido — dialog Distribuir por loja (impressão em paisagem + 2 colunas, pedido do dono 26/set)", () => {
+  const dlg = ler("src/components/plan-tecido/DistribuirPorLojaDialog.tsx");
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+  const css = ler("src/styles.css");
+
+  it("a impressão do Distribuir por loja é A4 PAISAGEM, só ENQUANTO o dialog está aberto (dentro da PrintArea)", () => {
+    expect(dlg).toContain('<style>{"@page { size: A4 landscape; margin: 10mm; }"}</style>');
+    // a tag de paisagem vem DEPOIS da abertura da PrintArea e ANTES do conteúdo impresso — só existe
+    // enquanto o dialog está montado (a PrintArea inteira é condicional a `podeImprimir`)
+    const printAreaIdx = dlg.indexOf("<PrintArea>");
+    const landscapeIdx = dlg.indexOf("@page { size: A4 landscape");
+    const conteudoIdx = dlg.indexOf('{tabelas("impressao")}');
+    expect(printAreaIdx).toBeGreaterThan(-1);
+    expect(landscapeIdx).toBeGreaterThan(printAreaIdx);
+    expect(conteudoIdx).toBeGreaterThan(landscapeIdx);
+  });
+
+  it("o @page global (retrato, styles.css) NÃO muda — só esta impressão vira paisagem, o resto do app continua A4 retrato", () => {
+    expect(css).toContain("@page { size: A4; margin: 12mm; }");
+    // landscape só aparece no dialog do Distribuir por loja — em nenhum outro arquivo fonte
+    expect(css).not.toContain("landscape");
+  });
+
+  it("regra de 2 colunas: limiar > 10 linhas de cor por tabela de loja, só na IMPRESSÃO (a tela em modo edicao não muda)", () => {
+    expect(tab).toContain("const LIMIAR_2_COLUNAS = 10;");
+    expect(tab).toContain("const duasColunas = imp && p.cores.length > LIMIAR_2_COLUNAS;");
+    // container de 2 colunas só é usado no ramo de impressão (`imp && duasColunas`)
+    expect(tab).toContain("{imp && duasColunas ? (");
+    expect(tab).toContain('<div className="print-2col" aria-label="Distribuição por loja e cor">');
+    // cada tabela de loja não pode partir ao meio entre colunas/páginas
+    expect(tab).toContain('className="print-quebra-evitar mb-3 w-full border-collapse text-sm"');
+  });
+
+  it("CSS do 2-colunas/quebra existe e está escopado à .print-area (não vaza pra fora da impressão)", () => {
+    expect(css).toContain(".print-area .print-2col { columns: 2; column-gap: 6mm; }");
+    expect(css).toContain(".print-area .print-quebra-evitar { page-break-inside: avoid; break-inside: avoid; }");
+  });
+
+  it("poucas variantes (≤10) continuam em 1 coluna/1 tabela só, como antes", () => {
+    // o ramo 'else' (1 tabela única com todas as lojas dentro) continua existindo para esse caso
+    expect(tab).toContain('<div className="overflow-x-auto rounded border">');
+    expect(tab).toContain('<table className="w-full min-w-[640px] border-collapse text-sm" aria-label="Distribuição por loja e cor">');
+  });
+});
+

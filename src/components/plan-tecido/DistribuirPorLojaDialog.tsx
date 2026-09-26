@@ -309,6 +309,11 @@ export function DistribuirPorLojaDialog({ slot, tamanhosGrade, readOnly, motivoS
       </Dialog>
       {podeImprimir && (
         <PrintArea>
+          {/* Pedido do dono 26/set: esta impressão (só esta — a tag só existe enquanto o dialog está
+              aberto, dentro da PrintArea) sai em A4 PAISAGEM — a tabela de Distribuir por loja é larga
+              (Base + N tamanhos + Total por cor); em retrato ela ficaria espremida/cortando colunas.
+              O @page global (styles.css) continua retrato para todo o resto do app. */}
+          <style>{"@page { size: A4 landscape; margin: 10mm; }"}</style>
           <div className="space-y-4 p-6">
             <h1 className="text-lg font-semibold">Distribuir por loja</h1>
             {cabecalho(true)}

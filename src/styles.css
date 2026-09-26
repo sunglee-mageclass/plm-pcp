@@ -400,6 +400,11 @@
   .print-area tbody tr.rel-az td { background: #eaf2fe !important; }
   .print-area tbody tr.rel-vd td { background: #e9f8ef !important; }
   .print-area section, .print-area .print-section { page-break-inside: avoid; break-inside: avoid; }
+  /* Distribuir por loja (Plan. Tecido) — pedido do dono 26/set: com muitas variantes, 2 colunas CSS
+     (uma tabela de loja por vez) para a tabela grande não estourar por várias páginas soltas;
+     cada tabela de loja não pode partir ao meio entre colunas/páginas. */
+  .print-area .print-2col { columns: 2; column-gap: 6mm; }
+  .print-area .print-quebra-evitar { page-break-inside: avoid; break-inside: avoid; }
   /* PÉ DO DOCUMENTO (assinaturas + rodapé institucional). Dois objetivos:
      (1) o par assinatura+rodapé nunca parte no meio (break-inside: avoid);
      (2) evitar a "folha órfã" com só a assinatura — `break-before: avoid` impede o
