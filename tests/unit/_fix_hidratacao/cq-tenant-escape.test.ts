@@ -127,3 +127,39 @@ describe("[fix hidratação rodada 4] N5 — CQ Pré não salva sem a loja ident
     expect(chamouKeyTenant).toBe(true);
   });
 });
+
+// Achado do CONTROLADOR sobre o fix de N5 acima: `tenantIdErrored = !tenantId` sozinho também é
+// verdadeiro DURANTE uma carga normal — `useActiveTenantId` devolve `""` enquanto sua query ainda
+// está em voo (data/user ainda não resolveram), o que é o estado comum logo após abrir a tela, não
+// um erro. Sem distinguir os dois, o banner vermelho piscava em TODA abertura do CQ Pré.
+//
+// Correção: `tenantIdLoading` (no componente) usa `useIsFetching({queryKey:["active-tenant-id",
+// user?.id]})` para saber se a query do tenant está REALMENTE em voo agora — sem tocar no hook
+// (fora de escopo) e sem duplicar seu queryFn. Só quando `!tenantIdLoading` (nada em voo) E
+// `tenantId` continua vazio é que conta como erro (`tenantIdErrored`).
+//
+// Este teste simula o estado "em voo" de verdade: dispara um `qc.fetchQuery` que NUNCA resolve na
+// MESMA queryKey que `useActiveTenantId` usaria (`["active-tenant-id", "u1"]`) — o `useIsFetching`
+// do componente enxerga esse fetch pendente (é a mesma key, TanStack Query não distingue "quem"
+// disparou), reproduzindo fielmente "a query do tenant ainda não assentou" mesmo com o hook
+// mockado retornando `""` (o mock não cria essa entrada sozinho).
+describe("[fix hidratação rodada 4] N5 — controlador: tenant AINDA CARREGANDO não é erro", () => {
+  it("query de active-tenant-id em voo (pending) ⇒ 'Carregando…', SEM banner, Salvar travado", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Fetch que nunca resolve — simula a janela normal entre "tela montou" e "o tenant resolveu".
+    qc.fetchQuery({ queryKey: ["active-tenant-id", "u1"], queryFn: () => new Promise(() => {}) }).catch(() => {});
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(200);
+
+    // "Carregando…" (a mensagem SEM erro de `!hydrated`), NUNCA o banner vermelho.
+    expect(txt()).toContain("Carregando");
+    expect(txt()).not.toContain("Não foi possível carregar");
+    expect(txt()).not.toContain("Tentar de novo");
+    expect(salvar()?.disabled ?? true).toBe(true);
+
+    await esperar(200);
+    expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_cq")).toBe(false);
+  });
+});

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench, Undo2 } from "lucide-react";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { toast } from "sonner";
@@ -37,6 +37,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useAuth } from "@/hooks/useAuth";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -111,6 +112,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const qc = useQueryClient();
   const permReadOnly = useReadOnly();
   const tenantId = useActiveTenantId();
+  // Fix hidratação rodada 4 (achado de controlador sobre o fix de N5): `tenantId===""` sozinho
+  // NÃO diferencia "a query do tenant ainda está em voo" (estado normal logo após o mount,
+  // ANTES de `user`/o fetch resolverem) de "a query assentou e realmente devolveu vazio" (o caso
+  // degenerado do N5). Sem essa distinção, `tenantIdErrored=!tenantId` piscava o banner de erro
+  // em TODA carga normal da tela, enquanto a loja ainda não tinha resolvido.
+  // NÃO mexemos em `useActiveTenantId` (32 consumidores, fora de escopo) — em vez disso, lemos o
+  // fetch da MESMA queryKey que o hook usa (`["active-tenant-id", user?.id]`, ver
+  // src/hooks/useActiveTenantId.ts) de fora, com `useIsFetching` (reativo, sem duplicar o
+  // queryFn): `> 0` só enquanto essa key está REALMENTE em voo agora. Combinado com "ainda não
+  // tenho `user?.id`" (a query nem começou, `enabled: false` no hook), cobre a janela de loading
+  // inteira sem exigir que a query chegue a um estado terminal (o que quebraria em qualquer
+  // teste que mocka o hook por valor fixo, sem nunca criar um fetch de verdade para essa key).
+  const { user } = useAuth();
+  const tenantIdFetching = useIsFetching({ queryKey: ["active-tenant-id", user?.id] }) > 0;
+  const tenantIdLoading = !user?.id || tenantIdFetching;
+  const tenantIdErrored = !tenantIdLoading && !tenantId;
 
   const { data: modelo } = useQuery({
     queryKey: ["cq-modelo", modeloId],
@@ -484,24 +501,31 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // "settled" (retrocompat com o caso degenerado), pulando a espera de `tenantCfg`/`cats`/`prio` —
   // com `modelo_grades` vazio, `tamanhos` caía em DEFAULT_TAMANHOS e o Salvar zerava a Grade Real
   // num CQ já confirmado. NÃO mexemos em `useActiveTenantId` (32 consumidores, fora de escopo —
-  // ver fix4-brief.md); em vez disso, `tenantId` vazio agora conta como erro de carga (trava
-  // Salvar/Confirmar e mostra o banner padrão), nunca como atalho.
-  const tenantIdErrored = !tenantId;
+  // ver fix4-brief.md); em vez disso, `tenantId` vazio SÓ conta como erro de carga depois que a
+  // query do tenant JÁ ASSENTOU (`tenantIdErrored`, calculado acima com `tenantIdLoading`) —
+  // enquanto ela ainda está em voo (toda carga normal passa por aí, antes de `user` resolver),
+  // conta como "ainda carregando" (achado do controlador na revisão desta correção: um
+  // `tenantIdErrored=!tenantId` cru piscava o banner de erro em TODA abertura do CQ Pré).
   const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored || modeloGradesErrored || tenantCfgErrored || tenantIdErrored;
   // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
   // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
   // Fix hidratação rodada 2 (R1): exige `isSuccess` das 4 (não só isFetched, que também fica
   // true depois de erro no TanStack v5).
-  // Fix hidratação rodada 4 (N5): tirado o escape `!tenantId ||` — loja não resolvida NÃO conta
-  // como "settled" (era o furo que deixava zerar a Grade Real).
+  // Fix hidratação rodada 4 (N5): tirado o escape `!tenantId ||` — loja não resolvida (em erro OU
+  // ainda carregando) NÃO conta como "settled" (era o furo que deixava zerar a Grade Real).
+  // `!tenantIdLoading` garante que o gate também espera o tenant sair do "pending"/"fetching"
+  // antes de liberar (senão hidrataria de imediato com `tenantId=""` transitório).
   const fonteSettled =
+    !tenantIdLoading &&
     mainFabricFetched && !mainFabricFetching && mainFabricOk &&
     blocosFetched && !blocosFetching && blocosOk &&
     catsFetched && !catsFetching && catsOk && prioFetched && !prioFetching && prioOk;
   // Fix hidratação rodada 3 (achado R1-resto): `modeloGrades` (sempre habilitada) e `tenantCfg`
   // precisam assentar COM SUCESSO antes de hidratar — alimentam `tamanhos`, que decide `_reais`
-  // do save. Fix hidratação rodada 4 (N5): idem — tirado o escape `!tenantId ||`.
+  // do save. Fix hidratação rodada 4 (N5): idem — tirado o escape `!tenantId ||`, exige
+  // `!tenantIdLoading`.
   const tamanhosSettled =
+    !tenantIdLoading &&
     modeloGradesFetched && !modeloGradesFetching && modeloGradesOk &&
     tenantCfgFetched && !tenantCfgFetching && tenantCfgOk;
 
