@@ -193,8 +193,10 @@ export function resumoGeracao(raw: unknown): { erro: boolean; texto: string } {
 }
 
 /** Selo da seção Códigos (spec §5.3): "N SKU(s) sem sigla" âmbar vence; seção sem linha nenhuma = sem selo (`seloDeSecao` —
- *  a seção não tem requisito de kanban). */
-export function seloCodigos(m: MatrizSkus | null | undefined): SeloSecao | undefined {
+ *  a seção não tem requisito de kanban). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.8): algo "a gravar" vence
+ *  tudo — o card ainda não gravou os SKUs. */
+export function seloCodigos(m: MatrizSkus | null | undefined, temPrevia = false): SeloSecao | undefined {
+  if (temPrevia) return { tone: "warn", texto: "prévia a gravar" };
   if (!m) return undefined;
   const conta = (e: EstadoSku) => m.linhas.filter((l) => l.estado === e).length;
   const nFalta = conta("falta");
