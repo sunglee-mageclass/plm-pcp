@@ -704,15 +704,25 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
               Fix hidratação rodada 1 (achado M4 da revisão): + `dirControle === undefined` — a
               âncora de rev (`direcionamento_controle`) pode não ter resolvido ainda quando
               `hydrated` vira true (não entra em `dataSettled`); sem essa trava, `revRef` fica 0 e
-              o usuário recebe um P0409 falso ("Alguém salvou…") ao salvar. */}
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+              o usuário recebe um P0409 falso ("Alguém salvou…") ao salvar.
+              Fix hidratação rodada 6 (achado N5c da re-revisão, PERDA DE DADO comprovada,
+              review-fix5.md — mesma classe do N5b do CQ Pré): + `|| !tenantId` — DEPOIS de
+              hidratado, um refetch de foco de `["active-tenant-id"]` que falhe (o hook engole o
+              erro e assenta `""`) troca a key `["dir-lojas", tenantId]` para `""`, que fica
+              `disabled` e sem dado — `lojasVisiveis` esvazia e `buildRows()` não itera nenhuma
+              loja. Como o corpo/botões só olhavam `hydrated` (que não regride), o Salvar ficava
+              HABILITADO e mandava `_rows: []` com `_rev_base` válido — o `_salvar_direcionamento_
+              core` trata o payload como estado COMPLETO e APAGA todas as linhas de
+              `direcionamento_lojas` do CAD (o caso GRAVE original do P-57). Durante um refetch
+              NORMAL o `tenantId` antigo continua em cache, então não pisca. */}
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
             title={temConflito ? "Resolva os conflitos antes de confirmar" : (motivo ?? undefined)}
             aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
-            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated || dirControle === undefined}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated || dirControle === undefined || !tenantId}
           >
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
@@ -720,8 +730,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       ) : editing ? (
         <>
           {/* Fix hidratação (P-57 A): mesma trava `!hydrated` do Salvar acima (modo "editing" pós-confirmado).
-              Fix hidratação rodada 1 (achado M4): + `dirControle === undefined`, mesmo motivo do Salvar acima. */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+              Fix hidratação rodada 1 (achado M4): + `dirControle === undefined`, mesmo motivo do Salvar acima.
+              Fix hidratação rodada 6 (N5c): + `|| !tenantId`, mesmo motivo dos 2 botões acima. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined || !tenantId} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
