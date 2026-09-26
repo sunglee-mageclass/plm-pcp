@@ -271,4 +271,21 @@ describe("[fix hidratação] CQ Pré — Salvar/Confirmar travam ANTES da hidrat
     expect(document.body.textContent).toContain("Tentar de novo");
     expect(document.body.textContent).not.toContain("Este modelo ainda não tem registro de CAD");
   });
+
+  // Nit da rodada 5 (review-fix4.md — corrige uma frase da rodada 3: "sem CAD" aparecia não só
+  // com sucesso vazio, mas também ENQUANTO `cad` ainda carregava). Cosmético, não é perda de dado
+  // (o Salvar já ficava travado nesse estado) — mas o texto confundia "ainda carregando" com
+  // "modelo realmente sem CAD".
+  it("cq-cad ainda EM VOO — mostra 'Carregando…' (não a mensagem de 'sem CAD', nem o banner de erro)", async () => {
+    const soltar = FAKE.segurar("cad");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(150);
+    expect(document.body.textContent).toContain("Carregando");
+    expect(document.body.textContent).not.toContain("Este modelo ainda não tem registro de CAD");
+    expect(document.body.textContent).not.toContain("Não foi possível carregar os dados.");
+    soltar();
+  });
 });

@@ -146,7 +146,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // fica `undefined` (igual a "ainda carregando") e a tela mostrava "Este modelo ainda não tem
   // registro de CAD" sem "Tentar de novo", texto enganoso (não é regressão de dado — o Salvar
   // já ficava travado — só a mensagem confundia "sem CAD" com "falha ao carregar").
-  const { data: cad, isError: cadErrored, refetch: refetchCad } = useQuery({
+  // Fix hidratação rodada 5 (nit da re-revisão, review-fix4.md): + `isFetched` — a MESMA
+  // ambiguidade existia entre "ainda carregando" e "carregou com sucesso e voltou vazio" (não só
+  // "carregou com erro"). Com `cad` em voo, `cadFetched=false` e a mensagem "sem CAD" mostrava
+  // cedo demais; agora ela só aparece quando a carga TERMINOU com sucesso e `cad` ficou vazio.
+  const { data: cad, isFetched: cadFetched, isError: cadErrored, refetch: refetchCad } = useQuery({
     queryKey: ["cq-cad", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
@@ -1176,11 +1180,20 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           )}
           {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — CQ Pré é "estado completo" nos
               wrappers `salvar_cq`/`_salvar_cq_core` ([Σ]/[C1], invariante #6); um Salvar/Confirmar
-              cedo gravaria a grade real ainda não semeada. */}
-          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id || !hydrated} aria-label="Confirmar Controle de Qualidade">
+              cedo gravaria a grade real ainda não semeada.
+              Fix hidratação rodada 5 (achado N5b da re-revisão, PERDA DE DADO comprovada,
+              review-fix4.md): + `|| !tenantId` — N5/N5b cobrem o tenant sumir ANTES de hidratar
+              (banner), mas depois de hidratado o corpo fica na tela por design (N1). Se a query do
+              tenant refizer e FALHAR (o hook engole e assenta `""`), as queries dependentes
+              (`tenant_config`/`tamanhos`, `cq-cats-servico`, `cq-confeccao-prioridade`) desabilitam
+              SEM erro (ficam `disabled`, não `isError`) — `tamanhos` cai em DEFAULT_TAMANHOS e a
+              fonte pode sumir, mas nada disso reabre o banner (N1 esconde erro de REFETCH). Sem
+              esta trava, o Salvar mandaria `_reais` zerado com o CQ já confirmado. Num refetch
+              NORMAL (sem falha), o `tenantId` antigo continua em cache — sem flicker. */}
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id || !hydrated || !tenantId} aria-label="Confirmar Controle de Qualidade">
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Controle de Qualidade</span>
           </Button>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated} aria-label="Salvar">
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated || !tenantId} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1190,8 +1203,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
             <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
           </Button>
           {/* Fix hidratação (P-57 A): mesma trava — o "Voltar" acima RE-arma `hydrated=false` de
-              propósito (re-hidrata ao reabrir edição); o Salvar tem que esperar o novo seed. */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated} aria-label="Salvar">
+              propósito (re-hidrata ao reabrir edição); o Salvar tem que esperar o novo seed.
+              Fix hidratação rodada 5 (N5b): + `|| !tenantId`, mesmo motivo dos 2 botões acima. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated || !tenantId} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1305,7 +1319,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </div>
       )}
       {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
-          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia. */}
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia.
+          Fix hidratação rodada 5 (nit): + "Carregando…" enquanto `cad` ainda não assentou (nem
+          erro nem sucesso vazio ainda) — mesma ambiguidade do achado original, só que contra o
+          estado "ainda em voo" em vez de erro. */}
       {view === "pos" && !cad?.id && cadErrored && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -1314,7 +1331,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           </Button>
         </Card>
       )}
-      {view === "pos" && !cad?.id && !cadErrored && (
+      {view === "pos" && !cad?.id && !cadErrored && !cadFetched && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+      {view === "pos" && !cad?.id && !cadErrored && cadFetched && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD.
         </Card>
@@ -1370,7 +1390,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       <fieldset disabled={readOnly} className="contents">
 
       {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
-          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia. */}
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia.
+          Fix hidratação rodada 5 (nit): + "Carregando…" enquanto `cad` ainda não assentou. */}
       {!cad?.id && cadErrored && (
         <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
           <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
@@ -1379,7 +1400,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           </Button>
         </Card>
       )}
-      {!cad?.id && !cadErrored && (
+      {!cad?.id && !cadErrored && !cadFetched && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+      {!cad?.id && !cadErrored && cadFetched && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>
