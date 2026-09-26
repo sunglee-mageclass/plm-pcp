@@ -292,7 +292,9 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6 fix1)", () => {
   });
   it("T6 fix1 · m8: em só-leitura a célula mostra TEXTO (igual à impressão), não um input desabilitado esmaecido", () => {
     expect(tab).toContain("bloqueado ? (");
-    expect(tab).toContain("<span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>");
+    // T6 fix1 · m8 original; a classe ganhou `block text-center` no pedido do dono 26/set (números
+    // centralizados) — o span só-leitura continua existindo, só a className mudou.
+    expect(tab).toContain("<span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>");
     expect(tab).not.toContain("disabled={bloqueado}");
   });
   it("T6 fix1 · m9: preventDefault no Espaço do nome abreviado; foco visível nos 2 gatilhos; zerar mostra cor+apelido", () => {
@@ -384,3 +386,29 @@ describe("Plan. Tecido — dialog Distribuir por loja (impressão em paisagem + 
   });
 });
 
+describe("Plan. Tecido — dialog Distribuir por loja (números centralizados, pedido do dono 26/set)", () => {
+  const tab = ler("src/components/plan-tecido/DistribuicaoTabelas.tsx");
+
+  it("a caixa TD (base de toda célula numérica da tabela) é text-center", () => {
+    expect(tab).toContain('const TD = "border px-1 py-0.5 text-center tabular-nums";');
+  });
+
+  it("o NumberInput de todo campo editável (proporção, Base, célula por tamanho) tem text-center", () => {
+    const idx = tab.indexOf("<NumberInput integer blankZero placeholder=\"0\"");
+    expect(idx).toBeGreaterThan(-1);
+    const trecho = tab.slice(idx, idx + 300);
+    expect(trecho).toMatch(/className=\{`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none/);
+  });
+
+  it("o <span> só-leitura (impressão OU sem permissão de editar) também é text-center (block, não só herdado do <td>)", () => {
+    expect(tab).toContain('<span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>');
+  });
+
+  it("os totais só-leitura (subtotal por loja, Total por cor×tamanho, Total geral) ficam em células TD (text-center) — mesma coluna alinhada aos campos editáveis", () => {
+    expect(tab).toContain("<td className={TD}>{sub.base}</td>");
+    expect(tab).toContain("<td className={TD}>{sub.total}</td>");
+    expect(tab).toContain("<td className={TD}>{tot.base}</td>");
+    expect(tab).toContain("<td className={TD}>{totalGeral.base}</td>");
+    expect(tab).toContain("<td className={TD}>{totalGeral.total}</td>");
+  });
+});

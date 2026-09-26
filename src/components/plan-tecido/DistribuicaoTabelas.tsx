@@ -143,9 +143,12 @@ export function DistribuicaoTabelas(p: {
   const vista = (corKey: string, loja: string) => linhaVista(p.dists[corKey]?.[loja], p.prop, p.tamanhos);
   // T6 fix1 · m8: em modo só-leitura (sem permissão de editar) a célula mostra TEXTO, igual à impressão — não
   // um NumberInput desabilitado esmaecido. O pedido é "ver e imprimir", não "ver um formulário travado".
+  // Pedido do dono 26/set: todo campo numérico CENTRALIZADO (estavam deslocados p/ a esquerda) — `text-center`
+  // tanto no NumberInput (a própria caixa de texto) quanto no <span> só-leitura (`block` p/ o text-align valer
+  // por si, não só herdado do <td>), nas DUAS telas (dialog) e na impressão.
   const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
     bloqueado ? (
-      <span className={extra} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
+      <span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
       <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
         className={`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
