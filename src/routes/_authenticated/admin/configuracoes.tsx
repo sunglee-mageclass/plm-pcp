@@ -199,6 +199,14 @@ function ConfiguracoesLojaPage() {
   // quando uma re-hidratação chega DEPOIS da 1ª (Realtime/foco/save de outra tela/aba). null
   // até a 1ª carga: aí ainda não há "meu" para proteger, adota o servidor cru como sempre.
   const cfgBaseRef = useRef<ConfigState | null>(null);
+  // Fix hidratação — revisão final (achado C3, REGRESSÃO desta branch, PERDA/GRAVAÇÃO CRUZADA de
+  // dado comprovada, review-final.md): qual loja o `cfgBaseRef`/o merge 3-vias abaixo pertencem.
+  // Sem isso, um super_admin com edição não salva na loja A que troca para a loja B (o
+  // `invalidateQueries()` do `TenantSwitcher` refaz esta query, já trazendo a B) fazia o merge
+  // 3-vias tratar o campo tocado na A como "meu" e sobreviver por cima do `next` da B — o Salvar
+  // então upserta a edição da A na loja ERRADA (B). Antes desta branch a tela era sobrescrita pela
+  // B (perdia a edição, mas não gravava na loja errada); o merge novo introduziu essa regressão.
+  const cfgBaseTenantRef = useRef<string | null>(null);
   // O que ESTE save mandou (mutationFn) — para o eco do PRÓPRIO upsert não ser tratado como
   // edição alheia (senão o onSuccess já rebaixaria `cfgBaseRef` para o valor pré-save).
   const cfgEnviadoRef = useRef<ConfigState | null>(null);
@@ -334,13 +342,22 @@ function ConfiguracoesLojaPage() {
     // servidor nesse meio-tempo — round 1 tinha essa regressão). `resolverEcoKanban` (puro, testado)
     // decide as duas coisas de uma vez, a partir do MESMO instante: `cfgRef`/`kanbanBaseRef` espelham
     // o estado JÁ na tela (evitam closure obsoleto entre múltiplos setState no meio).
-    const r2 = resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current);
+    // Fix hidratação — revisão final (C3): `mesmaLoja` chaveia AS DUAS proteções (kanban e o merge
+    // geral abaixo) pelo tenant que gerou a base. Loja diferente da última aplicada = adota o
+    // servidor CRU (sem eco protegido nem merge — não há "meu" que faça sentido proteger contra a
+    // loja nova).
+    const mesmaLoja = cfgBaseTenantRef.current === (data.tenantId ?? null);
+    cfgBaseTenantRef.current = data.tenantId ?? null;
+    const r2 = mesmaLoja
+      ? resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current)
+      : { cfgKanban: pickKanban(next), kanbanBase: { cfg: pickKanban(next), servidor: pickKanban(next) } };
     // Fix hidratação (P-57 A, §4.1): re-hidratação (2ª+ vez que `data.cfg` muda referência —
     // Realtime, refetch de foco, o próprio diálogo "Nomenclaturas" desta tela, save de outra
     // aba/admin) FUNDE em vez de SOBRESCREVER. `base` = último servidor aplicado; campo onde a
     // tela (cfgRef.current) diverge da base é "meu" (tocado) e sobrevive; o resto adota o
-    // servidor novo. 1ª carga (cfgBaseRef ainda null) não tem "meu" para proteger — adota cru.
-    const base = cfgBaseRef.current;
+    // servidor novo. 1ª carga (cfgBaseRef ainda null) OU loja diferente não tem "meu" para
+    // proteger — adota cru.
+    const base = mesmaLoja ? cfgBaseRef.current : null;
     const tocados = new Set(
       base ? (Object.keys(next) as (keyof ConfigState)[]).filter((k) => !igual(cfgRef.current[k], base[k])) : [],
     );
@@ -1794,11 +1811,16 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   const dirty = open && nomChanged;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
 
+  // Fix hidratação — revisão final (achado F1, PERDA DE DADO comprovada, review-final.md): +
+  // `if (error) throw error` — engolia o erro (`const { data } = ...`), e uma falha (ou o Salvar
+  // clicado com a leitura ainda em voo, já que `hydrated` não travava o botão) fazia o upsert
+  // gravar `{"tab_labels":{},"campos_editaveis":{}}` por cima das nomenclaturas reais da loja.
   const { data: current } = useQuery({
     queryKey: ["tenant_config", "nomenclaturas_edit"],
     enabled: open && !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
+      const { data, error } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
+      if (error) throw error;
       return {
         tab_labels: ((data as any)?.tab_labels ?? {}) as Record<string, string>,
         campos_editaveis: ((data as any)?.campos_editaveis ?? {}) as Record<string, string>,
@@ -1909,7 +1931,10 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
         <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
           <Button variant="ghost" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          {/* Fix hidratação — revisão final (F1): + `|| !hydrated` — sem isso, clicar Salvar com a
+              leitura do diálogo ainda em voo (ou depois de uma falha, que nunca hidrata) upsertava
+              tab_labels/campos_editaveis VAZIOS por cima das nomenclaturas reais da loja. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !hydrated}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </DialogFooter>

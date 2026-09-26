@@ -261,10 +261,18 @@ export function TerceirizadosDetail({
     },
   });
 
-  const { data: cad } = useQuery({
+  // Fix hidratação — revisão final (achado C2, PERDA DE DADO comprovada, review-final.md):
+  // engolia o erro (`const { data } = ...; return data;`) — uma falha única virava sucesso com
+  // `data=null`, sem retry. `moldeHydrated` (abaixo) semeava `observacoesMolde=""` a partir desse
+  // `null` e nunca mais re-hidratava; o Salvar então mandava `_observacoes_molde: null`, e o
+  // servidor grava `NULLIF(...)` — apaga "Partes do Molde" (`cad.observacoes_molde`, campo
+  // compartilhado com CAD/Ficha de Corte/Oficina). Único consumidor da key `["terc-cad",
+  // modeloId]` (conferido por grep) — seguro trocar o `queryFn` sem afetar outra tela.
+  const { data: cad, isSuccess: cadOk, isFetching: cadFetching } = useQuery({
     queryKey: ["terc-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
+      const { data, error } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
@@ -609,13 +617,17 @@ export function TerceirizadosDetail({
   // "Não há acabamento (pós)": peças sem serviço pós → Status Geral vira Finalizado.
   const [semAcabamento, setSemAcabamento] = useState(false);
   const [moldeHydrated, setMoldeHydrated] = useState(false);
+  // Fix hidratação — revisão final (C2): + `!cadOk || cadFetching` — espera o `cad` assentar COM
+  // SUCESSO (não só `!== undefined`, que também é true depois de um erro engolido). Mesma classe
+  // do achado I1 já corrigido no CQ Pré/Direcionamento nas rodadas anteriores; a Oficina não tinha
+  // esse problema porque lá o molde hidrata no mesmo gate do `existing`, chaveado por `cad.id`.
   useEffect(() => {
     if (moldeHydrated) return;
-    if (cad === undefined) return; // espera o cad carregar
+    if (cad === undefined || !cadOk || cadFetching) return; // espera o cad carregar COM SUCESSO
     setObservacoesMolde((cad as any)?.observacoes_molde ?? "");
     setSemAcabamento(Boolean((cad as any)?.sem_acabamento));
     setMoldeHydrated(true);
-  }, [cad, moldeHydrated]);
+  }, [cad, moldeHydrated, cadOk, cadFetching]);
 
   // Guarda de "alterações não salvas": snapshot do estado editável (blocos das duas abas
   // Pré/Pós + observação de molde). `semAcabamento` fica FORA (auto-salva sozinho) e o
