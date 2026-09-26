@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Wrench, Save, Printer } from "lucide-react";
+import { ArrowLeft, Wrench, Save, Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -130,11 +130,16 @@ function OficinaDetailPage() {
     return [...ordered, ...extras];
   }, [tenantCfg, grades]);
 
-  const { data: existing, refetch } = useQuery({
+  const { data: existing, refetch, isSuccess: existingOk, isError: existingErrored } = useQuery({
     queryKey: ["producao-oficina", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("producao_oficina").select("*").eq("cad_id", cad!.id).maybeSingle();
+      // Fix hidratação rodada 1 (achado I1 da revisão, "por uniformidade" — Oficina): o erro era
+      // engolido (`return data` sem checar) — `data` de `maybeSingle()` some com erro vira `null`,
+      // não `undefined`, então a tela seguiria como "sem linha de oficina" (ramo INSERT) mesmo
+      // com uma falha real de rede.
+      const { data, error } = await supabase.from("producao_oficina").select("*").eq("cad_id", cad!.id).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
@@ -157,7 +162,10 @@ function OficinaDetailPage() {
   useEffect(() => {
     if (hydrated) return;
     // Espera as duas queries assentarem: producao_oficina e o cad (fonte do molde).
-    if (existing === undefined || cad === undefined) return;
+    // Fix hidratação rodada 1 (achado I1): exige `existingOk` (isSuccess) — sem isso, uma carga
+    // com ERRO em `producao_oficina` hidrataria como "sem linha" (ramo INSERT do save, que o
+    // trigger 1:1 bloqueia se a linha na verdade existir — ver auditoria do report.md).
+    if (existing === undefined || cad === undefined || !existingOk) return;
     const molde = (cad as any)?.observacoes_molde ?? "";
     let next = form;
     if (existing) {
@@ -180,7 +188,7 @@ function OficinaDetailPage() {
     }
     resetBaseline(next);
     setHydrated(true);
-  }, [existing, cad, hydrated]);
+  }, [existing, cad, hydrated, existingOk]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -264,6 +272,23 @@ function OficinaDetailPage() {
           </div>
         </header>
 
+        {/* Fix hidratação rodada 1 (achado I1, "por uniformidade"): carga com ERRO nunca hidrata
+            — banner no lugar do formulário, com "Tentar de novo".
+            Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado —
+            "Carregando…" no lugar do formulário, como pedia o brief original. */}
+        {cad?.id && existingErrored && !hydrated && (
+          <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+            <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+              <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+            </Button>
+          </Card>
+        )}
+        {cad?.id && !existingErrored && !hydrated && (
+          <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
+        )}
+
+        {(!cad?.id || (!existingErrored && hydrated)) && (
         <Card className="p-5 space-y-4">
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
@@ -340,6 +365,7 @@ function OficinaDetailPage() {
           </div>
           </fieldset>
         </Card>
+        )}
 
         {!cad?.id && (
           <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">

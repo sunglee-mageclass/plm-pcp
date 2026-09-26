@@ -113,4 +113,58 @@ describe("[fix hidratação] Sheet do Planejamento — seção 1: a edição sob
     expect(p.titulo_pagina).toBe("Título QA (restaurar)");
     expect(p.ncm).toBe("6204.43.00");
   });
+
+  // Achado M1 da revisão: "Carregando o card…" ficava preso pra sempre se `["modelo", modeloId]`
+  // desse ERRO (o efeito de seed só roda com `modeloData` truthy/null — nunca com `undefined` de
+  // erro). Prova: com a leitura de `modelos` falhando, aparece "Não foi possível carregar o card."
+  // + "Tentar de novo", nunca fica preso em "Carregando…".
+  it("M1: modelos falha ao carregar — mostra 'Não foi possível carregar o card' + 'Tentar de novo' (não fica preso em 'Carregando…')", async () => {
+    FAKE.falhar("modelos", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const m = await montar(createElement(QueryClientProvider, { client: qc },
+      createElement(SidebarProvider, null,
+        createElement(PlanejamentoDetail, { modeloId: "m1", onClose: () => {}, onSaved: () => {} }))));
+    desmontar = m.desmontar;
+    await esperar(80);
+    expect(document.body.textContent).not.toContain("Carregando o card…");
+    expect(document.body.textContent).toContain("Não foi possível carregar o card");
+    expect(document.body.textContent).toContain("Tentar de novo");
+    expect(botaoSalvar()?.disabled).toBe(true);
+    // "Voltar" continua funcionando (fica na barra de rodapé, fora do placeholder).
+    expect(document.querySelector('button[aria-label="Voltar"]')).not.toBeNull();
+  });
+
+  // M1 (2º ramo): `modeloData` volta `null` (card excluído por outra pessoa, ou sem acesso) — o
+  // efeito de seed sai em `!modeloData` e `semeado` nunca vira true. Antes: preso em "Carregando…".
+  it("M1: modelos volta vazio (card excluído/sem acesso) — mostra 'Card não encontrado.'", async () => {
+    FAKE.linhas.modelos = []; // maybeSingle() sem linha → null
+    await abrirSheet();
+    await esperar(80);
+    expect(document.body.textContent).not.toContain("Carregando o card…");
+    expect(document.body.textContent).toContain("Card não encontrado.");
+    expect(botaoSalvar()?.disabled).toBe(true);
+    expect(document.querySelector('button[aria-label="Voltar"]')).not.toBeNull();
+  });
+
+  // Achado M7 da revisão: `MotivoCancelamento` vive no HEADER, fora do placeholder "Carregando o
+  // card…" (que só cobre o fieldset principal) — antes do seed, dava para digitar um motivo em
+  // cima do `emptyDraft()`, que o seed depois substituía (perda de digitação visível).
+  // NOTA HONESTA (TDD): `isReprovado` (que decide se este bloco aparece) e `semeado` (o seed)
+  // derivam da MESMA chegada de `modeloData` — neste harness síncrono (`act()`), não há como
+  // forçar um frame onde um já mudou e o outro não (o efeito que seta `semeado` roda ANTES do
+  // commit visível ao teste). Por isso este teste passa mesmo contra 67e665d7 (não é uma prova
+  // de regressão fail→pass) — é um teste de REGRESSÃO PREVENTIVA: com `&& semeado` no código,
+  // ele documenta e trava o comportamento correto (o achado em si — file:line na revisão — é
+  // sobre uma janela de 1 render entre "dado chegou" e "efeito rodou" que o React pode abrir em
+  // produção sob concorrência, mas que este harness não reproduz).
+  it("M7: MotivoCancelamento (card Reprovado) só aparece DEPOIS do seed", async () => {
+    FAKE.linhas.tenant_config = [{ tenant_id: "t1", status_kanban: ["Em Modelagem", "Reprovado", "Aprovado"] }];
+    FAKE.linhas.modelos = [{ ...linhaModelo(), ordem_criacao_enviada: true, status_desenvolvimento: "reprovado" }];
+    const soltar = FAKE.segurar("modelos");
+    await abrirSheet();
+    await esperar(80);
+    expect(document.body.textContent).not.toContain("Motivo do Cancelamento");
+    soltar();
+    await aguardar(() => document.body.textContent?.includes("Motivo do Cancelamento") ?? false, "MotivoCancelamento aparece após o seed", 2000);
+  });
 });

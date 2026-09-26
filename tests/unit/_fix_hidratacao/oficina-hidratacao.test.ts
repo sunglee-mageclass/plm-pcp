@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 // Teste de REGRESSÃO (P-57 A, fix hidratação) — Oficina (metade 1, §4.3 da investigação).
-// Auditoria confirmou (subagente, 26/set): `producao_oficina` NÃO tem RPC própria — o Salvar faz
-// `.update()`/`.insert()` direto via PostgREST com TODO o `form` local (payload sempre "estado
-// completo" da linha). Um clique cedo demais grava zeros por cima de um registro já existente
-// (mesma classe de dano do Direcionamento, sem ser um DELETE). Prova só o lado do cliente: o
-// Salvar fica desabilitado enquanto `producao_oficina`/`cad` ainda não hidrataram.
+// Auditoria de RPC conferida em `.superpowers/fix-hidratacao/review.md`: `producao_oficina` NÃO
+// tem RPC própria — o Salvar faz `.update()`/`.insert()` direto via PostgREST com TODO o `form`
+// local (payload sempre "estado completo" da linha). A revisão corrigiu a descrição do risco: com
+// `existing` ainda `undefined` (em voo), o código segue o ramo INSERT; SE a linha já existe no
+// servidor, o trigger 1:1 (`trg_oficina_unique_cad`) barra com RAISE `unique_violation` (nada é
+// gravado); SE não existe, o INSERT grava zeros — sem perda — mas `cad.observacoes_molde ← NULL`
+// sobrescreve "Partes do Molde" (compartilhado com CAD/PCP). Prova só o lado do cliente: o Salvar
+// fica desabilitado enquanto `producao_oficina`/`cad` ainda não hidrataram.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -73,5 +76,26 @@ describe("[fix hidratação] Oficina — Salvar trava ANTES da hidratação (P-5
 
     soltar();
     await aguardar(() => salvar()!.disabled === false, "destrava após hidratar", 2000);
+  });
+
+  // Achado I1 da revisão ("por uniformidade" — Oficina): o queryFn de `producao_oficina` engolia
+  // o erro (`return data` sem checar) — `maybeSingle()` com erro devolve `data=null`, não
+  // `undefined`, então o gate `existing === undefined` deixava passar como "sem linha" (ramo
+  // INSERT) mesmo com uma falha real de rede.
+  it("I1: producao_oficina falha ao carregar — Salvar continua DESABILITADO e aparece 'Tentar de novo'", async () => {
+    FAKE.falhar("producao_oficina", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    await aguardar(() => !!salvar(), "botão Salvar na tela");
+    await esperar(80);
+    expect(salvar()!.disabled).toBe(true); // ← I1: nunca hidrata a partir de um erro
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
   });
 });

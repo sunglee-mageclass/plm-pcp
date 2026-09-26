@@ -315,20 +315,39 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   }, [blocosFonte, fonte.fonteId]);
   const temFonte = !!fonte.fonteId;
 
-  const { data: cqRow, refetch: refetchCq, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
+  const {
+    data: cqRow,
+    refetch: refetchCq,
+    isFetched: cqFetched,
+    isFetching: cqFetching,
+    isSuccess: cqOk,
+    isError: cqErrored,
+  } = useQuery({
     queryKey: ["cq", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("controle_qualidade").select("*").eq("cad_id", cad!.id).maybeSingle();
+      // Fix hidratação rodada 1 (achado I1 da revisão): antes o erro era engolido — a tela
+      // seguia como "sem CQ" (cqRow=null), `cqRevRef` ficava null e o rev-check do Salvar era
+      // pulado (`_rev_base.cq=null`). Agora propaga o erro p/ a query e a tela NÃO hidrata.
+      const { data, error } = await supabase.from("controle_qualidade").select("*").eq("cad_id", cad!.id).maybeSingle();
+      if (error) throw error;
       return data;
     },
   });
 
-  const { data: varRows = [], refetch: refetchVars, isFetched: varsFetched, isFetching: varsFetching } = useQuery({
+  const {
+    data: varRows = [],
+    refetch: refetchVars,
+    isFetched: varsFetched,
+    isFetching: varsFetching,
+    isSuccess: varsOk,
+    isError: varsErrored,
+  } = useQuery({
     queryKey: ["cq_variantes", cqRow?.id],
     enabled: !!cqRow?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("cq_variantes").select("*").eq("controle_qualidade_id", cqRow!.id);
+      const { data, error } = await supabase.from("cq_variantes").select("*").eq("controle_qualidade_id", cqRow!.id);
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -402,8 +421,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   // Só hidrata quando as queries ASSENTARAM (fetched && !fetching) — senão, ao
   // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
-  const cqSettled = cqFetched && !cqFetching;
-  const varsSettled = !cqRow?.id || (varsFetched && !varsFetching);
+  // Fix hidratação rodada 1 (achado I1): `isFetched` sozinho também fica true depois de um
+  // ERRO (TanStack v5) — exige `isSuccess` (nunca hidrata a partir de uma carga que falhou).
+  const cqSettled = cqFetched && !cqFetching && cqOk;
+  const varsSettled = !cqRow?.id || (varsFetched && !varsFetching && varsOk);
+  // Erro de carga: nem `cq` nem `cq_variantes` viram "servidor vazio" — a tela mostra o
+  // banner de erro no lugar do formulário e trava Salvar/Confirmar (hydrated nunca vira true).
+  const cqLoadError = cqErrored || varsErrored;
   // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
   // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
   // tenantId vazio (degenerado) = escape p/ não pendurar (aí temFonte=false, retrocompat).
@@ -1190,7 +1214,24 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </Card>
       )}
 
-      {view === "pre" && (
+      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (cqSettled/varsSettled
+          exigem isSuccess) — mostra o banner no lugar do formulário, com "Tentar de novo".
+          Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado — "Carregando…"
+          no lugar do formulário (o estado inicial de `form`/`grades` é vazio/zerado e ficava
+          editável — nada perdido no servidor, mas a digitação sumia quando o seed chegasse). */}
+      {view === "pre" && cad?.id && cqLoadError && !hydrated && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button variant="outline" size="sm" onClick={() => { refetchCq(); if (cqRow?.id) refetchVars(); }}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {view === "pre" && cad?.id && !cqLoadError && !hydrated && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+
+      {view === "pre" && (!cad?.id || (!cqLoadError && hydrated)) && (
       <fieldset disabled={readOnly} className="contents">
 
       {!cad?.id && (

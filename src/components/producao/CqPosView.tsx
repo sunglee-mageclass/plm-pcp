@@ -70,13 +70,15 @@ export const CqPosView = forwardRef<CqPosHandle, {
   }, [cadGrades]);
 
   // Serviços de acabamento (pós-costura), ativos.
-  const { data: servicos = [] } = useQuery({
+  // Fix hidratação rodada 1 (achado I1): idem — throw em erro (era engolido).
+  const { data: servicos = [], isFetched: servicosFetched, isFetching: servicosFetching, isSuccess: servicosOk, isError: servicosErrored, refetch: refetchServicos } = useQuery({
     queryKey: ["cqpos-servicos", cadId],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("producao_terceirizados")
         .select("id, ativo, data_enviado, data_prevista, data_entregue, categorias_terceirizado(nome, etapa), empresa:empresa_id(nome_fantasia), colaborador:colaborador_id(nome)")
         .eq("cad_id", cadId);
+      if (error) throw error;
       return (data ?? [])
         .filter((t: any) => t.ativo !== false && (t.categorias_terceirizado?.etapa ?? "ate_costura") === "pos_costura")
         .map((t: any) => ({
@@ -92,26 +94,45 @@ export const CqPosView = forwardRef<CqPosHandle, {
   });
 
   // CQ existente (status_pos + observações) + itens do pós, p/ hidratar.
-  const { data: cqRow, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
+  // Fix hidratação rodada 1 (achado I1): `if (error) throw error` — o queryFn engolia o erro
+  // (`return data` sem checar), e uma falha de rede virava "sem CQ Pós" (cqRow=null), semeando
+  // como se o servidor estivesse vazio.
+  const { data: cqRow, isFetched: cqFetched, isFetching: cqFetching, isSuccess: cqOk, isError: cqErrored, refetch: refetchCqPos } = useQuery({
     queryKey: ["cqpos-cq", cadId],
-    queryFn: async () =>
-      (await supabase.from("controle_qualidade").select("id, status_pos, observacoes_cq_pos, datas_conserto_pos").eq("cad_id", cadId).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("controle_qualidade").select("id, status_pos, observacoes_cq_pos, datas_conserto_pos").eq("cad_id", cadId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
   const cqId = (cqRow as any)?.id;
-  const { data: posItens = [], isFetched: itensFetched, isFetching: itensFetching } = useQuery({
+  const { data: posItens = [], isFetched: itensFetched, isFetching: itensFetching, isSuccess: itensOk, isError: itensErrored, refetch: refetchItens } = useQuery({
     queryKey: ["cqpos-itens", cqId],
     enabled: !!cqId,
-    queryFn: async () =>
-      (await supabase.from("cq_pos_variantes").select("*").eq("controle_qualidade_id", cqId)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cq_pos_variantes").select("*").eq("controle_qualidade_id", cqId);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   // Só hidrata quando as queries ASSENTARAM (isFetched && !isFetching): re-hidratar do
   // cache antigo enquanto o refetch corria travava o status no valor anterior (o botão
   // Confirmar/Desmarcar só mudava ao sair e voltar).
+  // Fix hidratação rodada 1 (achado C1 da revisão): `servicos` (producao_terceirizados)
+  // entra no gate — é a query que `buildItens()` percorre para montar o payload do Salvar.
+  // Sem isso, `hydrated` virava true com `servicos=[]` (ainda em voo) e o Salvar mandava
+  // `_itens: []`, que `_salvar_cq_pos_core` grava como DELETE incondicional de
+  // `cq_pos_variantes` (apaga todo o Pós já confirmado em silêncio).
+  // Fix hidratação rodada 1 (achado I1): exige `isSuccess` das 3 queries — `isFetched` sozinho
+  // também fica true depois de erro (TanStack v5); sem isso, uma falha de rede hidratava como
+  // "sem CQ Pós" (mesma classe do C1, só que via erro em vez de corrida).
+  const hasLoadError = cqErrored || itensErrored || servicosErrored;
   useEffect(() => {
     if (hydrated) return;
-    if (!cqFetched || cqFetching) return;
-    if (cqId && (!itensFetched || itensFetching)) return;
+    if (!cqFetched || cqFetching || !cqOk) return;
+    if (cqId && (!itensFetched || itensFetching || !itensOk)) return;
+    if (!servicosFetched || servicosFetching || !servicosOk) return;
     if (cqRow) {
       setStatusPos((cqRow as any).status_pos ?? "pendente");
       setObs((cqRow as any).observacoes_cq_pos ?? "");
@@ -131,7 +152,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     });
     setPosState(st);
     setHydrated(true);
-  }, [cqRow, posItens, cqFetched, cqFetching, itensFetched, itensFetching, cqId, hydrated]);
+  }, [cqRow, posItens, cqFetched, cqFetching, cqOk, itensFetched, itensFetching, itensOk, cqId, servicosFetched, servicosFetching, servicosOk, hydrated]);
 
   const confirmado = statusPos === "confirmado";
   const readOnly = permReadOnly || (confirmado && !editing);
@@ -247,6 +268,30 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
   return (
     <div className="space-y-4">
+      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata — banner no lugar
+          do formulário, com "Tentar de novo". */}
+      {hasLoadError && !hydrated && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { refetchCqPos(); refetchServicos(); if (cqId) refetchItens(); }}
+          >
+            Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {/* Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado — "Carregando…"
+          no lugar do corpo. Sem isso, o banner "Nenhum serviço de acabamento" (que lê
+          `servicos.length === 0`, o default de array vazio) aparecia falsamente enquanto a
+          query de serviços ainda estava em voo. */}
+      {!hasLoadError && !hydrated && (
+        <Card className="p-5 text-sm text-muted-foreground">Carregando…</Card>
+      )}
+      {!hasLoadError && hydrated && (
+      <>
       {/* Grade real do Pré (base do acabamento) — leitura. */}
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between">
@@ -342,6 +387,8 @@ export const CqPosView = forwardRef<CqPosHandle, {
           <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3} />
         </Card>
       </fieldset>
+      </>
+      )}
     </div>
   );
 });

@@ -1,4 +1,5 @@
-// REPRO de investigação (26/set) — utilitários mínimos de DOM p/ montar a TELA REAL em happy-dom sem @testing-library.
+// Base de testes de REGRESSÃO do produto (fix-hidratação, P-57 A) — utilitários mínimos de DOM
+// p/ montar a TELA REAL em happy-dom sem @testing-library.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 

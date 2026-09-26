@@ -180,7 +180,7 @@ function PlanejamentoDetailConteudo({
   // F3.1: SUBIU para cá (antes vinha logo antes do merge) — a trava dos campos do Dev, logo abaixo, lê
   // `enviado_cad`, e a F3.2 passa essa trava ao `useFichaTecnica`, chamado ANTES do cálculo de preço e do
   // "não salvo". Mesma queryKey, mesmo queryFn; só a posição (e a ordem dos hooks) mudou.
-  const { data: modeloData } = useQuery({
+  const { data: modeloData, isError: modeloErrored, refetch: refetchModelo } = useQuery({
     queryKey: ["modelo", modeloId],
     enabled: !!modeloId,
     queryFn: async () => {
@@ -1436,8 +1436,13 @@ function PlanejamentoDetailConteudo({
                 />
               )}
               {/* Motivo do Cancelamento (veio do Dev — F3.1): só com a etapa em Reprovado. Sair de Reprovado NÃO
-                  apaga o motivo (dono, 23/set) — ele só some da tela. Trava/permissão = fieldset. */}
-              {isEdit && podeVerDev && kanbanCard.isReprovado && (
+                  apaga o motivo (dono, 23/set) — ele só some da tela. Trava/permissão = fieldset.
+                  Fix hidratação rodada 1 (achado M7 da revisão): + `&& semeado` — este campo vive
+                  no HEADER, fora do placeholder "Carregando o card…" (que só cobre o `fieldset`
+                  principal mais abaixo); sem o gate, dava para digitar um motivo antes do seed, e
+                  o texto sumia quando o servidor chegava (sem gravação no servidor, mas perda de
+                  digitação visível ao usuário). */}
+              {isEdit && podeVerDev && kanbanCard.isReprovado && semeado && (
                 <fieldset disabled={devBloqueado} className="contents">
                   <MotivoCancelamento
                     value={draft.motivo_cancelamento}
@@ -1496,9 +1501,25 @@ function PlanejamentoDetailConteudo({
         {/* Fix hidratação (P-57 A): antes do seed (isEdit && !semeado), placeholder em vez do
             corpo — um `<fieldset disabled>` NÃO bastaria (o Radix Select/Combobox/Popover abre
             no pointerdown antes do React re-renderizar como bloqueado; mesma lição registrada em
-            tests/unit/planejamento-dev-equipe-disabled.test.ts). Com cache quente dura 1 frame. */}
+            tests/unit/planejamento-dev-equipe-disabled.test.ts). Com cache quente dura 1 frame.
+            Fix hidratação rodada 1 (achado M1 da revisão): "Carregando o card…" ficava preso pra
+            sempre se `["modelo", modeloId]` desse ERRO (o effect de seed só roda com `modeloData`
+            truthy/null-checked — nunca com `undefined` de erro) ou voltasse `null` (card excluído
+            por outra pessoa, ou sem acesso — o efeito sai em `!modeloData`). Distingue os 3
+            estados; "Voltar" já funciona nos 3 (fica na barra de rodapé, fora deste placeholder). */}
         {isEdit && !semeado ? (
-          <p className="p-6 text-sm text-muted-foreground">Carregando o card…</p>
+          modeloErrored ? (
+            <div className="p-6 space-y-3 text-sm">
+              <p className="text-destructive font-medium">Não foi possível carregar o card.</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => refetchModelo()}>
+                Tentar de novo
+              </Button>
+            </div>
+          ) : modeloData === null ? (
+            <p className="p-6 text-sm text-muted-foreground">Card não encontrado.</p>
+          ) : (
+            <p className="p-6 text-sm text-muted-foreground">Carregando o card…</p>
+          )
         ) : (
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}

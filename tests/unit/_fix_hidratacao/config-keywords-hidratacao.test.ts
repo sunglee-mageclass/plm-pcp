@@ -102,23 +102,31 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(FAKE.linhas.tenant_config[0].keywords).toBe(`${ORIGINAL}\nQA keywords (restaurar)`);
   });
 
-  it("B' eco do Realtime com a linha MUDADA (outro admin trocou tab_labels): a Keyword digitada FICA", async () => {
+  it("B' eco do Realtime com a linha MUDADA (outro admin trocou o Fuso horário — campo de ConfigState): a Keyword digitada FICA E a mudança alheia é ADOTADA", async () => {
+    // Achado M5 da revisão: a versão anterior deste teste mudava `tab_labels`, que NÃO é campo de
+    // `ConfigState` (é o payload próprio do diálogo "Nomenclaturas") — não provava a adoção de
+    // uma mudança alheia num campo NÃO TOCADO do `mergeDraft`. `timezone` É campo de `ConfigState`.
     await abrirPagina();
     await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
+    expect(document.body.textContent).toContain("Brasília / São Paulo (GMT-3)"); // timezone default
     await digitar(kw()!, `${ORIGINAL}, Sardinha`);
     expect(seloNaoSalvo()).toBe(true);
 
-    // Outra escrita em tenant_config (ex.: o diálogo "Nomenclaturas" desta MESMA tela, ou outro admin) — muda OUTRA coluna.
-    FAKE.linhas.tenant_config[0].tab_labels = { criacao: "Estilo" };
+    // Outro admin muda o Fuso horário (campo de ConfigState que EU não toquei nesta tela).
+    FAKE.linhas.tenant_config[0].timezone = "America/Manaus";
     const antes = getsTenantConfig();
     FAKE.emitirRealtime("tenant_config"); // postgres_changes → debounce 250ms → invalidateQueries(matchesTable('tenant_config'))
     await aguardar(() => getsTenantConfig() > antes, "refetch disparado pelo eco", 2000);
     await esperar(300);
-    expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`); // NÃO apagado — campo tocado sobrevive ao merge
-    expect(seloNaoSalvo()).toBe(true); // selo continua aceso
+    expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`); // NÃO apagado — campo tocado (Keywords) sobrevive ao merge
+    expect(seloNaoSalvo()).toBe(true); // selo continua aceso (Keywords ainda não salva)
+    // Campo NÃO tocado (timezone): adota a mudança do outro admin.
+    expect(document.body.textContent).toContain("Manaus / Amazonas (GMT-4)");
 
     await salvarComoAQa();
-    expect((upsertTenantConfig()!.payload as any).keywords).toBe(`${ORIGINAL}, Sardinha`);
+    const up = upsertTenantConfig()!.payload as any;
+    expect(up.keywords).toBe(`${ORIGINAL}, Sardinha`); // minha edição
+    expect(up.timezone).toBe("America/Manaus"); // adotado do outro admin + re-base pós-save (M5)
   });
 
   it("C' controle — o MESMO eco com a linha IDÊNTICA não muda nada", async () => {
@@ -154,5 +162,63 @@ describe("[fix hidratação] Config da Loja — Keywords: a edição sobrevive (
     expect(kw()!.value).toBe(`${ORIGINAL}, Sardinha`); // NÃO apagado pela re-hidratação
     await salvarComoAQa();
     expect((upsertTenantConfig()!.payload as any).keywords).toBe(`${ORIGINAL}, Sardinha`);
+  });
+
+  // Achado I1 da revisão (review.md): o SELECT de `tenant_config` engolia o erro — uma falha de
+  // rede virava `cfg: null`, a tela caía nos DEFAULTS (fuso/modos/leadtime/kanban…), e o Salvar
+  // upsertava os DEFAULTS por cima da linha real da loja.
+  it("I1: tenant_config falha ao carregar — mostra 'Não foi possível carregar' + 'Tentar de novo' (não cai nos DEFAULTS)", async () => {
+    FAKE.falhar("tenant_config", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(PaginaComRealtime, { semRealtime: true })));
+    desmontar = m.desmontar;
+    await esperar(80);
+    expect(document.body.textContent).toContain("Não foi possível carregar os dados.");
+    expect(document.body.textContent).toContain("Tentar de novo");
+    // Não caiu nos DEFAULTS: o formulário (Keywords, Status do Kanban etc.) não é renderizado.
+    expect(kw()).toBeNull();
+    expect(botaoPorTexto("Salvar alterações")).toBeNull();
+  });
+
+  // Achado I2 da revisão (review.md): a "re-hidratação só FUNDE" valia para os campos gerais
+  // (Keywords, acima) mas NÃO para as 5 colunas de kanban (Status do Kanban, Requisitos,
+  // Exceções, Fluxo de Revenda) — `resolverEcoKanban` fora da janela protegida sempre adotava o
+  // SERVIDOR por inteiro nessas 5 colunas, mesmo com uma edição local ainda não salva. Reproduz
+  // o mesmo gatilho do D' (salvar o diálogo "Nomenclaturas" desta MESMA tela, que re-hidrata
+  // `tenant_config` sem passar pelo `save` principal — `kanbanProtegidoRef` nunca liga), mas
+  // editando "Status do Kanban" (uma das 5 colunas) em vez de Keywords.
+  it("I2: editar Status do Kanban + salvar 'Nomenclaturas' — a coluna de kanban editada NÃO é apagada", async () => {
+    const novoStatus = "QA Etapa Nova";
+    await abrirPagina(true);
+    await aguardar(() => kw()?.value === ORIGINAL, "1ª hidratação");
+    const draftStatus = () => document.querySelector<HTMLInputElement>('input[placeholder="Ex: Em Modelagem"]');
+    await aguardar(() => !!draftStatus(), "campo de adicionar Status do Kanban na tela");
+    await digitar(draftStatus()!, novoStatus);
+    await clicar(botaoPorTexto("Adicionar")!);
+    await aguardar(() => document.body.textContent?.includes(novoStatus) ?? false, "nova coluna aparece na lista");
+    expect(seloNaoSalvo()).toBe(true);
+
+    // Outra escrita em tenant_config (o diálogo "Nomenclaturas" desta MESMA tela) — muda OUTRA
+    // coluna (tab_labels), SEM tocar em status_kanban. status_kanban no banco continua o ORIGINAL
+    // (a coluna nova ainda não foi salva).
+    await clicar(botaoPorTexto("Editar nomenclaturas por módulo")!);
+    await aguardar(() => !!document.querySelector('[role="dialog"] input'), "diálogo Nomenclaturas aberto");
+    await esperar(50);
+    await digitar(document.querySelector<HTMLInputElement>('[role="dialog"] input')!, "Estilo");
+    const antes = getsTenantConfig();
+    await clicar(botaoPorTexto("Salvar")!); // Salvar DO DIÁLOGO
+    await aguardar(() => toastMock.success.mock.calls.some((c) => c[0] === "Nomenclaturas salvas"), "Nomenclaturas salvas");
+    await aguardar(() => getsTenantConfig() > antes, "refetch pós-Nomenclaturas", 2000);
+    await esperar(300);
+
+    // A coluna nova continua na tela (não foi apagada pela re-hidratação) e o selo continua aceso.
+    expect(document.body.textContent).toContain(novoStatus);
+    expect(seloNaoSalvo()).toBe(true);
+
+    // E o Salvar da página grava a coluna nova (prova que não é só um resíduo visual "morto" —
+    // o diff/`kanbanBase` continuam corretos e o Salvar consegue gravar a edição real).
+    await salvarComoAQa();
+    const statusSalvo = FAKE.chamadas.find((c) => c.tabela === "tenant_config" && c.op === "update")?.payload as any;
+    expect(statusSalvo?.status_kanban).toContain(novoStatus);
   });
 });

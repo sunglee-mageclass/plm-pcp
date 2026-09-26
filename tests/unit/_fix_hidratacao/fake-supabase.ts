@@ -1,7 +1,8 @@
-// REPRO de investigação (26/set) — NÃO é teste do produto. Supabase FALSO, em memória, sem rede.
-// Cada leitura devolve um objeto NOVO (como o JSON.parse do PostgREST) — a estrutura compartilhada do
-// TanStack Query decide se a referência muda. Leituras podem ser SEGURADAS (gate) para simular a janela
-// de rede entre "formulário já na tela" e "dado chegou".
+// Base de testes de REGRESSÃO do produto (fix-hidratação, P-57 A — usado pelos 7 arquivos em
+// tests/unit/_fix_hidratacao/). Supabase FALSO, em memória, sem rede. Cada leitura devolve um
+// objeto NOVO (como o JSON.parse do PostgREST) — a estrutura compartilhada do TanStack Query
+// decide se a referência muda. Leituras podem ser SEGURADAS (gate) para simular a janela de rede
+// entre "formulário já na tela" e "dado chegou", ou FALHAR (`falhar`) para simular erro de rede.
 
 type Filtro = { col: string; val: unknown };
 export type Chamada = { tabela: string; op: string; filtros: Filtro[]; payload?: unknown; modo?: string };
@@ -17,17 +18,24 @@ export function criarFakeSupabase() {
   const linhas: Record<string, Record<string, any>[]> = {};
   const chamadas: Chamada[] = [];
   const gates: Record<string, Gate | null> = {};
+  // Fix hidratação rodada 1 (achado I1): próxima(s) leitura(s) da tabela devolvem erro em vez de
+  // dado — simula falha de rede (queryFn que hoje engole o erro passa a dar throw).
+  const falhas: Record<string, number> = {};
   const canais: { nome: string; ouvintes: { tabela: string; cb: (p: unknown) => void }[] }[] = [];
 
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
-  function resolverLeitura(c: Chamada): { data: any; error: null } {
+  function resolverLeitura(c: Chamada): { data: any; error: any } {
+    if (falhas[c.tabela] > 0) {
+      falhas[c.tabela] -= 1;
+      return { data: null, error: { message: "erro simulado (fix hidratação)", code: "FAKE_ERR" } };
+    }
     const rows = (linhas[c.tabela] ?? []).filter((r) => c.filtros.every((f) => r[f.col] === f.val));
     if (c.modo === "single" || c.modo === "maybeSingle") return { data: rows[0] ? clone(rows[0]) : null, error: null };
     return { data: clone(rows), error: null };
   }
 
-  function executar(c: Chamada): Promise<{ data: any; error: null }> {
+  function executar(c: Chamada): Promise<{ data: any; error: any }> {
     chamadas.push(c);
     if (c.op === "select") {
       const g = gates[c.tabela];
@@ -98,11 +106,14 @@ export function criarFakeSupabase() {
       for (const k of Object.keys(linhas)) delete linhas[k];
       chamadas.length = 0;
       for (const k of Object.keys(gates)) delete gates[k];
+      for (const k of Object.keys(falhas)) delete falhas[k];
       canais.length = 0;
     },
     chamadas,
     /** Segura TODAS as próximas leituras da tabela até `soltar()`. */
     segurar(tabela: string) { const g = novoGate(); gates[tabela] = g; return () => { gates[tabela] = null; g.soltar(); }; },
+    /** Faz as próximas `n` leituras (select) da tabela devolverem `{data:null,error}` em vez do dado. */
+    falhar(tabela: string, n = 1) { falhas[tabela] = n; },
     /** Emite um evento `postgres_changes` (o que o Realtime faz quando OUTRA escrita chega na tabela). */
     emitirRealtime(tabela: string) {
       for (const canal of canais) for (const o of canal.ouvintes) if (o.tabela === tabela) o.cb({ table: tabela });

@@ -245,22 +245,28 @@ function ConfiguracoesLojaPage() {
   // a F1 não confere isso sozinha).
   const diffEsperadoRef = useRef<KanbanColsValor>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: cfgLoadErrored, refetch: refetchCfg } = useQuery({
     queryKey: ["tenant-config", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data: u } = await supabase
+      // Fix hidratação rodada 1 (achado I1 da revisão): os dois SELECTs engoliam o erro (`const
+      // { data } = ...` sem checar) — uma falha de rede virava `cfg: null`, a tela caía nos
+      // DEFAULTS, e o Salvar upsertava os DEFAULTS por cima da linha real da loja (fuso, modos,
+      // leadtime, etapas PL, fluxo de revenda, ref_config…).
+      const { data: u, error: uErr } = await supabase
         .from("users")
         .select("tenant_id")
         .eq("id", user!.id)
         .maybeSingle();
+      if (uErr) throw uErr;
       const tenantId = u?.tenant_id;
       if (!tenantId) return { tenantId: null, cfg: null };
-      const { data: row } = await supabase
+      const { data: row, error: cfgErr } = await supabase
         .from("tenant_config")
         .select("*")
         .eq("tenant_id", tenantId)
         .maybeSingle();
+      if (cfgErr) throw cfgErr;
       return { tenantId, cfg: row };
     },
   });
@@ -524,6 +530,19 @@ function ConfiguracoesLojaPage() {
 
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
+  // Fix hidratação rodada 1 (achado I1 da revisão): carga com ERRO nunca deve cair nos DEFAULTS —
+  // mostra o aviso + "Tentar de novo" no lugar do formulário. Nenhum hook depois deste ponto
+  // (mesma verificação já feita para o `isLoading` abaixo).
+  if (cfgLoadErrored) {
+    return (
+      <div className="p-6 space-y-3 text-sm">
+        <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+        <Button type="button" variant="outline" size="sm" onClick={() => refetchCfg()}>
+          Tentar de novo
+        </Button>
+      </div>
+    );
+  }
   // Fix hidratação (P-57 A, §4.1, metade 1): não editar/salvar com DEFAULTS antes da 1ª carga —
   // sem isso, o usuário digita em cima de "" (fuso/kanban/etc. com cara de dado real) e a 1ª
   // resolução da query sobrescreve. Nenhum hook depois deste ponto (verificado).

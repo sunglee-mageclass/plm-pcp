@@ -39,7 +39,7 @@ vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastM
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar } from "./dom-helpers";
+import { montar, esperar, aguardar, clicar } from "./dom-helpers";
 import { Route } from "@/routes/_authenticated/expedicao.direcionamento.$modeloId";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
@@ -74,5 +74,54 @@ describe("[fix hidratação] Direcionamento — Salvar trava ANTES da hidrataç�
     await aguardar(() => salvar()!.disabled === false, "destrava após hidratar", 2000);
     // Nenhuma chamada de salvar_direcionamento foi feita enquanto estava travado.
     expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_direcionamento")).toBe(false);
+
+    // Achado M5 da revisão: o `expect` acima nunca clica — sem uma prova positiva, ele passaria
+    // até se o Salvar nunca disparasse a RPC (falso-positivo). Clica DEPOIS de destravar e prova
+    // que o payload leva as linhas de loja REAIS (não `_rows: []`, o payload vazio do bug).
+    await clicar(salvar()!);
+    await aguardar(() => FAKE.chamadas.some((c) => c.tabela === "rpc:salvar_direcionamento"), "rpc:salvar_direcionamento chamada");
+    const chamada = FAKE.chamadas.find((c) => c.tabela === "rpc:salvar_direcionamento")!;
+    expect((chamada.payload as any)?._rows?.length).toBeGreaterThan(0);
+  });
+
+  // Achado I1 da revisão: `cad_grades`/`direcionamento_lojas`/`lojas_direcionamento` engoliam o
+  // erro (`return data ?? []` sem checar) — uma falha de rede virava "sem linhas" e o Salvar
+  // mandaria `_rows:[]` com `_rev_base` válido (caso GRAVE, apaga TUDO — invariante #10).
+  it("I1: cad_grades falha ao carregar — Salvar continua DESABILITADO e aparece 'Tentar de novo'", async () => {
+    FAKE.falhar("cad_grades", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
+    await aguardar(() => !!salvar(), "botão Salvar na tela");
+    await esperar(80);
+    expect(salvar()!.disabled).toBe(true); // ← I1: nunca hidrata a partir de um erro
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
+    expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_direcionamento")).toBe(false);
+  });
+
+  // Achado M4 da revisão: a âncora de rev (`direcionamento_controle`) não entrava no gate de
+  // hidratação. Com o CAD e a grade real já carregados mas a âncora ainda em voo, `hydrated`
+  // virava true (não depende dela) e `revRef` ficava 0 — o Salvar mandaria `_rev_base=0`, que
+  // pode dar um P0409 falso ("Alguém salvou…") mesmo sem ninguém ter salvo.
+  it("M4: com CAD + grade carregados e a âncora de rev (direcionamento_controle) ainda em voo, o Salvar fica DESABILITADO", async () => {
+    const soltarControle = FAKE.segurar("direcionamento_controle");
+    const qc = new QueryClient();
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
+    await aguardar(() => !!salvar(), "botão Salvar na tela");
+    await aguardar(() => FAKE.chamadas.some((c) => c.tabela === "cad_grades"), "grade real lida");
+    await esperar(80);
+    expect(salvar()!.disabled).toBe(true); // ← M4: travado enquanto a âncora de rev não chegou
+
+    soltarControle();
+    await aguardar(() => salvar()!.disabled === false, "destrava após a âncora chegar", 2000);
   });
 });

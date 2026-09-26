@@ -71,4 +71,27 @@ describe("[fix hidratação] PCP Serviços — Salvar trava ANTES da hidrataçã
     soltar();
     await aguardar(() => salvar()!.disabled === false, "destrava após hidratar", 2000);
   });
+
+  // Achado I1 da revisão: o queryFn de `producao_terceirizados` já fazia `throw` em erro, mas o
+  // gate de hidratação (`existingFetched && !existingFetching`) não exigia `isSuccess` —
+  // `isFetched` também fica true depois de erro (TanStack v5). Uma falha de rede semeava com
+  // `existing=[]` (0 blocos) e um Salvar subsequente mandaria `_blocos:[]`, que
+  // `salvar_terceirizados` grava como DELETE de todos os blocos do CAD.
+  it("I1: producao_terceirizados falha ao carregar — Salvar continua DESABILITADO e aparece 'Tentar de novo'", async () => {
+    FAKE.falhar("producao_terceirizados", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Salvar"]')).at(-1) ?? null;
+    await aguardar(() => !!salvar(), "botão Salvar na tela");
+    await esperar(80);
+    expect(salvar()!.disabled).toBe(true); // ← I1: nunca hidrata a partir de um erro
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
+    expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_terceirizados")).toBe(false);
+  });
 });

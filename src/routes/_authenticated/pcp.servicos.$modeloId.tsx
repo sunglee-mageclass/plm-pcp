@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2, AlertTriangle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
@@ -480,7 +480,7 @@ export function TerceirizadosDetail({
   });
   const tamLabel = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
 
-  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
+  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching, isSuccess: existingOk, isError: existingErrored } = useQuery({
     queryKey: ["producao-terc", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -707,9 +707,13 @@ export function TerceirizadosDetail({
   // via mergeLinhas + células por bloco via mergeGrade) em vez de re-seed às cegas. Espera a
   // query ASSENTAR (isFetched && !isFetching): hidratar do cache vazio enquanto o refetch
   // ainda corria era o que zerava o formulário ao salvar.
+  // Fix hidratação rodada 1 (achado I1): exige `isSuccess` — `isFetched` sozinho também fica
+  // true depois de um ERRO (TanStack v5); sem isso, uma falha de rede semeava com `existing=[]`
+  // (0 blocos) e um Salvar subsequente mandaria `_blocos:[]`, que `salvar_terceirizados` grava
+  // como DELETE de todos os blocos do CAD (auditoria do report.md/review.md).
   useEffect(() => {
     if (!cad?.id) return;
-    if (!existingFetched || existingFetching) return;
+    if (!existingFetched || existingFetching || !existingOk) return;
     const fresh = blocosFromRows(existing as any[]);
     revByBlocoRef.current = Object.fromEntries((existing as any[]).filter((r) => r.id).map((r) => [r.id, Number(r.rev ?? 0)]));
 
@@ -749,7 +753,7 @@ export function TerceirizadosDetail({
     setUltimoMerge({ atualizados: ml.atualizadas.length + gradeAtual, conflitos: todos });
     baseBlocosRef.current = fresh;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing, cad?.id, existingFetched, existingFetching]);
+  }, [existing, cad?.id, existingFetched, existingFetching, existingOk]);
 
   // Colab: presença (quem está na tela) + reação a UPDATE/INSERT/DELETE de blocos alheios
   // (canal por cad; filtra por cad_id porque há N blocos por cad, sem id de raiz).
@@ -1134,10 +1138,13 @@ export function TerceirizadosDetail({
       <Pencil className="h-4 w-4" />
     </Button>
   ) : (
-    // Fix hidratação (P-57 A, metade 1): `salvar_terceirizados` audita como "diff incremental"
-    // em `producao_terceirizados` (upsert por bloco), mas o `grade_detalhe` destrinchado é
-    // gravado como objeto OPACO por bloco — travar o Salvar até `hydrated && moldeHydrated`
-    // é barato e fecha a classe (§4.3 da investigação).
+    // Fix hidratação (P-57 A, metade 1): `salvar_terceirizados` audita como ESTADO COMPLETO em
+    // `producao_terceirizados` — `DELETE FROM producao_terceirizados WHERE cad_id=_cad_id AND
+    // NOT (id=ANY(v_ids))` (não é diff incremental nem upsert-só-por-bloco: um payload `_blocos:
+    // []` apaga TODOS os blocos do CAD, exceto os que têm parcela paga, que abortam a operação
+    // inteira). O `grade_detalhe` destrinchado é gravado como objeto OPACO por bloco — travar o
+    // Salvar até `hydrated && moldeHydrated` é barato e fecha a classe (ver
+    // `.superpowers/fix-hidratacao/review.md`, auditoria das RPCs).
     <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || !moldeHydrated} aria-label="Salvar">
       <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
     </Button>
@@ -1631,12 +1638,32 @@ export function TerceirizadosDetail({
             className="mt-0.5"
             checked={semAcabamento}
             onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
-            disabled={blocosDaAba.length > 0 || readOnly || !cad?.id}
+            // Fix hidratação rodada 1 (achado M2 da revisão): + `!hydrated` — antes, com
+            // `blocos=[]` (ainda em voo), a guarda `blocosDaAba.length > 0` deixava marcar
+            // "sem acabamento" mesmo num modelo que tem serviços pós (o checkbox auto-salva).
+            disabled={blocosDaAba.length > 0 || readOnly || !cad?.id || !hydrated}
           />
           <span>Este modelo <b>não tem acabamento</b> (pós).</span>
         </label>
       )}
 
+      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (o gate exige
+          `existingOk`) — banner no lugar do formulário, com "Tentar de novo".
+          Fix hidratação rodada 1 (achado M3): sem erro, mas ainda não hidratado — "Carregando…"
+          no lugar do corpo (Status Geral/blocos), como pedia o brief original. */}
+      {cad?.id && existingErrored && !hydrated && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {cad?.id && !existingErrored && !hydrated && (
+        <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+      )}
+
+      {(!cad?.id || (!existingErrored && hydrated)) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -1815,6 +1842,7 @@ export function TerceirizadosDetail({
         </Card>
       )}
       </fieldset>
+      )}
 
       {/* Documento de impressão (oculto na tela; aparece só na impressão). Alterna
           entre Ficha Técnica e Ordem de Serviço conforme o botão — o CSS de print

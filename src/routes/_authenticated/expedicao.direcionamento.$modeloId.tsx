@@ -137,7 +137,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha
   // histórica). E-commerce (default) primeiro, depois ordem.
-  const { data: lojas = [], isFetched: lojasFetched, isFetching: lojasFetching } = useQuery({
+  const { data: lojas = [], isFetched: lojasFetched, isFetching: lojasFetching, isSuccess: lojasOk, isError: lojasErrored } = useQuery({
     queryKey: ["dir-lojas", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -151,18 +151,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     },
   });
 
-  const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching } = useQuery({
+  const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching, isSuccess: gradesOk, isError: gradesErrored } = useQuery({
     // Sufixo "reais": esta tela lê só variante_numero+grades_reais. A Oficina usa a
     // mesma raiz com colunas diferentes ("full") — sufixo evita shape errado no cache.
     // O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
     queryKey: ["cad-grades", cad?.id, "reais"],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase
+      // Fix hidratação rodada 1 (achado I1 da revisão): `throw` em erro — antes o erro era
+      // engolido (`return data ?? []` sem checar) e uma falha de rede virava "grade real vazia",
+      // o pior caso: o Salvar mandaria `_rows:[]` sobre uma grade real que na verdade existe
+      // (caso GRAVE do Direcionamento, invariante #10 — `_salvar_direcionamento_core` apaga tudo).
+      const { data, error } = await supabase
         .from("cad_grades")
         .select("variante_numero, grades_reais")
         .eq("cad_id", cad!.id)
         .order("variante_numero");
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -250,7 +255,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     return [...ordered, ...extras];
   }, [tenantCfg, cadGrades]);
 
-  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
+  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching, isSuccess: existingOk, isError: existingErrored } = useQuery({
     queryKey: ["direcionamento-lojas", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -313,7 +318,12 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Só hidrata quando AMBAS as queries assentaram — senão hidrata do cache vazio
   // (no 1º acesso e ao salvar) e os números somem.
-  const dataSettled = gradesFetched && !gradesFetching && existingFetched && !existingFetching && planoFetched && lojasFetched;
+  // Fix hidratação rodada 1 (achado I1): exige `isSuccess` das 3 queries que formam o payload do
+  // Salvar (`cadGrades`/`existing`/`lojas`) — `isFetched` sozinho também fica true depois de um
+  // ERRO (TanStack v5); sem isso, uma falha de rede hidratava como "sem linhas" e o Salvar
+  // mandaria `_rows:[]` (caso GRAVE — invariante #10, `_salvar_direcionamento_core` apaga tudo).
+  const dataSettled = gradesFetched && !gradesFetching && gradesOk && existingFetched && !existingFetching && existingOk && planoFetched && lojasFetched && lojasOk;
+  const dirLoadError = gradesErrored || existingErrored || lojasErrored;
 
   // Loja EDITÁVEL numa variante (ativa, ou inativa com par histórico) — usada pela regra do preenchimento
   // E pelos totais do plano exibidos na tela (M2, T7 fix2): o "plano N" da Grade Real Total, o total do
@@ -673,23 +683,28 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         <>
           {/* Fix hidratação (P-57 A): + `!hydrated` — o caso GRAVE da investigação (26/set §3): Salvar
               clicado com o CAD/rev já carregados mas a grade ainda em voo manda `_rows: []` com
-              `_rev_base` válido, e o core (estado COMPLETO) apaga TODAS as linhas de loja do CAD. */}
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+              `_rev_base` válido, e o core (estado COMPLETO) apaga TODAS as linhas de loja do CAD.
+              Fix hidratação rodada 1 (achado M4 da revisão): + `dirControle === undefined` — a
+              âncora de rev (`direcionamento_controle`) pode não ter resolvido ainda quando
+              `hydrated` vira true (não entra em `dataSettled`); sem essa trava, `revRef` fica 0 e
+              o usuário recebe um P0409 falso ("Alguém salvou…") ao salvar. */}
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
             title={temConflito ? "Resolva os conflitos antes de confirmar" : (motivo ?? undefined)}
             aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
-            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated || dirControle === undefined}
           >
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
         </>
       ) : editing ? (
         <>
-          {/* Fix hidratação (P-57 A): mesma trava `!hydrated` do Salvar acima (modo "editing" pós-confirmado). */}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A): mesma trava `!hydrated` do Salvar acima (modo "editing" pós-confirmado).
+              Fix hidratação rodada 1 (achado M4): + `dirControle === undefined`, mesmo motivo do Salvar acima. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated || dirControle === undefined} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">
@@ -745,6 +760,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
         </Button>
       </div>
+      {/* Fix hidratação rodada 1 (achado I1): carga com ERRO nunca hidrata (dataSettled exige
+          isSuccess) — banner no lugar do formulário, com "Tentar de novo". */}
+      {cad?.id && dirLoadError && !hydrated && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { refetch(); }}
+          >
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+
+      {!(cad?.id && dirLoadError && !hydrated) && (
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -967,6 +999,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         );
       })}
       </fieldset>
+      )}
 
       {confirmarPreencher && (
         <AlertDialog open onOpenChange={(o) => !o && setConfirmarPreencher(false)}>

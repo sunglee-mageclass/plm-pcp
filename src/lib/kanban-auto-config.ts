@@ -124,7 +124,46 @@ export function resolverEcoKanban(
   if (protegido) {
     return { cfgKanban: local, kanbanBase: baseAtual };
   }
-  return { cfgKanban: servidorNovo, kanbanBase: { cfg: servidorNovo, servidor: servidorNovo } };
+  return { cfgKanban: mesclarKanbanPorColuna(local, servidorNovo, baseAtual.cfg), kanbanBase: rebasearKanban(local, servidorNovo, baseAtual.cfg) };
+}
+
+/**
+ * Fix hidratação rodada 1 (achado I2 da revisão): fora da janela protegida, `resolverEcoKanban`
+ * devolvia o servidor por INTEIRO (as 5 colunas), mesmo quando o usuário tinha uma edição LOCAL
+ * ainda não salva numa delas — ex.: editar "Status do Kanban" e depois salvar o diálogo
+ * "Editar nomenclaturas por módulo" (que também re-hidrata `data.cfg`) apagava a edição do
+ * kanban em silêncio. Mesmo princípio do `mergeDraft`: uma coluna onde `local` diverge da BASE
+ * (`kanbanBase.cfg`, o último servidor aplicado) está "tocada" e sobrevive; uma coluna igual à
+ * base adota o servidor novo (não é edição minha, é uma mudança alheia/legítima chegando).
+ */
+export function mesclarKanbanPorColuna(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor): KanbanColsValor {
+  const out: KanbanColsValor = {};
+  for (const c of KANBAN_COLS) {
+    const tocada = jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
+    out[c] = tocada ? local[c] : servidorNovo[c];
+  }
+  return out;
+}
+
+/**
+ * `kanbanBase` acompanha o merge por coluna: uma coluna tocada mantém a base ANTIGA (o
+ * `conflitoKanban` do save precisa continuar comparando contra o valor de antes, para acusar se
+ * outro admin mudou justamente essa coluna nesse meio-tempo); uma coluna não tocada re-baseia no
+ * servidor novo (senão um diff futuro compararia contra um valor desatualizado).
+ */
+export function rebasearKanban(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor): { cfg: KanbanColsValor; servidor: KanbanColsValor } {
+  const cfg: KanbanColsValor = {};
+  const servidor: KanbanColsValor = {};
+  for (const c of KANBAN_COLS) {
+    const tocada = jsonCanonico(local[c] ?? null) !== jsonCanonico(base[c] ?? null);
+    // Tocada: NÃO re-baseia (fica com o valor de ANTES da minha edição) — o próximo
+    // `diffKanban(kanbanBase.cfg, cfg)` precisa continuar vendo `base[c] !== local[c]` para
+    // gravar a mudança; se `cfg[c]` virasse `local[c]` aqui, o diff daria vazio e o Salvar
+    // achando que essa coluna não mudou.
+    cfg[c] = tocada ? base[c] : servidorNovo[c];
+    servidor[c] = tocada ? base[c] : servidorNovo[c];
+  }
+  return { cfg, servidor };
 }
 
 const DESCRICAO_COL: Record<KanbanCol, string> = {

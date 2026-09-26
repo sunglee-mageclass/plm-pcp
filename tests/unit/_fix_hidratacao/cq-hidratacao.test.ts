@@ -1,10 +1,14 @@
 // @vitest-environment happy-dom
 // Teste de REGRESSÃO (P-57 A, fix hidratação) — CQ Pré + CQ Pós (metade 1, §4.3 da investigação).
-// Auditoria confirmou (subagente, 26/set): `_salvar_cq_core` faz `DELETE FROM cq_variantes WHERE
-// controle_qualidade_id=...` incondicional antes de reinserir o payload — "estado completo".
-// `_salvar_cq_pos_core` faz o mesmo em `cq_pos_variantes`. Ambos os Salvar/Confirmar já existiam
-// SEM olhar `hydrated`. Prova só o lado do cliente: os botões ficam desabilitados enquanto a
-// query do CQ (`["cq", cad?.id]`) ainda não assentou.
+// Auditoria de RPC conferida em `.superpowers/fix-hidratacao/review.md` (tabela "Auditoria das
+// RPCs" + achado I1): `_salvar_cq_core` (supabase/migrations/20260807120000_salvar_cq_rev_base.sql
+// :136-183) faz UPDATE do cabeçalho + `DELETE FROM cq_variantes WHERE controle_qualidade_id=...`
+// incondicional antes de reinserir — "estado completo". Se o CQ já está confirmado, ainda faz
+// upsert de `cad_grades.grades_reais` (sem bloco-fonte) — Grade Real pode ser zerada. `_salvar_cq_
+// pos_core` (20260720290000_cq_pos_datas_conserto.sql:57-66) faz o mesmo em `cq_pos_variantes`,
+// sem rev-check nenhum. Ambos os Salvar/Confirmar já existiam SEM olhar `hydrated`. Prova só o
+// lado do cliente: os botões ficam desabilitados enquanto a query do CQ (`["cq", cad?.id]`) ainda
+// não assentou.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() }));
@@ -77,5 +81,30 @@ describe("[fix hidratação] CQ Pré — Salvar/Confirmar travam ANTES da hidrat
     soltar();
     await aguardar(() => salvar()!.disabled === false, "destrava após hidratar", 2000);
     expect(confirmar()!.disabled).toBe(false);
+  });
+
+  // Achado I1 da revisão (review.md): o queryFn de `["cq", cad?.id]` ENGOLIA o erro (`const {
+  // data } = ...; return data;`) — uma falha de rede fazia `cqRow=null` (tela semeia "sem CQ"),
+  // `cqRevRef=null` (pula o rev-check, `_rev_base.cq=null`) e o Salvar gravaria por cima do
+  // cabeçalho + apagaria `cq_variantes`. Prova: com a leitura de `controle_qualidade` falhando,
+  // Salvar/Confirmar NUNCA destravam (hydrated nunca vira true) e aparece o aviso de erro.
+  it("I1: controle_qualidade falha ao carregar — Salvar/Confirmar continuam DESABILITADOS e aparece 'Tentar de novo'", async () => {
+    FAKE.falhar("controle_qualidade", 4); // sobrevive aos retries default do TanStack Query
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    const confirmar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Confirmar Controle de Qualidade"]');
+    await aguardar(() => !!salvar() && !!confirmar(), "botões na tela");
+    await esperar(80);
+    expect(salvar()!.disabled).toBe(true); // ← I1: nunca hidrata a partir de um erro
+    expect(confirmar()!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+
+    // Ainda desabilitado depois de esperar mais (não é só um atraso transitório).
+    await esperar(200);
+    expect(salvar()!.disabled).toBe(true);
   });
 });
