@@ -4,17 +4,20 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser } from "lucide-react";
+import { ChevronRight, Lock, ShoppingCart, MoreHorizontal, Eraser, Store } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OcHoverResumo } from "./OcHoverResumo";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { DragHandle } from "./dnd";
-import { necessidadePorTecido, buildMateriaisAplicar, fmtMetros } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, fmtMetros } from "@/lib/plan-tecido/calc";
+import { ehTecido1, materiaisParaAplicar } from "@/lib/plan-tecido/atendimento";
+import type { PresencaColab } from "@/hooks/useColabRegistro";
 import { fmtInt } from "@/lib/format";
 import { ehOrigemComprada, rotuloOrigem } from "@/lib/origem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -28,6 +31,8 @@ import { SlotOcHint } from "./SlotOcHint";
 import { ReferenciaDialog } from "./ReferenciaDialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useReadOnly } from "@/components/RequirePermission";
+import { DistribuirPorLojaDialog } from "./DistribuirPorLojaDialog";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   // numero = MAX(numero do mesmo tipo) + 1 — NUNCA por CONTAGEM. O material vindo do BOM (partição
@@ -83,6 +88,9 @@ export function ModelCard({
   variantesGrupoT1,
   situacaoRows,
   onAbrirOcDialog,
+  distribuicaoLigada,
+  presentesColab,
+  onFocoDistribuicao,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -124,6 +132,12 @@ export function ModelCard({
       (Cor·Pedido·Reserva·Sobra). `situacaoRows` alimenta o popover; `onAbrirOcDialog` abre o dialog. */
   situacaoRows?: SituacaoOcRow[];
   onAbrirOcDialog?: (ocId: string) => void;
+  /** Distribuição por produto (módulo `distribuicao`): pç derivado, "atende a" e o botão "Distribuir por loja". */
+  distribuicaoLigada?: boolean;
+  /** Presença do canal do Plan. Tecido — o dialog mostra quem está neste produto (R19). */
+  presentesColab?: PresencaColab[];
+  /** Marcador de presença de página do dialog aberto (`dist:{slot}:aberto`) — o PlanTecidoSheet o usa como campoFocado. */
+  onFocoDistribuicao?: (path: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -169,7 +183,7 @@ export function ModelCard({
 
   // BOM do slot com a grade distribuída por proporção (compartilhado por aplicar + auto-aplicar
   // do save — fonte única em `buildMateriaisAplicar`, @/lib/plan-tecido/calc).
-  const buildMateriais = () => buildMateriaisAplicar(slot);
+  const buildMateriais = () => materiaisParaAplicar(slot, !!distribuicaoLigada);
 
   const invalidarModelo = () => {
     void qc.invalidateQueries({ queryKey: ["modelo"] });
@@ -226,6 +240,12 @@ export function ModelCard({
   const isComprado = ehOrigemComprada(origem);
   // peças = grade total do Tecido 1 (base do modelo)
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
+  // Cores do Tecido 1 (base do "atende a" dos demais blocos — Distribuição por produto).
+  const t1Variantes = slot.materiais.find(ehTecido1)?.variantes;
+  // Dialog "Distribuir por loja" (montado só aberto — nasce limpo). Só leitura: enviado à Explosão (P-22) ou sem permissão.
+  const [distOpen, setDistOpen] = useState(false);
+  const paginaSoLeitura = useReadOnly();
+  const distSoLeitura = !!travado || paginaSoLeitura;
   const borderClass = open ? "border-primary" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
@@ -575,6 +595,37 @@ export function ModelCard({
                         laneCategoriaId={slot.categoria_tecido_id ?? null}
                         paleta={paleta}
                         variantesGrupo={i === tec1Idx ? variantesGrupoT1 : undefined}
+                        dist={distribuicaoLigada ? { ligado: true, t1: t1Variantes ?? [] } : undefined}
+                        acaoExtra={distribuicaoLigada && ehTecido1(m) ? (
+                          // Ruling do controlador (revisão T5/M1, fix1 · m2, fix2 · N3): este bloco vive dentro do
+                          // fieldset (disabled=readOnly de página) do SheetContent — um <button> nativo aqui seria
+                          // desabilitado mesmo sem `disabled` explícito, e a spec exige "ver e imprimir sem
+                          // permissão". Mesmo padrão já usado em ImagePreview.tsx para escapar de um fieldset
+                          // ancestral: `role="button"` (não elemento nativo) + tabIndex + Enter/Espaço. O visual
+                          // usa `buttonVariants` (não classes copiadas à mão) — MESMA chamada (`outline`/`sm`) dos
+                          // botões "+ tecido"/"+ forro" vizinhos, então a altura já bate (inclui `max-md:h-11` de
+                          // toque). NÃO trava o ponteiro à força quando não há cores: o handler bloqueia o
+                          // clique/tecla, e o `title` continua aparecendo no hover/foco; sem cor de hover no estado
+                          // `aria-disabled` (`hover:!bg-transparent`/`hover:!text-muted-foreground` com `!important`
+                          // — mesma convenção de cadastro.colaboradores.tsx — para vencer o `hover:bg-accent` do
+                          // outline não-`!important` independente da ordem de fonte do Tailwind, lição do N2).
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-disabled={m.variantes.length === 0}
+                            onClick={() => { if (m.variantes.length > 0) setDistOpen(true); }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                if (m.variantes.length > 0) setDistOpen(true);
+                              }
+                            }}
+                            title={m.variantes.length === 0 ? "Adicione as cores do Tecido 1 antes de distribuir" : undefined}
+                            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1 text-[11px]", m.variantes.length === 0 && "cursor-not-allowed text-muted-foreground hover:!bg-transparent hover:!text-muted-foreground")}
+                          >
+                            <Store className="h-4 w-4" />Distribuir por loja
+                          </div>
+                        ) : undefined}
                         onChange={(nm) => {
                           const materiais = slot.materiais.slice();
                           materiais[i] = nm;
@@ -682,6 +733,19 @@ export function ModelCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {distOpen && (
+        <DistribuirPorLojaDialog
+          slot={slot}
+          tamanhosGrade={tamanhos ?? []}
+          readOnly={distSoLeitura}
+          motivoSoLeitura={travado ? "Enviado à Explosão — só leitura (ver e imprimir)." : "Só leitura (ver e imprimir)."}
+          presentes={presentesColab ?? []}
+          onFoco={onFocoDistribuicao}
+          onSalvar={(novo) => { onChange(novo); setDistOpen(false); }}
+          onClose={() => setDistOpen(false)}
+        />
+      )}
     </>
   );
 }

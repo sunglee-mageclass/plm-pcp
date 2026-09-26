@@ -1,4 +1,6 @@
 import type { PtArvore, PtSub, PtLinha, PtSlot, PtMaterial, PtVariante } from "./types";
+import { varKey } from "./calc";
+import { ehTecido1, atendimentoDoBloco } from "./atendimento";
 
 export type SeedInput = {
   colecao_id: string;
@@ -24,7 +26,11 @@ export type ModeloRealMaterial = {
   consumo_cad?: number | null;
   loss_percent: number;
   // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador + cor_nome
-  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null }[];
+  // cor_id (cor base) alimenta o "atende a" automático; complementa_variante_ids = casamento do BOM (casar variantes).
+  // cor_apelido_id (Lote A fix1 · I3): junto de cor_id, monta a MESMA chave `cor|apelido` que a distribuição salva usa
+  // pra re-casar a cor PLANEJADA → real (`varKey`/`resolverChaveT1`); sem ele a chave viva ficava `cor_id|""` e nunca
+  // batia com a salva `cor_id|apelido_id`.
+  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null; cor_id?: string | null; cor_apelido_id?: string | null; complementa_variante_ids?: string[] | null }[];
 };
 export type ModeloReal = {
   id: string;
@@ -48,6 +54,8 @@ export type ModeloReal = {
   materiais: ModeloRealMaterial[];
   // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
   materiais_custo?: number;
+  // "Tamanho em" do modelo (modelos.tamanho_tipo) — só exibição no Plan. Tecido (dialog Distribuir por loja).
+  tamanho_tipo?: "letra" | "numero" | null;
   // grade por variante_numero (=ordem da variante): { grades, grade_total }
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
 };
@@ -55,6 +63,34 @@ export type ModeloReal = {
 // id client-side estável desde a criação: o save PRESERVA esse id (não regenera), então o slot.id em
 // memória bate com o do banco após salvar → aplicar_ao_modelo/set_slot_oc não recebem id defasado.
 const slotVazio = (i: number): PtSlot => ({ id: crypto.randomUUID(), modelo_id: null, slot_index: i, nome: null, custos_adicionais: [], materiais: [] });
+
+// PR11 (G-plano R2): o casamento do BOM (complementa_variante_ids) vira o "atende a" do plano. IGUAL ao automático —
+// toda cor casada do Tecido 1 tem a MESMA cor base da cor do bloco — volta NULL (automático): senão, depois do 1º aplicar,
+// uma cor NOVA do T1 com a mesma cor base deixaria de ser atendida sozinha (P-17). Outra cor base = lista à mão.
+// Lote A fix2 · N2/N3: devolve NULL (automático) em 2 casos — (a) os ids são EXATAMENTE o automático PURO deste
+// bloco (`automaticoIds`, OBRIGATÓRIO — o resultado de `atendimentoDoBloco` calculado pelo chamador com o BLOCO
+// INTEIRO, sem nenhuma amarração manual, NA MESMA ORDEM da exibição — N1); OU (b) TODOS os ids amarrados têm a
+// MESMA cor base da cor do bloco E nenhuma OUTRA cor do bloco (`semAmbiguidade`) tem essa `cor_id` — preserva o
+// PR11/P-17 (cor NOVA do T1 com a mesma cor base é atendida sozinha) mesmo quando o BOM do Sheet não atualizou os
+// `complementa_variante_ids` (o automático PURO calculado com o T1 do MOMENT0 da carga não inclui a cor nova, mas
+// a regra (b) não depende do T1 — só da cor base do bloco e da ausência de ambiguidade nele). Um bloco com 2 cores
+// da MESMA cor base (Preto·Fosco→vtA, Preto·Brilho→vtB) tem `semAmbiguidade=false` pras duas → (b) não se aplica;
+// (a) só bate se a amarração for EXATA. M6: os ids são filtrados pelos que AINDA estão em `corDoT1` (id velho de
+// cor removida do T1 não bloqueia o automático).
+export function atendeDoBom(
+  v: { cor_id?: string | null; complementa_variante_ids?: string[] | null },
+  corDoT1: Map<string, string | null>,
+  automaticoIds: string[],
+  semAmbiguidade: boolean,
+): string[] | null {
+  const ids = (Array.isArray(v.complementa_variante_ids) ? v.complementa_variante_ids.filter(Boolean) : []).filter((id) => corDoT1.has(id));
+  if (ids.length === 0) return null;
+  const a = new Set(automaticoIds);
+  const b = new Set(ids);
+  if (a.size === b.size && [...a].every((id) => b.has(id))) return null;
+  if (semAmbiguidade && v.cor_id && ids.every((id) => corDoT1.get(id) === v.cor_id)) return null;
+  return [...ids];
+}
 
 /** Converte um modelo real (BOM + grade) num slot pré-preenchido do Plan. Tecido. */
 export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
@@ -75,6 +111,19 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     if (g) g.mats.push(mat);
     else grupos.set(k, { tipo: mat.tipo, mats: [mat] });
   }
+  // PR11: cor base de cada variante do Tecido 1 do BOM — o 1º grupo de tecido (o mesmo que puxa a grade do Dev), com os
+  // substitutos — p/ reconhecer o casamento igual ao automático.
+  const gT1 = Array.from(grupos.values()).find((x) => x.tipo === "tecido");
+  const t1Mats = gT1?.mats ?? [];
+  const corDoT1 = new Map(
+    t1Mats.flatMap((m) => m.variantes.map((x) => [x.variante_tecido_id, x.cor_id ?? null] as const)),
+  );
+  // Lote A fix1 · I4: stub do T1 no formato que `atendimentoDoBloco`/`varKey` leem (variante_tecido_id/cor_id/
+  // cor_apelido_id) — usado abaixo p/ calcular o automático PURO (sem nenhuma amarração manual) de cada bloco.
+  const t1Stub: PtVariante[] = t1Mats.flatMap((m) => m.variantes).map((v) => ({
+    variante_tecido_id: v.variante_tecido_id, cor_id: v.cor_id ?? null, cor_apelido_id: null,
+    ordem: v.ordem, multiplicador: 1, grades: {}, grade_total: 0,
+  }));
   const seqPorTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
   const materiais: PtMaterial[] = Array.from(grupos.values()).map((g, mi) => {
     const numero = (seqPorTipo[g.tipo] = (seqPorTipo[g.tipo] ?? 0) + 1);
@@ -83,10 +132,32 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     // Só o TECIDO 1 (1º grupo de tecido na ordem de aparição = numero exibido 1) puxa a grade do Dev
     // (chaveada por variante_numero do bloco do Tecido 1; o grupo do Tecido 1 sempre é o 1º tecido).
     const puxaGradeDev = g.tipo === "tecido" && numero === 1;
-    // Variantes de TODOS os artigos do grupo, marcadas com o artigo real (p/ agrupar por fornecedor).
-    const variantes: PtVariante[] = g.mats
+    const ehT1 = g.tipo === "tecido" && numero === 1;
+    // Lote A fix2 · N1: a lista ordenada por `ordem` (a MESMA que produz `variantes` abaixo) — o `blocoStub` do
+    // automático PURO precisa iterar NA MESMA ORDEM que a normalização/exibição, senão a regra "1ª candidata livre
+    // vence" do `atendimentoDoBloco` pode escolher um "1º" diferente entre o stub (ordem dos artigos do grupo) e o
+    // real (ordem por `ordem`) — ex.: substituto (artigo 2) com `ordem` menor que o principal (artigo 1).
+    const ordenados = g.mats
       .flatMap((m) => m.variantes.map((v) => ({ v, artigo_id: m.artigo_id })))
-      .sort((a, b) => (a.v.ordem ?? 0) - (b.v.ordem ?? 0))
+      .sort((a, b) => (a.v.ordem ?? 0) - (b.v.ordem ?? 0));
+    // Lote A fix1 · I4: automático PURO deste bloco (sem amarração manual nenhuma) — mesma função do automático
+    // da T2 (`atendimentoDoBloco`), calculada com o BLOCO INTEIRO, na ordem de exibição; usado abaixo p/ decidir,
+    // variante a variante, se a amarração do BOM bate EXATAMENTE com o que o automático daria (2 cores da mesma
+    // cor base no bloco fazem o automático entregar as duas à 1ª — uma amarração parcial não é igual, fica à mão).
+    const blocoStub: PtVariante[] = ehT1 ? [] : ordenados.map(({ v }) => ({
+      variante_tecido_id: v.variante_tecido_id, cor_id: v.cor_id ?? null, cor_apelido_id: null,
+      ordem: v.ordem, multiplicador: 1, grades: {}, grade_total: 0,
+    }));
+    const autoDoBloco = ehT1 ? null : atendimentoDoBloco(t1Stub, blocoStub);
+    // Lote A fix2 · N2: nenhuma OUTRA cor do bloco (forro/T2) com a MESMA cor_id — guarda contra o casamento
+    // "automático" virar NULL quando há ambiguidade real (2 cores do bloco disputando a mesma cor base).
+    const corIdUnicaNoBloco = ehT1 ? null : (() => {
+      const cont = new Map<string, number>();
+      for (const { v } of ordenados) if (v.cor_id) cont.set(v.cor_id, (cont.get(v.cor_id) ?? 0) + 1);
+      return cont;
+    })();
+    // Variantes de TODOS os artigos do grupo, marcadas com o artigo real (p/ agrupar por fornecedor).
+    const variantes: PtVariante[] = ordenados
       .map(({ v, artigo_id }, vi) => {
         const g2 = puxaGradeDev ? mr.grade[v.ordem] : undefined;
         return {
@@ -98,6 +169,13 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
           grade_total: Number(g2?.grade_total) || 0,
           cor_nome: v.cor_nome ?? null,
           label: v.label ?? undefined,
+          cor_id: v.cor_id ?? null,
+          cor_apelido_id: v.cor_apelido_id ?? null,
+          // Distribuição por produto (R3/R7): o casamento do BOM é o "atende a" fora do Tecido 1 (NULL = automático);
+          // igual ao automático (EXATO — I4) OU mesma cor base sem ambiguidade no bloco (N2) volta NULL — PR11.
+          ...(ehT1 ? {} : {
+            atende: atendeDoBom(v, corDoT1, autoDoBloco?.porCor.get(v.variante_tecido_id) ?? [], (corIdUnicaNoBloco?.get(v.cor_id ?? "") ?? 0) <= 1),
+          }),
         };
       });
     return {
@@ -124,6 +202,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     nome: mr.nome ?? null,
     thumb_path: mr.thumb_path ?? null,
     proporcoes: mr.proporcoes ?? null,
+    tamanho_tipo: mr.tamanho_tipo ?? null,
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,
     // categoriza AUTOMATICAMENTE pela categoria de tecido do Tecido 1 (sem clicar "Agrupar")
@@ -319,6 +398,94 @@ export function comGradeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | nul
   });
 }
 
+// Distribuição por produto (spec R7) — mesmo princípio "Dev vence só se preenchido": o BOM vivo nunca tem distribuição;
+// ela mora SÓ no plano. Leva a distribuição salva para a cor viva do Tecido 1 pela chave (`varKey`); a cor PLANEJADA
+// salva que virou variante real no Dev é casada por cor + apelido. Sem nada a levar ⇒ o MESMO array.
+export function comDistribuicaoDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  const sT1 = salvos.find(ehTecido1);
+  const salvasT1 = sT1?.variantes ?? [];
+  const comDist = salvasT1.filter((v) => Object.keys(v.distribuicao ?? {}).length > 0);
+  if (comDist.length === 0) return vivos;
+  const porKey = new Map(comDist.map((v) => [varKey(v), v.distribuicao!] as const));
+  // Lote A fix1 · C2: o fallback por combo (cor PLANEJADA→real, R16) só pode usar variantes SALVAS PLANEJADAS
+  // (variante_tecido_id null — nunca uma irmã de cor real já materializada, senão uma cor viva sem distribuição
+  // herdava a da irmã de mesma cor base); só vale para uma chave viva que NÃO existe entre as salvas (senão a
+  // própria já teria distribuição própria, mesmo vazia); e só quando há UM ÚNICO candidato daquela combinação
+  // cor+apelido (2+ candidatos = ambíguo, não escolhe nenhum).
+  const chavesSalvas = new Set(salvasT1.map(varKey));
+  const porComboContagem = new Map<string, number>();
+  for (const v of comDist) {
+    if (v.variante_tecido_id != null || !v.cor_id) continue;
+    const c = `${v.cor_id}|${v.cor_apelido_id ?? ""}`;
+    porComboContagem.set(c, (porComboContagem.get(c) ?? 0) + 1);
+  }
+  const porCombo = new Map<string, PtVariante["distribuicao"]>(
+    comDist
+      .filter((v) => v.variante_tecido_id == null && !!v.cor_id && porComboContagem.get(`${v.cor_id}|${v.cor_apelido_id ?? ""}`) === 1)
+      .map((v) => [`${v.cor_id}|${v.cor_apelido_id ?? ""}`, v.distribuicao!]),
+  );
+  let mudouAlgum = false;
+  const out = vivos.map((m) => {
+    if (!ehTecido1(m)) return m;
+    let mudou = false;
+    // Lote A fix2 · N4: uma combo planejada (cor+apelido) que casa com 2+ variantes VIVAS iguais (ex.: principal +
+    // substituto, mesma cor·apelido) é herdada SÓ pela 1ª em `ordem` — nunca conta a mesma distribuição 2×; as
+    // demais ficam sem (o Salvar do dialog é que decide se elas ganham distribuição própria).
+    const combosConsumidos = new Set<string>();
+    const porOrdem = [...m.variantes].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+    const distDe = new Map<PtVariante, PtVariante["distribuicao"]>();
+    for (const v of porOrdem) {
+      if (Object.keys(v.distribuicao ?? {}).length > 0) continue;
+      const chave = varKey(v);
+      const porChave = porKey.get(chave);
+      if (porChave) { distDe.set(v, porChave); continue; }
+      if (chavesSalvas.has(chave) || !v.cor_id) continue;
+      const combo = `${v.cor_id}|${v.cor_apelido_id ?? ""}`;
+      if (combosConsumidos.has(combo)) continue;
+      const d = porCombo.get(combo);
+      if (!d) continue;
+      combosConsumidos.add(combo);
+      distDe.set(v, d);
+    }
+    const variantes = m.variantes.map((v) => {
+      const d = distDe.get(v);
+      if (!d) return v;
+      mudou = true;
+      return { ...v, distribuicao: d };
+    });
+    if (!mudou) return m;
+    mudouAlgum = true;
+    return { ...m, variantes };
+  });
+  return mudouAlgum ? out : vivos;
+}
+
+// "Atende a" (spec R7): o casamento do BOM vivo (complementa_variante_ids) VENCE; cor sem casamento no BOM (NULL) usa a
+// lista salva no plano (mesmo bloco: tipo + número + artigo). O Tecido 1 nunca casa.
+export function comAtendeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  let mudouAlgum = false;
+  const out = vivos.map((m) => {
+    if (ehTecido1(m)) return m;
+    const s = salvos.find((x) => x.tipo === m.tipo && Number(x.numero) === Number(m.numero) && (x.artigo_id ?? null) === (m.artigo_id ?? null));
+    const porKey = new Map((s?.variantes ?? []).filter((v) => Array.isArray(v.atende)).map((v) => [varKey(v), v.atende!] as const));
+    if (porKey.size === 0) return m;
+    let mudou = false;
+    const variantes = m.variantes.map((v) => {
+      if (Array.isArray(v.atende)) return v;
+      const a = porKey.get(varKey(v));
+      if (!a) return v;
+      mudou = true;
+      return { ...v, atende: [...a] };
+    });
+    if (!mudou) return m;
+    mudouAlgum = true;
+    return { ...m, variantes };
+  });
+  return mudouAlgum ? out : vivos;
+}
+
 // artigo_id do Tecido 1 (tipo==='tecido' && numero===1) de um slot — SSOT usado por
 // moverParaFamiliaDoTecido (G2) E normalizarCategoriasAuto (bug lane congelada, ago/2026): a
 // "categoria auto" de um card é SEMPRE derivada deste mesmo artigo, nunca de forro/Tecido 2+.
@@ -460,8 +627,17 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
             // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
             // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
+            // … → pç → distribuição (Tecido 1) → "atende a" (demais blocos) — Distribuição por produto, spec R7.
             materiais: effModeloId
-              ? (live?.materiais?.length ? comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais) : (saved.materiais ?? []))
+              ? (live?.materiais?.length
+                  ? comAtendeDoPlano(
+                      comDistribuicaoDoPlano(
+                        comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais),
+                        saved.materiais,
+                      ),
+                      saved.materiais,
+                    )
+                  : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };

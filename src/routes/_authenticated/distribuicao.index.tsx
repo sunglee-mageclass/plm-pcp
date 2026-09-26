@@ -1,7 +1,7 @@
 // Tela "Distribuição" — resumo automático da coleção + N tabelas de distribuição por loja.
 // Módulo opt-in (padrão OTB: RequirePermission, sem ModuleGuard — empty-state quando OFF).
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { BarChart3, Plus, Loader2, Lock } from "lucide-react";
@@ -18,13 +18,36 @@ import { DistribuicaoTabela } from "@/components/distribuicao/DistribuicaoTabela
 import type { ResumoData } from "@/components/distribuicao/ResumoColecao";
 import type { TabelaRow } from "@/components/distribuicao/DistribuicaoTabela";
 
+// Dono 26/set (P-49 B): página antiga OCULTA e DESATIVADA — a distribuição agora é feita por produto, no
+// "Distribuir por loja" do Plan. Tecido. O código abaixo fica guardado para a aposentadoria (feita depois, em partes).
+// Reativar = PAGINA_ATIVA = true + devolver a página ao menu (nav.ts, permissions-catalog.ts, app-sidebar.tsx,
+// useTenantModules.ts e admin/lojas.tsx voltam como estavam antes deste commit).
+const PAGINA_ATIVA = false;
+
 export const Route = createFileRoute("/_authenticated/distribuicao/")({
-  component: () => (
-    <RequirePermission page="distribuicao">
-      <DistribuicaoPage />
-    </RequirePermission>
-  ),
+  component: () =>
+    PAGINA_ATIVA ? (
+      <RequirePermission page="distribuicao">
+        <DistribuicaoPage />
+      </RequirePermission>
+    ) : (
+      <PaginaDesativada />
+    ),
 });
+
+function PaginaDesativada() {
+  const navigate = useNavigate();
+  return (
+    <div className="container mx-auto p-4 md:p-6">
+      <EmptyState
+        icon={BarChart3}
+        title="Tela desativada"
+        description="Use Distribuir por loja no Plan. Tecido."
+        action={{ label: "Ir para o Plan. Tecido", onClick: () => navigate({ to: "/criacao/plan-tecido" }) }}
+      />
+    </div>
+  );
+}
 
 type ColOpt = { id: string; nome: string };
 

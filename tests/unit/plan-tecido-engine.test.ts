@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, moverParaFamiliaDoTecido, normalizarCategoriasAuto, comDistribuicaoDoPlano, comAtendeDoPlano, atendeDoBom, type ModeloReal } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
+import { atendimentoDoBloco, materiaisParaAplicar } from "@/lib/plan-tecido/atendimento";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -762,5 +763,269 @@ describe("plan-tecido/engine", () => {
       expect(slots.filter((s) => s.modelo_id).length).toBe(1);
       expect(slots.filter((s) => !s.modelo_id).length).toBe(1); // planejou 2, tem 1 → 1 vaga real
     });
+  });
+});
+
+describe("plan-tecido/engine — Distribuição por produto (Task 3)", () => {
+  const baseMr = (materiais: ModeloReal["materiais"]): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
+  });
+  it("slotDeModeloReal: cor_id em todas; casamento do BOM vira 'atende' fora do T1 (igual ao automático ⇒ NULL — PR11); tamanho_tipo no slot", () => {
+    const s = slotDeModeloReal(baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: null },
+        { variante_tecido_id: "vt2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: null },
+      ] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }, // = automático (mesma cor base)
+        { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, cor_id: "c2", complementa_variante_ids: ["vt1"] }, // à mão (outra cor base)
+        { variante_tecido_id: "fr3", ordem: 3, multiplicador: 1, cor_id: "c3", complementa_variante_ids: null },
+      ] },
+    ]), 0);
+    expect(s.tamanho_tipo).toBe("numero");
+    expect(s.materiais[0].variantes[0]).toMatchObject({ cor_id: "c1" });
+    expect(s.materiais[0].variantes[0]).not.toHaveProperty("atende");
+    expect(s.materiais[1].variantes.map((v) => v.atende)).toEqual([null, ["vt1"], null]);
+  });
+  it("PR11 (G-plano R2): depois do 1º aplicar, uma cor NOVA do T1 com a mesma cor base é atendida sozinha (P-17)", () => {
+    const s = slotDeModeloReal(baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1"] }] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull();
+    const t1 = [...s.materiais[0].variantes, { ...s.materiais[0].variantes[0], variante_tecido_id: "vt1b", ordem: 2 }];
+    expect(atendimentoDoBloco(t1, s.materiais[1].variantes).porCor.get("fr1")).toEqual(["vt1", "vt1b"]);
+    // Lote A fix2 · N3: automaticoIds OBRIGATÓRIO — [] (não bate com ["vt1","vt2"]) + semAmbiguidade=true (regra (b)
+    // ainda não vale: vt2 tem cor base DIFERENTE de c1 — ids.every(...) falha, fica à mão de qualquer forma).
+    expect(atendeDoBom({ cor_id: "c1", complementa_variante_ids: ["vt1", "vt2"] }, new Map([["vt1", "c1"], ["vt2", "c2"]]), [], true)).toEqual(["vt1", "vt2"]);
+  });
+  it("comDistribuicaoDoPlano: leva a distribuição salva para a cor viva do T1 (por chave e, planejada→real, por cor+apelido)", () => {
+    const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+      { variante_tecido_id: "vt2", cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+    ] }];
+    const r = comDistribuicaoDoPlano(vivos, salvos);
+    expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, d]);
+    expect(comDistribuicaoDoPlano(vivos, [])).toBe(vivos);
+  });
+  it("comAtendeDoPlano: BOM com casamento vence; sem casamento no BOM vale o do plano", () => {
+    const vivos = [{ artigo_id: "F", tipo: "forro" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 1, variantes: [
+      { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtA"] },
+      { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0, atende: null },
+    ] }];
+    const salvos = [{ artigo_id: "F", tipo: "forro" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 1, variantes: [
+      { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtB"] },
+      { variante_tecido_id: "fr2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 0, atende: ["vtC"] },
+    ] }];
+    expect(comAtendeDoPlano(vivos, salvos)[0].variantes.map((v) => v.atende)).toEqual([["vtA"], ["vtC"]]);
+  });
+  it("mergeArvore: card real mantém a distribuição e o 'atende' salvos depois do 'Dev vence'", () => {
+    const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets: [], modelos: [baseMr([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c9" }] },
+    ])] });
+    const salvo: PtArvore = { ...seed, subcolecoes: seed.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((sl) => ({
+      ...sl, materiais: [
+        { ...sl.materiais[0], variantes: [{ ...sl.materiais[0].variantes[0], distribuicao: d }] },
+        { ...sl.materiais[1], variantes: [{ ...sl.materiais[1].variantes[0], atende: ["vt1"] }] },
+      ] })) })) })) };
+    const m = mergeArvore(seed, salvo).subcolecoes[0].linhas[0].slots[0].materiais;
+    expect(m[0].variantes[0].distribuicao).toEqual(d);
+    expect(m[1].variantes[0].atende).toEqual(["vt1"]);
+  });
+});
+
+describe("plan-tecido/engine — Lote A rodada de correção 1 (C1, C2, I3, I4, M3, M4, M5, M6, M8)", () => {
+  const baseMr2 = (materiais: ModeloReal["materiais"]): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
+  });
+  const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+
+  it("C2: irmã não herda — 'A Preto' distribuída e 'B Preto' sem distribuição dão pç [40, 7], não [40, 40]", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vtA", cor_id: "preto", ordem: 1, multiplicador: 1, grades: { "38|P": 40 }, grade_total: 40 },
+      { variante_tecido_id: "vtB", cor_id: "preto", ordem: 2, multiplicador: 1, grades: { "38|P": 7 }, grade_total: 7 },
+    ] }];
+    // "A Preto" salva com distribuição PRÓPRIA (variante REAL, não planejada); "B Preto" salva SEM distribuição.
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vtA", cor_id: "preto", ordem: 1, multiplicador: 1, grades: { "38|P": 40 }, grade_total: 40, distribuicao: d },
+      { variante_tecido_id: "vtB", cor_id: "preto", ordem: 2, multiplicador: 1, grades: { "38|P": 7 }, grade_total: 7 },
+    ] }];
+    const r = comDistribuicaoDoPlano(vivos, salvos);
+    expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, undefined]);
+    expect(r[0].variantes.map((v) => v.grade_total)).toEqual([40, 7]); // pç do BOM vivo intocado (comDistribuicaoDoPlano só leva a distribuição)
+  });
+
+  it("C2: caminho planejada→real continua funcionando (cor PLANEJADA salva por cor+apelido, sem irmã ambígua)", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt2", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      // salva PLANEJADA (variante_tecido_id null) — única candidata daquela combinação cor+apelido
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+    ] }];
+    expect(comDistribuicaoDoPlano(vivos, salvos)[0].variantes[0].distribuicao).toEqual(d);
+  });
+
+  it("C2: 2+ candidatos PLANEJADOS da mesma combo (ambíguo) NÃO escolhe nenhum", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vt9", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: d },
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: {}, grade_total: 1, distribuicao: { lf: { base: 2, grades: {}, manuais: [] } } },
+    ] }];
+    expect(comDistribuicaoDoPlano(vivos, salvos)[0].variantes[0].distribuicao).toBeUndefined();
+  });
+
+  it("I3: caminho REAL slotDeModeloReal → mergeArvore — a planejada 'c2·a2' que virou variante real leva a distribuição, chaveada por cor+apelido", () => {
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda", buckets: [], modelos: [baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt2", ordem: 1, multiplicador: 1, cor_id: "c2", cor_apelido_id: "a2" },
+      ] },
+    ])] });
+    const salvo: PtArvore = { ...seed, subcolecoes: seed.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l, slots: l.slots.map((sl) => ({
+      ...sl, materiais: [
+        { ...sl.materiais[0], variantes: [
+          // salva PLANEJADA (a mesma cor·apelido "Marrom · Canela" antes de virar variante real)
+          { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: {}, grade_total: 3, distribuicao: d },
+        ] },
+      ] })) })) })) };
+    const m = mergeArvore(seed, salvo).subcolecoes[0].linhas[0].slots[0].materiais;
+    expect(m[0].variantes[0].variante_tecido_id).toBe("vt2"); // agora é a variante REAL
+    expect(m[0].variantes[0].distribuicao).toEqual(d);
+  });
+
+  it("I4/M6: bloco com 2 cores da MESMA cor base (Preto·Fosco→vtA, Preto·Brilho→vtB) — amarração PARCIAL fica à mão (não vira NULL)", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "frA", ordem: 1, multiplicador: 1, cor_id: "preto", label: "Fosco", complementa_variante_ids: ["vt1"] },
+        { variante_tecido_id: "frB", ordem: 2, multiplicador: 1, cor_id: "preto", label: "Brilho", complementa_variante_ids: [] },
+      ] },
+    ]), 0);
+    // o automático PURO entregaria vt1 à 1ª (frA); a amarração do BOM (frA→[vt1]) bate exatamente com isso — mas
+    // como o bloco tem 2 cores da mesma cor base, a amarração é IGUAL ao automático aqui (não há ambiguidade real:
+    // só 1 cor do T1 pra 2 candidatas do bloco); a prova de "não vira NULL cegamente por cor_id" está no 2º caso.
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // frA: igual ao automático puro (vt1 pra 1ª candidata)
+    expect(s.materiais[1].variantes[1].atende).toBeNull(); // frB: sem casamento nenhum (complementa_variante_ids=[])
+  });
+
+  it("I4/M6: amarração que dá TODAS as cores do T1 à 2ª candidata (∅ igual ao automático, que dá à 1ª) fica à mão", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "frA", ordem: 1, multiplicador: 1, cor_id: "preto", complementa_variante_ids: [] }, // sem casamento
+        { variante_tecido_id: "frB", ordem: 2, multiplicador: 1, cor_id: "preto", complementa_variante_ids: ["vt1"] }, // casa com vt1 à MÃO (o automático daria a vt1 à frA, a 1ª)
+      ] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // frA: sem casamento nenhum
+    expect(s.materiais[1].variantes[1].atende).toEqual(["vt1"]); // frB: amarração ≠ automático (que daria vt1 à frA) → à mão
+  });
+
+  it("M6: id velho (fora de corDoT1) não bloqueia o automático", () => {
+    const s = slotDeModeloReal(baseMr2([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "c1" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "c1", complementa_variante_ids: ["vt1", "vt-removido"] },
+      ] },
+    ]), 0);
+    expect(s.materiais[1].variantes[0].atende).toBeNull(); // "vt-removido" não existe mais no T1 — filtrado, sobra só vt1 = automático
+  });
+
+  it("atendeDoBom: cor base diferente entre os ids amarrados fica à mão mesmo com semAmbiguidade=true (regra (b) exige TODOS na mesma cor base)", () => {
+    expect(atendeDoBom({ cor_id: "c1", complementa_variante_ids: ["vt1", "vt2"] }, new Map([["vt1", "c1"], ["vt2", "c2"]]), [], true)).toEqual(["vt1", "vt2"]);
+  });
+});
+
+describe("plan-tecido/engine — Lote A rodada de correção 2 (N1, N2, N4)", () => {
+  const baseMr3 = (materiais: ModeloReal["materiais"]): ModeloReal => ({
+    id: "m1", ref: "R", nome: "N", subcolecao: null, subcolecao_id: null, linha_id: null, categoria_id: null,
+    proporcoes: null, materiais, grade: { 1: { grades: { "38|P": 3 }, grade_total: 3 } }, tamanho_tipo: "numero",
+  });
+  const d = { ec: { base: 1, grades: { "38|P": 1 }, manuais: [] } };
+
+  it("N1: fr-a (principal, ordem 2) amarrado a [vtP] + substituto fr-b de mesma cor base (ordem 1) — a amarração continua em fr-a; payload regrava fr-a:[vtP], fr-b:[]", () => {
+    const s = slotDeModeloReal(baseMr3([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vtP", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      // fr-a = PRINCIPAL (1º material do grupo forro|1 no array de entrada), mas ordem 2 (aparece DEPOIS na exibição)
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr-a", ordem: 2, multiplicador: 1, cor_id: "preto", complementa_variante_ids: ["vtP"] },
+      ] },
+      // fr-b = SUBSTITUTO (2º material do MESMO grupo forro|1 — artigo diferente), ordem 1 (aparece ANTES na exibição)
+      { tipo: "forro", numero: 1, artigo_id: "F2", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr-b", ordem: 1, multiplicador: 1, cor_id: "preto", complementa_variante_ids: [] },
+      ] },
+    ]), 0);
+    // exibição ordenada por `ordem`: fr-b (ordem 1) vem ANTES de fr-a (ordem 2)
+    const forro = s.materiais[1];
+    expect(forro.variantes.map((v) => v.variante_tecido_id)).toEqual(["fr-b", "fr-a"]);
+    const porId = Object.fromEntries(forro.variantes.map((v) => [v.variante_tecido_id, v.atende]));
+    // Com o stub ordenado por `ordem` (N1), a 1ª candidata do automático PURO é fr-b (ordem 1, sem amarração) — o
+    // automático daria vtP a fr-b, não a fr-a. A amarração REAL do BOM (fr-a → [vtP]) NÃO bate com isso (a) e há
+    // ambiguidade no bloco — 2 cores "preto" (b não vale) — então fr-a fica À MÃO (preserva a amarração do Sheet,
+    // não vira null cegamente nem "escorrega" pra fr-b). Sem o fix (stub na ordem dos ARTIGOS, fr-a antes de fr-b),
+    // o automático puro daria vtP à fr-a (1ª do stub errado) e a amarração bateria por acidente, virando null.
+    expect(porId["fr-a"]).toEqual(["vtP"]);
+    expect(porId["fr-b"]).toBeNull();
+    const payload = materiaisParaAplicar(s, true);
+    const forroPayload = payload[1];
+    const porIdPayload = Object.fromEntries(forroPayload.variantes.map((v: any, i: number) => [forro.variantes[i].variante_tecido_id, v.complementa_variante_ids]));
+    expect(porIdPayload["fr-a"]).toEqual(["vtP"]);
+    expect(porIdPayload["fr-b"]).toEqual([]);
+  });
+
+  it("N2: T1 vt1+vt1b (mesma base) e forro fr1:[vt1] (só ele no bloco) ⇒ atende null e pç do forro = 15, não 10", () => {
+    const s = slotDeModeloReal(baseMr3([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" },
+        { variante_tecido_id: "vt1b", ordem: 2, multiplicador: 1, cor_id: "preto" },
+      ] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "fr1", ordem: 1, multiplicador: 1, cor_id: "preto", complementa_variante_ids: ["vt1"] },
+      ] },
+    ]), 0);
+    // regra (b): fr1 amarra só vt1 (mesma cor base "preto"), e NENHUMA outra cor do bloco forro tem cor_id "preto"
+    // (fr1 é o único) ⇒ semAmbiguidade=true ⇒ null (automático), mesmo o BOM não tendo atualizado pra ["vt1","vt1b"].
+    expect(s.materiais[1].variantes[0].atende).toBeNull();
+    // pç do forro = soma de AMBAS as cores do T1 (o automático real, via atendimentoDoBloco, casa vt1 E vt1b com fr1
+    // porque fr1 é a única cor "preto" do bloco) — grade_total 10 (fr1 nasce sem grade própria no BOM) não é o que
+    // interessa aqui; a prova de "15, não 10" é feita via normalizarSlotDistribuicao (T2), que deriva o pç real.
+    const at = atendimentoDoBloco(s.materiais[0].variantes, s.materiais[1].variantes);
+    expect(at.porCor.get("fr1")).toEqual(["vt1", "vt1b"]);
+  });
+
+  it("N2: Fosco/Brilho continua à mão (ambiguidade no bloco impede a regra (b))", () => {
+    const s = slotDeModeloReal(baseMr3([
+      { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [{ variante_tecido_id: "vt1", ordem: 1, multiplicador: 1, cor_id: "preto" }] },
+      { tipo: "forro", numero: 1, artigo_id: "F", consumo: 1, loss_percent: 0, variantes: [
+        { variante_tecido_id: "frA", ordem: 1, multiplicador: 1, cor_id: "preto", label: "Fosco", complementa_variante_ids: ["vt1"] },
+        { variante_tecido_id: "frB", ordem: 2, multiplicador: 1, cor_id: "preto", label: "Brilho", complementa_variante_ids: ["vt1"] },
+      ] },
+    ]), 0);
+    // frA bate no automático EXATO (1ª candidata em ordem) ⇒ null; frB tem a MESMA amarração mas NÃO é a 1ª
+    // candidata (automático dá [] a frB) e a regra (b) não vale (ambiguidade: frA também é "preto") ⇒ à mão.
+    expect(s.materiais[1].variantes[0].atende).toBeNull();
+    expect(s.materiais[1].variantes[1].atende).toEqual(["vt1"]);
+  });
+
+  it("N4: cor planejada salva de 10 casa com 2 variantes VIVAS iguais (principal + substituto) — só a 1ª em ordem herda; pç [10, 0]", () => {
+    const vivos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: "vtPrincipal", cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: { "38|P": 10 }, grade_total: 10 },
+      { variante_tecido_id: "vtSubstituto", cor_id: "c2", cor_apelido_id: "a2", ordem: 2, multiplicador: 1, grades: { "38|P": 10 }, grade_total: 10 },
+    ] }];
+    const salvos = [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+      { variante_tecido_id: null, cor_id: "c2", cor_apelido_id: "a2", ordem: 1, multiplicador: 1, grades: { "38|P": 10 }, grade_total: 10, distribuicao: d },
+    ] }];
+    const r = comDistribuicaoDoPlano(vivos, salvos);
+    expect(r[0].variantes.map((v) => v.distribuicao)).toEqual([d, undefined]);
   });
 });

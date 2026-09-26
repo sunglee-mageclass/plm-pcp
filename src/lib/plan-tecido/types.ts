@@ -1,9 +1,15 @@
+import type { Distribuicao } from "@/lib/distribuicao-produto";
+
 // variante_tecido_id null = cor PLANEJADA (base+apelido) sem variante real ainda (tecido s/ fornecedor)
 // variante_artigo_id: artigo REAL da variante (= variantes_tecido.artigo_id), devolvido pela árvore
 // (set/2026). Usado só para RECONSTRUIR os substitutos (`PtMaterial.artigo_ids_extra`) ao carregar —
 // se ≠ artigo principal do material, aquele artigo vira badge de substituto. Display-only; não é
 // gravado (viaja no jsonb da árvore, o servidor não lê esta chave no save).
-export type PtVariante = { id?: string; variante_tecido_id: string | null; variante_artigo_id?: string | null; cor_id?: string | null; cor_apelido_id?: string | null; label?: string; cor_nome?: string | null; ordem: number; multiplicador: number; grades: Record<string, number>; grade_total: number };
+export type PtVariante = { id?: string; variante_tecido_id: string | null; variante_artigo_id?: string | null; cor_id?: string | null; cor_apelido_id?: string | null; label?: string; cor_nome?: string | null; ordem: number; multiplicador: number;
+  grades: Record<string, number>; grade_total: number;
+  // Distribuição por produto (spec 2026-09-25, R1/R2): `distribuicao` SÓ no Tecido 1 ({loja_id: {base, grades, manuais}});
+  // `atende` SÓ fora do Tecido 1 (NULL = automático pela cor base; array de chaves de cor do T1 = escolhido à mão).
+  distribuicao?: Distribuicao; atende?: string[] | null };
 // consumo_cad: MARCADOR de exibição (item 3c) — consumo confirmado no CAD (cad_tecidos.consumo_cad)
 // quando venceu; NÃO é gravado no plano (igual aos outros campos só-exibição artigo_nome/unidade…).
 // artigo_ids_extra: SUBSTITUTOS do material (set/2026, portado do Desenvolvimento — mesmo tecido de
@@ -24,7 +30,8 @@ export type PtMaterial = { id?: string; artigo_id: string | null; artigo_ids_ext
 // modelo_id, a referência mora em `modelos.fotos_referencia` (mesma coluna do Plan. Produto/Dev,
 // bucket "modelos") — este campo então é só o que sobrou do rascunho antes de materializar (a RPC
 // `_plan_tecido_criar_card_core` migra pra `fotos_referencia` na criação do card).
-export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; mix_id?: string | null; linha_id?: string | null; markup_editado?: number | null; usar_estoque?: boolean; referencia_paths?: string[]; materiais: PtMaterial[] };
+// tamanho_tipo: "Tamanho em" do modelo (modelos.tamanho_tipo) — SÓ exibição (o servidor não lê); NULL/sem modelo ⇒ Letra.
+export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; mix_id?: string | null; linha_id?: string | null; markup_editado?: number | null; usar_estoque?: boolean; referencia_paths?: string[]; tamanho_tipo?: "letra" | "numero" | null; materiais: PtMaterial[] };
 export type PtLinha = { id?: string; linha_id: string | null; categoria_id: string | null; ordem: number; slots: PtSlot[] };
 export type PtSub = { id?: string; subcolecao_id: string | null; ordem: number; categorias_tecido?: string[]; linhas: PtLinha[] };
 export type PtArvore = { plan_id?: string; colecao_id: string; subcolecoes: PtSub[] };

@@ -83,10 +83,11 @@ function ordinalPorRotulo(el: HTMLElement, scope: HTMLElement, rotuloNorm: strin
  * Retorna null se o elemento não for um campo participante ou não tiver identidade estável.
  */
 export function pathDoElemento(el: HTMLElement, scope: HTMLElement): string | null {
-  if (!ehCampoColab(el)) return null;
-
-  const explicit = el.getAttribute("data-colab-path");
+  // Marcação EXPLÍCITA vale para QUALQUER elemento — inclusive botão/checkbox (ex.: o "atende a" do Plan. Tecido,
+  // Distribuição por produto R20). Sem marcação, só campo de texto participa (regra de sempre).
+  const explicit = el?.getAttribute?.("data-colab-path");
   if (explicit) return explicit;
+  if (!ehCampoColab(el)) return null;
 
   const name = el.getAttribute("name");
   if (name) return `name:${name}`;
