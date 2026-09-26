@@ -139,10 +139,15 @@ export function resolverEcoKanban(
 /**
  * Fix hidratação rodada 2 (achado N3 da re-revisão): uma coluna onde `local` diverge da base MAS
  * CONVERGIU para o mesmo valor que o servidor (`local ≡ servidorNovo`) não é mais tratada como
- * "tocada" — mesmo princípio do `mergeDraft` quando `draft ≡ fresh`. Casos reais: o `update(diff)`
- * gravou no servidor mas a resposta se perdeu (falha parcial, ver `resolverEcoKanban`) e um retry
- * comparava contra a base ANTIGA achando conflito falso; ou outro admin fez a MESMA edição. Sem
+ * "tocada" — mesmo princípio do `mergeDraft` quando `draft ≡ fresh`. Caso real coberto AQUI: outro
+ * admin fez a MESMA edição que eu, no meio-tempo (eco SEM save em voo — `protegido=false`). Sem
  * isso, `conflitoKanban` acusava a coluna em TODO save seguinte até a página recarregar.
+ * ⚠️ Nit da rodada 3 (a rodada 1 tinha isso errado): o caso "o `update(diff)` gravou no servidor
+ * mas o ack se perdeu" (falha PARCIAL, `geralOk` em `resolverEcoKanban`) NÃO passa por aqui — esse
+ * caso mantém `kanbanProtegidoRef=true` e cai no ramo `protegido=true`, que devolve `baseAtual`
+ * intacto sem chamar `colunaTocada`. Esse conflito falso do caminho protegido é PRÉ-EXISTENTE
+ * (vem das rodadas do F2 do kanban, antes deste branch) e fica de fora de escopo aqui — follow-up
+ * para quem cuida do F2 (ver review-fix2.md).
  */
 function colunaTocada(local: KanbanColsValor, servidorNovo: KanbanColsValor, base: KanbanColsValor, c: KanbanCol): boolean {
   if (jsonCanonico(local[c] ?? null) === jsonCanonico(servidorNovo[c] ?? null)) return false;

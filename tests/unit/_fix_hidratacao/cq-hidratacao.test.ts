@@ -43,7 +43,7 @@ vi.mock("sonner", () => ({ toast: Object.assign((..._a: unknown[]) => {}, toastM
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FAKE } from "./fake-supabase";
-import { montar, esperar, aguardar } from "./dom-helpers";
+import { montar, esperar, aguardar, clicar } from "./dom-helpers";
 import { Route } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
@@ -152,5 +152,75 @@ describe("[fix hidratação] CQ Pré — Salvar/Confirmar travam ANTES da hidrat
 
     await esperar(200);
     expect(salvar()!.disabled).toBe(true);
+  });
+
+  // Achado R1-resto da re-revisão (PERDA DE DADO comprovada): `cq-modelo-grades` e
+  // `["tenant_config","tamanhos"]` ainda engoliam erro e ficavam FORA do gate. As duas alimentam
+  // `tamanhos` → `realByNum` → `_reais` do payload de Salvar. Num CQ CONFIRMADO sem bloco-fonte,
+  // `_salvar_cq_core` faz UPSERT de `cad_grades.grades_reais ← _reais` em TODO save (não só ao
+  // confirmar) — uma falha única em `modelo_grades` faria o Salvar mandar `_reais` com os tokens
+  // DEFAULT_TAMANHOS (zerados) em vez dos tokens reais do modelo (P/M), e o servidor sobrescreve
+  // a Grade Real com zero.
+  it("R1-resto: modelo_grades falha ao carregar — Salvar continua DESABILITADO e aparece 'Tentar de novo' (mesmo em CQ CONFIRMADO)", async () => {
+    // Reproduz o cenário exato da revisão: CQ confirmado, sem bloco-fonte. Com `modelo_grades` em
+    // erro, a tela nunca hidrata — `status` fica no default "pendente" (o seed nunca roda), então
+    // nem o botão "Editar" do modo confirmado aparece (ele só existe quando `confirmado=true`,
+    // que só é setado dentro do seed) — prova indireta de que a hidratação está bloqueada de
+    // verdade, sem depender de qual ramo de botões a tela mostraria depois de hidratada.
+    FAKE.linhas.controle_qualidade = [{ id: "cq1", cad_id: "c1", status: "confirmado", status_pos: "pendente" }];
+    FAKE.falhar("modelo_grades", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(150);
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    expect(document.body.textContent).toContain("Tentar de novo");
+    // O Salvar (do ramo default "pendente", já que o seed do status "confirmado" real nunca
+    // rodou) fica DESABILITADO, e o botão "Editar" do modo confirmado nem aparece — a tela nunca
+    // hidratou (o `status` real "confirmado" nunca chegou ao componente).
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Editar"]')).toBeNull();
+
+    await esperar(200);
+    expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_cq")).toBe(false);
+  });
+
+  // Mesma classe, pela outra query compartilhada (`["tenant_config","tamanhos"]`). NOTA: o fake
+  // supabase segura falhas por TABELA (não por query/coluna) — `tenant_config` também é lida por
+  // `cq-confeccao-prioridade` (já gated desde a rodada 2), então `FAKE.falhar("tenant_config", n)`
+  // não isola cirurgicamente só a query de tamanhos. Em vez de um teste ambíguo, provamos o mesmo
+  // ponto pela leitura do código (a queryFn idêntica, exposta no gate — ver `tamanhosSettled`)
+  // e cobrimos a query IRMÃ (`modelo_grades`, acima) como prova concreta e isolada fail→pass.
+
+  // Prova do retry: liberar a falha e clicar "Tentar de novo" recupera e hidrata.
+  it("R1-resto: 'Tentar de novo' recupera de modelo_grades falhando e hidrata", async () => {
+    FAKE.falhar("modelo_grades", 1); // só a 1ª falha — o retry deve suceder
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(120);
+    expect(document.body.textContent).toContain("Não foi possível carregar");
+    const tentarDeNovo = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").includes("Tentar de novo"))!;
+    await clicar(tentarDeNovo);
+    const salvar = () => document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]');
+    await aguardar(() => salvar()?.disabled === false, "hidrata após o retry recuperar modelo_grades", 2000);
+  });
+
+  // Nit da re-revisão (não é perda de dado — texto enganoso): com `cq-cad` em erro, `cad` fica
+  // `undefined` (igual a "ainda carregando"), e a tela mostrava "Este modelo ainda não tem
+  // registro de CAD" sem "Tentar de novo" — confunde "sem CAD" (dado real) com "falha ao
+  // carregar" (erro de rede).
+  it("cq-cad falha ao carregar — mostra o banner padrão + 'Tentar de novo' (não a mensagem de 'sem CAD')", async () => {
+    FAKE.falhar("cad", 4);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const C = (Route as any).options.component;
+    const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+    desmontar = m.desmontar;
+    await esperar(120);
+    expect(document.body.textContent).toContain("Não foi possível carregar os dados.");
+    expect(document.body.textContent).toContain("Tentar de novo");
+    expect(document.body.textContent).not.toContain("Este modelo ainda não tem registro de CAD");
   });
 });

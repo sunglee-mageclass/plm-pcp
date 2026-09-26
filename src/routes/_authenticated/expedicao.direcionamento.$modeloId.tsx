@@ -129,10 +129,22 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   const [preench, setPreench] = useState<{ aplicado: boolean; pendentes: Pendente[]; doPlano: Set<string> }>({ aplicado: false, pendentes: [], doPlano: new Set() });
   const [confirmarPreencher, setConfirmarPreencher] = useState(false);
 
+  // Fix hidratação rodada 3 (achado R1-resto do CQ Pré): esta queryKey é COMPARTILHADA com
+  // `expedicao.cq.$modeloId.tsx` — o `queryFn` foi trocado IDENTICAMENTE nos dois arquivos (mesmo
+  // shape de sucesso, mesmo `throw` em erro), já que o cache do TanStack Query é por key, não por
+  // arquivo: o observer que buscar primeiro dita o resultado (e o comportamento em erro) para o
+  // outro. Aqui no Direcionamento esta query só ORDENA as colunas de tamanho exibidas — os
+  // tamanhos em si (quais existem) vêm de `cad_grades`, que já está no gate de hidratação
+  // (`dataSettled`/`dirLoadError`) — lançar erro aqui não muda nada funcional nesta tela, mas
+  // precisa ser idêntico ao CQ Pré para não depender de qual tela busca a key primeiro.
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
 
   // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha

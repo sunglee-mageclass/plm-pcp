@@ -172,15 +172,19 @@ describe("kanban-auto-config — JSON canônico e diff (RP3)", () => {
       expect(r.servidor.kanban_requisitos).toEqual({ a: ["x"], b: ["y"] });
     });
 
-    // Achado N3 da re-revisão (review-fix1.md): coluna que DIVERGE da base mas CONVERGIU para o
-    // MESMO valor que o servidor (ex.: o `update(diff)` gravou mas a resposta se perdeu — falha
-    // parcial — e um retry compararia contra a base velha; ou outro admin fez a MESMA edição) não
-    // pode ficar "tocada para sempre". Sem o fix, `conflitoKanban` acusaria um conflito FALSO em
-    // TODO save seguinte, até a página recarregar.
-    it("N3: coluna CONVERGIU (local ≡ servidorNovo, mas ambos ≠ base) NÃO fica tocada — adota e re-baseia normalmente", () => {
+    // Achado N3 da re-revisão (review-fix1.md; nit de escopo corrigido na rodada 3 — ver
+    // review-fix2.md): coluna que DIVERGE da base mas CONVERGIU para o MESMO valor que o
+    // servidor porque OUTRO ADMIN fez a MESMA edição (eco SEM save em voo — `protegido=false`)
+    // não pode ficar "tocada para sempre". Sem o fix, `conflitoKanban` acusaria um conflito FALSO
+    // em TODO save seguinte, até a página recarregar. ⚠️ Isto NÃO cobre o caso "o `update(diff)`
+    // gravou e o ack se perdeu" (falha parcial) — esse caso passa pelo ramo PROTEGIDO de
+    // `resolverEcoKanban` (kanbanProtegidoRef=true), que devolve `baseAtual` intacto sem chamar
+    // `colunaTocada`; o conflito falso desse caminho é pré-existente (F2 do kanban) e fica de
+    // fora de escopo aqui.
+    it("N3: outro admin fez a MESMA edição (eco não-protegido) — coluna CONVERGIDA NÃO fica tocada, adota e re-baseia normalmente", () => {
       const base = pickKanban({ status_kanban: ["A"] });
-      // Minha edição local E o servidor (outro admin fez a mesma coisa, ou meu save gravou e o
-      // ack se perdeu) chegaram no MESMO valor ["A","B"] — nenhum dos dois é mais "a base antiga".
+      // Minha edição local E o servidor (outro admin fez a MESMA edição, sem save meu em voo)
+      // chegaram no MESMO valor ["A","B"] — nenhum dos dois é mais "a base antiga".
       const local = pickKanban({ status_kanban: ["A", "B"] });
       const servidorNovo = pickKanban({ status_kanban: ["A", "B"] });
 

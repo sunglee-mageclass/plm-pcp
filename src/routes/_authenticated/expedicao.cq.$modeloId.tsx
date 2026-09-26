@@ -125,7 +125,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
   });
 
-  const { data: cad } = useQuery({
+  // Fix hidratação rodada 3 (nit da re-revisão): expõe `isError`/`refetch` — com erro, `cad`
+  // fica `undefined` (igual a "ainda carregando") e a tela mostrava "Este modelo ainda não tem
+  // registro de CAD" sem "Tentar de novo", texto enganoso (não é regressão de dado — o Salvar
+  // já ficava travado — só a mensagem confundia "sem CAD" com "falha ao carregar").
+  const { data: cad, isError: cadErrored, refetch: refetchCad } = useQuery({
     queryKey: ["cq-cad", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
@@ -155,9 +159,18 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   });
 
   // Grade cadastrada do modelo (define os Tamanhos exibidos no CQ).
-  const { data: modeloGrades = [] } = useQuery({
+  // Fix hidratação rodada 3 (achado R1-resto da re-revisão, PERDA DE DADO comprovada): throw em
+  // erro — `modeloGrades` alimenta `tamanhos` (quais tokens existem), que alimenta `realByNum`/
+  // `_reais` do payload de Salvar. Sem isso, uma falha única fazia `tamanhos` cair nos
+  // DEFAULT_TAMANHOS (tokens errados/zerados) e, num CQ CONFIRMADO, `_salvar_cq_core` faz UPSERT
+  // de `cad_grades.grades_reais ← _reais` em TODO save (não só ao confirmar) — Grade Real zerada.
+  const { data: modeloGrades = [], isFetched: modeloGradesFetched, isFetching: modeloGradesFetching, isSuccess: modeloGradesOk, isError: modeloGradesErrored, refetch: refetchModeloGrades } = useQuery({
     queryKey: ["cq-modelo-grades", modeloId],
-    queryFn: async () => (await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   // Comprado (Revenda/Importado): modelo comprado não tem Tecido Principal (nunca passa
@@ -190,10 +203,19 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     },
   });
 
-  const { data: tenantCfg } = useQuery({
+  // Fix hidratação rodada 3 (achado R1-resto): throw em erro — mesmo motivo de `modeloGrades`
+  // acima (alimenta `tamanhos`/`_reais`). ⚠️ Esta queryKey é COMPARTILHADA com o Direcionamento
+  // (`expedicao.direcionamento.$modeloId.tsx`) — o `queryFn` foi trocado IDENTICAMENTE nos dois
+  // arquivos (mesmo shape de sucesso, mesmo comportamento em erro), já que o cache é por key, não
+  // por arquivo: o observer que buscar primeiro dita o resultado para o outro.
+  const { data: tenantCfg, isFetched: tenantCfgFetched, isFetching: tenantCfgFetching, isSuccess: tenantCfgOk, isError: tenantCfgErrored, refetch: refetchTenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos", tenantId],
     enabled: !!tenantId,
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
 
   // Datas de oficina: vêm de Serviços (producao_terceirizados). Fix hidratação rodada 2 (R1):
@@ -453,7 +475,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // erro engolido nelas fazia a tela hidratar "sem fonte" (temFonte=false), pulando o rev-check
   // da grade compartilhada com o PCP (`_rev_base.fonte=null` no servidor). Entram no
   // `cqLoadError` (nunca hidrata a partir de um erro) e no "Tentar de novo".
-  const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored;
+  // Fix hidratação rodada 3 (achado R1-resto, PERDA DE DADO comprovada): `modeloGrades`/
+  // `tenantCfg` ("tamanhos") somados — alimentam `tamanhos`/`realByNum`/`_reais` do payload.
+  const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored || modeloGradesErrored || tenantCfgErrored;
   // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
   // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
   // tenantId vazio (degenerado) = escape p/ não pendurar (aí temFonte=false, retrocompat).
@@ -463,6 +487,12 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     mainFabricFetched && !mainFabricFetching && mainFabricOk &&
     blocosFetched && !blocosFetching && blocosOk &&
     (!tenantId || (catsFetched && !catsFetching && catsOk && prioFetched && !prioFetching && prioOk));
+  // Fix hidratação rodada 3 (achado R1-resto): `modeloGrades` (sempre habilitada) e `tenantCfg`
+  // (só se `tenantId` resolveu — mesmo escape "degenerado" do `fonteSettled" acima) precisam
+  // assentar COM SUCESSO antes de hidratar — alimentam `tamanhos`, que decide `_reais` do save.
+  const tamanhosSettled =
+    modeloGradesFetched && !modeloGradesFetching && modeloGradesOk &&
+    (!tenantId || (tenantCfgFetched && !tenantCfgFetching && tenantCfgOk));
 
   // ===== Colab helpers (spec 2026-08-07) — puros sobre o closure atual =====
   // Escalares do CQ a partir de uma linha de controle_qualidade (mesmo shape do `form`).
@@ -535,7 +565,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   useEffect(() => {
     if (hydrated || !cad?.id) return;
-    if (!cqSettled || !varsSettled || !fonteSettled) return;
+    // Fix hidratação rodada 3 (achado R1-resto): + `tamanhosSettled` — sem isso, uma falha em
+    // `modeloGrades`/`tenantCfg` (tamanhos) hidratava a tela mesmo assim, com `tamanhos` errado
+    // (DEFAULT_TAMANHOS) e `realByNum`/`_reais` zerados para os tokens reais.
+    if (!cqSettled || !varsSettled || !fonteSettled || !tamanhosSettled) return;
     // Colab: 1ª carga (ou re-seed via cancel-edit) = base/touched limpos.
     touchedFormRef.current = new Set();
     touchedGradeRef.current = new Set();
@@ -609,7 +642,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       // base da grade = recebida/defeito derivados do fonteGrade nesta carga (por vid/tam).
       baseGradeRef.current = gradeDetalheDeFonte(fonteGrade);
     }
-  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
+  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, tamanhosSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
 
   // Colab: MERGE-no-refetch, SÓ para UPDATE alheio (realtime cross-tela/aba). O pós-save e o
   // reconcile P0409 re-baselinam MANUALMENTE (reseedingRef true) a partir de um snapshot
@@ -1236,7 +1269,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <CqPosView ref={cqPosRef} onStatus={onPosStatus} cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
         </div>
       )}
-      {view === "pos" && !cad?.id && (
+      {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia. */}
+      {view === "pos" && !cad?.id && cadErrored && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetchCad()}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {view === "pos" && !cad?.id && !cadErrored && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD.
         </Card>
@@ -1260,12 +1303,16 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
             onClick={() => {
               // Fix hidratação rodada 2 (achado R1): refaz TODAS as queries que entram no gate de
               // hidratação (cqSettled/varsSettled/fonteSettled), não só `cq`/`cq_variantes`.
+              // Fix hidratação rodada 3 (achado R1-resto): + `modeloGrades`/`tenantCfg`
+              // (tamanhosSettled).
               refetchCq();
               if (cqRow?.id) refetchVars();
               refetchMainFabric();
               refetchBlocosFonte();
               refetchCatsServico();
               refetchPrioridade();
+              refetchModeloGrades();
+              if (tenantId) refetchTenantCfg();
             }}
           >
             <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
@@ -1279,7 +1326,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       {view === "pre" && (!cad?.id || hydrated) && (
       <fieldset disabled={readOnly} className="contents">
 
-      {!cad?.id && (
+      {/* Fix hidratação rodada 3 (nit): erro na carga do CAD mostra o banner padrão + "Tentar de
+          novo" — a mensagem "sem CAD" só quando a carga teve SUCESSO e voltou vazia. */}
+      {!cad?.id && cadErrored && (
+        <Card className="p-5 space-y-3 border-destructive/50 bg-destructive/5 text-sm">
+          <p className="text-destructive font-medium">Não foi possível carregar os dados.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetchCad()}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Tentar de novo
+          </Button>
+        </Card>
+      )}
+      {!cad?.id && !cadErrored && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
           Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>
