@@ -628,6 +628,39 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
         { code: "P0409", message: "conflito_versao: o SKU foi alterado por outra pessoa" });
     });
   });
+
+  it("R2-1 do G-migration (rodada 2): SKU digitado com ERRO numa linha AUTOMÁTICA que saiu da grade + Regerar — o passo 2 NÃO a tira: fica 'erro', não 'sai'", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      // kA|34|PPP segue AUTOMÁTICA (nunca editada à mão) e sai da grade: órfã automática — o alvo do passo 2 do Regerar.
+      await c.query(`UPDATE public.modelo_grades SET grades = '{"34|PPP": 0, "36|PP": 1}'::jsonb WHERE modelo_id = $1 AND variante_numero = 1`, [k.m]);
+      const antes = await estado(c, k.m);
+      expect(antes.find((g) => g.vk === k.kA && g.tk === "34|PPP")).toEqual({ vk: k.kA, tk: "34|PPP", sku: "AA34", manual: false });
+      // controle: SEM o digitado, o Regerar tira a órfã automática ('sai') — o passo 2 é exercitado NESTA linha.
+      const p0 = await previa(c, k.m, "PV-T1", "numero");
+      expect(linhaDe(p0, k.kA, "34|PPP").previa).toMatchObject({ acao: "sai", sku_de: "AA34" });
+      expect(p0.removidos).toBe(1);
+      const { rev } = await idRev(c, k.m, k.kA, "34|PPP");
+      const casos: [string, unknown, string, string][] = [
+        ["inválido", { variante_key: k.kA, tamanho_key: "34|PPP", sku: "a#b", rev }, "P0001", "SKU inválido: use só letras, números e - . _ /."],
+        ["rev velho", { variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-r", rev: rev + 7 }, "P0409", "conflito_versao: o SKU foi alterado por outra pessoa"],
+      ];
+      for (const [nome, m1, code, msg] of casos) {
+        const p = await previa(c, k.m, "PV-T1", "numero", [m1], "regerar");
+        expect(linhaDe(p, k.kA, "34|PPP").previa, nome).toMatchObject({ acao: "erro", code, mensagem: msg, sku_de: "AA34" });
+        expect(p.removidos, nome).toBe(0);
+        expect(p.erros.map((e: any) => [e.code, e.mensagem]), nome).toEqual([[code, msg]]);
+        const pl = await plano(c, k.m, "PV-T1", "numero", [m1], "regerar");
+        expect(pl.ops.filter((o: any) => o.op === "remover"), nome).toEqual([]);   // nenhuma op tira a linha
+        expect(finalComoEstado(pl.final), nome).toEqual(antes);                     // o final = o gravado (a órfã fica)
+        expect(await falha(c, Q_APLICAR, [k.m, JSON.stringify([m1]), "regerar", p.assinatura]), nome).toEqual({ code, message: msg });
+        expect(await estado(c, k.m), nome).toEqual(antes);
+      }
+    });
+  });
 });
 
 describe.skipIf(!PRONTO)("SKU em prévia — permissões e ACL (#9)", () => {
@@ -779,6 +812,48 @@ describe.skipIf(!PRONTO)("SKU em prévia — executor (ramos estritos/não-estri
       expect(pVazio.erros.map((e: any) => e.mensagem)).toEqual(["Informe o SKU."]);
     });
   });
+
+  it("R2-2 do G-migration (rodada 2): executor com _tenant ≠ a loja do modelo (ou nulo) ⇒ RAISE 'Loja do plano não confere com o modelo.' e nada grava; com a loja certa o MESMO plano grava", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      const outra = await um<{ id: string }>(c, "SELECT id FROM public.tenants WHERE id <> $1 ORDER BY id LIMIT 1", [T]);
+      expect(outra?.id, "a cópia precisa de outra loja").toBeTruthy();
+      const Q_EXEC = "SELECT public._skus_executar_plano($1::uuid, $2::uuid, $3::jsonb, $4::boolean) AS v";
+      const plano1 = { ops: [{ op: "inserir", vkey: k.kA, tkey: "34|PPP", sku: "LOJA-X" }] };
+      const antes = await estado(c, k.m);
+      const casos: [string | null, boolean][] = [[outra.id, true], [outra.id, false], [null, true]];
+      for (const [tenant, estrito] of casos) {
+        expect(await falha(c, Q_EXEC, [k.m, tenant, JSON.stringify(plano1), estrito]), `${tenant} ${estrito}`)
+          .toEqual({ code: "P0001", message: "Loja do plano não confere com o modelo." });
+      }
+      expect(await estado(c, k.m)).toEqual(antes);
+      const r = await v(c, Q_EXEC, [k.m, T, JSON.stringify(plano1), true]); // controle: a recusa acima é SÓ pela loja
+      expect(r.criados).toBe(1);
+      expect((await estado(c, k.m)).map((g) => g.sku)).toEqual(["LOJA-X"]);
+    });
+  });
+
+  it("R2-2 do G-migration (rodada 2): rev do SKU à mão que não é inteiro de 0 a 999999999 (1.5, 1e12, -1, 10 dígitos) ⇒ 'SKUs à mão inválidos.' na prévia E no Salvar (nunca 22P02/22003 cru)", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      const antes = await estado(c, k.m);
+      const invalido = { code: "P0001", message: "SKUs à mão inválidos." };
+      for (const rev of ["1.5", "1e12", "-1", "1000000000"]) {
+        // JSON BRUTO: o 1e12 chega ao banco como está (o JSON.stringify do JS o reescreveria)
+        const bruto = `[{"variante_key": "${k.kA}", "tamanho_key": "34|PPP", "sku": "meu-rev", "rev": ${rev}}]`;
+        expect(await falha(c, Q_PREVIA, [k.m, "PV-T1", "numero", bruto, "manuais"]), `prévia rev ${rev}`).toEqual(invalido);
+        expect(await falha(c, Q_APLICAR, [k.m, bruto, "manuais", "qualquer"]), `Salvar rev ${rev}`).toEqual(invalido);
+      }
+      expect(await estado(c, k.m)).toEqual(antes);
+      const { rev } = await idRev(c, k.m, k.kA, "34|PPP"); // controle: o MESMO digitado com o rev inteiro certo passa
+      expect((await previa(c, k.m, "PV-T1", "numero", [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-rev", rev }], "manuais")).erros).toEqual([]);
+    });
+  });
 });
 
 describe.skipIf(!PRONTO_ANTES)("SKU em prévia — negativos da guarda md5 e do $pos$ (A#5c), SÓ na janela N3", () => {
@@ -808,6 +883,35 @@ describe.skipIf(!PRONTO_ANTES)("SKU em prévia — negativos da guarda md5 e do 
       expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok).toBe(false);
       const depois = (await um<{ d: string }>(c, "SELECT pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')) AS d")).d;
       expect(depois).toBe(corpo(INV, REDEF[0].cria)); // desfeito — volta ao texto vivo (a migration inteira é 1 txn)
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("R2-2 do G-migration (rodada 2) — $acl$: ACL adulterada DENTRO da txn da migration (interna executável; RPC p/ anon; RPC sem authenticated) ⇒ a ida RECUSA e desfaz TUDO", async () => {
+    await withTx(async (c) => {
+      await prepara(c, { aplicar: false });
+      const mig = ler(MIG);
+      const ancora = "\nDO $acl$\n";
+      expect(mig.split(ancora).length - 1, "âncora 1×").toBe(1);
+      const acl = async () => (await um<{ a: string }>(c, "SELECT proacl::text AS a FROM pg_proc WHERE oid = 'public._skus_modelo_calc(uuid)'::regprocedure")).a;
+      const aclAntes = await acl();
+      const adulteracoes = [
+        "GRANT EXECUTE ON FUNCTION public._skus_plano(uuid, text, text, jsonb, text) TO authenticated;",
+        "GRANT EXECUTE ON FUNCTION public._skus_modelo_calc(uuid) TO anon;",
+        "GRANT EXECUTE ON FUNCTION public.skus_previa(uuid, text, text, jsonb, text) TO anon;",
+        "REVOKE EXECUTE ON FUNCTION public.aplicar_skus_modelo(uuid, jsonb, text, text) FROM authenticated;",
+      ];
+      for (const extra of adulteracoes) {
+        const forjada = mig.replace(ancora, () => `\n${extra}${ancora}`); // função: o "$" do texto não vira padrão de replace
+        expect(forjada.split(extra).length - 1, extra).toBe(1);
+        await expect(aplicarSql(c, semTravas(forjada, "migration com ACL adulterada"), "migration com ACL adulterada"), extra)
+          .rejects.toThrow(/ACL fora do padrão/);
+        expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is null and to_regprocedure('public._skus_plano(uuid,text,text,jsonb,text)') is null as ok")).ok, extra).toBe(true);
+        const d = (await um<{ d: string }>(c, "SELECT pg_get_functiondef(to_regprocedure('public._skus_modelo_calc(uuid)')) AS d")).d;
+        expect(d, extra).toBe(corpo(INV, REDEF[0].cria)); // desfeito — as 3 de volta ao texto vivo
+        expect(await acl(), extra).toBe(aclAntes);         // e o proacl de antes
+      }
+      await aplica(c, MIG); // controle: SEM adulteração, a MESMA migration passa na mesma txn
+      expect((await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok).toBe(true);
     });
   });
 });
