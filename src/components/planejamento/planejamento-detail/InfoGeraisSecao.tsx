@@ -78,10 +78,9 @@ export function InfoGeraisSecao({
   /** F3.6 — `tenants.nome` (a MARCA da loja — ruling 1) p/ o Título automático; null enquanto carrega (título sem " | "). */
   nomeLoja: string | null;
   /** P-53 A — campos que SÓ o Sheet antigo do Planejamento editava: Status, Origem, Versão, NCM, Título para a
-   *  página, Peso/Comprimento/Largura/Altura. */
+   *  página, Peso/Comprimento/Largura/Altura, Descrição do produto (fix 1, m-4: o Dev antigo nunca teve esse campo). */
   planBloqueado: boolean;
-  /** P-53 A — campos que os DOIS Sheets antigos editavam: Nome, Estilista, Grupo/Categoria/Subcategorias,
-   *  Descrição do produto. */
+  /** P-53 A — campos que os DOIS Sheets antigos editavam: Nome, Estilista, Grupo/Categoria/Subcategorias. */
   compartilhadoBloqueado: boolean;
 }) {
   const tituloCalculado = tituloPaginaCalculado(draft.nome, nomeLoja);
@@ -257,8 +256,9 @@ export function InfoGeraisSecao({
             {/* Campo NOVO "Descrição do produto" (dono, 22/set): texto longo, largura total, ÚLTIMO campo da
                 seção 1 — no Sheet e no Dialog de card novo. Coluna `modelos.descricao_produto` (migration
                 20260930180000); o Salvar manda NULL quando vazio. Não vai para a Ficha Técnica (não pedido). */}
-            {/* P-53 A: Descrição do produto é COMPARTILHADA (o Dev também grava desde a F3.1). */}
-            <fieldset disabled={compartilhadoBloqueado} className="contents">
+            {/* P-53 A (fix 1, m-4 RULING): Descrição do produto é SÓ do Planejamento — o Dev antigo NUNCA teve
+                esse campo (o brief da rodada 1 errou ao classificá-lo como compartilhado). */}
+            <fieldset disabled={planBloqueado} className="contents">
             <div className="grid gap-1">
               <Label>Descrição do produto</Label>
               <Textarea

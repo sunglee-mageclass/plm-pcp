@@ -77,6 +77,10 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
+  /** P-53 A (fix 1, I-1a) — Consumo de tecido/Materiais (estimativa) gravam em `custo_simulado`, campo SÓ
+   *  do Planejamento (`CAMPOS_SO_PLANEJAMENTO_DRAFT`). Sem `podeEditarPlanejamento`, os 2 inputs travam
+   *  (o Salvar já apagava o campo do payload em silêncio antes desta trava de UI). */
+  planBloqueado: boolean;
   // F3.6 (Parte A — spec 2026-09-25 §5.1; R16): a Mão de obra deixa de ser seção — o MESMO MaoObraEditor (montado no
   // orquestrador, com o estado/aprovações de sempre) entra aqui por slot, logo abaixo da linha "Mão de obra"; a Obs. de MO
   // logo abaixo do "Custo total". null/ausente = sem permissão (`moBlocoVisivel`): a linha mostra só o total, como antes.
@@ -87,7 +91,7 @@ export function PrecoTabela(props: {
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
     linhaFaixas, moMin, moIdeal, moMax, moStatusFaixa, podeVerCustos, podeEditarCustos, markupFaixaOn,
-    blocoMaoObra, obsMaoObra } = props;
+    blocoMaoObra, obsMaoObra, planBloqueado } = props;
 
   // Fix mobile (F3.3) — fade de rolagem do wrapper `overflow-x-auto` (achado 2). Mesma receita do
   // `SegmentedTabs` (§Q10): por lado, condicional ao scroll real (nunca incondicional — senão
@@ -248,6 +252,9 @@ export function PrecoTabela(props: {
                   value={consumo ?? (consumoRealBOM > 0 ? consumoRealBOM : "")}
                   placeholder={consumoRealBOM > 0 ? fmtNum(consumoRealBOM) : "0"}
                   data-colab-path="consumo_tecido"
+                  // P-53 A (fix 1, I-1a): grava em custo_simulado (SÓ do Planejamento) — fieldset não entra em
+                  // <tbody>, trava por `disabled` como o resto do arquivo já faz (comentário ~:333).
+                  disabled={planBloqueado}
                   onChange={(e) => onConsumo(e.target.value)}
                 />
               )}
@@ -323,6 +330,9 @@ export function PrecoTabela(props: {
                     value={aviamento ?? ""}
                     placeholder="0,00"
                     data-colab-path="custo_aviamento"
+                    // P-53 A (fix 1, I-1a): grava em custo_simulado (SÓ do Planejamento) — mesma trava do
+                    // Consumo de tecido acima.
+                    disabled={planBloqueado}
                     onChange={(e) => onAviamento(e.target.value)}
                   />
                 </td>

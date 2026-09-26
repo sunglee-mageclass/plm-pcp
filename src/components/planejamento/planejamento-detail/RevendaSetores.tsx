@@ -21,13 +21,18 @@ import { type GradeComprado } from "@/components/planejamento/planejamento-detai
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, precoAnterior, onPrecoAnterior }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
   /** F3.6 (Parte B, ruling 11) — Preço anterior: NULL = acompanha o VAREJO efetivo (`piRevenda.efetivo`); editar =
    *  `criacao_planejamento:preco_venda`; grava no Salvar da página (não pela RPC de preço fixo). */
   podeEditarPreco: boolean; precoAnterior: number | null; onPrecoAnterior: (v: number | null) => void;
+  /** P-53 A (fix 1, I-1b/c) — markup atacado/varejo (`salvar_markups_produto_acabado`) e preço fixo
+   *  atacado/varejo (`salvar_precos_fixo_produto_acabado`) gravam NA HORA (fora do Salvar da página) — mas
+   *  são campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
+   *  4 inputs travam (o slot de M.O., abaixo, fica de fora — é compartilhado, trava própria no orquestrador). */
+  planBloqueado: boolean;
 }) {
   const {
     produtoRevenda, produtoRevendaLoading,
@@ -57,6 +62,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           placeholder="2,50"
                           className="pr-6"
                           value={markupAtacadoInput ?? 0}
+                          // P-53 A (fix 1, I-1b): grava na hora via salvar_markups_produto_acabado — SÓ do Planejamento.
+                          disabled={planBloqueado}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                           onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
@@ -72,6 +79,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           placeholder="2,50"
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
+                          // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima.
+                          disabled={planBloqueado}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                           onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
@@ -127,6 +136,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         fixedDecimals
                         value={precoAtacadoDraft}
                         placeholder="0,00"
+                        // P-53 A (fix 1, I-1c): grava na hora via salvar_precos_fixo_produto_acabado — SÓ do Planejamento.
+                        disabled={planBloqueado}
                         onChange={(e) => setPrecoAtacadoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         onBlur={() => {
@@ -144,6 +155,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         fixedDecimals
                         value={precoVarejoDraft}
                         placeholder="0,00"
+                        // P-53 A (fix 1, I-1c): mesma trava do preço atacado acima.
+                        disabled={planBloqueado}
                         onChange={(e) => setPrecoVarejoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         onBlur={() => {
@@ -174,9 +187,12 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
 }
 
 /** Seção "Produto Acabado" do card revenda: vínculo (atalho ⧉) ou "Criar produto acabado". */
-export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero }: {
+export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero, podeAcoesPlanejamento }: {
   rv: RevendaPlanejamento; contexto: "planejamento" | "produto-acabado"; modeloId: string | null;
   navigate: ReturnType<typeof useNavigate>; numero?: number;
+  /** P-53 A (fix 1, I-1d) — criar o espelho Produto Acabado é ação de ciclo do Planejamento (mesma família de
+   *  Excluir/Duplicar/Lançar); sem a permissão, o botão nem aparece (como as demais ações escondidas). */
+  podeAcoesPlanejamento: boolean;
 }) {
   const { produtoRevenda, produtoRevendaLoading, criarProdutoAcabado } = rv;
   return (
@@ -198,13 +214,15 @@ export function ProdutoAcabadoSecao({ rv, contexto, modeloId, navigate, numero }
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-muted-foreground">Nenhum produto de revenda vinculado ainda.</p>
-                  <Button
-                    type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
-                    onClick={() => criarProdutoAcabado.mutate()}
-                    disabled={criarProdutoAcabado.isPending || !modeloId}
-                  >
-                    <PackagePlus className="h-3.5 w-3.5" /> Criar produto acabado
-                  </Button>
+                  {podeAcoesPlanejamento && (
+                    <Button
+                      type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
+                      onClick={() => criarProdutoAcabado.mutate()}
+                      disabled={criarProdutoAcabado.isPending || !modeloId}
+                    >
+                      <PackagePlus className="h-3.5 w-3.5" /> Criar produto acabado
+                    </Button>
+                  )}
                 </div>
               )}
             </Secao>

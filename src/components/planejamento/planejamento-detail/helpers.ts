@@ -94,18 +94,36 @@ export type CampoDevDraft = (typeof CAMPOS_DEV_DRAFT)[number];
 // (ModeloDetailPanel.tsx:1878-1945) nem em CAMPOS_DEV_DRAFT — ou seja, só o Sheet do Planejamento as
 // editava. Sem `podeEditarPlanejamento`, `aplicarRegrasCamposPlanejamento` as APAGA do payload (o banco
 // fica com o que tinha) — mesmo padrão de `aplicarRegrasCamposDev`, espelhado.
-// FORA da lista (compartilhados, o Dev também gravava — ver ModeloDetailPanel.tsx:1878-1945):
-// nome, linha_id, estilista_id, categoria_principal_id, subcategoria1_id, subcategoria2_id,
-// colecao_id, subcolecao, mes_id, ano_id, semana, descricao_produto, fotos_modelo, fotos_referencia,
-// desenho_tecnico_url, croqui_url, ficha_medida_url, observações, custos adicionais, proporcoes, MO.
+// FORA da lista: os campos COMPARTILHADOS (ver `CAMPOS_COMPARTILHADOS_DRAFT`, o Dev também gravava).
 // preco_venda/preco_atacado/preco_anterior JÁ têm gate próprio (`podeEditarPreco`, independente da
 // página) — entram aqui TAMBÉM (defesa em profundidade, "nem ganha nem perde" por seção), mas o gate
 // de preço existente NÃO é removido (os dois continuam valendo).
+// Fix 1 (I-1a) — `custo_simulado` entra: Consumo de tecido/Materiais (estimativa) em `PrecoTabela.tsx`
+// gravam nele; era uma escrita só-Planejamento sem gate nenhum antes desta rodada.
+// Fix 1 (m-4, RULING) — `descricao_produto` entra: o Dev antigo NUNCA teve esse campo (o brief da
+// rodada 1 errou ao listá-lo como compartilhado — o princípio "nem ganha nem perde" vence sobre o
+// texto do brief anterior). Só existe desde a F3.1, sempre como campo do Planejamento.
 export const CAMPOS_SO_PLANEJAMENTO_DRAFT = [
   "status_planejamento", "origem", "titulo_pagina", "peso_kg", "comprimento_cm", "largura_cm", "altura_cm",
   "tamanho_tipo", "versao", "preco_venda", "preco_atacado", "preco_anterior", "data_lancamento", "ncm",
+  "custo_simulado", "descricao_produto",
 ] as const satisfies readonly (keyof Draft)[];
 export type CampoSoPlanejamentoDraft = (typeof CAMPOS_SO_PLANEJAMENTO_DRAFT)[number];
+
+// ── P-53 A (fix 1, m-6i) — campos COMPARTILHADOS: o Dev antigo também gravava (payload do Salvar,
+// ModeloDetailPanel.tsx:1878-1945) ou o campo pareia 1:1 com um que ele grava (ex.: `colecao` texto
+// livre é o par de `colecao_id`, `ref` tem regra própria em `aplicarRegrasCamposDev` mas é editado
+// nos DOIS Sheets). Editável se QUALQUER um dos 2 Sheets deixava (`perm.compartilhadoBloqueado`).
+// `markup_editado`/`modelo_base_id`: nenhum Sheet os torna editáveis por um campo de formulário do
+// Salvar (só leitura/derivados — `modelo_base_id` só muda via Duplicar, mutation própria); ficam aqui
+// (nunca foram gated antes — não são plan-only) para não tirar um poder que nunca existiu de fato.
+export const CAMPOS_COMPARTILHADOS_DRAFT = [
+  "nome", "ref", "estilista_id", "linha_id", "colecao", "colecao_id", "subcolecao", "semana",
+  "mes_id", "ano_id", "categoria_principal_id", "subcategoria1_id", "subcategoria2_id",
+  "croqui_url", "desenho_tecnico_url", "fotos_modelo", "fotos_referencia", "observacoes_mao_obra",
+  "tecidos_planejados", "modelo_base_id", "markup_editado",
+] as const satisfies readonly (keyof Draft)[];
+export type CampoCompartilhadoDraft = (typeof CAMPOS_COMPARTILHADOS_DRAFT)[number];
 
 /**
  * P-53 A — espelho de `aplicarRegrasCamposDev`: apaga do payload as chaves SÓ do Planejamento

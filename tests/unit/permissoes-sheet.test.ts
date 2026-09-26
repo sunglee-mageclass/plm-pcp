@@ -36,7 +36,7 @@ describe("resolverPermissoesSheet — P-53 A, princípio 'nem ganha, nem perde'"
     expect(p.podeAcoesPlanejamento).toBe(false);
   });
 
-  it("nenhum → sheet só-leitura, tudo travado", () => {
+  it("nenhum (só vê os dois; devBloqueado=true por falta de permissão) → sheet só-leitura, tudo travado", () => {
     const p = resolverPermissoesSheet({ podeEditarPlanejamento: false, podeEditarDev: false, devBloqueado: true });
     expect(p).toEqual({
       sheetSomenteLeitura: true,
@@ -44,11 +44,5 @@ describe("resolverPermissoesSheet — P-53 A, princípio 'nem ganha, nem perde'"
       compartilhadoBloqueado: true,
       podeAcoesPlanejamento: false,
     });
-  });
-
-  it("só vê os dois (sem podeEditarDev, devBloqueado true por falta de permissão) → sheet só-leitura", () => {
-    const p = resolverPermissoesSheet({ podeEditarPlanejamento: false, podeEditarDev: false, devBloqueado: true });
-    expect(p.sheetSomenteLeitura).toBe(true);
-    expect(p.compartilhadoBloqueado).toBe(true);
   });
 });

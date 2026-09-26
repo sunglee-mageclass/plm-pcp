@@ -520,8 +520,12 @@ export function usePlanejamentoSave({
       // Best-effort: qualquer erro aqui (inclusive a trava 1:1 `enforce_unique_fk` numa
       // corrida de save duplo) é capturado e NUNCA quebra o save do card — o "Modelo salvo"
       // já é verdade nesse ponto (header + MO já persistiram).
+      // P-53 A (fix 1, m-1) — a auto-criação do espelho é a MESMA ação do botão manual "Criar produto
+      // acabado" (ação de ciclo do Planejamento, gated por `perm.podeAcoesPlanejamento` na UI) — sem
+      // `podeEditarPlanejamento` aqui, quem só edita o Dev criaria o espelho pelo save de um campo
+      // do Dev (ex.: trocar a origem não é nem preciso; qualquer Salvar dispara este passo).
       let autoProduto: { criou: boolean; semColecao: boolean; tela?: string } | null = null;
-      if (savedId && d.origem === "revenda" && paOn) {
+      if (savedId && d.origem === "revenda" && paOn && podeEditarPlanejamento) {
         try {
           const { data: existente } = await supabase
             .from("produtos_acabados" as any)
@@ -577,7 +581,8 @@ export function usePlanejamentoSave({
       // chamada da tela do Produto Importado, ProdutoImportadoSheet.tsx:641-647).
       // R3 do G-plano F3.4 (invariante #13): confere os DOIS espelhos NA HORA — leitura com erro ⇒ lança ⇒ o catch mantém o
       // save do card e NÃO cria; produto acabado vinculado (card que já foi revenda) ⇒ não cria o 2º espelho.
-      if (savedId && d.origem === "importado" && piOn) {
+      // P-53 A (fix 1, m-1) — mesma trava da revenda acima: só quem edita o Planejamento cria o espelho.
+      if (savedId && d.origem === "importado" && piOn && podeEditarPlanejamento) {
         try {
           const { data: existenteImp, error: existenteImpErr } = await supabase
             .from("produtos_importados" as any)
