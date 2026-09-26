@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, Printer } from "lucide-react";
+import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, Printer, AlertTriangle } from "lucide-react";
 import { printWithImages } from "@/lib/print";
 import { RomaneioDirecionamento } from "@/components/producao/RomaneioDirecionamento";
 import { toast } from "sonner";
@@ -20,8 +20,6 @@ import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { useTenantModules } from "@/hooks/useTenantModules";
-import { OrcamentoTag } from "@/components/otb/orcamento";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -32,6 +30,17 @@ import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { pathDoElemento } from "@/lib/colab/colab-field-path";
 import { mergeGradeDir, pathDirCel, type GradeDir } from "@/lib/colab/merge-grade-dir";
 import { type Conflito } from "@/lib/colab/merge";
+import { InfoHover } from "@/components/shared/InfoHover";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ladoTamanho } from "@/lib/tamanho";
+import { tipoDoProduto } from "@/lib/distribuicao-produto";
+import { preencherComPlano, tamanhosDoPlano, textoPendencia, totalPlanoVariante, type Pendente, type PlanoModeloResp } from "@/lib/direcionamento-plano";
+import { PlanoDoModeloCard } from "@/components/direcionamento/PlanoDoModeloCard";
+
+const TEXTO_GRADE_REAL = "Grade Real = o que voltou da recepção dos serviços, já sem os defeitos do CQ.";
 
 export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -89,7 +98,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
-    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, origem, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
+    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, origem, tamanho_tipo, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
   });
 
   const { data: cad } = useQuery({
@@ -100,27 +109,24 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     if (cad) setStatus((cad as any).direcionamento_status ?? "pendente");
   }, [cad]);
 
-  // Resumo "direcionados / planejado" da subcoleção (tira no topo). direcionados = modelos separados
-  // da subcoleção; planejado = Σ TOTAL das tabelas de Distribuição da subcoleção (unidade = modelos).
-  // A RPC deriva coleção/subcoleção do próprio modelo. Só busca quando o modelo tem subcoleção.
-  const { isModuleEnabled } = useTenantModules();
-  const distribOn = isModuleEnabled("distribuicao");
-  const subcolecao = (modelo as any)?.subcolecao as string | undefined;
-  const { data: resumoSub } = useQuery({
-    queryKey: ["dir-resumo-subcol", modeloId],
-    enabled: !!modelo && !!subcolecao?.trim(),
+  // Distribuição por produto (spec R21/R38): plano SALVO do Plan. Tecido para ESTE modelo + "X modelos direcionados" da
+  // subcoleção. Substitui a tira global antiga (RPC de resumo da subcoleção, apagada na remoção). O plano é
+  // REFERÊNCIA — nenhum gate lê isto (invariante #10).
+  const { data: planoResp, isFetched: planoFetched } = useQuery({
+    queryKey: ["dir-plano-modelo", modeloId],
+    enabled: !!modelo,
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("direcionamento_resumo_subcolecao", { _modelo_id: modeloId });
+      const { data, error } = await (supabase.rpc as any)("direcionamento_plano_modelo", { _modelo_id: modeloId });
       if (error) throw error;
-      return data as {
-        direcionados: number; planejado: number; subcolecao: string | null;
-        tamanhos: string[];
-        lojas: { nome: string; grade: Record<string, number>; total: number }[];
-      };
+      return data as PlanoModeloResp;
     },
   });
-  // Mostra "X/Y" só com Distribuição ligada E havendo plano (tabela); senão, só o realizado.
-  const mostrarTotal = distribOn && (resumoSub?.planejado ?? 0) > 0;
+  const plano = planoResp?.plano ?? null;
+  const tipoTam = tipoDoProduto(plano?.tamanho_tipo ?? (modelo as any)?.tamanho_tipo);
+  const rotuloTam = (t: string) => ladoTamanho(t, tipoTam) ?? t;
+  // Semi-preenchimento (R22): pendências (cor × tamanho que não bateu) e células vindas do plano (azul-claro até editar).
+  const [preench, setPreench] = useState<{ aplicado: boolean; pendentes: Pendente[]; doPlano: Set<string> }>({ aplicado: false, pendentes: [], doPlano: new Set() });
+  const [confirmarPreencher, setConfirmarPreencher] = useState(false);
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos", tenantId],
@@ -130,7 +136,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha
   // histórica). E-commerce (default) primeiro, depois ordem.
-  const { data: lojas = [] } = useQuery({
+  const { data: lojas = [], isFetched: lojasFetched } = useQuery({
     queryKey: ["dir-lojas", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -301,7 +307,24 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Só hidrata quando AMBAS as queries assentaram — senão hidrata do cache vazio
   // (no 1º acesso e ao salvar) e os números somem.
-  const dataSettled = gradesFetched && !gradesFetching && existingFetched && !existingFetching;
+  const dataSettled = gradesFetched && !gradesFetching && existingFetched && !existingFetching && planoFetched && lojasFetched;
+
+  // Regra do preenchimento sobre um estado (R22): só lojas EDITÁVEIS da variante (ativa, ou inativa com par histórico).
+  const aplicarPlano = (base: Record<number, VarState>) => {
+    const r = preencherComPlano({
+      variantes: Object.values(base).map((v) => ({ variante_numero: v.variante_numero, real: v.real })),
+      tamanhos,
+      lojas: lojasVisiveis.map((l) => ({ id: l.id })),
+      podeEditar: (lojaId, vnum) => {
+        const l = lojasVisiveis.find((x) => x.id === lojaId);
+        return !!l && (l.ativo || paresHistoricos.has(`${lojaId}:${vnum}`));
+      },
+      plano,
+    });
+    const obj: Record<number, VarState> = {};
+    for (const v of Object.values(base)) obj[v.variante_numero] = { ...v, linhas: r.linhas[v.variante_numero] ?? {} };
+    return { obj, pendentes: r.pendentes, doPlano: r.doPlano, escritas: r.escritas };
+  };
 
   useEffect(() => {
     if (hydrated || !cad?.id) return;
@@ -320,15 +343,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       }
       obj[d.variante_numero].linhas[d.loja_id] = d.grades ?? {};
     });
-    setState(obj);
+    // Distribuição por produto (R22/P-12): sem direcionamento salvo, ainda pendente e editável ⇒ abre SEMI-PREENCHIDO pelo
+    // plano. É RASCUNHO refeito a cada abertura enquanto nada for salvo: NÃO conta como "alteração não salva" (P-32 = B,
+    // dono 25/set — o guarda nasce do estado PREENCHIDO); a base do merge 3-vias segue o SERVIDOR e as células escritas
+    // pelo preenchimento contam como minhas (touched).
+    const preencher = !!plano && (existing as any[]).length === 0 && (cad as any)?.direcionamento_status !== "separado" && !readOnly;
+    const p = preencher ? aplicarPlano(obj) : null;
+    setState(p ? p.obj : obj);
     // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
-    // explícito — o estado recém-setado ainda está stale neste tick).
-    resetBaseline(obj);
-    // Baseline do MERGE: o que acabou de vir do servidor é a base 3-vias + zera o "tocado".
+    // explícito — o estado recém-setado ainda está stale neste tick). P-32 = B: o preenchido.
+    resetBaseline(p ? p.obj : obj);
+    // Baseline do MERGE: o que veio do servidor é a base 3-vias; o "tocado" = as células que o preenchimento escreveu.
     baseGradeRef.current = stateToGradeDir(obj);
-    touchedRef.current = new Set();
+    touchedRef.current = new Set(p?.escritas ?? []);
+    setPreench(p ? { aplicado: true, pendentes: p.pendentes, doPlano: new Set(p.doPlano) } : { aplicado: false, pendentes: [], doPlano: new Set() });
     setHydrated(true);
-  }, [cadGrades, existing, cad?.id, hydrated, dataSettled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cadGrades, existing, cad?.id, hydrated, dataSettled, plano, readOnly]);
 
   // MERGE 3-vias quando chega UPDATE alheio (o `existing` refetcha por postgres_changes da âncora).
   // Gated por `hydrated` (só depois do seed) e `!reseedingRef` (o pós-save re-baselina sozinho).
@@ -369,7 +400,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   }, [existing]);
 
   const setQtd = (num: number, lojaId: string, tam: string, qtd: number) => {
-    touchedRef.current.add(pathDirCel(num, lojaId, tam)); // p/ o merge saber o que EU editei
+    const path = pathDirCel(num, lojaId, tam);
+    touchedRef.current.add(path); // p/ o merge saber o que EU editei
+    setPreench((p) => (p.doPlano.has(path) ? { ...p, doPlano: new Set([...p.doPlano].filter((x) => x !== path)) } : p));
     setState((s) => {
       const v = s[num] ?? { variante_numero: num, real: {}, linhas: {} };
       return {
@@ -378,6 +411,26 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       };
     });
   };
+
+  // "Preencher com o plano" (R22): reaplica a regra sobre o rascunho (AlertDialog se já há número digitado).
+  const temNumero = Object.values(state).some((v) => Object.values(v.linhas).some((g) => Object.values(g ?? {}).some((q) => Number(q) > 0)));
+  const preencherAgora = () => {
+    const r = aplicarPlano(state);
+    setState(r.obj);
+    for (const p of r.escritas) touchedRef.current.add(p);
+    setPreench({ aplicado: true, pendentes: r.pendentes, doPlano: new Set(r.doPlano) });
+  };
+  // Estado visual da célula (R22): pendente = cor × tamanho que não bateu e ainda vazia; doPlano = veio do plano sem edição.
+  const estadoCel = (vn: number, lojaId: string, t: string, valor: number | undefined) => {
+    const pendente = valor === undefined && preench.pendentes.some((p) => p.variante_numero === vn && p.tamanho === t);
+    const doPlano = preench.doPlano.has(pathDirCel(vn, lojaId, t));
+    return {
+      classe: pendente ? "bg-amber-50 placeholder:text-amber-700" : doPlano ? "bg-sky-50" : "",
+      placeholder: pendente ? "–" : "0",
+      title: pendente ? "Distribua à mão" : undefined,
+    };
+  };
+  const nomeCorVariante = (vn: number) => plano?.variantes.find((x) => x.variante_numero === vn)?.cor_nome ?? `Variante ${vn}`;
 
   // Resolução de conflito (path `dir:${variante}:${loja}:${tam}`): "usar o novo" grava o valor do
   // servidor na célula e a destoca (sai do meu "tocado"); "manter o meu" só remove o conflito. Depois
@@ -489,7 +542,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       await qc.invalidateQueries({ queryKey: ["dir-controle", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
-      await qc.invalidateQueries({ queryKey: ["dir-resumo-subcol", modeloId] });
+      await qc.invalidateQueries({ queryKey: ["dir-plano-modelo", modeloId] });
       await refetch();
       setHydrated(false);
     },
@@ -522,7 +575,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
-      await qc.invalidateQueries({ queryKey: ["dir-resumo-subcol", modeloId] });
+      await qc.invalidateQueries({ queryKey: ["dir-plano-modelo", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
@@ -534,11 +587,12 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // igual — aqui é o feedback antes de tentar). null = tudo bate.
   const motivo = useMemo(() => {
     for (const v of variantes) {
-      const m = motivoNaoConfere(diffPorTamanho(v.real, Object.values(v.linhas), tamanhos));
+      const m = motivoNaoConfere(diffPorTamanho(v.real, Object.values(v.linhas), tamanhos).map((d) => ({ ...d, tamanho: rotuloTam(d.tamanho) })));
       if (m) return `${labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}: ${m}`;
     }
     return null;
-  }, [variantes, tamanhos, labelByNumero]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantes, tamanhos, labelByNumero, tipoTam]);
 
   // Botões de ação renderizados na barra STICKY do rodapé (todos os tamanhos): rodapé
   // do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
@@ -651,69 +705,47 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         </StatusBadge>
       </header>
 
-      {/* Resumo da subcoleção: quantos modelos já foram direcionados + COMO foi planejado (loja ×
-          tamanho, da tela Distribuição). Com Distribuição ligada e plano → "X/Y" + mini-tabela;
-          senão, só o realizado. Só aparece se há subcoleção. */}
-      {resumoSub && subcolecao?.trim() && (
-        <Card className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Subcoleção </span>
-              <span className="font-medium">{subcolecao}</span>
-            </div>
-            {mostrarTotal ? (
-              <div className="flex items-center gap-2 text-sm">
-                {/* OrcamentoTag: fica vermelho se direcionados > planejado (passou do plano). */}
-                <OrcamentoTag realizado={resumoSub.direcionados} total={resumoSub.planejado} className="text-sm font-semibold" />
-                <span className="text-muted-foreground">modelos direcionados</span>
-              </div>
-            ) : (
-              <div className="text-sm">
-                <span className="font-semibold tabular-nums">{resumoSub.direcionados}</span>
-                <span className="text-muted-foreground"> modelo(s) direcionado(s)</span>
-              </div>
-            )}
+      {/* Distribuição por produto (P-16 = C): só "X modelos direcionados" da subcoleção (sai o /Y e a tira global). */}
+      {planoResp?.subcolecao && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+          <div><span className="text-muted-foreground">Subcoleção </span><span className="font-medium">{planoResp.subcolecao}</span></div>
+          <div>
+            <span className="font-semibold tabular-nums">{planoResp.direcionados}</span>
+            <span className="text-muted-foreground"> {planoResp.direcionados === 1 ? "modelo direcionado" : "modelos direcionados"}</span>
           </div>
-
-          {mostrarTotal && (
-            <>
-              {/* barra de progresso direcionados/planejado */}
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.min(100, Math.round((resumoSub.direcionados / resumoSub.planejado) * 100))}%` }} />
-              </div>
-              {/* mini-tabela do planejado (loja × tamanho), replicando a Distribuição da subcoleção */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs tabular-nums border-collapse">
-                  <thead>
-                    <tr className="text-muted-foreground [&>th]:px-2 [&>th]:py-1 [&>th]:font-medium">
-                      <th className="text-left">Planejado por loja</th>
-                      {resumoSub.tamanhos.map((t) => <th key={t} className="text-center">{t.split("|")[0]}</th>)}
-                      <th className="text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resumoSub.lojas.map((l) => (
-                      <tr key={l.nome} className="border-t [&>td]:px-2 [&>td]:py-1">
-                        <td className="text-left font-medium">{l.nome}</td>
-                        {resumoSub.tamanhos.map((t) => <td key={t} className="text-center text-muted-foreground">{l.grade?.[t] ?? "—"}</td>)}
-                        <td className="text-right font-semibold">{l.total}</td>
-                      </tr>
-                    ))}
-                    <tr className="border-t-2 [&>td]:px-2 [&>td]:py-1 font-semibold">
-                      <td className="text-left">Total</td>
-                      {resumoSub.tamanhos.map((t) => (
-                        <td key={t} className="text-center">{resumoSub.lojas.reduce((s, l) => s + (l.grade?.[t] ?? 0), 0)}</td>
-                      ))}
-                      <td className="text-right">{resumoSub.planejado}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
         </Card>
       )}
+      {planoResp && (
+        <PlanoDoModeloCard
+          plano={plano}
+          motivo={planoResp.motivo_sem_plano}
+          tamanhos={tamanhosDoPlano(plano?.tamanhos ?? tamanhos, tamanhos, plano)}
+          rotuloTam={rotuloTam}
+          rotuloVariante={(vn) => labelByNumero[vn] ?? `Variante ${vn}`}
+          podePreencher={editavel && variantes.length > 0}
+          onPreencher={() => (temNumero ? setConfirmarPreencher(true) : preencherAgora())}
+        />
+      )}
+      {preench.aplicado && plano && (() => {
+        const realTotal = variantes.reduce((s, v) => s + tamanhos.reduce((a, t) => a + (Number(v.real?.[t]) || 0), 0), 0);
+        const planoTotal = variantes.reduce((s, v) => s + totalPlanoVariante(plano, v.variante_numero).total, 0);
+        const lista = preench.pendentes.map((p) => `${nomeCorVariante(p.variante_numero)} ${rotuloTam(p.tamanho)} (${p.real} peças)`).join(" e ");
+        return (
+          <Card className="flex gap-2 border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p>
+              <b>Preenchido pelo plano onde bateu com a Grade Real</b> (rascunho — nada foi salvo; células em azul-claro vieram do plano).
+              {" "}A <b>Grade Real</b> é o que voltou da <b>recepção dos serviços</b>, já sem os defeitos do CQ: <b>{realTotal}</b> peças, contra <b>{planoTotal}</b> do plano.
+              {preench.pendentes.length > 0 ? (
+                <>{" "}Onde cor × tamanho não bateu, a coluna ficou vazia (–) em todas as lojas, porque não dá para saber de qual loja tirar. É aqui que a diferença entre plano e realidade se acerta: <b>distribua à mão as colunas vazias</b> — <b>{lista}</b>.</>
+              ) : (
+                <>{" "}Tudo bateu com a Grade Real.</>
+              )}
+              {" "}O Confirmar continua exigindo Σ Direcionado = Grade Real em cada tamanho.
+            </p>
+          </Card>
+        );
+      })()}
 
       {!cad?.id && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
@@ -733,7 +765,10 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <Card key={v.variante_numero} className="p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">{labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}</h3>
-              <div className="text-xs text-muted-foreground">Grade Real Total: <strong>{realTotal}</strong></div>
+              <div className="text-xs text-muted-foreground">
+                Grade Real Total: <strong>{realTotal}</strong>
+                {plano && <span> · plano {totalPlanoVariante(plano, v.variante_numero).total}</span>}
+              </div>
             </div>
 
             <div className="hidden md:block overflow-x-auto">
@@ -741,16 +776,25 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="border px-2 py-1 text-left">Linha</th>
-                    {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-20">{t}</th>)}
+                    {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-20">{rotuloTam(t)}</th>)}
                     <th className="border px-2 py-1 text-center w-20">Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="border px-2 py-1 font-medium">Grade Real</td>
-                    {tamanhos.map((t) => (
-                      <td key={t} className="border px-2 py-1 text-center bg-muted/30">{Number(v.real?.[t] ?? 0)}</td>
-                    ))}
+                    <td className="border px-2 py-1 font-medium">
+                      <span className="inline-flex items-center gap-1">Grade Real<InfoHover ariaLabel="O que é a Grade Real">{TEXTO_GRADE_REAL}</InfoHover></span>
+                    </td>
+                    {tamanhos.map((t) => {
+                      const real = Number(v.real?.[t] ?? 0);
+                      const pt = plano ? (totalPlanoVariante(plano, v.variante_numero).porTamanho[t] ?? 0) : null;
+                      return (
+                        <td key={t} className="border px-2 py-1 text-center bg-muted/30">
+                          {real}
+                          {pt !== null && pt !== real && <small className="block text-[10px] text-amber-700">plano {pt}</small>}
+                        </td>
+                      );
+                    })}
                     <td className="border px-2 py-1 text-center font-semibold">{realTotal}</td>
                   </tr>
                   {lojasVisiveis.map((l) => {
@@ -765,19 +809,22 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                           {l.nome}
                           {!l.ativo && <Badge variant="secondary" className="ml-2 text-[10px]">Desativada</Badge>}
                         </td>
-                        {tamanhos.map((t) => (
-                          <td key={t} className="border p-0">
-                            <NumberInput
-                              integer blankZero placeholder="0" min={0}
-                              className="h-8 max-md:h-11 border-0 bg-transparent text-center"
-                              value={grades[t] ?? ""}
-                              disabled={!editavelLinha}
-                              data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}
-                              title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
-                              onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
-                            />
-                          </td>
-                        ))}
+                        {tamanhos.map((t) => {
+                          const est = estadoCel(v.variante_numero, l.id, t, grades[t]);
+                          return (
+                            <td key={t} className="border p-0">
+                              <NumberInput
+                                integer blankZero placeholder={est.placeholder} min={0}
+                                className={`h-8 max-md:h-11 border-0 bg-transparent text-center ${est.classe}`}
+                                value={grades[t] ?? ""}
+                                disabled={!editavelLinha}
+                                data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}
+                                title={editavelLinha ? est.title : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
+                                onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
+                              />
+                            </td>
+                          );
+                        })}
                         <td className="border px-2 py-1 text-center font-semibold">{lojaTotal}</td>
                       </tr>
                     );
@@ -792,7 +839,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                       >
                         {d.direcionado}
                         {d.delta !== 0 && (
-                          <span className="block text-[10px] font-normal">({d.delta > 0 ? `+${d.delta}` : d.delta})</span>
+                          <span className="block text-[10px] font-normal">{d.delta < 0 ? `faltam ${-d.delta}` : `${d.delta} a mais`}</span>
                         )}
                       </td>
                     ))}
@@ -810,9 +857,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                 const t = d.tamanho;
                 return (
                   <div key={t} className={`rounded-lg border p-2 ${d.delta !== 0 ? "border-amber-400/60" : ""}`}>
-                    <div className="mb-1 border-b pb-1 text-center text-xs font-semibold">{t}</div>
+                    <div className="mb-1 border-b pb-1 text-center text-xs font-semibold">{rotuloTam(t)}</div>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Grade Real</span>
+                      <span className="inline-flex items-center gap-1 text-muted-foreground">Grade Real<InfoHover ariaLabel="O que é a Grade Real">{TEXTO_GRADE_REAL}</InfoHover></span>
                       <span className="font-medium">{d.real}</span>
                     </div>
                     {lojasVisiveis.map((l) => {
@@ -821,12 +868,12 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                         <div key={l.id} className={`mt-1 ${l.ativo ? "" : "opacity-60"}`}>
                           <span className="text-xs text-muted-foreground">{l.nome}</span>
                           <NumberInput
-                            integer blankZero placeholder="0" min={0}
-                            className="h-9 max-md:h-11 text-center"
+                            integer blankZero placeholder={estadoCel(v.variante_numero, l.id, t, v.linhas[l.id]?.[t]).placeholder} min={0}
+                            className={`h-9 max-md:h-11 text-center ${estadoCel(v.variante_numero, l.id, t, v.linhas[l.id]?.[t]).classe}`}
                             value={v.linhas[l.id]?.[t] ?? ""}
                             disabled={!editavelLinha}
                             data-colab-path={`dir:${v.variante_numero}:${l.id}:${t}`}
-                            title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
+                            title={editavelLinha ? estadoCel(v.variante_numero, l.id, t, v.linhas[l.id]?.[t]).title : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
                             onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
                           />
                         </div>
@@ -835,7 +882,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                     <div className="mt-1 flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Σ Direcionado</span>
                       <span className={`font-medium ${d.delta === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
-                        {d.direcionado}{d.delta !== 0 ? ` (${d.delta > 0 ? "+" : ""}${d.delta})` : ""}
+                        {d.direcionado}{d.delta < 0 ? ` · faltam ${-d.delta}` : d.delta > 0 ? ` · ${d.delta} a mais` : ""}
                       </span>
                     </div>
                   </div>
@@ -848,10 +895,34 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                 Direcionado: <b>{dirTotal}</b>
               </span>
             </div>
+            {preench.pendentes
+              .filter((p) => p.variante_numero === v.variante_numero && Object.values(v.linhas).every((g) => g?.[p.tamanho] === undefined))
+              .map((p) => (
+                <p key={p.tamanho} className="flex gap-1 text-xs text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /><span>{textoPendencia(rotuloTam(p.tamanho), p)}</span>
+                </p>
+              ))}
           </Card>
         );
       })}
       </fieldset>
+
+      {confirmarPreencher && (
+        <AlertDialog open onOpenChange={(o) => !o && setConfirmarPreencher(false)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Preencher com o plano?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Isso troca os números digitados pelo plano onde ele bate com a Grade Real e deixa vazias as colunas que não batem. Nada é salvo até você clicar em Salvar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { setConfirmarPreencher(false); preencherAgora(); }}>Preencher</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       <RomaneioDirecionamento
         modelo={modelo}
