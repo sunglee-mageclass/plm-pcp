@@ -46,7 +46,9 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   financeiro: "/financeiro",
   dashboard: "/dashboard",
   otb: "/otb",
-  distribuicao: "/distribuicao",
+  // Distribuição por produto (set/2026): a página antiga está OCULTA (P-49 B) — o módulo é gate do "Distribuir por
+  // loja" (Plan. Tecido) e do plano no Direcionamento; a entrada existe só p/ o Record ficar exaustivo (fora do LANDING_ORDER).
+  distribuicao: "/criacao/plan-tecido",
   produto_acabado: "/criacao/produto-acabado",
   produto_importado: "/criacao/produto-importado",
   etapas_pl: "/pcp",

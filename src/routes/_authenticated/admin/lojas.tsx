@@ -62,6 +62,8 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
   out.push({ key: "produto_acabado", label: "Produto Acabado (Revenda)" });
   out.push({ key: "produto_importado", label: "Produto Importado" });
   out.push({ key: "etapas_pl", label: "Etapas PL (kanban)" });
+  // Distribuição por produto (set/2026): o ModuleDef/página saiu do catálogo (página antiga oculta) — o toggle continua à mão (gate do dialog).
+  out.push({ key: "distribuicao", label: "Distribuição por produto" });
   return out;
 })();
 // Descrição curta por módulo (o super_admin liga/desliga sabendo o que cada um faz).
@@ -69,7 +71,7 @@ const MODULE_DESC: Record<string, string> = {
   cadastro: "Materiais, fornecedores, atributos e colaboradores.",
   entrada_saida: "Ordens de compra de tecido/aviamento, rolos e estoque.",
   otb: "OTB — orçamento de coleção (Open To Buy) antes do Planejamento.",
-  distribuicao: "Distribuição por loja e poder de venda (resumo da coleção + tabelas).",
+  distribuicao: "Distribuir por loja (por produto) no Plan. Tecido + plano do modelo no Direcionamento.",
   criacao: "Planejamento e Desenvolvimento (kanban) dos modelos.",
   producao: "CAD, Serviços, CQ, Direcionamento e Lançamentos.",
   financeiro: "Contas a pagar, calendário e resumo financeiro.",
