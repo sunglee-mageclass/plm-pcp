@@ -1,7 +1,7 @@
 // Tela "Distribuição" — resumo automático da coleção + N tabelas de distribuição por loja.
 // Módulo opt-in (padrão OTB: RequirePermission, sem ModuleGuard — empty-state quando OFF).
 
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { BarChart3, Plus, Loader2, Lock } from "lucide-react";
@@ -35,17 +35,16 @@ export const Route = createFileRoute("/_authenticated/distribuicao/")({
     ),
 });
 
-// `EmptyState.action` só aceita { label, onClick } (sem suporte a link/asChild) — o botão de
-// navegação vai por FORA do componente, mesmo empty-state visual (ver EmptyState.tsx).
 function PaginaDesativada() {
+  const navigate = useNavigate();
   return (
-    <div className="p-4 md:p-6">
-      <EmptyState icon={BarChart3} title="Tela desativada" description="Use Distribuir por loja no Plan. Tecido." />
-      <div className="flex justify-center">
-        <Button asChild className="mt-1">
-          <Link to="/criacao/plan-tecido">Ir para o Plan. Tecido</Link>
-        </Button>
-      </div>
+    <div className="container mx-auto p-4 md:p-6">
+      <EmptyState
+        icon={BarChart3}
+        title="Tela desativada"
+        description="Use Distribuir por loja no Plan. Tecido."
+        action={{ label: "Ir para o Plan. Tecido", onClick: () => navigate({ to: "/criacao/plan-tecido" }) }}
+      />
     </div>
   );
 }

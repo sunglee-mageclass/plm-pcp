@@ -23,7 +23,7 @@ describe("Distribuição antiga — OCULTA e DESATIVADA, nada apagado (dono 26/s
     expect(r).toContain("const PAGINA_ATIVA = false;");
     expect(r).toContain("Tela desativada");
     expect(r).toContain("Distribuir por loja");
-    expect(r).toContain('to="/criacao/plan-tecido"');
+    expect(r).toMatch(/to(=|:\s*)"\/criacao\/plan-tecido"/);
     expect(r).toMatch(/PAGINA_ATIVA\s*\?/);
   });
   it("sai do menu: nav, catálogo e sidebar não citam a página", () => {
