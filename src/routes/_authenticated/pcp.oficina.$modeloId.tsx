@@ -439,7 +439,11 @@ function OficinaDetailPage() {
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — auditoria confirmou (26/set) que
+              `producao_oficina` não tem RPC própria: o Salvar faz `.update()`/`.insert()` direto
+              com TODO o `form` local; cedo demais, grava zeros por cima de um registro real
+              (mesma classe de dano do "estado completo", sem ser DELETE). */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </div>

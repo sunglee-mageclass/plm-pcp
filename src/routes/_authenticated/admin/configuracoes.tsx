@@ -60,6 +60,7 @@ import { REVENDA_CAMPO_KEYS, REVENDA_SECAO_KEYS, REVENDA_CAMPOS_DEFAULT_OFF } fr
 import type { RefConfig } from "@/lib/ref-montar";
 import { FormatoRefCard } from "@/components/configuracoes/FormatoRefCard";
 import { keywordsDoServidor, keywordsParaPayload } from "@/lib/config-keywords";
+import { mergeDraft, igual } from "@/lib/colab/merge";
 import { ModoColunaBadge } from "@/components/admin/ModoColunaBadge";
 import { KanbanAutomaticoBloco, KanbanSalvarDialog } from "@/components/admin/KanbanAutomaticoDialog";
 import { kanbanPreviaRecalculo } from "@/lib/kanban-auto-rpc";
@@ -194,6 +195,13 @@ function ConfiguracoesLojaPage() {
   // closure do render que agendou o efeito (evita staleness entre múltiplos setState no meio).
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
+  // Fix hidratação (P-57 A): último `next` (servidor) aplicado à tela — base do merge 3-vias
+  // quando uma re-hidratação chega DEPOIS da 1ª (Realtime/foco/save de outra tela/aba). null
+  // até a 1ª carga: aí ainda não há "meu" para proteger, adota o servidor cru como sempre.
+  const cfgBaseRef = useRef<ConfigState | null>(null);
+  // O que ESTE save mandou (mutationFn) — para o eco do PRÓPRIO upsert não ser tratado como
+  // edição alheia (senão o onSuccess já rebaixaria `cfgBaseRef` para o valor pré-save).
+  const cfgEnviadoRef = useRef<ConfigState | null>(null);
   // Salvar configurações afeta dados de toda a loja (modo OC/Rolo, grade, kanban,
   // acabamento, baixa) — confirma antes de gravar.
   const [confirmSalvar, setConfirmSalvar] = useState(false);
@@ -321,14 +329,28 @@ function ConfiguracoesLojaPage() {
     // decide as duas coisas de uma vez, a partir do MESMO instante: `cfgRef`/`kanbanBaseRef` espelham
     // o estado JÁ na tela (evitam closure obsoleto entre múltiplos setState no meio).
     const r2 = resolverEcoKanban(kanbanProtegidoRef.current, pickKanban(cfgRef.current), pickKanban(next), kanbanBaseRef.current);
-    setCfg({ ...next, ...r2.cfgKanban } as ConfigState);
+    // Fix hidratação (P-57 A, §4.1): re-hidratação (2ª+ vez que `data.cfg` muda referência —
+    // Realtime, refetch de foco, o próprio diálogo "Nomenclaturas" desta tela, save de outra
+    // aba/admin) FUNDE em vez de SOBRESCREVER. `base` = último servidor aplicado; campo onde a
+    // tela (cfgRef.current) diverge da base é "meu" (tocado) e sobrevive; o resto adota o
+    // servidor novo. 1ª carga (cfgBaseRef ainda null) não tem "meu" para proteger — adota cru.
+    const base = cfgBaseRef.current;
+    const tocados = new Set(
+      base ? (Object.keys(next) as (keyof ConfigState)[]).filter((k) => !igual(cfgRef.current[k], base[k])) : [],
+    );
+    const valor = base ? mergeDraft({ base, draft: cfgRef.current, fresh: next, touched: tocados }).valor : next;
+    cfgBaseRef.current = next;
+    setCfg({ ...valor, ...r2.cfgKanban } as ConfigState);
     setKanbanBase(r2.kanbanBase);
-    resetCfgBaseline(next);
+    resetCfgBaseline(next); // baseline = servidor ⇒ o selo "não salvo" segue aceso só p/ o que é meu
   }, [data?.cfg]);
 
   const save = useMutation({
     mutationFn: async () => {
       if (!data?.tenantId) throw new Error("Loja não identificada para este usuário.");
+      // Fix hidratação (P-57 A): guarda o que ESTE save está mandando — o onSuccess usa para
+      // re-basear `cfgBaseRef` (o eco do PRÓPRIO upsert não deve ser tratado como edição alheia).
+      cfgEnviadoRef.current = cfg;
       // campos_editaveis (janela Nomenclaturas), tamanhos_grade e etapas_acabamento
       // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
       // foi editado nesses outros lugares.
@@ -427,6 +449,10 @@ function ConfiguracoesLojaPage() {
     onSuccess: (diff) => {
       toast.success("Configurações salvas");
       markClean();
+      // Fix hidratação (P-57 A): o que este save mandou vira a base do merge — evita "não salvo"
+      // falso quando o servidor NORMALIZA um valor (ex.: Keywords só com espaços → NULL,
+      // `ref_config` vazio → NULL) e o eco da própria escrita chega como re-hidratação.
+      if (cfgEnviadoRef.current) cfgBaseRef.current = cfgEnviadoRef.current;
       setPreviaSalvar(null);
       kanbanProtegidoRef.current = false;
       // O que gravamos vira a nova base (o refetch abaixo também a refaz pelo efeito quando o dado muda). O kanban
@@ -498,6 +524,10 @@ function ConfiguracoesLojaPage() {
 
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
+  // Fix hidratação (P-57 A, §4.1, metade 1): não editar/salvar com DEFAULTS antes da 1ª carga —
+  // sem isso, o usuário digita em cima de "" (fuso/kanban/etc. com cara de dado real) e a 1ª
+  // resolução da query sobrescreve. Nenhum hook depois deste ponto (verificado).
+  if (isLoading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
 
   // Envio à Explosão: derivado do próprio status_kanban (marcador POR LINHA no bloco do
   // kanban, não mais um card separado — feedback do dono, ago/2026). Espelha a mesma

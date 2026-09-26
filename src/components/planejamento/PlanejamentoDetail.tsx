@@ -204,6 +204,11 @@ function PlanejamentoDetailConteudo({
   // antigos deixava editar. Ver src/components/planejamento/planejamento-detail/permissoes-sheet.ts.
   const perm = resolverPermissoesSheet({ podeEditarPlanejamento, podeEditarDev, devBloqueado });
   const [draft, setDraft] = useState<Draft>(emptyDraft());
+  // Fix hidratação (P-57 A): true depois que a 1ª carga de ["modelo", modeloId] semeou o
+  // draft (ramo `!baseRef.current` do efeito abaixo). Enquanto false E isEdit, mostra
+  // "Carregando o card…" no lugar do corpo e trava o Salvar — sem isso, o usuário edita em
+  // cima do `emptyDraft()` e o seed sobrescreve/zera o touched (investigação 26/set, §1.2).
+  const [semeado, setSemeado] = useState(false);
   // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
   // `draft` principal; persiste no Salvar da página via RPC `salvar_modelo_servico_mo`. O
   // baseline (`moLinhasBase`) é o estado do servidor semeado do resumo; a divergência acende
@@ -767,6 +772,7 @@ function PlanejamentoDetailConteudo({
       baseRef.current = { draft: freshDraft };
       revRef.current = freshRev;
       setDraft(freshDraft);
+      setSemeado(true);
       resetDraftBaseline(freshDraft);
       // Pré-seleciona o Grupo da categoria carregada (deriva de categorias_produto.grupo_id).
       setGrupoSel(categorias.find((c) => c.id === (modeloData as any).categoria_principal_id)?.grupo_id ?? null);
@@ -1487,6 +1493,13 @@ function PlanejamentoDetailConteudo({
             Sem permissão para editar o Planejamento — os campos só do Planejamento estão travados.
           </p>
         )}
+        {/* Fix hidratação (P-57 A): antes do seed (isEdit && !semeado), placeholder em vez do
+            corpo — um `<fieldset disabled>` NÃO bastaria (o Radix Select/Combobox/Popover abre
+            no pointerdown antes do React re-renderizar como bloqueado; mesma lição registrada em
+            tests/unit/planejamento-dev-equipe-disabled.test.ts). Com cache quente dura 1 frame. */}
+        {isEdit && !semeado ? (
+          <p className="p-6 text-sm text-muted-foreground">Carregando o card…</p>
+        ) : (
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")}
@@ -1870,6 +1883,7 @@ function PlanejamentoDetailConteudo({
             </p>
           )}
         </fieldset>
+        )}
         </div>
 
         {/* F3.3 — rodapé do mockup (gen_main.py:118-124): Voltar · Excluir · [Para enviar, falta…] · ⋯ · [Enviar Ordem de
@@ -1990,8 +2004,10 @@ function PlanejamentoDetailConteudo({
               <span className="max-sm:sr-only">Editar</span>
             </Button>
           )}
-          {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página). */}
-          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending}>
+          {/* P-53 A: Salvar habilitado com !perm.sheetSomenteLeitura (antes dependia só da trava da página).
+              Fix hidratação (P-57 A): + trava até o seed (isEdit && !semeado) — sem isso o Salvar fica
+              habilitado em cima do emptyDraft() e grava vazio por cima do servidor. */}
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={handleSave} disabled={perm.sheetSomenteLeitura || save.isPending || enviarExplosao.isPending || (isEdit && !semeado)}>
             <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>

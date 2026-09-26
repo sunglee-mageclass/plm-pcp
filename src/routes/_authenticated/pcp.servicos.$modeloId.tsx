@@ -1134,7 +1134,11 @@ export function TerceirizadosDetail({
       <Pencil className="h-4 w-4" />
     </Button>
   ) : (
-    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly} aria-label="Salvar">
+    // Fix hidratação (P-57 A, metade 1): `salvar_terceirizados` audita como "diff incremental"
+    // em `producao_terceirizados` (upsert por bloco), mas o `grade_detalhe` destrinchado é
+    // gravado como objeto OPACO por bloco — travar o Salvar até `hydrated && moldeHydrated`
+    // é barato e fecha a classe (§4.3 da investigação).
+    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || !hydrated || !moldeHydrated} aria-label="Salvar">
       <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
     </Button>
   );

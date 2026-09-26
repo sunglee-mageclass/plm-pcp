@@ -35,7 +35,7 @@ export type CqPosHandle = {
   edit: () => void;
   cancel: () => void;
 };
-export type CqPosStatus = { confirmado: boolean; editing: boolean; pending: boolean; hasServicos: boolean };
+export type CqPosStatus = { confirmado: boolean; editing: boolean; pending: boolean; hasServicos: boolean; hydrated: boolean };
 
 export const CqPosView = forwardRef<CqPosHandle, {
   cadId: string;
@@ -240,8 +240,10 @@ export const CqPosView = forwardRef<CqPosHandle, {
   const posPending = save.isPending || desmarcar.isPending;
   const hasServicos = (servicos as any[]).length > 0;
   useEffect(() => {
-    onStatus?.({ confirmado, editing, pending: posPending, hasServicos });
-  }, [confirmado, editing, posPending, hasServicos, onStatus]);
+    // Fix hidratação (P-57 A, metade 1): reporta `hydrated` ao pai — os botões Salvar/Confirmar/
+    // Desmarcar do Pós vivem na barra do CQ Pré (mesmo componente pai), não aqui dentro.
+    onStatus?.({ confirmado, editing, pending: posPending, hasServicos, hydrated });
+  }, [confirmado, editing, posPending, hasServicos, hydrated, onStatus]);
 
   return (
     <div className="space-y-4">

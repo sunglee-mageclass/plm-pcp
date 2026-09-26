@@ -671,21 +671,25 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       )}
       {!confirmado ? (
         <>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A): + `!hydrated` — o caso GRAVE da investigação (26/set §3): Salvar
+              clicado com o CAD/rev já carregados mas a grade ainda em voo manda `_rows: []` com
+              `_rev_base` válido, e o core (estado COMPLETO) apaga TODAS as linhas de loja do CAD. */}
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button
             title={temConflito ? "Resolva os conflitos antes de confirmar" : (motivo ?? undefined)}
             aria-label="Confirmar Direcionamento"
             onClick={() => confirmMut.mutate()}
-            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo || temConflito || !hydrated}
           >
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Direcionamento</span>
           </Button>
         </>
       ) : editing ? (
         <>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A): mesma trava `!hydrated` do Salvar acima (modo "editing" pós-confirmado). */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly || temConflito || !hydrated} title={temConflito ? "Resolva os conflitos antes de salvar" : undefined} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
           <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly} aria-label="Desmarcar">

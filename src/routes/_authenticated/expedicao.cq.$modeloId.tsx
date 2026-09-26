@@ -379,7 +379,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // As ações do Pós vivem no CqPosView; espelhamos o estado + ref p/ renderizar os
   // botões do Pós na MESMA barra do topo que os do Pré.
   const cqPosRef = useRef<CqPosHandle>(null);
-  const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false });
+  const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false, hydrated: false });
   const onPosStatus = useCallback((s: CqPosStatus) => setPosBtn(s), []);
   // Monta o Pós sob demanda e MANTÉM montado (escondido com CSS) — preserva o rascunho
   // não-salvo ao trocar de aba (senão o CqPosView desmontava e recarregava do banco).
@@ -1054,10 +1054,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
-          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id} aria-label="Confirmar Controle de Qualidade">
+          {/* Fix hidratação (P-57 A, metade 1): + `!hydrated` — CQ Pré é "estado completo" nos
+              wrappers `salvar_cq`/`_salvar_cq_core` ([Σ]/[C1], invariante #6); um Salvar/Confirmar
+              cedo gravaria a grade real ainda não semeada. */}
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id || !hydrated} aria-label="Confirmar Controle de Qualidade">
             <CheckCircle2 className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Confirmar Controle de Qualidade</span>
           </Button>
-          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1066,7 +1069,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); conflitosRef.current = []; setConflitos([]); setUltimoMerge(null); }} disabled={saveMut.isPending} aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span>
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly} aria-label="Salvar">
+          {/* Fix hidratação (P-57 A): mesma trava — o "Voltar" acima RE-arma `hydrated=false` de
+              propósito (re-hidrata ao reabrir edição); o Salvar tem que esperar o novo seed. */}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly || !hydrated} aria-label="Salvar">
             <Save className="h-4 w-4 md:mr-2" /><span className="max-md:sr-only">Salvar</span>
           </Button>
         </>
@@ -1085,12 +1090,15 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           </Button>
         </>
       ))}
+      {/* Fix hidratação (P-57 A, metade 1): + `!posBtn.hydrated` em Salvar/Confirmar/Desmarcar do
+          Pós — `CqPosView` reporta `hydrated` via onStatus (mesma semântica "estado completo"
+          dos wrappers `salvar_cq_pos`/`_salvar_cq_pos_core`, invariante #6). */}
       {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
         <>
           <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending}>
+          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated}>
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
         </>
@@ -1099,10 +1107,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           {posBtn.editing && (
             <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Voltar</Button>
           )}
-          <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
+          <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos || !posBtn.hydrated}>
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
           </Button>
-          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
+          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending || !posBtn.hydrated}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </>
