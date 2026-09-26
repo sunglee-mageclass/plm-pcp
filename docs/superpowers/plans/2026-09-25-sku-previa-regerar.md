@@ -23,7 +23,7 @@ mantém os SKUs antigos.
 
 **Tech Stack:** PostgreSQL 17.6 (Supabase próprio; cópia local Docker `supabase_db_banco-local` em `127.0.0.1:54422`),
 plpgsql/sql, Vite + React 19 + TypeScript + TanStack Query v5 + supabase-js, Tailwind v4, Vitest 4 (unit `node` +
-integração `BEGIN…ROLLBACK` SÓ na cópia), Playwright (QA no `:5173`), Python 3 (gerador da migration), bash (scripts de
+integração `BEGIN…ROLLBACK` SÓ na cópia), Playwright (QA na CÓPIA, `:5188` — P-51 A), Python 3 (gerador da migration), bash (scripts de
 produção no molde da reorganização do Sheet).
 
 **Spec:** `docs/superpowers/specs/2026-09-25-sku-previa-regerar-design.md` (commit `9f6c6380` — decisões do dono §2
@@ -57,11 +57,13 @@ TRAVADAS; rulings §5). Moldes:
   only" -c "<select>" -c "rollback"`. O `PGOPTIONS` só-leitura NÃO vale no Supavisor (lição G-commit, 25/set).
 - Cópia `postgresql://postgres:postgres@127.0.0.1:54422/postgres` (também o app de teste `:5188`):
   - leitura: `PGOPTIONS='-c default_transaction_read_only=on' psql …`;
-  - DDL SÓ (a) na txn revertida das suítes (`SKU_PREVIA_MIG_TXN=1`, `SHEET_MIG_TXN=1`) ou (b) pelos scripts
+  - DDL SÓ (a) na txn revertida da suíte desta frente (`SKU_PREVIA_MIG_TXN=1`) ou (b) pelos scripts
     `.superpowers/sku-previa/{copia.sh,mig/ensaio-local.sh}`;
   - antes de cada rodada com DDL (inclusive TODA suíte de integração que aplica SQL), o CONTROLADOR publica o AVISO no
     painel (P-30 B — sem esperar OK) e roda `PREVIA_DONO_AVISADO=sim bash .superpowers/sku-previa/n3.sh antes <passo>`;
     depois, `bash .superpowers/sku-previa/n3.sh depois <passo>`. Nada de probe fora disso.
+  - ⛔ `SHEET_MIG_TXN=1` NÃO roda nesta frente (R2 do G-plano): esse modo exige a cópia SEM a reorganização, e ela está
+    VIVA na cópia desde 25/set 21:03 — os testes dele falham com ou sem a prévia.
 - ⛔ NUNCA `\i` de migration em transação de teste (incidente 15/set). ⛔ NUNCA DDL em transação de teste contra produção
   (incidente 23/set).
 - TODO vitest (unit e integração): `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` EXPLÍCITO (o
@@ -78,15 +80,25 @@ TRAVADAS; rulings §5). Moldes:
   - ACL das internas conferida por `has_function_privilege` (#9: `REVOKE … FROM PUBLIC, anon, authenticated`);
   - `$pos$` antes do `COMMIT`;
   - `NOTIFY pgrst, 'reload schema';` antes do `COMMIT`.
-- Contagem funções|gatilhos hoje (cópia e produção): **484|277** → com esta frente **493|277** (+9 funções; as 3
-  redefinidas não mudam a contagem).
+- Contagem funções|gatilhos — NADA cravado (R5 do G-plano): a base aceita é **484|277** (só a reorganização) OU
+  **486|277** (reorganização + Distribuição, identificada por `to_regprocedure('public.direcionamento_plano_modelo(uuid)')
+  IS NOT NULL`); depois da ida = **base + 9 funções, + 0 gatilhos**. As 3 redefinidas não mudam a contagem; os md5 delas não
+  mudam com a Distribuição. Os scripts conferem pelo DELTA (contagens lidas na hora).
 - ORDEM OBRIGATÓRIA:
   1. esta migration em PRODUÇÃO (dono, `ida-producao.sh`);
   2. referência nova da volta da F1 (dono, `ref-volta-f1.sh`);
   3. merge do front na `feature/plan-tecido-a1` JUNTO com `copia.sh ida`;
-  4. QA no `:5173`;
+  4. QA na CÓPIA, no `:5188` (P-51 A);
   5. deploy (P-47 A — antes do deploy geral).
-  O front novo chama RPCs novas: sem o banco, a seção Códigos quebra no `:5173` (que grava em PRODUÇÃO).
+  O front novo chama RPCs novas: sem o banco, a seção Códigos quebra no `:5173` (que grava em PRODUÇÃO). Entre o ff (3) e a
+  QA (4), o `:5173` já roda o Salvar novo contra a PRODUÇÃO (N6): o controlador avisa o dono no painel ANTES do merge e
+  pede o "pode juntar" (como na P-39).
+- **Ordem com a frente Distribuição** (`20261006100000`, +2 funções, aditiva; funções disjuntas — o schema comuta; R4 do
+  G-plano): a ordem entre as duas em produção é LIVRE, mas **uma frente por vez: a ida E o `ref-volta-f1.sh` de uma
+  terminam ANTES do pré-voo da outra**. A referência da volta da F1 é UMA cadeia: "ida A → ida B → ref de A" deixa o ref
+  de A em PARE permanente. CONT esperado da referência nova: `462|233` se esta frente for a 1ª (base `pos_sheet` 453|233
+  − 3 + 12 chaves) ou `464|233` se vier depois da Distribuição; o `ref-volta-f1.sh` decide pelo estado vivo (base mais
+  nova + delta medido). Na VOLTA, só se a referência mais nova for a desta frente (`pos_sku_previa`) — LIFO entre frentes.
 - LIFO das voltas: voltar a reorganização (`20261005100000`) ou a F3.5a DEPOIS desta frente exige voltar ESTA antes (a
   guarda da reorganização recusa as 3 funções com outro texto).
 
@@ -127,10 +139,15 @@ TRAVADAS; rulings §5). Moldes:
     nunca mudam.".
 - Mobile 360/390 sem estouro horizontal (medido na QA).
 
-**QA**
-- Playwright SÓ com `E2E_BASE_URL=http://localhost:5173`, DEPOIS do merge e ANTES do deploy.
-- O `:5173` grava em PRODUÇÃO: card combinado com o dono (D2); nenhum card novo; NUNCA `selectStore`; nunca
-  matar/subir o `:5173` nem o `:5188`.
+**QA** (P-51 A do dono, 26/set 02:27 — R3 do G-plano)
+- Playwright SÓ com `E2E_BASE_URL=http://localhost:5188` (o app de teste, que aponta para a CÓPIA), DEPOIS do merge +
+  `copia.sh ida` e ANTES do deploy. O `:5173` (PRODUÇÃO) NÃO recebe teste que grava SKU; nenhuma leitura de produção
+  para a QA.
+- Setup na cópia = gravação na CÓPIA, listada antes com aviso no painel e feita pelo CONTROLADOR pela tela do `:5188` (nunca
+  pelo executor — "QA não semeia banco"): Formato do SKU SÓ na Loja Teste da cópia (Config da Loja) + as siglas de cor
+  base e de tamanho que o card usa (Cadastro › Atributos). Produção intocada.
+- Card EXISTENTE da Loja Teste DA CÓPIA, combinado no painel; nenhum card novo; NUNCA `selectStore`; nunca matar/subir o
+  `:5173` nem o `:5188` (a QA usa o `:5188` como está).
 
 **Processo**
 - SDD: implementador Sonnet por tarefa (não despacha subagente); revisor Opus por tarefa (§4); o `code-reviewer` roda sem
@@ -199,7 +216,7 @@ TRAVADAS; rulings §5). Moldes:
   - `sku_config` NULL em todas as lojas da cópia;
   - 272 modelos, 0 com `tamanho_tipo` NULL;
   - nomes novos livres (`to_regprocedure` nulo p/ os 9);
-  - contagem **484|277**.
+  - contagem **484|277** (reorganização viva; com a Distribuição na cópia seria 486|277 — R5).
 - O PL/pgSQL recusa INSERT/UPDATE/DELETE direto em função STABLE; o PostgREST roda função STABLE em transação READ ONLY.
 - `tests/integration/mig-txn.ts` (compartilhado, NÃO editar): `aplicarSql(c, sql, nome)` tira `BEGIN;`/`COMMIT;` e aplica
   em SAVEPOINT.
@@ -227,11 +244,14 @@ Os rulings R1–R13 da spec (§5) valem integralmente. Os do plano:
 | P1 | Nomes novos fora de `_sku_`/`_skus_modelo_`: `_skus_calc_ref_tipo`, `_skus_matriz_ref_tipo`, `_skus_plano`, `_skus_executar_plano`, `_skus_assinatura`, `_skus_previa_core`, `skus_previa`, `_aplicar_skus_modelo_core`, `aplicar_skus_modelo` | O teste de volta da F3.5a (`sku-automatico.test.ts`) conta pelo padrão e seguiria 23 | Nenhum |
 | P2 | O front (Tasks 1 e 5) é desenvolvido ANTES da produção, mas SÓ é juntado depois do `IDA OK` do dono | O front novo depende das RPCs novas | Nenhum |
 | P3 | Tasks 5 e "seção" numa task só | Mudar a assinatura do hook sem mudar a seção quebra o `tsc` no meio | Task maior, 1 revisão Opus |
-| P4 | A suíte da reorganização aprende a prévia viva: texto esperado das 3 = o desta migration; no `SHEET_MIG_TXN=1`, o inverso da prévia roda na txn ANTES da migration dela | Sem isso, depois do `copia.sh ida`, a vizinha falharia à toa (LIFO) | Nenhum |
+| P4 | A suíte da reorganização aprende a prévia viva SÓ no modo sem variável: o texto esperado das 3 = o desta migration. (O ramo do `SHEET_MIG_TXN=1` SAIU — R2 do G-plano: esse modo exige a cópia sem a reorganização e está quebrado desde que ela entrou na cópia.) | Sem isso, depois do `copia.sh ida`, a vizinha falharia à toa (LIFO) | Nenhum |
 | P5 | A equivalência VELHO × NOVO roda SÓ com `SKU_PREVIA_MIG_TXN=1` e com a cópia SEM a frente (pula se ela já estiver viva) | Precisa da função viva de ANTES na mesma txn | Depois do `copia.sh ida` ela pula (a prova fica no log da Task 3 e do ensaio) |
 | P6 | `volta-producao.sh` com o md5 do inverso CRAVADO no script (sed na Task 4, depois do ensaio) | Lição G-scripts R1: md5 lido de arquivo mutável não protege | Nenhum |
 | P7 | Leitura de produção nos scripts por `le()` = `begin transaction read only; …; rollback` (as conferências `espera` do bloco literal da F1 seguem como são — só SELECT) | Lição G-commit R1 | Nenhum |
-| P8 | O ensaio roda também a vizinha da reorganização com `SHEET_MIG_TXN=1` com a prévia VIVA (exercita o ramo P4) | É o único momento em que o ramo roda antes do merge | O `:5188` congela alguns segundos (ALTER da reorganização na txn) — dito no aviso N3 |
+| P8 | ~~Ensaio com `SHEET_MIG_TXN=1`~~ — REMOVIDO (R2 do G-plano). Em troca: todo `PARE` do ensaio DEPOIS da ida diz o estado REAL da cópia (COM a frente / SEM / pela metade, lido na hora), manda o `copia.sh volta` só com OK quando ficou COM e registra o `n3 depois` (`pare_com_frente`). | A premissa era falsa (a reorganização está viva na cópia) | Nenhum |
+| P9 | A suíte INTEIRA da F3.5a (`sku-automatico.test.ts`, blocos de banco) roda contra a geração nova no ensaio com prova de não-pular: 0 falha, só 1 pulado (o round-trip que exige `SKU_MIG_TXN`) e o MESMO nº de aprovados de antes da ida (R6) | `viz` só comparava total/falhas: blocos pulados passariam | Nenhum |
+| P10 | Equivalência: cards "outros" criados ANTES do `SAVEPOINT velho` (ids estáveis entre as 2 rodadas); se algum id ainda variar, `semIds` normaliza `com_modelo_id`/`modelo_id` (R1) + 3 cenários novos: automática × manual do mesmo card, `'criar'` com órfã segurando o SKU, `FMT_REF` + réplica (R7) | Sem isso a equivalência falha por construção | Nenhum |
+| P11 | Volta de produção com guarda LIFO ENTRE FRENTES (R4): só segue se a referência mais nova da volta da F1 for a `pos_sku_previa`; sem ela, só se nenhuma referência for mais nova que a ida desta (`cont-depois-previa.txt`) | A cadeia de referências da volta da F1 é UMA só para todas as frentes | Recusa uma volta legítima ⇒ o controlador decide à mão (nada é feito) |
 
 ## 3. Mapa de arquivos
 
@@ -251,7 +271,7 @@ Os rulings R1–R13 da spec (§5) valem integralmente. Os do plano:
 | `docs/superpowers/specs/2026-09-24-sku-automatico-design.md`, `…/2026-09-25-sheet-planejamento-reorganizacao-design.md` | Notas "SKU em prévia" (§4.2/§4.3; §5.4) | 6 |
 | `.superpowers/sku-previa/**` (não versionado) | `regras.md`, `permitidos.txt`, `gates.sh`, `n3.sh`, `copia.sh`, `desvios.md`, `molde/`, `mig/{dump_antes.sh,gerar_sql.py,extra.sh,monta-aplica.sh,aplica.sh,ensaio-local.sh,ida-producao.sh,volta-producao.sh,ref-volta-f1.sh,prova-scripts.sh}`, md5, logs | 0, 2, 4 |
 | `/Users/sunglee/PLM + Criação/savepoints/pre-apply-sku-previa/` (pasta 700) | `RODAR-sku-previa.md`, backups, contagens, retratos | 4, 6 |
-| `tests/e2e/sku-previa-qa.spec.ts` (NÃO versionar) | QA no `:5173` | 6 |
+| `tests/e2e/sku-previa-qa.spec.ts` (NÃO versionar; listado em `permitidos.txt` só p/ o `gates.sh` não barrar — R8) | QA na cópia (`:5188`) | 6 |
 
 ## 4. Revisão e portões
 
@@ -312,7 +332,7 @@ cp -p "$R/mig/aplica.sh" "$R/mig/extra.sh" "$R/mig/monta-aplica.sh" "$R/mig/ensa
    `git add .`/`-A`/`commit -a`, `git stash`, push, `pkill`/`killall`. Mensagem termina com `Co-Authored-By: Claude <modelo real> <noreply@anthropic.com>`.
 3. Antes de TODO commit: `bash .superpowers/sku-previa/gates.sh` → `GATES PREVIA: ok`. Falhou = PARE.
 4. PRODUÇÃO: nada (nem SELECT, nem `/tmp/dburl.txt`). Só o DONO, pelos scripts da Task 4.
-5. Cópia: DDL SÓ pela suíte com `SKU_PREVIA_MIG_TXN=1`/`SHEET_MIG_TXN=1` ou pelos scripts de `.superpowers/sku-previa/`,
+5. Cópia: DDL SÓ pela suíte com `SKU_PREVIA_MIG_TXN=1` (NUNCA `SHEET_MIG_TXN=1` — R2) ou pelos scripts de `.superpowers/sku-previa/`,
    SEMPRE entre `n3.sh antes` e `n3.sh depois` (o controlador publica o aviso no painel antes — P-30 B). Inclui TODA suíte
    de integração que aplica SQL. NUNCA `\i`; nada de probe.
 6. Todo vitest com `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres` explícito + caminho LITERAL;
@@ -321,7 +341,8 @@ cp -p "$R/mig/aplica.sh" "$R/mig/extra.sh" "$R/mig/monta-aplica.sh" "$R/mig/ensa
 8. Migration e inverso SÓ pelo `gerar_sql.py` — nunca editar os .sql à mão.
 9. Dev intocado (`src/components/desenvolvimento/**`, `src/components/producao/**`).
 10. Tela: textos do plano verbatim, `mensagemErro`, cor só por token, `size="iconSm"` + 44px no mobile.
-11. Não subir/derrubar servidor; nunca `:5173`/`:5188`. Não despachar subagentes. Nunca imprimir senha/.env.
+11. Não subir/derrubar servidor; nunca matar o `:5173`/`:5188` (a QA da Task 6 é do CONTROLADOR, no `:5188` como está).
+    Não despachar subagentes. Nunca imprimir senha/.env.
 12. Erro de sintaxe/formato do código do plano: corrigir o MÍNIMO e registrar em `desvios.md`. Diferença de RESULTADO
     (velho × novo, prévia × gravação) ou dúvida de regra: PARE e chame o controlador.
 ```
@@ -345,7 +366,10 @@ tests/unit/sku-previa.test.ts
 tests/unit/planejamento-codigos.test.ts
 tests/integration/sku-previa.test.ts
 tests/integration/sheet-reorg-campos.test.ts
+tests/e2e/sku-previa-qa.spec.ts
 ```
+(A última linha é o spec da QA da Task 6: NÃO se versiona — nunca `git add` —, mas fica aqui para o `gates.sh` não barrar o
+arquivo solto numa correção pós-QA — R8.)
 
 `.superpowers/sku-previa/desvios.md`: `# Desvios do plano (SKU em prévia)` + uma linha "formato: data · task · erro literal · causa · correção".
 
@@ -394,10 +418,10 @@ echo "GATES PREVIA: ok"
 
 ```bash
 #!/usr/bin/env bash
-# N3 — a cópia (:54422) é também o APP DE TESTE do dono (:5188). Toda rodada com DDL na cópia (suíte com SKU_PREVIA_MIG_TXN=1
-# ou SHEET_MIG_TXN=1, ensaio, copia.sh ida|volta) passa por aqui. Esta frente SÓ cria/troca FUNÇÕES: a migration dela não
-# congela o :5188. A suíte da reorganização com SHEET_MIG_TXN=1 faz ALTER em modelos/tenant_config na txn: congela por alguns
-# segundos. P-30 B do dono: o controlador publica o AVISO no painel ANTES (sem esperar OK). SÓ LEITURA. Uso:
+# N3 — a cópia (:54422) é também o APP DE TESTE do dono (:5188). Toda rodada com DDL na cópia (suíte com SKU_PREVIA_MIG_TXN=1,
+# ensaio, copia.sh ida|volta) passa por aqui. Esta frente SÓ cria/troca FUNÇÕES (nenhum ALTER de tabela): o :5188 não congela.
+# SHEET_MIG_TXN=1 NÃO roda nesta frente (R2). P-30 B do dono: o controlador publica o AVISO no painel ANTES (sem esperar OK).
+# SÓ LEITURA. Uso:
 #   PREVIA_DONO_AVISADO=sim bash .superpowers/sku-previa/n3.sh antes <passo>      ex.: t3, ensaio, copia-ida
 #   bash .superpowers/sku-previa/n3.sh depois <passo>
 set -uo pipefail
@@ -422,8 +446,7 @@ if [ "$QUANDO" = antes ]; then
     cat <<'MSG'
 PARE: publique o AVISO no painel ANTES (P-30 B) e rode de novo com PREVIA_DONO_AVISADO=sim:
   "Vou rodar <passo> do SKU em prévia na cópia local agora (~<N> min). A migration desta frente só troca funções (o :5188 não
-   congela); os testes criam dados numa transação desfeita no fim. <Se for o ensaio ou SHEET_MIG_TXN=1: a suíte da
-   reorganização faz ALTER em modelos/tenant_config dentro da transação — o :5188 congela por alguns segundos.>"
+   congela); os testes criam dados numa transação desfeita no fim."
 MSG
     exit 1
   fi
@@ -457,10 +480,14 @@ select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronames
        (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal),
        (select string_agg(md5(pg_get_functiondef(to_regprocedure(f))), '|' order by n) from unnest(array['public._skus_modelo_calc(uuid)','public._skus_modelo_core(uuid)','public._gerar_skus_modelo_core(uuid,boolean)']) with ordinality u(f, n)),
        (select count(*) from unnest(array['public._skus_assinatura(jsonb)','public._skus_calc_ref_tipo(uuid,text,text)','public._skus_matriz_ref_tipo(uuid,text,text)','public._skus_plano(uuid,text,text,jsonb,text)','public._skus_executar_plano(uuid,uuid,jsonb,boolean)','public._skus_previa_core(uuid,text,text,jsonb,text)','public._aplicar_skus_modelo_core(uuid,jsonb,text,text)','public.skus_previa(uuid,text,text,jsonb,text)','public.aplicar_skus_modelo(uuid,jsonb,text,text)']) f(x) where to_regprocedure(f.x) is not null),
-       to_regprocedure('public._titulo_pagina_calculado(text,text)') is not null" | tee .superpowers/sku-previa/copia-estado-t0.txt
+       to_regprocedure('public._titulo_pagina_calculado(text,text)') is not null,
+       to_regprocedure('public.direcionamento_plano_modelo(uuid)') is not null" | tee .superpowers/sku-previa/copia-estado-t0.txt
 ```
-Expected: `484|277|56c3c48067e07b4cfbcdcf0dccdb5ae6|f77fddb7bbfab7025b5f5f5007ede931|5f523d3dabda04bcda684ddf2cac0459|0|t`.
-Qualquer outro valor ⇒ PARE e chame o controlador (outra frente mudou o SKU na cópia).
+Expected (R5 — nada cravado; a última coluna diz se a Distribuição já está na cópia):
+- sem a Distribuição: `484|277|56c3c48067e07b4cfbcdcf0dccdb5ae6|f77fddb7bbfab7025b5f5f5007ede931|5f523d3dabda04bcda684ddf2cac0459|0|t|f`;
+- com a Distribuição: `486|277|<os MESMOS 3 md5>|0|t|t`.
+Qualquer outra combinação ⇒ PARE e chame o controlador (outra frente mudou o SKU na cópia, ou a contagem não bate com a
+Distribuição).
 
 - [ ] **Step 8: Sobreposição com outras frentes (só leitura)**
 
@@ -1243,13 +1270,15 @@ BEGIN
     IF v_msg IS NULL AND v_atual IS NULL AND NOT (v_calc ? v_k) THEN
       v_msg := 'Esta variante/tamanho não está na grade do produto.';
     END IF;
+    -- N2 do G-plano: "já é este SKU, à mão" ANTES do rev — um "a gravar" que sobrou de um Salvar em voo (rev velho) e já
+    -- está gravado igual não é conflito: nada muda, nenhuma escrita (sem lost update possível).
+    IF v_msg IS NULL AND v_atual IS NOT NULL AND (v_atual ->> 'manual')::boolean AND v_atual ->> 'sku' = v_sku THEN
+      CONTINUE;  -- já é este SKU, à mão: nada muda
+    END IF;
     IF v_msg IS NULL AND v_atual IS NOT NULL AND jsonb_typeof(v_e -> 'rev') = 'number'
        AND (v_atual ->> 'rev')::integer IS DISTINCT FROM (v_e ->> 'rev')::integer THEN
       v_msg := 'conflito_versao: o SKU foi alterado por outra pessoa';
       v_code := 'P0409';
-    END IF;
-    IF v_msg IS NULL AND v_atual IS NOT NULL AND (v_atual ->> 'manual')::boolean AND v_atual ->> 'sku' = v_sku THEN
-      CONTINUE;  -- já é este SKU, à mão: nada muda
     END IF;
     IF v_msg IS NULL THEN
       v_dono := NULL;
@@ -2027,7 +2056,7 @@ Expected: `GATES PREVIA: ok`; 3 arquivos. A cópia NÃO foi tocada (nenhuma DDL 
 
 **Files:**
 - Modify: `tests/integration/sku-previa.test.ts` (acrescentar, NO FIM, os blocos de banco abaixo)
-- Modify: `tests/integration/sheet-reorg-campos.test.ts:85-87` (consts), `:279-282` (`prepara`), `:520-533` (teste das 4 do SKU)
+- Modify: `tests/integration/sheet-reorg-campos.test.ts:85-87` (const), `:279` (`previaViva` antes da `prepara`, que NÃO muda — R2), `:520-533` (teste das 4 do SKU)
 
 **Interfaces:**
 - Consumes: o contrato do banco da Task 2 (Interfaces); `withTx`, `comoUsuario`, `semUsuario`, `um`, `TENANT_TESTE`,
@@ -2155,10 +2184,13 @@ async function outroCom(c: Client, ref: string, vk: string, tk: string, sku: str
 const idRev = (c: Client, m: string, vk: string, tk: string) =>
   um<{ id: string; rev: number }>(c, "SELECT id, rev FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2 AND tamanho_key = $3", [m, vk, tk]);
 
-/** Passos de cada cenário da equivalência: mexem no dado ENTRE as gerações (como o usuário faria), devolvem os resultados. */
+/** Passos de cada cenário da equivalência: mexem no dado ENTRE as gerações (como o usuário faria), devolvem os resultados.
+ *  `antes` roda FORA do savepoint (R1 do G-plano): o que ele cria — ex.: os cards "outros" — tem o MESMO id nas 2 rodadas.
+ *  `cfg` = o Formato do SKU do cenário (padrão FMT_COR_TAM). */
 type Passos = (c: Client, k: Cen) => Promise<unknown[]>;
-const CENARIOS: [string, Passos][] = [
-  ["1ª geração, manual preservado, divergente regerado, órfã removida, falta mantém o gravado", async (c, k) => {
+type Cenario = { nome: string; cfg?: unknown; antes?: (c: Client, k: Cen) => Promise<void>; passos: Passos };
+const CENARIOS: Cenario[] = [
+  { nome: "1ª geração, manual preservado, divergente regerado, órfã removida, falta mantém o gravado", passos: async (c, k) => {
     const out: unknown[] = [await gerar(c, k.m)];
     out.push(await v(c, "SELECT public.salvar_sku_manual($1::uuid, 'meu-1') AS v", [(await idRev(c, k.m, k.kA, "34|PPP")).id]));
     await siglas(c, k, "AC", null);
@@ -2166,34 +2198,37 @@ const CENARIOS: [string, Passos][] = [
     await c.query("UPDATE public.cores SET sigla_sku = NULL WHERE id = $1", [k.corB]);
     out.push(await gerar(c, k.m), await gerar(c, k.m, true), await matriz(c, k.m));
     return out;
-  }],
-  ["conflito com outro card (REF diferente) e réplica (mesma REF) que divide o SKU", async (c, k) => {
-    await outroCom(c, "PV-X", k.kA, "34|PPP", "AA34");
-    await outroCom(c, "PV-T1", k.kB, "34|PPP", "BB34");
-    return [await gerar(c, k.m), await matriz(c, k.m)];
-  }],
-  ["troca A↔B no mesmo card: as 4 linhas em conflito ('também muda neste Regerar')", async (c, k) => {
+  } },
+  {
+    nome: "conflito com outro card (REF diferente) e réplica (mesma REF) que divide o SKU",
+    antes: async (c, k) => {  // R1 — os "outros" nascem ANTES do savepoint: com_modelo_id/conflito_com.modelo_id estáveis
+      await outroCom(c, "PV-X", k.kA, "34|PPP", "AA34");
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "BB34");
+    },
+    passos: async (c, k) => [await gerar(c, k.m), await matriz(c, k.m)],
+  },
+  { nome: "troca A↔B no mesmo card: as 4 linhas em conflito ('também muda neste Regerar')", passos: async (c, k) => {
     const a = await gerar(c, k.m);
     await siglas(c, k, "BB", "AA");
     return [a, await gerar(c, k.m, true), await matriz(c, k.m)];
-  }],
-  ["cadeia direta: A quer o SKU atual de B (que também muda) — A conflita, B muda", async (c, k) => {
+  } },
+  { nome: "cadeia direta: A quer o SKU atual de B (que também muda) — A conflita, B muda", passos: async (c, k) => {
     const a = await gerar(c, k.m);
     await siglas(c, k, "BB", "XX");
     return [a, await gerar(c, k.m, true), await matriz(c, k.m)];
-  }],
-  ["cadeia inversa: B quer o SKU antigo de A, já liberado no mesmo Regerar — os dois mudam", async (c, k) => {
+  } },
+  { nome: "cadeia inversa: B quer o SKU antigo de A, já liberado no mesmo Regerar — os dois mudam", passos: async (c, k) => {
     const a = await gerar(c, k.m);
     await siglas(c, k, "XX", "AA");
     return [a, await gerar(c, k.m, true), await matriz(c, k.m)];
-  }],
-  ["órfã sai ANTES e libera o SKU para outra linha no mesmo Regerar", async (c, k) => {
+  } },
+  { nome: "órfã sai ANTES e libera o SKU para outra linha no mesmo Regerar", passos: async (c, k) => {
     const a = await gerar(c, k.m);
     await c.query(`UPDATE public.modelo_grades SET grades = '{"34|PPP": 0, "36|PP": 0}'::jsonb WHERE modelo_id = $1 AND variante_numero = 2`, [k.m]);
     await siglas(c, k, "BB", null);
     return [a, await gerar(c, k.m, true), await matriz(c, k.m)];
-  }],
-  ["sem 'Tamanho em', sem REF, sem Formato: nada gera (precedência da F3.6)", async (c, k) => {
+  } },
+  { nome: "sem 'Tamanho em', sem REF, sem Formato: nada gera (precedência da F3.6)", passos: async (c, k) => {
     const out: unknown[] = [await gerar(c, k.m)];
     await c.query("UPDATE public.modelos SET tamanho_tipo = NULL WHERE id = $1", [k.m]);
     out.push(await gerar(c, k.m, true), await matriz(c, k.m));
@@ -2202,21 +2237,45 @@ const CENARIOS: [string, Passos][] = [
     await c.query("UPDATE public.tenant_config SET sku_config = NULL WHERE tenant_id = $1", [T]);
     out.push(await gerar(c, k.m, true), await matriz(c, k.m));
     return out;
-  }],
+  } },
+  // R7 do G-plano — os 3 casos que faltavam
+  { nome: "automática quer o SKU de uma linha MANUAL do mesmo card: conflito com dono manual (mensagem do laço)", passos: async (c, k) => {
+    const a = await gerar(c, k.m);
+    const man = await v(c, "SELECT public.salvar_sku_manual($1::uuid, 'ac34') AS v", [(await idRev(c, k.m, k.kB, "34|PPP")).id]);
+    await siglas(c, k, "AC", null); // A quer AC34 (manual de B) e AC36 (livre)
+    return [a, man, await gerar(c, k.m, true), await matriz(c, k.m)];
+  } },
+  { nome: "'criar' com uma órfã automática segurando o SKU que uma linha nova quer ('criar' não remove órfã)", passos: async (c, k) => {
+    const a = await gerar(c, k.m);
+    await c.query(`UPDATE public.modelo_grades SET grades = '{"34|PPP": 0, "36|PP": 0}'::jsonb WHERE modelo_id = $1 AND variante_numero = 2`, [k.m]);
+    await c.query("DELETE FROM public.modelo_skus WHERE modelo_id = $1 AND variante_key = $2", [k.m, k.kA]); // as linhas de A "faltam"
+    await siglas(c, k, "BB", null); // A (nova) quer BB34/BB36, que as órfãs de B seguram
+    return [a, await gerar(c, k.m, false), await matriz(c, k.m)];
+  } },
+  {
+    nome: "Formato com REF + réplica (mesma REF divide o SKU) + outro card (REF diferente) em conflito",
+    cfg: FMT_REF,
+    antes: async (c, k) => {
+      await outroCom(c, "PV-T1", k.kB, "34|PPP", "PV-T1-BB34"); // réplica: divide
+      await outroCom(c, "PV-X", k.kA, "34|PPP", "PV-T1-AA34");  // outro: conflito
+    },
+    passos: async (c, k) => [await gerar(c, k.m), await gerar(c, k.m, true), await matriz(c, k.m)],
+  },
 ];
 
 describe.skipIf(!PRONTO_ANTES)("SKU em prévia — EQUIVALÊNCIA velho × novo (a geração virou plano + executor — R1)", () => {
-  for (const [nome, passos] of CENARIOS) {
-    it(nome, async () => {
+  for (const cen of CENARIOS) {
+    it(cen.nome, async () => {
       await withTx(async (c) => {
         await prepara(c, { aplicar: false }); // as funções VIVAS de antes (cópia sem esta migration)
-        const k = await cenario(c);
+        const k = await cenario(c, cen.cfg);
+        if (cen.antes) await cen.antes(c, k); // R1 — FORA do savepoint: ids estáveis nas 2 rodadas
         await comoUsuario(c);
         await c.query("SAVEPOINT velho");
-        const velho = { r: semIds(await passos(c, k)), e: await estado(c, k.m) };
+        const velho = { r: semIds(await cen.passos(c, k)), e: await estado(c, k.m) };
         await c.query("ROLLBACK TO SAVEPOINT velho");
         await aplica(c, MIG);
-        const novo = { r: semIds(await passos(c, k)), e: await estado(c, k.m) };
+        const novo = { r: semIds(await cen.passos(c, k)), e: await estado(c, k.m) };
         expect(novo).toEqual(velho);
       });
     });
@@ -2231,7 +2290,10 @@ Notas para o implementador:
   - cada conflito é o `unique_violation` do gatilho com o banco EM EVOLUÇÃO.
   O plano novo tem de dar o MESMO resultado nos mesmos casos. Se um cenário divergir, NÃO "ajuste o teste": PARE e
   chame o controlador (regra 12).
-- O `ROLLBACK TO SAVEPOINT velho` desfaz a 1ª rodada. O cenário (cores, card, grade) foi criado ANTES do savepoint e fica.
+- O `ROLLBACK TO SAVEPOINT velho` desfaz a 1ª rodada. O cenário (cores, card, grade) e o `antes` (os cards "outros") foram
+  criados ANTES do savepoint e ficam: os ids que aparecem no resultado (`com_modelo_id`, `conflito_com.modelo_id`) são os
+  MESMOS nas 2 rodadas (R1). Se algum id ainda variar entre as rodadas, normalizar esse campo no `semIds` por um mapa
+  id → rótulo (nunca apagar o campo) e registrar em `desvios.md`.
 
 - [ ] **Step 2: A prévia é o que o Salvar grava — acrescentar no fim do mesmo arquivo**
 
@@ -2366,6 +2428,23 @@ describe.skipIf(!PRONTO)("SKU em prévia — colaboração (P0409) e erros PT", 
     });
   });
 
+  it("N2: o 'a gravar' que sobrou de um Salvar em voo (rev velho) e JÁ está gravado igual, à mão ⇒ nada muda, sem P0409", async () => {
+    await withTx(async (c) => {
+      await prepara(c);
+      const k = await cenario(c);
+      await comoUsuario(c);
+      await gerar(c, k.m);
+      const man = [{ variante_key: k.kA, tamanho_key: "34|PPP", sku: "meu-4", rev: (await idRev(c, k.m, k.kA, "34|PPP")).rev }];
+      const p1 = await previa(c, k.m, "PV-T1", "numero", man, "manuais");
+      expect((await aplicar(c, k.m, man, "manuais", p1.assinatura)).manuais).toBe(1); // 1º Salvar: MEU-4 à mão, rev + 1
+      const p2 = await previa(c, k.m, "PV-T1", "numero", man, "manuais");            // o mesmo "a gravar", rev velho
+      expect(p2.erros).toEqual([]);
+      expect(linhaDe(p2, k.kA, "34|PPP").previa ?? null).toBeNull();
+      expect((await aplicar(c, k.m, man, "manuais", p2.assinatura)).manuais).toBe(0);
+      expect((await estado(c, k.m)).find((g) => g.vk === k.kA && g.tk === "34|PPP")).toEqual({ vk: k.kA, tk: "34|PPP", sku: "MEU-4", manual: true });
+    });
+  });
+
   it("SKU digitado: rev velho ⇒ erro P0409 na linha e no Salvar ('manter o meu' com o rev novo passa); duplicado/fora da grade/inválido ⇒ mensagens PT da F3.5a", async () => {
     await withTx(async (c) => {
       await prepara(c);
@@ -2497,32 +2576,16 @@ describe.skipIf(!PRONTO_ANTES)("SKU em prévia — inverso (round-trip) e idempo
 
 ```ts
 // SKU em PRÉVIA (20261005110000 — plano 2026-09-25-sku-previa-regerar, Task 3, P4): ela redefine 3 das 4 funções do SKU
-// (_skus_modelo_calc/_skus_modelo_core/_gerar_skus_modelo_core). Com ela VIVA na cópia (LIFO): o texto esperado dessas 3 é
-// o dela e, no modo SHEET_MIG_TXN=1, o inverso dela roda DENTRO da txn antes desta migration (tudo revertido no fim).
+// (_skus_modelo_calc/_skus_modelo_core/_gerar_skus_modelo_core). Com ela VIVA na cópia (LIFO), o texto esperado dessas 3 no
+// modo sem variável é o dela. (O modo SHEET_MIG_TXN=1 não é tocado: ele exige a cópia SEM esta reorganização — R2 do G-plano.)
 const MIG_PREVIA = "supabase/migrations/20261005110000_sku_previa_regerar.sql";
-const INV_PREVIA = "supabase/rollback/20261005110000_sku_previa_regerar_down.sql";
 ```
 
-(b) Trocar a `prepara` (`:279-282`):
-
-```ts
-async function prepara(c: Client): Promise<void> {
-  await timeouts(c);
-  if (MIG_TXN) await aplica(c, MIG);
-}
-```
-por
+(b) Logo ANTES da `prepara` (`:279`), acrescentar a leitura (a `prepara` NÃO muda — R2):
 
 ```ts
 async function previaViva(c: Client): Promise<boolean> {
   return (await um<{ ok: boolean }>(c, "select to_regprocedure('public.skus_previa(uuid,text,text,jsonb,text)') is not null as ok")).ok;
-}
-async function prepara(c: Client): Promise<void> {
-  await timeouts(c);
-  if (MIG_TXN) {
-    if (await previaViva(c)) await aplica(c, INV_PREVIA); // P4 — LIFO: a guarda desta migration recusaria as 3 com o texto da prévia
-    await aplica(c, MIG);
-  }
 }
 ```
 
@@ -2557,10 +2620,10 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres npx vitest 
 bash .superpowers/sku-previa/n3.sh depois t3
 ```
 Expected:
-- `t3-previa-txn.log`: TODOS os testes passam (7 estáticos + 7 equivalência + 5 prévia≡gravação + 2 P0409 + 2 ACL + 1 inverso = 24), 0 falha.
+- `t3-previa-txn.log`: TODOS os testes passam (7 estáticos + 10 equivalência + 5 prévia≡gravação + 3 P0409 (com o N2) + 2 ACL + 1 inverso = 28), 0 falha.
 - `t3-sem-variavel.log`: os blocos de banco da prévia PULAM (a cópia não tem a frente); a `sheet-reorg-campos` segue com as MESMAS
   falhas/pulos de antes (compare com `.claude/worktrees/sheet-reorg/.superpowers/sheet/logs/viz-depois.log` — nenhuma falha nova).
-- `n3.sh antes` e `depois` com o MESMO `484|277|false`.
+- `n3.sh antes` e `depois` com o MESMO estado: `484|277|false` (ou `486|277|false` com a Distribuição na cópia — R5).
 
 Falha:
 - de **formato canônico** (o `$pos$` desfaz: "não ficou com o texto esperado") ⇒ ajustar o texto no `gerar_sql.py`, regerar,
@@ -2593,7 +2656,9 @@ vê o parecer do outro. Grava em `.superpowers/sku-previa/g-migration-{A,B}.md`.
 7. guarda md5 (3 redefinidas: vivo|desta; 9 novas: ausente|desta), `$pos$` com as 12, encoding antes do BEGIN, travas, NOTIFY,
    ZERO DDL de tabela/policy, +9|+0;
 8. inverso: 3 de volta byte a byte, 9 DROP, sem dado, idempotente; LIFO (reorganização/F3.5a) documentado;
-9. vizinha `sheet-reorg-campos` (P4) e nomes fora do padrão da volta da F3.5a (P1).
+9. vizinha `sheet-reorg-campos` (P4, só o texto esperado — sem ramo `SHEET_MIG_TXN`) e nomes fora do padrão da volta da F3.5a (P1);
+10. o parecer registra: "equivalência velho × novo OK (10 cenários, Task 3); a regressão da suíte INTEIRA da F3.5a contra a
+    geração nova fica PENDENTE do ensaio (Task 4 — P9/R6)".
 
 O guardião (`guardiao-unificacao`) roda o mesmo portão e registra no diário. BLOQUEIA ⇒ fix na Task 3 (novo commit) e nova rodada escopada.
 
@@ -2802,7 +2867,8 @@ bash -n .superpowers/sku-previa/mig/aplica.sh && echo "aplica.sh gerado (bloco F
 bash .superpowers/sku-previa/mig/monta-aplica.sh
 ( source .superpowers/sku-previa/mig/aplica.sh && le "$LOCAL" "$OBJ_PREVIA" && le "$LOCAL" "$MD5_REDEF" && le "$LOCAL" "$ACL_PREVIA" && le "$LOCAL" "$CONT" )
 ```
-Expected: `aplica.sh gerado …`; depois `0`, `56c3c480…|f77fddb7…|5f523d3d…`, `0|0|0`, `484|277` (só leitura, na cópia).
+Expected: `aplica.sh gerado …`; depois `0`, `56c3c480…|f77fddb7…|5f523d3d…`, `0|0|0` e a contagem de hoje — `484|277`, ou
+`486|277` com a Distribuição na cópia (R5) — (só leitura, na cópia).
 
 - [ ] **Step 3: `copia.sh` (ida/volta da frente na CÓPIA — usado no merge, Task 6)**
 
@@ -2847,10 +2913,11 @@ echo "== CÓPIA: $1 OK ($ANTES → $DEPOIS)"
 
 ```bash
 #!/usr/bin/env bash
-# ENSAIO GERAL do SKU em prévia na CÓPIA LOCAL (Task 4): N3 → backup → vizinhas antes → IDA real (tempo MEDIDO) → conferências →
-# suíte desta frente com a migration VIVA → vizinhas depois (nenhuma falha nova, mesmo total) + a vizinha da reorganização com
-# SHEET_MIG_TXN=1 (exercita o ramo LIFO — P8) → VOLTA (tempo) → REIDA → VOLTA. Termina com a cópia SEM a frente, igual a antes,
-# e grava o md5 dos 2 SQL ENSAIADOS (o pré-voo de produção os exige). Uso (de dentro da worktree, depois do aviso N3 — P-30 B):
+# ENSAIO GERAL do SKU em prévia na CÓPIA LOCAL (Task 4): N3 → backup → vizinhas + F3.5a antes → IDA real (tempo MEDIDO) →
+# conferências → suíte desta frente com a migration VIVA → vizinhas depois (nenhuma falha nova, mesmo total) + a suíte INTEIRA da
+# F3.5a contra a geração nova com prova de não-pular (P9/R6) → VOLTA (tempo) → REIDA → VOLTA. Termina com a cópia SEM a frente,
+# igual a antes, e grava o md5 dos 2 SQL ENSAIADOS (o pré-voo de produção os exige). Sem SHEET_MIG_TXN (R2). TODO PARE depois da
+# ida diz que a cópia ficou COM a frente e registra o n3 depois (pare_com_frente). Uso (de dentro da worktree, depois do aviso N3):
 #   PREVIA_DONO_AVISADO=sim /bin/bash .superpowers/sku-previa/mig/ensaio-local.sh 2>&1 | tee .superpowers/sku-previa/logs/ensaio.log
 set -uo pipefail
 TOP="$(git rev-parse --show-toplevel)" || exit 1
@@ -2878,6 +2945,31 @@ viz() {
   falhas "$S/logs/viz-$1.log" > "$S/logs/viz-falhas-$1.txt"
   echo "VIZINHAS $1: $(grep -E '^ +Tests +' "$S/logs/viz-$1.log" | tail -1 | sed 's/^ *//') · $(wc -l < "$S/logs/viz-falhas-$1.txt" | tr -d ' ') falha(s)"
 }
+# P9/R6 — a suíte INTEIRA da F3.5a (blocos de banco) roda contra a geração — com PROVA de que não pulou: sem SKU_MIG_TXN só o
+# describe do round-trip (que exige SKU_MIG_TXN) pula ⇒ exatamente 1 pulado; 0 falha; o nº de aprovados fica em f35a-<x>-aprovados.txt.
+f35a() {
+  local l p s
+  DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sku-automatico.test.ts > "$S/logs/f35a-$1.log" 2>&1
+  l="$(grep -E '^ +Tests +' "$S/logs/f35a-$1.log" | tail -1)"
+  p="$(printf '%s' "$l" | sed -nE 's/.* ([0-9]+) passed.*/\1/p')"
+  s="$(printf '%s' "$l" | sed -nE 's/.* ([0-9]+) skipped.*/\1/p')"
+  echo "F3.5a $1: $(printf '%s' "$l" | sed 's/^ *//')"
+  if printf '%s' "$l" | grep -qE '[0-9]+ failed'; then echo "F3.5a $1: com FALHA (f35a-$1.log)"; return 1; fi
+  [ "${s:-0}" = 1 ] || { echo "F3.5a $1: esperava 1 pulado (só o round-trip que exige SKU_MIG_TXN), achei ${s:-0} — blocos de banco pularam?"; return 1; }
+  [ -n "$p" ] && echo "$p" > "$S/logs/f35a-$1-aprovados.txt"
+}
+# R2 — TODO PARE depois da ida diz o ESTADO REAL da cópia (lido na hora, não suposto) e registra o n3 depois; nunca sai calado.
+pare_com_frente() {
+  local est; est="$(le "$LOCAL" "$OBJ_PREVIA" 2>/dev/null || echo '?')"
+  case "$est" in
+    9) echo "PARE ($1): a cópia ficou COM a frente aplicada (SKU em prévia) — avise o controlador. A volta é"
+       echo "  PREVIA_DONO_AVISADO=sim bash .superpowers/sku-previa/copia.sh volta   (SÓ com o OK dele)";;
+    0) echo "PARE ($1): a cópia está SEM as 9 funções desta frente (nada aplicado, ou a volta já aplicou) — avise o controlador";;
+    *) echo "PARE ($1): a cópia ficou PELA METADE ($est de 9 funções desta frente) — avise o controlador; não rode mais nada";;
+  esac
+  bash "$S/n3.sh" depois ensaio-parou
+  exit 1
+}
 ida() {
   local cv fv t0 t1 rc
   cv="$(le "$LOCAL" "$CONT")"; fv="$(le "$LOCAL" "$FN_PRE")"
@@ -2897,25 +2989,23 @@ volta() {
   return $rc
 }
 viz antes
-ida || exit 1
+f35a antes || { echo "PARE: a suíte da F3.5a não está verde ANTES da ida (a cópia está SEM a frente) — avisar o controlador"; bash "$S/n3.sh" depois ensaio-parou; exit 1; }
+ida || pare_com_frente "ida"
 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sku-previa.test.ts > "$S/logs/ensaio-suite.log" 2>&1
 grep -E "^ +Tests +" "$S/logs/ensaio-suite.log" | tail -1
-if grep -qE "^ FAIL " "$S/logs/ensaio-suite.log"; then
-  echo "PARE: a suíte desta frente falhou com a migration VIVA (ensaio-suite.log) — a cópia fica COM a frente; avisar e rodar copia.sh volta"; exit 1
-fi
+if grep -qE "^ FAIL " "$S/logs/ensaio-suite.log"; then pare_com_frente "a suíte desta frente falhou com a migration VIVA (ensaio-suite.log)"; fi
 viz depois
 comm -13 "$S/logs/viz-falhas-antes.txt" "$S/logs/viz-falhas-depois.txt" > "$S/logs/viz-falhas-novas.txt"
-[ ! -s "$S/logs/viz-falhas-novas.txt" ] || { cat "$S/logs/viz-falhas-novas.txt"; echo "PARE: falha NOVA nas vizinhas com a frente viva"; exit 1; }
-[ "$(total "$S/logs/viz-antes.log")" = "$(total "$S/logs/viz-depois.log")" ] || { echo "PARE: o total de testes das vizinhas mudou"; exit 1; }
-# P8 — a vizinha da reorganização em SHEET_MIG_TXN=1 com a prévia VIVA (o inverso da prévia roda na txn, depois a reorg). Congela o
-# :5188 por alguns segundos (ALTER em modelos/tenant_config na txn) — dito no aviso N3.
-SHEET_MIG_TXN=1 DATABASE_URL="$LOCAL" npx vitest run --no-file-parallelism tests/integration/sheet-reorg-campos.test.ts > "$S/logs/ensaio-reorg-txn.log" 2>&1
-grep -E "^ +Tests +" "$S/logs/ensaio-reorg-txn.log" | tail -1
-if grep -qE "^ FAIL " "$S/logs/ensaio-reorg-txn.log"; then echo "PARE: sheet-reorg-campos (SHEET_MIG_TXN=1) falhou com a prévia viva — ramo P4"; exit 1; fi
-volta || exit 1
-ida || exit 1
-volta || exit 1
-espera "$LOCAL" "$CONT" "$CONT0" "cópia de volta às contagens de antes" && espera "$LOCAL" "$FN_PRE" "$FN0" "cópia com as outras funções de antes" || exit 1
+[ ! -s "$S/logs/viz-falhas-novas.txt" ] || { cat "$S/logs/viz-falhas-novas.txt"; pare_com_frente "falha NOVA nas vizinhas com a frente viva"; }
+[ "$(total "$S/logs/viz-antes.log")" = "$(total "$S/logs/viz-depois.log")" ] || pare_com_frente "o total de testes das vizinhas mudou"
+f35a depois || pare_com_frente "a suíte INTEIRA da F3.5a contra a geração nova (P9/R6)"
+[ "$(cat "$S/logs/f35a-depois-aprovados.txt")" = "$(cat "$S/logs/f35a-antes-aprovados.txt")" ] \
+  || pare_com_frente "F3.5a: o nº de aprovados mudou ($(cat "$S/logs/f35a-antes-aprovados.txt") → $(cat "$S/logs/f35a-depois-aprovados.txt"))"
+volta || pare_com_frente "volta"
+ida || pare_com_frente "reida"
+volta || pare_com_frente "2ª volta"
+espera "$LOCAL" "$CONT" "$CONT0" "cópia de volta às contagens de antes" && espera "$LOCAL" "$FN_PRE" "$FN0" "cópia com as outras funções de antes" \
+  || { echo "PARE: a cópia está SEM a frente, mas não voltou igual a antes — avisar o controlador"; bash "$S/n3.sh" depois ensaio-parou; exit 1; }
 md5_arquivo "$MIG" > "$M/md5-mig.txt"; md5_arquivo "$INV" > "$M/md5-inv.txt"
 echo "md5 ENSAIADOS: migration $(cat "$M/md5-mig.txt") · inverso $(cat "$M/md5-inv.txt")"
 bash "$S/n3.sh" depois ensaio
@@ -2985,6 +3075,17 @@ PROD="$(cat "$DBURL_FILE")"
 echo "== VOLTA do SKU em prévia em PRODUÇÃO $(date '+%F %T') · HEAD $(git rev-parse --short HEAD)"
 EST=$(le "$PROD" "$OBJ_PREVIA") || { echo "FALHOU: não conectou em produção"; exit 1; }
 [ "$EST" = 9 ] || { echo "PARE: a frente não está inteira em produção ($EST de 9) — avisar o controlador"; exit 1; }
+# R4 — LIFO ENTRE FRENTES: a referência da volta da F1 é UMA cadeia. Se outra frente (ex.: a Distribuição) entrou DEPOIS desta, ela
+# tem de voltar ANTES. Regra: a referência mais nova tem de ser a desta frente; se esta nunca gravou a sua (ref-volta-f1 não rodou),
+# nenhuma referência pode ser mais nova que a ida desta (cont-depois-previa.txt).
+MINHA="$BF1/fidelidade_ref_volta_f1_pos_sku_previa_detalhe.txt"
+MAIS_NOVA=$(ls -t "$BF1"/fidelidade_ref_volta_f1_*_detalhe.txt 2>/dev/null | head -1)
+if [ -e "$MINHA" ]; then
+  [ "$MAIS_NOVA" = "$MINHA" ] || { echo "PARE: a referência mais nova da volta da F1 é $(basename "$MAIS_NOVA") — outra frente entrou DEPOIS desta; volte antes a frente mais nova (LIFO). Nada foi feito."; exit 1; }
+else
+  [ -s "$DS/cont-depois-previa.txt" ] && [ -z "$(find "$BF1" -maxdepth 1 -name 'fidelidade_ref_volta_f1_*_detalhe.txt' -newer "$DS/cont-depois-previa.txt")" ] \
+    || { echo "PARE: sem a referência desta frente e há referência de outra frente mais nova que a ida desta (ou falta $DS/cont-depois-previa.txt) — LIFO; avisar o controlador. Nada foi feito."; exit 1; }
+fi
 # P6 — o INVERSO conferido ANTES da frase por md5 FIXO (cravado no Step 8 depois do ensaio), commitado e com as travas certas.
 [ "$(md5_arquivo "$INV")" = __MD5_INV__ ] && git diff --quiet HEAD -- "$INV" && confere_arquivos_previa \
   || { echo "PARE: o inverso no disco não é o revisado/ensaiado (md5/commit/travas) — nada foi feito"; exit 1; }
@@ -3077,9 +3178,8 @@ echo "OK (referência nova p/ a volta da F1): $REF_NOVA — base $(basename "$R"
 
 - [ ] **Step 8: Ensaio na cópia (N3) e o md5 do inverso CRAVADO na volta (P6)**
 
-O CONTROLADOR publica o aviso no painel: "Vou rodar o ensaio do SKU em prévia na cópia local agora (~5 min): ida, suíte, volta,
-ida, volta. A migration só troca funções; a suíte da reorganização com SHEET_MIG_TXN=1 faz ALTER em modelos/tenant_config
-dentro da transação — o :5188 congela por alguns segundos nesse trecho."
+O CONTROLADOR publica o aviso no painel: "Vou rodar o ensaio do SKU em prévia na cópia local agora (~5 min): ida, suítes, volta,
+ida, volta. A migration só troca funções — o :5188 não congela; se algo parar no meio, eu aviso se a cópia ficou com a frente."
 
 ```bash
 chmod +x .superpowers/sku-previa/mig/*.sh .superpowers/sku-previa/copia.sh
@@ -3093,12 +3193,14 @@ Expected:
 - o `ensaio.log` termina em `== ENSAIO OK`, com:
   - 2 `TEMPO (ida…)` e 2 `TEMPO (volta…)` (esperado < 1 s cada — só funções);
   - `VIZINHAS antes`/`depois` com o MESMO total e 0 falha nova;
+  - `F3.5a antes`/`depois` com 0 falha, EXATAMENTE 1 pulado e o MESMO nº de aprovados (P9/R6 — a suíte inteira da F3.5a rodou
+    contra a geração nova);
   - `ensaio-suite.log` sem `FAIL`;
-  - `ensaio-reorg-txn.log` sem `FAIL`;
-  - contagens `484|277` no fim;
+  - no fim, as MESMAS contagens do `ensaio-antes.txt` (`484|277`, ou `486|277` com a Distribuição — R5);
 - o `grep -c` dá `0` e a linha do `grep -n` mostra o md5 de 32 hex no lugar.
 
-`PARE:` ⇒ ler a mensagem. Se a cópia ficou COM a frente, avisar o dono e rodar `copia.sh volta` só com o OK do controlador.
+`PARE:` ⇒ ler a mensagem: depois da ida ela SEMPRE diz o estado REAL da cópia — COM a frente, SEM ou pela metade
+(`pare_com_frente`, que lê na hora e já registra o `n3 depois`). Nesse caso, avisar o dono no painel e rodar `copia.sh volta` só com o OK do controlador.
 NUNCA regerar o SQL depois do ensaio sem refazer o ensaio.
 
 - [ ] **Step 9: `prova-scripts.sh` — provas SEM banco (`psql`/`docker` falsos, URL sintética, pastas no scratch)**
@@ -3137,7 +3239,8 @@ O `psql` falso:
      *"_gerar_skus_modelo_core(uuid,boolean)']) with ordinality"*)
        if [ "$est" = antes ]; then r "$(cat "$SC/md5-redef-antes")"; else r "$(cat "$SC/md5-redef-depois")"; fi;;  # MD5_REDEF
      *"public.aplicar_skus_modelo(uuid,jsonb,text,text)']) with ordinality"*) r "$(cat "$SC/md5-novas-depois")";; # MD5_NOVAS
-     *"from pg_trigger t join pg_class c"*) if [ "$est" = antes ]; then r "484|277"; else r "493|277"; fi;;       # CONT
+     *"from pg_trigger t join pg_class c"*)                                                                        # CONT (R5)
+       if [ "$est" = antes ]; then r "${FAKE_CONT_ANTES:-484|277}"; else r "${FAKE_CONT_DEPOIS:-493|277}"; fi;;
      *) echo "psql falso: consulta não prevista: $(printf '%s' "$sql" | cut -c1-100)" >&2; exit 3;;
    esac
    ```
@@ -3173,7 +3276,12 @@ Provas obrigatórias (cada uma imprime `OK (prova): …` ou `FALHOU (prova): …
     - schema mudado fora ⇒ `PARE`;
     - feliz ⇒ referência nova = base − 12 chaves + as atuais, `N=12`, CONT = base + `9|0`, toda leitura com `begin
       transaction read only`;
-15. nenhuma prova tocou o `/tmp/dburl.txt` real, host real, `$BF1` real (o `ls -l` antes = depois) nem `$DS` real.
+15. nenhuma prova tocou o `/tmp/dburl.txt` real, host real, `$BF1` real (o `ls -l` antes = depois) nem `$DS` real;
+16. volta LIFO (R4): com uma `fidelidade_ref_volta_f1_pos_OUTRA_detalhe.txt` MAIS NOVA que a `pos_sku_previa` no `$PREVIA_BF1`
+    sintético ⇒ `PARE … outra frente entrou DEPOIS desta` ANTES da frase, 0 docker; sem a `pos_sku_previa` e com uma
+    referência mais nova que o `cont-depois-previa.txt` ⇒ `PARE`; sem nenhuma mais nova ⇒ segue até a frase;
+17. base com a Distribuição (R5): `FAKE_CONT_ANTES=486|277 FAKE_CONT_DEPOIS=495|277` ⇒ `== IDA OK` (a conferência é pelo
+    DELTA); `FAKE_CONT_ANTES=486|277 FAKE_CONT_DEPOIS=493|277` ⇒ `FALHOU NA CONFERÊNCIA … FOI aplicada`.
 
 ```bash
 bash .superpowers/sku-previa/mig/prova-scripts.sh 2>&1 | tee .superpowers/sku-previa/logs/prova-scripts.log | tail -5
@@ -3201,6 +3309,8 @@ A migration SÓ troca funções: não trava tabela. O front que está no ar cont
    `shasum -a 256 .superpowers/sku-previa/mig/{aplica,ida-producao,volta-producao,ref-volta-f1}.sh`
    aplica <sha> · ida <sha> · volta <sha> · ref-volta-f1 <sha>
 2. md5 dos SQL ensaiados: migration <md5-mig> · inverso <md5-inv> (o pré-voo confere sozinho).
+3. UMA FRENTE POR VEZ (R4): se a Distribuição (`20261006100000`) já teve a ida e AINDA NÃO rodou o `ref-volta-f1.sh` dela,
+   NÃO rode esta — termine a outra antes. (A ordem entre as duas é livre; o que não pode é intercalar.)
 
 ## Passo 1 — ida (o backup completo public + auth é feito DENTRO do script, antes de aplicar)
     cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/sku-previa"
@@ -3208,14 +3318,15 @@ A migration SÓ troca funções: não trava tabela. O front que está no ar cont
 Esperado:
 - `== PRÉ-VOO OK`;
 - 2 `OK (backup …)`;
-- `== IDA OK … <antes> → <antes + 9 funções>` (hoje 484|277 → 493|277; se outra frente entrou antes, os números mudam, mas
-  a diferença é +9|+0).
+- `== IDA OK … <antes> → <antes + 9 funções>`: `484|277 → 493|277` se a Distribuição ainda não entrou, ou
+  `486|277 → 495|277` se ela entrou antes (R5 — o script confere pelo DELTA, +9|+0).
 
 Qualquer `PARE`/`FALHOU`: NADA foi aplicado (exceto se a mensagem disser "FOI aplicada"). Mande o log no chat.
 
 ## Passo 2 — referência nova da volta de emergência da F1 (SÓ LEITURA)
     /bin/bash --noprofile --norc .superpowers/sku-previa/mig/ref-volta-f1.sh 2>&1 | tee -a .superpowers/sku-previa/logs/prod-ref-volta-f1.log
-Esperado: `OK (referência nova p/ a volta da F1): …pos_sku_previa…`.
+Esperado: `OK (referência nova p/ a volta da F1): …pos_sku_previa…`, com o CONT da referência nova `462|233` (esta frente
+antes da Distribuição) ou `464|233` (depois dela) — o script calcula pelo estado vivo (base mais nova + delta medido).
 
 ## Passo 3 — avisar no chat: "SKU prévia: IDA OK e referência OK"
 Se logo depois aparecer erro "função não encontrada" (PGRST202) em `skus_previa`, rode no Terminal:
@@ -3227,7 +3338,8 @@ Se logo depois aparecer erro "função não encontrada" (PGRST202) em `skus_prev
 2. `/bin/bash --noprofile --norc .superpowers/sku-previa/mig/volta-producao.sh` → digitar `VOLTAR A PREVIA DOS SKUS`.
 3. Não apaga dado: os SKUs gravados ficam.
 4. ORDEM (LIFO): esta volta vem ANTES de qualquer volta da reorganização do Sheet ou da F3.5a (as guardas delas recusam se
-   esta estiver no banco).
+   esta estiver no banco). E, se outra frente (ex.: a Distribuição) entrou DEPOIS desta, volte ELA primeiro: o script só
+   segue se a referência mais nova da volta da F1 for a `pos_sku_previa` (R4); senão para ANTES da frase, sem fazer nada.
 5. Guardar uma cópia deste script e da worktree: a volta só roda de dentro dela. Antes de remover a worktree, copiar
    `.superpowers/sku-previa/` para esta pasta.
 ```
@@ -3248,6 +3360,13 @@ Entregar: os 6 scripts + `copia.sh`, `ensaio.log`, `ensaio-tempos.txt`, `prova-s
 - volta com md5 do inverso cravado + frase + backup, e renomeando a referência `pos_sku_previa`;
 - leitura de produção em `begin transaction read only` (P7);
 - cadeia da volta da F1 descoberta (sem nome cravado) e conferida no pré-voo E no `ref-volta-f1.sh`;
+- **OBRIGATÓRIO (P9/R6):** a suíte INTEIRA da F3.5a (`sku-automatico.test.ts`) rodou no ensaio contra a geração nova com
+  0 falha, EXATAMENTE 1 pulado (o round-trip que exige `SKU_MIG_TXN`) e o MESMO nº de aprovados antes e depois — total e
+  falhas sozinhos NÃO bastam (blocos de banco pulados passariam calados);
+- todo PARE do ensaio depois da ida passa por `pare_com_frente` (lê o estado REAL da cópia — COM a frente / SEM / pela metade
+  —, dá o comando da volta quando ficou COM e registra o `n3 depois`); nenhum `SHEET_MIG_TXN=1` (R2);
+- volta com a guarda LIFO ENTRE FRENTES antes da frase (R4) — provas 16 e 17;
+- nenhuma contagem cravada: base `484|277` ou `486|277` (Distribuição), conferência pelo DELTA +9|+0 (R5);
 - nenhuma prova tocou produção nem pasta real.
 
 BLOQUEIA ⇒ corrigir e repetir Steps 8–11.
@@ -3331,7 +3450,7 @@ regra agora mora em `digitarSku` (Task 1, `tests/unit/sku-previa.test.ts`).
     expect(s).toContain("_assinatura: d.assinatura");
     expect(s).not.toContain("salvar_sku_manual");
     expect(s).not.toContain("_regerar: true"); // o Regerar não grava mais na hora
-    expect(s).toContain('_regerar: false'); // a 1ª geração automática pós-Salvar continua (D1)
+    expect(s).toContain('_regerar: false'); // a 1ª geração automática pós-Salvar continua (P-50 A)
     expect(s).toContain("placeholderData: keepPreviousData");
     expect(s).toContain("o.aGravar.limparSe(s)");
   });
@@ -3378,7 +3497,7 @@ Expected: FAIL nos 4 testes novos (a fonte ainda é a antiga).
 // (useSkusAGravar — estado FORA do Draft, como as linhas de MO: R5); a prévia vem do SERVIDOR (RPC skus_previa — o MESMO
 // plano da gravação, STABLE/só leitura) e o Salvar do card grava (aplicarAGravar → RPC aplicar_skus_modelo com a
 // assinatura da prévia vista) DEPOIS do UPDATE do modelo. A 1ª geração segue automática pós-Salvar (gerarSeFaltar — spec
-// SKU §4.2, R12; D1 da spec da prévia). Os wrappers conferem módulo, loja e EDITAR o Planejamento (_sku_guarda).
+// SKU §4.2, R12; P-50 A da spec da prévia). Os wrappers conferem módulo, loja e EDITAR o Planejamento (_sku_guarda).
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -3513,7 +3632,7 @@ export function useSkusModelo(
     }
   };
 
-  /** Depois do Salvar: matriz FRESCA; card com REF e SEM SKU gravado ⇒ gera (`_regerar=false` só cria o que falta — D1). */
+  /** Depois do Salvar: matriz FRESCA; card com REF e SEM SKU gravado ⇒ gera (`_regerar=false` só cria o que falta — P-50 A). */
   const gerarSeFaltar = async () => {
     if (!ativo || !modeloId || !podeEditar) return;
     try {
@@ -3922,7 +4041,7 @@ Em `:61`, tirar `tamanhoTipoNormalizado` do import (o único uso era a prop `tam
   // Salvar re-trava os campos do Dev quando o card já foi enviado à Explosão (paridade com o Dev,
   // ModeloDetailPanel.tsx:2273) e avisa o container (lista por baixo). SKU em PRÉVIA (spec 2026-09-25-sku-previa-regerar §4.2.5):
   // o modelo JÁ foi gravado; agora os SKUs "a gravar" (a prévia vista — assinatura conferida no servidor) e, se não falharem, a
-  // 1ª geração automática (só num card sem nenhum SKU — D1). Aguardado pelo usePlanejamentoSave: o Salvar segue "salvando".
+  // 1ª geração automática (só num card sem nenhum SKU — P-50 A). Aguardado pelo usePlanejamentoSave: o Salvar segue "salvando".
   const aoSalvar = async () => {
     setEditandoDev(false);
     onSaved();
@@ -4004,16 +4123,16 @@ Achado ⇒ fix na Task 5 (novo commit) e checagem escopada.
 
 ---
 
-## Task 6: Portões finais — G-commit, merge + cópia, QA no `:5173`, docs, G-deploy *(controlador + guardião + dono)*
+## Task 6: Portões finais — G-commit, merge + cópia, QA na CÓPIA (`:5188`), docs, G-deploy *(controlador + guardião + dono)*
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-09-24-sku-automatico-design.md` (§4.2 e §4.3 — nota "SKU em prévia")
 - Modify: `docs/superpowers/specs/2026-09-25-sheet-planejamento-reorganizacao-design.md` (§5.4 — o SKU à mão não é mais RPC imediata)
-- Create (NÃO versionar): `tests/e2e/sku-previa-qa.spec.ts`
+- Create (NÃO versionar; está no `permitidos.txt` para o `gates.sh` não barrar uma correção pós-QA — R8): `tests/e2e/sku-previa-qa.spec.ts`
 
 **Interfaces:**
 - Consumes: Tasks 1–5 commitadas; `IDA OK` + referência `pos_sku_previa` do dono (Task 4 Step 12); `copia.sh`.
-- Produces: branch juntada na `feature/plan-tecido-a1`; cópia COM a frente; QA verde; docs e memória em dia.
+- Produces: branch juntada na `feature/plan-tecido-a1`; cópia COM a frente; QA verde NA CÓPIA (`:5188`); docs e memória em dia.
 
 - [ ] **Step 1: Notas nas specs (docs)**
 
@@ -4057,7 +4176,11 @@ BLOQUEIA ⇒ parar.
 
 - [ ] **Step 3: Merge (ff) na principal + a frente na cópia — o MESMO passo (o dono dá o OK no painel)**
 
-Só DEPOIS do `IDA OK` (senão o `:5173`, que grava em produção, quebra na seção Códigos). O controlador publica o aviso N3 e:
+Só DEPOIS do `IDA OK` + referência OK (senão o `:5173`, que grava em produção, quebra na seção Códigos). N6: o `:5173` e o
+`:5188` servem o MESMO checkout principal, então do ff até a QA passar o `:5173` já roda o Salvar novo contra a PRODUÇÃO.
+ANTES do merge, o controlador publica no painel: "Vou juntar o SKU em prévia na principal. A partir daí o :5173 (produção)
+já usa o Regerar e o SKU à mão em prévia; a QA roda na cópia (:5188). Até eu avisar que a QA passou, não salve cards no
+:5173. Pode juntar?" e ESPERA o "pode juntar" (como na P-39). Depois publica o aviso N3 e:
 
 ```bash
 cd "/Users/sunglee/PLM + Criação/plm-pcp"                 # checkout principal (branch feature/plan-tecido-a1)
@@ -4068,25 +4191,33 @@ PREVIA_DONO_AVISADO=sim bash .superpowers/sku-previa/copia.sh ida
 ```
 Expected:
 - ff sem conflito;
-- `== CÓPIA: ida OK (484|277 → 493|277)` (ou `+9|+0` sobre o que houver).
+- `== CÓPIA: ida OK (<antes> → <antes + 9|+0>)`: `484|277 → 493|277`, ou `486|277 → 495|277` com a Distribuição na cópia (R5).
 
 Não-ff (outra frente entrou antes) ⇒ `git rebase feature/plan-tecido-a1` NA WORKTREE (sem stash), `gates.sh` de novo, e o
 guardião refaz o G-commit.
 
-- [ ] **Step 4: QA no `:5173` (PRODUÇÃO — D2: card e resíduos combinados com o dono no painel)**
+- [ ] **Step 4: QA na CÓPIA — `:5188` (P-51 A; produção intocada; o `:5173` NÃO recebe teste que grava SKU)**
 
-Antes, o controlador:
-- lê em produção, SÓ LEITURA (`begin transaction read only`), se a Loja Teste tem `sku_config` e o card combinado tem SKUs;
-- lista ao dono os resíduos que a QA deixa (SKUs gerados/à mão no card) e espera o OK (D2).
+O `:5188` serve o checkout principal contra a CÓPIA: depois do ff (Step 3) ele já tem o front novo e, depois do
+`copia.sh ida`, o banco novo. Antes da QA, o CONTROLADOR (nunca o executor — "QA não semeia banco"):
+- lê na cópia, SÓ LEITURA (`PGOPTIONS='-c default_transaction_read_only=on'`): se a Loja Teste DA CÓPIA tem `sku_config`;
+  quais siglas de cor base/apelido/tamanho o card combinado usa e faltam; se o card tem REF; e a loja ativa do usuário E2E
+  (tem de ser a Loja Teste — trocar de loja GRAVA `users.tenant_id` e derruba outro QA; se não for, PARE e avise);
+- publica no painel o setup, que é gravação NA CÓPIA (P-51 A): "Vou configurar na CÓPIA (:5188), só na Loja Teste, o
+  Formato do SKU (Config da Loja) e as siglas <lista> (Cadastro › Atributos), para a QA do SKU em prévia no card <nome>.
+  Produção não é tocada.";
+- faz o setup pela tela do `:5188` e anota em `.superpowers/sku-previa/copia-estado.md` o que gravou;
+- combina no painel o card EXISTENTE da Loja Teste da cópia (nenhum card novo).
 
-`tests/e2e/sku-previa-qa.spec.ts` (NÃO versionar), com `E2E_BASE_URL=http://localhost:5173` e `E2E_SKU_CARD=<id combinado>`:
+`tests/e2e/sku-previa-qa.spec.ts` (NÃO versionar; no `permitidos.txt` — R8), com `E2E_BASE_URL=http://localhost:5188` e
+`E2E_SKU_CARD=<id combinado>`:
 
 ```ts
 import { test, expect, type Page } from "@playwright/test";
 import { doLogin } from "./_helpers";
-// SKU em PRÉVIA — QA no :5173 (grava em PRODUÇÃO: card e resíduos combinados com o dono — D2). NUNCA selectStore.
+// SKU em PRÉVIA — QA na CÓPIA (:5188, P-51 A). O :5173 grava em PRODUÇÃO e NÃO roda este arquivo. NUNCA selectStore.
 const CARD = process.env.E2E_SKU_CARD ?? "";
-test.skip(!process.env.E2E_BASE_URL?.includes("localhost:5173") || !CARD, "só no :5173 e com o card combinado");
+test.skip(!process.env.E2E_BASE_URL?.includes("localhost:5188") || !CARD, "só no :5188 (cópia) e com o card combinado");
 
 async function abrir(page: Page) {
   await page.goto(`/criacao/planejamento?modelo=${CARD}`);
@@ -4154,22 +4285,27 @@ test("mobile 360/390: a seção Códigos com a prévia não estoura na horizonta
 ```
 
 ```bash
-E2E_BASE_URL=http://localhost:5173 E2E_SKU_CARD=<id> npx playwright test tests/e2e/sku-previa-qa.spec.ts --workers=1
+E2E_BASE_URL=http://localhost:5188 E2E_SKU_CARD=<id> npx playwright test tests/e2e/sku-previa-qa.spec.ts --workers=1
 ```
 Expected: 3 passed.
 
-Achado ⇒ correção NA WORKTREE (commit novo, gates) → novo ff (Step 3, sem o `copia.sh`) → QA de novo. No fim:
+Achado ⇒ correção NA WORKTREE (commit novo, gates — o spec da QA não barra: está no `permitidos.txt`, R8) → novo ff (Step 3,
+com o aviso N6 de novo e sem o `copia.sh`) → QA de novo. No fim:
 - restaurar o "Tamanho em" do card se mudou;
-- listar ao dono os SKUs gravados pela QA (resíduo aceito na D2).
+- anotar no `copia-estado.md` os SKUs que a QA gravou NA CÓPIA (produção fica sem resíduo);
+- avisar no painel "QA do SKU em prévia verde na cópia — pode voltar a salvar cards no :5173" (fecha o N6).
 
 - [ ] **Step 5: G-deploy (guardião) e memória/CLAUDE.md (controlador)**
 
-- O guardião confere a QA verde, o log do dono e a ordem (banco → merge → QA). O deploy segue o portão geral da campanha
-  (P-47 A: junto do deploy pendente, sem ele não há deploy).
+- O guardião confere a QA verde NA CÓPIA, o log do dono, o aviso N6 publicado ANTES do merge e a ordem (banco → referência →
+  merge + cópia → QA). O deploy segue o portão geral da campanha (P-47 A: junto do deploy pendente, sem ele não há deploy).
+- N7: o 1º uso real em produção é o acompanhamento da P-45 A (Formato + siglas da loja real). O controlador leva a prévia
+  junto: no painel, avisa que o "Regerar SKUs" agora mostra a prévia e só o Salvar grava, e acompanha o 1º Regerar real.
 - O controlador, no checkout principal, atualiza:
   - `CLAUDE.md` (seção "Sheet unificado do Planejamento": o Regerar e o SKU à mão agora em prévia + Salvar; RPCs `skus_previa`/
     `aplicar_skus_modelo`; LIFO das voltas);
-  - as memórias `project_sku_automatico` (prévia em produção, contagem 493|277, referência `pos_sku_previa`) e
+  - as memórias `project_sku_automatico` (prévia em produção, contagem = base + 9 — 493|277, ou 495|277 com a Distribuição;
+    referência `pos_sku_previa`; volta LIFO entre frentes) e
     `feedback_staging_nada_grava_antes_salvar` (piloto concluído; o molde plano puro + assinatura serve à frente "Camada
     intermediária").
 
@@ -4184,17 +4320,34 @@ Achado ⇒ correção NA WORKTREE (commit novo, gates) → novo ff (Step 3, sem 
 | Prévia velha (outra pessoa, sigla/Formato/grade, REF do gatilho) | gravar o que não foi visto | assinatura antes E depois no servidor ⇒ P0409 + prévia nova + 2º Salvar; nunca grava diferente |
 | Card salvo e SKUs não (erro no meio) | usuário acha que salvou tudo | toast explícito, "não salvo" aceso, prévia mantida (R6) |
 | `onSuccess` async no Salvar | retry do P0409 / Enviar à Explosão | revisão Opus (Task 5 Step 10, item 2); o `aoSalvar` nunca lança |
-| Vizinha da reorganização quebra depois do `copia.sh ida` | falha à toa na suíte de outra frente | P4 (texto da prévia + inverso na txn) exercitado no ensaio (P8) |
-| LIFO das voltas | volta fora de ordem | guardas md5 recusam; RODAR e memória dizem a ordem |
-| `:5173` grava em produção | QA deixa resíduo | D2: card e resíduos combinados com o dono ANTES |
+| Vizinha da reorganização quebra depois do `copia.sh ida` | falha à toa na suíte de outra frente | P4 (texto da prévia, só no modo sem variável); `SHEET_MIG_TXN=1` não roda nesta frente (R2) |
+| Ensaio para no meio | a cópia fica COM a frente sem ninguém saber | `pare_com_frente`: diz que ficou, dá o comando da volta e registra o `n3 depois` (R2) |
+| Blocos de banco da F3.5a pulam calados | regressão invisível no ensaio | 0 falha + EXATAMENTE 1 pulado + mesmo nº de aprovados, obrigatório no ensaio e no G-scripts (R6) |
+| Esta frente e a Distribuição intercaladas em produção | referência da volta da F1 em PARE permanente; volta fora de ordem | uma frente por vez (ida + `ref-volta-f1` antes do pré-voo da outra); volta só com `pos_sku_previa` como referência mais nova (R4) |
+| LIFO das voltas | volta fora de ordem | guardas md5 recusam; guarda LIFO entre frentes (R4); RODAR e memória dizem a ordem |
+| Do ff até a QA, o `:5173` (produção) já roda o Salvar novo | gravação real antes da QA | aviso N6 + "pode juntar" antes do merge; QA na CÓPIA (`:5188`, P-51 A), sem resíduo em produção |
 
-## 6. Dúvidas que só o dono responde
+## 6. Decisões do dono (26/set 02:27) e notas do G-plano
 
-| # | Pergunta | Recomendação |
-|---|---|---|
-| D1 | A 1ª geração (card sem nenhum SKU) continua AUTOMÁTICA no Salvar ou também vira prévia? | **A — automática** (só cria, nada se perde; acontece no próprio Salvar; "Regerar" mostra antes para quem quiser). O banco já aceita `'criar'` nas RPCs se o dono escolher B (~1 task pequena de front) |
-| D2 | QA no `:5173` (= PRODUÇÃO): pode gravar SKUs (Regerar + 1 à mão) no card de teste combinado ("Blusa Teste", P-44), deixando resíduo listado antes? Se a Loja Teste não tiver Formato do SKU em produção, pode configurá-lo para a QA? | **Sim ao resíduo listado; Formato só se faltar**, com o texto combinado no painel |
-| D3 | Precisa de mockup da prévia (aviso + "a gravar" + ↺) antes da Task 5? | **Não** — mudança pequena dentro do layout aprovado; textos travados no plano; a QA mostra no `:5173` |
+| # | Decisão |
+|---|---|
+| P-50 A (ex-D1) | A 1ª geração (card sem nenhum SKU) CONTINUA automática no Salvar; só o Regerar e o SKU à mão viram prévia. |
+| P-51 A (ex-D2) | A QA roda na CÓPIA (`:5188`); o Formato do SKU é configurado SÓ na Loja Teste da cópia; produção intocada — o `:5173` não recebe teste que grava SKU (GC "QA"; Task 6 Step 4). |
+| P-52 A (ex-D3) | Sem mockup: mudança pequena dentro do layout aprovado; textos travados no plano. |
+
+Notas do G-plano:
+- APLICADAS: N2 (no laço dos manuais, "já é este SKU, à mão" vem ANTES do `rev` + teste na Task 3); N6 (aviso e "pode
+  juntar" antes do merge — Task 6 Step 3); N7 (a prévia entra no acompanhamento da P-45 A — Task 6 Step 5).
+- REGISTRADAS, sem mudança de desenho:
+  - N1 — o Salvar de card existente passa a aguardar também o `gerarSeFaltar` (+1 RPC `skus_modelo`, mesmo sem nada "a
+    gravar"); aceito pela R6 da spec;
+  - N3 — SKU digitado numa linha que saiu da grade: o erro fica no toast/`erros[]`, sem ↺ na linha; a saída é "Desfazer
+    prévia";
+  - N4 — o laço novo desempata por `variante_key`; o vivo não desempata (empate hoje indeterminado);
+  - N5 — numa corrida real com outro card entre o plano e a escrita, a mensagem vira "outra pessoa gravou esta linha agora"
+    (hoje "SKU X já existe em Y");
+  - N8 — o backup de produção é `public`+`auth` (receita provada das frentes anteriores), não o dump "completo" que a
+    memória de deploy cita.
 
 ## 7. Autorrevisão (cobertura da spec)
 
@@ -4214,7 +4367,8 @@ Achado ⇒ correção NA WORKTREE (commit novo, gates) → novo ff (Step 3, sem 
 | §4.2.6 colaboração (invalidação, P0409, manter/usar, presença) | Task 5 Steps 4 e 7; Task 3 Step 2; QA Task 6 |
 | §4.2.7 só leitura | Task 1 (`podeRegerar`); Task 5 (`enabled` da prévia, `editavel`) |
 | §4.2.8 selo e textos | Task 1 (`seloCodigos`, constantes); Task 5 Step 4 |
-| §4.3 1ª geração automática (D1) | Task 5 (`gerarSeFaltar` intocado, depois do `aplicarAGravar`) |
-| §6 testes (unit, integração txn, vizinhas, QA) | Tasks 1, 3, 4 (ensaio), 6 |
-| §7 produção (ordem, scripts, RODAR, volta) | Task 4; Task 6 Steps 2–3 |
+| §4.3 1ª geração automática (P-50 A) | Task 5 (`gerarSeFaltar` intocado, depois do `aplicarAGravar`) |
+| §6 testes (unit, integração txn, vizinhas, QA) | Tasks 1, 3 (equivalência com `antes` e os 3 cenários da R7; N2), 4 (ensaio: vizinhas + F3.5a inteira com prova de não-pular — R6), 6 (QA na cópia `:5188` — P-51 A) |
+| §7 produção (ordem, uma frente por vez com a Distribuição, scripts, RODAR, volta LIFO entre frentes) | GC (Ordem); Task 4 (volta R4, provas 16–17, RODAR); Task 6 Steps 2–3 |
+| G-plano R1–R8 e N1–N8 (26/set) | R1/R7: Task 3 (`CENARIOS`); R2: P8 removida, `pare_com_frente`; R3: GC QA + Task 6; R4: GC Ordem + volta + RODAR; R5: GC contagem + T0/T3/T4/T6; R6: P9 + ensaio + G-scripts; R8: `permitidos.txt`; N: §6 |
 | Portões (G-plano, G-migration, G-scripts, G-commit, G-produção, G-deploy) | §4; Tasks 3–6 |

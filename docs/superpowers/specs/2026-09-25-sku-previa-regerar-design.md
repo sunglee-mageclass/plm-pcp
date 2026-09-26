@@ -26,6 +26,9 @@ que ainda não está salvo: a REF e o "Tamanho em" do rascunho e os SKUs digitad
 | — | Trocar o "Tamanho em" ou a REF e já poder "Regerar" (em prévia) SEM salvar antes. Hoje o botão trava com "Salve o card antes de regerar". |
 | P-47 A | Entra ANTES do deploy. |
 | — | É o piloto da regra "nada grava antes do Salvar". A frente própria "Camada intermediária / staging" (prioridade ALTA, logo depois do deploy) mapeia o resto. |
+| P-50 A (26/set) | A 1ª geração (card sem nenhum SKU) CONTINUA automática no Salvar (§4.3). |
+| P-51 A (26/set) | A QA do SKU roda na CÓPIA (`:5188`), com o Formato do SKU configurado só na Loja Teste da cópia; produção intocada (§6). |
+| P-52 A (26/set) | Sem mockup da prévia. |
 
 Continuam valendo as decisões do SKU (spec `2026-09-24-sku-automatico-design.md` §2): Q1 (gerado automático, mas editável),
 Q2 (fixo depois de gerado; só muda pelo Regerar; o editado à mão nunca é sobrescrito), Q4/D4 (falta sigla / apelido), D5
@@ -62,7 +65,8 @@ Q2 (fixo depois de gerado; só muda pelo Regerar; o editado à mão nunca é sob
     `criacao`, loja, `criacao_planejamento` ver/editar;
   - `modelo_skus`: RLS `tenant_select` (PERMISSIVE) + 3 modgate RESTRICTIVE de escrita; cliente só SELECT; 0 linhas na
     cópia; `sku_config` NULL em todas as lojas da cópia;
-  - contagem funções|gatilhos da cópia: **484|277**.
+  - contagem funções|gatilhos da cópia: **484|277** (com a frente Distribuição aplicada antes, seria **486|277** — nada é
+    cravado: os scripts conferem pelo delta).
 - **Corrida pré-existente B-M8** (backlog do G-migration da reorganização): o `_gerar_skus_modelo_core` lê o "Tamanho em"
   depois da trava, mas `_skus_modelo_calc` o relê a cada chamada.
 
@@ -213,10 +217,12 @@ gravando, como no Regerar de hoje: não bloqueiam o resto.
   - `$pos$`: md5 das 12 = o esperado, antes do COMMIT — qualquer divergência (ex.: `client_encoding`) desfaz tudo;
   - `NOTIFY pgrst, 'reload schema'` antes do `COMMIT`.
 - **Sem DDL de tabela nem de policy** (o hook `supautils.policy_grants` não dispara; nada de ACCESS EXCLUSIVE em
-  `modelos`/`tenant_config`). Contagem: **+9 funções, +0 gatilhos** (484|277 → 493|277).
+  `modelos`/`tenant_config`). Contagem: **+9 funções, +0 gatilhos** sobre a base (484|277 → 493|277; ou 486|277 → 495|277
+  se a Distribuição entrar antes — conferido pelo delta, nunca por número cravado).
 - Inverso: guarda → as 3 voltam ao texto vivo byte a byte → `DROP FUNCTION IF EXISTS` das 9 → `$acl$` → `$pos$` → NOTIFY →
   COMMIT. Não mexe em dado (os SKUs gravados ficam). LIFO: voltar a reorganização ou a F3.5a DEPOIS desta frente exige
-  voltar esta antes (a guarda da reorganização recusa as 3 com outro texto).
+  voltar esta antes (a guarda da reorganização recusa as 3 com outro texto). Entre frentes: a volta desta só roda se a
+  referência mais nova da volta de emergência da F1 for a desta frente (`pos_sku_previa`) — quem entrou depois volta antes.
 
 ### 4.2 Front
 
@@ -292,7 +298,7 @@ const aoSalvar = async () => {
   onSaved();
   if (!isEdit) return;
   const r = await skus.aplicarAGravar();          // "nada" | "ok" | "falhou" — nunca lança
-  if (r !== "falhou") await skus.gerarSeFaltar();  // 1ª geração automática (D1)
+  if (r !== "falhou") await skus.gerarSeFaltar();  // 1ª geração automática (P-50 A)
 };
 ```
 
@@ -345,7 +351,7 @@ A trava pós-Explosão do Dev NÃO se aplica ao SKU (spec do SKU §4.2; R29 da r
 
 ### 4.3 1ª geração automática pós-Salvar
 
-**Proposta (D1, recomendação A): continua AUTOMÁTICA no Salvar**, pelo mesmo `gerar_skus_modelo(_, false)` — agora
+**Decidido (P-50 A, 26/set): continua AUTOMÁTICA no Salvar**, pelo mesmo `gerar_skus_modelo(_, false)` — agora
 executado pelo plano (`'criar'`).
 - Ela só CRIA linhas num card sem nenhum SKU: não há dado antigo a perder, que é o motivo da P-46.
 - Acontece DENTRO do Salvar que o usuário pediu, o que respeita "nada grava antes do Salvar".
@@ -399,6 +405,9 @@ assinatura. O banco já aceita `'criar'` nas 2 RPCs. Custo: ~1 task pequena de f
     - cadeia em ordem direta e em ordem inversa;
     - `sem_formato`/`aguardando_ref`/`sem_tamanho`;
     - `skus_modelo` idêntico antes/depois;
+    - (G-plano R7) automática × linha manual do mesmo card; `'criar'` com órfã segurando o SKU; Formato com REF + réplica;
+    - (G-plano R1) os cards "outros" são criados ANTES do SAVEPOINT (mesmos ids nos 2 lados); se algum id ainda variar,
+      `com_modelo_id`/`conflito_com.modelo_id` são normalizados na comparação;
   - **anti-drift PRÉVIA ≡ GRAVAÇÃO**: em cada cenário, a prévia com o rascunho ≠ salvo; o UPDATE do modelo simula o
     Salvar; `aplicar_skus_modelo` com a assinatura da prévia grava EXATAMENTE o `final` da prévia;
   - **só leitura**: `skus_previa` roda com `SET LOCAL transaction_read_only = on`; volatilidades `s`/`i`; estado gravado
@@ -412,12 +421,15 @@ assinatura. O banco já aceita `'criar'` nas 2 RPCs. Custo: ~1 task pequena de f
   - **inverso**: round-trip e idempotência; as 3 voltam byte a byte; os SKUs gravados ficam.
 - **Vizinhas**:
   - `sku-automatico.test.ts`: a suíte inteira da F3.5a roda contra a geração nova (prova de regressão, sem mudar o
-    arquivo);
-  - `sheet-reorg-campos.test.ts` aprende a prévia viva:
-    - o texto esperado das 3 passa a ser o desta migration;
-    - no modo `SHEET_MIG_TXN=1`, o inverso da prévia roda dentro da txn antes da migration da reorganização (LIFO).
-- **QA** no `:5173` (DEPOIS do merge; o `:5173` grava em PRODUÇÃO — D2):
-  - trocar "Tamanho em" e Regerar sem salvar ⇒ prévia; Descartar ⇒ nada mudou (leitura `begin transaction read only`);
+    arquivo) — OBRIGATÓRIA no ensaio, com prova de que os blocos de banco não pularam: 0 falha, EXATAMENTE 1 pulado (o
+    round-trip que exige `SKU_MIG_TXN`) e o mesmo nº de aprovados antes e depois da ida (G-plano R6);
+  - `sheet-reorg-campos.test.ts` aprende a prévia viva SÓ no modo sem variável (o texto esperado das 3 passa a ser o desta
+    migration). O modo `SHEET_MIG_TXN=1` NÃO roda nesta frente: ele exige a cópia sem a reorganização, que está viva
+    desde 25/set (G-plano R2).
+- **QA na CÓPIA, no `:5188`** (P-51 A; DEPOIS do merge + `copia.sh ida`, ANTES do deploy). O `:5173` grava em PRODUÇÃO e
+  não recebe teste que grava SKU; o Formato do SKU e as siglas que o card usa são configurados SÓ na Loja Teste da cópia,
+  pelo controlador, com aviso no painel:
+  - trocar "Tamanho em" e Regerar sem salvar ⇒ prévia; Descartar ⇒ nada mudou (reabrir o card mostra os SKUs de antes);
   - SKU à mão + ↺; Regerar + Salvar ⇒ gravado = prévia;
   - 2 abas: B edita e salva no meio ⇒ A recebe P0409 e a prévia nova;
   - mobile 360/390 sem estouro.
@@ -429,12 +441,18 @@ assinatura. O banco já aceita `'criar'` nas 2 RPCs. Custo: ~1 task pequena de f
      + conferências;
   2. `ref-volta-f1.sh` (referência nova `pos_sku_previa` da volta de emergência da F1);
   3. merge do front na `feature/plan-tecido-a1` JUNTO com `copia.sh ida`;
-  4. QA no `:5173`;
+  4. QA na CÓPIA (`:5188`, P-51 A);
   5. deploy (P-47 A: antes do deploy geral).
+- Entre o merge (3) e a QA (4), o `:5173` (produção) já roda o Salvar novo — os dois servem o mesmo checkout. O controlador
+  avisa o dono no painel ANTES do merge ("não salvar cards no :5173 até a QA passar") e pede o "pode juntar".
+- Com a frente Distribuição (`20261006100000`, +2 funções, aditiva): a ordem entre as duas em produção é livre, mas uma
+  frente por vez — a ida E a referência nova da volta da F1 de uma terminam antes do pré-voo da outra. A referência nova
+  desta frente tem CONT `462|233` (se vier primeiro) ou `464|233` (se vier depois da Distribuição); o script decide pelo
+  estado vivo.
 - O front antigo convive com o banco novo; o front novo NÃO roda sem o banco novo (RPCs novas). Por isso o banco vai
   antes do merge.
 - Volta de emergência: SÓ com OK do dono, DEPOIS de tirar do ar o front que chama `skus_previa`/`aplicar_skus_modelo`.
-  Não apaga dado.
+  Não apaga dado. LIFO entre frentes: só roda se a referência mais nova da volta da F1 for a desta frente.
 
 ## 8. Riscos
 
@@ -446,6 +464,8 @@ assinatura. O banco já aceita `'criar'` nas 2 RPCs. Custo: ~1 task pequena de f
 | 2 Salvar seguidos (grade e prévia mudando juntas) | Aviso na seção (R4); comportamento determinístico |
 | Card salvo e SKUs não (erro no meio) | Toast explícito + "não salvo" aceso + prévia mantida |
 | LIFO das voltas (prévia → reorganização → F3.5a) | Guardas md5 recusam fora de ordem; RODAR e memória dizem a ordem |
+| Esta frente e a Distribuição intercaladas em produção | Uma frente por vez; a volta confere que a referência mais nova é a desta frente |
+| Blocos de banco da F3.5a pulam calados no ensaio | 0 falha + exatamente 1 pulado + mesmo nº de aprovados, obrigatório |
 
 ## 9. Fora de escopo
 
@@ -456,10 +476,10 @@ assinatura. O banco já aceita `'criar'` nas 2 RPCs. Custo: ~1 task pequena de f
   "Camada intermediária / staging".
 - "Tamanho em" nos cards do Plan. Tecido/Produto Acabado/Importado (frente D2).
 
-## 10. Dúvidas que só o dono responde
+## 10. Decisões do dono (26/set 02:27 — antes eram as dúvidas D1–D3)
 
-| # | Pergunta | Recomendação |
-|---|---|---|
-| D1 | A 1ª geração (card sem nenhum SKU) continua automática no Salvar, ou também vira prévia? | **A — continua automática** (só cria, nada se perde; acontece no próprio Salvar; "Regerar" mostra antes para quem quiser) |
-| D2 | QA no `:5173` = PRODUÇÃO: pode gravar SKU (Regerar confirmado e 1 SKU à mão) no card de teste combinado ("Blusa Teste", P-44), deixando resíduo listado antes? E, se a Loja Teste não tiver o Formato do SKU em produção, pode configurá-lo para a QA? | **Sim ao resíduo listado**; Formato só se já não existir, com o texto combinado no painel |
-| D3 | Precisa de mockup da prévia (aviso + "a gravar" + ↺) antes da tela? | **Não** — mudança pequena dentro do layout aprovado; textos travados aqui; a QA mostra no `:5173` |
+| # | Decisão |
+|---|---|
+| P-50 A (ex-D1) | A 1ª geração (card sem nenhum SKU) continua automática no Salvar (só cria, nada se perde; acontece no próprio Salvar; "Regerar" mostra antes para quem quiser). |
+| P-51 A (ex-D2) | A QA roda na CÓPIA (`:5188`); o Formato do SKU é configurado só na Loja Teste da cópia; produção intocada. |
+| P-52 A (ex-D3) | Sem mockup: mudança pequena dentro do layout aprovado; textos travados aqui. |
