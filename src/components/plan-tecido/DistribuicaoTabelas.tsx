@@ -161,9 +161,10 @@ export function DistribuicaoTabelas(p: {
           <thead className="bg-muted/50">
             <tr>
               <th rowSpan={2} className={`${COL1} !bg-muted text-xs font-medium`}>Loja / Cor</th>
-              <th rowSpan={2} className={TH}>Base<span className="block text-[10px] font-normal text-muted-foreground">você digita</span></th>
+              {/* Dono 26/set: os subtítulos de Base e Total saíram do cabeçalho (desnecessários). */}
+              <th rowSpan={2} className={TH}>Base</th>
               <th colSpan={p.tamanhos.length} className={TH}>Tamanhos: proporção × Base · dá para corrigir à mão</th>
-              <th rowSpan={2} className={TH}>Total<span className="block text-[10px] font-normal text-muted-foreground">da cor na loja</span></th>
+              <th rowSpan={2} className={TH}>Total</th>
             </tr>
             <tr>{p.tamanhos.map((t) => <th key={t} className={`${TH} ${esmaecido(t)}`}>{rotuloTamanho(t, p.tipo)}</th>)}</tr>
           </thead>
