@@ -146,12 +146,14 @@ export function DistribuicaoTabelas(p: {
   // Pedido do dono 26/set: todo campo numérico CENTRALIZADO (estavam deslocados p/ a esquerda) — `text-center`
   // tanto no NumberInput (a própria caixa de texto) quanto no <span> só-leitura (`block` p/ o text-align valer
   // por si, não só herdado do <td>), nas DUAS telas (dialog) e na impressão.
+  // Dono 26/set ("campos de número deslocados para a esquerda"): o <Input> base é `flex` (bloco) com w-14 — o text-center
+  // do <td> não centraliza a CAIXA, só o texto dentro dela; `mx-auto` centraliza a caixa na célula.
   const campo = (valor: number, onChange: (v: number) => void, path: string, aria: string, extra = "") =>
     bloqueado ? (
       <span className={`block text-center ${extra}`} aria-label={aria} data-colab-path={path}>{valor || 0}</span>
     ) : (
       <NumberInput integer blankZero placeholder="0" value={valor} aria-label={aria} data-colab-path={path}
-        className={`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
+        className={`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none max-md:h-10 ${extra}`}
         onChange={(e) => onChange(Number(e.target.value) || 0)} />
     );
   const comDist = p.cores.filter((c) => temDistribuicao(p.dists[c.key]));

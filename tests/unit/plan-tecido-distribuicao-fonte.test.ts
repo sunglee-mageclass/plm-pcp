@@ -397,7 +397,12 @@ describe("Plan. Tecido — dialog Distribuir por loja (números centralizados, p
     const idx = tab.indexOf("<NumberInput integer blankZero placeholder=\"0\"");
     expect(idx).toBeGreaterThan(-1);
     const trecho = tab.slice(idx, idx + 300);
-    expect(trecho).toMatch(/className=\{`h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none/);
+    expect(trecho).toMatch(/className=\{`mx-auto h-8 w-14 border-0 bg-transparent px-1 text-center shadow-none/);
+  });
+
+  it("a CAIXA do campo fica no centro da célula (mx-auto): o <Input> base é `flex` (bloco), o text-center do <td> não a move", () => {
+    const idx = tab.indexOf("<NumberInput integer blankZero placeholder=\"0\"");
+    expect(tab.slice(idx, idx + 300)).toContain("mx-auto");
   });
 
   it("o <span> só-leitura (impressão OU sem permissão de editar) também é text-center (block, não só herdado do <td>)", () => {
