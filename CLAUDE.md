@@ -284,6 +284,12 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **Colaboração em tempo real (rev otimista)** — telas com risco de edição simultânea (2+ pessoas
   no mesmo registro) usam o padrão: coluna `rev` na tabela-raiz (bump a cada UPDATE) + save manda
   `_rev_base`; a RPC compara e dá `P0409` se alguém salvou no meio (mensagem PT em `erro-mensagem.ts`).
+  ⚠️ **A MENSAGEM de todo `RAISE … USING ERRCODE` que o PostgREST devolve como 5xx (`P0409`, `P0002`…)
+  tem de ser SÓ ASCII** (sem acento, "—" ou "…", padrão `conflito_versao: …`/`previa_desatualizada: …`):
+  com não-ASCII o PostgREST responde `500 text/plain "Something went wrong"`, o `code` some e o merge
+  colaborativo/prévia do SKU não rodam (P-58/P-59, `20261006120000`, produção 26/set). A tela traduz
+  pelo `code`. `P0001` (400) e `42501` (403) não são afetados. Ao testar regex no Postgres, fronteira
+  de palavra é `\y` (`\b` = backspace).
   `useColabRegistro` (`@/hooks`) abre o canal Realtime (`colab:<tela>:<id>`) p/ presença (quem está
   na tela/campo) + reagir a UPDATE alheio; `mergeDraft`/`mergeLinhas` (`@/lib/colab/merge`, puros)
   fazem merge 3-vias (base/draft/fresh) por campo tocado (`touched`), sinalizando conflito só onde
