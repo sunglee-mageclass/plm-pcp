@@ -477,22 +477,33 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // `cqLoadError` (nunca hidrata a partir de um erro) e no "Tentar de novo".
   // Fix hidratação rodada 3 (achado R1-resto, PERDA DE DADO comprovada): `modeloGrades`/
   // `tenantCfg` ("tamanhos") somados — alimentam `tamanhos`/`realByNum`/`_reais` do payload.
-  const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored || modeloGradesErrored || tenantCfgErrored;
+  // Fix hidratação rodada 4 (achado N5 da re-revisão, PERDA DE DADO comprovada, review-fix3.md):
+  // `useActiveTenantId` engole o próprio erro e devolve `""` sem retry (nunca dá throw) — o
+  // tenant "não resolvido" é indistinguível de "loja realmente sem tenant" só pelo valor. O
+  // atalho `!tenantId ||` que `fonteSettled`/`tamanhosSettled` usavam tratava ESSE `""` como
+  // "settled" (retrocompat com o caso degenerado), pulando a espera de `tenantCfg`/`cats`/`prio` —
+  // com `modelo_grades` vazio, `tamanhos` caía em DEFAULT_TAMANHOS e o Salvar zerava a Grade Real
+  // num CQ já confirmado. NÃO mexemos em `useActiveTenantId` (32 consumidores, fora de escopo —
+  // ver fix4-brief.md); em vez disso, `tenantId` vazio agora conta como erro de carga (trava
+  // Salvar/Confirmar e mostra o banner padrão), nunca como atalho.
+  const tenantIdErrored = !tenantId;
+  const cqLoadError = cqErrored || varsErrored || mainFabricErrored || blocosErrored || catsErrored || prioErrored || modeloGradesErrored || tenantCfgErrored || tenantIdErrored;
   // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
   // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
-  // tenantId vazio (degenerado) = escape p/ não pendurar (aí temFonte=false, retrocompat).
   // Fix hidratação rodada 2 (R1): exige `isSuccess` das 4 (não só isFetched, que também fica
   // true depois de erro no TanStack v5).
+  // Fix hidratação rodada 4 (N5): tirado o escape `!tenantId ||` — loja não resolvida NÃO conta
+  // como "settled" (era o furo que deixava zerar a Grade Real).
   const fonteSettled =
     mainFabricFetched && !mainFabricFetching && mainFabricOk &&
     blocosFetched && !blocosFetching && blocosOk &&
-    (!tenantId || (catsFetched && !catsFetching && catsOk && prioFetched && !prioFetching && prioOk));
+    catsFetched && !catsFetching && catsOk && prioFetched && !prioFetching && prioOk;
   // Fix hidratação rodada 3 (achado R1-resto): `modeloGrades` (sempre habilitada) e `tenantCfg`
-  // (só se `tenantId` resolveu — mesmo escape "degenerado" do `fonteSettled" acima) precisam
-  // assentar COM SUCESSO antes de hidratar — alimentam `tamanhos`, que decide `_reais` do save.
+  // precisam assentar COM SUCESSO antes de hidratar — alimentam `tamanhos`, que decide `_reais`
+  // do save. Fix hidratação rodada 4 (N5): idem — tirado o escape `!tenantId ||`.
   const tamanhosSettled =
     modeloGradesFetched && !modeloGradesFetching && modeloGradesOk &&
-    (!tenantId || (tenantCfgFetched && !tenantCfgFetching && tenantCfgOk));
+    tenantCfgFetched && !tenantCfgFetching && tenantCfgOk;
 
   // ===== Colab helpers (spec 2026-08-07) — puros sobre o closure atual =====
   // Escalares do CQ a partir de uma linha de controle_qualidade (mesmo shape do `form`).
@@ -1305,6 +1316,14 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
               // hidratação (cqSettled/varsSettled/fonteSettled), não só `cq`/`cq_variantes`.
               // Fix hidratação rodada 3 (achado R1-resto): + `modeloGrades`/`tenantCfg`
               // (tamanhosSettled).
+              // Fix hidratação rodada 4 (achado N5): a loja pode nunca ter resolvido
+              // (`tenantId===""`, o que agora TAMBÉM entra em `cqLoadError`) — sem refazer a query
+              // do `useActiveTenantId`, o "Tentar de novo" ficaria preso reexecutando queries
+              // `enabled: !!tenantId` que nunca disparam. NÃO mexemos no hook (32 consumidores,
+              // fora de escopo) — invalidamos por PREFIXO da key que ele usa
+              // (`["active-tenant-id", user?.id]`, ver src/hooks/useActiveTenantId.ts) para
+              // refazer o fetch sem precisar do `user?.id` aqui.
+              qc.invalidateQueries({ queryKey: ["active-tenant-id"] });
               refetchCq();
               if (cqRow?.id) refetchVars();
               refetchMainFabric();

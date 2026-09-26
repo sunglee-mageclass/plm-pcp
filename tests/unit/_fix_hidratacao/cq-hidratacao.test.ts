@@ -186,12 +186,60 @@ describe("[fix hidratação] CQ Pré — Salvar/Confirmar travam ANTES da hidrat
     expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_cq")).toBe(false);
   });
 
-  // Mesma classe, pela outra query compartilhada (`["tenant_config","tamanhos"]`). NOTA: o fake
-  // supabase segura falhas por TABELA (não por query/coluna) — `tenant_config` também é lida por
-  // `cq-confeccao-prioridade` (já gated desde a rodada 2), então `FAKE.falhar("tenant_config", n)`
-  // não isola cirurgicamente só a query de tamanhos. Em vez de um teste ambíguo, provamos o mesmo
-  // ponto pela leitura do código (a queryFn idêntica, exposta no gate — ver `tamanhosSettled`)
-  // e cobrimos a query IRMÃ (`modelo_grades`, acima) como prova concreta e isolada fail→pass.
+  // Mesma classe, pela outra query compartilhada (`["tenant_config","tamanhos"]`). O fake supabase
+  // segura falhas por TABELA (não por query/coluna) e `tenant_config` também é lida por
+  // `cq-confeccao-prioridade` (já gated desde a rodada 2) — `FAKE.falhar("tenant_config", n)` não
+  // isola cirurgicamente qual das duas queries "causou" o efeito. Registrado pela re-revisão da
+  // rodada 3 (review-fix3.md): interceptamos só o `select("tamanhos_grade")` no `FAKE.supabase.from`
+  // (trazido do probe do revisor, `rr3-probe.test.ts`/`instalarFalhaTamanhos`) para provar
+  // fail→pass genuíno sem depender da ordem das leituras.
+  function instalarFalhaTamanhos(n: number) {
+    const origFrom = FAKE.supabase.from;
+    let restante = n;
+    FAKE.supabase.from = (t: string) => {
+      const b = origFrom(t);
+      if (t !== "tenant_config") return b;
+      const origSelect = b.select;
+      const wrapped: any = { ...b };
+      wrapped.select = (cols?: string) => {
+        if (cols === "tamanhos_grade" && restante > 0) {
+          restante--;
+          const f: any = { then: (ok: any, err: any) => Promise.resolve({ data: null, error: { message: "falha tamanhos (fake)", code: "FAKE_ERR" } }).then(ok, err) };
+          for (const m of ["eq", "maybeSingle", "single", "order", "limit", "in", "neq", "is"]) f[m] = () => f;
+          return f;
+        }
+        return origSelect(cols);
+      };
+      return wrapped;
+    };
+    return () => { FAKE.supabase.from = origFrom; };
+  }
+
+  it("R1-resto: tenant_config.select('tamanhos_grade') falha ao carregar (modelo_grades vazio) — Salvar continua DESABILITADO e aparece 'Tentar de novo'", async () => {
+    // CQ confirmado, sem bloco-fonte, `modelo_grades` VAZIO — os tamanhos só existem via
+    // `tenant_config.tamanhos_grade`. Falha seletiva só nessa leitura (a de `confeccao_prioridade`
+    // segue OK), reproduzindo o cenário exato da revisão sem depender da ordem dos selects.
+    FAKE.linhas.controle_qualidade = [{ id: "cq1", cad_id: "c1", status: "confirmado", status_pos: "pendente" }];
+    FAKE.linhas.modelo_grades = [];
+    FAKE.linhas.tenant_config = [{ tenant_id: "t1", tamanhos_grade: ["P", "M"] }];
+    const restaurar = instalarFalhaTamanhos(4);
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const C = (Route as any).options.component;
+      const m = await montar(createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(C))));
+      desmontar = m.desmontar;
+      await esperar(150);
+      expect(document.body.textContent).toContain("Não foi possível carregar");
+      expect(document.body.textContent).toContain("Tentar de novo");
+      expect(document.querySelector<HTMLButtonElement>('button[aria-label="Salvar"]')?.disabled).toBe(true);
+      expect(document.querySelector<HTMLButtonElement>('button[aria-label="Editar"]')).toBeNull();
+
+      await esperar(200);
+      expect(FAKE.chamadas.some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_cq")).toBe(false);
+    } finally {
+      restaurar();
+    }
+  });
 
   // Prova do retry: liberar a falha e clicar "Tentar de novo" recupera e hidrata.
   it("R1-resto: 'Tentar de novo' recupera de modelo_grades falhando e hidrata", async () => {
