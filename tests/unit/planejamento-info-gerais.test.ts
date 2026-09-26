@@ -40,6 +40,9 @@ describe("InfoGeraisSecao (fonte)", () => {
     expect(s).toContain('data-colab-path="titulo_pagina"');
     expect(s).toContain("tituloPaginaCalculado(draft.nome, nomeLoja)");
     expect(s).toContain("Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.");
+    // Dono 26/set: a explicação é hover (InfoHover ao lado do rótulo), nunca texto fixo embaixo do campo.
+    expect(s).toMatch(/<InfoHover ariaLabel="Como funciona o Título para a página\?">\s*<p>Acompanha o Nome do Modelo/);
+    expect(s).not.toContain('<p className="text-xs text-muted-foreground">Acompanha o Nome do Modelo');
     expect(s).toContain('aria-label="Título: voltar ao automático"');
   });
   it("L6 Peso/medidas DEPOIS da Descrição: MoneyInput com casas 3/2, placeholder e data-colab-path por campo (NULL = vazio)", () => {

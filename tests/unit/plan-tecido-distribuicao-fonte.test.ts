@@ -161,7 +161,10 @@ describe("Plan. Tecido — dialog Distribuir por loja (Task 6)", () => {
     expect(tab).toContain("data-colab-path={path}");
   });
   it("textos do mockup", () => {
-    for (const s of ["Loja / Cor", "você digita", "Tamanhos: proporção × Base · dá para corrigir à mão", "da cor na loja",
+    // Dono 26/set: "você digita" e "da cor na loja" saíram do cabeçalho (desnecessários).
+    expect(tab).not.toContain("você digita");
+    expect(tab).not.toContain("da cor na loja");
+    for (const s of ["Loja / Cor", "Tamanhos: proporção × Base · dá para corrigir à mão",
       "Proporção por tamanho", "do card", "Total por cor × tamanho", "Soma das lojas. É o que preenche o pç de cada cor do Tecido 1 no card.",
       "soma das lojas", "= pç no card", "sem distribuição · pç do card", "Editado à mão · calculado seria"]) expect(tab, s).toContain(s);
     for (const s of ["Distribuir por loja", "Salvar preenche o pç", "Grava de vez no Salvar do plano.", "Por loja · deslize para o lado",
