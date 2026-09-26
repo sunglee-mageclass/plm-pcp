@@ -29,7 +29,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
         <span className="text-xs text-muted-foreground">do Plan. Tecido › Distribuir por loja</span>
         {plano && (
           <Button variant="outline" size="sm" className="ml-auto max-sm:h-11" onClick={onPreencher} disabled={!podePreencher}
-            title="Reaplica a regra: preenche onde bateu com a Grade Real">
+            title="Reaplica a regra: preenche onde bate com a Grade Real">
             <Wand2 className="mr-1 h-4 w-4" />Preencher com o plano
           </Button>
         )}
@@ -40,9 +40,9 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
         <>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[480px] border-collapse text-sm tabular-nums" aria-label="Plano de distribuição do modelo">
-              <thead className="bg-muted/50">
+              <thead className="!bg-muted">
                 <tr>
-                  <th className={`${COL1} bg-muted/50`}>Loja / Variante</th>
+                  <th className={`${COL1} !bg-muted`}>Loja / Variante</th>
                   {tamanhos.map((t) => <th key={t} className={CEL}>{rotuloTam(t)}</th>)}
                   <th className={CEL}>Total</th>
                 </tr>
@@ -52,8 +52,8 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
                   const sub = tamanhos.map((t) => vnums.reduce((s, vn) => s + (celulaPlano(plano, l.loja_id, vn, t) ?? 0), 0));
                   return (
                     <Fragment key={l.loja_id}>
-                      <tr className={`bg-muted/30 font-semibold ${l.ativo ? "" : "opacity-60"}`}>
-                        <td className={`${COL1} bg-muted/30`}>{l.nome}{l.ativo ? "" : " (inativa)"}</td>
+                      <tr className={`!bg-secondary font-semibold ${l.ativo ? "" : "text-muted-foreground"}`}>
+                        <td className={`${COL1} !bg-secondary`}>{l.nome}{l.ativo ? "" : " (inativa)"}</td>
                         {sub.map((q, i) => <td key={tamanhos[i]} className={CEL}>{q}</td>)}
                         <td className={CEL}>{sub.reduce((s, q) => s + q, 0)}</td>
                       </tr>
@@ -62,7 +62,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
                         const qs = tamanhos.map((t) => celulaPlano(plano, l.loja_id, vn, t) ?? 0);
                         return (
                           <tr key={vn}>
-                            <td className={`${COL1} bg-background pl-4`}>{rotuloVariante(vn)}</td>
+                            <td className={`${COL1} !bg-background pl-4`}>{rotuloVariante(vn)}</td>
                             {qs.map((q, i) => <td key={tamanhos[i]} className={`${CEL} text-muted-foreground`}>{tem ? q : "—"}</td>)}
                             <td className={CEL}>{tem ? qs.reduce((s, q) => s + q, 0) : "—"}</td>
                           </tr>
@@ -74,7 +74,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
               </tbody>
               <tfoot>
                 <tr className="font-semibold">
-                  <td className={`${COL1} bg-background`}>Total do plano</td>
+                  <td className={`${COL1} !bg-background`}>Total do plano</td>
                   {tamanhos.map((t) => <td key={t} className={CEL}>{totalTam(t)}</td>)}
                   <td className={CEL}>{tamanhos.reduce((s, t) => s + totalTam(t), 0)}</td>
                 </tr>
@@ -88,7 +88,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            O plano é o que foi distribuído no Plan. Tecido (com as correções feitas à mão). "Preencher com o plano" reaplica a regra abaixo, para recomeçar.
+            O plano é o que foi distribuído no Plan. Tecido (com as correções feitas à mão). “Preencher com o plano” reaplica a regra abaixo, para recomeçar.
           </p>
         </>
       )}

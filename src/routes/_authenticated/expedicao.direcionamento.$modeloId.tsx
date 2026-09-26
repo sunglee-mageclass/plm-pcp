@@ -112,9 +112,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // Distribuição por produto (spec R21/R38): plano SALVO do Plan. Tecido para ESTE modelo + "X modelos direcionados" da
   // subcoleção. Substitui a tira global antiga (RPC de resumo da subcoleção, apagada na remoção). O plano é
   // REFERÊNCIA — nenhum gate lê isto (invariante #10).
-  const { data: planoResp, isFetched: planoFetched } = useQuery({
+  const { data: planoResp, isFetched: planoFetched, isFetching: planoFetching } = useQuery({
     queryKey: ["dir-plano-modelo", modeloId],
-    enabled: !!modelo,
+    enabled: !!modeloId,
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("direcionamento_plano_modelo", { _modelo_id: modeloId });
       if (error) throw error;
@@ -328,7 +328,10 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   useEffect(() => {
     if (hydrated || !cad?.id) return;
-    if (!dataSettled) return;
+    // O plano pode refetchar (voltando de outra aba com cache) enquanto o resto já assentou — espera
+    // ele estabilizar antes de semear, senão o rascunho semeia com o plano ANTIGO (fora do dataSettled
+    // compartilhado: o effect de MERGE abaixo não depende do plano e não pode esperar por isto).
+    if (!dataSettled || planoFetching) return;
     const obj: Record<number, VarState> = {};
     (cadGrades as any[]).forEach((g) => {
       obj[g.variante_numero] = {
@@ -359,7 +362,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     setPreench(p ? { aplicado: true, pendentes: p.pendentes, doPlano: new Set(p.doPlano) } : { aplicado: false, pendentes: [], doPlano: new Set() });
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cadGrades, existing, cad?.id, hydrated, dataSettled, plano, readOnly]);
+  }, [cadGrades, existing, cad?.id, hydrated, dataSettled, planoFetching, plano, readOnly]);
 
   // MERGE 3-vias quando chega UPDATE alheio (o `existing` refetcha por postgres_changes da âncora).
   // Gated por `hydrated` (só depois do seed) e `!reseedingRef` (o pós-save re-baselina sozinho).
@@ -425,7 +428,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     const pendente = valor === undefined && preench.pendentes.some((p) => p.variante_numero === vn && p.tamanho === t);
     const doPlano = preench.doPlano.has(pathDirCel(vn, lojaId, t));
     return {
-      classe: pendente ? "bg-amber-50 placeholder:text-amber-700" : doPlano ? "bg-sky-50" : "",
+      classe: pendente ? "bg-amber-50 dark:bg-amber-950/40 placeholder:text-amber-700 dark:placeholder:text-amber-400" : doPlano ? "bg-sky-50 dark:bg-sky-950/40" : "",
       placeholder: pendente ? "–" : "0",
       title: pendente ? "Distribua à mão" : undefined,
     };
