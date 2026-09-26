@@ -62,7 +62,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
                         const qs = tamanhos.map((t) => celulaPlano(plano, l.loja_id, vn, t) ?? 0);
                         return (
                           <tr key={vn}>
-                            <td className={`${COL1} !bg-background pl-4`}>{rotuloVariante(vn)}</td>
+                            <td className={`${COL1} !bg-card pl-4`}>{rotuloVariante(vn)}</td>
                             {qs.map((q, i) => <td key={tamanhos[i]} className={`${CEL} text-muted-foreground`}>{tem ? q : "—"}</td>)}
                             <td className={CEL}>{tem ? qs.reduce((s, q) => s + q, 0) : "—"}</td>
                           </tr>
@@ -74,7 +74,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
               </tbody>
               <tfoot>
                 <tr className="font-semibold">
-                  <td className={`${COL1} !bg-background`}>Total do plano</td>
+                  <td className={`${COL1} !bg-card`}>Total do plano</td>
                   {tamanhos.map((t) => <td key={t} className={CEL}>{totalTam(t)}</td>)}
                   <td className={CEL}>{tamanhos.reduce((s, t) => s + totalTam(t), 0)}</td>
                 </tr>
@@ -82,7 +82,7 @@ export function PlanoDoModeloCard({ plano, motivo, tamanhos, rotuloTam, rotuloVa
             </table>
           </div>
           {plano.sem_correspondencia.length > 0 && (
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
               Cor do plano sem variante neste modelo (ex.: cor planejada) — fica fora do preenchimento:{" "}
               {plano.sem_correspondencia.map((s) => `${[s.cor_nome, s.apelido_nome].filter(Boolean).join(" · ") || "—"} (${s.total})`).join(", ")}.
             </p>

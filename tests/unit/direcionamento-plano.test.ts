@@ -40,11 +40,39 @@ describe("direcionamento-plano — regra do semi-preenchimento (R22, mockup)", (
     expect(T.reduce((s, t) => s + soma(r.linhas[2], t), 0)).toBe(60);
     expect(T.reduce((s, t) => s + soma(r.linhas[3], t), 0)).toBe(30);
   });
-  it("doPlano = células escritas pelo plano; escritas = TODAS as tocadas (inclusive as que ficaram vazias)", () => {
+  it("doPlano = células escritas pelo plano (12 do Vinho inclui o 0 do Atacado); escritas (T7 fix2, I1) só as que DIFEREM da base — pendentes (vazias) e 0-sobre-0 do Atacado (sem essa cor, base já 0) ficam de fora", () => {
     expect(r.doPlano).toHaveLength(9 + 9 + 12);
     expect(r.doPlano).toContain("dir:1:loja-ec:38|P");
     expect(r.doPlano).not.toContain("dir:1:loja-ec:40|M");
-    expect(r.escritas).toHaveLength(36);
+    // Marrom (9) + Preto (9) + Vinho SEM o Atacado (8, pois AT=0=base não é "minha" edição) = 26.
+    expect(r.escritas).toHaveLength(9 + 9 + 8);
+    expect(r.escritas).not.toContain("dir:1:loja-ec:40|M"); // pendente: nunca escreve
+    expect(r.escritas).not.toContain("dir:3:loja-at:38|P"); // Vinho no Atacado: plano 0 == base 0 → não é "minha"
+    expect(r.escritas).toContain("dir:3:loja-ec:38|P");     // Vinho no E-commerce: plano 3 ≠ base 0 → "minha"
+  });
+  it("I1 (revisão T7 fix2): B salva as pendentes enquanto o rascunho semi-preenchido de A está intacto — A não deve ver conflito nelas", () => {
+    // Simula o cenário completo da tela: `base` (servidor no momento da abertura) é vazio (sem `existing`),
+    // então toda célula não-escrita por `escritas` (as pendentes, e o 0-sobre-0 do Atacado) NÃO entra no
+    // `touched` — se o servidor (B) escrever ali depois, o merge 3-vias adota o valor de B sem conflito.
+    const base: Record<number, Record<string, Record<string, number>>> = {};
+    const rComBase = preencherComPlano({ variantes: REAL, tamanhos: T, lojas, podeEditar: () => true, plano: PLANO, base });
+    const touched = new Set(rComBase.escritas);
+    expect(touched.has("dir:1:loja-ec:40|M")).toBe(false); // Marrom M (pendente) não é "minha"
+    expect(touched.has("dir:2:loja-lf:42|G")).toBe(false); // Preto G (pendente) não é "minha"
+    // B salva 8/6/9 nas 3 lojas p/ Marrom M (fecha o 24) e 9/7/12 p/ Preto G (fecha o 30) — servidor "fresh".
+    const fresh: Record<number, Record<string, Record<string, number>>> = {
+      1: { [EC]: { "40|M": 9 }, [LF]: { "40|M": 6 }, [AT]: { "40|M": 9 } },
+      2: { [EC]: { "42|G": 11 }, [LF]: { "42|G": 8 }, [AT]: { "42|G": 11 } },
+    };
+    // Reproduz o merge 3-vias (mesma regra de mergeGradeDir): célula não-tocada que mudou no servidor → adota o fresh.
+    for (const [vnumStr, lojasFresh] of Object.entries(fresh)) {
+      for (const [lojaId, porTam] of Object.entries(lojasFresh)) {
+        for (const t of Object.keys(porTam)) {
+          const path = `dir:${vnumStr}:${lojaId}:${t}`;
+          expect(touched.has(path)).toBe(false); // condição para "sem conflito" no merge real (mergeGradeDir)
+        }
+      }
+    }
   });
   it("loja NÃO editável (inativa sem par histórico) fica fora da conta e não recebe nada", () => {
     const x = preencherComPlano({ variantes: REAL, tamanhos: T, lojas, podeEditar: (id) => id !== AT, plano: PLANO });

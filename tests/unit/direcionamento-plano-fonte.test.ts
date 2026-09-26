@@ -34,4 +34,28 @@ describe("Direcionamento — plano do modelo (Task 7)", () => {
     expect(tela).toContain("Preencher com o plano?");
     expect(tela).toContain("modelos direcionados");
   });
+  it("M10/M11 (T7 fix2): a hidratação espera o plano E as lojas pararem de refetchar antes de semear (senão semeia com dado antigo)", () => {
+    expect(tela).toContain("isFetching: planoFetching");
+    expect(tela).toContain("isFetching: lojasFetching");
+    expect(tela).toContain("if (!dataSettled || planoFetching || lojasFetching) return;");
+    expect(tela).toContain("hydrated, dataSettled, planoFetching, lojasFetching, plano, readOnly");
+  });
+  it("I1 (T7 fix2): a regra do preenchimento recebe a base do SERVIDOR (não conta pendentes/0-sobre-0 como minha edição)", () => {
+    expect(tela).toContain("base: baseServidor");
+    expect(tela).toContain("baseServidor: GradeDir = baseGradeRef.current");
+    // Correção (b): rascunho do plano intacto + linhas novas do servidor ⇒ re-hidrata do fresh (não merge normal).
+    expect(tela).toContain("if (preench.aplicado && !changed && (existing as any[]).length > 0)");
+  });
+  it("M5 (T7 fix2): 'Preencher com o plano?' só confirma se há número DIGITADO (não conta o que o plano já escreveu)", () => {
+    expect(tela).toContain("!preench.doPlano.has(pathDirCel(v.variante_numero, lojaId, t))");
+  });
+  it("M2 (T7 fix2): os totais do plano exibidos (Grade Real Total, callout) usam as lojas EDITÁVEIS", () => {
+    expect(conta("totalPlanoVariante(plano, v.variante_numero, lojasEditaveisDe(v.variante_numero))")).toBe(3);
+  });
+  it("M9 (T7 fix2): o rótulo de conflito usa o rótulo de tamanho da loja, não a chave crua", () => {
+    expect(tela).toContain("`${nome} · ${rotuloTam(tam)} (var ${vnum})`");
+  });
+  it("M7 (T7 fix2): o callout de referência do plano só aparece com alguma variante na tela", () => {
+    expect(tela).toContain("{preench.aplicado && plano && variantes.length > 0 && (() => {");
+  });
 });

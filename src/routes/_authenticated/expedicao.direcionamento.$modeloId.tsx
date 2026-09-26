@@ -115,6 +115,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   const { data: planoResp, isFetched: planoFetched, isFetching: planoFetching } = useQuery({
     queryKey: ["dir-plano-modelo", modeloId],
     enabled: !!modeloId,
+    retry: 1, // M1 (T7 fix2): não os 3 retries padrão — um erro real não deve atrasar a hidratação em ~7s.
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("direcionamento_plano_modelo", { _modelo_id: modeloId });
       if (error) throw error;
@@ -136,7 +137,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha
   // histórica). E-commerce (default) primeiro, depois ordem.
-  const { data: lojas = [], isFetched: lojasFetched } = useQuery({
+  const { data: lojas = [], isFetched: lojasFetched, isFetching: lojasFetching } = useQuery({
     queryKey: ["dir-lojas", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -305,21 +306,38 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   const [state, setState] = useState<Record<number, VarState>>({});
   const [hydrated, setHydrated] = useState(false);
 
+  // Guarda de "alterações não salvas": snapshot do estado editável (o split ec/loja por variante).
+  // status/confirmação seguem por mutations próprias, fora do snapshot. Declarado aqui (antes dos 2
+  // effects de hidratação/merge) porque ambos usam `resetBaseline`/`changed` dentro do corpo do effect.
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(state);
+
   // Só hidrata quando AMBAS as queries assentaram — senão hidrata do cache vazio
   // (no 1º acesso e ao salvar) e os números somem.
   const dataSettled = gradesFetched && !gradesFetching && existingFetched && !existingFetching && planoFetched && lojasFetched;
 
+  // Loja EDITÁVEL numa variante (ativa, ou inativa com par histórico) — usada pela regra do preenchimento
+  // E pelos totais do plano exibidos na tela (M2, T7 fix2): o "plano N" da Grade Real Total, o total do
+  // callout e o aviso por tamanho devem somar só as lojas onde o preenchimento de fato mexe, senão o
+  // número mostrado não bate com o que a regra realmente compara/escreve.
+  const podeEditarLoja = (lojaId: string, vnum: number) => {
+    const l = lojasVisiveis.find((x) => x.id === lojaId);
+    return !!l && (l.ativo || paresHistoricos.has(`${lojaId}:${vnum}`));
+  };
+  const lojasEditaveisDe = (vnum: number) => lojasVisiveis.map((l) => l.id).filter((id) => podeEditarLoja(id, vnum));
+
   // Regra do preenchimento sobre um estado (R22): só lojas EDITÁVEIS da variante (ativa, ou inativa com par histórico).
-  const aplicarPlano = (base: Record<number, VarState>) => {
+  // `baseServidor` (T7 fix2, I1) é o que está SALVO (shape GradeDir) — decide quais células a regra considera "minha
+  // edição" (`escritas`): só as que DIFEREM do servidor. Sem isso, células pendentes/0-sobre-0 entrariam no `touched`
+  // e o merge acusaria conflito falso quando outra pessoa salvasse ali (o rascunho não tinha tocado de fato aquela
+  // célula). Default = a base atual do merge (`baseGradeRef`), que é sempre o último visto do servidor.
+  const aplicarPlano = (base: Record<number, VarState>, baseServidor: GradeDir = baseGradeRef.current) => {
     const r = preencherComPlano({
       variantes: Object.values(base).map((v) => ({ variante_numero: v.variante_numero, real: v.real })),
       tamanhos,
       lojas: lojasVisiveis.map((l) => ({ id: l.id })),
-      podeEditar: (lojaId, vnum) => {
-        const l = lojasVisiveis.find((x) => x.id === lojaId);
-        return !!l && (l.ativo || paresHistoricos.has(`${lojaId}:${vnum}`));
-      },
+      podeEditar: podeEditarLoja,
       plano,
+      base: baseServidor,
     });
     const obj: Record<number, VarState> = {};
     for (const v of Object.values(base)) obj[v.variante_numero] = { ...v, linhas: r.linhas[v.variante_numero] ?? {} };
@@ -331,7 +349,10 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     // O plano pode refetchar (voltando de outra aba com cache) enquanto o resto já assentou — espera
     // ele estabilizar antes de semear, senão o rascunho semeia com o plano ANTIGO (fora do dataSettled
     // compartilhado: o effect de MERGE abaixo não depende do plano e não pode esperar por isto).
-    if (!dataSettled || planoFetching) return;
+    // M11 (T7 fix2, simétrico ao planoFetching): lojas em refetch (voltando de outra aba com cache) não deve
+    // semear a regra do preenchimento com um conjunto de lojas antigo — `paresHistoricos`/`lojasVisiveis`
+    // dependem de `lojas`, e um refetch em voo pode trocar quem é "editável" a meio da hidratação.
+    if (!dataSettled || planoFetching || lojasFetching) return;
     const obj: Record<number, VarState> = {};
     (cadGrades as any[]).forEach((g) => {
       obj[g.variante_numero] = {
@@ -351,7 +372,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     // dono 25/set — o guarda nasce do estado PREENCHIDO); a base do merge 3-vias segue o SERVIDOR e as células escritas
     // pelo preenchimento contam como minhas (touched).
     const preencher = !!plano && (existing as any[]).length === 0 && (cad as any)?.direcionamento_status !== "separado" && !readOnly;
-    const p = preencher ? aplicarPlano(obj) : null;
+    // `baseGradeRef.current` ainda é a baseline ANTERIOR neste tick (só é atualizada logo abaixo) — passa o `obj`
+    // recém-montado (o servidor atual) explícito como base do preenchimento, não o ref stale.
+    const p = preencher ? aplicarPlano(obj, stateToGradeDir(obj)) : null;
     setState(p ? p.obj : obj);
     // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
     // explícito — o estado recém-setado ainda está stale neste tick). P-32 = B: o preenchido.
@@ -362,7 +385,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     setPreench(p ? { aplicado: true, pendentes: p.pendentes, doPlano: new Set(p.doPlano) } : { aplicado: false, pendentes: [], doPlano: new Set() });
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cadGrades, existing, cad?.id, hydrated, dataSettled, planoFetching, plano, readOnly]);
+  }, [cadGrades, existing, cad?.id, hydrated, dataSettled, planoFetching, lojasFetching, plano, readOnly]);
 
   // MERGE 3-vias quando chega UPDATE alheio (o `existing` refetcha por postgres_changes da âncora).
   // Gated por `hydrated` (só depois do seed) e `!reseedingRef` (o pós-save re-baselina sozinho).
@@ -375,6 +398,30 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     (existing as any[]).forEach((d) => {
       (fresh[d.variante_numero] ??= {})[d.loja_id] = d.grades ?? {};
     });
+    // I1 (T7 fix2, correção b): o rascunho do semi-preenchimento AINDA intacto (nada editado à mão) não é
+    // "meu" de verdade — se o servidor mandou linhas novas (outra pessoa salvou as pendentes, por exemplo),
+    // re-hidrata direto do fresh (descarta o preenchimento) em vez de rodar o merge 3-vias normal, que
+    // trataria as células tocadas pelo plano como conflito em potencial. Coerente com R22 ("só sem linha
+    // salva") e P-32 = B (o rascunho nunca foi uma edição real da pessoa).
+    if (preench.aplicado && !changed && (existing as any[]).length > 0) {
+      const obj: Record<number, VarState> = {};
+      (cadGrades as any[]).forEach((g) => {
+        obj[g.variante_numero] = { variante_numero: g.variante_numero, real: g.grades_reais ?? {}, linhas: {} };
+      });
+      (existing as any[]).forEach((d) => {
+        if (!obj[d.variante_numero]) obj[d.variante_numero] = { variante_numero: d.variante_numero, real: {}, linhas: {} };
+        obj[d.variante_numero].linhas[d.loja_id] = d.grades ?? {};
+      });
+      setState(obj);
+      resetBaseline(obj);
+      baseGradeRef.current = fresh;
+      touchedRef.current = new Set();
+      setPreench({ aplicado: false, pendentes: [], doPlano: new Set() });
+      conflitosRef.current = [];
+      setConflitos([]);
+      setUltimoMerge(null);
+      return;
+    }
     const meu = stateToGradeDir(state);
     const mg = mergeGradeDir({ base: baseGradeRef.current, meu, fresh, tocadas: touchedRef.current });
     // Aplica o resultado (mantém minhas edições, adota o fresh no não-tocado), re-baselina e re-tenta.
@@ -415,8 +462,13 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     });
   };
 
-  // "Preencher com o plano" (R22): reaplica a regra sobre o rascunho (AlertDialog se já há número digitado).
-  const temNumero = Object.values(state).some((v) => Object.values(v.linhas).some((g) => Object.values(g ?? {}).some((q) => Number(q) > 0)));
+  // "Preencher com o plano" (R22): AlertDialog só se há número DIGITADO à mão — não conta o que o próprio
+  // plano já escreveu (M5, T7 fix2): senão o preenchimento inicial já dispararia a confirmação nele mesmo.
+  const temNumero = Object.values(state).some((v) =>
+    Object.entries(v.linhas).some(([lojaId, g]) =>
+      Object.entries(g ?? {}).some(([t, q]) => Number(q) > 0 && !preench.doPlano.has(pathDirCel(v.variante_numero, lojaId, t))),
+    ),
+  );
   const preencherAgora = () => {
     const r = aplicarPlano(state);
     setState(r.obj);
@@ -449,12 +501,13 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     setConflitos(conflitosRef.current);
     if (conflitosRef.current.length === 0) setUltimoMerge(null);
   };
-  // Rótulo humano de um path de conflito p/ o banner: "<loja> · <tam> (var N)".
+  // Rótulo humano de um path de conflito p/ o banner: "<loja> · <tam> (var N)". M9 (T7 fix2): o tamanho pelo
+  // "Tamanho em" da loja (rotuloTam), não a chave crua ("38|P") que ninguém reconhece no banner.
   const rotuloConflito = (path: string) => {
     if (!path.startsWith("dir:")) return path;
     const [, vnum, loja, tam] = path.split(":");
     const nome = lojasVisiveis.find((l) => l.id === loja)?.nome ?? "loja";
-    return `${nome} · ${tam} (var ${vnum})`;
+    return `${nome} · ${rotuloTam(tam)} (var ${vnum})`;
   };
   const temConflito = conflitos.length > 0;
 
@@ -475,9 +528,6 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     return rows;
   };
 
-  // Guarda de "alterações não salvas": snapshot do estado editável (o split ec/loja por
-  // variante). status/confirmação seguem por mutations próprias, fora do snapshot.
-  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(state);
   // Editável = não confirmado, OU confirmado mas com "Editar" ligado. Só marca sujo
   // depois de hidratar e enquanto editável (locked/readOnly não altera nada).
   const editavel = !readOnly && !(status === "separado" && !editing);
@@ -729,9 +779,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           onPreencher={() => (temNumero ? setConfirmarPreencher(true) : preencherAgora())}
         />
       )}
-      {preench.aplicado && plano && (() => {
+      {preench.aplicado && plano && variantes.length > 0 && (() => {
         const realTotal = variantes.reduce((s, v) => s + tamanhos.reduce((a, t) => a + (Number(v.real?.[t]) || 0), 0), 0);
-        const planoTotal = variantes.reduce((s, v) => s + totalPlanoVariante(plano, v.variante_numero).total, 0);
+        const planoTotal = variantes.reduce((s, v) => s + totalPlanoVariante(plano, v.variante_numero, lojasEditaveisDe(v.variante_numero)).total, 0);
         const lista = preench.pendentes.map((p) => `${nomeCorVariante(p.variante_numero)} ${rotuloTam(p.tamanho)} (${p.real} peças)`).join(" e ");
         return (
           <Card className="flex gap-2 border-amber-500/50 bg-amber-500/10 p-4 text-sm">
@@ -770,7 +820,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
               <h3 className="font-semibold">{labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}</h3>
               <div className="text-xs text-muted-foreground">
                 Grade Real Total: <strong>{realTotal}</strong>
-                {plano && <span> · plano {totalPlanoVariante(plano, v.variante_numero).total}</span>}
+                {plano && <span> · plano {totalPlanoVariante(plano, v.variante_numero, lojasEditaveisDe(v.variante_numero)).total}</span>}
               </div>
             </div>
 
@@ -790,11 +840,11 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                     </td>
                     {tamanhos.map((t) => {
                       const real = Number(v.real?.[t] ?? 0);
-                      const pt = plano ? (totalPlanoVariante(plano, v.variante_numero).porTamanho[t] ?? 0) : null;
+                      const pt = plano ? (totalPlanoVariante(plano, v.variante_numero, lojasEditaveisDe(v.variante_numero)).porTamanho[t] ?? 0) : null;
                       return (
                         <td key={t} className="border px-2 py-1 text-center bg-muted/30">
                           {real}
-                          {pt !== null && pt !== real && <small className="block text-[10px] text-amber-700">plano {pt}</small>}
+                          {pt !== null && pt !== real && <small className="block text-[10px] text-amber-700 dark:text-amber-400">plano {pt}</small>}
                         </td>
                       );
                     })}
@@ -901,7 +951,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
             {preench.pendentes
               .filter((p) => p.variante_numero === v.variante_numero && Object.values(v.linhas).every((g) => g?.[p.tamanho] === undefined))
               .map((p) => (
-                <p key={p.tamanho} className="flex gap-1 text-xs text-amber-700">
+                <p key={p.tamanho} className="flex gap-1 text-xs text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /><span>{textoPendencia(rotuloTam(p.tamanho), p)}</span>
                 </p>
               ))}

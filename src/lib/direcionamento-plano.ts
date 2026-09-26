@@ -63,16 +63,26 @@ export type Preenchimento = {
   escritas: string[];
 };
 
+/** Valor de uma célula na BASE (o que está salvo no servidor); ausente ≡ 0 (mesma regra do merge 3-vias). */
+type BaseCel = Record<number, Record<string, Record<string, number>>>;
+const valorBase = (base: BaseCel | undefined, vn: number, lojaId: string, t: string): number =>
+  Number(base?.[vn]?.[lojaId]?.[t] ?? 0) || 0;
+
 /** Regra do semi-preenchimento (R22), por variante × tamanho da Grade Real, só nas lojas EDITÁVEIS daquela variante:
  *  Σ plano = real ⇒ cada loja recebe o plano (0 onde a loja não tem a cor); ≠ ⇒ a célula fica VAZIA em todas as lojas
- *  (pendente — "distribua à mão"). Nunca inventa rateio. `escritas` = todas as células tocadas (o merge 3-vias as trata
- *  como minhas); `doPlano` = as que o plano preencheu (azul-claro até editar). */
+ *  (pendente — "distribua à mão"). Nunca inventa rateio. `doPlano` = as que o plano preencheu (azul-claro até editar).
+ *  `escritas` = só as células cujo valor DIFERE da `base` (o que está salvo no servidor; ausente ≡ 0) — pendentes
+ *  (ficam vazias/undefined) e células que o plano escreveu IGUAIS à base (ex.: 0 numa loja sem essa cor, quando a
+ *  base também já é 0) NÃO entram: marcá-las como "minhas" faria o merge 3-vias acusar conflito falso quando outra
+ *  pessoa salva um valor ali — o rascunho não tocou aquela célula de fato (T7 fix2, I1). `base` é opcional (default:
+ *  tudo 0/ausente, como na 1ª hidratação sem `existing`). */
 export function preencherComPlano(a: {
   variantes: { variante_numero: number; real: Record<string, number> }[];
   tamanhos: string[];
   lojas: { id: string }[];
   podeEditar: (lojaId: string, vnum: number) => boolean;
   plano: PlanoModelo | null;
+  base?: BaseCel;
 }): Preenchimento {
   const linhas: Preenchimento["linhas"] = {};
   const pendentes: Pendente[] = [];
@@ -87,13 +97,14 @@ export function preencherComPlano(a: {
       const plano = editaveis.reduce((s, id) => s + (celulaPlano(a.plano, id, vn, t) ?? 0), 0);
       if (real === plano) {
         for (const id of editaveis) {
-          (linhas[vn][id] ??= {})[t] = celulaPlano(a.plano, id, vn, t) ?? 0;
+          const q = celulaPlano(a.plano, id, vn, t) ?? 0;
+          (linhas[vn][id] ??= {})[t] = q;
           doPlano.push(pathDirCel(vn, id, t));
-          escritas.push(pathDirCel(vn, id, t));
+          if (q !== valorBase(a.base, vn, id, t)) escritas.push(pathDirCel(vn, id, t));
         }
       } else {
         pendentes.push({ variante_numero: vn, tamanho: t, real, plano });
-        for (const id of editaveis) escritas.push(pathDirCel(vn, id, t));
+        // Pendente = célula fica VAZIA (undefined) — nunca escreve valor nenhum, então nunca é "minha" edição.
       }
     }
   }
