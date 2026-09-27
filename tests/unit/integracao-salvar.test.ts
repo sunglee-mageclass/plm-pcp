@@ -8,6 +8,10 @@ import {
 
 const produto = (id: string) => lerLista({ campos: [], produtos: [{ modelo_id: id, estado: "nao_integravel", rev: 3,
   raw: { nome: `Produto ${id}`, ref: "REF1", fotos_modelo: ["t/fotos_modelo/a.jpg"], tamanho_tipo: "letra" }, gates: {} }] }).produtos[0];
+// T11 — adaptação à Task 10 (rascunho.ts): tamanho_tipo pode vir NULL (legado sem "Tamanho em" escolhido; a Task 10
+// não força mais "letra"). `raw` omite a chave — `lerLista`/`rawDe` já tratam ausência como null (Minor #1 da T10).
+const produtoSemTamanho = (id: string) => lerLista({ campos: [], produtos: [{ modelo_id: id, estado: "nao_integravel", rev: 3,
+  raw: { nome: `Produto ${id}`, ref: "REF1", fotos_modelo: [] }, gates: {} }] }).produtos[0];
 const SKUS = { regerar: false, manuais: { "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "REF1-X", id: "s1", rev: 2 } } };
 const ASS = "0123456789abcdef0123456789abcdef";
 const previaOk = { matriz: { status: "ok", tamanho_tipo: "letra", tamanho_tipo_card: "letra", linhas: [], faltas: [], avisos: [] },
@@ -61,5 +65,14 @@ describe("salvarIntegracao — fotos → integracao_salvar → SKUs", () => {
     expect((await salvarIntegracao([comSkus(novoRascunho(produto("m2")), SKUS)], a.d)).skusFalhas[0].texto).toBe(MSG_PREVIA_DESCONHECIDA);
     const b = falsos({ aplicarSkus: vi.fn(async () => { throw Object.assign(new Error("x"), { code: "P0409" }); }) });
     expect((await salvarIntegracao([comSkus(novoRascunho(produto("m2")), SKUS)], b.d)).skusFalhas[0].texto).toBe(MSG_PREVIA_DESATUALIZADA);
+  });
+  it("produto sem 'Tamanho em' (tamanhoTipo null): SKU não entra na prévia/aplicação (não crasha, não assume 'letra')", async () => {
+    const { d, chamadas } = falsos();
+    const r = await salvarIntegracao([comSkus(novoRascunho(produtoSemTamanho("m3")), SKUS)], d);
+    expect(chamadas).toEqual([]);
+    expect(d.previaSkus).not.toHaveBeenCalled();
+    expect(d.aplicarSkus).not.toHaveBeenCalled();
+    expect(r.skusOk).toEqual([]);
+    expect(r.skusFalhas).toEqual([]);
   });
 });
