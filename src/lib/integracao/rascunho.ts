@@ -222,9 +222,16 @@ export const comSkus = (r: Rascunho, skus: SkusAGravar): Rascunho => ({ ...r, sk
 
 /** Chegou versão nova do servidor (rev diferente): merge 3-vias — não tocado segue o servidor; tocado e mudado lá = conflito.
  *  Fix round 2 (Important R1-1): assinatura de volta ao brief — `mesclar(r, p)`, sem `nomeLoja` (que não é mais
- *  guardado no rascunho). */
+ *  guardado no rascunho).
+ *
+ *  Fix round 1 T12b (revisão A-I1(c)/B-I4(c)): `p.rev <= r.rev` também não mescla (não só `===`) — sem essa
+ *  guarda, mesclar contra uma lista em CACHE mais VELHA que o rascunho (ex.: uma sobra pós-Salvar já em rev N+1
+ *  sendo re-mesclada contra uma lista que ainda mostra N, porque o `onSettled`/refetch ainda não chegou) BAIXARIA
+ *  o rev da sobra e REVERTERIA os valores para os de antes do Salvar (com `tocados` recém-zerado, o merge
+ *  adotaria o `fresh` velho por inteiro). `p.rev < r.rev` nunca é uma "versão nova" de verdade — é a PRÓPRIA
+ *  função quem decide não regredir, em vez de depender de cada chamador lembrar de comparar antes de chamar. */
 export function mesclar(r: Rascunho, p: ProdutoLista): Rascunho {
-  if (p.rev === r.rev) return r;
+  if (p.rev <= r.rev) return r;
   const fresh = valoresDoRaw(p.raw);
   const m = mergeDraft({
     base: r.base,
@@ -241,7 +248,18 @@ export function mesclar(r: Rascunho, p: ProdutoLista): Rascunho {
       !m.conflitos.some((n) => n.path === c.path) &&
       !igual(m.valor[c.path as keyof Valores], fresh[c.path as keyof Valores]),
   );
-  const conflitos = [...antigosVivos, ...m.conflitos];
+  // Fix round 1 T12b (m12/B-Minor 12): `mergeDraft` (`@/lib/colab/merge`, compartilhado por 6 outras telas — NUNCA
+  // editado aqui) compara com `igual` CRU, mas o servidor apara/normaliza (`btrim`, `nullif`) antes de gravar
+  // (`integracao_salvar`, `_integracao_retrato_core`). Sem normalizar aqui, o PRÓPRIO save do usuário (ex.: digitou
+  // "Blusa " com espaço, o servidor gravou "Blusa" trimado) reaparecia como "Outra pessoa mudou este campo" na
+  // relista seguinte — um falso conflito contra si mesmo. Filtra os conflitos NOVOS cujo texto do rascunho e do
+  // fresco são o MESMO valor depois de normalizado pela MESMA régua de `colunasAlteradas`/`normalizado()`.
+  const conflitosNovosDeVerdade = m.conflitos.filter((c) => {
+    const coluna = c.path as ColunaEditavel;
+    if (!(coluna in fresh)) return true; // path fora das 12 colunas normalizáveis (não deveria acontecer aqui)
+    return !igual(normalizado(coluna, c.meu), normalizado(coluna, c.dele));
+  });
+  const conflitos = [...antigosVivos, ...conflitosNovosDeVerdade];
   return {
     ...r,
     rev: p.rev,
@@ -274,6 +292,66 @@ export function usarNovo(r: Rascunho, path: string): Rascunho {
  *  texto que chega ao toast (via `mensagemErro`). */
 export const TEXTO_FOTOS_SEM_UPLOAD =
   "Não foi possível enviar as fotos novas. Tente salvar de novo.";
+/** Uma recusa de validação CLIENTE — nomeia o CAMPO (rótulo curto, `campos.ts`) pra célula/toast apontar o lugar
+ *  certo (Fix round 1 T12b, revisão A-I4/B-I7): o lote de `integracao_salvar` é ATÔMICO e nenhuma mensagem do
+ *  servidor carrega o produto, então com N produtos sujos o usuário não tem como achar QUAL célula bloqueia o
+ *  lote inteiro sem essa pré-validação. */
+export type ErroValidacao = { coluna: ColunaEditavel; texto: string };
+const LIMITE_NOME_COMPRADO = 200;
+/** Espelha (sem re-implementar 1:1, só o suficiente pra recusar CEDO com o campo certo) as validações P0001 de
+ *  `integracao_salvar` (`20261007140000_integracao_5_salvar.sql:571-609`) — nome/REF vazio, nome > 200 em
+ *  revenda/importado, negativo/NaN e fora da escala `numeric(p,s)` de peso/medidas/preços. Roda só sobre as
+ *  colunas REALMENTE alteradas (mesmo escopo de `payloadItem`/`colunasAlteradas`) — nunca sinaliza erro num campo
+ *  que nem vai no payload. Fotos não entram aqui: o caminho de upload (`salvar-integracao.ts`) já valida o
+ *  prefixo/segmento antes de gravar, e o valor "de outra loja" só pode vir de um bug interno, não de digitação. */
+export function validarRascunho(r: Rascunho, origem: ProdutoLista["origem"]): ErroValidacao[] {
+  const erros: ErroValidacao[] = [];
+  const cols = colunasAlteradas(r);
+  if (cols.includes("nome") && String(r.valores.nome ?? "").trim() === "") {
+    erros.push({ coluna: "nome", texto: "O nome não pode ficar vazio." });
+  }
+  if (cols.includes("ref") && String(r.valores.ref ?? "").trim() === "") {
+    erros.push({ coluna: "ref", texto: "A REF não pode ficar vazia." });
+  }
+  if (cols.includes("nome") && (origem === "revenda" || origem === "importado")) {
+    const nome = String(r.valores.nome ?? "").trim();
+    if (nome.length > LIMITE_NOME_COMPRADO) {
+      erros.push({
+        coluna: "nome",
+        texto: `Nome muito longo para o Produto ${origem === "revenda" ? "Acabado" : "Importado"} (máx. 200 caracteres).`,
+      });
+    }
+  }
+  // Mesma faixa de escala de `integracao_salvar` (peso numeric(10,3), medidas numeric(10,2), preços numeric(12,2)):
+  // a parte inteira cabe em (p−s) dígitos — abs(valor arredondado) < 10^(p−s) — e nenhum dos 6 aceita negativo.
+  const faixas: Partial<Record<ColunaEditavel, { casas: number; digitos: number }>> = {
+    peso_kg: { casas: 3, digitos: 10 - 3 },
+    comprimento_cm: { casas: 2, digitos: 10 - 2 },
+    largura_cm: { casas: 2, digitos: 10 - 2 },
+    altura_cm: { casas: 2, digitos: 10 - 2 },
+    preco_anterior: { casas: 2, digitos: 12 - 2 },
+    preco_venda: { casas: 2, digitos: 12 - 2 },
+  };
+  for (const [coluna, faixa] of Object.entries(faixas) as [ColunaEditavel, { casas: number; digitos: number }][]) {
+    if (!cols.includes(coluna)) continue;
+    const v = r.valores[coluna];
+    if (v === null || v === undefined) continue; // NULL = "sem valor/automático" — nunca inválido
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      erros.push({ coluna, texto: "Valor numérico inválido (use número maior ou igual a zero)." });
+      continue;
+    }
+    if (v < 0) {
+      erros.push({ coluna, texto: "Valor numérico inválido (use número maior ou igual a zero)." });
+      continue;
+    }
+    const arredondado = Math.round(v * 10 ** faixa.casas) / 10 ** faixa.casas;
+    if (Math.abs(arredondado) >= 10 ** faixa.digitos) {
+      erros.push({ coluna, texto: "Valor numérico fora da faixa permitida para este campo." });
+    }
+  }
+  return erros;
+}
+
 /** Item do `integracao_salvar`: só as colunas alteradas (as ausentes não gravam). SKU NÃO vai aqui (passo 3).
  *  Important #2 (fix round 1) — `preco_anterior`/`preco_venda` NUNCA mandam 0/negativo: o servidor aceita `>= 0`
  *  na validação genérica de `integracao_salvar`, mas `preco_venda` de revenda/importado é repassado a
@@ -312,7 +390,15 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
  *  estão no Storage). Quando há `fotosNovas` pendentes e o upload (`o.fotos`) não veio, o rascunho residual
  *  DEGRADA: mantém o `rev` PRÉ-salvar (não adota `o.rev`) e os marcadores `novo:` saem de `fotos_modelo` — como
  *  `tocados` fica vazio, o PRÓXIMO `mesclar` (rev != atual) adota `fotos_modelo` do servidor silenciosamente
- *  (fluxo normal de "campo não tocado segue o servidor"), sem qualquer estado inconsistente ficar exposto na UI. */
+ *  (fluxo normal de "campo não tocado segue o servidor"), sem qualquer estado inconsistente ficar exposto na UI.
+ *
+ *  Fix round 1 T12b (revisão A-I1(b)/B-I4(b)): `rev` NUNCA pode BAIXAR. Antes usava `o.rev ?? r.rev` — se `r` (o
+ *  rascunho ATUAL, não o enviado) já tivesse sido mesclado para um rev mais novo por um refetch/relista em voo
+ *  durante o Salvar (ex.: refetch por foco de janela, que não é suprimido pela guarda do Realtime em
+ *  `useIntegracao.ts`), `o.rev` (o retorno do servidor, calculado ANTES desse refetch) podia ser MENOR que
+ *  `r.rev` — e a sobra regredia pra uma versão velha, prendendo todo Salvar seguinte num P0409 permanente
+ *  (cenário documentado na revisão: kanban automático bumpa rev no COMMIT + refetch de foco no meio do passo 3).
+ *  Agora usa `Math.max`, então a sobra NUNCA fica com um rev mais velho que o que ela já tinha antes do Salvar. */
 export function aposSalvar(
   r: Rascunho,
   o: { rev?: number; fotos?: string[]; skusGravados: boolean },
@@ -327,7 +413,8 @@ export function aposSalvar(
     ...r,
     // Minor R1-3: sem o resultado do upload, mantém o rev PRÉ-salvar (nunca o novo) — o próximo mesclar detecta
     // rev diferente e adota fotos_modelo do servidor sozinho, sem inventar um "salvo" que não é fiel ao real.
-    rev: semFotosDoUpload ? r.rev : (o.rev ?? r.rev),
+    // Fix round 1 T12b: nos outros casos, NUNCA baixa — `Math.max(r.rev, o.rev ?? r.rev)`.
+    rev: semFotosDoUpload ? r.rev : Math.max(r.rev, o.rev ?? r.rev),
     base: valores,
     valores: { ...valores },
     tocados: new Set(),

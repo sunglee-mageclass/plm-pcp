@@ -259,6 +259,54 @@ describe("Fix round 2 (R3) — SKU 'manter o meu' usa a linha da PRÉVIA, não a
   });
 });
 
+// Fix round 1 T12b — revisão A-I3: "usar o novo" precisa mostrar o SKU novo mesmo quando NÃO sobra nenhum outro SKU
+// digitado no produto (o caso TÍPICO: 1 SKU digitado em conflito, era o ÚNICO manual). Sem o snapshot, assim que o
+// manual é removido `usePreviasSkus` para de consultar a prévia deste produto, `previa` vira `undefined` no
+// PRÓXIMO render, e a célula caía de volta no `sub.sku` da LISTA (o valor STALE que causou o conflito).
+describe("Fix round 1 T12b (A-I3) — 'usar o novo' do SKU mostra o valor novo mesmo sem sobrar outro SKU manual", () => {
+  it("clicar em 'usar o novo' (único SKU digitado) mostra o SKU FRESCO da prévia, mesmo depois que a prévia some (re-render sem previa)", () => {
+    const produto = produtoComSublinha(); // sublinha tem sku="BLTS0001-AZ-P" (o valor "velho" da lista)
+    let rascunho = novoRascunho(produto);
+    rascunho = { ...rascunho, skus: { regerar: false, manuais: { "v1|P": { varianteKey: "v1", tamanhoKey: "P", sku: "MEU-SKU", id: "sku-1", rev: 3 } } } };
+    const entrada = chaveEntradaPrevia({ ref: "BLTS0001", tamanhoTipo: "letra", aGravar: rascunho.skus, virgem: false });
+    const previaComConflito = {
+      matriz: {
+        status: "ok" as const, tamanho_tipo: "letra" as const, tamanho_tipo_card: "letra" as const, faltas: [], avisos: [],
+        linhas: [{
+          variante_key: "v1", variante_ordem: 1, cor_nome: "Azul", apelido_nome: null, tamanho_key: "P", tamanho_ordem: 1,
+          id: "sku-1-NOVO", sku: "SKU-FRESCO-DO-SERVIDOR", manual: true, rev: 9, sku_previsto: null, faltas: [], avisos: [], conflito_com: null,
+          estado: "manual" as const,
+          previa: { acao: "erro" as const, sku_de: "SKU-FRESCO-DO-SERVIDOR", sku_para: "MEU-SKU", mensagem: null, code: "P0409" },
+        }],
+      },
+      assinatura: "a".repeat(32), erros: [], nConflitos: 1,
+      entrada,
+      desconhecida: false,
+    };
+    let onAtualizarChamadas = 0;
+    const onAtualizar = (f: (r: Rascunho) => Rascunho) => { onAtualizarChamadas += 1; rascunho = f(rascunho); };
+    const props = (previa: unknown) => createElement(CelulaCampo, {
+      campo: campoSku(), produto, indice: 0, rascunho, previa: previa as never, salvando: false,
+      onAtualizar, onKeywords: () => {}, onFotos: () => {},
+    });
+    const view = montar(props(previaComConflito));
+    const botaoUsarNovo = [...view.container.querySelectorAll("button")].find((b) => b.textContent === "usar o novo");
+    expect(botaoUsarNovo, "botão 'usar o novo' deveria aparecer em conflito de versão").toBeDefined();
+    act(() => { botaoUsarNovo!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(onAtualizarChamadas).toBe(1);
+    // O manual foi removido — este era o ÚNICO SKU digitado do produto, então na vida real `temSkuAGravar` vira
+    // `false` e `usePreviasSkus` para de pedir a prévia deste produto: o PRÓXIMO render chega com `previa=undefined`.
+    expect(rascunho.skus.manuais["v1|P"]).toBeUndefined();
+    view.rerender(props(undefined));
+    const input = view.container.querySelector("input") as HTMLInputElement;
+    // Sem o snapshot (bug original), o input voltaria pro `sub.sku` da LISTA ("BLTS0001-AZ-P", o valor STALE que
+    // causou o conflito). Com o snapshot (fix), mostra o SKU FRESCO capturado no clique.
+    expect(input.value).toBe("SKU-FRESCO-DO-SERVIDOR");
+    expect(input.value).not.toBe("BLTS0001-AZ-P");
+    view.unmount();
+  });
+});
+
 describe("Fix round 2 (R1-2) — selo 'automático' do Preço anterior editável VOLTOU", () => {
   it("mostra o placeholder automático E o selo 'automático' ao mesmo tempo (não troca um pelo outro)", () => {
     // `p()` padrão tem o gate `preco` FECHADO (usado pelos testes de modoCelula) — aqui precisa ABERTO pra

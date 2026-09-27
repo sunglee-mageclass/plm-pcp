@@ -55,7 +55,11 @@ function mensagemIntegracao(code: string, msg: string): string | null {
     return `Produto travado pela Integração (integrável ou integrado): "${rotuloDoCampoTravado(campo)}" não pode mudar. Volte para não integrável na tela Integração (ou, se já integrado, peça ao super admin para desfazer).`;
   }
   if (code === "42501" && msg.startsWith("integracao_sem_permissao:")) {
-    return "Você não tem permissão para editar este campo (mesma regra do card do produto).";
+    // Fix round 1 T12b (revisão A-I4/B-I7 b): a mensagem genérica derrubava até o CAMPO — com um lote de até 50
+    // produtos sujos, "você não tem permissão para editar este campo" sem dizer QUAL campo é inútil pra achar a
+    // célula certa. Mesmo helper que `integracao_travado:*` já usa (`rotuloDoCampoTravado`).
+    const campo = msg.slice("integracao_sem_permissao:".length).trim();
+    return `Você não tem permissão para editar "${rotuloDoCampoTravado(campo)}" (mesma regra do card do produto).`;
   }
   if (code === "42501" && msg.startsWith("integracao_sem_custo:")) return 'Com "Preço de custo" marcado, só integra quem pode ver custos.';
   if (code === "P0409" && msg.startsWith("integracao_mudou:")) {

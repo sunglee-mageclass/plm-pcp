@@ -202,6 +202,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     const mutationState = { isPending: false };
     vi.doMock("@tanstack/react-router", () => ({
       useRouter: () => ({ history: { back: () => {} } }),
+      useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
       Link: ({ children, className }: { children: unknown; className?: string }) => h("a", { className }, children),
     }));
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
@@ -213,12 +214,16 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     // verdade) — os testes constroem a entrada como o JSONB CRU (`listaRaw`/`produtoRaw`), igual à fixture `p()` de
     // integracao-celula.test.ts, e este helper faz a conversão uma vez só, aqui.
     const listaRef = { current: lerLista(opts.lista) };
+    const dataUpdatedAtRef = { current: 1 };
     let rerenderTrigger = () => {};
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
-      useIntegracaoLista: () => ({ data: listaRef.current, isError: false, error: null, refetch: () => {} }),
+      useIntegracaoLista: () => ({
+        data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current,
+      }),
       useIntegracaoAoVivo: () => {},
       usePreviasSkus: () => ({}),
+      invalidarIntegracao: () => {},
       useSalvarIntegracao: () => ({
         isPending: mutationState.isPending,
         mutate: (rascunhos: unknown[], handlers: { onSuccess?: (r: unknown) => void; onError?: (e: unknown) => void }) => {
@@ -259,12 +264,20 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     rerenderTrigger = () => { act(() => { root.render(arvore()); }); };
     return {
       container, qc, listaRef,
+      // A instância FRESCA de produtos.ts (pós-`vi.resetModules()`), a MESMA que `ProdutosAba.tsx` importou —
+      // necessária pra `vi.spyOn` funcionar de verdade (espiar um import feito ANTES do reset intercepta um
+      // módulo diferente do que o componente usa depois do reset).
+      produtosModulo: await import("@/lib/integracao/produtos"),
       atualizarLista: (novaRaw: { produtos: Record<string, unknown>[] } & Record<string, unknown>) => {
         const nova = lerLista(novaRaw);
         listaRef.current = nova;
+        dataUpdatedAtRef.current += 1;
         qc.setQueryData(["integracao-lista", "t1"], nova);
         rerenderTrigger();
       },
+      // Simula um refetch em SEGUNDO PLANO cujo RESULTADO é idêntico (mesma referência) ao já em cache — só o
+      // `dataUpdatedAt` muda. Usado pelo teste B-I1 (diálogo de fotos re-sincroniza mesmo sem a lista "mudar").
+      refetchIdentico: () => { dataUpdatedAtRef.current += 1; rerenderTrigger(); },
       salvarSpy,
       rodarSalvar: async () => {
         const fs = pendingResolvers;
@@ -349,9 +362,305 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     const botaoSalvar = [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
     await act(async () => { botaoSalvar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     await view.rodarSalvar();
-    expect((await toastMock()).error).toHaveBeenCalledWith("Você não tem permissão para editar este campo (mesma regra do card do produto).");
+    // Fix round 1 T12b (A-I4/B-I7 c): com exatamente 1 rascunho sujo, o toast prefixa o nome do produto — o usuário
+    // não precisa adivinhar qual dos até 50 produtos do lote causou a recusa.
+    expect((await toastMock()).error).toHaveBeenCalledWith(
+      'Produto Teste: Você não tem permissão para editar "Preço de venda" (mesma regra do card do produto).',
+    );
     // A recusa é do LOTE inteiro (integracao_salvar atômico) — o rascunho continua no input, nada foi perdido.
     expect(input()!.value).toBe("Nome Pendente");
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão A-I4/B-I7 (a): pré-validação no CLIENTE nomeando produto e campo — nunca chama a
+  // mutation quando um valor já seria recusado pelo servidor (Nome vazio, aqui).
+  it("pré-validação no cliente: Nome vazio bloqueia o Salvar ANTES de chamar a mutation, nomeando o produto", async () => {
+    const lista = listaRaw([produtoRaw()]);
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "   "); // só espaço — vazio depois de aparar
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // sujo o bastante pra habilitar o botão
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect((await toastMock()).error).toHaveBeenCalledWith("Produto Teste: O nome não pode ficar vazio.");
+    expect(view.salvarSpy).not.toHaveBeenCalled(); // a mutation NUNCA foi chamada — bloqueado antes
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão A-I1/A-I4/B-I4: a sobra pós-Salvar precisa achar a lista em CACHE pela chave por
+  // PREFIXO (getQueriesData), não a chave exata de 2 elementos — e nunca regride o rev. Prova OBSERVÁVEL: um 2º
+  // Salvar manda o `rev` que a sobra CARREGA no payload — se a re-mesclagem falhou (achou `undefined` no cache),
+  // a sobra fica presa no `rev` retornado pelo 1º Salvar (2); se funcionou, ela usa o `rev` mais novo do cache (3).
+  // Um rascunho SÓ com um SKU pendente (sem nenhum campo alterado) é o caso real que produz sobra: digitar um SKU
+  // manual na sublinha, exatamente como `SkuCelulaEditavel` grava (`comSkus`).
+  it("sobra pós-Salvar (SKU falhou): re-mescla contra a lista em cache achada por PREFIXO, sem baixar o rev", async () => {
+    const produtoComSublinha = produtoRaw({
+      campos: undefined,
+      vivo: { campos: ["ref_sku"], linhas: [{ tipo: "variante", ordem: 1, variante_key: "v1", tamanho_key: "P", valores: {} }] },
+      sublinhas: [{
+        variante_key: "v1", tamanho_key: "P", variante_ordem: 1, tamanho_ordem: 1,
+        cor_nome: "Azul", apelido_nome: null, tamanho: "P", sku_id: "sku-1", sku: "REF0001-AZ-P", sku_rev: 3, manual: false,
+      }],
+    });
+    const lista = listaRaw([produtoComSublinha], { campos: ["ref_sku"] });
+    const view = await montarComMocks({
+      lista,
+      // O passo 3 (SKU) falha para este produto — sobra rascunho SÓ com o SKU pendente (nenhum campo alterado).
+      salvarImpl: async () => ({
+        salvos: 0, revs: {}, fotos: {}, skusOk: [],
+        skusFalhas: [{ modeloId: "m1", nome: "Produto Teste", texto: "SKU em conflito." }],
+      }),
+    });
+    const { act } = await import("react");
+    // Abre a sublinha (seta de expandir) e digita um SKU manual na célula editável.
+    const botaoExpandir = view.container.querySelector<HTMLButtonElement>('button[aria-label^="Abrir sublinhas"]');
+    expect(botaoExpandir, "seta de expandir sublinhas").not.toBeNull();
+    await act(async () => { botaoExpandir!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const skuInput = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="SKU —"]');
+    expect(skuInput(), "input de SKU da sublinha").not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(skuInput()!, "MEU-SKU-MANUAL");
+      skuInput()!.dispatchEvent(new Event("input", { bubbles: true }));
+      skuInput()!.dispatchEvent(new Event("focusout", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente sujou o rascunho — Salvar habilitado
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // Enquanto o Salvar está em voo, o servidor já commitou e outra pessoa (ou o próprio kanban automático) avança
+    // a lista em cache para rev 3. Escrito na chave REAL de 5 elementos que `useIntegracao.ts` usa de verdade
+    // (`[...chaveLista(tenantId), situacao, filtros, pagina]`) — NÃO a chave "achatada" de 2 elementos que o
+    // harness usa para a query ativa. Isto é o que discrimina o bug real (A-I1(a)/B-I4(a)): `getQueryData` com a
+    // chave EXATA de 2 elementos NUNCA acharia este registro (casa só por hash exato); só
+    // `getQueriesData({queryKey: chaveLista(tenantId)})`, que casa por PREFIXO, o encontra.
+    const { lerLista } = await import("@/lib/integracao/produtos");
+    view.qc.setQueryData(
+      ["integracao-lista", "t1", "nao_integrados", {}, 1],
+      lerLista(listaRaw([{ ...produtoComSublinha, rev: 3 }], { campos: ["ref_sku"] })),
+    );
+    await view.rodarSalvar();
+    expect((await toastMock()).error).toHaveBeenCalledWith("Produto Teste: SKU em conflito.");
+    // Dispara um 2º Salvar (a sobra ainda tem o SKU pendente) — o payload enviado carrega o rev que a sobra tem
+    // AGORA. Precisa ser 3 (achado no cache pelo prefixo), nunca 1 (o rev original, se a sobra nunca re-mesclou).
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false);
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    // `salvar.mutate(enviados, ...)` recebe o array de `Rascunho` (não o payload já traduzido pro servidor) —
+    // `useSalvarIntegracao` é o que está mockado aqui, então `salvarSpy` recebe exatamente o que `ProdutosAba`
+    // manda pra mutation: os próprios `Rascunho`s sujos, com `.modeloId`/`.rev`.
+    const chamadas = view.salvarSpy.mock.calls as unknown as Array<[Array<{ modeloId: string; rev: number }>]>;
+    const segundaChamada = chamadas[1]?.[0] ?? [];
+    const itemM1 = segundaChamada.find((it) => it.modeloId === "m1");
+    expect(itemM1?.rev).toBe(3);
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão A-I6/B-I2 (D36): um rascunho cujo produto SAIU da página atual (renomeado/filtrado)
+  // nunca fica invisível — aparece na faixa "N alterações em produtos fora desta página".
+  it("rascunho escondido: produto sai da página (renomeado) — aparece na faixa com descartar", async () => {
+    const lista = listaRaw([produtoRaw()]);
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Editando Antes De Sumir");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // O produto sai da PÁGINA atual (ex.: outra pessoa mudou o nome, e a ordenação por nome moveu ele de página —
+    // a lista relistada não tem mais m1).
+    await act(async () => { view.atualizarLista(listaRaw([])); });
+    expect(view.container.textContent).toContain("fora desta página");
+    expect(view.container.textContent).toContain("Produto Teste");
+    const botaoDescartar = [...view.container.querySelectorAll("button")].find((b) => b.textContent === "descartar");
+    expect(botaoDescartar, "botão 'descartar' na faixa de escondidos").toBeDefined();
+    await act(async () => { botaoDescartar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(view.container.textContent).not.toContain("fora desta página");
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão B-I6/A-I2: onKeywords estável via useCallback (o memo das linhas não quebra a cada
+  // tecla). Prova indireta pelo comportamento: abrir Keywords não perde o rascunho em edição na MESMA sessão.
+  it("onKeywords é estável entre renders (useCallback) — abrir o diálogo não perde o rascunho da linha", async () => {
+    const lista = listaRaw([produtoRaw()], { campos: ["nome", "preco_venda", "keywords"] });
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Em Edição");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoEditarKeywords = [...view.container.querySelectorAll("button")].find((b) => b.textContent === "editar");
+    expect(botaoEditarKeywords).toBeDefined();
+    await act(async () => { botaoEditarKeywords!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain("Keywords da loja");
+    expect(input()!.value).toBe("Nome Em Edição"); // o rascunho sobreviveu a abrir o Keywords
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão A-I2/B-I6: teste de CONTAGEM DE RENDER de verdade (não indireto) — uma linha NÃO
+  // tocada não rerrenderiza quando outra linha recebe uma tecla. Espiona `rotuloEstado` (chamado 1x por render de
+  // `LinhaProduto`, dentro de `estadoCelula`) no módulo REAL (não mockado) — se o `React.memo` da linha intocada
+  // (produto "m2") continuar bloqueando o render, a contagem de chamadas para ELE não muda; se o memo tivesse sido
+  // derrubado (ex.: `onKeywords` inline recriado a cada tecla, como no round anterior), TODAS as linhas
+  // rerrenderizariam e a contagem de m2 subiria junto com a de m1.
+  it("React.memo de verdade: uma linha NÃO tocada não rerrenderiza ao digitar em OUTRA linha (contagem real)", async () => {
+    const lista = listaRaw([
+      produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+      produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+    ]);
+    const view = await montarComMocks({ lista });
+    // Espiar SÓ DEPOIS de `montarComMocks` (que faz `vi.resetModules()` internamente) — `produtosModulo` é a MESMA
+    // instância que `ProdutosAba.tsx` importou; espiar uma instância importada ANTES do reset intercepta um módulo
+    // diferente do que o componente usa de verdade, e o spy nunca vê nenhuma chamada.
+    const rotuloSpy = vi.spyOn(view.produtosModulo, "rotuloEstado");
+    const inputM1 = view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Um"]');
+    expect(inputM1).not.toBeNull();
+    const { act } = await import("react");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputM1!, "Produto Um Editado");
+      inputM1!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // `rotuloEstado` é chamado com `p` (o `ProdutoLista` inteiro) como 1º argumento — cada chamada corresponde a UM
+    // render de `LinhaProduto` para aquele produto. A linha de m2 (não tocada) não pode ter rerrenderizado nenhuma vez.
+    expect(rotuloSpy.mock.calls.length, "esperava pelo menos 1 chamada (a linha de m1, tocada)").toBeGreaterThan(0);
+    const chamadasParaM2 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m2");
+    expect(chamadasParaM2.length, "linha de m2 (intocada) NÃO deveria ter rerrenderizado").toBe(0);
+    rotuloSpy.mockRestore();
+    await view.desmontar();
+  });
+
+  // Fix round 1 T12b — revisão B-I1 (diálogo de fotos por snapshot velho): o diálogo fecha sozinho se o produto
+  // TRAVAR (outra pessoa deixou integrável) enquanto está aberto — nunca deixa o usuário editando um rascunho cujo
+  // rev/base já ficaram velhos, o que geraria um P0409/42501 pra sempre no próximo Salvar.
+  it("FotosDialog fecha sozinho quando o produto trava (vira integrável) enquanto está aberto", async () => {
+    // O campo "foto" precisa estar em `campos` pra a coluna (e o botão "trocar/adicionar/remover") aparecer.
+    const lista = listaRaw([produtoRaw()], { campos: ["nome", "preco_venda", "foto"] });
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const botaoFotos = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("trocar/adicionar/remover"));
+    expect(botaoFotos()).toBeDefined();
+    await act(async () => { botaoFotos()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain("Fotos — Produto Teste");
+    // O produto vira integrável (outra pessoa integrou) na relista seguinte.
+    const listaTravada = listaRaw([produtoRaw({ estado: "integravel", rev: 2 })], { campos: ["nome", "preco_venda", "foto"] });
+    await act(async () => { view.atualizarLista(listaTravada); });
+    expect(document.body.textContent).not.toContain("Fotos — Produto Teste");
+    await view.desmontar();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 T12b — revisão A-I5/B-I5: o laço de conflito das Keywords. Harness PRÓPRIO (KeywordsDialog não
+// depende de ProdutosAba): mocka `supabase.rpc` (P0409 na 1ª chamada) e `@tanstack/react-query`'s QueryClient
+// de verdade (não mockado) pra provar que o `refetchQueries` é de fato AGUARDADO antes de ler o cache.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num laço (A-I5/B-I5)", () => {
+  async function montarKeywords(opts: { rpcImpl: (nome: string, args: unknown) => Promise<{ data: unknown; error: unknown }> }) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: opts.rpcImpl } }));
+    vi.doMock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+    vi.doMock("@/components/integracao/useIntegracao", () => ({
+      chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
+      invalidarIntegracao: () => {},
+    }));
+    vi.doMock("@tanstack/react-router", () => ({
+      useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
+    }));
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { createElement } = await import("react");
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { KeywordsDialog } = await import("@/components/integracao/KeywordsDialog");
+    const { lerLista } = await import("@/lib/integracao/produtos");
+    const qc = new QueryClient();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onFecharSpy = vi.fn();
+    const sujoSpy = vi.fn();
+    await act(async () => {
+      root.render(createElement(QueryClientProvider, { client: qc },
+        createElement(KeywordsDialog, { atual: "Moda, Verão", onFechar: onFecharSpy, onSujoChange: sujoSpy })));
+    });
+    return {
+      container, qc, onFecharSpy, sujoSpy, lerLista,
+      desmontar: async () => { await act(async () => root.unmount()); container.remove(); },
+    };
+  }
+
+  it("P0409: mantém o texto digitado, busca o valor fresco por AWAIT (nunca lê o cache antes do refetch resolver), e mostra a ação 'usar o texto novo'", async () => {
+    let chamada = 0;
+    const view = await montarKeywords({
+      rpcImpl: async () => {
+        chamada += 1;
+        if (chamada === 1) return { data: null, error: Object.assign(new Error("keywords_mudou: outra pessoa mudou"), { code: "P0409" }) };
+        return { data: null, error: null };
+      },
+    });
+    const { act } = await import("react");
+    const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-keywords");
+    expect(textarea()?.value).toBe("Moda, Verão");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, Sardinha (meu texto)");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Escreve o valor FRESCO na chave real de 5 elementos ANTES do clique — simula outra pessoa tendo salvo. O
+    // `refetchQueries({queryKey: chaveLista("t1"), type:"active"})` do componente não tem query ATIVA pra refazer
+    // (esta suíte não monta `useIntegracaoLista`), então ele resolve imediatamente sem mudar o cache — por isso o
+    // teste escreve o valor fresco de antemão, e a asserção real é que USAR ESSE VALOR exige o clique explícito em
+    // "usar o texto novo" (nunca aplicado sozinho).
+    const { lerLista } = view;
+    view.qc.setQueryData(
+      ["integracao-lista", "t1", "nao_integrados", {}, 1],
+      lerLista({ campos: [], produtos: [], keywords: "Moda, Verão, Sardinha (valor do servidor)" }),
+    );
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent === "Salvar" || b.textContent === "Salvando…");
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // O texto digitado NUNCA foi apagado — nem por um instante (a asserção síncrona logo após o `act` já cobre o
+    // commit intermediário que o bug antigo produzia: `atual` velho copiado pro `texto` no MESMO commit do erro).
+    expect(textarea()?.value).toBe("Moda, Verão, Sardinha (meu texto)");
+    expect(document.body.textContent).toContain("Outra pessoa mudou as Keywords");
+    const botaoUsarNovo = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "usar o texto novo");
+    expect(botaoUsarNovo, "ação 'usar o texto novo' deveria aparecer").toBeDefined();
+    // Sem clicar em "usar o texto novo", o texto digitado continua — nunca aplicado sozinho.
+    expect(textarea()?.value).toBe("Moda, Verão, Sardinha (meu texto)");
+    await act(async () => { botaoUsarNovo!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(textarea()?.value).toBe("Moda, Verão, Sardinha (valor do servidor)");
+    // Adotar o novo faz `texto === base` (nada mais a salvar agora) — o botão Salvar fica desabilitado até uma
+    // edição de verdade. Edita de novo (levemente) pra provar que o PRÓXIMO Salvar (2ª chamada RPC, que este mock
+    // deixa passar) usa o `base` FRESCO (não o velho) e não dá P0409 de novo — sem laço.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, Sardinha (valor do servidor) e mais um pouco");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false);
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(view.onFecharSpy).toHaveBeenCalled();
+    await view.desmontar();
+  });
+
+  it("m7: o texto sujo do diálogo é reportado via onSujoChange (guarda única da página)", async () => {
+    const view = await montarKeywords({ rpcImpl: async () => ({ data: null, error: null }) });
+    const { act } = await import("react");
+    expect(view.sujoSpy).toHaveBeenLastCalledWith(false);
+    const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-keywords");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, Novo Texto");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(view.sujoSpy).toHaveBeenLastCalledWith(true);
     await view.desmontar();
   });
 });

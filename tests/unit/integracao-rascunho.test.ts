@@ -18,6 +18,7 @@ import {
   sairTitulo,
   temAlteracao,
   usarNovo,
+  validarRascunho,
 } from "@/lib/integracao/rascunho";
 
 const NOME_LOJA = "Loja Teste";
@@ -348,5 +349,111 @@ describe("Important #2/Minor R1-2 (fix rounds 1-2): preço zero/negativo nunca v
     const base = rascunho(7, { preco_venda: null });
     const comSubCentavo = editar(base, "preco_venda", 0.001);
     expect(colunasAlteradas(comSubCentavo)).toEqual([]); // arredonda pra 0.00 = NULL, não "alterado"
+  });
+});
+
+// Fix round 1 T12b — revisão A-I1(b)/B-I4(b): `aposSalvar` NUNCA baixa `rev` (Math.max, não `o.rev ?? r.rev`).
+describe("Fix round 1 T12b (A-I1(b)/B-I4(b)) — aposSalvar NUNCA baixa o rev da sobra", () => {
+  it("o.rev menor que o rev ATUAL do rascunho (relista em voo já avançou): a sobra mantém o rev maior", () => {
+    // Simula: o rascunho já foi mesclado para rev 10 (por um refetch em voo durante o Salvar) ANTES do onSuccess
+    // rodar — o servidor respondeu com revs calculado ANTES desse refetch (rev 9, mais velho).
+    let r = editar(rascunho(7), "peso_kg", 0.3);
+    r = mesclar(r, produto(10, { peso_kg: 0.5 })); // servidor já avançou pra 10 com OUTRO valor de peso — conflito
+    const comSku = comSkus(r, {
+      regerar: false,
+      manuais: { "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 } },
+    });
+    const sobra = aposSalvar(comSku, { rev: 9, skusGravados: false })!;
+    expect(sobra).not.toBeNull();
+    // Math.max(10, 9) = 10 — NUNCA 9 (que seria uma regressão de versão e prenderia o próximo Salvar em P0409).
+    expect(sobra.rev).toBe(10);
+  });
+  it("o.rev maior que o rev atual (caminho normal): usa o.rev, como sempre", () => {
+    const r = editar(rascunho(7), "peso_kg", 0.3);
+    const comSku = comSkus(r, {
+      regerar: false,
+      manuais: { "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 } },
+    });
+    const sobra = aposSalvar(comSku, { rev: 8, skusGravados: false })!;
+    expect(sobra.rev).toBe(8);
+  });
+});
+
+// Fix round 1 T12b — revisão A-I1(c)/B-I4(c): `mesclar` NUNCA baixa o rev do rascunho (guarda `<=`, não só `===`).
+describe("Fix round 1 T12b (A-I1(c)/B-I4(c)) — mesclar NUNCA regride o rev do rascunho", () => {
+  it("produto com rev MENOR que o rascunho (lista em cache mais velha que a sobra): mesclar não faz nada", () => {
+    let r = editar(rascunho(7), "peso_kg", 0.3);
+    r = mesclar(r, produto(10, { peso_kg: 0.5 })); // rascunho agora está em rev 10, com conflito peso_kg
+    expect(r.rev).toBe(10);
+    expect(r.conflitos.length).toBeGreaterThan(0);
+    // uma lista em CACHE mais velha (rev 9, ex.: ainda não refletiu o commit mais recente) não pode reverter nada.
+    const antesDeMesclarDeNovo = r;
+    const resultado = mesclar(r, produto(9, { peso_kg: 0.28, nome: "Nome Diferente Do Cache Velho" }));
+    expect(resultado).toBe(antesDeMesclarDeNovo); // MESMA referência — nada mudou
+    expect(resultado.rev).toBe(10); // nunca volta pra 9
+    expect(resultado.valores.peso_kg).toBe(0.3); // o valor em conflito não é substituído pelo cache velho
+  });
+});
+
+// Fix round 1 T12b — revisão A-I4/B-I7 (a): pré-validação no CLIENTE espelhando as regras P0001 de
+// `integracao_salvar` (nome/REF vazio, nome > 200 no comprado, faixa numérica/negativos) — nomeando o CAMPO, pra
+// não deixar o usuário adivinhar qual célula bloqueia o lote atômico inteiro.
+describe("Fix round 1 T12b (A-I4/B-I7 a) — validarRascunho espelha as recusas P0001 do servidor", () => {
+  it("nome vazio (só quando 'nome' está entre as colunas alteradas)", () => {
+    const r = editar(rascunho(7), "nome", "   ");
+    expect(validarRascunho(r, "interno")).toEqual([{ coluna: "nome", texto: "O nome não pode ficar vazio." }]);
+    // campo NÃO tocado com nome vazio no `raw` não entra na validação (colunasAlteradas não inclui 'nome')
+    expect(validarRascunho(rascunho(7), "interno")).toEqual([]);
+  });
+  it("REF vazia", () => {
+    const r = editar(rascunho(7), "ref", "");
+    expect(validarRascunho(r, "interno")).toEqual([{ coluna: "ref", texto: "A REF não pode ficar vazia." }]);
+  });
+  it("nome > 200 caracteres SÓ em revenda/importado (interno não tem esse limite)", () => {
+    const nomeGrande = "X".repeat(201);
+    const r = editar(rascunho(7), "nome", nomeGrande);
+    expect(validarRascunho(r, "revenda")).toEqual([
+      { coluna: "nome", texto: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." },
+    ]);
+    expect(validarRascunho(r, "importado")).toEqual([
+      { coluna: "nome", texto: "Nome muito longo para o Produto Importado (máx. 200 caracteres)." },
+    ]);
+    expect(validarRascunho(r, "interno")).toEqual([]); // interno não tem o limite de 200
+  });
+  it("valor numérico negativo", () => {
+    const r = editar(rascunho(7), "peso_kg", -1);
+    expect(validarRascunho(r, "interno")).toEqual([
+      { coluna: "peso_kg", texto: "Valor numérico inválido (use número maior ou igual a zero)." },
+    ]);
+  });
+  it("valor fora da escala numeric(p,s) da coluna", () => {
+    const r = editar(rascunho(7), "peso_kg", 1e20); // numeric(10,3): 7 dígitos de parte inteira cabem, 1e20 não
+    expect(validarRascunho(r, "interno")).toEqual([
+      { coluna: "peso_kg", texto: "Valor numérico fora da faixa permitida para este campo." },
+    ]);
+  });
+  it("NULL nunca é inválido (é 'automático'/sem valor, não um número fora de faixa)", () => {
+    const r = editar(rascunho(7, { preco_anterior: 100 }), "preco_anterior", null);
+    expect(validarRascunho(r, "interno")).toEqual([]);
+  });
+  it("rascunho limpo (nada alterado) nunca gera erro", () => {
+    expect(validarRascunho(rascunho(7), "interno")).toEqual([]);
+  });
+});
+
+// Fix round 1 T12b — revisão B-Minor 12: `mesclar` normaliza (trim/nullif) igual ao servidor antes de decidir se um
+// campo TOCADO virou conflito de verdade — sem isso, o PRÓPRIO save do usuário (texto com espaço a mais, que o
+// servidor grava aparado) reaparecia como "Outra pessoa mudou este campo" contra si mesmo na relista seguinte.
+describe("Fix round 1 T12b (B-Minor 12) — mesclar normaliza antes de marcar conflito (nunca falso conflito contra o PRÓPRIO save)", () => {
+  it("nome com espaço a mais no rascunho X nome aparado que voltou do servidor: NÃO é conflito (mesmo valor normalizado)", () => {
+    const r = editar(rascunho(7), "nome", "Blusa Brisa Nova "); // com espaço no fim
+    // O servidor grava aparado — o "fresh" que a relista traz é o mesmo texto, SEM o espaço.
+    const r2 = mesclar(r, produto(8, { nome: "Blusa Brisa Nova" }));
+    expect(r2.conflitos).toEqual([]);
+  });
+  it("controle: nomes de verdade DIFERENTES (não só espaço) continuam gerando conflito normalmente", () => {
+    const r = editar(rascunho(7), "nome", "Blusa Brisa Nova");
+    const r2 = mesclar(r, produto(8, { nome: "Nome Completamente Diferente" }));
+    expect(r2.conflitos).toEqual([{ path: "nome", meu: "Blusa Brisa Nova", dele: "Nome Completamente Diferente" }]);
   });
 });

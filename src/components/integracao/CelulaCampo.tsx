@@ -149,15 +149,35 @@ function SkuCelulaEditavel({ p, r, sub, previa, onAtualizar }: {
   onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
 }) {
   const [texto, setTexto] = useState<string | null>(null);
+  // Fix round 1 T12b (A-I3) — snapshot do SKU novo capturado no clique de "usar o novo": SEM manual nenhum
+  // restando no produto (o caso TÍPICO: 1 SKU digitado em conflito, era o ÚNICO), `temSkuAGravar(r)` vira `false`
+  // e `usePreviasSkus` PARA de consultar a prévia deste produto — `previa`/`lp` ficam `undefined` no PRÓXIMO
+  // render, e sem este snapshot `exibido` cairia de volta no `sub.sku` da LISTA (o valor stale que causou o
+  // conflito, só corrigido na PRÓXIMA relista por Realtime — que nem sempre chega, ver o comentário de
+  // `aplicar_skus_modelo` mais abaixo). Guardado POR CHAVE (variante×tamanho) — nunca pisa em outra sublinha, e é
+  // limpo assim que o usuário digita de novo ou o valor do servidor alcança o mesmo texto.
+  const [usadoNovo, setUsadoNovo] = useState<Record<string, string>>({});
   const linha = linhaSkuDaSublinha(sub);
   const chave = chaveLinhaSku(sub.varianteKey, sub.tamanhoKey);
   const digitado = r.skus.manuais[chave];
   const lp = previa?.matriz.linhas.find((x) => x.variante_key === sub.varianteKey && x.tamanho_key === sub.tamanhoKey);
+  // Uma vez que o valor REAL da linha (sub.sku, atualizado por uma relista) alcança o snapshot, o snapshot não
+  // precisa mais existir — evita guardar pra sempre um valor que já convergiu. Updater FUNCIONAL (lê o `usadoNovo`
+  // mais recente de DENTRO do `setState`, nunca da closure) — assim o efeito só precisa de `sub.sku`/`chave` nas
+  // deps, sem violar exhaustive-deps nem arriscar reagir a toda troca de referência de `usadoNovo`.
+  useEffect(() => {
+    setUsadoNovo((s) => {
+      if (s[chave] === undefined || sub.sku !== s[chave]) return s;
+      const { [chave]: _omitido, ...resto } = s;
+      return resto;
+    });
+  }, [sub.sku, chave]);
   // T12b (carry.md): "usar o novo" só limpa `r.skus.manuais` — sem nada mais, `skuExibido(linha, r.skus)` cairia de
   // volta no `sub.sku` da LISTA (o valor que causou o conflito, ainda desatualizado até a próxima relista). Quando
   // existe uma prévia (`lp`) ela já trouxe o SKU FRESCO do servidor (`skus_previa`, mesmo plano da gravação) — usá-la
-  // no lugar de `linha` mostra o novo SKU na hora, sem esperar o Realtime relistar `modelos`.
-  const exibido = skuExibido(lp ?? linha, r.skus);
+  // no lugar de `linha` mostra o novo SKU na hora, sem esperar o Realtime relistar `modelos`. Fix round 1 T12b
+  // (A-I3): sem `digitado` (a prévia parou de existir) mas com um snapshot de "usar o novo" pendente, mostra ELE.
+  const exibido = digitado === undefined && usadoNovo[chave] !== undefined ? usadoNovo[chave] : skuExibido(lp ?? linha, r.skus);
   // M2/Minor (code-review, round 1): a prévia só conta se pertence à entrada ATUAL do rascunho (compara
   // `previa.entrada` com a chave calculada de agora) — senão mostra "calculando…" em vez da situação de um plano
   // velho. A chave tem que ser EXATAMENTE a que `usePreviasSkus`/`entradaSkus` calculam: `r.valores.ref` aparado e
@@ -177,7 +197,11 @@ function SkuCelulaEditavel({ p, r, sub, previa, onAtualizar }: {
         value={texto ?? exibido}
         aria-label={`SKU — ${p.raw.nome} · ${sub.corNome ?? "variante"} · ${sub.tamanho ?? "tamanho"}`}
         className={cn("h-8", digitado && "bg-[var(--tone-warning-bg)]")}
-        onChange={(e) => setTexto(e.target.value)}
+        onChange={(e) => {
+          setTexto(e.target.value);
+          // Digitar de novo cancela o snapshot de "usar o novo" pendente — o usuário está tomando outra decisão.
+          if (usadoNovo[chave] !== undefined) setUsadoNovo((s) => { const { [chave]: _o, ...resto } = s; return resto; });
+        }}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
         onBlur={(e) => {
           // R4/Minor (code-review, round 2): valida FORA do updater (só para decidir o toast — updaters devem ser
@@ -219,7 +243,15 @@ function SkuCelulaEditavel({ p, r, sub, previa, onAtualizar }: {
             onClick={() => lp && onAtualizar((x) => comSkus(x, manterMeuSku(x.skus, lp as LinhaPrevia)))}>
             manter o meu
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => onAtualizar((x) => comSkus(x, semManualSku(x.skus, chave)))}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => {
+            // Fix round 1 T12b (A-I3): guarda o SKU FRESCO (`lp.sku`, a mesma fonte que `exibido` já usa enquanto a
+            // prévia existe) ANTES de tirar o manual — assim, se este era o ÚNICO SKU digitado do produto (o caso
+            // típico), a célula continua mostrando o valor novo mesmo depois que `usePreviasSkus` parar de
+            // consultar a prévia (sem manual nenhum restando, `temSkuAGravar` vira `false`).
+            const skuNovo = lp?.sku ?? null;
+            if (skuNovo !== null) setUsadoNovo((s) => ({ ...s, [chave]: skuNovo }));
+            onAtualizar((x) => comSkus(x, semManualSku(x.skus, chave)));
+          }}>
             usar o novo
           </Button>
         </span>

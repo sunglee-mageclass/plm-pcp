@@ -12,8 +12,10 @@ describe("mensagemErro — recusas da Integração (traduz pelo code + prefixo A
       "Produto travado pela Integração (integrável ou integrado). Volte para não integrável na tela Integração antes de excluir.");
   });
   it("permissão de campo, custo, conflitos", () => {
+    // Fix round 1 T12b (revisão A-I4/B-I7 b): a mensagem NOMEIA o campo — antes dizia só "este campo", genérico
+    // demais pra achar a célula certa num lote de até 50 produtos.
     expect(mensagemErro({ code: "42501", message: "integracao_sem_permissao: preco_venda" }))
-      .toBe("Você não tem permissão para editar este campo (mesma regra do card do produto).");
+      .toBe('Você não tem permissão para editar "Preço de venda" (mesma regra do card do produto).');
     expect(mensagemErro({ code: "42501", message: "integracao_sem_custo: x" })).toBe('Com "Preço de custo" marcado, só integra quem pode ver custos.');
     expect(mensagemErro({ code: "P0409", message: "integracao_mudou: produto x mudou desde o resumo" }))
       .toBe("O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.");
