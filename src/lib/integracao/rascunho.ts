@@ -402,14 +402,31 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
  *  fato gravou podia acender um falso "Outra pessoa mudou este campo" (o filtro de convergência do m12 só cobre
  *  quando o rascunho NORMALIZADO bate com o fresco — aqui o valor da espera nunca passava por normalização
  *  nenhuma). `fotosFinais` substitui `fotos_modelo` quando o upload terminou (mesmo parâmetro de `payloadItem`);
- *  sem ele, mantém os caminhos já reais do rascunho (nunca os marcadores `novo:`, que só existem ANTES do Salvar). */
+ *  sem ele, mantém os caminhos já reais do rascunho (nunca os marcadores `novo:`, que só existem ANTES do Salvar).
+ *
+ *  Fix m-T1 (carry da revisão da Task 12b, task-13-brief.md): normaliza SÓ as colunas que de fato foram ENVIADAS
+ *  (`colunasAlteradas(r)`, o MESMO filtro de `payloadItem` — é exatamente o que o servidor gravou desta vez). As
+ *  demais colunas seguem `r.base[c]` (nunca `r.valores[c]`) — mas AINDA passam por `normalizado()`: `r.base` vem
+ *  CRU do servidor (`valoresDoRaw`/`RawProduto`, sem trim/arredondamento — ver `rawDe`/`num`/`txt` em produtos.ts),
+ *  e o resto do arquivo SEMPRE normaliza antes de comparar através de um save (`colunasAlteradas`, o filtro de
+ *  falso-conflito de `mesclar`) — pular a normalização aqui quebraria essa convenção sem necessidade e sem pedido:
+ *  o m-T1 pede trocar a FONTE (base, não valores), não abrir mão da normalização. Sem essa fonte corrigida, uma
+ *  coluna NÃO tocada mas cujo `r.valores[c]` divergisse de `r.base[c]` por qualquer razão (ex.: um merge 3-vias em
+ *  voo que já adotou um `fresh` mais novo para essa coluna, mas ainda não bateu em `r.base`) entraria na "espera"
+ *  com um valor que o servidor NUNCA gravou nesta chamada — o próximo relista, no mesmo rev salvo, acenderia um
+ *  "Outra pessoa mudou este campo" falso contra um dado que na verdade nunca mudou de verdade no banco. */
 export function valoresPosSalvar(r: Rascunho, fotosFinais?: string[]): Valores {
+  const enviadas = new Set(colunasAlteradas(r));
   const v = {} as Valores;
   for (const c of COLUNAS) {
     if (c === "fotos_modelo") {
-      v.fotos_modelo = fotosFinais ?? r.valores.fotos_modelo.filter((f) => !f.startsWith(PREFIXO_FOTO_NOVA));
-    } else {
+      v.fotos_modelo = enviadas.has("fotos_modelo")
+        ? (fotosFinais ?? r.valores.fotos_modelo.filter((f) => !f.startsWith(PREFIXO_FOTO_NOVA)))
+        : r.base.fotos_modelo;
+    } else if (enviadas.has(c)) {
       (v as Record<ColunaEditavel, unknown>)[c] = normalizado(c, r.valores[c]);
+    } else {
+      (v as Record<ColunaEditavel, unknown>)[c] = normalizado(c, r.base[c]);
     }
   }
   return v;

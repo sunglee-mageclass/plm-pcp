@@ -274,10 +274,18 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
   async function montarComMocks(opts: {
     lista: { produtos: Record<string, unknown>[] } & Record<string, unknown>;
     salvarImpl?: (rascunhos: unknown[]) => Promise<unknown>;
+    // Task 13: `IntegrarDialog`/`VoltarDialog`/`DesfazerDialog` chamam `supabase.rpc` DIRETO (não passam por
+    // `useIntegracao.ts`, que esta suíte já mocka por inteiro) — precisa de um mock PRÓPRIO do client. Default
+    // recusa qualquer RPC não esperada (erro claro em vez de um `undefined.data` silencioso caso um teste esqueça
+    // de passar `rpcImpl`).
+    rpcImpl?: (nome: string, args: unknown) => Promise<{ data: unknown; error: unknown }>;
   }) {
     vi.resetModules();
     const { lerLista } = await import("@/lib/integracao/produtos");
     const salvarSpy = vi.fn(opts.salvarImpl ?? (async () => ({ salvos: 1, revs: {}, fotos: {}, skusOk: [], skusFalhas: [] })));
+    const rpcSpy = vi.fn(
+      opts.rpcImpl ?? (async (nome: string) => ({ data: null, error: new Error(`RPC não mockada no teste: ${nome}`) })),
+    );
     let pendingResolvers: Array<() => Promise<void>> = [];
     const mutationState = { isPending: false };
     vi.doMock("@tanstack/react-router", () => ({
@@ -293,6 +301,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true }) }));
     vi.doMock("@/hooks/useTenantBranding", () => ({ useTenantBranding: () => ({ nome: "Loja Teste" }) }));
     vi.doMock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
     // `listaRef.current` guarda a lista JÁ LIDA por `lerLista` (o mesmo shape que `useIntegracaoLista` devolve de
     // verdade) — os testes constroem a entrada como o JSONB CRU (`listaRaw`/`produtoRaw`), igual à fixture `p()` de
     // integracao-celula.test.ts, e este helper faz a conversão uma vez só, aqui. Tipo aceita `undefined` (m-R7):
@@ -380,6 +389,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
         rerenderTrigger();
       },
       salvarSpy,
+      rpcSpy,
       // R2/R-I2: última `pagina` que `ProdutosAba` pediu ao hook (o estado interno, não o que a lista mockada
       // devolve — ela é estática).
       paginaAtual: () => paginasChamadas[paginasChamadas.length - 1],
@@ -1027,6 +1037,264 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     expect(botaoSalvarDepois()?.hasAttribute("disabled")).toBe(true);
     await view.desmontar();
   });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+  // Task 13 — Integrar (com o resumo), Voltar, Desfazer (super admin) e ações em massa. Reusa `montarComMocks`
+  // (agora com `rpcImpl`, já que `IntegrarDialog`/`VoltarDialog`/`DesfazerDialog` chamam `supabase.rpc` DIRETO).
+  // Cada teste confirma ESTADO ou ARGUMENTOS da RPC, nunca só o toast (não-negociável do brief da Task 13).
+  // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+  describe("Task 13 — Integrar/Voltar/Desfazer/massa", () => {
+    const previaRaw = (produtos: Record<string, unknown>[], o: Record<string, unknown> = {}) => ({
+      campos: ["nome", "preco_venda"], precisa_ver_custos: false, pode_ver_custos: true, produtos, ...o,
+    });
+    const previaProduto = (o: Record<string, unknown> = {}) => ({
+      modelo_id: "m1", nome: "Produto Teste", ref: "REF0001", origem: "interno", estado: "nao_integravel",
+      reprovado: false, completo: true, faltas: [],
+      assinatura: "a".repeat(64),
+      retrato: { campos: ["nome", "preco_venda"], linhas: [
+        { tipo: "produto", ordem: 0, valores: { nome: "Produto Teste", preco_venda: "159.90" }, fotos: [] },
+      ] },
+      ...o,
+    });
+    const botao = (texto: string) => [...document.body.querySelectorAll("button")].find((b) => b.textContent === texto);
+    const botaoContendo = (texto: string) => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(texto));
+
+    it("fluxo Integrar: liga o toggle Integrável → mostra o resumo do integracao_previa → 'Tenho certeza — integrar' chama integracao_marcar com {modelo_id, assinatura} do resumo", async () => {
+      const lista = listaRaw([produtoRaw()]);
+      let chamadaMarcar: unknown;
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_previa") return { data: previaRaw([previaProduto()]), error: null };
+          if (nome === "integracao_marcar") { chamadaMarcar = args; return { data: { marcados: 1 }, error: null }; }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      expect(toggle, "toggle Integrável deveria existir").not.toBeNull();
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      // O resumo mostra o texto do dono VERBATIM (TEXTO_ALERTA_INTEGRAR) e a tabela vinda de integracao_previa.
+      expect(document.body.textContent).toContain("Você tem certeza? Se estiver errado, você poderá ser demitido");
+      const botaoConfirmar = () => botao("Tenho certeza — integrar");
+      // Some depois que a prévia carrega (query resolvida) — espera um microtask/ato.
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(botaoConfirmar(), "botão de confirmar deveria aparecer com a prévia carregada").toBeDefined();
+      await act(async () => { botaoConfirmar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      // A RPC real recebe EXATAMENTE {modelo_id, assinatura} do resumo — nunca um payload inventado pela tela.
+      expect(chamadaMarcar).toEqual({ _itens: [{ modelo_id: "m1", assinatura: "a".repeat(64) }] });
+      await view.desmontar();
+    });
+
+    it("fluxo Voltar: desliga o toggle de um produto integrável → 'Voltar para não integrável' chama integracao_voltar com o id", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
+      let chamadaVoltar: unknown;
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_voltar") { chamadaVoltar = args; return { data: { voltaram: 1 }, error: null }; }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      expect(toggle?.getAttribute("aria-checked")).toBe("true"); // já integrável — toggle ligado
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(document.body.textContent).toContain("Voltar para não integrável?");
+      const botaoConfirmar = botao("Voltar para não integrável");
+      expect(botaoConfirmar, "botão de confirmar Voltar deveria aparecer").toBeDefined();
+      await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadaVoltar).toEqual({ _modelo_ids: ["m1"] });
+      await view.desmontar();
+    });
+
+    it("Desfazer: o '⋯' só aparece para super admin num produto INTEGRADO; motivo < 3 caracteres mantém o botão desabilitado; ≥3 chama integracao_desfazer com {modelo_id, motivo}", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integrado" })], { pode: { editar: true, ver_custos: true, super: true, keywords: true } });
+      let chamadaDesfazer: unknown;
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_desfazer") { chamadaDesfazer = args; return { data: { ok: true }, error: null }; }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const botaoMais = view.container.querySelector<HTMLButtonElement>('button[aria-label^="Mais ações"]');
+      expect(botaoMais, "'⋯' deveria aparecer (super admin + integrado)").not.toBeNull();
+      await act(async () => { botaoMais!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      const botaoAbrirDesfazer = botaoContendo("Desfazer integração");
+      expect(botaoAbrirDesfazer).toBeDefined();
+      await act(async () => { botaoAbrirDesfazer!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(document.body.textContent).toContain("volta para Não integrável");
+      const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-motivo");
+      expect(textarea()).not.toBeNull();
+      const botaoConfirmarDesfazer = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent === "Desfazer integração" && b.closest('[role="alertdialog"]'));
+      // Motivo vazio: desabilitado.
+      expect(botaoConfirmarDesfazer()?.hasAttribute("disabled")).toBe(true);
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+        setter.call(textarea()!, "ok"); // 2 caracteres — abaixo do MOTIVO_MIN (3)
+        textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(botaoConfirmarDesfazer()?.hasAttribute("disabled")).toBe(true); // continua desabilitado (< 3)
+      expect(chamadaDesfazer).toBeUndefined(); // nunca chamou a RPC com motivo curto demais
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+        setter.call(textarea()!, "Motivo válido");
+        textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(botaoConfirmarDesfazer()?.hasAttribute("disabled")).toBe(false); // ≥3 caracteres — habilitado
+      await act(async () => { botaoConfirmarDesfazer()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadaDesfazer).toEqual({ _modelo_id: "m1", _motivo: "Motivo válido" });
+      await view.desmontar();
+    });
+
+    it("Desfazer: SEM super admin, o '⋯' nunca aparece (só o toggle Integrável, sempre travado num produto integrado)", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integrado" })], { pode: { editar: true, ver_custos: true, super: false, keywords: true } });
+      const view = await montarComMocks({ lista });
+      expect(view.container.querySelector('button[aria-label^="Mais ações"]')).toBeNull();
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      expect(toggle?.disabled).toBe(true); // integrado — só super admin desfaz, ninguém mais destrava por aqui
+      await view.desmontar();
+    });
+
+    it("seleção em massa: marcar 2 produtos integráveis e clicar 'Integrar selecionados' abre o resumo com os 2 ids; contador de selecionados reflete o Set", async () => {
+      const lista = listaRaw([
+        produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+      ]);
+      let idsPrevia: string[] | undefined;
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_previa") {
+            idsPrevia = (args as { _modelo_ids: string[] })._modelo_ids;
+            return { data: previaRaw([previaProduto({ modelo_id: "m1" }), previaProduto({ modelo_id: "m2", nome: "Produto Dois" })]), error: null };
+          }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const checkboxM1 = view.container.querySelector<HTMLButtonElement>('button[role="checkbox"][aria-label="Selecionar Produto Um"]');
+      const checkboxM2 = view.container.querySelector<HTMLButtonElement>('button[role="checkbox"][aria-label="Selecionar Produto Dois"]');
+      expect(checkboxM1, "checkbox de seleção de m1").not.toBeNull();
+      expect(checkboxM2, "checkbox de seleção de m2").not.toBeNull();
+      await act(async () => { checkboxM1!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(view.container.textContent).toContain("1 selecionado(s)");
+      await act(async () => { checkboxM2!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(view.container.textContent).toContain("2 selecionado(s)");
+      const botaoIntegrarSelecionados = botao("Integrar selecionados");
+      expect(botaoIntegrarSelecionados?.hasAttribute("disabled")).toBe(false);
+      await act(async () => { botaoIntegrarSelecionados!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(idsPrevia).toEqual(["m1", "m2"]); // o resumo pediu EXATAMENTE os 2 ids marcados
+      await view.desmontar();
+    });
+
+    // Achado carregado da revisão da Task 12b ("Selection and memo"): `ProdutosTabela`/`LinhaProduto` são
+    // `React.memo`. Quando a seleção muda, o checkbox da linha TOCADA precisa refletir o novo estado (o `selecao`
+    // muda de identidade a cada seleção — nenhum objeto literal seria estável — então TODA linha re-renderiza; o
+    // que importa é que o CHECKBOX correto atualiza e que uma linha SEM seleção nenhuma tocada não perde nenhuma
+    // OUTRA prop própria por causa disso). Prova de estado real: o `aria-checked` de m1 muda; o de m2 permanece
+    // como estava; nenhuma célula própria de m2 (o nome do rascunho) é perdida/resetada pela mudança de seleção.
+    it("seleção e memo: marcar m1 atualiza SÓ o checkbox de m1 (aria-checked) — m2 mantém seu próprio estado (rascunho) intacto", async () => {
+      const lista = listaRaw([
+        produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+      ]);
+      const view = await montarComMocks({ lista });
+      const { act } = await import("react");
+      const checkboxM1 = () => view.container.querySelector<HTMLButtonElement>('button[role="checkbox"][aria-label="Selecionar Produto Um"]');
+      const checkboxM2 = () => view.container.querySelector<HTMLButtonElement>('button[role="checkbox"][aria-label="Selecionar Produto Dois"]');
+      const inputM2 = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+      // Edita m2 ANTES de qualquer seleção — prova que a mudança de seleção que vem a seguir não reseta esse valor.
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setter.call(inputM2()!, "Dois Editado Antes Da Selecao");
+        inputM2()!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(checkboxM1()?.getAttribute("aria-checked")).toBe("false");
+      expect(checkboxM2()?.getAttribute("aria-checked")).toBe("false");
+      await act(async () => { checkboxM1()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      // O checkbox de m1 (TOCADO) reflete a seleção nova — prova de que `selecao.marcado`/a prop chegou atualizada.
+      expect(checkboxM1()?.getAttribute("aria-checked")).toBe("true");
+      // m2 (NÃO selecionado) continua desmarcado — a mudança de seleção de m1 não vazou pra m2.
+      expect(checkboxM2()?.getAttribute("aria-checked")).toBe("false");
+      // O rascunho de m2 (uma prop TOTALMENTE independente da seleção) sobrevive intacto — a linha de m2 pode ter
+      // re-renderizado (identidade nova do objeto `selecao`), mas nenhum estado PRÓPRIO dela foi perdido no processo.
+      expect(inputM2()?.value).toBe("Dois Editado Antes Da Selecao");
+      await view.desmontar();
+    });
+
+    it("mapeamento de erro — P0409 integracao_mudou no Integrar: mostra o toast traduzido; 42501 no Voltar e P0001 (reprovado) no Integrar idem", async () => {
+      const lista = listaRaw([produtoRaw()]);
+      const erroMudou = Object.assign(new Error("integracao_mudou: produto m1 mudou desde o resumo"), { code: "P0409" });
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome) => {
+          if (nome === "integracao_previa") return { data: previaRaw([previaProduto()]), error: null };
+          if (nome === "integracao_marcar") return { data: null, error: erroMudou };
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      const botaoConfirmar = botao("Tenho certeza — integrar");
+      await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect((await toastMock()).error).toHaveBeenCalledWith(
+        "O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.",
+      );
+      await view.desmontar();
+    });
+
+    it("mapeamento de erro — 42501 (sem permissão) no Voltar mostra o toast traduzido pela mensagemErro", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
+      const erro42501 = Object.assign(new Error("Sem permissão para editar a Integração."), { code: "42501" });
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome) => {
+          if (nome === "integracao_voltar") return { data: null, error: erro42501 };
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      const botaoConfirmar = botao("Voltar para não integrável");
+      await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect((await toastMock()).error).toHaveBeenCalledWith("Sem permissão para editar a Integração.");
+      await view.desmontar();
+    });
+
+    it("mapeamento de erro — P0001 (produto reprovado) no Integrar mostra a mensagem do servidor (RAISE em PT, usada verbatim)", async () => {
+      const lista = listaRaw([produtoRaw()]);
+      const erroReprovado = Object.assign(new Error('O produto "Produto Teste" está reprovado e não pode ser integrado.'), { code: "P0001" });
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome) => {
+          if (nome === "integracao_previa") return { data: previaRaw([previaProduto()]), error: null };
+          if (nome === "integracao_marcar") return { data: null, error: erroReprovado };
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      const botaoConfirmar = botao("Tenho certeza — integrar");
+      await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect((await toastMock()).error).toHaveBeenCalledWith('O produto "Produto Teste" está reprovado e não pode ser integrado.');
+      await view.desmontar();
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1190,23 +1458,35 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
   // Fix round 3 T12b (m-S4, code-review "Re-check round 2"): se o PRÓPRIO `refetchQueries` falhar por rede, o
   // `dataUpdatedAt` da query ativa não avança — o "fresco" encontrado podia ser exatamente o dado VELHO que já
   // causou o P0409, e o toast dizia "Outra pessoa mudou as Keywords" sem avisar que a causa real foi uma falha de
-  // conexão (nada de laço sem saída — cada tentativa relê de novo — mas confuso pro usuário). Prova: semeia uma
-  // query com `status: "error"` (via `qc.fetchQuery` com um `queryFn` que rejeita) na MESMA chave por prefixo —
-  // o toast precisa nomear a falha de rede, nunca o texto genérico de conflito.
+  // conexão (nada de laço sem saída — cada tentativa relê de novo — mas confuso pro usuário). Prova: mantém um
+  // `QueryObserver` de verdade inscrito na MESMA chave por prefixo (é isso que torna a query "ATIVA" pro
+  // `refetchQueries({type:"active"})`/`getQueryCache().find({type:"active"})` — sem observer nenhum, a v1 deste
+  // teste usava `qc.fetchQuery` solto, que NUNCA registra observer e portanto NUNCA conta como ativa; passava só
+  // por acidente enquanto o m-T2 checava "qualquer query em cache", que é EXATAMENTE o bug que m-T2 corrigiu —
+  // ver `KeywordsDialog.tsx`) com um `queryFn` que rejeita — o toast precisa nomear a falha de rede, nunca o texto
+  // genérico de conflito.
   it("regressão m-S4: refetch que falha por rede mostra uma mensagem de FALHA DE CONEXÃO, nunca o texto genérico de 'outra pessoa mudou'", async () => {
     const view = await montarKeywords({
       rpcImpl: async () => ({ data: null, error: Object.assign(new Error("keywords_mudou: outra pessoa mudou"), { code: "P0409" }) }),
     });
     const { act } = await import("react");
+    const { QueryObserver } = await import("@tanstack/react-query");
     const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-keywords");
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
       setter.call(textarea()!, "Moda, Verão, Meu Texto");
       textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    // Semeia a query (mesma chave por prefixo) com um `queryFn` que REJEITA — deixa `state.status === "error"` e
-    // `fetchStatus === "idle"` (terminou de tentar) depois que a Promise resolve, exatamente como o
-    // `refetchQueries` real deixaria numa falha de rede genuína.
+    // Mantém a query com um observer INSCRITO (o que a torna "ativa" de verdade) enquanto o próprio `queryFn`
+    // rejeita — deixa `state.status === "error"` e `fetchStatus === "idle"` (terminou de tentar) depois que a
+    // Promise resolve, exatamente como o `refetchQueries` real deixaria numa falha de rede genuína NUMA query com
+    // um `useIntegracaoLista` de verdade montado (o caso real do `ProdutosAba`, fora do escopo deste harness).
+    const observer = new QueryObserver(view.qc, {
+      queryKey: ["integracao-lista", "t1", "nao_integrados", {}, 1],
+      queryFn: () => Promise.reject(new Error("Failed to fetch")),
+      retry: false,
+    });
+    const unsubscribe = observer.subscribe(() => {});
     await view.qc.fetchQuery({
       queryKey: ["integracao-lista", "t1", "nao_integrados", {}, 1],
       queryFn: () => Promise.reject(new Error("Failed to fetch")),
@@ -1220,6 +1500,7 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
     expect(toastMock.error).toHaveBeenCalledWith(
       "Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.",
     );
+    unsubscribe();
     expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Outra pessoa mudou"));
     await view.desmontar();
   });

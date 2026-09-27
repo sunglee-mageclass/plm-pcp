@@ -94,18 +94,24 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
         // `getQueryCache().findAll` com o mesmo prefixo e pega a de MAIOR `dataUpdatedAt` — a que o refetch
         // acabou de atualizar (ou, na ausência de qualquer query ativa, a mais recente disponível mesmo assim).
         const consultas = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId) });
+        // Fix m-T2 (carry da revisão da Task 12b, task-13-brief.md): a v3 (m-S4) checava `status`/`fetchStatus` de
+        // QUALQUER query em cache com este prefixo — inclusive páginas/filtros/situações INATIVAS que o
+        // `refetchQueries({type:"active"})` acima NUNCA tocou. Uma query inativa com um erro velho e esquecido (de
+        // uma falha de rede anterior, nunca reobservada porque o usuário trocou de filtro) acendia "falha de
+        // conexão" por engano, mesmo com o refetch da query ATIVA tendo funcionado perfeitamente. Só a query ATIVA
+        // reflete o que o `await` logo acima de fato tentou — resolvida UMA vez, fora do loop (nunca recalculada
+        // por entrada, e nunca comparada por identidade dentro do loop).
+        // ⚠️ `QueryCache.find(filters)` DEFAULTA `exact: true` (só `findAll` respeita o prefixo por padrão —
+        // conferido em `node_modules/@tanstack/query-core/…/queryCache.js:find`) — `find({queryKey: chaveLista(...),
+        // type:"active"})` NUNCA bateria com a chave real de 5 elementos (só com a "achatada" de 2, que não existe
+        // de verdade). `findAll({..., type:"active"})[0]` é o jeito certo de achar a query ativa por PREFIXO.
+        const ativa = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId), type: "active" })[0];
+        // `fetchStatus === "idle"` (terminou de buscar) com `status === "error"` NA QUERY ATIVA é a única evidência
+        // real de que o refetch falhou; qualquer outra entrada em cache é só histórico, nunca prova da tentativa atual.
+        const refetchFalhou = ativa?.state.status === "error" && ativa.state.fetchStatus === "idle";
         let fresco: ListaIntegracao | undefined;
         let maisRecente = -Infinity;
-        let refetchFalhou = false;
         for (const q of consultas) {
-          // Fix round 3 T12b (m-S4, code-review "Re-check round 2"): se o PRÓPRIO refetch (linha acima) falhar
-          // por rede, `dataUpdatedAt` da query ativa NÃO avança — o "fresco" encontrado pode ser exatamente o
-          // dado VELHO que já causou o P0409, e o próximo Salvar bateria em P0409 de novo sem avisar que a causa
-          // foi uma falha de rede (nunca um laço sem saída — cada tentativa relê de novo — mas confuso: o usuário
-          // vê "outra pessoa mudou" repetido, achando que alguém digitou de novo). Detecta pelo `status`/
-          // `fetchStatus` da query ATIVA (a única que o `refetchQueries` acima de fato tocou): `fetchStatus ===
-          // "idle"` (terminou de buscar) com `status === "error"` é uma falha real, não "sem query pra refazer".
-          if (q.state.status === "error" && q.state.fetchStatus === "idle") refetchFalhou = true;
           const dado = q.state.data as ListaIntegracao | undefined;
           if (!dado) continue;
           if (q.state.dataUpdatedAt > maisRecente) {

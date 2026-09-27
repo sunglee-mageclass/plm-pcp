@@ -30,13 +30,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EmptyState } from "@/components/shared/EmptyState";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { PageActionBar } from "@/components/shared/PageActionBar";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_MAO_DUPLA } from "@/lib/integracao/campos";
 import {
-  FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, faixaPagina, rotuloEstado, textoFaltas, tomEstado, totalPaginas,
+  FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, acoesEmMassa, faixaPagina, motivoIntegrar, motivoVoltar, totalPaginas,
   type EstadoIntegracao, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
 import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
@@ -45,6 +44,10 @@ import { chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, us
 import { ProdutosTabela } from "./ProdutosTabela";
 import { FotosDialog } from "./FotosDialog";
 import { KeywordsDialog } from "./KeywordsDialog";
+import { EstadoCelula, IntegravelCelula } from "./EstadoLinha";
+import { IntegrarDialog } from "./IntegrarDialog";
+import { VoltarDialog } from "./VoltarDialog";
+import { DesfazerDialog } from "./DesfazerDialog";
 
 const TODOS = "__todos__";
 const SITUACOES: { key: Situacao; rotulo: string }[] = [
@@ -112,6 +115,10 @@ export function ProdutosAba() {
   // Fix round 1 T12b (B-I1) — guarda só o ID; o produto é derivado da lista ATUAL a cada render (ver `pFotos` abaixo).
   const [fotosDeId, setFotosDeId] = useState<string | null>(null);
   const [keywordsAberto, setKeywordsAberto] = useState(false);
+  const [selecionados, setSelecionados] = useState<ReadonlySet<string>>(new Set());
+  const [integrarIds, setIntegrarIds] = useState<string[] | null>(null);
+  const [voltarProdutos, setVoltarProdutos] = useState<{ id: string; nome: string }[] | null>(null);
+  const [desfazerDe, setDesfazerDe] = useState<ProdutoLista | null>(null);
   // m7 (revisão): o texto sujo do diálogo de Keywords também soma na guarda ÚNICA da página — sem isso, "Voltar" do
   // navegador ou F5 com o diálogo aberto e texto digitado saía sem perguntar (a guarda só olhava `rascunhos`).
   const [keywordsSujo, setKeywordsSujo] = useState(false);
@@ -161,6 +168,7 @@ export function ProdutosAba() {
   useAbaSuja("produtos", sujo);
   const previas = usePreviasSkus(sujos, lista?.pode.editar ?? false);
   const travaFiltro = sujo || salvar.isPending;
+  useEffect(() => { setSelecionados(new Set()); }, [situacao, filtros, pagina]);
 
   // m6 (revisão): o debounce da busca NUNCA aplica um filtro novo enquanto há rascunho sujo/Salvar em voo — sem
   // isso, digitar em Buscar e editar uma célula em menos de 400 ms mudava a lista debaixo do usuário com filtros
@@ -393,14 +401,103 @@ export function ProdutosAba() {
   };
 
   const onKeywords = useCallback(() => setKeywordsAberto(true), []);
+  // Task 13: Estado ganha o "⋯" (só super admin, só integrado) que abre o Desfazer; Integrável é o toggle que abre
+  // Integrar/Voltar. `estadoCelula`/`integravelCelula` continuam `useCallback` — são passados pra `ProdutosTabela`,
+  // que os repassa pra `LinhaProduto` (React.memo): uma identidade nova a cada render invalidaria TODA linha.
+  // `ctxIntegrar` em `useMemo` (não um objeto literal recriado a cada render): os campos primitivos só mudam quando
+  // `lista` muda de verdade — assim `integravelCelula`/`massa` abaixo podem depender do OBJETO (identidade estável),
+  // sem precisar listar cada campo dele na dependência (e sem warning do react-hooks/exhaustive-deps).
+  const ctxIntegrar = useMemo(
+    () => ({
+      podeEditar: lista?.pode.editar ?? false,
+      precisaVerCustos: lista?.campos.includes("preco_custo") ?? false,
+      podeVerCustos: lista?.pode.verCustos ?? false,
+    }),
+    [lista],
+  );
+  const idsSujos = useMemo(() => new Set(sujos.map((r) => r.modeloId)), [sujos]);
+  // `idsSujos` também mora num REF (nunca só na dependência do `useCallback` abaixo): editar UM produto muda
+  // `idsSujos` por INTEIRO (nova referência), e se `integravelCelula` dependesse dela diretamente, sua identidade
+  // mudaria a cada tecla — invalidando o React.memo de TODA LINHA da tabela (não só a tocada), regressão real
+  // pega pelo teste "React.memo de verdade" (integracao-tela-fonte.test.ts) quando a Task 13 acrescentou esta
+  // célula. Lendo do ref, `integravelCelula` só troca de identidade quando `ctxIntegrar` muda de verdade (a lista
+  // mudou) — cada linha continua vendo o `temRascunho` mais atual (o ref é sempre síncrono), sem pagar o preço de
+  // invalidar o memo de linhas não tocadas.
+  const idsSujosRef = useRef(idsSujos);
+  idsSujosRef.current = idsSujos;
   const estadoCelula = useCallback(
     (p: ProdutoLista) => (
-      <div className="flex items-center gap-1">
-        <StatusBadge tone={tomEstado(p.estado)} className="whitespace-nowrap normal-case tracking-normal">{rotuloEstado(p, tz)}</StatusBadge>
-        {p.estado === "nao_integravel" && !p.completo && <InfoHover ariaLabel="O que falta">{textoFaltas(p.faltas)}</InfoHover>}
-      </div>
+      <EstadoCelula p={p} tz={tz} superAdmin={lista?.pode.super ?? false} onDesfazer={() => setDesfazerDe(p)} />
     ),
-    [tz],
+    [tz, lista?.pode.super],
+  );
+  const integravelCelula = useCallback(
+    (p: ProdutoLista) => (
+      <IntegravelCelula p={p}
+        motivoIntegrar={motivoIntegrar(p, { ...ctxIntegrar, temRascunho: idsSujosRef.current.has(p.modeloId) })}
+        motivoVoltar={motivoVoltar(p, ctxIntegrar.podeEditar)}
+        onIntegrar={() => setIntegrarIds([p.modeloId])}
+        onVoltar={() => setVoltarProdutos([{ id: p.modeloId, nome: p.raw.nome }])} />
+    ),
+    [ctxIntegrar],
+  );
+  const selecionadosLista = useMemo(
+    () => (lista?.produtos ?? []).filter((p) => selecionados.has(p.modeloId)),
+    [lista, selecionados],
+  );
+  const massa = useMemo(
+    () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
+    [selecionadosLista, ctxIntegrar, idsSujos],
+  );
+  // A "seleção e memo" (achado carregado da revisão da Task 12b): `selecao` precisa trocar de IDENTIDADE quando a
+  // seleção muda — mas SÓ `marcado`/`onMarcar` (funções fechando sobre `selecionados`) mudam de identidade a cada
+  // seleção; `onTodos` não depende de `selecionados`. O objeto `selecao` em si É novo a cada render (não há como um
+  // objeto literal ser estável), então TODA linha re-renderiza no React.memo quando a seleção muda — mas como
+  // `marcado(id)` só LÊ o Set (não itera todas as linhas), o custo de cada re-render é mínimo, e o teste de render
+  // (abaixo, na suíte) confirma que o CHECKBOX de fato atualiza. `onTodos`/`onMarcar` em `useCallback` evitam
+  // recriar a FUNÇÃO em si desnecessariamente (embora o objeto que as agrupa mude de qualquer forma).
+  const onTodosSelecao = useCallback(
+    (v: boolean) => setSelecionados(v ? new Set((lista?.produtos ?? []).map((p) => p.modeloId)) : new Set()),
+    [lista],
+  );
+  const onMarcarSelecao = useCallback(
+    (id: string, v: boolean) => setSelecionados((s) => {
+      const n = new Set(s);
+      if (v) n.add(id);
+      else n.delete(id);
+      return n;
+    }),
+    [],
+  );
+  const selecao = useMemo(
+    () => ({
+      todos: !!lista && lista.produtos.length > 0 && selecionadosLista.length === lista.produtos.length,
+      alguns: selecionadosLista.length > 0,
+      onTodos: onTodosSelecao,
+      marcado: (id: string) => selecionados.has(id),
+      onMarcar: onMarcarSelecao,
+    }),
+    [lista, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
+  );
+  const aposEstado = useCallback(() => {
+    setIntegrarIds(null);
+    setVoltarProdutos(null);
+    setDesfazerDe(null);
+    setSelecionados(new Set());
+  }, []);
+  const barraMassa = lista && lista.pode.editar && (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-sm">
+      <span className="tabular-nums">{selecionados.size} selecionado(s)</span>
+      <Button type="button" size="sm" disabled={massa.integrar.length === 0} onClick={() => setIntegrarIds(massa.integrar)}>
+        Integrar selecionados
+      </Button>
+      {selecionados.size > 0 && massa.motivoIntegrar && <span className="text-xs text-muted-foreground">{massa.motivoIntegrar}</span>}
+      <Button type="button" size="sm" variant="outline" disabled={massa.voltar.length === 0}
+        onClick={() => setVoltarProdutos(selecionadosLista.filter((p) => massa.voltar.includes(p.modeloId)).map((p) => ({ id: p.modeloId, nome: p.raw.nome })))}>
+        Voltar selecionados
+      </Button>
+      {selecionados.size > 0 && massa.motivoVoltar && <span className="text-xs text-muted-foreground">{massa.motivoVoltar}</span>}
+    </div>
   );
   const onFotos = useCallback((p: ProdutoLista) => setFotosDeId(p.modeloId), []);
   // Fix round 1 T12b (B-I1): deriva da lista ATUAL a cada render — nunca o snapshot capturado no clique. Fecha
@@ -498,6 +595,7 @@ export function ProdutosAba() {
             title={travaFiltro ? TEXTO_TRAVA_FILTRO : undefined} onChange={(e) => setBusca(e.target.value)} />
         </div>
       </div>
+      {barraMassa}
       {/* m3 (revisão): erro de refetch em SEGUNDO PLANO (já há dado em cache) mostra uma faixa acima da tabela em
           vez de trocar a tabela inteira pelo EmptyState de erro (o que apagaria os rascunhos visíveis da tela). */}
       {q.isError && lista && (
@@ -523,7 +621,8 @@ export function ProdutosAba() {
       ) : (
         <>
           <ProdutosTabela lista={lista} rascunhoDe={rascunhoDe} previas={previas} salvando={salvar.isPending}
-            onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula} />
+            onAtualizar={atualizar} onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula}
+            integravelCelula={integravelCelula} selecao={lista.pode.editar ? selecao : undefined} />
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-muted-foreground">{faixaPagina(lista)}</span>
             <div className="flex items-center gap-2">
@@ -549,6 +648,9 @@ export function ProdutosAba() {
           onSujoChange={setKeywordsSujo}
         />
       )}
+      {integrarIds && <IntegrarDialog ids={integrarIds} onFechar={() => setIntegrarIds(null)} onFeito={aposEstado} />}
+      {voltarProdutos && <VoltarDialog produtos={voltarProdutos} onFechar={() => setVoltarProdutos(null)} onFeito={aposEstado} />}
+      {desfazerDe && <DesfazerDialog produto={desfazerDe} onFechar={() => setDesfazerDe(null)} onFeito={aposEstado} />}
       <PageActionBar>
         <Button type="button" variant="outline" onClick={() => router.history.back()}>
           <ArrowLeft className="h-4 w-4" />Voltar

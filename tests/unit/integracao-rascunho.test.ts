@@ -20,6 +20,7 @@ import {
   temAlteracao,
   usarNovo,
   validarRascunho,
+  valoresPosSalvar,
 } from "@/lib/integracao/rascunho";
 
 const NOME_LOJA = "Loja Teste";
@@ -238,6 +239,42 @@ describe("rascunho por produto (staging)", () => {
       );
       expect(proxRascunhos.m1?.rev).toBe(9); // mesclou contra o rev 9 do cache, não ficou preso em 8
       expect(proxRascunhos.m2).toBe(outroIntocado); // outro rascunho, nunca tocado pelo Salvar de m1, sobrevive intacto
+    });
+  });
+
+  // m-T1 (carry da revisão da Task 12b, task-13-brief.md): `valoresPosSalvar` deve tirar o valor de uma coluna NÃO
+  // enviada (fora de `colunasAlteradas(r)`) de `r.base[c]` — nunca de `r.valores[c]`. Antes do fix, a função lia
+  // TODAS as 12 colunas de `r.valores`, sempre — inclusive as NÃO tocadas. Nota sobre o alcance da prova: como
+  // `colunasAlteradas` já EXCLUI qualquer coluna onde `normalizado(valores[c]) === normalizado(base[c])`, o valor
+  // FINAL de uma coluna não-tocada é sempre o mesmo (por construção) lendo de `valores` OU de `base` — os dois
+  // caminhos convergem depois de `normalizado()`. A ÚNICA coluna onde "de onde se lê" é observável de fato é
+  // `fotos_modelo` (tratada à parte, sem passar por `normalizado`, condicionada a `fotosFinais`) — é o teste que
+  // efetivamente distingue a versão antiga da corrigida (confirmado rodando esta suíte contra a v1 buggy: só ele
+  // falha). Os outros dois testes fixam o CONTRATO da função (o "nunca vaza um valor não confirmado pelo servidor"
+  // e "sem nenhuma coluna tocada, o resultado é `base`") — corretos e valiosos como regressão futura, mas não
+  // discriminam a v1 da v2 isoladamente (documentado aqui para não reivindicar mais do que provam).
+  describe("m-T1: valoresPosSalvar tira o valor de uma coluna NÃO enviada de r.base, nunca de r.valores", () => {
+    it("'fotos_modelo' não enviado ignora fotosFinais (nunca aplica um upload de outra coluna) — mantém base.fotos_modelo (DISCRIMINA a v1 buggy)", () => {
+      let r = rascunho(7);
+      r = editar(r, "ncm", "6109.90.00"); // só NCM tocado — fotos_modelo nunca editado
+      const v = valoresPosSalvar(r, ["t/fotos_modelo/outro.jpg"]);
+      expect(v.ncm).toBe("6109.90.00");
+      expect(v.fotos_modelo).toEqual(r.base.fotos_modelo); // ignora `fotosFinais` — fotos não foram enviadas
+    });
+    it("coluna NÃO enviada nunca vaza um valor da 'espera' que o SERVIDOR não gravou nesta chamada", () => {
+      let r = rascunho(7); // base.preco_anterior = 179.9 (fixture `raw`)
+      r = editar(r, "nome", "Blusa Brisa Nova"); // única coluna de fato ENVIADA — preco_anterior nunca tocado
+      expect(colunasAlteradas(r)).toEqual(["nome"]);
+      const v = valoresPosSalvar(r);
+      expect(v.nome).toBe("Blusa Brisa Nova");
+      // A "espera" pós-Salvar (ruling B-I3) usa este resultado como o valor CONFIÁVEL até a próxima relista — tem
+      // que ser exatamente o que o servidor já tinha (179.9), nunca inventar/vazar outro número.
+      expect(v.preco_anterior).toBe(179.9);
+    });
+    it("nenhuma coluna alterada: o resultado é idêntico a r.base em TODAS as 12 colunas", () => {
+      const r = rascunho(7);
+      expect(colunasAlteradas(r)).toEqual([]);
+      expect(valoresPosSalvar(r)).toEqual(r.base);
     });
   });
 
