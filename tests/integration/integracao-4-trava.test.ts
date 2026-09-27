@@ -192,11 +192,14 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
       const m = await revenda(c);
-      await marcar(c, m.id);
-      // um 2º produto acabado (NÃO travado) do MESMO tenant — o destino da mudança de FK.
+      // um 2º produto acabado (NÃO travado) do MESMO tenant, com a SUA PRÓPRIA variante (destino já "correto"
+      // segundo o próprio conjunto dele, que não trava nada) — cria/flusha ANTES do marcar+imediato abaixo, pra
+      // não deixar o INSERT das variantes de setup (evento ADIADO também) pendurado junto com o UPDATE de teste.
       const outroProdutoId = (await um<{ id: string }>(c,
         `INSERT INTO public.produtos_acabados (tenant_id, nome, ref, valor_unitario, desconto_pct, qtd_total, markup_varejo)
          VALUES ($1, 'Outro produto T4-2', 'OUT-T42', 40, 0, 5, 3) RETURNING id`, [T])).id;
+      await imediato(c); // flusha o INSERT das variantes do fixture `revenda()` + do outro produto (nenhum trava ainda)
+      await marcar(c, m.id);
       const varianteId = (await um<{ id: string }>(c,
         `SELECT id FROM public.produto_acabado_variantes WHERE produto_acabado_id = $1 LIMIT 1`, [m.produtoId])).id;
       // move a variante (a ÚNICA cor do produto travado) para o outro produto — checar só NEW.produto_acabado_id
