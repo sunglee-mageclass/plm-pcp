@@ -4,7 +4,16 @@
 //
 // Adaptação do controlador (P-99 A): um produto INTEGRÁVEL reprovado continua na lista — mostra o badge "Reprovado —
 // não vai para a API" ao lado do estado (StatusBadge tone="danger", mesmo padrão do resto da tela).
-import { Fragment, useState, type ReactNode } from "react";
+//
+// Fix round 1 (ver task-12a-report.md "Fix round 1"):
+// - I2/Important 1 (reviews): o selo Reprovado só afirma "não vai para a API" quando `p.estado==="integravel"` — um
+//   INTEGRADO reprovado continua entregue pela API (`_integracao_ler`, P-99 A), então mostra só "Reprovado" (sem a
+//   frase falsa) nesse caso.
+// - M7/Minor 7 (code-review): cada linha do produto vira um componente `LinhaProduto` MEMOIZADO por `React.memo`
+//   (comparador raso nas props relevantes) — uma tecla digitada numa célula só rerrenderiza a linha do produto
+//   tocado, não a tabela inteira. `celula`/callbacks por linha são estáveis por `modeloId` (montados 1x por linha).
+// - M8/Acessibilidade (code-review): a seta de abrir/fechar sublinhas ganhou `aria-expanded`.
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,16 +35,82 @@ type Props = {
   integravelCelula?: (p: ProdutoLista) => ReactNode; selecao?: SelecaoTabela;
 };
 
+/** P-99 A (controlador) + Important 1 (task review): "não vai para a API" só é verdade para INTEGRÁVEL reprovado —
+ *  a API continua entregando um INTEGRADO reprovado (`_integracao_ler`), então esse caso mostra só "Reprovado". */
+function SeloReprovado({ p }: { p: ProdutoLista }) {
+  if (!p.reprovado) return null;
+  return (
+    <StatusBadge tone="danger" className="w-fit normal-case tracking-normal">
+      {p.estado === "integravel" ? "Reprovado — não vai para a API" : "Reprovado"}
+    </StatusBadge>
+  );
+}
+
+type LinhaProps = {
+  p: ProdutoLista; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean; campos: CampoDef[];
+  aberto: boolean; onAlternar: (id: string) => void; onAtualizar: (p: ProdutoLista, f: (r: Rascunho) => Rascunho) => void;
+  onKeywords: () => void; onFotos: (p: ProdutoLista) => void; estadoCelula: (p: ProdutoLista) => ReactNode;
+  integravelCelula?: (p: ProdutoLista) => ReactNode; selecao?: SelecaoTabela;
+};
+/** M7 (code-review): linha memoizada — uma edição na célula de UM produto só rerrenderiza a linha dele (comparador
+ *  raso do React.memo cobre `r`/`previa` por identidade, que só mudam quando o PRÓPRIO produto é editado). */
+const LinhaProduto = memo(function LinhaProduto({
+  p, r, previa, salvando, campos, aberto, onAlternar, onAtualizar, onKeywords, onFotos, estadoCelula, integravelCelula, selecao,
+}: LinhaProps) {
+  const subs = linhasVariante(p);
+  const celula = (c: CampoDef, indice: number | null) => (
+    <CelulaCampo campo={c} produto={p} indice={indice} rascunho={r} previa={previa} salvando={salvando}
+      onAtualizar={(f) => onAtualizar(p, f)} onKeywords={onKeywords} onFotos={() => onFotos(p)} />
+  );
+  return (
+    <>
+      <tr className="border-t align-top">
+        {selecao && (
+          <td className="px-2 py-2">
+            <Checkbox aria-label={`Selecionar ${p.raw.nome}`} checked={selecao.marcado(p.modeloId)}
+              onCheckedChange={(v) => selecao.onMarcar(p.modeloId, v === true)} />
+          </td>
+        )}
+        <td className="px-1 py-2">
+          <Button type="button" variant="ghost" size="iconSm" disabled={subs.length === 0} aria-expanded={aberto}
+            aria-label={aberto ? `Fechar sublinhas de ${p.raw.nome}` : `Abrir sublinhas de ${p.raw.nome}`}
+            onClick={() => onAlternar(p.modeloId)}>
+            {aberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </Button>
+        </td>
+        <td className="px-2 py-2">
+          <div className="flex flex-col gap-1">
+            {estadoCelula(p)}
+            {p.origem !== "interno" && <StatusBadge tone="info" className="w-fit">{ROTULO_ORIGEM[p.origem]}</StatusBadge>}
+            <SeloReprovado p={p} />
+          </div>
+        </td>
+        {integravelCelula && <td className="px-2 py-2">{integravelCelula(p)}</td>}
+        {campos.map((c) => <td key={c.key} className="px-2 py-2">{celula(c, null)}</td>)}
+      </tr>
+      {aberto && subs.map((l, i) => (
+        <tr key={`${p.modeloId}:${l.varianteKey}|${l.tamanhoKey}`} className="border-t border-dashed bg-muted/20 align-top text-xs">
+          {selecao && <td />}
+          <td />
+          <td className="px-2 py-2 text-muted-foreground">sublinha</td>
+          {integravelCelula && <td />}
+          {campos.map((c) => <td key={c.key} className="px-2 py-2">{celula(c, i)}</td>)}
+        </tr>
+      ))}
+    </>
+  );
+});
+
 export function ProdutosTabela({
   lista, rascunhoDe, previas, salvando, onAtualizar, onKeywords, onFotos, estadoCelula, integravelCelula, selecao,
 }: Props) {
   const [abertos, setAbertos] = useState<ReadonlySet<string>>(new Set());
-  const alternar = (id: string) => setAbertos((s) => {
+  const alternar = useCallback((id: string) => setAbertos((s) => {
     const n = new Set(s);
     if (n.has(id)) n.delete(id);
     else n.add(id);
     return n;
-  });
+  }), []);
   const campos = lista.campos.map((k) => CAMPO_BY_KEY.get(k)).filter((c): c is CampoDef => !!c);
   return (
     <div className="max-w-full overflow-x-auto rounded-md border">
@@ -55,56 +130,12 @@ export function ProdutosTabela({
           </tr>
         </thead>
         <tbody>
-          {lista.produtos.map((p) => {
-            const r = rascunhoDe(p);
-            const subs = linhasVariante(p);
-            const aberto = abertos.has(p.modeloId);
-            const celula = (c: CampoDef, indice: number | null) => (
-              <CelulaCampo campo={c} produto={p} indice={indice} rascunho={r} previa={previas[p.modeloId]} salvando={salvando}
-                onAtualizar={(f) => onAtualizar(p, f)} onKeywords={onKeywords} onFotos={() => onFotos(p)} />
-            );
-            return (
-              <Fragment key={p.modeloId}>
-                <tr className="border-t align-top">
-                  {selecao && (
-                    <td className="px-2 py-2">
-                      <Checkbox aria-label={`Selecionar ${p.raw.nome}`} checked={selecao.marcado(p.modeloId)}
-                        onCheckedChange={(v) => selecao.onMarcar(p.modeloId, v === true)} />
-                    </td>
-                  )}
-                  <td className="px-1 py-2">
-                    <Button type="button" variant="ghost" size="iconSm" disabled={subs.length === 0}
-                      aria-label={aberto ? "Fechar sublinhas" : "Abrir sublinhas"} onClick={() => alternar(p.modeloId)}>
-                      {aberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </Button>
-                  </td>
-                  <td className="px-2 py-2">
-                    <div className="flex flex-col gap-1">
-                      {estadoCelula(p)}
-                      {p.origem !== "interno" && <StatusBadge tone="info" className="w-fit">{ROTULO_ORIGEM[p.origem]}</StatusBadge>}
-                      {/* P-99 A (controlador): integrável reprovado continua na lista — badge ao lado do estado. */}
-                      {p.reprovado && (
-                        <StatusBadge tone="danger" className="w-fit normal-case tracking-normal">
-                          Reprovado — não vai para a API
-                        </StatusBadge>
-                      )}
-                    </div>
-                  </td>
-                  {integravelCelula && <td className="px-2 py-2">{integravelCelula(p)}</td>}
-                  {campos.map((c) => <td key={c.key} className="px-2 py-2">{celula(c, null)}</td>)}
-                </tr>
-                {aberto && subs.map((_, i) => (
-                  <tr key={`${p.modeloId}:${i}`} className="border-t border-dashed bg-muted/20 align-top text-xs">
-                    {selecao && <td />}
-                    <td />
-                    <td className="px-2 py-2 text-muted-foreground">sublinha</td>
-                    {integravelCelula && <td />}
-                    {campos.map((c) => <td key={c.key} className="px-2 py-2">{celula(c, i)}</td>)}
-                  </tr>
-                ))}
-              </Fragment>
-            );
-          })}
+          {lista.produtos.map((p) => (
+            <LinhaProduto key={p.modeloId} p={p} r={rascunhoDe(p)} previa={previas[p.modeloId]} salvando={salvando}
+              campos={campos} aberto={abertos.has(p.modeloId)} onAlternar={alternar} onAtualizar={onAtualizar}
+              onKeywords={onKeywords} onFotos={onFotos} estadoCelula={estadoCelula} integravelCelula={integravelCelula}
+              selecao={selecao} />
+          ))}
         </tbody>
       </table>
     </div>

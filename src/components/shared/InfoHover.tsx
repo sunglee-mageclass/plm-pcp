@@ -1,6 +1,7 @@
 import { Children, useRef, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 /**
  * "i" discreto ao lado de um rótulo que mostra uma informação complementar ao passar o mouse — no lugar de texto
@@ -34,7 +35,10 @@ export function InfoHover({ ariaLabel, children, className }: { ariaLabel: strin
               if (tipo === "touch" || tipo === "pen") setOpen(true);
               else setOpen((o) => !o);
             }}
-            className={`inline-flex shrink-0 items-center rounded-full text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className ?? ""}`}
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              className,
+            )}
             aria-label={ariaLabel}
           >
             <Info className="h-3.5 w-3.5" />
