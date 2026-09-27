@@ -1531,17 +1531,60 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
       expect(chamadasVoltar).toHaveLength(1);
       // A mensagem NUNCA promete "confirme de novo" (essa é a do Integrar, que TEM resumo) — o Voltar tem a sua.
+      // Fix round 3 T13 (revisão T13 #17, m-R2): texto trocado — diz que a LISTA foi atualizada (não "nada foi
+      // alterado", que soava como se o erro não tivesse consequência nenhuma) e convida a tentar de novo A PARTIR
+      // da lista (não do mesmo diálogo, que já fechou).
       expect((await toastMock()).error).toHaveBeenCalledWith(
-        "Algum produto já não está integrável (a API levou ou alguém voltou). Nada foi alterado — confira a lista.",
+        "A lista foi atualizada porque algum produto já não está integrável (a API levou ou alguém voltou). Veja a lista atualizada e tente de novo se for o caso.",
       );
       // A invalidação do `onError` relista o produto como `integrado` (a API "levou" — o cenário real do erro).
       const listaPosErro = listaRaw([produtoRaw({ estado: "integrado" })]);
       await act(async () => { view.atualizarLista(listaPosErro); });
-      // O diálogo FECHOU sozinho: nenhum produto derivado continua `integravel` na lista fresca — o texto do
-      // diálogo (que só aparece com ele aberto) sumiu do documento.
+      // O diálogo continua fechado depois da relista (já tinha fechado ANTES dela — ver o teste dedicado abaixo,
+      // fix round 3) — o texto do diálogo (que só aparece com ele aberto) segue fora do documento.
       expect(document.body.textContent).not.toContain("Voltar para não integrável?");
       // Sem diálogo aberto, não há como reenviar o MESMO lote — a prova definitiva do "nunca laço": só 1 chamada
       // de `integracao_voltar` aconteceu no total, mesmo depois da relista.
+      expect(chamadasVoltar).toHaveLength(1);
+      await view.desmontar();
+    });
+
+    // Fix round 3 T13 (revisão T13 #17, task-13-code-review.md "Re-check round 2" m-R2): a ruling do controlador —
+    // "invalidar e FECHAR o diálogo no P0409" — não estava implementada; o fechamento no teste ACIMA só acontecia
+    // por causa da relista manual (`view.atualizarLista`) fazer `voltarProdutosAtuais` esvaziar, que é um efeito
+    // INDIRETO em `ProdutosAba.tsx`, não uma ação do próprio `VoltarDialog`. Sem NENHUMA relista (o cenário real
+    // entre o erro chegar e o próximo refetch/foco de janela), o diálogo antigo ficava aberto. Este teste isola
+    // exatamente esse gap: SEM chamar `view.atualizarLista` em momento algum, o diálogo deve fechar sozinho logo
+    // após o P0409, e um 2º clique (impossível, já que o botão nem existe mais) não pode reenviar o id.
+    it("Voltar P0409: o diálogo FECHA IMEDIATAMENTE (onFechar chamado no onError), SEM depender de nenhuma relista", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
+      const chamadasVoltar: unknown[] = [];
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_voltar") {
+            chamadasVoltar.push(args);
+            return { data: null, error: Object.assign(new Error("integracao_mudou: produto m1 esta integrado"), { code: "P0409" }) };
+          }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(document.body.textContent).toContain("Voltar para não integrável?");
+      const botaoConfirmar = () => botao("Voltar para não integrável");
+      await act(async () => { botaoConfirmar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadasVoltar).toHaveLength(1);
+      // NENHUMA relista chamada aqui (nem `view.atualizarLista`, nem `view.refetchIdentico`) — `lista.produtos`
+      // continua exatamente como antes, o produto ainda `integravel`. Se o fechamento dependesse da relista
+      // (a v1/round-1 do fix), o diálogo continuaria aberto neste ponto.
+      expect(document.body.textContent, "o diálogo deveria ter fechado IMEDIATAMENTE, sem relista nenhuma")
+        .not.toContain("Voltar para não integrável?");
+      // Prova de ESTADO adicional: o botão de confirmar nem existe mais no DOM — um "2º clique" é estruturalmente
+      // impossível, não apenas "não aconteceu por acaso".
+      expect(botaoConfirmar()).toBeUndefined();
       expect(chamadasVoltar).toHaveLength(1);
       await view.desmontar();
     });

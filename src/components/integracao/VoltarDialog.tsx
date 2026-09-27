@@ -19,8 +19,15 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { textoVoltar } from "@/lib/integracao/resumo";
 import { invalidarIntegracao } from "./useIntegracao";
 
+// Fix round 3 T13 (revisão T13 #17, task-13-code-review.md "Re-check round 2" m-R2): a ruling do controlador
+// ("invalidar e FECHAR o diálogo no P0409") não tinha sido implementada de verdade — o `onError` só invalidava e
+// mostrava o toast; o diálogo continuava ABERTO com o botão "Voltar para não integrável" ainda clicável, contando
+// com `ProdutosAba.tsx` fechar sozinho quando a RELISTA (fora do controle deste componente) mostrasse o produto já
+// fora de `integravel`. Sem relista (ex.: em teste, ou numa janela de foco sem refetch imediato), o diálogo ficava
+// aberto convidando um 2º clique sobre o MESMO lote rejeitado. Fix: `onFechar()` direto aqui, incondicional e
+// imediato — não depende de nenhuma relista pra fechar.
 const TEXTO_VOLTAR_MUDOU =
-  "Algum produto já não está integrável (a API levou ou alguém voltou). Nada foi alterado — confira a lista.";
+  "A lista foi atualizada porque algum produto já não está integrável (a API levou ou alguém voltou). Veja a lista atualizada e tente de novo se for o caso.";
 
 export function VoltarDialog({ produtos, onFechar, onFeito }: {
   produtos: { id: string; nome: string }[]; onFechar: () => void; onFeito: () => void;
@@ -45,6 +52,10 @@ export function VoltarDialog({ produtos, onFechar, onFeito }: {
       const code = (e as { code?: string })?.code;
       toast.error(code === "P0409" ? TEXTO_VOLTAR_MUDOU : mensagemErro(e, "Não foi possível voltar."));
       invalidarIntegracao(qc, tenantId, ids);
+      // Fix round 3 T13 (revisão T13 #17, m-R2): P0409 fecha o diálogo NA HORA — nunca convida um 2º clique sobre
+      // o MESMO lote que acabou de ser rejeitado. Incondicional (não só no P0409): qualquer erro aqui já significa
+      // que o estado local não é mais confiável o bastante pra continuar oferecendo "confirmar" sobre ele.
+      onFechar();
     },
   });
   return (
