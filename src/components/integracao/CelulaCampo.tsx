@@ -31,6 +31,20 @@
 //   de mostrar o texto cru; nenhum `toast` dentro do updater; o selo "automático" de leitura só aparece quando
 //   `!usaRetrato(p)` (concorda com o texto do retrato mostrado); toda célula travada mostra o texto da trava via
 //   `InfoHover`.
+//
+// T12b (carry.md — minors n1-n7 da revisão T12a round 2 + achado próprio "usar o novo do SKU"):
+// - n1: a sublinha do SKU, quando só `salvando` bloqueia (linha aberta, gate ok, "Tamanho em" definido), mostra
+//   `skuExibido` do RASCUNHO em vez do `valorCelula` do servidor — a digitação pendente não "some" durante o Salvar.
+// - n2: o placeholder do automático de "Preço anterior" usa o preço de venda do RASCUNHO (`r.valores.preco_venda`),
+//   nunca o salvo no servidor.
+// - n3: um título pendente que voltou a automático (NULL) mostra o TÍTULO CALCULADO na pendência, não "—".
+// - n4: os botões "manter o meu · usar o novo" (Título e campo genérico) ganharam `disabled={salvando}`.
+// - n7: o selo "automático" do Preço anterior usa `precoAnteriorOuNull` (não `=== null` cru) — um 0 digitado
+//   também é automático.
+// - "usar o novo" do SKU: `SkuCelulaEditavel` prefere a linha da PRÉVIA (`lp`) sobre a da lista (`linha`) para
+//   `skuExibido` — o SKU novo aparece na hora, sem esperar o Realtime relistar `modelos`.
+// - n5/n6 (testes): ver `integracao-celula.test.ts` — `IS_REACT_ACT_ENVIRONMENT` setado no topo do arquivo, e os 2
+//   testes de texto de trava agora abrem o tooltip via foco e conferem o texto `TEXTO_TRAVADO_*` de verdade.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Lock, RotateCcw } from "lucide-react";
@@ -44,7 +58,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
-import { filtrarNcm } from "@/components/planejamento/planejamento-detail/helpers";
+import { filtrarNcm, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
 import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
@@ -137,9 +151,13 @@ function SkuCelulaEditavel({ p, r, sub, previa, onAtualizar }: {
   const [texto, setTexto] = useState<string | null>(null);
   const linha = linhaSkuDaSublinha(sub);
   const chave = chaveLinhaSku(sub.varianteKey, sub.tamanhoKey);
-  const exibido = skuExibido(linha, r.skus);
   const digitado = r.skus.manuais[chave];
   const lp = previa?.matriz.linhas.find((x) => x.variante_key === sub.varianteKey && x.tamanho_key === sub.tamanhoKey);
+  // T12b (carry.md): "usar o novo" só limpa `r.skus.manuais` — sem nada mais, `skuExibido(linha, r.skus)` cairia de
+  // volta no `sub.sku` da LISTA (o valor que causou o conflito, ainda desatualizado até a próxima relista). Quando
+  // existe uma prévia (`lp`) ela já trouxe o SKU FRESCO do servidor (`skus_previa`, mesmo plano da gravação) — usá-la
+  // no lugar de `linha` mostra o novo SKU na hora, sem esperar o Realtime relistar `modelos`.
+  const exibido = skuExibido(lp ?? linha, r.skus);
   // M2/Minor (code-review, round 1): a prévia só conta se pertence à entrada ATUAL do rascunho (compara
   // `previa.entrada` com a chave calculada de agora) — senão mostra "calculando…" em vez da situação de um plano
   // velho. A chave tem que ser EXATAMENTE a que `usePreviasSkus`/`entradaSkus` calculam: `r.valores.ref` aparado e
@@ -232,7 +250,14 @@ function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
     : semTamanhoTipo ? "Defina \"Tamanho em\" no card para editar o SKU."
     : !p.gates.sku.ok ? p.gates.sku.motivo
     : null;
-  return <Leitura texto={valorCelula(p, "ref_sku", indice)} travado={travadoEstado} info={motivo} />;
+  // n1 (carry.md, revisão T12a round 2): quando o ÚNICO motivo de cair na leitura é `salvando` (linha não travada,
+  // gate aberto, "Tamanho em" definido, só o Salvar em voo), mostra o SKU do RASCUNHO (`skuExibido`, o mesmo que a
+  // célula editável mostrava até agora) — nunca o `valorCelula` (a lista/servidor), que faria a digitação pendente
+  // "sumir" até a relista. Nos outros casos (trava real, gate fechado, sem tamanho_tipo) o texto do servidor é o
+  // único que faz sentido mostrar mesmo.
+  const soSalvando = !travadoEstado && !semTamanhoTipo && p.gates.sku.ok && salvando && !!sub;
+  const texto = soSalvando ? skuExibido(linhaSkuDaSublinha(sub), r.skus) : valorCelula(p, "ref_sku", indice);
+  return <Leitura texto={texto} travado={travadoEstado} info={motivo} />;
 }
 
 function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: {
@@ -278,8 +303,12 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
   const trava = travaOuGate(campo, p);
   if (trava.tipo === "leitura") {
     if (pendente) {
+      // n3 (carry.md, revisão T12a round 2): um título pendente que voltou a AUTOMÁTICO (`titulo_pagina` editado
+      // para null) mostrava "—" (o fallback genérico) em vez do valor calculado — aqui `nomeLoja` já está disponível
+      // (o campo Título só habilita depois que ele carrega), então dá pra mostrar o automático de verdade.
+      const calculadoPendente = nomeLoja === null ? "—" : tituloCalculadoDoRascunho(r, nomeLoja);
       return (
-        <LeituraComPendencia texto={tituloExibido(r.valores.titulo_pagina, "—")} motivo={trava.motivo}
+        <LeituraComPendencia texto={tituloExibido(r.valores.titulo_pagina, calculadoPendente)} motivo={trava.motivo}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
       );
     }
@@ -330,11 +359,14 @@ function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
       {conflito && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
           <span className="text-[var(--tone-warning-fg)]">Outra pessoa mudou este campo.</span>
-          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onAtualizar((x) => manterMeu(x, col))}>
+          {/* n4 (carry.md, revisão T12a round 2): desabilitado durante o Salvar — o rascunho não pode mudar no meio
+              de uma chamada já em voo (mesma classe de risco do R1-1: um clique durante o Salvar pareceria resolver
+              o conflito, mas o servidor já recebeu o valor de antes desta decisão). */}
+          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" disabled={salvando} onClick={() => onAtualizar((x) => manterMeu(x, col))}>
             manter o meu
           </Button>
           <span aria-hidden>·</span>
-          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onAtualizar((x) => usarNovo(x, col))}>
+          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" disabled={salvando} onClick={() => onAtualizar((x) => usarNovo(x, col))}>
             usar o novo
           </Button>
         </div>
@@ -429,8 +461,16 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   } else if (campo.tipo === "dinheiro") {
     // R1-2/Important (task review, round 2): o selo "automático" VOLTOU — some junto com o placeholder do
     // automático (não troca um pelo outro; o header sempre pediu os dois).
-    const automatico = campo.key === "preco_anterior" && r.valores.preco_anterior === null;
-    const placeholder = automatico ? valorCelula(p, "preco_anterior", null).replace(/^R\$\s*/, "") : "0,00";
+    // n7 (carry.md, revisão T12a round 2): `precoAnteriorOuNull` (não `=== null` cru) — um 0 digitado também grava
+    // como automático (`payloadItem`/`precoNormalizado`), então o selo tem que refletir isso, não só o NULL literal.
+    const automatico = campo.key === "preco_anterior" && precoAnteriorOuNull(r.valores.preco_anterior) === null;
+    // n2 (carry.md, revisão T12a round 2): o placeholder do automático usa o preço de venda do RASCUNHO (a mesma
+    // linha sendo editada agora), nunca o `valorCelula`/preço SALVO no servidor — o Sheet usa o `precoBase` do
+    // draft pela mesma razão (`InfoGeraisSecao`/`PrecoTabela`: o automático acompanha o preço de venda ao vivo).
+    const precoVendaRascunho = precoAnteriorOuNull(r.valores.preco_venda) ?? Number(r.valores.preco_venda ?? 0);
+    const placeholder = automatico
+      ? (precoVendaRascunho > 0 ? precoVendaRascunho.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0,00")
+      : "0,00";
     controle = (
       <div className="flex items-center gap-1">
         <MoneyInput fixedDecimals aria-label={ariaLabel} placeholder={placeholder} disabled={salvando}
@@ -476,11 +516,12 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
       {conflito && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
           <span className="text-[var(--tone-warning-fg)]">Outra pessoa mudou este campo.</span>
-          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onAtualizar((x) => manterMeu(x, col))}>
+          {/* n4 (carry.md, revisão T12a round 2): desabilitado durante o Salvar (mesma razão do bloco do Título). */}
+          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" disabled={salvando} onClick={() => onAtualizar((x) => manterMeu(x, col))}>
             manter o meu
           </Button>
           <span aria-hidden>·</span>
-          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onAtualizar((x) => usarNovo(x, col))}>
+          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" disabled={salvando} onClick={() => onAtualizar((x) => usarNovo(x, col))}>
             usar o novo
           </Button>
         </div>

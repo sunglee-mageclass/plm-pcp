@@ -10,6 +10,11 @@ import { TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL, infoEdicao, modoCelu
 import { novoRascunho, type Rascunho } from "@/lib/integracao/rascunho";
 import { chaveEntradaPrevia } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 
+// n6 (task-12a-review.md "Re-review round 2"; carry.md T12b): sem isto, todo `act()` sob React 19 dev loga "The
+// current testing environment is not configured to support act(...)" — dezenas de linhas de stderr por rodada,
+// escondendo qualquer falha real no meio do ruído. Mesmo padrão de `tests/unit/_fix_hidratacao/dom-helpers.ts`.
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
 // `AbrirCard` (dentro de CelulaCampo.tsx) chama useAuth() (precisa de AuthProvider real, que dispara sessão do
 // Supabase) e renderiza <Link> do @tanstack/react-router (precisa de RouterProvider). Nenhum dos dois é prático
 // de montar de verdade num teste unitário puro, e nenhum arquivo (useAuth.tsx nem o router) está em
@@ -308,6 +313,12 @@ describe("Fix round 2 — Minors (RotateCcw, valor formatado na pendência, aria
     expect(input?.getAttribute("aria-label")).toBe(`Nome — ${produto.raw.nome}`);
     view.unmount();
   });
+  // n5 (task-12a-review.md "Re-review round 2"; carry.md T12b): os 2 testes m7/R7 abaixo passavam ANTES da correção
+  // real (ambas as células já tinham um "i" com esse aria-label por outro motivo — `infoCusto`/"= Descrição…" — então
+  // só checar que o "i" existe não prova que o TEXTO DA TRAVA está lá). Agora o teste ABRE o tooltip (clique sem
+  // `pointerdown` prévio cai no ramo de teclado de `InfoHover`, que ALTERNA `open`) e confere o texto
+  // `TEXTO_TRAVADO_*` de verdade no DOM (o `TooltipContent` do Radix monta num Portal em `document.body`, fora do
+  // `view.container` — por isso a asserção lê `document.body`, não o container).
   it("m7/R7 (reviews): célula só-leitura por natureza (preco_custo) numa linha TRAVADA mostra o texto da trava, não fica muda", () => {
     const produto = p({ estado: "integravel" });
     const rascunho = novoRascunho(produto);
@@ -316,7 +327,10 @@ describe("Fix round 2 — Minors (RotateCcw, valor formatado na pendência, aria
       onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
     }));
     expect(view.container.querySelector('[aria-label="Travado"]')).not.toBeNull();
-    expect(view.container.querySelector('[aria-label="Informação do campo"]')).not.toBeNull();
+    const botaoInfo = view.container.querySelector('[aria-label="Informação do campo"]');
+    expect(botaoInfo).not.toBeNull();
+    act(() => { botaoInfo!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain(TEXTO_TRAVADO_INTEGRAVEL);
     view.unmount();
   });
   it("m7/R7: metatag numa linha travada também mostra o texto da trava (não só o cadeado mudo)", () => {
@@ -327,7 +341,10 @@ describe("Fix round 2 — Minors (RotateCcw, valor formatado na pendência, aria
       onAtualizar: () => {}, onKeywords: () => {}, onFotos: () => {},
     }));
     expect(view.container.querySelector('[aria-label="Travado"]')).not.toBeNull();
-    expect(view.container.querySelector('[aria-label="Informação do campo"]')).not.toBeNull();
+    const botaoInfo = view.container.querySelector('[aria-label="Informação do campo"]');
+    expect(botaoInfo).not.toBeNull();
+    act(() => { botaoInfo!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain(TEXTO_TRAVADO_INTEGRADO);
     view.unmount();
   });
 });

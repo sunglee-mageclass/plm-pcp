@@ -11,7 +11,8 @@
 //   frase falsa) nesse caso.
 // - M7/Minor 7 (code-review): cada linha do produto vira um componente `LinhaProduto` MEMOIZADO por `React.memo`
 //   (comparador raso nas props relevantes) — uma tecla digitada numa célula só rerrenderiza a linha do produto
-//   tocado, não a tabela inteira. `celula`/callbacks por linha são estáveis por `modeloId` (montados 1x por linha).
+//   tocado, não a tabela inteira. `celula` (função local, dentro de `LinhaProduto`) é recriada por render da
+//   linha, mas isso não invalida o memo — só o QUE está dentro de `LinhaProduto` já rerrenderizou de qualquer jeito.
 // - M8/Acessibilidade (code-review): a seta de abrir/fechar sublinhas ganhou `aria-expanded`.
 //
 // Fix round 2 (task-12a-report.md "Fix round 2"; code-review "Re-check round 1" R5): `campos` virou `useMemo`
@@ -20,6 +21,14 @@
 // registrado pela revisão: quando a T13 ligar `selecao`, o objeto passado como prop precisa trocar de IDENTIDADE
 // a cada mudança de seleção (nunca um objeto estável com `marcado` lendo um ref) — senão o checkbox marcado fica
 // desatualizado por trás do memo.
+//
+// Correção do comentário (T12b, carry.md — code-review da T12a m1): o comentário de round 1 ACIMA (Minor 7) dizia
+// que `rascunhoDe`/`atualizar`/`estadoCelula`/`onFotos` já chegavam ESTÁVEIS do chamador — isso NUNCA foi verdade
+// (m1 do code-review T12a: "the caller defeats it too" — a T12b só existia como plano na época). O `ProdutosAba`
+// real (`ProdutosAba.tsx`) é quem garante isso agora: `atualizar`/`estadoCelula`/`onFotos` via `useCallback`, e
+// `rascunhoDe` devolve um `Rascunho` de identidade ESTÁVEL por `(modeloId, rev)` mesmo para produtos sem rascunho
+// próprio (um cache local, em vez de `novoRascunho(p)` recriado a cada chamada) — sem isso, o `React.memo` desta
+// tabela nunca teria efeito nenhum na prática, apesar de tecnicamente correto aqui.
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
