@@ -168,6 +168,25 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     });
   });
 
+  it("revisão T4 re-review A (Important, residual do #1): diferença SÓ DE ESPAÇO ('Blusa ' no PA × 'Blusa' no card) também vira falta e marcar recusa — a comparação é EXATA (sem btrim), igual o save do espelho grava", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await revenda(c, { nome: "Blusa" });
+      // _salvar_produto_acabado_core grava `nullif(_dados->>'nome','')` RAW (sem trim) em modelos.nome — um PA
+      // com espaço a mais no nome ('Blusa ') e o card sem ('Blusa') é EXATAMENTE o cenário que a comparação com
+      // btrim (fix da revisão T4 #1, anterior a este) deixava passar batido, mesmo a trava recusando depois
+      // (fn_integracao_trava_modelos usa NEW.nome IS DISTINCT FROM OLD.nome, também sem trim).
+      await c.query(`UPDATE public.produtos_acabados SET nome = 'Blusa ' WHERE modelo_id = $1`, [m.id]);
+      const previa = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r.produtos[0];
+      expect(previa.completo).toBe(false);
+      expect(previa.faltas).toContainEqual({ campo: "nome", texto: "Nome diferente do Produto Acabado" });
+      expect(await falha(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [m.id, previa.assinatura])).toMatch(/^P0001/);
+    });
+  });
+
   it("nota 14 (D11): save do Produto Acabado com o MESMO conjunto de cores passa (apaga/recria); trocar a cor é recusado no COMMIT", async () => {
     await withTx(async (c) => {
       await prepara(c, 4);
@@ -337,6 +356,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     // integracao_produtos. Soltando a 2ª conexão, o MESMO UPDATE passa.
     const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
     await segunda.connect();
+    // revisão T4 re-review C (Minor): lock_timeout na 2ª conexão — se ela algum dia ficasse esperando um
+    // lock que a txn do teste segura, segunda.end() NÃO cancela um backend parado num lock; sem timeout o
+    // teste travaria até o timeout do próprio vitest. 2s é folgado (a espera esperada aqui é do OUTRO lado).
+    await segunda.query("SET lock_timeout = '2s'");
     try {
       await withTx(async (c) => {
         await prepara(c, 4);
@@ -374,6 +397,8 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
   it("revisão T4 #3 (Important #3, mesmo padrão — caminho ADIADO das variantes): fn_integracao_trava_variantes (constraint trigger, disparado por imediato) também fica esperando o FOR NO KEY UPDATE de modelos", async () => {
     const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
     await segunda.connect();
+    // revisão T4 re-review C (Minor): mesmo lock_timeout de segurança da 2ª conexão do teste anterior.
+    await segunda.query("SET lock_timeout = '2s'");
     try {
       await withTx(async (c) => {
         await prepara(c, 4);
