@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { abasVisiveis } from "@/lib/integracao/abas";
 
@@ -28,5 +28,22 @@ describe("Integração — permissão, menu e abas por papel (P-65 A, P-74 A, P-
   });
   it("rota protegida pela permissão 'integracao'", () => {
     expect(ler("src/routes/_authenticated/integracao.tsx")).toMatch(/<RequirePermission page="integracao">/);
+  });
+});
+
+describe("Integração — guarda única de alterações não salvas", () => {
+  it("1 useUnsavedGuard na página (blockNav) e trocar de aba passa pela confirmação", () => {
+    const s = ler("src/components/integracao/IntegracaoPage.tsx");
+    expect(s.match(/useUnsavedGuard\(/g)?.length).toBe(1);
+    expect(s).toMatch(/blockNav: true/);
+    expect(s).toMatch(/requestAction\(\(\) => setAba\(/);
+    expect(s).toMatch(/<UnsavedChangesGuard confirm=\{confirm\} \/>/);
+  });
+  it("nenhuma aba cria a própria guarda (2 useBlocker brigariam)", () => {
+    for (const f of ["ProdutosAba", "CamposAba", "ApiAba", "ManualAba", "LogAba"]) {
+      const p = `src/components/integracao/${f}.tsx`;
+      if (!existsSync(p)) continue;
+      expect(ler(p), f).not.toMatch(/useUnsavedGuard\(/);
+    }
   });
 });
