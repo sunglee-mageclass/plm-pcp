@@ -32,6 +32,23 @@ async function rev(c: Client, id: string): Promise<number> {
 async function salvar(c: Client, itens: unknown[], kw: unknown = null): Promise<any> {
   return (await um<{ r: any }>(c, `SELECT public.integracao_salvar($1::jsonb, $2::jsonb) AS r`, [JSON.stringify(itens), kw === null ? null : JSON.stringify(kw)])).r;
 }
+/**
+ * ruling do controlador, revisão T7 #13 (fix round 3): `salvar()` passa `itens` por `JSON.stringify`, e o
+ * `JSON.parse`/`JSON.stringify` do JS NORMALIZA "5.0"/"1.50e1" para o inteiro "5"/"15" antes mesmo de sair do
+ * processo Node — o bug relatado (rev decimal chegando como TEXTO "5.0" no jsonb do Postgres) nunca seria
+ * exercitado por um objeto JS comum. Este helper monta o jsonb no SQL por concatenação de texto, preservando o
+ * literal decimal EXATO como o cliente mandaria (ex.: um `fetch` batendo direto na API, sem passar por um
+ * `JSON.parse` do lado do servidor Node no meio do caminho).
+ */
+async function salvarRevLiteral(c: Client, modeloId: string, revLiteral: string, campos: Record<string, unknown>): Promise<any> {
+  // jsonb_build_object() converte um argumento NUMERIC via to_jsonb(), que preserva a forma decimal exata do
+  // literal (confirmado: jsonb_build_object('rev', 5.0)->>'rev' = '5.0', não '5') — ao contrário de um `::jsonb`
+  // direto sobre o literal (que dá erro de cast) ou de passar pelo JSON.stringify do Node (que normaliza 5.0 -> 5
+  // antes mesmo de sair do processo).
+  const item = `jsonb_build_object('modelo_id', $1::text, 'rev', ${revLiteral}, 'campos', $2::jsonb)`;
+  return (await um<{ r: any }>(c, `SELECT public.integracao_salvar(jsonb_build_array(${item}), NULL) AS r`,
+    [modeloId, JSON.stringify(campos)])).r;
+}
 async function erro(c: Client, fn: () => Promise<unknown>): Promise<{ code: string; message: string }> {
   await c.query("SAVEPOINT e");
   try {
@@ -494,6 +511,67 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       const out = await salvar(c, [{ modelo_id: m.id, rev: r0, campos: { ncm: "7777.77.77" } }]);
       expect(out.salvos).toBe(1);
       expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("7777.77.77");
+    });
+  });
+
+  it("resíduos T7 #13 (fix round 3, re-review round 2): rev inteiro escrito com decimal (5.0, 1.50e1) salva de verdade — nunca 22P02", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      // "5.0" — número inteiro escrito com parte decimal .0 (literal SQL/JSON exato, não passa por JSON.parse
+      // do JS — que normalizaria pra "5" antes mesmo de sair do processo e deixaria de exercitar o bug real).
+      // trg_colab_rev bumpa rev em TODA UPDATE (NEW.rev := OLD.rev + 1) — o teste sempre RELÊ o rev real depois
+      // de qualquer UPDATE em vez de supor que um valor forçado por SET rev = X sobrevive.
+      const m = await modeloInterno(c);
+      const r1 = await rev(c, m.id);
+      const out1 = await salvarRevLiteral(c, m.id, `${r1}.0`, { ncm: "1111.00.00" });
+      expect(out1.salvos).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("1111.00.00");
+      // "1.50e1" — notação científica cujo jsonb PRESERVA o zero à direita do literal e normaliza pra "15.0"
+      // (confirmado na cópia: jsonb_build_object('rev',1.50e1)->>'rev' = '15.0', com ponto — diferente de
+      // '1.5e1', que normaliza sem ponto pra '15'). Aqui o rev real precisa ser EXATAMENTE 15 pra montar o
+      // literal "1.50e1" (== 15) — força isso deixando o modelo chegar em rev=15 por saves sucessivos triviais
+      // (cada UPDATE bem-sucedido bumpa +1 via trg_colab_rev), em vez de compor a notação a partir de um r2
+      // arbitrário (que podia zerar o ponto decimal, ex.: r2=100 -> "100e1", sem "." nenhum).
+      let r2 = await rev(c, m.id);
+      while (r2 < 15) {
+        await salvar(c, [{ modelo_id: m.id, rev: r2, campos: { ncm: "2222.00.00" } }]);
+        r2 = await rev(c, m.id);
+      }
+      expect(r2).toBe(15);
+      const out2 = await salvarRevLiteral(c, m.id, "1.50e1", { ncm: "2222.00.00" });
+      expect(out2.salvos).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("2222.00.00");
+      // "2147483647.0" — limite superior do int32 escrito com decimal. Chegar num modelo REAL com rev exatamente
+      // nesse valor não é prático (levaria 2+ bilhões de saves); em vez disso, prova que o LITERAL do limite não
+      // estoura na conversão ::numeric::integer comparando contra um rev_base deliberadamente ERRADO — o
+      // resultado precisa ser P0409 (conflito de versão, o caminho normal quando o rev não bate), NUNCA
+      // 22003/22P02 (que indicariam que a conversão do literal em si falhou antes mesmo de chegar no IF do
+      // conflito de versão).
+      const m3 = await modeloInterno(c);
+      const eLimite = await erro(c, () => salvarRevLiteral(c, m3.id, "2147483647.0", { ncm: "3333.00.00" }));
+      expect(eLimite.code).toBe("P0409"); // rev não bate (P0409), mas NUNCA 22003/22P02 no caminho até lá
+      // rev BASE errado com decimal (não bate com o real) continua dando P0409, não 22P02 — o fix não afrouxou o
+      // check de conflito de versão, só o cast de um rev correto-mas-decimal.
+      const eStale = await erro(c, () => salvarRevLiteral(c, m3.id, "1.0", { ncm: "4444.00.00" }));
+      expect(eStale.code).toBe("P0409");
+    });
+  });
+
+  it("resíduos T7 #13 (fix round 3, ruling do controlador — CONFIRMADO): rev como STRING numérica ('5') dá P0001, não mais aceito como antes", async () => {
+    // ruling do controlador: rev PRECISA ser um número JSON, porque é isso que a tela manda (o valor lido do
+    // banco). Antes desta frente, '5'::integer era aceito silenciosamente (cast texto->integer tolera dígitos);
+    // hoje jsonb_typeof(e.x -> 'rev') <> 'number' recusa ANTES do cast — mudança de comportamento intencional,
+    // registrada em desvios.md (revisão T7 #13) e no relatório como não-divulgada na rodada 2.
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await modeloInterno(c);
+      const r0 = await rev(c, m.id);
+      const e = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: String(r0), campos: { ncm: "9999.99.99" } }]));
+      expect(e.code).toBe("P0001");
+      expect(e.message).toBe("A revisao (rev) precisa ser um numero inteiro.");
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("6109.10.00");
     });
   });
 

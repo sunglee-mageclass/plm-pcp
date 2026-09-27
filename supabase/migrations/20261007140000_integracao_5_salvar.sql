@@ -383,9 +383,16 @@ BEGIN
        WHERE e.x ? 'rev') > 0 THEN
     RAISE EXCEPTION 'A revisao (rev) precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
+  -- ruling do controlador, revisão T7 #13 (fix round 3, re-review round 2): um NÚMERO inteiro escrito com decimal
+  -- (5.0, 1.50e1 que o jsonb grava como 15.0, 2147483647.0) passa na checagem ACIMA (tipo number, no range,
+  -- trunc(x)=x) mas o FOR abaixo ainda fazia (e.x->>'rev')::integer — um cast TEXTO->integer direto, que o
+  -- Postgres rejeita pra qualquer forma com ponto decimal (confirmado na cópia: "5.0"::integer estoura 22P02,
+  -- mesmo sendo um valor íntegro). Fix: o FOR agora casta (e.x->>'rev')::numeric::integer — seguro porque a
+  -- checagem ACIMA já garante um valor íntegro dentro do range de int32; ::numeric aceita a forma decimal e o
+  -- ::integer seguinte trunca sem erro (5.0 vira 5).
   FOR r IN
     SELECT DISTINCT ON ((e.x ->> 'modelo_id')::uuid) (e.x ->> 'modelo_id')::uuid AS modelo_id,
-           (e.x ->> 'rev')::integer AS rev_base, coalesce(e.x -> 'campos', '{}'::jsonb) AS campos
+           (e.x ->> 'rev')::numeric::integer AS rev_base, coalesce(e.x -> 'campos', '{}'::jsonb) AS campos
       FROM jsonb_array_elements(v_itens) AS e(x)
      ORDER BY (e.x ->> 'modelo_id')::uuid
   LOOP
