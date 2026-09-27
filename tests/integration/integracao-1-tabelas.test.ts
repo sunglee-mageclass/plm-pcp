@@ -1,0 +1,147 @@
+/**
+ * Integração + API — migration 1 (tabelas). Plano: docs/superpowers/plans/2026-09-26-tela-integracao-api.md, Task 1.
+ * Integração em BEGIN…ROLLBACK SÓ na cópia (janela N3). Estático (formato dos arquivos) roda sem banco.
+ */
+import { describe, it, expect } from "vitest";
+import { existsSync } from "node:fs";
+import { hasDb, withTx, comoUsuario, um } from "./db";
+import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIGRACOES, MIG_TXN, ROOT, T, U, aplica, ler, prepara } from "./integracao-helpers";
+
+const TABELAS = ["integracao_config", "integracao_segredo", "integracao_produtos", "integracao_linhas",
+  "integracao_chaves", "integracao_acessos", "integracao_log"] as const;
+/** Trecho inserido em _seed_tenant_defaults (diff mínimo — o "depois" menos ISTO é o "antes"). */
+export const TRECHO_SEED =
+  "\n  -- [integracao v1] Integração + API (set/2026): a config nasce com o padrão (campos do layout #1-#17 marcados, Foto\n" +
+  "  -- desmarcada — P-83 A). reset_loja e a criação de loja passam por aqui (N9/n6).\n" +
+  "  INSERT INTO public.integracao_config (tenant_id) VALUES (_tid)\n" +
+  "  ON CONFLICT (tenant_id) DO NOTHING;\n";
+
+describe("integracao — formato de TODOS os arquivos .sql já escritos (estático)", () => {
+  const arquivos = [...MIGRACOES, ...INVERSOS].filter((rel) => existsSync(ROOT + rel));
+  it("há pelo menos a migration 1", () => expect(arquivos).toContain(MIGRACOES[0]));
+  for (const rel of arquivos) {
+    it(`${rel}: encoding → BEGIN → 2 travas; $guarda$/$pos$; NOTIFY antes do COMMIT; sem policy`, () => {
+      const t = ler(rel);
+      const linhas = t.split("\n");
+      const primeira = linhas.find((l) => l.trim() !== "" && !l.startsWith("--"));
+      expect(primeira, rel).toBe("SET client_encoding = 'UTF8';");
+      const b = linhas.indexOf("BEGIN;");
+      expect(b, rel).toBeGreaterThan(0);
+      expect(linhas[b - 1], rel).toBe("SET client_encoding = 'UTF8';");
+      expect(linhas.slice(b + 1, b + 3), rel).toEqual(["SET LOCAL lock_timeout = '500ms';", "SET LOCAL transaction_timeout = '3s';"]);
+      expect(linhas.filter((l) => l === "BEGIN;").length, rel).toBe(1);
+      expect(linhas.filter((l) => l === "COMMIT;").length, rel).toBe(1);
+      expect(t, rel).toContain("DO $guarda$");
+      expect(t, rel).toContain("DO $pos$");
+      expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeGreaterThan(t.indexOf("DO $pos$"));
+      expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeLessThan(t.indexOf("\nCOMMIT;"));
+      expect(t, rel).not.toMatch(/CREATE\s+POLICY|DROP\s+POLICY|ENABLE\s+ALWAYS|\\i\s/i);
+      // N1: na IDA, gatilho comum = CREATE OR REPLACE TRIGGER (o DROP antes pegaria trava exclusiva da tabela)
+      if (rel.startsWith("supabase/migrations/")) expect(t, rel).not.toMatch(/^CREATE TRIGGER /m);
+    });
+  }
+});
+
+describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn revertida)", () => {
+  it("7 tabelas: RLS ligada, 0 policy, sem SELECT p/ anon/authenticated", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      for (const t of TABELAS) {
+        const r = await um<{ rls: boolean; pol: string; sa: boolean; sn: boolean }>(c,
+          `SELECT k.relrowsecurity AS rls, (SELECT count(*) FROM pg_policy p WHERE p.polrelid = k.oid) AS pol,
+                  has_table_privilege('authenticated', k.oid, 'SELECT') AS sa, has_table_privilege('anon', k.oid, 'SELECT') AS sn
+             FROM pg_class k WHERE k.oid = ('public.' || $1)::regclass`, [t]);
+        expect(r, t).toEqual({ rls: true, pol: "0", sa: false, sn: false });
+      }
+    });
+  });
+
+  it("leitura direta como authenticated é negada (REST)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await comoUsuario(c, U);
+      await c.query("SAVEPOINT a");
+      await c.query("SET LOCAL ROLE authenticated");
+      await expect(c.query("SELECT * FROM public.integracao_linhas LIMIT 1")).rejects.toThrow(/permission denied/);
+      await c.query("ROLLBACK TO SAVEPOINT a");
+    });
+  });
+
+  it("layout = 18 chaves na ordem; config de TODAS as lojas nasce com os 17 do layout e 60/50/7/10 (P-89 A)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      expect((await um<{ l: string[] }>(c, "SELECT public._integracao_layout() AS l")).l).toEqual([...LAYOUT]);
+      const r = await um<{ faltam: string; campos: string[]; lim: number; pag: number; foto: number; blq: number; rev: number }>(c,
+        `SELECT (SELECT count(*) FROM public.tenants t WHERE NOT EXISTS (SELECT 1 FROM public.integracao_config x WHERE x.tenant_id = t.id)) AS faltam,
+                c.campos, c.limite_por_minuto AS lim, c.max_por_pagina AS pag, c.validade_foto_dias AS foto, c.bloqueio_tentativas AS blq, c.rev
+           FROM public.integracao_config c WHERE c.tenant_id = $1`, [T]);
+      expect(r).toEqual({ faltam: "0", campos: [...CAMPOS_PADRAO], lim: 60, pag: 50, foto: 7, blq: 10, rev: 1 });
+      await expect(c.query(`UPDATE public.integracao_config SET limite_por_minuto = 601 WHERE tenant_id = $1`, [T]))
+        .rejects.toThrow(/integracao_config_limite_chk/);
+    });
+  });
+
+  it("segredo HMAC: 1 linha, 32 bytes; _integracao_layout sem EXECUTE p/ PUBLIC/anon/authenticated", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      expect((await um<{ n: string; b: number }>(c, "SELECT count(*) AS n, max(octet_length(segredo)) AS b FROM public.integracao_segredo")))
+        .toEqual({ n: "1", b: 32 });
+      const acl = await um<{ a: boolean; n: boolean; p: boolean }>(c,
+        `SELECT has_function_privilege('authenticated', 'public._integracao_layout()', 'EXECUTE') AS a,
+                has_function_privilege('anon', 'public._integracao_layout()', 'EXECUTE') AS n,
+                has_function_privilege('public', 'public._integracao_layout()', 'EXECUTE') AS p`);
+      expect(acl).toEqual({ a: false, n: false, p: false });
+    });
+  });
+
+  it("integracao_produtos é 1:1 com modelos por TRIGGER (não UNIQUE) + índice plano", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      const m = (await um<{ id: string }>(c, `SELECT id FROM public.modelos WHERE tenant_id = $1 LIMIT 1`, [T])).id;
+      await c.query(`INSERT INTO public.integracao_produtos (tenant_id, modelo_id) VALUES ($1, $2)`, [T, m]);
+      await c.query("SAVEPOINT a");
+      await expect(c.query(`INSERT INTO public.integracao_produtos (tenant_id, modelo_id) VALUES ($1, $2)`, [T, m]))
+        .rejects.toThrow(/invariante 1:1/);
+      await c.query("ROLLBACK TO SAVEPOINT a");
+      const idx = await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM pg_indexes WHERE tablename = 'integracao_produtos' AND indexdef LIKE '%(modelo_id)%' AND indexdef NOT LIKE '%UNIQUE%'`);
+      expect(idx.n).toBe("1");
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("_seed_tenant_defaults: depois = antes + SÓ o INSERT da config (diff mínimo)", async () => {
+    await withTx(async (c) => {
+      const antes = await DEF(c, "_seed_tenant_defaults(uuid)");
+      expect((await um<{ m: string }>(c, "SELECT md5($1) AS m", [antes])).m).toBe(MD5_ANTES.seed);
+      await prepara(c, 1);
+      const depois = await DEF(c, "_seed_tenant_defaults(uuid)");
+      expect(depois).toContain(TRECHO_SEED);
+      expect(depois.replace(TRECHO_SEED, "")).toBe(antes);
+    });
+  });
+
+  it("loja NOVA e reset_loja semeiam a config padrão (N9/n6)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await comoUsuario(c, U);
+      const nova = (await um<{ id: string }>(c, `INSERT INTO public.tenants (nome) VALUES ('Loja Integracao Teste') RETURNING id`)).id;
+      expect((await um<{ campos: string[] }>(c, `SELECT campos FROM public.integracao_config WHERE tenant_id = $1`, [nova])).campos)
+        .toEqual([...CAMPOS_PADRAO]);
+      await c.query(`UPDATE public.integracao_config SET campos = '{nome}' WHERE tenant_id = $1`, [nova]);
+      await c.query(`SELECT public.reset_loja($1)`, [nova]);
+      expect((await um<{ campos: string[] }>(c, `SELECT campos FROM public.integracao_config WHERE tenant_id = $1`, [nova])).campos)
+        .toEqual([...CAMPOS_PADRAO]);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("inverso 1 desfaz a 1 (tabelas e função somem; _seed volta ao md5 de antes)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await aplica(c, INVERSOS[0]);
+      const r = await um<{ t: boolean; f: boolean; m: string }>(c,
+        `SELECT to_regclass('public.integracao_produtos') IS NULL AS t, to_regprocedure('public._integracao_layout()') IS NULL AS f,
+                md5(pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) AS m`);
+      expect(r).toEqual({ t: true, f: true, m: MD5_ANTES.seed });
+    });
+  });
+});
