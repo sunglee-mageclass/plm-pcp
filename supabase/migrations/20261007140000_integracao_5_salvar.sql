@@ -35,22 +35,34 @@ $guarda$;
 
 -- ruling do controlador, G-migration fix 3 #J1 (P-90 A): PASSO DE DADOS (backfill) logo após o $guarda$, ANTES de
 -- qualquer coisa — a REF do CARD vale. produtos_acabados.ref/produtos_importados.ref recebem modelos.ref do card
--- vinculado quando divergem (comparação EXATA, nullif(btrim(..),'') dos dois lados — mesma comparação da falta
--- "REF diferente" em _integracao_retrato_core). PULA (não mexe) quando: o card não tem REF (NULL/vazio); a REF do
--- card se REPETE em outro card da MESMA loja (ex.: Ave Rara ACBO0142 = CLUTCH CHIARA e CLUTCH LILLY) — ambos ficam
--- com a falta "REF diferente" até alguém acertar à mão. ORDEM: roda AQUI, ANTES de
--- fn_modelo_espelho_nome_ref/trg_modelo_espelho_nome_ref (a mão dupla copiaria nome/REF de volta) e antes de
--- qualquer coisa que dependa de estado integrável — na IDA nenhum produto é integrável ainda (integracao_produtos
--- está vazia; a trava fn_integracao_trava_espelho/m4 só age quando existe uma linha com estado IN
--- ('integravel','integrado'), o que não pode ocorrer antes desta migration terminar de rodar, já que
--- integracao_marcar só existe a partir da migration 3 e nenhuma tela grava lá antes do congelamento/RODAR desta
--- frente — confirmado na cópia: to_regclass('integracao_produtos') existe mas 0 linhas). Sem UNIQUE/índice único
--- em produtos_acabados.ref/produtos_importados.ref (só PK id — confirmado via pg_constraint) e sem gatilho que
--- reaja a UPDATE OF ref nessas tabelas (trg_pa_ref/trg_pi_ref só disparam em BEFORE INSERT) — o UPDATE do backfill
--- não pode violar unicidade nem disparar side-effect indesejado. Idempotente (2ª ida = 0 linhas, o WHERE já exige
--- divergência). RAISE NOTICE com a contagem (atualizadas/puladas sem REF/puladas por REF repetida), ASCII.
--- Inverso: NÃO devolve as REFs antigas (decisão aceita pelo dono na P-90; só o pg_dump reverteria) — ver rollback
--- 5 e o relatório.
+-- vinculado quando divergem. PULA (não mexe) quando: o card não tem REF (NULL/vazio); a REF do card se REPETE em
+-- outro card da MESMA loja (ex.: Ave Rara ACBO0142 = CLUTCH CHIARA e CLUTCH LILLY) — ambos ficam com a falta "REF
+-- diferente" até alguém acertar à mão. ORDEM: roda AQUI, ANTES de fn_modelo_espelho_nome_ref/trg_modelo_espelho_
+-- nome_ref (a mão dupla copiaria nome/REF de volta) e antes de qualquer coisa que dependa de estado integrável —
+-- na IDA nenhum produto é integrável ainda (integracao_produtos está vazia; a trava fn_integracao_trava_espelho/
+-- m4 só age quando existe uma linha com estado IN ('integravel','integrado'), o que não pode ocorrer antes desta
+-- migration terminar de rodar, já que integracao_marcar só existe a partir da migration 3 e nenhuma tela grava lá
+-- antes do congelamento/RODAR desta frente — confirmado na cópia: to_regclass('integracao_produtos') existe mas 0
+-- linhas). Sem UNIQUE/índice único em produtos_acabados.ref/produtos_importados.ref (só PK id — confirmado via
+-- pg_constraint) e sem gatilho que reaja a UPDATE OF ref nessas tabelas (trg_pa_ref/trg_pi_ref só disparam em
+-- BEFORE INSERT) — o UPDATE do backfill não pode violar unicidade nem disparar side-effect indesejado.
+-- Idempotente (2ª ida = 0 linhas, o WHERE já exige divergência). RAISE NOTICE com a contagem (atualizadas/puladas
+-- sem REF/puladas por REF repetida), ASCII. Inverso: NÃO devolve as REFs antigas (decisão aceita pelo dono na
+-- P-90; só o pg_dump reverteria) — ver rollback 5 e o relatório.
+-- ruling do controlador, G-migration fix 4 #K2: 3 correções sobre a rodada anterior (achadas no delta 3/pré-
+-- congelamento, antes do congelamento dos 12 SQL):
+-- (a) "REF repetida" agora é a REF do card aparecer em QUALQUER OUTRO modelos DA MESMA LOJA (não só entre os
+--     produtos divergentes) — antes, um card X com REF divergente cuja REF coincidisse com um card Y JÁ IGUAL ao
+--     seu próprio produto (Y não-divergente, então fora da CTE `divergentes`) não era detectado como repetição:
+--     X seria "atualizado" para uma REF que Y já tem, criando uma duplicata nova em vez de pular. O EXISTS de
+--     repetição agora consulta public.modelos inteiro (mesma tenant, id diferente), não mais só os divergentes.
+-- (b) o JOIN produto<->card agora exige explicitamente a MESMA loja (`p.tenant_id = m.tenant_id`) — defesa em
+--     profundidade (o vínculo cruzado já é bloqueado na origem por trg_pa_modelo_tenant/trg_pi_modelo_tenant,
+--     H1, mas o backfill não deve depender só disso).
+-- (c) a comparação "diverge?" passa a usar EXATAMENTE a mesma expressão da falta "REF diferente" em
+--     _integracao_retrato_core (m2:317-334): `nullif(x, '')` SEM btrim (não `nullif(btrim(x),'')`) — e o valor
+--     GRAVADO é a REF do card COMO ESTÁ (m.ref::text, sem transformar) — assim, depois da ida, a falta "REF
+--     diferente" (que também não faz btrim) some de fato para os casos corrigidos, byte a byte.
 DO $backfill_ref_j1$
 DECLARE
   v_atualizadas int;
@@ -59,16 +71,17 @@ DECLARE
 BEGIN
   WITH divergentes AS (
     SELECT pa.id AS produto_id, pa.tenant_id, pa.ref AS ref_atual,
-           nullif(btrim(coalesce(m.ref::text, '')), '') AS ref_card
+           nullif(m.ref::text, '') AS ref_card
       FROM public.produtos_acabados pa
-      JOIN public.modelos m ON m.id = pa.modelo_id
-     WHERE nullif(btrim(coalesce(pa.ref, '')), '') IS DISTINCT FROM nullif(btrim(coalesce(m.ref::text, '')), '')
+      JOIN public.modelos m ON m.id = pa.modelo_id AND m.tenant_id = pa.tenant_id
+     WHERE nullif(pa.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')
   ),
   repetidas AS (
     SELECT d.produto_id FROM divergentes d
      WHERE d.ref_card IS NOT NULL
-       AND EXISTS (SELECT 1 FROM divergentes d2
-                    WHERE d2.tenant_id = d.tenant_id AND d2.ref_card = d.ref_card AND d2.produto_id <> d.produto_id)
+       AND EXISTS (SELECT 1 FROM public.modelos m2
+                    WHERE m2.tenant_id = d.tenant_id AND m2.id <> (SELECT pa2.modelo_id FROM public.produtos_acabados pa2 WHERE pa2.id = d.produto_id)
+                      AND nullif(m2.ref::text, '') = d.ref_card)
   ),
   atualizaveis AS (
     SELECT d.produto_id, d.ref_card FROM divergentes d
@@ -86,16 +99,17 @@ BEGIN
 
   WITH divergentes AS (
     SELECT pi.id AS produto_id, pi.tenant_id, pi.ref AS ref_atual,
-           nullif(btrim(coalesce(m.ref::text, '')), '') AS ref_card
+           nullif(m.ref::text, '') AS ref_card
       FROM public.produtos_importados pi
-      JOIN public.modelos m ON m.id = pi.modelo_id
-     WHERE nullif(btrim(coalesce(pi.ref, '')), '') IS DISTINCT FROM nullif(btrim(coalesce(m.ref::text, '')), '')
+      JOIN public.modelos m ON m.id = pi.modelo_id AND m.tenant_id = pi.tenant_id
+     WHERE nullif(pi.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')
   ),
   repetidas AS (
     SELECT d.produto_id FROM divergentes d
      WHERE d.ref_card IS NOT NULL
-       AND EXISTS (SELECT 1 FROM divergentes d2
-                    WHERE d2.tenant_id = d.tenant_id AND d2.ref_card = d.ref_card AND d2.produto_id <> d.produto_id)
+       AND EXISTS (SELECT 1 FROM public.modelos m2
+                    WHERE m2.tenant_id = d.tenant_id AND m2.id <> (SELECT pi2.modelo_id FROM public.produtos_importados pi2 WHERE pi2.id = d.produto_id)
+                      AND nullif(m2.ref::text, '') = d.ref_card)
   ),
   atualizaveis AS (
     SELECT d.produto_id, d.ref_card FROM divergentes d

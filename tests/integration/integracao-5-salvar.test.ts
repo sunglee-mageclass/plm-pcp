@@ -390,7 +390,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       const rv = await revenda(c);
       const im = await importado(c);
       await c.query(`UPDATE public.modelos SET ref = NULL WHERE id = $1`, [rv.id]);
-      await c.query(`UPDATE public.modelos SET ref = '   ' WHERE id = $1`, [im.id]); // só espaço = vazio (btrim)
+      // ruling do controlador, G-migration fix 4 #K2(c): a comparação "diverge?" e o "sem REF" usam EXATAMENTE
+      // nullif(x,'') SEM btrim (mesma expressão da falta "REF diferente" em _integracao_retrato_core) — string
+      // vazia de verdade ('') é o caso "sem REF"; só-espaço ('   ') NÃO é mais tratado como vazio (é um valor real
+      // que diverge e, se não repetir, É gravado no produto — comportamento coerente com a falta, que também não
+      // faz btrim).
+      await c.query(`UPDATE public.modelos SET ref = '' WHERE id = $1`, [im.id]);
       const refPaAntes = rv.ref;
       const refPiAntes = im.ref;
       await aplica(c, MIGRACOES[4]);
@@ -439,6 +444,78 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
         const cardOutro = await um<{ r: string | null }>(c, `SELECT ref::text AS r FROM public.modelos WHERE id = $1`, [outroPa.modelo_id]);
         expect(cardOutro.r).toBe("REPETIDA1");
       }
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("K2(a) (ruling do controlador, G-migration fix 4): REF do card repete num card NAO-DIVERGENTE da mesma loja (ex.: o próprio produto do outro card já tem essa REF) — pulado também", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      // 'jaIgual': card e produto JÁ com a MESMA REF ('JAIGUAL01') — NÃO diverge, então fica fora da CTE
+      // `divergentes` inteiramente. 'divergente': card com a MESMA string 'JAIGUAL01', mas o PRODUTO dele tem
+      // outra REF — diverge. Antes do fix K2(a), a checagem de repetição só olhava outros produtos DIVERGENTES,
+      // então 'divergente' teria sido "atualizado" para 'JAIGUAL01' mesmo já existindo em 'jaIgual' (duplicata
+      // nova). Com o fix, a checagem consulta TODOS os modelos da loja — 'divergente' é pulado.
+      const jaIgual = await revenda(c);
+      await c.query(`UPDATE public.modelos SET ref = 'JAIGUAL01' WHERE id = $1`, [jaIgual.id]);
+      await c.query(`UPDATE public.produtos_acabados SET ref = 'JAIGUAL01' WHERE id = $1`, [jaIgual.produtoId]);
+      const divergente = await revenda(c);
+      const refAntesDivergente = divergente.ref;
+      await c.query(`UPDATE public.modelos SET ref = 'JAIGUAL01' WHERE id = $1`, [divergente.id]);
+      await aplica(c, MIGRACOES[4]);
+      // 'jaIgual' não muda (nunca divergiu).
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [jaIgual.produtoId])).r).toBe("JAIGUAL01");
+      // 'divergente' é PULADO — a REF 'JAIGUAL01' já pertence a outro card da mesma loja (não-divergente), então
+      // conta como repetida; o produto mantém sua REF antiga, sem virar uma 2ª cópia de 'JAIGUAL01'.
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [divergente.produtoId])).r).toBe(refAntesDivergente);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("K2(b) (ruling do controlador, G-migration fix 4): produto vinculado (por fora do guard) a um card de OUTRA loja NAO e atualizado — join exige a MESMA loja", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const outroCard = await um<{ id: string; tenant_id: string; ref: string | null } | undefined>(c,
+        `SELECT m.id, m.tenant_id, m.ref::text AS ref FROM public.modelos m WHERE m.tenant_id <> $1
+           AND NOT EXISTS (SELECT 1 FROM public.produtos_acabados pa WHERE pa.modelo_id = m.id)
+         ORDER BY m.id LIMIT 1`, [T]);
+      if (!outroCard) return; // skip limpo se a cópia não tiver nenhum card de outra loja sem produto espelho
+      const rv = await revenda(c);
+      const refAntes = rv.ref;
+      let ligado = false;
+      try {
+        await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_pa_modelo_tenant`);
+        ligado = true;
+        await c.query(`UPDATE public.produtos_acabados SET modelo_id = $2 WHERE id = $1`, [rv.produtoId, outroCard.id]);
+        // Diverge a REF do card de OUTRA loja (o backfill roda para o tenant de rv/produto, T — o join agora
+        // exige explicitamente m.tenant_id = pa.tenant_id, então mesmo com o vínculo cruzado montado, este
+        // produto não entra em NENHUMA das duas CTEs de tenant algum: para T ele apontaria pro card errado (outro
+        // tenant), para o outro tenant ele nem está no escopo do backfill (pa.tenant_id = T, não o outro)).
+        await c.query(`UPDATE public.modelos SET ref = 'CRUZADOX1' WHERE id = $1`, [outroCard.id]);
+        await aplica(c, MIGRACOES[4]);
+        expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe(refAntes);
+      } finally {
+        if (ligado) await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_pa_modelo_tenant`);
+      }
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("K2(c) (ruling do controlador, G-migration fix 4): REF com espaco nas pontas — comparacao SEM btrim, coerente com a falta 'REF diferente'", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      // Card com espaço nas pontas ('  RVDESPACO  ') diverge do produto (sem espaço) — SEM btrim, os dois valores
+      // são literalmente diferentes, e nenhum outro card compartilha essa string EXATA (com espaço) — não repete.
+      await c.query(`UPDATE public.modelos SET ref = '  RVDESPACO  ' WHERE id = $1`, [rv.id]);
+      await aplica(c, MIGRACOES[4]);
+      // GREEN: o produto recebe a REF do card EXATAMENTE como está (com os espaços), sem transformar — coerente
+      // com _integracao_retrato_core (que também compara nullif(x,'') sem btrim): depois da ida, pa.ref = m.ref
+      // byte a byte, então a falta "REF diferente" (que compara os 2 sem btrim) some de fato.
+      const pa = await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId]);
+      expect(pa.r).toBe("  RVDESPACO  ");
+      const card = await um<{ r: string }>(c, `SELECT ref::text AS r FROM public.modelos WHERE id = $1`, [rv.id]);
+      expect(pa.r).toBe(card.r); // nullif(pa.ref,'') = nullif(m.ref,'') — a falta "REF diferente" some
     });
   });
 

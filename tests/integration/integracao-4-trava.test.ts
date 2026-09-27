@@ -4,8 +4,8 @@ import { Client } from "pg";
 import type { Client as ClientType } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
 import {
-  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, T, U, aplica, camposLoja, imediato, importado, keywordsLoja,
-  modeloInterno, prepara, revenda,
+  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, MIGRACOES, T, U, aplica, camposLoja, imediato, importado, keywordsLoja,
+  ler, modeloInterno, prepara, revenda,
 } from "./integracao-helpers";
 
 const SSL = false; // cópia local, sem SSL — mesmo padrão de integracao-3-estados.test.ts/kanban-auto.test.ts
@@ -220,6 +220,80 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
           await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_pa_modelo_tenant`);
           await c.query(`ALTER TABLE public.produtos_importados ENABLE TRIGGER trg_pi_modelo_tenant`);
         }
+      }
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("K3 (ruling do controlador, G-migration fix 4): linha de integracao_produtos INSERIDA para o card da OUTRA loja prova o RED sem a checagem de tenant antes do FOR SHARE", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const outroCard = await um<{ id: string; tenant_id: string; nome: string } | undefined>(c,
+        `SELECT id, tenant_id, nome::text AS nome FROM public.modelos m WHERE tenant_id <> $1
+           AND NOT EXISTS (SELECT 1 FROM public.produtos_acabados pa WHERE pa.modelo_id = m.id)
+         ORDER BY id LIMIT 1`, [T]);
+      if (!outroCard) return; // skip limpo se a cópia não tiver nenhum modelo de outra loja sem produto espelho
+      expect(outroCard.tenant_id).not.toBe(T);
+      const rv = await revenda(c);
+      let ligado = false;
+      try {
+        // Vincula o produto da loja de teste ao card de OUTRA loja (só possível por fora do guard, que o H1 já
+        // fecha na origem — mesmo recurso do teste J5/H4).
+        await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_pa_modelo_tenant`);
+        ligado = true;
+        await c.query(`UPDATE public.produtos_acabados SET modelo_id = $2 WHERE id = $1`, [rv.produtoId, outroCard.id]);
+
+        // K3: insere a linha de integracao_produtos para o CARD DA OUTRA LOJA em si — (tenant_id = T, modelo_id =
+        // outroCard.id) — o mesmo "1 bit vazado" que o G8/G-migration fix 1 documentou: a tabela não tem NENHUM
+        // vínculo (FK/trigger) forçando integracao_produtos.tenant_id a bater com modelos.tenant_id do modelo_id
+        // referenciado, então uma linha dessas É POSSÍVEL de existir (mesmo que nenhum caminho hoje a crie de
+        // propósito — é a MESMA classe de gap que H1 fechou para modelo_id nos produtos, mas para integracao_
+        // produtos não há guard nenhum).
+        await c.query(
+          `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos) VALUES ($1, $2, 'integravel', ARRAY['nome'])`,
+          [T, outroCard.id]);
+
+        // GREEN (código real, com a checagem de tenant intacta em fn_integracao_trava_espelho): renomear o produto
+        // (que teria 'nome' travado SE a trigger lesse essa linha) PASSA — a checagem de tenant (ANTES do FOR
+        // SHARE) vê que outroCard.tenant_id != rv (produto).tenant_id e pula por inteiro, sem nunca chegar ao
+        // SELECT que acharia essa linha.
+        expect(await falha(c, `UPDATE public.produtos_acabados SET nome = nome || ' Z' WHERE id = $1`, [rv.produtoId])).toBe("PASSOU");
+
+        // RED: remove SÓ a checagem de tenant (o bloco "IF NOT EXISTS (...) THEN ... RETURN; END IF;" logo antes
+        // do FOR SHARE) do texto de fn_integracao_trava_espelho — mutação por regex no texto lido do arquivo,
+        // aplicada nesta txn via aplicarSql/semTravas (nunca editando o arquivo em si; mesmo padrão dos testes
+        // "Minor #7"/G9/J1-RED desta suíte). Sem a checagem, o FOR SHARE e o SELECT seguinte rodam incondicional-
+        // mente sobre OLD.modelo_id — como o SELECT ainda filtra por ip.tenant_id = OLD.tenant_id (o tenant do
+        // PRODUTO, que é T), a linha K3 (tenant_id=T, modelo_id=outroCard.id) É achada, e o rename trava.
+        const original = ler(MIGRACOES[3]);
+        const semChecagemEspelho = original.replace(
+          /  IF NOT EXISTS \(SELECT 1 FROM public\.modelos WHERE id = OLD\.modelo_id AND tenant_id = OLD\.tenant_id\) THEN\n    IF TG_OP = 'DELETE' THEN\n      RETURN OLD;\n    END IF;\n    RETURN NEW;\n  END IF;\n/,
+          "",
+        );
+        expect(semChecagemEspelho).not.toBe(original); // confere que o regex casou de verdade
+        // Extrai só a redefinição de fn_integracao_trava_espelho (CREATE OR REPLACE FUNCTION ... AS $function$ ...
+        // $function$;) do texto mutado e reaplica por cima da versão já carregada por prepara(c, 4) — não precisa
+        // reaplicar a migration 4 inteira (evita recriar tabelas/gatilhos já existentes na mesma txn).
+        const defMatch = semChecagemEspelho.match(
+          /CREATE OR REPLACE FUNCTION public\.fn_integracao_trava_espelho\(\)[\s\S]*?\$function\$;/,
+        );
+        if (!defMatch) throw new Error("nao achei a definicao de fn_integracao_trava_espelho no texto mutado");
+        await c.query(defMatch[0]);
+
+        expect(await falha(c, `UPDATE public.produtos_acabados SET nome = nome || ' Z2' WHERE id = $1`, [rv.produtoId]))
+          .toMatch(/^42501 integracao_travado: nome/);
+      } finally {
+        if (ligado) {
+          await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_pa_modelo_tenant`);
+        }
+        // Restaura a definição ORIGINAL da função (com a checagem de tenant) antes do withTx desfazer a txn — não
+        // é estritamente necessário (a txn inteira é revertida), mas evita qualquer efeito residual caso um savepoint
+        // externo mude esse comportamento no futuro. A extração usa o mesmo regex de match do arquivo real (fonte
+        // única, sem redigitar).
+        const defOriginal = ler(MIGRACOES[3]).match(
+          /CREATE OR REPLACE FUNCTION public\.fn_integracao_trava_espelho\(\)[\s\S]*?\$function\$;/,
+        );
+        if (defOriginal) await c.query(defOriginal[0]).catch(() => {});
       }
     });
   });

@@ -3,6 +3,12 @@
 -- Preços fixos de importado já gravados FICAM (a coluna já existia; o recálculo continua lendo); a mão dupla por gatilho sai.
 -- D40/revisão T1 #1: o $guarda$ recusa se _salvar_produto_importado_core mudou depois da migration 5 (aceita só o
 -- "antes" exato ou "antes"+TRECHO_IMP_FIXO — nunca sobrescreve uma mudança de outra frente em silêncio).
+-- ruling do controlador, G-migration fix 4 #K1 (clareza, sem mudança de comportamento): ESTA VOLTA NÃO DESFAZ O
+-- BACKFILL DA REF (J1/P-90 A) que a IDA desta migration faz. As REFs de Produto Acabado/Importado que a ida
+-- corrigiu (~32 na cópia, na contagem da rodada gmig-fix3/3b) FICAM como estão depois da volta — não existe
+-- código aqui que devolva o valor antigo (decisão aceita pelo dono na P-90: o backfill é irreversível por
+-- construção, só um pg_dump tirado ANTES da ida devolveria as REFs de antes). O `$guarda$`/os md5 de função
+-- abaixo NÃO mudam por causa disto — é só documentação do comportamento já existente.
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
