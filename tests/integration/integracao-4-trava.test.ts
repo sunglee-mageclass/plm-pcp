@@ -134,14 +134,93 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
 
       // ruling do controlador, G-migration fix 2 #H1 (A-d1 + B-DI-1): produtos_importados GANHOU o mesmo guard
       // (trg_pi_modelo_tenant, reusa enforce_produto_acabado_modelo_tenant) — o vínculo cruzado que antes era
-      // possível (gap T5 #3) agora é BLOQUEADO igual à revenda. A metade "espelho" do G8 (fn_integracao_trava_
-      // espelho não ler/travar card de outra loja) fica coberta pelo teste dedicado H1 abaixo, que constrói o
-      // vínculo cruzado por FORA da trigger (INSERT direto, sem passar pelo guard) — a única forma de reproduzir
-      // o cenário agora que a causa raiz está fechada.
+      // possível (gap T5 #3) agora é BLOQUEADO igual à revenda.
+      // ruling do controlador, G-migration fix 3 #J5 (d2-M1): o comentário ANTIGO aqui dizia que a metade
+      // "espelho" do G8 (fn_integracao_trava_espelho/_variantes não LER nem TRAVAR o card de outra loja quando o
+      // tenant não bate) "ficava coberta pelo teste dedicado H1", mas os testes H1/H5 só provam a RECUSA do
+      // vínculo (o UPDATE/INSERT nunca chegam a existir) — nenhum deles exercita o código de skip DENTRO das 2
+      // funções de trava, porque elas só rodam quando já existe um modelo_id vinculado. Corrigido: o teste
+      // dedicado "J5" abaixo constrói o vínculo cruzado DENTRO da própria txn via DISABLE TRIGGER (o mesmo
+      // recurso que os testes de mão dupla da suíte 5 já usam), com try/finally garantindo o ENABLE em todos os
+      // caminhos (inclusive se uma asserção falhar no meio).
       const imp = await importado(c);
       const bloqueadoImp = await falha(c, `UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`,
         [imp.produtoId, outroCard.id]);
       expect(bloqueadoImp).toMatch(/Modelo de outra loja/);
+    });
+  });
+
+  it("J5 (ruling do controlador, G-migration fix 3 · d2-M1): com o vinculo cruzado montado DENTRO da txn (DISABLE TRIGGER), fn_integracao_trava_espelho/_variantes pulam por inteiro — o card da OUTRA loja nao e lido nem travado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      // outroCard precisa ser um card SEM produto espelho já vinculado (senão o UPDATE de modelo_id esbarraria na
+      // invariante 1:1 de enforce_unique_fk ANTES de chegar em fn_integracao_trava_espelho — não é o que este
+      // teste quer provar).
+      const outroCard = await um<{ id: string; tenant_id: string; nome: string; ref: string | null }>(c,
+        `SELECT m.id, m.tenant_id, m.nome::text AS nome, m.ref::text AS ref FROM public.modelos m
+          WHERE m.tenant_id <> $1
+            AND NOT EXISTS (SELECT 1 FROM public.produtos_acabados pa WHERE pa.modelo_id = m.id)
+            AND NOT EXISTS (SELECT 1 FROM public.produtos_importados pi WHERE pi.modelo_id = m.id)
+          ORDER BY m.id LIMIT 1`, [T]);
+      expect(outroCard.tenant_id).not.toBe(T);
+      const revendaCruzada = await revenda(c);
+      const importadoCruzado = await importado(c);
+      let ligados = false;
+      try {
+        // Monta o vínculo cruzado DENTRO da txn, por FORA do guard (trg_pa_modelo_tenant/trg_pi_modelo_tenant) —
+        // única forma de reproduzir hoje o cenário que fn_integracao_trava_espelho precisa saber pular (a causa
+        // raiz do vínculo em si foi fechada pelo H1; isto é só para exercitar a checagem de tenant DENTRO da
+        // trava, que continua no código como defesa em profundidade).
+        await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_pa_modelo_tenant`);
+        await c.query(`ALTER TABLE public.produtos_importados DISABLE TRIGGER trg_pi_modelo_tenant`);
+        ligados = true;
+        await c.query(`UPDATE public.produtos_acabados SET modelo_id = $2 WHERE id = $1`, [revendaCruzada.produtoId, outroCard.id]);
+        await c.query(`UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`, [importadoCruzado.produtoId, outroCard.id]);
+        // Marca os 2 produtos como 'integravel' com variantes_chaves preenchido DIRETO (sem passar por
+        // integracao_marcar/_integracao_gates, que reconfeririam o vínculo) — só para dar a fn_integracao_trava_*
+        // algo para "ler" caso o guard de tenant não pulasse antes do FOR SHARE.
+        const chaveRevenda = (await um<{ k: string }>(c,
+          `SELECT public._sku_variante_key(cor_id, cor_apelido_id)::text AS k FROM public.produto_acabado_variantes WHERE produto_acabado_id = $1`,
+          [revendaCruzada.produtoId])).k;
+        const chaveImportado = (await um<{ k: string }>(c,
+          `SELECT public._sku_variante_key(cor_id, cor_apelido_id)::text AS k FROM public.produto_importado_variantes WHERE produto_importado_id = $1`,
+          [importadoCruzado.produtoId])).k;
+        await c.query(
+          `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, variantes_chaves)
+           VALUES ($1, $2, 'integravel', ARRAY['nome'], ARRAY[$3]::uuid[])`,
+          [T, revendaCruzada.id, chaveRevenda]);
+        await c.query(
+          `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, variantes_chaves)
+           VALUES ($1, $2, 'integravel', ARRAY['nome'], ARRAY[$3]::uuid[])`,
+          [T, importadoCruzado.id, chaveImportado]);
+
+        // fn_integracao_trava_espelho: renomear/trocar REF nos 2 produtos (que teriam campos travados se a trava
+        // LESSE o card errado) NÃO estoura 42501 — a checagem de tenant (OLD.tenant_id do produto vs. tenant_id
+        // do card apontado) pula ANTES do FOR SHARE/SELECT em integracao_produtos.
+        expect(await falha(c, `UPDATE public.produtos_acabados SET nome = nome || ' Z' WHERE id = $1`, [revendaCruzada.produtoId])).toBe("PASSOU");
+        expect(await falha(c, `UPDATE public.produtos_importados SET nome = nome || ' Z' WHERE id = $1`, [importadoCruzado.produtoId])).toBe("PASSOU");
+        // fn_integracao_trava_variantes: trocar a cor da variante (que teria o conjunto travado se a trava LESSE
+        // variantes_chaves do card errado) também NÃO estoura, e o CONSTRAINT TRIGGER adiado (imediato()) confirma.
+        const outraCor = (await um<{ id: string }>(c, `INSERT INTO public.cores (tenant_id, nome) VALUES ($1, 'Cor J5') RETURNING id`, [T])).id;
+        await c.query(`UPDATE public.produto_acabado_variantes SET cor_id = $2 WHERE produto_acabado_id = $1`, [revendaCruzada.produtoId, outraCor]);
+        await c.query(`UPDATE public.produto_importado_variantes SET cor_id = $2 WHERE produto_importado_id = $1`, [importadoCruzado.produtoId, outraCor]);
+        await expect(imediato(c)).resolves.not.toThrow();
+
+        // O card de OUTRA loja não foi lido/travado: nome/REF continuam intocados (a trava nunca chegou a olhar
+        // pra ele — se tivesse lido, o FOR SHARE não muda dado, mas um bug de leitura cruzada apareceria como
+        // exceção nas linhas acima, já que o card de outra loja nunca teve integracao_produtos vinculada a ele).
+        const cardDepois = await um<{ nome: string; ref: string | null }>(c,
+          `SELECT nome::text AS nome, ref::text AS ref FROM public.modelos WHERE id = $1`, [outroCard.id]);
+        expect(cardDepois.nome).toBe(outroCard.nome);
+        expect(cardDepois.ref).toBe(outroCard.ref);
+      } finally {
+        if (ligados) {
+          await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_pa_modelo_tenant`);
+          await c.query(`ALTER TABLE public.produtos_importados ENABLE TRIGGER trg_pi_modelo_tenant`);
+        }
+      }
     });
   });
 

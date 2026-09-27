@@ -149,6 +149,54 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
     });
   });
 
+  it("J3 (ruling do controlador, G-migration fix 3 · P-99 A): produto INTEGRAVEL reprovado nao entra na pagina nem na reserva; desreprovar volta a levar; paginacao correta (nao conta pro 'tem mais')", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      await c.query(`UPDATE public.integracao_produtos SET estado = 'nao_integravel' WHERE tenant_id = $1`, [T]); // isola a loja de teste
+      const ok1 = await modeloInterno(c);
+      const rep = await modeloInterno(c);
+      const ok2 = await modeloInterno(c);
+      await marcar(c, ok1.id);
+      await marcar(c, rep.id);
+      await marcar(c, ok2.id);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [rep.id]);
+      const k = await chave(c);
+      // mesma definição do D9 (status_planejamento OU status_desenvolvimento = 'reprovado') — reprovado NAO aparece
+      // na pagina, mas continua 'integravel' no banco (nenhuma mudanca de ESTADO).
+      const r1 = await ler(c, k.chave);
+      const ids = r1.produtos.map((p: any) => p.modelo_id);
+      expect(ids).toContain(ok1.id);
+      expect(ids).toContain(ok2.id);
+      expect(ids).not.toContain(rep.id);
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [rep.id])).e).toBe("integravel");
+      // "pedidos"/reserva do acesso conta só os 2 nao-reprovados (o reprovado nunca chega a ser "pedido").
+      const acc = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_acessos WHERE id = $1`, [r1.acesso_id]);
+      expect(acc.d).toEqual({ pedidos: 2 });
+      // paginacao correta: com limite=2 os 2 nao-reprovados cabem numa pagina só (o reprovado nao conta pro "tem
+      // mais" nem pro keyset) — proximo_cursor null.
+      const pag = await ler(c, k.chave, { limite: 2 });
+      expect(pag.produtos).toHaveLength(2);
+      expect(pag.proximo_cursor).toBeNull();
+      // confirmar so entrega os 2 nao-reprovados (o reprovado nunca esteve na pagina pra ser confirmado).
+      const cf = await confirmar(c, r1);
+      expect(cf.status).toBe("ok");
+      expect(cf.confirmados.map((x: any) => x.modelo_id).sort()).toEqual([ok1.id, ok2.id].sort());
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [rep.id])).e).toBe("integravel");
+      // desreprovar volta a ser levado (nenhum estado mudou enquanto reprovado — so a VISIBILIDADE na API).
+      await c.query(`UPDATE public.modelos SET status_planejamento = NULL WHERE id = $1`, [rep.id]);
+      const r2 = await ler(c, k.chave);
+      expect(r2.produtos.map((p: any) => p.modelo_id)).toContain(rep.id);
+      // integrado reprovado CONTINUA entregue (mesma excecao do D9/G2 — so 'integravel' reprovado e excluido).
+      const cf2 = await confirmar(c, r2);
+      expect(cf2.confirmados.map((x: any) => x.modelo_id)).toContain(rep.id);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [rep.id]);
+      const r3 = await ler(c, k.chave, { incluir: true });
+      expect(r3.produtos.map((p: any) => p.modelo_id)).toContain(rep.id); // 'integrado' reprovado segue visivel
+    });
+  });
+
   it("G5 (ruling do controlador, G-migration fix 1) + H6 (fix 2 · A + B-DM-4): modelo_id/produtos invalidos de _entrega seguem o contrato EXATO de erro (parametro_invalido, sem 22P02/22023, acesso continua reservado)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);

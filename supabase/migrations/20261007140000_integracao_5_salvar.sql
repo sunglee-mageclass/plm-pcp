@@ -33,6 +33,86 @@ BEGIN
 END
 $guarda$;
 
+-- ruling do controlador, G-migration fix 3 #J1 (P-90 A): PASSO DE DADOS (backfill) logo após o $guarda$, ANTES de
+-- qualquer coisa — a REF do CARD vale. produtos_acabados.ref/produtos_importados.ref recebem modelos.ref do card
+-- vinculado quando divergem (comparação EXATA, nullif(btrim(..),'') dos dois lados — mesma comparação da falta
+-- "REF diferente" em _integracao_retrato_core). PULA (não mexe) quando: o card não tem REF (NULL/vazio); a REF do
+-- card se REPETE em outro card da MESMA loja (ex.: Ave Rara ACBO0142 = CLUTCH CHIARA e CLUTCH LILLY) — ambos ficam
+-- com a falta "REF diferente" até alguém acertar à mão. ORDEM: roda AQUI, ANTES de
+-- fn_modelo_espelho_nome_ref/trg_modelo_espelho_nome_ref (a mão dupla copiaria nome/REF de volta) e antes de
+-- qualquer coisa que dependa de estado integrável — na IDA nenhum produto é integrável ainda (integracao_produtos
+-- está vazia; a trava fn_integracao_trava_espelho/m4 só age quando existe uma linha com estado IN
+-- ('integravel','integrado'), o que não pode ocorrer antes desta migration terminar de rodar, já que
+-- integracao_marcar só existe a partir da migration 3 e nenhuma tela grava lá antes do congelamento/RODAR desta
+-- frente — confirmado na cópia: to_regclass('integracao_produtos') existe mas 0 linhas). Sem UNIQUE/índice único
+-- em produtos_acabados.ref/produtos_importados.ref (só PK id — confirmado via pg_constraint) e sem gatilho que
+-- reaja a UPDATE OF ref nessas tabelas (trg_pa_ref/trg_pi_ref só disparam em BEFORE INSERT) — o UPDATE do backfill
+-- não pode violar unicidade nem disparar side-effect indesejado. Idempotente (2ª ida = 0 linhas, o WHERE já exige
+-- divergência). RAISE NOTICE com a contagem (atualizadas/puladas sem REF/puladas por REF repetida), ASCII.
+-- Inverso: NÃO devolve as REFs antigas (decisão aceita pelo dono na P-90; só o pg_dump reverteria) — ver rollback
+-- 5 e o relatório.
+DO $backfill_ref_j1$
+DECLARE
+  v_atualizadas int;
+  v_sem_ref int;
+  v_repetidas int;
+BEGIN
+  WITH divergentes AS (
+    SELECT pa.id AS produto_id, pa.tenant_id, pa.ref AS ref_atual,
+           nullif(btrim(coalesce(m.ref::text, '')), '') AS ref_card
+      FROM public.produtos_acabados pa
+      JOIN public.modelos m ON m.id = pa.modelo_id
+     WHERE nullif(btrim(coalesce(pa.ref, '')), '') IS DISTINCT FROM nullif(btrim(coalesce(m.ref::text, '')), '')
+  ),
+  repetidas AS (
+    SELECT d.produto_id FROM divergentes d
+     WHERE d.ref_card IS NOT NULL
+       AND EXISTS (SELECT 1 FROM divergentes d2
+                    WHERE d2.tenant_id = d.tenant_id AND d2.ref_card = d.ref_card AND d2.produto_id <> d.produto_id)
+  ),
+  atualizaveis AS (
+    SELECT d.produto_id, d.ref_card FROM divergentes d
+     WHERE d.ref_card IS NOT NULL AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
+  ),
+  upd AS (
+    UPDATE public.produtos_acabados pa SET ref = a.ref_card, updated_at = now()
+      FROM atualizaveis a WHERE pa.id = a.produto_id
+    RETURNING pa.id
+  )
+  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card IS NULL), (SELECT count(*) FROM repetidas)
+    INTO v_atualizadas, v_sem_ref, v_repetidas;
+  RAISE NOTICE 'integracao_5 J1 (produtos_acabados): % atualizadas, % puladas sem REF no card, % puladas por REF repetida',
+    v_atualizadas, v_sem_ref, v_repetidas;
+
+  WITH divergentes AS (
+    SELECT pi.id AS produto_id, pi.tenant_id, pi.ref AS ref_atual,
+           nullif(btrim(coalesce(m.ref::text, '')), '') AS ref_card
+      FROM public.produtos_importados pi
+      JOIN public.modelos m ON m.id = pi.modelo_id
+     WHERE nullif(btrim(coalesce(pi.ref, '')), '') IS DISTINCT FROM nullif(btrim(coalesce(m.ref::text, '')), '')
+  ),
+  repetidas AS (
+    SELECT d.produto_id FROM divergentes d
+     WHERE d.ref_card IS NOT NULL
+       AND EXISTS (SELECT 1 FROM divergentes d2
+                    WHERE d2.tenant_id = d.tenant_id AND d2.ref_card = d.ref_card AND d2.produto_id <> d.produto_id)
+  ),
+  atualizaveis AS (
+    SELECT d.produto_id, d.ref_card FROM divergentes d
+     WHERE d.ref_card IS NOT NULL AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
+  ),
+  upd AS (
+    UPDATE public.produtos_importados pi SET ref = a.ref_card, updated_at = now()
+      FROM atualizaveis a WHERE pi.id = a.produto_id
+    RETURNING pi.id
+  )
+  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card IS NULL), (SELECT count(*) FROM repetidas)
+    INTO v_atualizadas, v_sem_ref, v_repetidas;
+  RAISE NOTICE 'integracao_5 J1 (produtos_importados): % atualizadas, % puladas sem REF no card, % puladas por REF repetida',
+    v_atualizadas, v_sem_ref, v_repetidas;
+END
+$backfill_ref_j1$;
+
 CREATE OR REPLACE FUNCTION public.fn_modelo_espelho_nome_ref()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -292,6 +372,21 @@ begin
   -- [integracao v1] D14/R1: o preço do Importado grava no SALVAR da tela, NESTA transação (a do _rev_base do wrapper).
   -- Preço FIXO no _dados = preço exato do canal e ZERA o markup dele; sem fixo, markup não-nulo LIMPA o fixo ("última
   -- edição manda", como a revenda — fix 2efa2ba); sem nenhum dos dois, o fixo fica (outros gravadores não mandam as chaves).
+  -- ruling do controlador, G-migration fix 3 #J2 (P-91 A): a chave preco_atacado_fixo/preco_varejo_fixo PRESENTE com
+  -- vazio/NULL (com o markup do canal TAMBÉM vazio/ausente) agora LIMPA o fixo — espelha exatamente o comportamento
+  -- do Produto Acabado (o front chama salvar_precos_fixo_produto_acabado com _tocar_varejo=true incondicionalmente a
+  -- cada blur que muda o valor exibido, inclusive apagar para vazio: novo=null !== atual dispara _tocar_varejo=true,
+  -- _preco_varejo_fixo=null, que grava preco_varejo_fixo=NULL sem olhar o markup — ver ProdutoCard.tsx/
+  -- useRevendaPlanejamento.ts). Antes, a chave presente-e-vazia caía no MESMO ramo de "chave ausente" (mantinha o
+  -- valor atual, "else x.preco_varejo_fixo") quando o markup também estava vazio — "apagar o Valor" no Importado
+  -- não apagava o fixo (D14 do parecer, nuance aceita como bug pelo dono na P-91). Regra final (3 casos, na MESMA
+  -- ORDEM de prioridade do código original — fixo primeiro): (1) chave do fixo PRESENTE com número → grava o fixo
+  -- exato e zera o markup do canal (prioridade sobre um markup que porventura venha junto no mesmo payload — R1,
+  -- "o SALVAR grava o fixo exato e zera o markup"); (2) senão, chave do fixo PRESENTE mas vazia/NULL → NOVO (J2):
+  -- limpa o fixo (NULL); o markup do canal só é setado se a chave dele TAMBÉM vier presente com número, senão fica
+  -- como estava; (3) chave do fixo AUSENTE e markup do canal PRESENTE e não-vazio → limpa o fixo (NULL) e grava o
+  -- markup — "última edição manda" original, preservado byte a byte (era o ÚNICO jeito de limpar o fixo antes do
+  -- J2); (4) nenhuma das duas chaves presentes/preenchidas → nada muda (outros gravadores não mandam as chaves).
   if coalesce(nullif(_dados->>'preco_atacado_fixo','')::numeric, 1) <= 0
      or coalesce(nullif(_dados->>'preco_varejo_fixo','')::numeric, 1) <= 0 then
     raise exception 'O preço precisa ser maior que zero.' using errcode = 'P0001';
@@ -299,12 +394,20 @@ begin
   update public.produtos_importados p
      set preco_atacado_fixo = n.af, markup_atacado = n.am, preco_varejo_fixo = n.vf, markup_varejo = n.vm
     from (select
-            case when nullif(_dados->>'preco_atacado_fixo','') is not null then (_dados->>'preco_atacado_fixo')::numeric
-                 when nullif(_dados->>'markup_atacado','') is not null then null else x.preco_atacado_fixo end as af,
-            case when nullif(_dados->>'preco_atacado_fixo','') is not null then null else x.markup_atacado end as am,
-            case when nullif(_dados->>'preco_varejo_fixo','') is not null then (_dados->>'preco_varejo_fixo')::numeric
-                 when nullif(_dados->>'markup_varejo','') is not null then null else x.preco_varejo_fixo end as vf,
-            case when nullif(_dados->>'preco_varejo_fixo','') is not null then null else x.markup_varejo end as vm
+            case when _dados ? 'preco_atacado_fixo' then nullif(_dados->>'preco_atacado_fixo','')::numeric
+                 when nullif(_dados->>'markup_atacado','') is not null then null
+                 else x.preco_atacado_fixo end as af,
+            case when _dados ? 'preco_atacado_fixo' and nullif(_dados->>'preco_atacado_fixo','') is not null then null
+                 when _dados ? 'preco_atacado_fixo' then coalesce(nullif(_dados->>'markup_atacado','')::numeric, x.markup_atacado)
+                 when nullif(_dados->>'markup_atacado','') is not null then nullif(_dados->>'markup_atacado','')::numeric
+                 else x.markup_atacado end as am,
+            case when _dados ? 'preco_varejo_fixo' then nullif(_dados->>'preco_varejo_fixo','')::numeric
+                 when nullif(_dados->>'markup_varejo','') is not null then null
+                 else x.preco_varejo_fixo end as vf,
+            case when _dados ? 'preco_varejo_fixo' and nullif(_dados->>'preco_varejo_fixo','') is not null then null
+                 when _dados ? 'preco_varejo_fixo' then coalesce(nullif(_dados->>'markup_varejo','')::numeric, x.markup_varejo)
+                 when nullif(_dados->>'markup_varejo','') is not null then nullif(_dados->>'markup_varejo','')::numeric
+                 else x.markup_varejo end as vm
             from public.produtos_importados x where x.id = v_id) n
    where p.id = v_id
      and (p.preco_atacado_fixo, p.markup_atacado, p.preco_varejo_fixo, p.markup_varejo) is distinct from (n.af, n.am, n.vf, n.vm);

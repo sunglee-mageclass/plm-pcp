@@ -346,8 +346,22 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
       expect(l.r.produtos[0]).toMatchObject({ modelo_id: m.id, estado: "nao_integravel", completo: true, origem: "interno" });
       expect(l.r.produtos[0].raw).toMatchObject({ ref: m.ref, preco_venda: 159.9, ncm: "6109.10.00", tamanho_tipo: "letra" });
       expect(l.r.pode).toMatchObject({ editar: true, super: true, keywords: true });
+      // J4 (ruling do controlador, G-migration fix 3): integracao_listar manda 'reprovado' (boolean) por produto —
+      // mesma definição do D9. m não é reprovado.
+      expect(l.r.produtos[0].reprovado).toBe(false);
       const lr = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [rep.ref]);
       expect(lr.r.total).toBe(0);
+      // J4: um produto INTEGRAVEL reprovado continua visível (D9/G2) e a lista manda reprovado=true (selo T12a
+      // "Reprovado — não vai para a API").
+      const rep2 = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [rep2.id]);
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos) VALUES ($1, $2, 'integravel', $3::text[])`,
+        [T, rep2.id, CAMPOS_PADRAO],
+      );
+      const lRep2 = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [rep2.ref]);
+      expect(lRep2.r.total).toBe(1);
+      expect(lRep2.r.produtos[0]).toMatchObject({ modelo_id: rep2.id, estado: "integravel", reprovado: true });
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce03", [["integracao", true, true]]);
       // Important #1 (revisão T2): custo mascarado no `vivo` do listar, para quem NÃO vê custos.
       const semCusto = (await um<{ r: any }>(c, `SELECT public.integracao_listar(NULL, jsonb_build_object('busca', $1::text), 1) AS r`, [m.ref])).r;

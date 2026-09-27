@@ -479,12 +479,23 @@ BEGIN
   -- marcar/voltar/desfazer e os gatilhos do espelho). `pedidos` (a reserva/contagem no acesso) é derivado do
   -- MESMO resultado (agg_pagina.n), não de uma leitura à parte. Formato de saída idêntico ao de antes (mesmas
   -- chaves, mesma ordem por id, mesmo tipo de cada valor).
+  -- ruling do controlador, G-migration fix 3 #J3 (P-99 A): produto INTEGRAVEL que está reprovado (mesma definição
+  -- do D9 usada em _integracao_base/integracao_previa/integracao_listar-J4: status_planejamento='reprovado' OU
+  -- status_desenvolvimento='reprovado') NÃO entra na página nem conta para "pedidos"/"há próxima página" — segue
+  -- 'integravel' no banco (nenhuma mudança de ESTADO; a API só não LEVA enquanto reprovado). 'integrado' reprovado
+  -- CONTINUA entregue (mesma exceção do D9/G2 — reverter um produto já entregue seria mais surpreendente que
+  -- deixar de entregar um NOVO). A checagem entra na MESMA foto/CTE (join em modelos, sem 2º SELECT) — não abre
+  -- nova janela de leitura.
   v_lim := least(greatest(coalesce(_limite, v_cfg.max_por_pagina), 1), v_cfg.max_por_pagina);
   WITH pagina AS (
     SELECT ip.id, ip.modelo_id, ip.estado, ip.assinatura, ip.integrado_em, ip.campos
       FROM public.integracao_produtos ip
+      JOIN public.modelos m ON m.id = ip.modelo_id
      WHERE ip.tenant_id = k.tenant_id
        AND (ip.estado = 'integravel' OR (coalesce(_incluir_integrados, false) AND ip.estado = 'integrado'))
+       AND NOT (ip.estado = 'integravel'
+                AND (coalesce(m.status_planejamento, '') = 'reprovado'
+                     OR lower(btrim(coalesce(m.status_desenvolvimento, ''))) = 'reprovado'))
        AND (v_depois IS NULL OR ip.id > v_depois)
      ORDER BY ip.id
      LIMIT v_lim + 1

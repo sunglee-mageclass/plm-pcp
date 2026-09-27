@@ -10,6 +10,21 @@ export const TRECHO_IMP_FIXO =
   "  -- [integracao v1] D14/R1: o preço do Importado grava no SALVAR da tela, NESTA transação (a do _rev_base do wrapper).\n" +
   "  -- Preço FIXO no _dados = preço exato do canal e ZERA o markup dele; sem fixo, markup não-nulo LIMPA o fixo (\"última\n" +
   "  -- edição manda\", como a revenda — fix 2efa2ba); sem nenhum dos dois, o fixo fica (outros gravadores não mandam as chaves).\n" +
+  "  -- ruling do controlador, G-migration fix 3 #J2 (P-91 A): a chave preco_atacado_fixo/preco_varejo_fixo PRESENTE com\n" +
+  "  -- vazio/NULL (com o markup do canal TAMBÉM vazio/ausente) agora LIMPA o fixo — espelha exatamente o comportamento\n" +
+  "  -- do Produto Acabado (o front chama salvar_precos_fixo_produto_acabado com _tocar_varejo=true incondicionalmente a\n" +
+  "  -- cada blur que muda o valor exibido, inclusive apagar para vazio: novo=null !== atual dispara _tocar_varejo=true,\n" +
+  "  -- _preco_varejo_fixo=null, que grava preco_varejo_fixo=NULL sem olhar o markup — ver ProdutoCard.tsx/\n" +
+  "  -- useRevendaPlanejamento.ts). Antes, a chave presente-e-vazia caía no MESMO ramo de \"chave ausente\" (mantinha o\n" +
+  "  -- valor atual, \"else x.preco_varejo_fixo\") quando o markup também estava vazio — \"apagar o Valor\" no Importado\n" +
+  "  -- não apagava o fixo (D14 do parecer, nuance aceita como bug pelo dono na P-91). Regra final (3 casos, na MESMA\n" +
+  "  -- ORDEM de prioridade do código original — fixo primeiro): (1) chave do fixo PRESENTE com número → grava o fixo\n" +
+  "  -- exato e zera o markup do canal (prioridade sobre um markup que porventura venha junto no mesmo payload — R1,\n" +
+  "  -- \"o SALVAR grava o fixo exato e zera o markup\"); (2) senão, chave do fixo PRESENTE mas vazia/NULL → NOVO (J2):\n" +
+  "  -- limpa o fixo (NULL); o markup do canal só é setado se a chave dele TAMBÉM vier presente com número, senão fica\n" +
+  "  -- como estava; (3) chave do fixo AUSENTE e markup do canal PRESENTE e não-vazio → limpa o fixo (NULL) e grava o\n" +
+  "  -- markup — \"última edição manda\" original, preservado byte a byte (era o ÚNICO jeito de limpar o fixo antes do\n" +
+  "  -- J2); (4) nenhuma das duas chaves presentes/preenchidas → nada muda (outros gravadores não mandam as chaves).\n" +
   "  if coalesce(nullif(_dados->>'preco_atacado_fixo','')::numeric, 1) <= 0\n" +
   "     or coalesce(nullif(_dados->>'preco_varejo_fixo','')::numeric, 1) <= 0 then\n" +
   "    raise exception 'O preço precisa ser maior que zero.' using errcode = 'P0001';\n" +
@@ -17,12 +32,20 @@ export const TRECHO_IMP_FIXO =
   "  update public.produtos_importados p\n" +
   "     set preco_atacado_fixo = n.af, markup_atacado = n.am, preco_varejo_fixo = n.vf, markup_varejo = n.vm\n" +
   "    from (select\n" +
-  "            case when nullif(_dados->>'preco_atacado_fixo','') is not null then (_dados->>'preco_atacado_fixo')::numeric\n" +
-  "                 when nullif(_dados->>'markup_atacado','') is not null then null else x.preco_atacado_fixo end as af,\n" +
-  "            case when nullif(_dados->>'preco_atacado_fixo','') is not null then null else x.markup_atacado end as am,\n" +
-  "            case when nullif(_dados->>'preco_varejo_fixo','') is not null then (_dados->>'preco_varejo_fixo')::numeric\n" +
-  "                 when nullif(_dados->>'markup_varejo','') is not null then null else x.preco_varejo_fixo end as vf,\n" +
-  "            case when nullif(_dados->>'preco_varejo_fixo','') is not null then null else x.markup_varejo end as vm\n" +
+  "            case when _dados ? 'preco_atacado_fixo' then nullif(_dados->>'preco_atacado_fixo','')::numeric\n" +
+  "                 when nullif(_dados->>'markup_atacado','') is not null then null\n" +
+  "                 else x.preco_atacado_fixo end as af,\n" +
+  "            case when _dados ? 'preco_atacado_fixo' and nullif(_dados->>'preco_atacado_fixo','') is not null then null\n" +
+  "                 when _dados ? 'preco_atacado_fixo' then coalesce(nullif(_dados->>'markup_atacado','')::numeric, x.markup_atacado)\n" +
+  "                 when nullif(_dados->>'markup_atacado','') is not null then nullif(_dados->>'markup_atacado','')::numeric\n" +
+  "                 else x.markup_atacado end as am,\n" +
+  "            case when _dados ? 'preco_varejo_fixo' then nullif(_dados->>'preco_varejo_fixo','')::numeric\n" +
+  "                 when nullif(_dados->>'markup_varejo','') is not null then null\n" +
+  "                 else x.preco_varejo_fixo end as vf,\n" +
+  "            case when _dados ? 'preco_varejo_fixo' and nullif(_dados->>'preco_varejo_fixo','') is not null then null\n" +
+  "                 when _dados ? 'preco_varejo_fixo' then coalesce(nullif(_dados->>'markup_varejo','')::numeric, x.markup_varejo)\n" +
+  "                 when nullif(_dados->>'markup_varejo','') is not null then nullif(_dados->>'markup_varejo','')::numeric\n" +
+  "                 else x.markup_varejo end as vm\n" +
   "            from public.produtos_importados x where x.id = v_id) n\n" +
   "   where p.id = v_id\n" +
   "     and (p.preco_atacado_fixo, p.markup_atacado, p.preco_varejo_fixo, p.markup_varejo) is distinct from (n.af, n.am, n.vf, n.vm);\n\n";
@@ -309,6 +332,35 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       // Sheet (UPDATE direto de modelos.nome) chega ao importado
       await c.query(`UPDATE public.modelos SET nome = 'Nome do Sheet' WHERE id = $1`, [m.id]);
       expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_importados WHERE id = $1`, [m.produtoId])).n).toBe("Nome do Sheet");
+    });
+  });
+
+  it("J2 (ruling do controlador, G-migration fix 3, P-91 A): apagar o preco_varejo_fixo (chave presente vazia) com o markup TAMBÉM vazio LIMPA o fixo — paridade com o Produto Acabado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await importado(c);
+      const vars = JSON.stringify([{ ordem: 1, cor_id: m.corId, cor_apelido_id: m.apelidoId, peso: 1, qtd: 5 }]);
+      // Grava um fixo primeiro (chave presente com número).
+      await c.query(`SELECT public.salvar_produto_importado($1, $2::jsonb, $3::jsonb, '[]'::jsonb, NULL)`,
+        [m.produtoId, JSON.stringify({ nome: "Macacão J2", preco_varejo_fixo: 199.9 }), vars]);
+      expect(await um(c, `SELECT preco_varejo_fixo::text AS f, markup_varejo AS mk FROM public.produtos_importados WHERE id = $1`, [m.produtoId]))
+        .toEqual({ f: "199.90", mk: null });
+      // RED (antes do J2): apagar o Valor (chave presente e vazia) SEM markup nenhum mantinha o fixo intocado — bug
+      // aceito pelo dono na P-91 A ("Importado: apagar limpa o fixo", nuance D14 do parecer G-migration). GREEN: a
+      // chave presente-e-vazia agora LIMPA o fixo (NULL), igual ao Produto Acabado (front chama
+      // salvar_precos_fixo_produto_acabado com _tocar_varejo=true incondicionalmente no blur, inclusive apagando).
+      await c.query(`SELECT public.salvar_produto_importado($1, $2::jsonb, $3::jsonb, '[]'::jsonb, NULL)`,
+        [m.produtoId, JSON.stringify({ nome: "Macacão J2", preco_varejo_fixo: "" }), vars]);
+      expect(await um(c, `SELECT preco_varejo_fixo::text AS f, markup_varejo AS mk FROM public.produtos_importados WHERE id = $1`, [m.produtoId]))
+        .toEqual({ f: null, mk: null });
+      // Regrava o fixo e confere que markup_atacado (chave AUSENTE) segue intocado quando só o varejo é limpo.
+      await c.query(`SELECT public.salvar_precos_fixo_produto_importado($1, true, 10, false, null)`, [m.produtoId]);
+      await c.query(`SELECT public.salvar_produto_importado($1, $2::jsonb, $3::jsonb, '[]'::jsonb, NULL)`,
+        [m.produtoId, JSON.stringify({ nome: "Macacão J2", preco_varejo_fixo: null }), vars]);
+      expect(await um(c, `SELECT preco_atacado_fixo::text AS f, markup_atacado AS mk FROM public.produtos_importados WHERE id = $1`, [m.produtoId]))
+        .toEqual({ f: "10.00", mk: null }); // atacado intocado (chave ausente do payload)
+      expect((await um<{ f: string | null }>(c, `SELECT preco_varejo_fixo::text AS f FROM public.produtos_importados WHERE id = $1`, [m.produtoId])).f).toBeNull();
     });
   });
 

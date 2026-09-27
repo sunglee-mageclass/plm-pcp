@@ -22,6 +22,21 @@ BEGIN
 '  -- [integracao v1] D14/R1: o preço do Importado grava no SALVAR da tela, NESTA transação (a do _rev_base do wrapper).
   -- Preço FIXO no _dados = preço exato do canal e ZERA o markup dele; sem fixo, markup não-nulo LIMPA o fixo ("última
   -- edição manda", como a revenda — fix 2efa2ba); sem nenhum dos dois, o fixo fica (outros gravadores não mandam as chaves).
+  -- ruling do controlador, G-migration fix 3 #J2 (P-91 A): a chave preco_atacado_fixo/preco_varejo_fixo PRESENTE com
+  -- vazio/NULL (com o markup do canal TAMBÉM vazio/ausente) agora LIMPA o fixo — espelha exatamente o comportamento
+  -- do Produto Acabado (o front chama salvar_precos_fixo_produto_acabado com _tocar_varejo=true incondicionalmente a
+  -- cada blur que muda o valor exibido, inclusive apagar para vazio: novo=null !== atual dispara _tocar_varejo=true,
+  -- _preco_varejo_fixo=null, que grava preco_varejo_fixo=NULL sem olhar o markup — ver ProdutoCard.tsx/
+  -- useRevendaPlanejamento.ts). Antes, a chave presente-e-vazia caía no MESMO ramo de "chave ausente" (mantinha o
+  -- valor atual, "else x.preco_varejo_fixo") quando o markup também estava vazio — "apagar o Valor" no Importado
+  -- não apagava o fixo (D14 do parecer, nuance aceita como bug pelo dono na P-91). Regra final (3 casos, na MESMA
+  -- ORDEM de prioridade do código original — fixo primeiro): (1) chave do fixo PRESENTE com número → grava o fixo
+  -- exato e zera o markup do canal (prioridade sobre um markup que porventura venha junto no mesmo payload — R1,
+  -- "o SALVAR grava o fixo exato e zera o markup"); (2) senão, chave do fixo PRESENTE mas vazia/NULL → NOVO (J2):
+  -- limpa o fixo (NULL); o markup do canal só é setado se a chave dele TAMBÉM vier presente com número, senão fica
+  -- como estava; (3) chave do fixo AUSENTE e markup do canal PRESENTE e não-vazio → limpa o fixo (NULL) e grava o
+  -- markup — "última edição manda" original, preservado byte a byte (era o ÚNICO jeito de limpar o fixo antes do
+  -- J2); (4) nenhuma das duas chaves presentes/preenchidas → nada muda (outros gravadores não mandam as chaves).
   if coalesce(nullif(_dados->>''preco_atacado_fixo'','''')::numeric, 1) <= 0
      or coalesce(nullif(_dados->>''preco_varejo_fixo'','''')::numeric, 1) <= 0 then
     raise exception ''O preço precisa ser maior que zero.'' using errcode = ''P0001'';
@@ -29,12 +44,20 @@ BEGIN
   update public.produtos_importados p
      set preco_atacado_fixo = n.af, markup_atacado = n.am, preco_varejo_fixo = n.vf, markup_varejo = n.vm
     from (select
-            case when nullif(_dados->>''preco_atacado_fixo'','''') is not null then (_dados->>''preco_atacado_fixo'')::numeric
-                 when nullif(_dados->>''markup_atacado'','''') is not null then null else x.preco_atacado_fixo end as af,
-            case when nullif(_dados->>''preco_atacado_fixo'','''') is not null then null else x.markup_atacado end as am,
-            case when nullif(_dados->>''preco_varejo_fixo'','''') is not null then (_dados->>''preco_varejo_fixo'')::numeric
-                 when nullif(_dados->>''markup_varejo'','''') is not null then null else x.preco_varejo_fixo end as vf,
-            case when nullif(_dados->>''preco_varejo_fixo'','''') is not null then null else x.markup_varejo end as vm
+            case when _dados ? ''preco_atacado_fixo'' then nullif(_dados->>''preco_atacado_fixo'','''')::numeric
+                 when nullif(_dados->>''markup_atacado'','''') is not null then null
+                 else x.preco_atacado_fixo end as af,
+            case when _dados ? ''preco_atacado_fixo'' and nullif(_dados->>''preco_atacado_fixo'','''') is not null then null
+                 when _dados ? ''preco_atacado_fixo'' then coalesce(nullif(_dados->>''markup_atacado'','''')::numeric, x.markup_atacado)
+                 when nullif(_dados->>''markup_atacado'','''') is not null then nullif(_dados->>''markup_atacado'','''')::numeric
+                 else x.markup_atacado end as am,
+            case when _dados ? ''preco_varejo_fixo'' then nullif(_dados->>''preco_varejo_fixo'','''')::numeric
+                 when nullif(_dados->>''markup_varejo'','''') is not null then null
+                 else x.preco_varejo_fixo end as vf,
+            case when _dados ? ''preco_varejo_fixo'' and nullif(_dados->>''preco_varejo_fixo'','''') is not null then null
+                 when _dados ? ''preco_varejo_fixo'' then coalesce(nullif(_dados->>''markup_varejo'','''')::numeric, x.markup_varejo)
+                 when nullif(_dados->>''markup_varejo'','''') is not null then nullif(_dados->>''markup_varejo'','''')::numeric
+                 else x.markup_varejo end as vm
             from public.produtos_importados x where x.id = v_id) n
    where p.id = v_id
      and (p.preco_atacado_fixo, p.markup_atacado, p.preco_varejo_fixo, p.markup_varejo) is distinct from (n.af, n.am, n.vf, n.vm);
