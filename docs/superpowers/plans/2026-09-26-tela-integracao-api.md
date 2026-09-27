@@ -4,7 +4,7 @@
 
 **Goal:** Construir a tela "Integração" (abas Produtos · Campos da API · API · Manual da API · Log), o banco que a sustenta
 (retrato, estados, trava, mão dupla, chaves, acessos, log) e a API de leitura `GET /api/integracao/v1/produtos` do próprio
-site — tudo aprovado no spec v4.3 e no mockup v4 (P-84 A) — para o 2º deploy (P-68 B).
+site — tudo aprovado no spec v4.4 e no mockup v4 (P-84 A) — para o 2º deploy (P-68 B).
 
 **Architecture:**
 - **Banco (F1):** 6 migrations aditivas `20261007100000…150000` (tabelas → retrato/leitura → estados/log → trava →
@@ -32,8 +32,9 @@ TypeScript + TanStack Router/Start 1.16x + TanStack Query v5 + supabase-js 2.108
 (wrangler 4.105, `ratelimits`), Vitest 4 (unit `node` + integração `BEGIN…ROLLBACK` SÓ na cópia), Playwright (QA no
 `:5188`, cópia), bash (scripts de produção no molde da frente SKU em prévia).
 
-**Spec:** `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md` (v4.3, `6d723db3` da branch
-`integracao/desenho`; a Task 0 traz o spec e este plano para a branch de implementação) — AUTORIDADE. Pareceres com notas
+**Spec:** `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md` (v4.4 — P-89 A; até a v4.3 na branch
+`integracao/desenho`, hoje congelada; desde a T0 — `dbcd5911` — spec e plano vivem SÓ na worktree `integracao-impl`, branch
+`integracao/impl`) — AUTORIDADE. Pareceres com notas
 para o plano (na worktree `.claude/worktrees/integracao`, a do desenho): `.superpowers/g-plano-integracao-guardiao.md`
 (v1/v2), `.superpowers/g-plano-integracao-guardiao-v4.md` (v4 + re-conferência v4.1: V1–V5, n1–n6),
 `.superpowers/g-mockup-integracao-guardiao*.md` (nota 14; REF/foto) e `.superpowers/g-plano-integracao-guardiao-plano.md`
@@ -258,7 +259,8 @@ causa, correção); diferença de RESULTADO ou de regra de negócio ⇒ PARE e c
 | D35 | Importado: "Limpar card" também zera os preços fixos (os 2 canais) | Senão o preço fixo sobreviveria ao card limpo | não |
 | D36 | Aba Produtos com rascunho aberto: filtros, Situação e página ficam travados ("Salve ou descarte…"); trocar de ABA pede "Descartar alterações?" (1 guarda só na página — `useBlocker` único) | Nenhum rascunho fica escondido em outra página; 2 guardas brigariam pelo mesmo `useBlocker` | não |
 | D37 | Selos/travas das outras telas: UMA consulta por loja (`integracao_estado_modelos(NULL)` = só integráveis/integrados, TETO de 5000 — os mais recentes; N5), cache compartilhado `["integracao-estado", loja]`, sem retry (antes da ida em produção cai em "sem trava") | Evita N consultas por card; nada de retrato/custo sai para quem não tem a permissão | não |
-| D38 | CPU do Worker (R4 + R4-r2): o plano Free do Workers dá **10 ms de CPU por requisição**. A medição MÍNIMA do guardião (r2, só parse/troca de fotos/stringify, nesta máquina) já deu p95 = 4,5 ms (50 produtos), 13,8 ms (200 — o PADRÃO/recomendado de hoje) e 42,8 ms (500 — o máximo da faixa). Regra: a Task 20b mede o código REAL da rota com 50/100/200/500 produtos (`tests/carga/`, só imprime — fora do gate, R10); se o p95 do PADRÃO (200) OU do MÁXIMO (500) passar de 7 ms (70 % dos 10 ms — a máquina local costuma ser mais rápida que o Worker), vai ao dono a P-xx com as opções: **(A)** baixar o PADRÃO/recomendado e o MÁXIMO de "produtos por página" para o maior tamanho medido com p95 ≤ 7 ms (ex.: padrão 50, máximo 100) — `DEFAULT` e `integracao_config_pagina_chk` (migration 1), a semente (`_seed_tenant_defaults`/migration 1), a faixa validada na migration 6, `CONFIG_API` (Task 9) e os testes; **(B)** plano **Workers Paid** (US$ 5/mês; CPU por requisição de 30 s por padrão) mantendo 200/500; **(C)** os dois. Recomendação: levar a P-xx ANTES da Task 1, com a medição do guardião, para que (A) entre nas migrations antes do G-migration; a T20b só confirma. Quem DECIDE é a medição REAL no G-deploy (Task 25: "CPU time" no painel do Cloudflare e `wrangler tail --format json`, `outcome: "exceededCpu"`), com a página padrão; sem código, o super admin ainda pode baixar o "Máximo de produtos por página" de cada loja na aba API. O G-deploy também confere que a conta aceita `ratelimits` (senão o binding sai — D23) | Um estouro de CPU derruba a página inteira da API — e o padrão de hoje (200) já passa dos 10 ms na medição mínima | **sim** (a P-xx vai ao dono — a medição mínima já passa do limite) |
+| D38 | **RESOLVIDA pela P-89 A (dono 27/set: "A — padrão 50, máximo 100 (plano gratuito)").** CPU do Worker (R4 + R4-r2): o plano gratuito do Cloudflare dá **10 ms de CPU por consulta**; a medição mínima do guardião (r2) deu p95 ≈ 4,5 ms (50), 13,8 ms (200) e 42,8 ms (500). Aplicado: "Máximo de produtos por página" com **padrão/semente/recomendado 50** (`DEFAULT` da migration 1, `_integracao_cfg`, `CONFIG_API` da Task 9); a **faixa do banco continua 1–500** (`integracao_config_pagina_chk` e a validação da migration 6 NÃO baixam) — aumentar depois é só mudar a configuração da loja na aba API, sem migration nem deploy; acima de **100** a tela mostra, além do "fora do recomendado", o alerta "Acima de 100 pode passar do limite de processamento do plano gratuito do Cloudflare (10 ms por consulta). Só use com o plano pago (Workers Paid)." (Tasks 9/15). A Task 20b mede 50/100/200/500 (fora do gate, só imprime) e o G-deploy (Task 25) confere o CPU REAL com a página padrão 50. Se no futuro o dono subir acima de 100: é a regra do alerta (só com Workers Paid) — e medir de novo. O G-deploy também confere que a conta aceita `ratelimits` (senão o binding sai — D23) | Um estouro de CPU derruba a página inteira da API | **respondida** (P-89 A) |
+| D39 | A resposta da API traz `pagina: {limite, maximo}` (entre `gerado_em` e `linhas`): `limite` = quantos produtos por página ESTA resposta usou (o `limite` pedido cortado no máximo; sem `limite` = o máximo; no modo teste = 2, o tamanho das páginas de exemplo) e `maximo` = o "Máximo de produtos por página" da loja HOJE. Vem do `_integracao_ler`/`integracao_exemplo` (Task 6) e passa pelo `montarResposta` (Task 16; ausente = `null`); o Manual ensina a seguir o `proximo_cursor` e a ler `pagina.maximo` (Task 16) | P-89 A — "isso pode mudar depois … tem como já preparar isso?": o programa do dev se ajusta sozinho quando a loja mudar o máximo, sem versão nova da API | não (formato decidido no plano; vai no Manual) |
 
 ## 3. Mapa de arquivos
 
@@ -304,7 +306,7 @@ causa, correção); diferença de RESULTADO ou de regra de negócio ⇒ PARE e c
 | Momento | Portão |
 |---|---|
 | Antes da Task 0 | **G-plano** (guardião) sobre este plano |
-| Antes da Task 1 | P-xx da D38 ao dono (CPU do Worker: A baixar padrão/máximo por página · B Workers Paid · C os dois) — recomendado, para que (A) entre nas migrations antes do G-migration |
+| Antes da Task 1 | ~~P-xx da D38 ao dono~~ — **RESOLVIDO pela P-89 A** (padrão 50; alerta acima de 100; faixa 1–500): já aplicado nas Tasks 1, 2, 6, 9, 15, 16 e 19 antes do G-migration |
 | Tasks 1–6 | revisão Opus por task (banco) |
 | Task 7 | **G-migration**: 2 revisões Opus INDEPENDENTES (cada uma recebe spec + plano + 12 SQL + suítes; não vê a outra) + guardião. Checklist no Step 6 da Task 7 |
 | Task 8 | **G-scripts** (Opus + guardião: ensaio real, provas com `psql`/`pg_dump` falsos, RODAR). Depois o DONO roda produção |
@@ -315,7 +317,7 @@ causa, correção); diferença de RESULTADO ou de regra de negócio ⇒ PARE e c
 | Task 25 | **G-commit** (antes do merge), QA, **G-deploy** (guardião) → 2º deploy (dono) |
 
 BLOQUEIA ⇒ parar. APROVA COM RESSALVAS ⇒ resolver/registrar antes do passo seguinte.
-Ordem: G-plano → T0 → (P-xx da D38 ao dono) → T1…T6 (série, mesma worktree) → T7 (G-migration) → T8 (scripts + ensaio + G-scripts) → T9 … T20
+Ordem: G-plano → T0 → (P-89 A já aplicada no plano) → T1…T6 (série, mesma worktree) → T7 (G-migration) → T8 (scripts + ensaio + G-scripts) → T9 … T20
 (tela e API, em série na worktree) → T20b (rota real contra a CÓPIA + CPU) → só então o RODAR vai ao dono (produção, no
 horário dele). T21 … T24 seguem na worktree sem esperar o RODAR; a T25 (juntar, QA, deploy) exige o "== IDA OK". Nada é
 JUNTADO na linha principal antes do "== IDA OK" (a tela chama RPCs novas e o `:5173` do dono grava em produção).
@@ -1021,7 +1023,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
     });
   });
 
-  it("layout = 18 chaves na ordem; config de TODAS as lojas nasce com os 17 do layout e 60/200/7/10", async () => {
+  it("layout = 18 chaves na ordem; config de TODAS as lojas nasce com os 17 do layout e 60/50/7/10 (P-89 A)", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
       expect((await um<{ l: string[] }>(c, "SELECT public._integracao_layout() AS l")).l).toEqual([...LAYOUT]);
@@ -1029,7 +1031,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
         `SELECT (SELECT count(*) FROM public.tenants t WHERE NOT EXISTS (SELECT 1 FROM public.integracao_config x WHERE x.tenant_id = t.id)) AS faltam,
                 c.campos, c.limite_por_minuto AS lim, c.max_por_pagina AS pag, c.validade_foto_dias AS foto, c.bloqueio_tentativas AS blq, c.rev
            FROM public.integracao_config c WHERE c.tenant_id = $1`, [T]);
-      expect(r).toEqual({ faltam: "0", campos: [...CAMPOS_PADRAO], lim: 60, pag: 200, foto: 7, blq: 10, rev: 1 });
+      expect(r).toEqual({ faltam: "0", campos: [...CAMPOS_PADRAO], lim: 60, pag: 50, foto: 7, blq: 10, rev: 1 });
       await expect(c.query(`UPDATE public.integracao_config SET limite_por_minuto = 601 WHERE tenant_id = $1`, [T]))
         .rejects.toThrow(/integracao_config_limite_chk/);
     });
@@ -1165,7 +1167,8 @@ CREATE TABLE IF NOT EXISTS public.integracao_config (
   campos text[] NOT NULL DEFAULT (public._integracao_layout())[1:17],
   limite_por_minuto integer NOT NULL DEFAULT 60
     CONSTRAINT integracao_config_limite_chk CHECK (limite_por_minuto BETWEEN 1 AND 600),
-  max_por_pagina integer NOT NULL DEFAULT 200
+  -- P-89 A (plano gratuito do Cloudflare): padrão 50; a FAIXA segue 1–500 (aumentar depois = aba API, sem migration)
+  max_por_pagina integer NOT NULL DEFAULT 50
     CONSTRAINT integracao_config_pagina_chk CHECK (max_por_pagina BETWEEN 1 AND 500),
   validade_foto_dias integer NOT NULL DEFAULT 7
     CONSTRAINT integracao_config_foto_chk CHECK (validade_foto_dias BETWEEN 1 AND 30),
@@ -1700,7 +1703,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
       const s = (await um<{ r: any }>(c, `SELECT public.integracao_config_ler() AS r`)).r;
       expect(s.campos).toEqual([...CAMPOS_PADRAO]);
       expect(s.layout).toEqual([...LAYOUT]);
-      expect(s.api).toEqual({ limite_por_minuto: 60, max_por_pagina: 200, validade_foto_dias: 7, bloqueio_tentativas: 10 });
+      expect(s.api).toEqual({ limite_por_minuto: 60, max_por_pagina: 50, validade_foto_dias: 7, bloqueio_tentativas: 10 });
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce05", [["integracao", true, false]]);
       expect((await um<{ r: any }>(c, `SELECT public.integracao_config_ler() AS r`)).r.api).toBeNull();
       expect((await um<{ r: any }>(c, `SELECT public.integracao_estado_modelos(ARRAY[]::uuid[]) AS r`)).r).toEqual({});
@@ -1810,11 +1813,11 @@ DECLARE
 BEGIN
   SELECT * INTO c FROM public.integracao_config WHERE tenant_id = _tenant;
   IF NOT FOUND THEN
-    -- linha ausente = padrão (D25): layout 1-17 marcado, Foto desmarcada, 60/200/7/10; rev 0 = "nunca salva"
+    -- linha ausente = padrão (D25): layout 1-17 marcado, Foto desmarcada, 60/50/7/10 (P-89 A); rev 0 = "nunca salva"
     c.tenant_id := _tenant;
     c.campos := (public._integracao_layout())[1:17];
     c.limite_por_minuto := 60;
-    c.max_por_pagina := 200;
+    c.max_por_pagina := 50;
     c.validade_foto_dias := 7;
     c.bloqueio_tentativas := 10;
     c.rev := 0;
@@ -4654,7 +4657,8 @@ git show --stat HEAD | tail -n +7
 - `RespostaLer` (contrato com as Tasks 16 e 19): `{status: 'ok'|'parametro_invalido'|'chave_invalida'|'loja_inativa'|
   'ip_bloqueado'|'limite_excedido', retry_after?, tenant_id?, modo?, acesso_id?, chave_id?, loja?{id,nome}, colunas?[rótulos],
   chaves_colunas?[chaves], produtos?[{modelo_id, estado, assinatura, integrado_em, linhas[{tipo, loja_nome?, valores[]}]}],
-  proximo_cursor?, validade_foto_dias?}`.
+  proximo_cursor?, validade_foto_dias?, pagina?{limite, maximo}}` (`pagina` — D39/P-89 A: no normal `limite` = o `v_lim`
+  aplicado; no teste e no `integracao_exemplo` = 2; `maximo` = `max_por_pagina` da loja).
 
 - [ ] **Step 1: Escrever o teste (falha: migration 6 ausente)**
 
@@ -4714,7 +4718,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
       await comoUsuario(c, U);
       expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 601}'::jsonb, 1)`, [])).toMatch(/^P0001 .*1–600/);
       const r = (await um<{ r: any }>(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 300, "validade_foto_dias": 30}'::jsonb, 1) AS r`)).r;
-      expect(r.api).toEqual({ limite_por_minuto: 300, max_por_pagina: 200, validade_foto_dias: 30, bloqueio_tentativas: 10 });
+      expect(r.api).toEqual({ limite_por_minuto: 300, max_por_pagina: 50, validade_foto_dias: 30, bloqueio_tentativas: 10 });
       const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE tenant_id = $1 AND acao = 'config_api'`, [T]);
       expect(log.d.antes.limite_por_minuto).toBe(60);
       expect(log.d.depois.limite_por_minuto).toBe(300);
@@ -4785,13 +4789,16 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       const k = await chave(c);
       const a = await ler(c, k.chave, { limite: 2 });
       expect(a.produtos).toHaveLength(2);
+      expect(a.pagina).toEqual({ limite: 2, maximo: 50 }); // D39 (P-89 A): tamanho usado + máximo da loja hoje
       expect(a.proximo_cursor).toEqual(expect.any(String));
       for (const p of a.produtos) expect(p.linhas).toHaveLength(3);
       const b = await ler(c, k.chave, { limite: 2, cursor: a.proximo_cursor });
       expect(b.produtos).toHaveLength(1);
       expect(b.proximo_cursor).toBeNull();
       await c.query(`UPDATE public.integracao_config SET max_por_pagina = 1 WHERE tenant_id = $1`, [T]);
-      expect((await ler(c, k.chave, { limite: 50 })).produtos).toHaveLength(1);
+      const d = await ler(c, k.chave, { limite: 50 });
+      expect(d.produtos).toHaveLength(1);
+      expect(d.pagina).toEqual({ limite: 1, maximo: 1 }); // pedido 50, cortado no máximo da loja
       expect((await ler(c, k.chave, { cursor: "%%%" })).status).toBe("parametro_invalido");
     });
   });
@@ -4843,6 +4850,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       const k = await chave(c);
       const t1 = await ler(c, k.chave, { modo: "teste" });
       expect(t1.modo).toBe("teste");
+      expect(t1.pagina).toEqual({ limite: 2, maximo: 50 }); // D39: no teste, páginas de exemplo de 2
       expect(t1.produtos.map((p: any) => p.modelo_id)).toEqual(["exemplo-0001", "exemplo-0002"]);
       expect(JSON.stringify(t1)).not.toContain(m.id);
       expect(t1.produtos[0].linhas[0].valores.at(-1)).toEqual(["exemplo"]);
@@ -5244,7 +5252,8 @@ BEGIN
   RETURN jsonb_build_object('status', 'ok', 'modo', 'teste', 'tenant_id', v_tenant,
     'loja', jsonb_build_object('id', v_tenant, 'nome', (SELECT t.nome FROM public.tenants t WHERE t.id = v_tenant)),
     'colunas', v_cols -> 'rotulos', 'chaves_colunas', v_cols -> 'chaves', 'produtos', v_ex -> 'produtos',
-    'proximo_cursor', v_ex -> 'proximo_cursor', 'validade_foto_dias', v_cfg.validade_foto_dias);
+    'proximo_cursor', v_ex -> 'proximo_cursor', 'validade_foto_dias', v_cfg.validade_foto_dias,
+    'pagina', jsonb_build_object('limite', 2, 'maximo', v_cfg.max_por_pagina));
 END
 $function$;
 
@@ -5353,7 +5362,9 @@ BEGIN
     RETURN jsonb_build_object('status', 'ok', 'modo', 'teste', 'acesso_id', v_acesso, 'chave_id', k.id, 'tenant_id', k.tenant_id,
       'loja', jsonb_build_object('id', k.tenant_id, 'nome', v_loja), 'colunas', v_cols -> 'rotulos',
       'chaves_colunas', v_cols -> 'chaves', 'produtos', v_ex -> 'produtos', 'proximo_cursor', v_ex -> 'proximo_cursor',
-      'validade_foto_dias', v_cfg.validade_foto_dias);
+      'validade_foto_dias', v_cfg.validade_foto_dias,
+      -- D39 (P-89 A): tamanho desta página (exemplo = 2 por página) + o máximo da loja HOJE
+      'pagina', jsonb_build_object('limite', 2, 'maximo', v_cfg.max_por_pagina));
   END IF;
 
   -- D21: página por PRODUTO (um produto nunca é partido), keyset por integracao_produtos.id
@@ -5395,7 +5406,9 @@ BEGIN
     'proximo_cursor', CASE WHEN v_mais
       THEN to_jsonb(encode(convert_to(jsonb_build_object('depois', v_sel -> (jsonb_array_length(v_sel) - 1) ->> 'id')::text, 'UTF8'), 'base64'))
       ELSE 'null'::jsonb END,
-    'validade_foto_dias', v_cfg.validade_foto_dias);
+    'validade_foto_dias', v_cfg.validade_foto_dias,
+    -- D39 (P-89 A): o programa do dev se ajusta sozinho se a loja mudar o "Máximo de produtos por página"
+    'pagina', jsonb_build_object('limite', v_lim, 'maximo', v_cfg.max_por_pagina));
 END
 $function$;
 
@@ -5783,7 +5796,7 @@ Step 4 — e NÃO vê o parecer da outra. Checklist (com evidência `arquivo:lin
    HMAC (nota 6), máscara de custo (previa/listar/log), medição de desempenho < 3 s;
 8. API em 2 fases: chave por hash, nunca RAISE p/ chave errada (nota 9), limite por chave e por IP (R7/R11/D18/D19),
    `modo=teste` só exemplos (P-82 A), paginação por produto (D21), corrida voltar×entregar, limpeza escopada (n4);
-9. decisões D1–D38 (§2, a lista COMPLETA — R6) — o guardião diz quais precisam de OK explícito do dono antes da produção.
+9. decisões D1–D39 (§2, a lista COMPLETA — R6) — o guardião diz quais precisam de OK explícito do dono antes da produção.
 
 O guardião acrescenta o veredito ao diário `.superpowers/sdd/2026-09-22-unificacao-kanban-auto/guardiao.md` (checkout
 principal). **BLOQUEIA ⇒ parar.** APROVA COM RESSALVAS ⇒ corrigir (volta à task do arquivo, com teste) e repetir os Steps
@@ -6404,7 +6417,7 @@ G-scripts: Opus + guardião recebem os scripts (`aplica.sh` gerado, `extra.sh`, 
 `lock_timeout`/`transaction_timeout` e nova tentativa só em 55P03/40P01/25P04, estado REAL relido em erro (inclusive "pela
 metade"), conferências por DELTA (+46|+13), ACL, md5 congelado = ensaiado = disco, volta LIFO com confirmação explícita, prova
 sem conexão real. **BLOQUEIA ⇒ parar.** Depois: publicar no painel a pergunta ao dono (P-xx) com o resumo do ensaio, as
-decisões D1–D38 marcadas pelo guardião (a lista COMPLETA — R6), o resultado da Task 20b (rota real + CPU; D38) e o RODAR — o
+decisões D1–D39 marcadas pelo guardião (a lista COMPLETA — R6), o resultado da Task 20b (rota real + CPU; D38) e o RODAR — o
 RODAR só vai ao dono DEPOIS da Task 20b verde; só com o "sim" do dono ele roda os Passos 2–3. O controlador registra os
 logs do dono no diário do guardião (**G-produção**).
 
@@ -6435,7 +6448,8 @@ logs do dono no diário do guardião (**G-produção**).
   (17), `ordenarCampos(keys: string[]): CampoKey[]`, `rotuloDoCampoTravado(campo: string): string`, `infoCusto(origem: string):
   string`, `type ChaveConfigApi`, `CONFIG_API: Record<ChaveConfigApi, {rotulo; rotuloCurto; recomendado; min; max; unidade}>`,
   `validarConfigApi(v): { erros: Partial<Record<ChaveConfigApi, string>>; foraRecomendado: ChaveConfigApi[] }`,
-  `TEXTO_ALERTA_INTEGRAR`, `TEXTO_ALERTA_LAYOUT`, `TEXTO_MAO_DUPLA`.
+  `PAGINA_MAX_PLANO_GRATUITO = 100`, `TEXTO_ALERTA_PAGINA_PLANO_GRATUITO`, `alertaPaginaPlanoGratuito(n): string | null`
+  (P-89 A), `TEXTO_ALERTA_INTEGRAR`, `TEXTO_ALERTA_LAYOUT`, `TEXTO_MAO_DUPLA`.
 - Produces (`abas.ts`): `type Aba = "produtos" | "campos" | "api" | "manual" | "log"`, `abasVisiveis(superAdmin: boolean):
   Aba[]`, `ROTULO_ABA: Record<Aba, string>`.
 - Produces (`IntegracaoPage.tsx`): `export function IntegracaoPage()` e o mapa `CONTEUDO_ABA: Record<Aba, ComponentType>`
@@ -6450,8 +6464,8 @@ logs do dono no diário do guardião (**G-produção**).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  CAMPOS, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, infoCusto, ordenarCampos,
-  rotuloDoCampoTravado, validarConfigApi,
+  CAMPOS, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
+  alertaPaginaPlanoGratuito, infoCusto, ordenarCampos, rotuloDoCampoTravado, validarConfigApi,
 } from "@/lib/integracao/campos";
 
 const SQL1 = readFileSync("supabase/migrations/20261007100000_integracao_1_tabelas.sql", "utf8");
@@ -6495,11 +6509,19 @@ describe("integracao/campos — regras", () => {
   });
   it("configurações da API: faixa = erro; fora do recomendado = alerta (não erro)", () => {
     expect(CONFIG_API.limite_por_minuto).toMatchObject({ recomendado: 60, min: 1, max: 600 });
+    expect(CONFIG_API.max_por_pagina).toMatchObject({ recomendado: 50, min: 1, max: 500 }); // P-89 A: faixa do banco segue 1–500
     const a = validarConfigApi({ limite_por_minuto: 300, max_por_pagina: 200, validade_foto_dias: 7, bloqueio_tentativas: 150 });
     expect(a.erros.bloqueio_tentativas).toBe("Bloqueio de IP: 150 está fora da faixa permitida (3–100). Corrija para salvar.");
-    expect(a.foraRecomendado).toEqual(["limite_por_minuto", "bloqueio_tentativas"]);
-    expect(validarConfigApi({ limite_por_minuto: 60, max_por_pagina: 200, validade_foto_dias: 7, bloqueio_tentativas: 10 }))
+    // (fora da faixa é ERRO, não "fora do recomendado" — corrigido o esperado do plano b0c22294)
+    expect(a.foraRecomendado).toEqual(["limite_por_minuto", "max_por_pagina"]);
+    expect(validarConfigApi({ limite_por_minuto: 60, max_por_pagina: 50, validade_foto_dias: 7, bloqueio_tentativas: 10 }))
       .toEqual({ erros: {}, foraRecomendado: [] });
+  });
+  it("P-89 A: acima de 100 por página, alerta do plano gratuito (além do 'fora do recomendado')", () => {
+    expect(alertaPaginaPlanoGratuito(100)).toBeNull();
+    expect(alertaPaginaPlanoGratuito(101)).toBe(TEXTO_ALERTA_PAGINA_PLANO_GRATUITO);
+    expect(TEXTO_ALERTA_PAGINA_PLANO_GRATUITO).toBe(
+      "Acima de 100 pode passar do limite de processamento do plano gratuito do Cloudflare (10 ms por consulta). Só use com o plano pago (Workers Paid).");
   });
   it("texto do alerta do dono, verbatim", () => {
     expect(TEXTO_ALERTA_INTEGRAR).toBe("Você tem certeza? Se estiver errado, você poderá ser demitido");
@@ -6648,7 +6670,7 @@ export function infoCusto(origem: string): string {
 export type ChaveConfigApi = "limite_por_minuto" | "max_por_pagina" | "validade_foto_dias" | "bloqueio_tentativas";
 export const CONFIG_API: Record<ChaveConfigApi, { rotulo: string; rotuloCurto: string; recomendado: number; min: number; max: number; unidade: string }> = {
   limite_por_minuto: { rotulo: "Limite de consultas por minuto, por chave", rotuloCurto: "Limite por minuto", recomendado: 60, min: 1, max: 600, unidade: "consultas/min" },
-  max_por_pagina: { rotulo: "Máximo de produtos por página", rotuloCurto: "Máximo por página", recomendado: 200, min: 1, max: 500, unidade: "produtos" },
+  max_por_pagina: { rotulo: "Máximo de produtos por página", rotuloCurto: "Máximo por página", recomendado: 50, min: 1, max: 500, unidade: "produtos" },
   validade_foto_dias: { rotulo: "Validade dos links das fotos (dias)", rotuloCurto: "Validade das fotos", recomendado: 7, min: 1, max: 30, unidade: "dias" },
   bloqueio_tentativas: { rotulo: "Bloqueio de IP após N chaves erradas em 10 min", rotuloCurto: "Bloqueio de IP", recomendado: 10, min: 3, max: 100, unidade: "tentativas" },
 };
@@ -6666,6 +6688,14 @@ export function validarConfigApi(v: Record<ChaveConfigApi, number>): { erros: Pa
     }
   }
   return { erros, foraRecomendado };
+}
+// P-89 A (dono 27/set): plano GRATUITO do Cloudflare = 10 ms de CPU por consulta. Padrão/recomendado 50; a faixa segue 1–500
+// (aumentar depois = mudar aqui na aba API, sem migration nem deploy); ACIMA de 100, alerta próprio além do "fora do recomendado".
+export const PAGINA_MAX_PLANO_GRATUITO = 100;
+export const TEXTO_ALERTA_PAGINA_PLANO_GRATUITO =
+  "Acima de 100 pode passar do limite de processamento do plano gratuito do Cloudflare (10 ms por consulta). Só use com o plano pago (Workers Paid).";
+export function alertaPaginaPlanoGratuito(maxPorPagina: number): string | null {
+  return Number.isInteger(maxPorPagina) && maxPorPagina > PAGINA_MAX_PLANO_GRATUITO ? TEXTO_ALERTA_PAGINA_PLANO_GRATUITO : null;
 }
 export const TEXTO_ALERTA_INTEGRAR = "Você tem certeza? Se estiver errado, você poderá ser demitido";
 export const TEXTO_ALERTA_LAYOUT =
@@ -6885,7 +6915,7 @@ Co-Authored-By: Claude <modelo real> <noreply@anthropic.com>" -- src/lib/integra
   tests/unit/integracao-campos.test.ts tests/unit/erro-mensagem-integracao.test.ts tests/unit/integracao-tela-fonte.test.ts
 git show --stat HEAD | tail -n +7
 ```
-Expected: PASS (campos 8 · erro 4 · fonte 6 + a suíte antiga de erro-mensagem intacta); `GATES INTEGRACAO: ok`.
+Expected: PASS (campos 9 · erro 4 · fonte 6 + a suíte antiga de erro-mensagem intacta); `GATES INTEGRACAO: ok`.
 
 ---
 
@@ -9667,7 +9697,7 @@ Co-Authored-By: Claude <modelo real> <noreply@anthropic.com>" -- src/lib/integra
   src/components/integracao/IntegracaoPage.tsx tests/unit/integracao-campos-config.test.ts
 git show --stat HEAD | tail -n +7
 ```
-Expected: PASS (campos-config 4 · campos 8 · tela-fonte 11); `GATES INTEGRACAO: ok`.
+Expected: PASS (campos-config 4 · campos 9 · tela-fonte 11); `GATES INTEGRACAO: ok`.
 
 ---
 
@@ -9694,6 +9724,7 @@ Expected: PASS (campos-config 4 · campos 8 · tela-fonte 11); `GATES INTEGRACAO
 
 ```ts
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   TEXTO_REVOGAR, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso, textoForaRecomendado,
 } from "@/lib/integracao/api-tela";
@@ -9725,6 +9756,11 @@ describe("aba API — leitura e textos (mockup 7)", () => {
     expect(textoForaRecomendado("limite_por_minuto"))
       .toBe("Recomendado: 60. Acima disso o ERP pode sobrecarregar o site / abaixo, o programa do dev pode ficar lento.");
     expect(TEXTO_REVOGAR).toBe("O ERP perde o acesso na hora. Esta ação não pode ser desfeita — para usar de novo, é preciso criar outra chave.");
+  });
+  it("P-89 A: 'Máximo por página' recomendado 50 e, acima de 100, o alerta do plano gratuito no campo E no diálogo", () => {
+    expect(textoForaRecomendado("max_por_pagina")).toMatch(/^Recomendado: 50\. /);
+    const s = readFileSync("src/components/integracao/ApiAba.tsx", "utf8"); // passa depois do Step 6 (ApiAba)
+    expect(s.match(/alertaPaginaPlanoGratuito\(vals\.max_por_pagina\)/g)?.length).toBe(2);
   });
 });
 ```
@@ -9811,13 +9847,13 @@ export const TEXTO_CONFIG_API =
   "Só o super admin edita. Valor fora da faixa permitida: erro na hora, Salvar desabilitado. Valor dentro da faixa mas fora do recomendado: alerta antes de salvar (com opção de voltar ao recomendado). Toda mudança fica no Log.";
 ```
 
-- [ ] **Step 4: Rodar o teste (PASS)**
+- [ ] **Step 4: Rodar o teste (PASS, menos o de fonte do P-89 A)**
 
 ```bash
 export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres
 npx vitest run --no-file-parallelism tests/unit/integracao-api-tela.test.ts
 ```
-Expected: PASS (3).
+Expected: PASS em 3; FAIL só no "P-89 A" (`ENOENT … ApiAba.tsx` — o componente é do Step 6; passa no Step 7).
 
 - [ ] **Step 5: `src/components/integracao/NovaChaveDialog.tsx`**
 
@@ -9938,7 +9974,10 @@ import {
   TEXTO_CONFIG_API, TEXTO_REVOGAR, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
   textoForaRecomendado, type Chave,
 } from "@/lib/integracao/api-tela";
-import { CHAVES_CONFIG_API, CONFIG_API, TEXTO_SO_SUPER, validarConfigApi, type ChaveConfigApi } from "@/lib/integracao/campos";
+import {
+  CHAVES_CONFIG_API, CONFIG_API, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO, TEXTO_SO_SUPER, alertaPaginaPlanoGratuito, validarConfigApi,
+  type ChaveConfigApi,
+} from "@/lib/integracao/campos";
 import { fmtDataHora } from "@/lib/integracao/produtos";
 import { useAbaSuja } from "./guard";
 import { chaveConfig, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
@@ -10118,6 +10157,10 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
                   onChange={(e) => setVals((x) => (x ? { ...x, [k]: Math.trunc(Number(e.target.value)) } : x))} />
                 <p className="text-xs text-muted-foreground">Recomendado: {c.recomendado} · Faixa permitida: {c.min}–{c.max}</p>
                 {erro && <p className="text-xs text-destructive" role="alert">{erro}</p>}
+                {/* P-89 A: acima de 100 por página pode passar dos 10 ms de CPU do plano gratuito do Cloudflare */}
+                {k === "max_por_pagina" && !erro && alertaPaginaPlanoGratuito(vals.max_por_pagina) && (
+                  <p className="text-xs text-[var(--tone-warning-fg)]" role="alert">{TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>
+                )}
               </div>
             );
           })}
@@ -10130,6 +10173,7 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 {(alerta ?? []).map((k) => <p key={k}><strong>{CONFIG_API[k].rotuloCurto}:</strong> {textoForaRecomendado(k)}</p>)}
+                {vals && alertaPaginaPlanoGratuito(vals.max_por_pagina) && <p><strong>Plano gratuito:</strong> {TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>}
                 <p>Salvar mesmo assim?</p>
               </div>
             </AlertDialogDescription>
@@ -10198,7 +10242,7 @@ Co-Authored-By: Claude <modelo real> <noreply@anthropic.com>" -- src/lib/integra
   src/components/integracao/NovaChaveDialog.tsx src/components/integracao/IntegracaoPage.tsx tests/unit/integracao-api-tela.test.ts
 git show --stat HEAD | tail -n +7
 ```
-Expected: PASS (api-tela 3 · tela-fonte 11); `GATES INTEGRACAO: ok`.
+Expected: PASS (api-tela 4 · tela-fonte 11); `GATES INTEGRACAO: ok`.
 
 ---
 
@@ -10216,11 +10260,12 @@ Expected: PASS (api-tela 3 · tela-fonte 11); `GATES INTEGRACAO: ok`.
 - Consumes: Task 6 (`RespostaLer` — `integracao_exemplo()` e `_integracao_ler` devolvem esse formato; a coluna `foto` vem como
   LISTA de caminhos na linha do produto e `[]` nas sublinhas; teste = `["exemplo"]`), Task 9 (`CAMPOS`), Task 14
   (`TEXTO_SO_SUPER`).
-- Produces (`resposta.ts`): `type StatusLer`, `type ProdutoLer`, `type RespostaLer`, `type LinhaApi`, `type RespostaApi`,
+- Produces (`resposta.ts`): `type StatusLer`, `type ProdutoLer`, `type PaginaApi {limite, maximo}` (D39 — P-89 A),
+  `type RespostaLer`, `type LinhaApi`, `type RespostaApi`,
   `type OpcoesMontar {geradoEm, foto(caminhos) → unknown, incluir?(modeloId), integradoEm?(modeloId)}`,
   `caminhosFoto(valores, idx)`, `montarResposta(r, o)`, `CAMINHO_FOTO_EXEMPLO = "/integracao/exemplo-produto.svg"`.
 - Produces (`manual-conteudo.ts`): `type Bloco`, `type SecaoManual {id, titulo, blocos}`, `CHAVE_FICTICIA`,
-  `montarManual(origem)`, `respostaExemplo(modo, origem)`.
+  `TEXTO_PAGINA_PODE_MUDAR` (P-89 A — em Parâmetros, Boas práticas e FAQ), `montarManual(origem)`, `respostaExemplo(modo, origem)`.
 
 - [ ] **Step 1: Escrever o teste (falha: arquivos ausentes)**
 
@@ -10229,11 +10274,11 @@ Expected: PASS (api-tela 3 · tela-fonte 11); `GATES INTEGRACAO: ok`.
 ```ts
 import { describe, it, expect } from "vitest";
 import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaLer } from "@/lib/integracao/api/resposta";
-import { CHAVE_FICTICIA, montarManual, respostaExemplo } from "@/components/integracao/manual-conteudo";
+import { CHAVE_FICTICIA, TEXTO_PAGINA_PODE_MUDAR, montarManual, respostaExemplo } from "@/components/integracao/manual-conteudo";
 
 const R: RespostaLer = {
   status: "ok", modo: "normal", tenant_id: "t1", loja: { id: "t1", nome: "Loja X" }, colunas: ["Nome", "Foto"],
-  chaves_colunas: ["nome", "foto"], proximo_cursor: null, validade_foto_dias: 7,
+  chaves_colunas: ["nome", "foto"], proximo_cursor: null, validade_foto_dias: 7, pagina: { limite: 2, maximo: 50 },
   produtos: [
     { modelo_id: "m1", estado: "integravel", assinatura: "a", integrado_em: null, linhas: [
       { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", ["t1/fotos_modelo/a.jpg", "t1/fotos_modelo/b.jpg"]] },
@@ -10253,6 +10298,7 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
     });
     expect(out).toEqual({
       versao: 1, modo: "normal", loja: { id: "t1", nome: "Loja X" }, colunas: ["Nome", "Foto"], gerado_em: "2026-09-26T20:48:00.000Z",
+      pagina: { limite: 2, maximo: 50 }, // D39 (P-89 A)
       proximo_cursor: null,
       linhas: [
         { tipo: "produto", produto_id: "m1", loja_id: "t1", loja_nome: "Loja X", integrado_em: "2026-09-26T17:35:00.000Z",
@@ -10264,6 +10310,7 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
   it("sem incluir = todos; loja_nome cai no nome da loja", () => {
     const out = montarResposta(R, { geradoEm: "g", foto: () => null });
     expect(out.linhas.map((l) => l.produto_id)).toEqual(["m1", "m1", "m2"]);
+    expect(montarResposta({ ...R, pagina: undefined }, { geradoEm: "g", foto: () => null }).pagina).toBeNull();
     expect(out.linhas[2]).toMatchObject({ loja_nome: "Loja X", valores: ["Blusa", null] });
   });
 });
@@ -10276,7 +10323,10 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
       "Códigos de resposta", "Boas práticas", "Perguntas frequentes", "Checklist antes de ligar de verdade",
     ]);
     const cmds = JSON.stringify(m[2]);
-    expect(cmds).toContain("https://sistrama.sung-lee.workers.dev/api/integracao/v1/produtos?limite=100");
+    expect(cmds).toContain("https://sistrama.sung-lee.workers.dev/api/integracao/v1/produtos?limite=50");
+    // P-89 A: o tamanho da página pode mudar — o texto aparece em Parâmetros, Boas práticas e FAQ
+    for (const i of [3, 6, 7]) expect(JSON.stringify(m[i]), m[i].titulo).toContain(TEXTO_PAGINA_PODE_MUDAR);
+    expect(JSON.stringify(m[4])).toContain("pagina.maximo");
     expect(cmds).toContain(`Bearer ${CHAVE_FICTICIA}`);
     expect(cmds).toContain("modo=teste");
   });
@@ -10289,6 +10339,7 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     expect(t.linhas[1].valores[17]).toEqual([]);
     expect(t.linhas.every((l) => l.integrado_em === null)).toBe(true);
     expect(t.proximo_cursor).toBe("eyJleGVtcGxvIjogMn0=");
+    expect(t.pagina).toEqual({ limite: 2, maximo: 50 });
   });
 });
 ```
@@ -10305,8 +10356,9 @@ Expected: FAIL — `Failed to resolve import "@/lib/integracao/api/resposta"`.
 
 ```ts
 // Integração — API: o contrato com o banco (RespostaLer — _integracao_ler/integracao_exemplo, Task 6) e a montagem PURA da
-// resposta pública (spec §7): {versao, modo, loja, colunas, gerado_em, linhas[{tipo, produto_id, loja_id, loja_nome,
-// integrado_em, valores}], proximo_cursor}. Usada pela rota (Tasks 19/20) e pelo "Ver resposta de exemplo" do Manual. A
+// resposta pública (spec §7): {versao, modo, loja, colunas, gerado_em, pagina{limite, maximo}, linhas[{tipo, produto_id,
+// loja_id, loja_nome, integrado_em, valores}], proximo_cursor}. `pagina` (D39, P-89 A): quantos produtos por página esta
+// resposta usou e o máximo da loja HOJE — a loja pode mudar o máximo sem aviso; o programa do dev segue o cursor. Usada pela rota (Tasks 19/20) e pelo "Ver resposta de exemplo" do Manual. A
 // coluna Foto (D5) chega do banco como LISTA de caminhos na linha do produto ([] nas sublinhas); quem chama decide o valor
 // (links assinados, link público de exemplo ou null).
 export type StatusLer = "ok" | "parametro_invalido" | "chave_invalida" | "loja_inativa" | "ip_bloqueado" | "limite_excedido";
@@ -10314,17 +10366,18 @@ export type ProdutoLer = {
   modelo_id: string; estado: string; assinatura: string | null; integrado_em: string | null;
   linhas: { tipo: "produto" | "variante"; loja_nome?: string | null; valores: unknown[] }[];
 };
+export type PaginaApi = { limite: number; maximo: number };
 export type RespostaLer = {
   status: StatusLer; retry_after?: number | null; tenant_id?: string | null; modo?: "normal" | "teste"; acesso_id?: string;
   chave_id?: string; loja?: { id: string; nome: string }; colunas?: string[]; chaves_colunas?: string[]; produtos?: ProdutoLer[];
-  proximo_cursor?: string | null; validade_foto_dias?: number;
+  proximo_cursor?: string | null; validade_foto_dias?: number; pagina?: PaginaApi;
 };
 export type LinhaApi = {
   tipo: "produto" | "variante"; produto_id: string; loja_id: string; loja_nome: string; integrado_em: string | null; valores: unknown[];
 };
 export type RespostaApi = {
   versao: 1; modo: "normal" | "teste"; loja: { id: string; nome: string }; colunas: string[]; gerado_em: string;
-  linhas: LinhaApi[]; proximo_cursor: string | null;
+  pagina: PaginaApi | null; linhas: LinhaApi[]; proximo_cursor: string | null;
 };
 export type OpcoesMontar = {
   geradoEm: string;
@@ -10356,7 +10409,8 @@ export function montarResposta(r: RespostaLer, o: OpcoesMontar): RespostaApi {
     }
   }
   return {
-    versao: 1, modo: r.modo ?? "normal", loja, colunas: r.colunas ?? [], gerado_em: o.geradoEm, linhas,
+    versao: 1, modo: r.modo ?? "normal", loja, colunas: r.colunas ?? [], gerado_em: o.geradoEm,
+    pagina: r.pagina ? { limite: r.pagina.limite, maximo: r.pagina.maximo } : null, linhas,
     proximo_cursor: r.proximo_cursor ?? null,
   };
 }
@@ -10381,6 +10435,9 @@ export type Bloco =
   | { tipo: "exemplo" };
 export type SecaoManual = { id: string; titulo: string; blocos: Bloco[] };
 export const CHAVE_FICTICIA = "wish_live_EXEMPLO1234567890";
+/** P-89 A (dono 27/set): "isso pode mudar depois … como fazer no manual/guia?" — vai em Parâmetros, Boas práticas e FAQ. */
+export const TEXTO_PAGINA_PODE_MUDAR =
+  "O número de produtos por página pode mudar (é uma configuração da loja). Seu programa nunca deve contar com um tamanho fixo de página: siga o proximo_cursor até ele vir vazio e, se quiser, leia pagina.maximo para pedir páginas maiores.";
 
 const CHAVES = CAMPOS.map((c) => c.key);
 const linhaDe = (tipo: "produto" | "variante", v: Record<string, unknown>) => ({ tipo, valores: CHAVES.map((k) => (k in v ? v[k] : null)) });
@@ -10402,6 +10459,7 @@ export function respostaExemplo(modo: "normal" | "teste", origem: string): Respo
   const r: RespostaLer = {
     status: "ok", modo, tenant_id: loja.id, loja, colunas: CAMPOS.map((c) => c.rotulo), chaves_colunas: CHAVES,
     proximo_cursor: modo === "teste" ? "eyJleGVtcGxvIjogMn0=" : null,
+    pagina: modo === "teste" ? { limite: 2, maximo: 50 } : { limite: 50, maximo: 50 },
     produtos: [{
       modelo_id: modo === "normal" ? "c3a1e2b4-0000-4000-8000-000000000001" : "exemplo-0001", estado: modo === "normal" ? "integrado" : "teste",
       assinatura: null, integrado_em: modo === "normal" ? "2026-09-26T17:35:00.000Z" : null,
@@ -10434,20 +10492,21 @@ export function montarManual(origem: string): SecaoManual[] {
     ] },
     { id: "s3", titulo: "Endereço e comandos", blocos: [
       { tipo: "p", texto: "Endereço: GET /api/integracao/v1/produtos — exemplos prontos (chave fictícia abaixo — troque pela sua):" },
-      { tipo: "codigo", titulo: "Terminal (curl)", codigo: `# Consulta normal\ncurl "${url}?limite=100" \\\n  ${h}` },
-      { tipo: "codigo", titulo: "JavaScript", codigo: `// Consulta normal\nconst r = await fetch(\n  "${url}?limite=100",\n  { headers: { Authorization: "Bearer ${CHAVE_FICTICIA}" } }\n);\nconst dados = await r.json();` },
-      { tipo: "codigo", titulo: "Python", codigo: `import requests\nr = requests.get(\n    "${url}",\n    params={"limite": 100},\n    headers={"Authorization": "Bearer ${CHAVE_FICTICIA}"},\n)\ndados = r.json()` },
+      { tipo: "codigo", titulo: "Terminal (curl)", codigo: `# Consulta normal\ncurl "${url}?limite=50" \\\n  ${h}` },
+      { tipo: "codigo", titulo: "JavaScript", codigo: `// Consulta normal\nconst r = await fetch(\n  "${url}?limite=50",\n  { headers: { Authorization: "Bearer ${CHAVE_FICTICIA}" } }\n);\nconst dados = await r.json();` },
+      { tipo: "codigo", titulo: "Python", codigo: `import requests\nr = requests.get(\n    "${url}",\n    params={"limite": 50},\n    headers={"Authorization": "Bearer ${CHAVE_FICTICIA}"},\n)\ndados = r.json()` },
       { tipo: "codigo", titulo: "Modo teste — produtos de EXEMPLO (fictícios) no formato real; nada vira integrado", codigo: `curl "${url}?modo=teste&limite=20" \\\n  ${h}` },
-      { tipo: "codigo", titulo: "Próxima página (cursor)", codigo: `curl "${url}?limite=100&cursor=<proximo_cursor da resposta anterior>" \\\n  ${h}` },
-      { tipo: "codigo", titulo: "Reler produtos já integrados (ex.: a resposta anterior se perdeu)", codigo: `curl "${url}?incluir_integrados=1&limite=100" \\\n  ${h}` },
+      { tipo: "codigo", titulo: "Próxima página (cursor)", codigo: `curl "${url}?limite=50&cursor=<proximo_cursor da resposta anterior>" \\\n  ${h}` },
+      { tipo: "codigo", titulo: "Reler produtos já integrados (ex.: a resposta anterior se perdeu)", codigo: `curl "${url}?incluir_integrados=1&limite=50" \\\n  ${h}` },
     ] },
     { id: "s4", titulo: "Parâmetros", blocos: [
       { tipo: "tabela", cabecalho: ["Parâmetro", "O que faz", "Padrão", "Exemplo"], linhas: [
         ["modo", "normal ou teste — teste devolve produtos de EXEMPLO fictícios no formato real, nunca dados reais; nada vira integrado", "normal", "modo=teste"],
         ["incluir_integrados", "0 = só integráveis; 1 = inclui os já integrados também", "0", "incluir_integrados=1"],
-        ["limite", "nº de produtos por página, até o máximo configurado (padrão 200); um produto nunca é partido entre páginas", "200", "limite=100"],
+        ["limite", "nº de produtos por página, até o máximo configurado da loja (hoje, padrão 50); sem limite = o máximo; um produto nunca é partido entre páginas", "o máximo da loja", "limite=50"],
         ["cursor", "devolvido em proximo_cursor da resposta anterior — envie de volta para pedir a próxima página", "vazio (1ª página)", "cursor=…"],
       ] },
+      { tipo: "p", texto: TEXTO_PAGINA_PODE_MUDAR },
     ] },
     { id: "s5", titulo: "A resposta explicada", blocos: [
       { tipo: "tabela", cabecalho: ["Campo", "O que é"], linhas: [
@@ -10456,6 +10515,7 @@ export function montarManual(origem: string): SecaoManual[] {
         ["loja", "{id, nome} — a EMPRESA (não as lojas do Direcionamento)"],
         ["colunas", 'nomes de TODAS as colunas marcadas em "Campos da API", na mesma ordem de valores'],
         ["gerado_em", "data/hora em que esta resposta foi gerada"],
+        ["pagina", "{limite, maximo} — limite = quantos produtos por página ESTA resposta usou; maximo = o máximo que a loja permite HOJE (pode mudar). Para páginas maiores, peça limite até pagina.maximo"],
         ["linhas[].tipo", '"produto" (a linha do produto) ou "variante" (uma linha cor × tamanho)'],
         ["produto_id", "id do produto (o mesmo em todas as sublinhas dele)"],
         ["loja_id / loja_nome", "a EMPRESA (não as lojas do Direcionamento)"],
@@ -10480,7 +10540,7 @@ export function montarManual(origem: string): SecaoManual[] {
     ] },
     { id: "s7", titulo: "Boas práticas", blocos: [
       { tipo: "lista", itens: [
-        "Pagine até proximo_cursor vir vazio.",
+        TEXTO_PAGINA_PODE_MUDAR,
         "Guarde o produto_id no seu sistema — é a chave de ligação entre os dois lados.",
         "Se a resposta se perder no meio do caminho, releia com incluir_integrados=1.",
         "Nunca coloque a chave no código do site/app (client-side) — ela é para o servidor do ERP, nunca aparece no navegador.",
@@ -10492,7 +10552,8 @@ export function montarManual(origem: string): SecaoManual[] {
         { p: "Posso testar sem afetar os produtos de verdade?", r: "Sim — use modo=teste. A resposta traz produtos de EXEMPLO (fictícios) no mesmo formato da sua loja, nunca dados reais, e nada vira integrado." },
         { p: "Um produto integrado pode ser editado depois?", r: 'Não — os campos que foram para a API ficam travados. Só o super admin pode "Desfazer integração" (com motivo), e aí o produto volta a ser editável.' },
         { p: "Perdi a resposta de uma consulta — e agora?", r: "Releia com incluir_integrados=1: os produtos já confirmados aparecem de novo, sem duplicar nada no banco." },
-        { p: "Quantos produtos vêm por página?", r: 'Até o "Máximo de produtos por página" configurado (padrão 200). Um produto nunca é dividido entre duas páginas.' },
+        { p: "Quantos produtos vêm por página?", r: 'Até o "Máximo de produtos por página" configurado da loja (hoje, padrão 50). A própria resposta diz: pagina.limite (usado nesta resposta) e pagina.maximo (o máximo de hoje). Um produto nunca é dividido entre duas páginas.' },
+        { p: "O tamanho da página pode mudar?", r: TEXTO_PAGINA_PODE_MUDAR },
         { p: "O que acontece se eu errar a chave várias vezes?", r: "Depois de N tentativas erradas em 10 minutos (configurável), chaves erradas vindas desse IP ficam bloqueadas por um tempo — a chave certa continua funcionando." },
         { p: "Posso ter mais de uma chave?", r: "Sim — crie uma por integração/ambiente (ex.: uma para o ERP, outra para testes) e revogue a que não usa mais." },
       ] },
@@ -11091,6 +11152,7 @@ const T = "11111111-1111-4111-8111-111111111111";
 const OK: RespostaLer = {
   status: "ok", modo: "normal", acesso_id: "ac1", chave_id: "k1", tenant_id: T, loja: { id: T, nome: "Loja X" },
   colunas: ["Nome", "Foto"], chaves_colunas: ["nome", "foto"], proximo_cursor: null, validade_foto_dias: 7,
+  pagina: { limite: 50, maximo: 50 },
   produtos: [
     { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
       { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", [`${T}/fotos_modelo/a.jpg`, `outra-loja/fotos_modelo/x.jpg`, `${T}/fotos_modelo/sumiu.jpg`]] },
@@ -11178,7 +11240,7 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
       produtos: [{ modelo_id: "m1", assinatura: "s1" }, { modelo_id: "m2", assinatura: "s2" }], fotos_descartadas: 1, fotos_ausentes: 1 }]);
     const j = await corpo(r);
     expect(j).toMatchObject({ versao: 1, modo: "normal", loja: { id: T, nome: "Loja X" }, colunas: ["Nome", "Foto"],
-      gerado_em: "2026-09-26T20:48:00.000Z", proximo_cursor: null });
+      gerado_em: "2026-09-26T20:48:00.000Z", pagina: { limite: 50, maximo: 50 }, proximo_cursor: null }); // D39
     expect(j.linhas.map((l: any) => l.produto_id)).toEqual(["m1", "m1"]);
     expect(j.linhas[0].valores[1]).toEqual([`https://s/${T}/fotos_modelo/a.jpg?t=1`, null, null]);
     expect(j.linhas[0].integrado_em).toBe("2026-09-26T17:35:00.000Z");
@@ -11569,7 +11631,7 @@ CÓPIA é da Task 20b (`:5199`, antes do RODAR); a Task 25 repete o essencial no
   (`copia.sh ida|volta`, `n3.sh`), Tasks 13/15 (textos da tela: integrar, Nova chave, Revogar — os MESMOS da QA da Task 25);
   `banco-local/app-teste/{vite.config.local-copia.mjs,wrangler.jsonc,.env.local-copia,.dev.vars}` (LIDOS pelo vite; ninguém abre
   `.env.local-copia`/`.dev.vars`).
-- Produces: `[carga-api]` p50/p95 com 50/100/200/500 produtos (entrada da D38); ensaio verde da rota real (401 sem chave/errada,
+- Produces: `[carga-api]` p50/p95 com 50/100/200/500 produtos (confere a P-89 A — D38); ensaio verde da rota real (401 sem chave/errada,
   400, teste 200 sem integrar, normal 200 → `integrado` no banco, relê só com `incluir_integrados=1`, revogada 401); anotação
   em `copia-estado.md`. Defeito ⇒ o RODAR NÃO vai ao dono: defeito no SQL reabre o G-migration (Task 7); defeito no TS = commit
   novo na worktree + revisão individual; depois repete esta task.
@@ -11664,7 +11726,7 @@ async function medir(n: number) {
 }
 
 describe("Integração — CPU da rota por tamanho de página (R4/D38; só imprime)", () => {
-  // 200 = PADRÃO/recomendado de hoje; 500 = MÁXIMO da faixa; 50/100 = candidatos da opção (A) da D38.
+  // 50 = PADRÃO (P-89 A); 100 = acima disso a tela avisa do plano gratuito; 200/500 = só com Workers Paid (registro).
   for (const n of [50, 100, 200, 500]) {
     it(`${n} produtos`, async () => {
       const r = await medir(n);
@@ -11685,11 +11747,11 @@ Co-Authored-By: Claude <modelo real> <noreply@anthropic.com>" -- tests/carga/int
 git show --stat HEAD | tail -n +7
 ```
 Expected: PASS (carga 4) com as 4 linhas `[carga-api] …` no log; o executor COPIA as 4 linhas no relatório. O p95 NÃO
-reprova nada aqui (R10). **Regra D38 (controlador):** p95 do PADRÃO (200) e do MÁXIMO (500) ≤ 7 ms ⇒ segue. Qualquer um
-> 7 ms ⇒ a P-xx da D38 vai ao dono (se ainda não foi antes da T1) com as opções (A) baixar padrão e máximo para o maior
-tamanho com p95 ≤ 7 ms nesta medição · (B) Workers Paid · (C) os dois; escolhida (A) depois do G-migration ⇒ as migrations 1/6
-+ `CONFIG_API` + testes mudam e o G-migration roda de novo ANTES do RODAR. A máquina local costuma ser MAIS rápida que o
-Worker — por isso 7 ms (70 % dos 10 ms do plano Free); quem decide é a medição REAL no G-deploy (Task 25 Step 6).
+reprova nada aqui (R10). **D38 — RESOLVIDA pela P-89 A** (padrão/recomendado 50; alerta na tela acima de 100; faixa do
+banco 1–500). Leitura do controlador: p95 de 50 e de 100 ≤ 7 ms ⇒ segue (é o esperado — o guardião mediu ~4,5 ms com 50).
+Se o p95 de 50 ou de 100 passar de 7 ms, avisar o dono no painel ANTES do RODAR (o próximo passo seria baixar o padrão ou o
+alerta, ou Workers Paid). 200/500 ficam só como registro (só valem com Workers Paid). A máquina local costuma ser MAIS rápida
+que o Worker — por isso 7 ms (70 % dos 10 ms do plano gratuito); quem confirma é a medição REAL no G-deploy (Task 25 Step 6).
 
 - [ ] **Step 2: Vite PRÓPRIO da worktree na `:5199` (config não versionada, derivada da do app-teste)**
 
@@ -11839,6 +11901,7 @@ test("rota real: 401/400, teste sem integrar, normal → integrado, relê só co
   expect(n.headers()["cache-control"]).toBe("no-store");
   const jn = await n.json();
   expect(tem(jn)).toBe(true);
+  expect(jn.pagina.limite).toBe(jn.pagina.maximo); // D39: pedido 500, cortado no máximo da loja (padrão 50 — P-89 A)
   console.log(`[rota-real] página normal: ${jn.linhas.length} linhas em ${parede} ms de parede (dev local — referência, não é o CPU do Worker)`);
   expect(await estado()).toBe("integrado");
   const [ac] = await sql<{ n: number }>(
@@ -13219,7 +13282,8 @@ Em `CLAUDE.md`, depois do fim do item 13 da seção "Invariantes a preservar", a
     admin da loja + permissão; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
     `GET /api/integracao/v1/produtos` (rota de servidor no Worker, `Authorization: Bearer`, 2 fases: `_integracao_ler` →
     links assinados das fotos → `_integracao_confirmar`; só as 3 `_integracao_*` da rota têm EXECUTE p/ `service_role`; teto
-    por IP no binding `ratelimits` `INTEGRACAO_TETO_IP`). Estados `nao_integravel → integravel` (marcar, com a assinatura
+    por IP no binding `ratelimits` `INTEGRACAO_TETO_IP`; página padrão 50 produtos — P-89 A, faixa 1–500, acima de 100 só com
+    Workers Paid; a resposta traz `pagina: {limite, maximo}`). Estados `nao_integravel → integravel` (marcar, com a assinatura
     HMAC do retrato do resumo) `→ integrado` (a API confirmou a entrega) `→ nao_integravel` (voltar SÓ de integrável;
     desfazer SÓ super admin, com motivo). **Trava no BANCO** (`trg_zz_integracao_trava*`, últimos na ordem alfabética; CONSTRAINT
     TRIGGER adiado nas variantes do espelho): produto integrável/integrado não muda os campos marcados + SEMPRE `tamanho_tipo`,
@@ -13540,19 +13604,20 @@ linhas do Log); avisar no painel "QA da Integração verde na cópia — pode us
 
 - [ ] **Step 6: G-deploy (guardião) e memória (controlador)**
 
-- O guardião confere a QA verde NA CÓPIA, o ensaio da rota real (Task 20b) e a medição de CPU (D38: p95 do padrão e do
-  máximo ≤ 7 ms, ou a resposta do dono à P-xx — (A) já nas migrations/`CONFIG_API`, (B) conta no Workers Paid, ou (C)), o log do dono (ida + referência), o aviso publicado ANTES do merge e a ordem (banco →
+- O guardião confere a QA verde NA CÓPIA, o ensaio da rota real (Task 20b) e a medição de CPU (D38 — P-89 A: p95 de 50 e de
+  100 ≤ 7 ms; padrão 50 nas migrations/`CONFIG_API`), o log do dono (ida + referência), o aviso publicado ANTES do merge e a ordem (banco →
   referência → ensaio → merge + cópia → QA → docs). O deploy é o 2º deploy (P-68 B), `npm run deploy` pelo dono, depois do 1º.
 - Na saída do `npm run deploy` (o dono cola no chat): o binding `INTEGRACAO_TETO_IP` (Rate Limit) aparece aceito. Se a conta
   recusar `ratelimits` ⇒ tirar o binding do `wrangler.jsonc` (commit + gates; D23: sem binding = sem teto) e o dono roda de
   novo — nada mais muda.
 - Depois do deploy, o controlador confere (SÓ LEITURA, sem chave real): `curl -s -o /dev/null -w "%{http_code}"
   https://sistrama.sung-lee.workers.dev/api/integracao/v1/produtos` ⇒ `401` e o corpo `{"erro":"chave_invalida"}`.
-- **Medição REAL (decide a D38):** o dono gera 1 chave de teste na loja com mais integráveis e chama a API com a página PADRÃO
-  (e com o máximo) enquanto roda `npx wrangler tail sistrama --format json` no Terminal dele; o controlador lê (sem a chave)
-  o `outcome` de cada chamada (`"ok"` × `"exceededCpu"`) e o "CPU time" da rota no painel do Cloudflare (Workers → sistrama →
-  Métricas). `exceededCpu` ou CPU perto de 10 ms no plano Free ⇒ aplicar a opção da P-xx que o dono escolher (baixar o máximo
-  na aba API é imediato, sem deploy; padrão/recomendado no código = commit + deploy) e medir de novo. Revogar a chave no fim.
+- **Medição REAL (confirma a P-89 A):** o dono gera 1 chave de teste na loja com mais integráveis e chama a API com a página
+  PADRÃO (50) enquanto roda `npx wrangler tail sistrama --format json` no Terminal dele; o controlador lê (sem a chave) o
+  `outcome` de cada chamada (`"ok"` × `"exceededCpu"`), o CPU time da rota no painel do Cloudflare (Workers → sistrama →
+  Métricas) e o `pagina` da resposta (`{"limite":50,"maximo":50}`). `exceededCpu` ou CPU perto de 10 ms com 50 ⇒ P-xx ao dono
+  (baixar o máximo da loja na aba API é imediato, sem deploy; ou Workers Paid). Se no futuro o dono subir acima de 100: a tela
+  avisa (só com Workers Paid) — medir de novo do mesmo jeito. Revogar a chave no fim.
 - Memória: `project_tela_integracao` (FEITO: produção + deploy; contagem = base + 46|+13; volta LIFO; D5/D6/D9/D13/D14/D18/
   D26/D28/D33/D34/D38 comunicadas), `project_preco_fixo_revenda` (o importado ganhou o gravador de preço fixo — D14) e
   `feedback_staging_nada_grava_antes_salvar` (a aba Produtos segue o padrão).
@@ -13574,7 +13639,7 @@ linhas do Log); avisar no painel "QA da Integração verde na cópia — pode us
 | Volta de emergência | perda de config/chaves/log | `volta-producao.sh` exige `VOLTA_CONFIRMO=apagar-integracao` + backup antes; LIFO entre frentes |
 | Dev intocado quebrado sem querer | decisão 8 da campanha | gate em TODO commit (`git diff … savepoint … desenvolvimento/` vazio) |
 | A rota REAL da API só rodar de verdade depois da produção (R3) | defeito de SQL/Worker descoberto com o banco do dono já mudado | Task 20b: rota real servida pela worktree (`:5199`) contra a CÓPIA ANTES do RODAR; defeito ⇒ G-migration de novo |
-| CPU do Worker estourar (R4/R4-r2) — no plano Free, até a página PADRÃO (200) passa dos 10 ms na medição mínima | erro da API na página padrão ou grande | P-xx da D38 ao dono (A: baixar padrão/máximo · B: Workers Paid · C: os dois), de preferência antes da T1; medição 50/100/200/500 fora do gate (Task 20b); a medição REAL decide no G-deploy (Task 25); o super admin ainda pode baixar o máximo por loja na aba API |
+| CPU do Worker estourar (R4/R4-r2) — plano gratuito = 10 ms por consulta | erro da API numa página grande | P-89 A: padrão/recomendado 50 e alerta na tela acima de 100 (faixa segue 1–500 — aumentar é só configurar); medição 50/100/200/500 fora do gate (Task 20b); CPU real com a página 50 no G-deploy (Task 25); a resposta traz `pagina.maximo` e o Manual manda seguir o cursor (D39) |
 | Preço do Importado gravando fora do Salvar (R1) | P0409 falso no Salvar seguinte; preço gravado sem o usuário salvar | o preço entra no `_dados` do `salvar_produto_importado` (Task 5) e a tela só muda o rascunho (Task 23) |
 | REF do espelho mudando o card depois da Explosão (R2) | SKUs com REF diferente do card | o gatilho só leva a REF ao card com `enviado_cad = false` (Task 5; D13) |
 | Trava além do marcado (R8) | atacado travado sem ir na API | trava por campo; atacado e markup atacado livres (Tasks 21/23; D34); o markup atacado reenvia o varejo GRAVADO quando o varejo está travado |
@@ -13615,6 +13680,7 @@ re-conferência (mesmo arquivo, V/n) · **GP** = G-plano do PLANO (`g-plano-inte
 | **P-84 A** mockup v4 aprovado | textos verbatim nas Tasks 9–17 e 21 |
 | **P-86** ordem da Camada intermediária (depois desta frente) | o card n2 entra no inventário dela (T22 Step 6; GP N8) |
 | **P-87** celular não tem a tela | T18 (item escondido em tela estreita + rota com "A Integração é usada no computador"); QA 360/390 (T25) |
+| **P-89 A** página da API: padrão 50, alerta acima de 100 (plano gratuito); preparar para aumentar depois | padrão 50 no banco (T1 `DEFAULT`, T2 `_integracao_cfg`) com a faixa 1–500 intacta (T1/T6); `CONFIG_API` recomendado 50 + `alertaPaginaPlanoGratuito` (T9) e o alerta no campo e no diálogo (T15); `pagina: {limite, maximo}` na resposta (T6 SQL, T16 `montarResposta`, T19; D39); Manual em Parâmetros/Boas práticas/FAQ (T16); ensaio com `pagina` (T20b); CPU real com 50 no G-deploy (T25); D38 resolvida |
 | **P-88 A** nome/REF nos dois sentidos já a partir do passo no banco | gatilhos da mão dupla (T5; D13), aviso no RODAR (T8 Step 8), E2E (b) (T25) |
 
 **v1 — G-plano do spec (B1, B2, R3–R11, N12–N20)**
@@ -13705,7 +13771,7 @@ re-conferência (mesmo arquivo, V/n) · **GP** = G-plano do PLANO (`g-plano-inte
 | **GP R3** rota REAL contra a CÓPIA antes do RODAR | Task 20b (vite próprio na `:5199`, só o próprio PID; spec do ensaio) |
 | **GP R4** CPU do Worker | medição 50/100/200/500 em `tests/carga/integracao-api-carga.test.ts` (T20b); D38; `ratelimits` aceito + CPU real no G-deploy (T25) |
 | **GP R5** âncora do molde | linha 49 (`8–49`, `sed -n '49p'`) (T8); "11 linhas" (T0) |
-| **GP R6** lista COMPLETA das decisões ao dono | D1–D38 no G-migration (T7) e no G-scripts/RODAR (T8) |
+| **GP R6** lista COMPLETA das decisões ao dono | D1–D39 no G-migration (T7) e no G-scripts/RODAR (T8) |
 | **GP R7** QA de comportamento nas telas já no ar | 5 casos (a)–(e) com o banco conferido só leitura (T25 Step 5) |
 | **GP R8** só campos MARCADOS travam | `PrecoTabela`/`PrecoRevendaBloco` por coluna (T21), PA/PI (T23); D34 |
 | **GP R9** rastreabilidade por rodada | esta seção |
@@ -13724,7 +13790,7 @@ re-conferência (mesmo arquivo, V/n) · **GP** = G-plano do PLANO (`g-plano-inte
 
 | Requisito | Onde |
 |---|---|
-| **r2 R4-r2** a régua de CPU precisa de saída e cobrir o PADRÃO | D38 reescrita (padrão E máximo; P-xx com A baixar página · B Workers Paid · C; recomendado ir ao dono antes da T1); medição 50/100/200/500 (T20b); medição real decide no G-deploy (T25) |
+| **r2 R4-r2** a régua de CPU precisa de saída e cobrir o PADRÃO | RESOLVIDA pela P-89 A (padrão 50, alerta acima de 100); antes: D38 reescrita (padrão E máximo; P-xx com A baixar página · B Workers Paid · C; recomendado ir ao dono antes da T1); medição 50/100/200/500 (T20b); medição real decide no G-deploy (T25) |
 | **r2 R10** sem limiar de tempo no gate | medição em `tests/carga/` (fora do `tests/unit` que o `gates.sh` roda) e só imprime (T20b) |
 | **r2 n-a** Importado: apagar o Valor com markup vazio mantém o fixo | registrado na D14 para o dono (com a alternativa `_dados ? 'preco_varejo_fixo'`) |
 | **r2 n-b** foto com `WHEN` também muda o app já na ida | 1 parágrafo no aviso do RODAR (T8 Step 8) |

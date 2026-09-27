@@ -1,6 +1,7 @@
-# Tela de Integração + API por loja — desenho (spec) · v4
+# Tela de Integração + API por loja — desenho (spec) · v4.4
 
-**Data:** 26/set/2026 · **Branch:** `integracao/desenho` (a partir da linha principal `e6bdfdde`)
+**Data:** 26/set/2026 · **Branch:** `integracao/desenho` (a partir da linha principal `e6bdfdde`) até a v4.3; desde a T0 (27/set) o
+spec e o plano vivem na worktree `integracao-impl` (branch `integracao/impl`, a partir de `338d5433`) — a `integracao/desenho` fica congelada
 **Pedido verbatim:** `.superpowers/estudos/2026-09-25-tela-integracao-pedido.md` (item 7 + 3 complementos).
 **Decisões do dono (painel):** P-60 B · P-61 A · P-62 A · P-63 A · P-64 A · P-65 A · P-66 A · P-67 A · P-68 B · P-69 A ·
 desenho aprovado por partes: P-70 A (dados/estados) · P-71 A (tela + mockup antes do código) · P-72 A (API) · P-73 A (trava).
@@ -19,6 +20,12 @@ EXEMPLO fictícios no formato real.
 dois sentidos valem já a partir do passo no banco (a REF só acompanha enquanto o card deixa mudar a REF — antes da
 Explosão); preço do Importado grava no SALVAR da tela (não no blur — `_salvar_produto_importado_core` aceita o preço fixo
 no `_dados`); "atacado" não trava (só campos marcados); o diálogo do Reset avisa que apaga a integração da loja.
+**v4.4 (27/set, P-89 A do dono — plano gratuito do Cloudflare):** página da API com **padrão/recomendado 50** produtos (a
+faixa do banco continua 1–500); acima de 100 a tela avisa que pode passar do limite de processamento do plano gratuito
+(10 ms por consulta — só com Workers Paid). Aumentar depois = mudar a configuração da loja na aba API, sem migration nem
+deploy. A resposta passa a dizer o tamanho usado e o máximo atual (`pagina: {limite, maximo}`) e o Manual ensina o programa
+do dev a nunca contar com um tamanho fixo de página. Pedido do dono (verbatim): "isso pode mudar depois, pode ser que eu
+tenha que aumentar, tem como já preparar isso? e como fazer no manual/guia?".
 **v4.2 (re-conferência v4.1 do guardião, APROVA COM RESSALVAS):** V1–V5 e n1–n6 incorporados (gravador da revenda não
 muda — checagem só na `integracao_salvar`; gatilho de foto com WHEN; importado grava `modelos.nome`; reserva de acesso;
 4º editor do preço do importado; links de exemplo públicos; escopo da limpeza; módulo reconferido).
@@ -110,7 +117,9 @@ NÃO usa Realtime nessas tabelas (sem policy o canal não assina): recarrega ap�
 
 1. `integracao_config` — 1 linha por loja: `campos text[]` (ordem fixa da seção 3; padrão = layout #1–#17, §3),
    `atualizado_por/em`, `rev` + **configurações da API (v4)**: `limite_por_minuto int` (padrão/recomendado 60; faixa
-   1–600), `max_por_pagina int` (200; 1–500), `validade_foto_dias int` (7; 1–30), `bloqueio_tentativas int` (10; 3–100 —
+   1–600), `max_por_pagina int` (padrão/recomendado **50** — P-89 A; faixa 1–500; acima de 100 a tela avisa: "Acima de 100 pode
+   passar do limite de processamento do plano gratuito do Cloudflare (10 ms por consulta). Só use com o plano pago (Workers
+   Paid)."), `validade_foto_dias int` (7; 1–30), `bloqueio_tentativas int` (10; 3–100 —
    tentativas com chave errada por IP em 10 min). A linha nasce com o padrão quando falta — vale para as 6 lojas atuais
    (criada na 1ª leitura/migration) e para o `reset_loja` (semeia o padrão) — N9. SÓ o super admin muda (`integracao_salvar_config_api(_valores, _rev)`);
    fora da faixa = recusa; fora do RECOMENDADO = a tela alerta antes (o servidor aceita dentro da faixa). Log `config_api`
@@ -254,7 +263,8 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
   `src/routes/sitemap[.]xml.ts` (`server.handlers.GET`); publicada no `npm run deploy`; usa
   `src/integrations/supabase/client.server.ts` (service role).
 - **Endereço:** `GET /api/integracao/v1/produtos` · `Authorization: Bearer <chave>`. Parâmetros: `incluir_integrados`
-  (padrão falso), `limite` = nº de PRODUTOS por página (≤ `integracao_config.max_por_pagina`, padrão 200; um produto nunca é partido entre páginas), `cursor`, `modo` (v4).
+  (padrão falso), `limite` = nº de PRODUTOS por página (≤ `integracao_config.max_por_pagina`; sem `limite` = o máximo da loja,
+  padrão 50 — P-89 A; um produto nunca é partido entre páginas), `cursor`, `modo` (v4).
 - **Fluxo de uma consulta (R7 — "entregue com sucesso"):**
   1. `_integracao_ler` (transação 1): valida a chave (não revogada, loja ativa), lê do espelho da loja da chave até
      `limite` produtos `integravel` (e `integrado`, se pedido), devolve linhas + um "lote" `{modelo_id, assinatura}`.
@@ -267,8 +277,11 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
   - "Confirmar" é a 2ª fase INTERNA da rota (não um retorno do programa do dev). `_integracao_confirmar` reconfere a chave
     e a loja de cada produto. Chave inválida/revogada NÃO dá RAISE: `_integracao_ler` devolve um status e registra a
     tentativa (agregada por IP), senão o registro seria desfeito junto com o erro (nota 9).
-- **Resposta:** `{ versao, modo, loja:{id,nome}, colunas:[...], gerado_em, linhas:[{tipo, produto_id, loja_id, loja_nome,
-  integrado_em, valores:[...na ordem de colunas]}], proximo_cursor }`.
+- **Resposta:** `{ versao, modo, loja:{id,nome}, colunas:[...], gerado_em, pagina:{limite, maximo}, linhas:[{tipo,
+  produto_id, loja_id, loja_nome, integrado_em, valores:[...na ordem de colunas]}], proximo_cursor }`. **v4.4 (P-89 A):**
+  `pagina.limite` = quantos produtos por página ESTA resposta usou (o `limite` pedido, cortado no máximo; sem `limite` = o
+  máximo; no modo teste = 2, o tamanho das páginas de exemplo) e `pagina.maximo` = o "Máximo de produtos por página" da loja
+  HOJE — o programa do dev se ajusta sozinho se a loja mudar a configuração.
 - **Segurança:** só a impressão digital da chave é comparada; revogada/errada/loja inativa ⇒ 401/403 com corpo JSON
   mínimo e ASCII (nunca texto interno, inclusive em 500); limite por minuto POR CHAVE e POR IP (binding de rate limit do
   Workers no `wrangler.jsonc`); a rota só chama as 2 funções `_integracao_*` — nada mais do banco é exposto; nunca logar
@@ -284,7 +297,10 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
   da P-64 A); os demais (0 produtos, 429, chave errada) são apagados após 90 dias por limpeza oportunista dentro de
   `_integracao_ler` (no máx. 500 linhas por chamada, SÓ da loja da chave — n4). Para a contagem valer em rajada paralela,
   `_integracao_ler` grava uma RESERVA do acesso sob o lock (V4) — o `_integracao_confirmar` completa essa linha. As faixas máximas (500 por página; 30 dias de link) passam do que foi
-  aprovado na m084/P-67 A (200; 7 dias): o RECOMENDADO continua 200/7 e o mockup mostra a faixa ao dono.
+  aprovado na m084/P-67 A (200; 7 dias). **v4.4 (P-89 A):** RECOMENDADO/padrão = 50 produtos por página (o plano gratuito do
+  Cloudflare dá 10 ms de CPU por consulta; a medição do guardião deu p95 ≈ 4,5 ms com 50 e ≈ 13,8 ms com 200) e 7 dias de
+  link; acima de 100 a tela avisa que só vale com o plano pago (Workers Paid). Aumentar depois = mudar o "Máximo de produtos
+  por página" da loja na aba API (dentro de 1–500), sem migration nem deploy.
 - **Modo teste (v4; P-82 A, dono 26/set 21h0x):** `modo=teste` devolve DADOS DE EXEMPLO — produtos FICTÍCIOS, no formato
   real (mesmas `colunas` marcadas da loja, linha do produto + sublinhas variante × tamanho, `proximo_cursor` numa 2ª
   página de exemplo, fotos com links de exemplo) — e NUNCA dados reais: nenhum dado verdadeiro sai sem virar "integrado"
@@ -296,10 +312,13 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
   a API leva → integrado); (2) passo a passo de como integrar (criar chave → entregar ao dev → testar em modo teste →
   ligar de verdade → conferir no Log); (3) endereço e comandos com exemplos prontos para copiar (Terminal/curl,
   JavaScript, Python); (4) parâmetros (`modo`, `incluir_integrados`, `limite`, `cursor`) com o efeito de cada um;
-  (5) a resposta explicada campo a campo (`colunas`, `linhas`, `tipo`, `valores`, `proximo_cursor`, `integrado_em`,
-  fotos que expiram); (6) códigos de resposta e o que fazer (200, 401 chave errada/revogada, 403 loja inativa,
+  (5) a resposta explicada campo a campo (`colunas`, `linhas`, `tipo`, `valores`, `pagina`, `proximo_cursor`,
+  `integrado_em`, fotos que expiram); (6) códigos de resposta e o que fazer (200, 401 chave errada/revogada, 403 loja inativa,
   429 limite, 500); (7) boas práticas (paginar até `proximo_cursor` nulo; guardar o `produto_id`; reler com
   `incluir_integrados` se a resposta se perder; não expor a chave); (8) perguntas frequentes; (9) checklist antes de ligar.
+  **v4.4 (P-89 A)** — em Parâmetros, Boas práticas e Perguntas frequentes: "O número de produtos por página pode mudar (é
+  uma configuração da loja). Seu programa nunca deve contar com um tamanho fixo de página: siga o `proximo_cursor` até ele
+  vir vazio e, se quiser, leia `pagina.maximo` para pedir páginas maiores."
   Inclui "Ver resposta de exemplo" (RPC só leitura, SÓ super admin, da loja atual; fotos sem link; NÃO registra acesso
   e NÃO conta no limite — N12). "loja" = a empresa, não
   as lojas do Direcionamento.
@@ -370,7 +389,8 @@ vale também para o Sheet do Dev, sem tocar `src/components/desenvolvimento/**`)
   prévia + P0409, preço fixo revenda E importado — paridade do gravador novo com o da revenda —, fotos, Keywords da loja,
   Metatag = Descrição) e recusa em produto integrável/integrado; `integracao_salvar_config_api` só super admin + faixas;
   config padrão da loja nova = layout marcado e Foto desmarcada; limite por chave em `_integracao_ler` (61ª consulta em
-  60 s = `limite_excedido`), bloqueio por IP após N chaves erradas, `max_por_pagina` e `validade_foto_dias` respeitados;
+  60 s = `limite_excedido`), bloqueio por IP após N chaves erradas, `max_por_pagina` e `validade_foto_dias` respeitados
+  (v4.4: padrão 50 e a resposta com `pagina.limite`/`pagina.maximo` certos);
   `modo=teste` NÃO marca integrado, é registrado como teste e devolve SÓ exemplos (nenhum `modelo_id` real). **v4.2:**
   mão dupla por origem (nome nos 2 lados nas 3 telas, inclusive o save do importado — V3; preço fixo do importado nos 4
   editores + save limpando o fixo ao editar markup; fotos em `fotos_modelo`); gatilho de foto com `WHEN` (V2 — save do
