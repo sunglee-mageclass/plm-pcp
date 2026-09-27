@@ -349,14 +349,20 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
     });
   });
 
-  it("Important #1 (revisão T2): cross-tenant — previa/estado_modelos ignoram id de outra loja", async () => {
+  it("Important #1 (revisão T2): cross-tenant — previa/estado_modelos ignoram id de outra loja", async (ctx) => {
     await withTx(async (c) => {
       await prepara(c, 2);
       await comoUsuario(c, U);
       // resíduos T7 #3 (T2 N3): modelo de OUTRA loja escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo) — leitura
-      // só, nenhum dado é alterado.
-      const outro = await um<{ id: string; tenant_id: string }>(c,
-        `SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T]);
+      // só, nenhum dado é alterado. ruling do controlador, revisão T7 #11 (fix round 1, Minor 1): `ORDER BY id`
+      // p/ escolha determinística entre execuções + skip limpo se a cópia não tiver nenhum modelo de outra loja
+      // (em vez de um TypeError acessando `.id` de `undefined`).
+      const outro = await um<{ id: string; tenant_id: string } | undefined>(c,
+        `SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 ORDER BY id LIMIT 1`, [T]);
+      if (!outro) {
+        ctx.skip("nenhum modelo de outra loja na cópia — nada para testar");
+        return;
+      }
       const outraLoja = outro.id;
       const p = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [outraLoja])).r;
       expect(p.produtos).toEqual([]);

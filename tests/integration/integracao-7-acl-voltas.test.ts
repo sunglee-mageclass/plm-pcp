@@ -11,18 +11,34 @@ const RPCS = ["integracao_previa", "integracao_listar", "integracao_estado_model
   "integracao_chave_revogar", "integracao_acessos_listar", "integracao_exemplo"];
 const ROTA = ["_integracao_ler", "_integracao_confirmar", "_integracao_limpar"];
 async function retratoBanco(c: Client) {
-  return um<{ f: string; g: string; t: string; md5: string }>(c,
+  return um<{ f: string; g: string; t: string; md5: string; tgmd5: string }>(c,
     `SELECT (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace) AS f,
             (SELECT count(*) FROM pg_trigger t JOIN pg_class k ON k.oid = t.tgrelid WHERE k.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal) AS g,
             (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname LIKE 'integracao\\_%' AND relkind = 'r') AS t,
             (SELECT string_agg(md5(pg_get_functiondef(p.oid)), '|' ORDER BY p.proname) FROM pg_proc p
               WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('_imp_recomputar_precos_modelo','_pa_recomputar_precos_modelo',
-                '_salvar_produto_importado_core','_seed_tenant_defaults')) AS md5`);
+                '_salvar_produto_importado_core','_seed_tenant_defaults')) AS md5,
+            -- ruling do controlador, revisão T7 #11 (fix round 1, Minor 5): md5 de TODOS os gatilhos não-internos de
+            -- public — inclui os 2 REDEFINIDOS por esta frente (trg_sync_foto_modelo_acabado/_importado, m4:314-321,
+            -- que já existiam antes) e não só os NOVOS. Sem isso, o round-trip 2× provava a CONTAGEM de gatilhos
+            -- (g) mas não que a DEFINIÇÃO de um gatilho redefinido volta byte-a-byte ao estado de antes/depois.
+            -- ORDER BY t.tgname sozinho empata quando o MESMO nome de gatilho existe em tabelas diferentes
+            -- (ex.: trg_espelho_modelo_nome_ref em produtos_acabados E produtos_importados) — tgname NÃO é
+            -- único por si (a chave real é (tgrelid, tgname)); k.relname como desempate torna a ordem estável.
+            (SELECT string_agg(md5(pg_get_triggerdef(t.oid)), '|' ORDER BY t.tgname, k.relname) FROM pg_trigger t
+              JOIN pg_class k ON k.oid = t.tgrelid WHERE k.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal) AS tgmd5`);
 }
 const MD5_4_ANTES = [MD5_ANTES.imp, MD5_ANTES.pa, MD5_ANTES.impCore, MD5_ANTES.seed].join("|");
 
 describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
-  it("ACL #9: internas fechadas p/ PUBLIC/anon/authenticated; RPCs só authenticated; rota só service_role", async () => {
+  // ruling do controlador, revisão T7 #11 (fix round 1, Minor 5): retitulado para reivindicar só o que a query
+  // prova. Na cópia, o pg_default_acl de postgres/supabase_admin concede EXECUTE em função NOVA de public a anon/
+  // authenticated/service_role — então "rota_auth=17"/"rota=3" valem MESMO sem os GRANTs explícitos das migrations
+  // (só provam que as 17 RPCs/3 rotas EXISTEM, não que a ACL as fecha do lado errado). O título antigo ("RPCs só
+  // authenticated; rota só service_role") sugeria uma exclusividade que esta query não checa (não há proacl aqui
+  // provando que NENHUMA outra função interna tem GRANT direto a service_role — isso não tem impacto de segurança,
+  // já que service_role é a chave do servidor, plenamente privilegiada, e o plano não exige revogar dela).
+  it("ACL #9: internas fechadas p/ PUBLIC/anon/authenticated; RPCs não executáveis por anon e executáveis por authenticated; rota executável por service_role", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,

@@ -350,8 +350,15 @@ BEGIN
   -- resíduos T7 #6 (T5 N3, ruling do controlador, mesmo fix da T3 C): (a) item SEM modelo_id ganha mensagem
   -- PRÓPRIA, ANTES do check de duplicata; (b) duplicata comparada por ::uuid (não texto cru), então um mesmo UUID
   -- em caixa alta/baixa conta como o mesmo produto.
+  -- ruling do controlador, revisão T7 #11 (fix round 1, Minor 3, mesmo fix/mesma decisão documentada em
+  -- integracao_marcar): recusa também um modelo_id não-string ou sem cara de uuid, ANTES do cast ::uuid abaixo
+  -- (que doutra forma estouraria 22P02 cru). Formato aceito = o MESMO que o cast ::uuid do Postgres aceita (32 hex,
+  -- com ou sem os hifens 8-4-4-4-12, opcionalmente entre chaves) — não só a grafia canônica com hifens, pra não
+  -- recusar por engano um id válido só por formatação diferente da que o cast já tolera.
   IF jsonb_array_length(v_itens) > 0
-     AND (SELECT count(*) FILTER (WHERE e.x ->> 'modelo_id' IS NULL) FROM jsonb_array_elements(v_itens) AS e(x)) > 0 THEN
+     AND (SELECT count(*) FILTER (WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
+                                       OR NOT (e.x ->> 'modelo_id' ~* '^\{?([0-9a-f]{8})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{12})\}?$'))
+            FROM jsonb_array_elements(v_itens) AS e(x)) > 0 THEN
     RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
   END IF;
   IF jsonb_array_length(v_itens) > 0 AND (SELECT count(*) FROM jsonb_array_elements(v_itens) AS e(x)) <>

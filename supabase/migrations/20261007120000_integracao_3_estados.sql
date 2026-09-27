@@ -77,7 +77,17 @@ BEGIN
   -- comparação de duplicata agora casta pra uuid ANTES do DISTINCT — um mesmo UUID em caixa alta/baixa
   -- (ex.: 'ABC...' vs 'abc...') tem representação TEXTUAL diferente mas é o MESMO produto; sem o cast, count(DISTINCT
   -- text) contaria os 2 como produtos diferentes e o duplicado passaria batido.
-  IF (SELECT count(*) FILTER (WHERE e.x ->> 'modelo_id' IS NULL) FROM jsonb_array_elements(_itens) AS e(x)) > 0 THEN
+  -- ruling do controlador, revisão T7 #11 (fix round 1, Minor 3): o mesmo check agora recusa também um modelo_id
+  -- que NÃO é string (número, objeto, array, jsonb null) e uma string que não tem cara de uuid — ANTES do cast
+  -- ::uuid mais abaixo, que doutra forma estouraria 22P02 cru (sem tradução PT). Comportamento ESCOLHIDO (documentado
+  -- aqui, não é acidental): o formato aceito é o MESMO que o cast ::uuid do Postgres aceita de fato — 32 hex, com OU
+  -- sem os hifens 8-4-4-4-12, opcionalmente entre chaves ('{...}') — não só a grafia canônica com hifens. Uma string
+  -- MAIS RESTRITIVA (só a forma com hifens) rejeitaria como "sem modelo_id" um id que o ::uuid abaixo aceitaria de
+  -- bom grado, recusando por engano uma requisição válida só por causa da formatação. O count(DISTINCT ...::uuid) e
+  -- os JOINs abaixo continuam castando a MESMA string (agora garantidamente aceita pelo cast) — nada muda ali.
+  IF (SELECT count(*) FILTER (WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
+                                  OR NOT (e.x ->> 'modelo_id' ~* '^\{?([0-9a-f]{8})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{12})\}?$'))
+        FROM jsonb_array_elements(_itens) AS e(x)) > 0 THEN
     RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
   END IF;
   IF (SELECT count(*) FROM jsonb_array_elements(_itens) AS e(x)) <>

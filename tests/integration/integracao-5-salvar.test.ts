@@ -282,15 +282,28 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
-  it("revisão T5 #3 (Important #2): tenant isolation — importado de outra loja vinculado a card de outra loja não escreve cross-tenant", async () => {
+  it("revisão T5 #3 (Important #2): tenant isolation — importado de outra loja vinculado a card de outra loja não escreve cross-tenant", async (ctx) => {
     await withTx(async (c) => {
       await prepara(c, 5);
       await comoUsuario(c, U);
       const m = await importado(c);
       // Card JÁ existente de OUTRA loja na cópia — RLS de produtos_importados não valida modelo_id (só tenant_id
       // da PRÓPRIA linha), então um usuário da Loja Teste consegue apontar seu importado pra lá. resíduos T7 #3
-      // (T5 N2): escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo).
-      const cardDeOutraLoja = (await um<{ id: string }>(c, `SELECT id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T])).id;
+      // (T5 N2): escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo). ruling do controlador, revisão T7 #11 (fix
+      // round 1, Minor 1): SEM `NOT EXISTS produtos_importados`, o card escolhido podia JÁ ter um importado
+      // vinculado — o UPDATE deste teste (linha abaixo) estouraria unique_violation via `trg_pi_unique_modelo`
+      // (enforce_unique_fk('modelo_id')) ao tentar dar um SEGUNDO importado ao mesmo card, quebrando o teste por
+      // um motivo alheio ao que ele prova. `ORDER BY id` torna a escolha determinística entre execuções.
+      const candidato = await um<{ id: string } | undefined>(c,
+        `SELECT m.id FROM public.modelos m
+          WHERE m.tenant_id <> $1
+            AND NOT EXISTS (SELECT 1 FROM public.produtos_importados pi WHERE pi.modelo_id = m.id)
+          ORDER BY m.id LIMIT 1`, [T]);
+      if (!candidato) {
+        ctx.skip("nenhum card de outra loja sem importado vinculado na cópia — nada para testar");
+        return;
+      }
+      const cardDeOutraLoja = candidato.id;
       const nomeAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).n;
       const refAntes = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).r;
       await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [cardDeOutraLoja, m.produtoId]);
@@ -410,6 +423,31 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       ]));
       expect(dup).toEqual({ code: "P0001", message: "Produto repetido na lista — envie cada produto uma vez só." });
       expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("6109.10.00");
+    });
+  });
+
+  it("resíduos T7 #11 (fix round 1, Minor 3): salvar recusa modelo_id inválido/não-string com P0001 (nunca 22P02) — 'abc', '', objeto, número", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const msg = "Envie o modelo_id de cada produto.";
+      const casos: Array<[string, unknown]> = [
+        ["'abc'", "abc"],
+        ["''", ""],
+        ["objeto", { a: 1 }],
+        ["número", 123],
+      ];
+      for (const [rotulo, valor] of casos) {
+        const e = await erro(c, () => salvar(c, [{ modelo_id: valor, rev: 0, campos: { ncm: "1111.11.11" } }]));
+        expect(e.code, rotulo).toBe("P0001");
+        expect(e.message, rotulo).toBe(msg);
+      }
+      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com chaves) NÃO devem cair no "sem modelo_id".
+      const m = await modeloInterno(c);
+      const r0 = await rev(c, m.id);
+      const semHifen = m.id.replace(/-/g, "");
+      const eSemHifen = await erro(c, () => salvar(c, [{ modelo_id: semHifen, rev: r0, campos: { ncm: "3333.33.33" } }]));
+      expect(eSemHifen.message).not.toBe(msg);
     });
   });
 

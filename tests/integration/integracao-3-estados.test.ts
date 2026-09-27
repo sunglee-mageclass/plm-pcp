@@ -316,35 +316,67 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
     });
   });
 
-  it("Minor #4 (revisão T3): título '(nada marcado)' — 2º item ruim aborta o 1º item bom em lote (atômico)", async () => {
+  it("resíduos T7 #11 (fix round 1, Minor 3): marcar recusa modelo_id inválido/não-string com P0001 (nunca 22P02) — 'abc', '', objeto, número", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
-      const bom = await modeloInterno(c);
-      const ruim = await modeloInterno(c);
-      const assBom = await assinatura(c, bom.id);
-      // ruim: assinatura errada de propósito — dispara P0409 depois de bom já ter sido processado no loop
-      // (ordem por m.id — usa 2 ids e verifica os dois papeis, não confia em qual vem primeiro).
-      const [primeiro, segundo] = [bom.id, ruim.id].sort();
-      const itens = [
-        primeiro === bom.id
-          ? { modelo_id: bom.id, assinatura: assBom }
-          : { modelo_id: ruim.id, assinatura: "errada" },
-        segundo === ruim.id
-          ? { modelo_id: ruim.id, assinatura: "errada" }
-          : { modelo_id: bom.id, assinatura: assBom },
-      ];
-      const e = await erro(
-        c,
-        `SELECT public.integracao_marcar($1::jsonb)`,
-        [JSON.stringify(itens)],
-      );
-      expect(e.code).toBe("P0409");
-      // "nada marcado": NEM o produto bom (que teria passado sozinho) foi marcado — o lote é atômico.
-      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_produtos WHERE modelo_id IN ($1, $2) AND estado <> 'nao_integravel'`,
-        [bom.id, ruim.id])).n).toBe("0");
+      const msg = "Envie o modelo_id de cada produto.";
+      for (const item of [
+        `jsonb_build_object('modelo_id', 'abc', 'assinatura', 'x')`,
+        `jsonb_build_object('modelo_id', '', 'assinatura', 'x')`,
+        `jsonb_build_object('modelo_id', jsonb_build_object('a', 1), 'assinatura', 'x')`,
+        `jsonb_build_object('modelo_id', 123, 'assinatura', 'x')`,
+      ]) {
+        const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(${item}))`, []);
+        expect(e.code, item).toBe("P0001");
+        expect(e.message, item).toBe(msg);
+      }
+      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com chaves) NÃO devem cair no "sem modelo_id" —
+      // decisão documentada na migration: o check espelha o que ::uuid de fato aceita.
+      const m = await modeloInterno(c);
+      const a = await assinatura(c, m.id);
+      const semHifen = m.id.replace(/-/g, "");
+      const eSemHifen = await erro(c,
+        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::text, 'assinatura', $2::text)))`,
+        [semHifen, a]);
+      expect(eSemHifen.message).not.toBe(msg); // segue adiante (aceito), erro (se houver) é de outra natureza
     });
+  });
+
+  it("Minor #4 (revisão T3): título '(nada marcado)' — 2º item ruim aborta o 1º item bom em lote (atômico) — cobre as 2 ordens", async () => {
+    // ruling do controlador, revisão T7 #10 (fix round 1, Important 1): o teste original só reordenava o PAYLOAD
+    // (`[bom.id, ruim.id].sort()`), mas `integracao_marcar` re-ordena por `m.id` internamente
+    // (`DISTINCT ON (m.id) ... ORDER BY m.id`, m3:114-121) — a ordem do array de entrada NÃO decide a ordem de
+    // processamento. Quando `ruim.id < bom.id`, o loop processa `ruim` PRIMEIRO e dá RAISE antes mesmo de tocar
+    // `bom` — "nada marcado" fica vacuamente verdadeiro (bom nunca chegou a ser processado, não "foi processado e
+    // desfeito"). Mesmo padrão de retry-até-a-ordem-pedida já usado no teste de `voltar` acima (`:132`).
+    for (const bomMenor of [true, false]) {
+      await withTx(async (c) => {
+        await prepara(c, 3);
+        await comoUsuario(c, U);
+        await keywordsLoja(c, "k");
+        let bom = await modeloInterno(c);
+        let ruim = await modeloInterno(c);
+        for (let tentativas = 0; (bom.id < ruim.id) !== bomMenor && tentativas < 40; tentativas++) {
+          bom = await modeloInterno(c);
+          ruim = await modeloInterno(c);
+        }
+        expect(bom.id < ruim.id).toBe(bomMenor);
+        const assBom = await assinatura(c, bom.id);
+        // ruim: assinatura errada de propósito — dispara P0409 em algum ponto do loop, não importa qual id vem
+        // primeiro (a asserção final não depende de "bom processado e desfeito" vs. "bom nunca tocado").
+        const itens = [
+          { modelo_id: bom.id, assinatura: assBom },
+          { modelo_id: ruim.id, assinatura: "errada" },
+        ];
+        const e = await erro(c, `SELECT public.integracao_marcar($1::jsonb)`, [JSON.stringify(itens)]);
+        expect(e.code).toBe("P0409");
+        // "nada marcado": NEM o produto bom (que teria passado sozinho) foi marcado — o lote é atômico, nas 2 ordens.
+        expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_produtos WHERE modelo_id IN ($1, $2) AND estado <> 'nao_integravel'`,
+          [bom.id, ruim.id])).n).toBe("0");
+      });
+    }
   });
 
   it("Minor #4 (revisão T3): as 3 mensagens P0409 de marcar/voltar são ASCII em runtime (não só a 1ª)", async () => {
@@ -391,14 +423,24 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
     });
   });
 
-  it("Important #2 (revisão T3): tenant isolation — marcar/voltar/desfazer/log_listar ignoram produto de outra loja", async () => {
+  it("Important #2 (revisão T3): tenant isolation — marcar/voltar/desfazer/log_listar ignoram produto de outra loja", async (ctx) => {
     await withTx(async (c) => {
       await prepara(c, 3);
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
-      // 2 modelos JÁ existentes de outra loja (Ave Rara) na cópia — leitura/escrita tentada, nunca deveria valer.
-      const foreignVoltar = "2ddfb3cf-8fb3-46ab-9ad7-e7319017a770";
-      const foreignDesfazer = "5d10a1ef-b643-48f4-9340-700387f92c87";
+      // ruling do controlador, revisão T7 #11 (fix round 1, Minor 1): os 2 modelos de outra loja (Ave Rara) eram
+      // UUIDs FIXOS — mesma fragilidade que a T2 N3/T5 N2 removeram das suítes 2 e 5. Escolhidos EM TEMPO DE
+      // EXECUÇÃO: 2 modelos DISTINTOS da própria Ave Rara (ORDER BY id, determinístico), pulando limpo se a cópia
+      // não tiver pelo menos 2. Este teste só INSERE linhas próprias em integracao_produtos/integracao_linhas/
+      // integracao_log para esses ids (nunca toca produtos_acabados/produtos_importados), então não há risco de
+      // "ganhar um vínculo" do Minor 1 aqui — qualquer par de ids de outra loja serve.
+      const candidatos = await c.query<{ id: string }>(
+        `SELECT id FROM public.modelos WHERE tenant_id = $1 ORDER BY id LIMIT 2`, [AVE_RARA]);
+      if (candidatos.rows.length < 2) {
+        ctx.skip("cópia sem 2 modelos da Ave Rara — nada para testar");
+        return;
+      }
+      const [foreignVoltar, foreignDesfazer] = candidatos.rows.map((r) => r.id);
       await c.query(
         `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, retrato, assinatura, marcado_em)
          VALUES ($1, $2, 'integravel', ARRAY['nome']::text[], jsonb_build_object('linhas', '[]'::jsonb), 'x', now())`,
@@ -445,26 +487,31 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       // resíduos T7 #4 (T3 A): torna o teste de isolamento do log_listar NÃO-vacuoso — insere uma linha de log de
       // OUTRA loja (Ave Rara) e OUTRA da PRÓPRIA loja (T) dentro da txn, e confere que só a de T aparece, com o
       // total batendo com a contagem REAL (não um 0 vazio de coincidência).
-      await c.query(
+      // ruling do controlador, revisão T7 #11 (fix round 1, Minor 2): (a) `total = 1`/`toHaveLength(1)` supunham
+      // o log da Loja Teste vazio — a suíte também roda contra uma cópia com migrations JÁ aplicadas
+      // ("ou aplique na cópia", integracao-helpers.ts), onde linhas reais preexistem e o teste quebraria; agora o
+      // total é comparado com a contagem REAL (sem pin no valor absoluto); (b) `totalReal` filtrava por
+      // `acao IN (...)` — o predicado de NÃO-super — mas `U` é super_admin, e `log_listar` conta TODAS as ações
+      // pra super (m3:249: `v_super OR l.acao IN (...)`); sem filtro de `acao` nenhum aqui, espelhando o caminho
+      // super que o teste de fato exercita.
+      const foreignLog = await um<{ id: string }>(c,
         `INSERT INTO public.integracao_log (tenant_id, acao, quem, modelo_id, modelo_nome, detalhe)
-         VALUES ($1, 'integrar', 'outra loja', $2, 'Produto de outra loja', '{}'::jsonb)`,
+         VALUES ($1, 'integrar', 'outra loja', $2, 'Produto de outra loja', '{}'::jsonb) RETURNING id`,
         [AVE_RARA, foreignVoltar],
       );
       const minhaLinha = await modeloInterno(c);
-      await c.query(
+      const meuLog = await um<{ id: string }>(c,
         `INSERT INTO public.integracao_log (tenant_id, acao, quem, modelo_id, modelo_nome, detalhe)
-         VALUES ($1, 'integrar', 'eu', $2, 'Meu produto', '{}'::jsonb)`,
+         VALUES ($1, 'integrar', 'eu', $2, 'Meu produto', '{}'::jsonb) RETURNING id`,
         [T, minhaLinha.id],
       );
       const totalReal = await um<{ n: string }>(c,
-        `SELECT count(*) AS n FROM public.integracao_log WHERE tenant_id = $1 AND acao IN ('editar','integrar','voltar','desfazer','integrado')`,
-        [T]);
+        `SELECT count(*) AS n FROM public.integracao_log WHERE tenant_id = $1`, [T]);
       const meu = (await um<{ r: any }>(c, `SELECT public.integracao_log_listar(1) AS r`)).r;
       expect(meu.total).toBe(Number(totalReal.n));
-      expect(meu.total).toBe(1);
-      expect(meu.linhas).toHaveLength(1);
-      expect(meu.linhas.every((l: any) => l.modelo_id !== foreignVoltar)).toBe(true);
-      expect(meu.linhas[0].modelo_id).toBe(minhaLinha.id);
+      const ids: string[] = meu.linhas.map((l: any) => l.id);
+      expect(ids).toContain(meuLog.id);
+      expect(ids).not.toContain(foreignLog.id);
     });
   });
 
