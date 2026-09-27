@@ -193,12 +193,25 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
+  -- ruling do controlador, G-migration fix 1 #G8 (B-M7): se o card vinculado (OLD.modelo_id) é de uma loja
+  -- DIFERENTE da linha do produto (OLD.tenant_id) — só alcançável hoje via produtos_importados, que NÃO tem o
+  -- equivalente de trg_pa_modelo_tenant/enforce_produto_acabado_modelo_tenant (gap documentado, T5 #3) — pula
+  -- por inteiro, SEM ler nem travar (FOR SHARE) esse card: nem 1 bit do estado de integração de OUTRA loja pode
+  -- vazar (nem mesmo indiretamente, via um 42501 que só dispara quando o card de lá está travado). Comparação
+  -- de tenant ANTES do FOR SHARE, com um SELECT filtrado por tenant_id = OLD.tenant_id (nunca lê a linha toda do
+  -- card, só confirma que ele pertence à MESMA loja do produto).
+  IF NOT EXISTS (SELECT 1 FROM public.modelos WHERE id = OLD.modelo_id AND tenant_id = OLD.tenant_id) THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
   -- Carry T3->T4 (ruling do controlador): FOR SHARE em modelos ANTES de ler integracao_produtos — conflita com o
   -- FOR NO KEY UPDATE que integracao_marcar toma sobre a MESMA linha, serializando este save do espelho com um
   -- marcar concorrente (salvar_produto_acabado/salvar_produto_importado nunca travavam `modelos`).
-  PERFORM 1 FROM public.modelos WHERE id = OLD.modelo_id FOR SHARE;
+  PERFORM 1 FROM public.modelos WHERE id = OLD.modelo_id AND tenant_id = OLD.tenant_id FOR SHARE;
   SELECT ip.campos INTO v_campos FROM public.integracao_produtos ip
-   WHERE ip.modelo_id = OLD.modelo_id AND ip.estado IN ('integravel', 'integrado');
+   WHERE ip.modelo_id = OLD.modelo_id AND ip.tenant_id = OLD.tenant_id AND ip.estado IN ('integravel', 'integrado');
   IF NOT FOUND THEN
     IF TG_OP = 'DELETE' THEN
       RETURN OLD;
@@ -242,6 +255,7 @@ DECLARE
   v_prod_old uuid;
   v_prods uuid[];
   v_modelo uuid;
+  v_prod_tenant uuid;
   v_esperado uuid[];
   v_atual uuid[];
   p uuid;
@@ -266,17 +280,24 @@ BEGIN
     IF p IS NULL THEN
       CONTINUE;
     END IF;
-    EXECUTE format('SELECT m.modelo_id FROM public.%I m WHERE m.id = $1', TG_ARGV[0]) INTO v_modelo USING p;
+    EXECUTE format('SELECT m.modelo_id, m.tenant_id FROM public.%I m WHERE m.id = $1', TG_ARGV[0]) INTO v_modelo, v_prod_tenant USING p;
     IF v_modelo IS NULL THEN
+      CONTINUE;
+    END IF;
+    -- ruling do controlador, G-migration fix 1 #G8 (B-M7): se o card vinculado (v_modelo) é de uma loja DIFERENTE
+    -- da linha do produto (v_prod_tenant — só alcançável via produtos_importados, sem o equivalente de
+    -- trg_pa_modelo_tenant), pula por inteiro SEM ler/travar (FOR SHARE) esse card — mesma checagem de
+    -- fn_integracao_trava_espelho, adaptada pro FK dinâmico desta função.
+    IF NOT EXISTS (SELECT 1 FROM public.modelos WHERE id = v_modelo AND tenant_id = v_prod_tenant) THEN
       CONTINUE;
     END IF;
     -- Carry T3->T4 (ruling do controlador, mesmo fix de fn_integracao_trava_espelho): FOR SHARE em modelos ANTES
     -- de ler integracao_produtos — este é um CONSTRAINT TRIGGER ADIADO (roda no COMMIT da txn que apagou/recriou
     -- as variantes), então o FOR SHARE aqui serializa contra um integracao_marcar que ainda esteja segurando o
     -- FOR NO KEY UPDATE da MESMA linha de modelos (fila; sem mudar o resultado da comparação de conjunto abaixo).
-    PERFORM 1 FROM public.modelos WHERE id = v_modelo FOR SHARE;
+    PERFORM 1 FROM public.modelos WHERE id = v_modelo AND tenant_id = v_prod_tenant FOR SHARE;
     SELECT ip.variantes_chaves INTO v_esperado FROM public.integracao_produtos ip
-     WHERE ip.modelo_id = v_modelo AND ip.estado IN ('integravel', 'integrado');
+     WHERE ip.modelo_id = v_modelo AND ip.tenant_id = v_prod_tenant AND ip.estado IN ('integravel', 'integrado');
     IF NOT FOUND OR v_esperado IS NULL THEN
       CONTINUE;
     END IF;

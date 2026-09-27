@@ -84,6 +84,45 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
     });
   });
 
+  it("G1 (ruling do controlador, G-migration fix 1): titulo_pagina/preco_anterior NULL = automatico (nunca cru); valor explicito continua vencendo", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      // titulo_pagina e preco_anterior NULL (automatico) — contrato da coluna (20261005100000:760/:766):
+      // "NULL = automatico". O retrato tem de calcular, nunca ler cru (senão TODO produto nasce com falta).
+      await c.query(`UPDATE public.modelos SET titulo_pagina = NULL, preco_anterior = NULL WHERE id = $1`, [m.id]);
+      const calc = await um<{ t: string }>(c, `SELECT public._titulo_pagina_calculado(m.nome, t.nome) AS t
+                                                  FROM public.modelos m JOIN public.tenants t ON t.id = m.tenant_id WHERE m.id = $1`, [m.id]);
+      const r = await retrato(c, m.id);
+      expect(r.retrato.linhas[0].valores.titulo).toBe(calc.t);
+      expect(r.retrato.linhas[0].valores.preco_venda).toBe("159.90");
+      expect(r.retrato.linhas[0].valores.preco_anterior).toBe("159.90"); // acompanha o preco de venda EFETIVO
+      expect(r.faltas.find((f) => f.campo === "titulo")).toBeUndefined();
+      expect(r.faltas.find((f) => f.campo === "preco_anterior")).toBeUndefined();
+      expect(r.completo).toBe(true);
+      // valor explicito continua vencendo nos dois (fixado a mao)
+      await c.query(`UPDATE public.modelos SET titulo_pagina = 'Titulo Manual X', preco_anterior = 205.50 WHERE id = $1`, [m.id]);
+      const r2 = await retrato(c, m.id);
+      expect(r2.retrato.linhas[0].valores.titulo).toBe("Titulo Manual X");
+      expect(r2.retrato.linhas[0].valores.preco_anterior).toBe("205.50");
+      // via integracao_listar/previa (a lista/vivo tem que usar o MESMO caminho — nao pode divergir do retrato)
+      await c.query(`UPDATE public.modelos SET titulo_pagina = NULL, preco_anterior = NULL WHERE id = $1`, [m.id]);
+      const previa = await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id]);
+      const prodPrevia = previa.r.produtos[0];
+      expect(prodPrevia.retrato.linhas[0].valores.titulo).toBe(calc.t);
+      expect(prodPrevia.retrato.linhas[0].valores.preco_anterior).toBe("159.90");
+      expect(prodPrevia.faltas.find((f: any) => f.campo === "titulo")).toBeUndefined();
+      const listar = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`,
+        [m.ref]);
+      const prodListar = listar.r.produtos.find((p: any) => p.modelo_id === m.id);
+      expect(prodListar.vivo.linhas[0].valores.titulo).toBe(calc.t);
+      expect(prodListar.vivo.linhas[0].valores.preco_anterior).toBe("159.90");
+      expect(prodListar.faltas.find((f: any) => f.campo === "titulo")).toBeUndefined();
+    });
+  });
+
   it("Foto marcada: fotos só na linha do produto; caminho fora de <tenant>/ = 'foto de outra loja' (nota 7)", async () => {
     await withTx(async (c) => {
       await prepara(c, 2);

@@ -4,7 +4,7 @@ import { Client } from "pg";
 import type { Client as ClientType } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
 import { aplicarSql } from "./mig-txn";
-import { CAMPOS_PADRAO, INVERSOS, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, prepara, semTravas } from "./integracao-helpers";
+import { CAMPOS_PADRAO, INVERSOS, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas } from "./integracao-helpers";
 
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // loja com mais modelos na cópia (mesmo id da suíte 2)
 const SSL = false; // cópia local, sem SSL — mesmo padrão de kanban-auto.test.ts/sku-previa.test.ts
@@ -87,6 +87,73 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       const e2 = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
         [m.id, await assinatura(c, m.id)]);
       expect(e2.message).toMatch(/reprovado/);
+    });
+  });
+
+  it("G2 (ruling do controlador, G-migration fix 1): integravel reprovado continua na lista (nao_integravel some)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      // integravel + reprovado no Planejamento -> continua visivel (senao trava sem "Voltar")
+      const mPlan = await modeloInterno(c);
+      await marcar(c, mPlan.id);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [mPlan.id]);
+      const lPlan = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [mPlan.ref]);
+      expect(lPlan.r.total).toBe(1);
+      expect(lPlan.r.produtos[0]).toMatchObject({ modelo_id: mPlan.id, estado: "integravel" });
+
+      // integravel + reprovado no Desenvolvimento -> continua visivel
+      const mDev = await modeloInterno(c);
+      await marcar(c, mDev.id);
+      await c.query(`UPDATE public.modelos SET status_desenvolvimento = 'reprovado' WHERE id = $1`, [mDev.id]);
+      const lDev = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [mDev.ref]);
+      expect(lDev.r.total).toBe(1);
+      expect(lDev.r.produtos[0]).toMatchObject({ modelo_id: mDev.id, estado: "integravel" });
+
+      // nao_integravel + reprovado -> continua sumindo (comportamento pre-existente, P-61 A/D9)
+      const mNao = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [mNao.id]);
+      const lNao = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [mNao.ref]);
+      expect(lNao.r.total).toBe(0);
+
+      // marcar um reprovado continua recusado
+      const mMarcar = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET status_planejamento = 'reprovado' WHERE id = $1`, [mMarcar.id]);
+      const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [mMarcar.id, await assinatura(c, mMarcar.id)]);
+      expect(e.message).toMatch(/reprovado/);
+    });
+  });
+
+  it("G6 (ruling do controlador, G-migration fix 1 · B-M10): integracao_marcar reconfere criacao + modulo da origem", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      // fixtures criadas como super admin (is_super_admin() "fura" o gate de módulo — tenant_module_enabled),
+      // depois troca pra um usuário NÃO-admin com permissão de Integração, pra exercitar o gate de verdade.
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await revenda(c);
+      const m2 = await modeloInterno(c);
+      const PERM: Array<[string, boolean, boolean]> = [["integracao", true, true], ["criacao_planejamento", true, true],
+        ["criacao_planejamento:preco_venda", true, true], ["criacao_desenvolvimento", true, true],
+        ["criacao_planejamento:custos", true, true]];
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce41", PERM);
+      // dentro da txn: desliga o modulo produto_acabado (mesma tecnica da suite 5, n5)
+      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [m.id, await assinatura(c, m.id)]);
+      expect(e.code).toBe("42501");
+      expect(e.message).toMatch(/^integracao_sem_permissao: /);
+      // religa o modulo: volta a marcar normalmente (mesma msg/ERRCODE do salvar via _integracao_gates)
+      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T]);
+      expect(await marcar(c, m.id)).toEqual({ marcados: 1 });
+      // modulo criacao desligado tambem recusa (mesmo gate v_criacao de _integracao_gates)
+      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"criacao": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      const e2 = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [m2.id, await assinatura(c, m2.id)]);
+      expect(e2.code).toBe("42501");
+      expect(e2.message).toMatch(/^integracao_sem_permissao: /);
     });
   });
 

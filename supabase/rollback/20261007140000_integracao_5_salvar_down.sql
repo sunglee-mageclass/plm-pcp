@@ -182,12 +182,27 @@ end $function$
 ;
 
 DO $pos$
+DECLARE
+  v_n integer;
 BEGIN
   IF md5(pg_get_functiondef('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)'::regprocedure)) <> '47584858f55524d18d326dfff00139e6' THEN
     RAISE EXCEPTION 'integracao_5_down: save do importado nao voltou ao texto de antes' USING ERRCODE = 'P0001';
   END IF;
-  IF to_regprocedure('public.integracao_salvar(jsonb,jsonb)') IS NOT NULL THEN
-    RAISE EXCEPTION 'integracao_5_down: funcoes da migration 5 ainda existem' USING ERRCODE = 'P0001';
+  -- ruling do controlador, G-migration fix 1 #G9 (A-M4 + B-M5): o pos-check só conferia integracao_salvar + o
+  -- md5 do importado — agora confere as OUTRAS 4 funções novas da migration 5 (fn_modelo_espelho_nome_ref,
+  -- fn_espelho_modelo_nome_ref, salvar_precos_fixo_produto_importado, _salvar_precos_fixo_produto_importado_core)
+  -- E os 3 gatilhos da mão dupla, não só integracao_salvar sozinho.
+  SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname IN ('integracao_salvar', 'fn_modelo_espelho_nome_ref',
+     'fn_espelho_modelo_nome_ref', 'salvar_precos_fixo_produto_importado', '_salvar_precos_fixo_produto_importado_core');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'integracao_5_down: funcoes da migration 5 ainda existem (%)', v_n USING ERRCODE = 'P0001';
+  END IF;
+  SELECT count(*) INTO v_n FROM pg_trigger t JOIN pg_class k ON k.oid = t.tgrelid
+   WHERE k.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
+     AND t.tgname IN ('trg_modelo_espelho_nome_ref', 'trg_espelho_modelo_nome_ref');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'integracao_5_down: gatilhos da mao dupla ainda existem (%)', v_n USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;

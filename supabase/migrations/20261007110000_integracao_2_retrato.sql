@@ -24,8 +24,11 @@ BEGIN
      OR to_regprocedure('public._custo_unitario_modelos_core(uuid[])') IS NULL
      OR to_regprocedure('public._pode_ver_custos()') IS NULL
      OR to_regprocedure('public._kanban_status_gate(uuid,uuid,text)') IS NULL
-     OR to_regprocedure('public._ref_exibir_gate(uuid,text)') IS NULL THEN
-    RAISE EXCEPTION 'integracao_2: dependencia ausente (SKU previa / custo / kanban)' USING ERRCODE = 'P0001';
+     OR to_regprocedure('public._ref_exibir_gate(uuid,text)') IS NULL
+     -- ruling do controlador, G-migration fix 1 #G1: mesma checagem de dependência das _sku_*/_pode_ver_custos —
+     -- o retrato agora chama _titulo_pagina_calculado (migration 20261005100000) para o título automático.
+     OR to_regprocedure('public._titulo_pagina_calculado(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'integracao_2: dependencia ausente (SKU previa / custo / kanban / titulo pagina)' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -108,8 +111,11 @@ DECLARE
   v_campos text[];
   v_rot jsonb := public._integracao_rotulos();
   v_kw text;
+  v_loja_nome text;
   v_tipo text;
   v_custo numeric;
+  v_titulo_auto text;
+  v_preco_venda_efetivo numeric;
   c text;
   v_val jsonb;
   v_prod jsonb := '{}'::jsonb;
@@ -138,6 +144,14 @@ BEGIN
   v_tipo := coalesce(m.tamanho_tipo, 'letra');
   v_custo := CASE WHEN coalesce((_custo ->> 'confirmado')::boolean, false) THEN (_custo ->> 'real')::numeric
                   ELSE (_custo ->> 'previsto')::numeric END;
+  -- ruling do controlador, G-migration fix 1 #G1 (A-I1 + B-I-1): titulo_pagina/preco_anterior NULL = automatico
+  -- (contrato da coluna, 20261005100000:760/:766) — o retrato NUNCA le cru (senão TODO produto nasce com falta,
+  -- 272/272 na copia). Titulo automatico = _titulo_pagina_calculado(nome, tenants.nome — a MARCA da loja).
+  SELECT t.nome INTO v_loja_nome FROM public.tenants t WHERE t.id = m.tenant_id;
+  v_titulo_auto := nullif(public._titulo_pagina_calculado(m.nome, v_loja_nome), '');
+  -- Preco anterior automatico = acompanha o preco de venda EFETIVO — a MESMA expressao que o retrato usa para
+  -- "Preço de venda" (campo 'preco_venda' abaixo: m.preco_venda, sem outra fonte de preco efetivo nesta funcao).
+  v_preco_venda_efetivo := m.preco_venda;
 
   -- linha do PRODUTO
   FOREACH c IN ARRAY v_campos LOOP
@@ -149,12 +163,12 @@ BEGIN
     v_val := CASE c
       WHEN 'nome' THEN to_jsonb(nullif(btrim(m.nome), ''))
       WHEN 'ref_sku' THEN to_jsonb(nullif(btrim(coalesce(m.ref, '')), ''))
-      WHEN 'preco_anterior' THEN to_jsonb(public._integracao_num(m.preco_anterior, 2))
+      WHEN 'preco_anterior' THEN to_jsonb(public._integracao_num(coalesce(m.preco_anterior, v_preco_venda_efetivo), 2))
       WHEN 'preco_venda' THEN to_jsonb(public._integracao_num(m.preco_venda, 2))
       WHEN 'peso' THEN to_jsonb(public._integracao_num(m.peso_kg, 3))
       WHEN 'ncm' THEN to_jsonb(nullif(btrim(coalesce(m.ncm, '')), ''))
       WHEN 'preco_custo' THEN to_jsonb(public._integracao_num(v_custo, 2))
-      WHEN 'titulo' THEN to_jsonb(nullif(btrim(coalesce(m.titulo_pagina, '')), ''))
+      WHEN 'titulo' THEN to_jsonb(coalesce(nullif(btrim(coalesce(m.titulo_pagina, '')), ''), v_titulo_auto))
       WHEN 'descricao' THEN to_jsonb(nullif(btrim(coalesce(m.descricao_produto, '')), ''))
       WHEN 'keywords' THEN to_jsonb(nullif(btrim(coalesce(v_kw, '')), ''))
       WHEN 'metatag' THEN to_jsonb(nullif(btrim(coalesce(m.descricao_produto, '')), ''))
@@ -434,7 +448,9 @@ CREATE OR REPLACE FUNCTION public._integracao_base(_tenant uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- P-61 A: 3 origens, qualquer etapa, SEM reprovados (D9) — exceto integrado (P-74 A: segue visível).
+  -- P-61 A: 3 origens, qualquer etapa, SEM reprovados (D9) — exceto integravel/integrado (P-74 A: integrado segue
+  -- visível; ruling do controlador, G-migration fix 1 #G2/B-I-2: integravel reprovado TAMBÉM segue visível, senão
+  -- um integrável reprovado depois de marcado fica travado sem conseguir aparecer na tela para "Voltar").
   WITH b AS (SELECT r.key, r.ord FROM public._kanban_status_rows(_tenant) r),
        primeira AS (SELECT b.key FROM b ORDER BY b.ord LIMIT 1)
   SELECT m.id, m.nome::text, m.ref::text, coalesce(m.origem, 'interno'),
@@ -449,7 +465,7 @@ AS $function$
     LEFT JOIN public.colecoes co ON co.id = m.colecao_id
     LEFT JOIN public.integracao_produtos ip ON ip.modelo_id = m.id
    WHERE m.tenant_id = _tenant
-     AND (coalesce(ip.estado, 'nao_integravel') = 'integrado'
+     AND (coalesce(ip.estado, 'nao_integravel') IN ('integravel', 'integrado')
           OR NOT (coalesce(m.status_planejamento, '') = 'reprovado'
                   OR lower(btrim(coalesce(m.status_desenvolvimento, ''))) = 'reprovado'))
 $function$;

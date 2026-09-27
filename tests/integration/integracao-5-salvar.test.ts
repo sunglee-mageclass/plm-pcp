@@ -2,7 +2,8 @@
 import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { DEF, INVERSOS, LOCAL, MD5_ANTES, MIG_TXN, T, U, aplica, comoUsuarioCom, importado, keywordsLoja, modeloInterno, prepara, revenda } from "./integracao-helpers";
+import { aplicarSql } from "./mig-txn";
+import { DEF, INVERSOS, LOCAL, MD5_ANTES, MIG_TXN, MIGRACOES, T, U, aplica, comoUsuarioCom, importado, keywordsLoja, ler, modeloInterno, prepara, revenda, semTravas } from "./integracao-helpers";
 
 // D14/R1 (G-plano do plano): bloco inserido ANTES de "-- Variantes" (vale p/ INSERT e UPDATE), na transação do _rev_base.
 export const TRECHO_IMP_FIXO =
@@ -44,10 +45,13 @@ async function salvarRevLiteral(c: Client, modeloId: string, revLiteral: string,
   // jsonb_build_object() converte um argumento NUMERIC via to_jsonb(), que preserva a forma decimal exata do
   // literal (confirmado: jsonb_build_object('rev', 5.0)->>'rev' = '5.0', não '5') — ao contrário de um `::jsonb`
   // direto sobre o literal (que dá erro de cast) ou de passar pelo JSON.stringify do Node (que normaliza 5.0 -> 5
-  // antes mesmo de sair do processo).
-  const item = `jsonb_build_object('modelo_id', $1::text, 'rev', ${revLiteral}, 'campos', $2::jsonb)`;
+  // antes mesmo de sair do processo). Ruling do controlador, G-migration fix 1 #G11 (nit da T7): revLiteral vai
+  // como PARÂMETRO ligado ($3::numeric), não interpolado na string SQL — um `numeric` passado por parâmetro e
+  // convertido por to_jsonb() preserva a forma decimal do texto de entrada tão bem quanto um literal cru
+  // (confirmado: PREPARE t(numeric) AS SELECT jsonb_build_object('rev', $1)->>'rev'; EXECUTE t('5.0') = '5.0').
+  const item = `jsonb_build_object('modelo_id', $1::text, 'rev', $3::numeric, 'campos', $2::jsonb)`;
   return (await um<{ r: any }>(c, `SELECT public.integracao_salvar(jsonb_build_array(${item}), NULL) AS r`,
-    [modeloId, JSON.stringify(campos)])).r;
+    [modeloId, JSON.stringify(campos), revLiteral])).r;
 }
 async function erro(c: Client, fn: () => Promise<unknown>): Promise<{ code: string; message: string }> {
   await c.query("SAVEPOINT e");
@@ -97,6 +101,97 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       await c.query(`SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`, [m.id, a]);
       const e = await erro(c, async () => salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { nome: "x" } }]));
       expect(e).toEqual({ code: "42501", message: "integracao_travado: produto" });
+    });
+  });
+
+  it("G3 (ruling do controlador, G-migration fix 1): fotos seguem a MESMA regra do retrato; numero fora da escala = P0001 PT (nunca 22003 cru)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await modeloInterno(c);
+      // elemento NULL no array de fotos — starts_with(NULL,...) = NULL, o EXISTS antigo nao pegava
+      const rNull = await rev(c, m.id);
+      const eNull = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: rNull, campos: { fotos_modelo: [`${T}/fotos_modelo/a.jpg`, null] } }]));
+      expect(eNull).toMatchObject({ code: "P0001" });
+      expect(eNull.message).toMatch(/[Ff]oto/);
+      // segmento vazio, '.', '..' (mesma regra do retrato: nota 7 / Minor #6)
+      for (const caminho of [`${T}//x.jpg`, `${T}/./x.jpg`, `${T}/../x.jpg`, `${T}/fotos_modelo/../../outra/x.jpg`]) {
+        const r0 = await rev(c, m.id);
+        const e = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: r0, campos: { fotos_modelo: [caminho] } }]));
+        expect(e, caminho).toMatchObject({ code: "P0001" });
+      }
+      // caminho valido continua passando
+      const rOk = await rev(c, m.id);
+      const ok = await salvar(c, [{ modelo_id: m.id, rev: rOk, campos: { fotos_modelo: [`${T}/fotos_modelo/valida.jpg`] } }]);
+      expect(ok.salvos).toBe(1);
+
+      // numero fora da escala da coluna (peso_kg numeric(10,3)) — nunca 22003 cru, sempre P0001 em PT
+      const r1 = await rev(c, m.id);
+      const ePeso = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: r1, campos: { peso_kg: 1e20 } }]));
+      expect(ePeso.code).toBe("P0001");
+      expect(ePeso.message).not.toMatch(/numeric field overflow/i);
+      // idem para as medidas (numeric(10,2)) e precos
+      const r2 = await rev(c, m.id);
+      const eLargura = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: r2, campos: { largura_cm: 1e20 } }]));
+      expect(eLargura.code).toBe("P0001");
+      // valor dentro da escala continua gravando
+      const r3 = await rev(c, m.id);
+      const okNum = await salvar(c, [{ modelo_id: m.id, rev: r3, campos: { peso_kg: 1.234 } }]);
+      expect(okNum.salvos).toBe(1);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("G9 (ruling do controlador, G-migration fix 1 · A-M4/B-M5): $pos$ da migration 5 confere anon em _salvar_precos_fixo_produto_importado_core e a ACL de salvar_precos_fixo_produto_importado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      // ACL quebrada DE PROPOSITO (anon com EXECUTE na interna) — reaplicar SÓ o pos-check tem que RAISE.
+      await c.query(`GRANT EXECUTE ON FUNCTION public._salvar_precos_fixo_produto_importado_core(uuid,boolean,numeric,boolean,numeric) TO anon`);
+      const m5 = ler(MIGRACOES[4]);
+      const posMatch = m5.match(/DO \$pos\$[\s\S]*?\$pos\$;/);
+      if (!posMatch) throw new Error("pos-check da migration 5 nao encontrado no arquivo");
+      await expect(c.query(posMatch[0])).rejects.toThrow(/integracao_5: ACL errada/);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("G9 (ruling do controlador, G-migration fix 1): $pos$ da migration 6 confere anon nos 3 helpers internos", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await c.query(`GRANT EXECUTE ON FUNCTION public._integracao_colunas(text[]) TO anon`);
+      const m6 = ler(MIGRACOES[5]);
+      const posMatch = m6.match(/DO \$pos\$[\s\S]*?\$pos\$;/);
+      if (!posMatch) throw new Error("pos-check da migration 6 nao encontrado no arquivo");
+      await expect(c.query(posMatch[0])).rejects.toThrow(/integracao_6: .* executavel/);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("G9 (ruling do controlador, G-migration fix 1): pos-check do inverso 5 confere as OUTRAS 4 funcoes e os 3 gatilhos (nao so integracao_salvar + md5)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      // remove o DROP de _salvar_precos_fixo_produto_importado_core (uma das "outras 4" funcoes, DIFERENTE de
+      // integracao_salvar) do inverso 5 — se o pos-check só olhasse integracao_salvar + o md5 do importado (o
+      // bug do M4/M5), esta função sobrando passaria batido.
+      const semDrop = ler(INVERSOS[4]).replace(
+        /DROP FUNCTION IF EXISTS public\._salvar_precos_fixo_produto_importado_core\(uuid, boolean, numeric, boolean, numeric\);\n/,
+        "",
+      );
+      await expect(aplicarSql(c, semTravas(semDrop, "teste-g9-inv5-funcao"), "teste-g9-inv5-funcao"))
+        .rejects.toThrow(/integracao_5_down: /);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("G9 (ruling do controlador, G-migration fix 1): pos-check do inverso 5 confere os 3 gatilhos da mao dupla tambem", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      // remove o DROP de trg_modelo_espelho_nome_ref (gatilho ÚNICO de fn_modelo_espelho_nome_ref, sem outro
+      // gatilho dependente) E o DROP FUNCTION da mesma função (senão o DROP FUNCTION isolado falharia por
+      // dependência do gatilho ainda vivo — cenário diferente do que este teste quer provar). O gatilho +
+      // função ficam ambos residuais: se o pos-check só olhasse integracao_salvar + o md5 do importado, isso
+      // passaria batido.
+      const semDrop = ler(INVERSOS[4])
+        .replace(/DROP TRIGGER IF EXISTS trg_modelo_espelho_nome_ref ON public\.modelos;\n/, "")
+        .replace(/DROP FUNCTION IF EXISTS public\.fn_modelo_espelho_nome_ref\(\);\n/, "");
+      await expect(aplicarSql(c, semTravas(semDrop, "teste-g9-inv5-trigger"), "teste-g9-inv5-trigger"))
+        .rejects.toThrow(/integracao_5_down: /);
     });
   });
 
@@ -389,6 +484,35 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       const mi = await importado(c);
       const eImp = await erro(c, () => c.query(`UPDATE public.modelos SET nome = $1 WHERE id = $2`, [nomeGigante, mi.id]));
       expect(eImp).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Importado (máx. 200 caracteres)." });
+    });
+  });
+
+  it("G7 (ruling do controlador, G-migration fix 1 · A-M10): checagem de 200 chars so roda quando o NOME muda; mudar so a REF passa", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      // modelos.nome é varchar(255) mas produtos_acabados.nome é varchar(200) (contrato assimétrico, T5 #5) — um
+      // card com nome > 200 SÓ existe se o INSERT em modelos (que não dispara o gatilho AFTER UPDATE) tiver esse
+      // nome sem nunca ter sincronizado com o espelho ainda (espelho continua com um nome curto qualquer).
+      const nomeGigante = "B".repeat(201);
+      const s = Date.now().toString(36).toUpperCase();
+      const ref = `RVDG7${s}`;
+      const produtoId = (await um<{ id: string }>(c,
+        `INSERT INTO public.produtos_acabados (tenant_id, nome, ref, valor_unitario, desconto_pct, qtd_total, markup_varejo)
+         VALUES ($1, 'Nome curto', $2, 40, 0, 5, 3) RETURNING id`, [T, ref])).id;
+      const modeloId = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelos (tenant_id, nome, ref, origem) VALUES ($1, $2, $3, 'revenda') RETURNING id`,
+        [T, nomeGigante, ref])).id;
+      await c.query(`UPDATE public.produtos_acabados SET modelo_id = $2 WHERE id = $1`, [produtoId, modeloId]);
+      // agora muda SÓ a ref do card (nome do card continua > 200, mas NÃO mudou) — tem que passar sem tentar
+      // sincronizar o nome (que estouraria varchar(200) no espelho)
+      const novaRef = `RVDG7NOVA${s}`;
+      await c.query(`UPDATE public.modelos SET ref = $1 WHERE id = $2`, [novaRef, modeloId]);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [produtoId])).r).toBe(novaRef);
+      expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_acabados WHERE id = $1`, [produtoId])).n).toBe("Nome curto");
+      // controle: mudar o NOME de fato (com o nome > 200) continua recusado — o guard segue vivo
+      const eNome = await erro(c, () => c.query(`UPDATE public.modelos SET nome = $1 WHERE id = $2`, [nomeGigante + "x", modeloId]));
+      expect(eNome).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." });
     });
   });
 

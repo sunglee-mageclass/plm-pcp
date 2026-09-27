@@ -4,7 +4,7 @@ import { Client } from "pg";
 import type { Client as ClientType } from "pg";
 import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
 import {
-  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, T, U, aplica, camposLoja, imediato, keywordsLoja,
+  CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, T, U, aplica, camposLoja, imediato, importado, keywordsLoja,
   modeloInterno, prepara, revenda,
 } from "./integracao-helpers";
 
@@ -114,6 +114,44 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
         .toBe("42501 integracao_travado: preco_venda");
       expect(await falha(c, `SELECT public.salvar_markups_produto_acabado($1, NULL, 4)`, [m.produtoId])).toBe("PASSOU");
       expect((await um<{ p: string }>(c, `SELECT preco_venda::text AS p FROM public.modelos WHERE id = $1`, [m.id])).p).toBe("159.90");
+    });
+  });
+
+  it("G8 (ruling do controlador, G-migration fix 1 · B-M7): produto de OUTRA loja vinculado a um card não lê/trava esse card (sem vazar 1 bit)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      // produtos_acabados TEM trg_pa_modelo_tenant (enforce_produto_acabado_modelo_tenant) — vínculo cruzado é
+      // BLOQUEADO pelo próprio schema para revenda; confirmamos isso primeiro (prova negativa exigida pelo brief).
+      const outroCard = await um<{ id: string; tenant_id: string }>(c,
+        `SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T]);
+      expect(outroCard.tenant_id).not.toBe(T);
+      const revendaMesmaLoja = await revenda(c);
+      const bloqueado = await falha(c, `UPDATE public.produtos_acabados SET modelo_id = $2 WHERE id = $1`,
+        [revendaMesmaLoja.produtoId, outroCard.id]);
+      expect(bloqueado).toMatch(/Modelo de outra loja/);
+
+      // produtos_importados NÃO TEM o trigger equivalente (gap documentado, T5 #3/parecer B-M7) — o vínculo
+      // cruzado É possível hoje; é exatamente o caso que fn_integracao_trava_espelho/_variantes têm de tratar
+      // SEM ler/travar o card da OUTRA loja (compara tenant_id ANTES do FOR SHARE).
+      const imp = await importado(c);
+      await c.query(`UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`, [imp.produtoId, outroCard.id]);
+      // marca o card da OUTRA loja como integravel/integrado (simulado direto, sem depender do módulo dela) — 1ª
+      // linha para este modelo_id dentro da txn do teste, sem precisar de ON CONFLICT.
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, assinatura)
+         VALUES ($1, $2, 'integravel', ARRAY['nome']::text[], 'assinatura-fake-outra-loja')`,
+        [outroCard.tenant_id, outroCard.id],
+      );
+      // renomear o produto_importado (agora vinculado ao card de OUTRA loja, que está travado lá) TEM que passar —
+      // o gatilho não pode ler o estado de integração de um card que não é desta loja.
+      const semTravar = await falha(c, `UPDATE public.produtos_importados SET nome = nome || ' Y' WHERE id = $1`, [imp.produtoId]);
+      expect(semTravar).toBe("PASSOU");
+      // idem para variantes do importado vinculado cross-tenant (constraint trigger adiado)
+      const semTravarVar = await falha(c,
+        `UPDATE public.produto_importado_variantes SET cor_id = cor_id WHERE produto_importado_id = $1`, [imp.produtoId]);
+      expect(semTravarVar).toBe("PASSOU");
     });
   });
 
@@ -241,6 +279,55 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       await c.query(`UPDATE public.produtos_acabados SET foto_url = foto_url, qtd_total = qtd_total WHERE id = $1`, [m.produtoId]);
       expect((await um<{ f: string[] }>(c, `SELECT fotos_modelo AS f FROM public.modelos WHERE id = $1`, [m.id])).f)
         .toEqual([`${T}/fotos_modelo/card.jpg`]);
+    });
+  });
+
+  it("G10 (ruling do controlador, G-migration fix 1 · A-M3): marcar um IMPORTADO — trava, D11 nas variantes, D12 no fixo, B1 do recompute", async () => {
+    await withTx(async (c) => {
+      // D12/salvar_precos_fixo_produto_importado só existe a partir da migration 5 (D14/R1) — a trava em si (§8)
+      // é da migration 4, mas este teste exercita as DUAS juntas (mesmo padrão do teste "revenda travada" acima,
+      // que usa funções de fora desta frente já existentes há mais tempo).
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      // custo landed do importado depende das cotações (integracao-helpers.ts: "as suítes que olham custo usam
+      // interno/revenda") — tira preco_custo do padrão pra não travar o marcar com uma falta que não é do teste.
+      await camposLoja(c, CAMPOS_PADRAO.filter((k) => k !== "preco_custo"));
+      const m = await importado(c);
+      await marcar(c, m.id);
+
+      // campo marcado (nome) recusado
+      expect(await falha(c, `UPDATE public.produtos_importados SET nome = nome || ' X' WHERE id = $1`, [m.produtoId]))
+        .toBe("42501 integracao_travado: nome");
+      expect(await falha(c, `UPDATE public.produtos_importados SET ref = ref || 'X' WHERE id = $1`, [m.produtoId]))
+        .toBe("42501 integracao_travado: ref_sku");
+      expect(await falha(c, `UPDATE public.produtos_importados SET modelo_id = NULL WHERE id = $1`, [m.produtoId]))
+        .toBe("42501 integracao_travado: vinculo");
+      expect(await falha(c, `SELECT public.excluir_produto_importado($1)`, [m.produtoId])).toBe("42501 integracao_travado: excluir");
+
+      // D12: preço fixo EXPLICITO recusado; limpar via markup passa
+      expect(await falha(c, `SELECT public.salvar_precos_fixo_produto_importado($1::uuid, false, NULL::numeric, true, 199::numeric)`, [m.produtoId]))
+        .toBe("42501 integracao_travado: preco_venda");
+      expect(await falha(c, `SELECT public.salvar_precos_fixo_produto_importado($1::uuid, false, NULL::numeric, true, NULL::numeric)`, [m.produtoId])).toBe("PASSOU");
+
+      // B1: _imp_recomputar_precos_modelo não dá erro e mantem o preco_venda congelado (o atacado segue livre)
+      const precoAntes = (await um<{ v: string }>(c, `SELECT preco_venda::text AS v FROM public.modelos WHERE id = $1`, [m.id])).v;
+      await c.query(`UPDATE public.produtos_importados SET markup_atacado = 2 WHERE id = $1`, [m.produtoId]);
+      expect(await falha(c, `SELECT public._imp_recomputar_precos_modelo($1)`, [m.produtoId])).toBe("PASSOU");
+      expect((await um<{ v: string }>(c, `SELECT preco_venda::text AS v FROM public.modelos WHERE id = $1`, [m.id])).v).toBe(precoAntes);
+
+      // D11: variantes — mesmo conjunto de cores passa (via salvar_produto_importado, apaga/recria); trocar a cor
+      // recusa no COMMIT (constraint trigger adiado — deixa a txn nesse ponto, por isso vai por ÚLTIMO no teste).
+      const nome = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_importados WHERE id = $1`, [m.produtoId])).n;
+      const grupo = (await um<{ id: string }>(c, `INSERT INTO public.grupos_produto (tenant_id, nome) VALUES ($1, 'Grupo G10') RETURNING id`, [T])).id;
+      const categoria = (await um<{ id: string }>(c, `INSERT INTO public.categorias_produto (tenant_id, nome) VALUES ($1, 'Categoria G10') RETURNING id`, [T])).id;
+      const dados = { nome, grupo_id: grupo, categoria_id: categoria, moeda_compra: "USD", valor_unitario_m1: 10, cotacao_ref: 1, cotacao_final: 5, qtd_total: 5, markup_varejo: 3 };
+      const mesmas = [{ ordem: 1, cor_id: m.corId, cor_apelido_id: m.apelidoId, peso: 1, qtd: 5 }];
+      expect(await falha(c, `SELECT public.salvar_produto_importado($1, $2::jsonb, $3::jsonb, NULL)`, [m.produtoId, dados, JSON.stringify(mesmas)])).toBe("PASSOU");
+      await imediato(c);
+      const outraCor = (await um<{ id: string }>(c, `INSERT INTO public.cores (tenant_id, nome) VALUES ($1, 'Outra cor G10') RETURNING id`, [T])).id;
+      await c.query(`UPDATE public.produto_importado_variantes SET cor_id = $2 WHERE produto_importado_id = $1`, [m.produtoId, outraCor]);
+      await expect(imediato(c)).rejects.toThrow(/integracao_travado: variantes/);
     });
   });
 

@@ -395,6 +395,13 @@ BEGIN
     EXCEPTION WHEN others THEN
       RETURN jsonb_build_object('status', 'parametro_invalido');
     END;
+    -- ruling do controlador, G-migration fix 1 #G4 (A-M7): cursor do OUTRO modo (ex.: {"exemplo":n} usado com
+    -- modo=normal, ou {"depois":...} usado com modo=teste) tem que dar o MESMO parametro_invalido — nunca "voltar
+    -- à página 1" em silêncio (v_depois/v_pag ficam NULL quando a chave do cursor não bate com o modo pedido, e
+    -- sem esta checagem o código seguia como se nenhum cursor tivesse sido mandado).
+    IF (_modo = 'normal' AND v_depois IS NULL) OR (_modo = 'teste' AND v_pag IS NULL) THEN
+      RETURN jsonb_build_object('status', 'parametro_invalido');
+    END IF;
   END IF;
   SELECT * INTO k FROM public.integracao_chaves WHERE hash = lower(coalesce(_chave_hash, '')) AND revogada_em IS NULL;
   v_achou := FOUND;
@@ -570,6 +577,15 @@ BEGIN
   IF NOT coalesce(v_acesso_ok, false) THEN
     RETURN jsonb_build_object('status', 'parametro_invalido', 'confirmados', '[]'::jsonb);
   END IF;
+  -- ruling do controlador, G-migration fix 1 #G5 (B-M6): modelo_id de _entrega validado com a MESMA regex de uuid
+  -- balanceada da T7 (integracao_marcar/integracao_salvar) ANTES do ::uuid abaixo — sem isso, um modelo_id sem
+  -- cara de uuid vindo da rota estourava 22P02 cru (HTTP 500) em vez de seguir o contrato de erro da função
+  -- (parametro_invalido, o mesmo já usado 2 linhas acima para um acesso/chave que não bate).
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x)
+              WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
+                 OR NOT (e.x ->> 'modelo_id' ~* '^(\{[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}|[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})$')) THEN
+    RETURN jsonb_build_object('status', 'parametro_invalido', 'confirmados', '[]'::jsonb);
+  END IF;
   v_ids := ARRAY(SELECT DISTINCT (e.x ->> 'modelo_id')::uuid
                    FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x) ORDER BY 1);
   PERFORM 1 FROM public.integracao_produtos ip
@@ -678,9 +694,13 @@ BEGIN
       RAISE EXCEPTION 'integracao_6: ACL da rota errada em %', f USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  -- ruling do controlador, G-migration fix 1 #G9 (A-M4 + B-M5): faltava conferir `anon` nos 3 helpers internos
+  -- (mesma classe do Minor #5 da T4 — o default ACL do Postgres concede EXECUTE em função nova a anon direto;
+  -- authenticated/public sozinhos não fecham o invariante 9).
   FOREACH f IN ARRAY ARRAY['public._integracao_colunas(text[])', 'public._integracao_exemplo(text[],integer)',
                             'public._integracao_valores(public.integracao_linhas,text[],text[])'] LOOP
-    IF has_function_privilege('authenticated', f, 'EXECUTE') OR has_function_privilege('public', f, 'EXECUTE') THEN
+    IF has_function_privilege('authenticated', f, 'EXECUTE') OR has_function_privilege('anon', f, 'EXECUTE')
+       OR has_function_privilege('public', f, 'EXECUTE') THEN
       RAISE EXCEPTION 'integracao_6: % executavel (inv. 9)', f USING ERRCODE = 'P0001';
     END IF;
   END LOOP;

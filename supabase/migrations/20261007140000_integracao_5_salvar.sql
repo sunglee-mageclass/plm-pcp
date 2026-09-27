@@ -42,12 +42,13 @@ AS $function$
 DECLARE
   v_ref text := nullif(btrim(coalesce(NEW.ref::text, '')), '');
   v_ref_mudou boolean := OLD.ref IS DISTINCT FROM NEW.ref;
+  v_nome_mudou boolean := OLD.nome IS DISTINCT FROM NEW.nome;
 BEGIN
   -- ruling do controlador, revisão T5 #1 (Important #1 parte 1): a REF só é copiada quando ELA MESMA mudou
   -- (OLD.ref IS DISTINCT FROM NEW.ref no lado que está sendo GRAVADO — aqui, modelos) — nunca "de carona" numa
   -- edição só de nome. Sem isso, renomear só o card sobrescrevia a REF do espelho em silêncio (e vice-versa na
   -- outra função), e um produto travado com ref_sku marcado mas nome não marcado ficava sem conseguir renomear
-  -- (a trava recusava a mudança de REF que o gatilho tentava fazer de carona). Nome continua sempre.
+  -- (a trava recusava a mudança de REF que o gatilho tentava fazer de carona).
   -- ruling do controlador, revisão T5 #3 (Important #2): AND <tabela>.tenant_id = NEW.tenant_id em TODAS as 3
   -- UPDATEs de sincronização — sem isso, produtos_importados (que, ao contrário de produtos_acabados, NÃO tem
   -- um trg_pi_modelo_tenant equivalente ao trg_pa_modelo_tenant) deixava um usuário da loja A vincular seu
@@ -55,22 +56,31 @@ BEGIN
   -- ruling do controlador, revisão T5 #5 (Minor #5): produtos_acabados/produtos_importados.nome é varchar(200)
   -- (modelos.nome é varchar(255)) — um nome de 201-255 chars gravado no card daria 22001 sem tradução ao tentar
   -- sincronizar. Recusa cedo com mensagem PT clara (P0001), ANTES do UPDATE.
-  IF length(NEW.nome) > 200 THEN
+  -- ruling do controlador, G-migration fix 1 #G7 (A-M10): a checagem (e a CÓPIA do nome) só rodam quando o NOME
+  -- MUDOU (v_nome_mudou) — antes a checagem rodava em QUALQUER disparo do gatilho (nome OU ref mudou) E o UPDATE
+  -- sempre tentava regravar `nome = NEW.nome` no espelho mesmo sem o nome ter mudado, então mudar só a REF de um
+  -- card com nome > 200 (gravado ali por algum motivo anterior, sem nunca ter sincronizado) tanto recusava na
+  -- checagem quanto, se a checagem fosse só ajustada, ainda estouraria 22001 cru tentando regravar aquele nome
+  -- não-mudado no espelho. Mesmo padrão de "só copia quando ELA MESMA mudou" que a revisão T5 #1 já aplicou à
+  -- REF — agora espelhado no NOME também (v_nome_mudou, mesma forma de v_ref_mudou).
+  IF v_nome_mudou AND length(NEW.nome) > 200 THEN
     RAISE EXCEPTION 'Nome muito longo para o Produto % (máx. 200 caracteres).',
       CASE NEW.origem WHEN 'revenda' THEN 'Acabado' ELSE 'Importado' END USING ERRCODE = 'P0001';
   END IF;
   IF NEW.origem = 'revenda' THEN
     UPDATE public.produtos_acabados pa
-       SET nome = NEW.nome, ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pa.ref) ELSE pa.ref END
+       SET nome = CASE WHEN v_nome_mudou THEN NEW.nome ELSE pa.nome END,
+           ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pa.ref) ELSE pa.ref END
      WHERE pa.modelo_id = NEW.id
        AND pa.tenant_id = NEW.tenant_id
-       AND (pa.nome IS DISTINCT FROM NEW.nome OR (v_ref_mudou AND v_ref IS NOT NULL AND pa.ref IS DISTINCT FROM v_ref));
+       AND ((v_nome_mudou AND pa.nome IS DISTINCT FROM NEW.nome) OR (v_ref_mudou AND v_ref IS NOT NULL AND pa.ref IS DISTINCT FROM v_ref));
   ELSIF NEW.origem = 'importado' THEN
     UPDATE public.produtos_importados pi
-       SET nome = NEW.nome, ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pi.ref) ELSE pi.ref END
+       SET nome = CASE WHEN v_nome_mudou THEN NEW.nome ELSE pi.nome END,
+           ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pi.ref) ELSE pi.ref END
      WHERE pi.modelo_id = NEW.id
        AND pi.tenant_id = NEW.tenant_id
-       AND (pi.nome IS DISTINCT FROM NEW.nome OR (v_ref_mudou AND v_ref IS NOT NULL AND pi.ref IS DISTINCT FROM v_ref));
+       AND ((v_nome_mudou AND pi.nome IS DISTINCT FROM NEW.nome) OR (v_ref_mudou AND v_ref IS NOT NULL AND pi.ref IS DISTINCT FROM v_ref));
   END IF;
   RETURN NULL;
 END
@@ -389,7 +399,9 @@ BEGIN
   -- Postgres rejeita pra qualquer forma com ponto decimal (confirmado na cópia: "5.0"::integer estoura 22P02,
   -- mesmo sendo um valor íntegro). Fix: o FOR agora casta (e.x->>'rev')::numeric::integer — seguro porque a
   -- checagem ACIMA já garante um valor íntegro dentro do range de int32; ::numeric aceita a forma decimal e o
-  -- ::integer seguinte trunca sem erro (5.0 vira 5).
+  -- ::integer seguinte arredonda sem erro (5.0 vira 5; a checagem anterior ja garante um valor integro, entao
+  -- arredondar ou truncar dao o mesmo resultado aqui — ruling do controlador, G-migration fix 1 #G11: o comentario
+  -- dizia "trunca", mas numeric::integer ARREDONDA, nao trunca — confirmado: 5.6::numeric::integer = 6, nao 5).
   FOR r IN
     SELECT DISTINCT ON ((e.x ->> 'modelo_id')::uuid) (e.x ->> 'modelo_id')::uuid AS modelo_id,
            (e.x ->> 'rev')::numeric::integer AS rev_base, coalesce(e.x -> 'campos', '{}'::jsonb) AS campos
@@ -445,10 +457,27 @@ BEGIN
                              ELSE false END) THEN
       RAISE EXCEPTION 'Valor numérico inválido (use número maior ou igual a zero).' USING ERRCODE = 'P0001';
     END IF;
+    -- ruling do controlador, G-migration fix 1 #G3 (A-M6 + B-M4): numero fora da escala da coluna (ex.: peso_kg
+    -- 1e20 em numeric(10,3)) tem que RAISE P0001 em PT ANTES do UPDATE — nunca 22003 cru. Checagem INLINE (sem
+    -- função nova, pra não mexer na contagem/ACL #9 da suíte 7): a parte inteira de um numeric(p,s) tem no máximo
+    -- (p - s) dígitos — abs(valor arredondado na escala) < 10^(p - s) cabe; senão estoura ao gravar.
+    IF EXISTS (SELECT 1 FROM jsonb_each(v_c) AS e(key, value)
+                WHERE jsonb_typeof(e.value) = 'number'
+                  AND ((e.key = 'peso_kg' AND abs(round((e.value #>> '{}')::numeric, 3)) >= 10.0 ^ (10 - 3))
+                    OR (e.key IN ('comprimento_cm', 'largura_cm', 'altura_cm')
+                        AND abs(round((e.value #>> '{}')::numeric, 2)) >= 10.0 ^ (10 - 2))
+                    OR (e.key = 'preco_anterior' AND abs(round((e.value #>> '{}')::numeric, 2)) >= 10.0 ^ (12 - 2)))) THEN
+      RAISE EXCEPTION 'Valor numérico fora da faixa permitida para este campo.' USING ERRCODE = 'P0001';
+    END IF;
     IF v_c ? 'fotos_modelo' THEN
+      -- mesma regra do retrato (_integracao_retrato_core, Minor #6/nota 7): elemento nao-texto/NULL, segmento
+      -- '.'/'..'/vazio ou prefixo de outra loja — tudo vira P0001 aqui (antes so o prefixo era conferido:
+      -- starts_with(NULL,...) = NULL, entao o EXISTS antigo deixava passar um elemento NULL gravado no array).
       IF jsonb_typeof(v_c -> 'fotos_modelo') <> 'array'
-         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_c -> 'fotos_modelo') AS p(x)
-                     WHERE NOT starts_with(p.x, v_tenant::text || '/')) THEN
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_c -> 'fotos_modelo') AS p(x)
+                     WHERE jsonb_typeof(p.x) IS DISTINCT FROM 'string'
+                        OR NOT starts_with(p.x #>> '{}', v_tenant::text || '/')
+                        OR EXISTS (SELECT 1 FROM unnest(string_to_array(p.x #>> '{}', '/')) AS seg(s) WHERE seg.s IN ('', '.', '..'))) THEN
         RAISE EXCEPTION 'Foto inválida (de outra loja).' USING ERRCODE = 'P0001';
       END IF;
     END IF;
@@ -525,8 +554,16 @@ BEGIN
   IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_modelo_espelho_nome_ref', 'trg_espelho_modelo_nome_ref')) <> 3 THEN
     RAISE EXCEPTION 'integracao_5: gatilhos da mao dupla incompletos' USING ERRCODE = 'P0001';
   END IF;
+  -- ruling do controlador, G-migration fix 1 #G9 (A-M4 + B-M5): faltava conferir `anon` em
+  -- _salvar_precos_fixo_produto_importado_core (mesma classe do Minor #5 da T4, m4:466-470 — o default ACL do
+  -- Postgres concede EXECUTE em função nova a anon direto) e a ACL COMPLETA de salvar_precos_fixo_produto_importado
+  -- (authenticated sim, anon/PUBLIC não — antes só authenticated era conferido no lado positivo).
   IF has_function_privilege('authenticated', 'public._salvar_precos_fixo_produto_importado_core(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public._salvar_precos_fixo_produto_importado_core(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
      OR has_function_privilege('public', 'public._salvar_precos_fixo_produto_importado_core(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.salvar_precos_fixo_produto_importado(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.salvar_precos_fixo_produto_importado(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
+     OR has_function_privilege('public', 'public.salvar_precos_fixo_produto_importado(uuid,boolean,numeric,boolean,numeric)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.integracao_salvar(jsonb,jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.integracao_salvar(jsonb,jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'integracao_5: ACL errada (inv. 9)' USING ERRCODE = 'P0001';

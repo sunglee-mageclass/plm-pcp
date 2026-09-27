@@ -149,6 +149,29 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
     });
   });
 
+  it("G5 (ruling do controlador, G-migration fix 1): modelo_id de _entrega invalido segue o contrato de erro (sem 22P02)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await marcar(c, m.id);
+      const k = await chave(c);
+      const r1 = await ler(c, k.chave);
+      // modelo_id que NAO tem cara de uuid — mesma regex balanceada da T7 (integracao_marcar/integracao_salvar):
+      // 32 hex com/sem hifens, opcionalmente entre chaves (par ATOMICO, nunca uma chave sozinha)
+      for (const invalido of ["nao-e-um-uuid", "{" + r1.produtos[0].modelo_id, r1.produtos[0].modelo_id + "}", "", "12345"]) {
+        const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+          [r1.chave_id, r1.acesso_id, JSON.stringify({ produtos: [{ modelo_id: invalido, assinatura: "x" }] })]);
+        expect(cf.r.status, invalido).not.toBe(undefined);
+        expect(cf.r.confirmados ?? []).toEqual([]);
+      }
+      // entrega valida continua confirmando (comportamento pre-existente intocado)
+      const cfOk = await confirmar(c, r1);
+      expect(cfOk.status).toBe("ok");
+    });
+  });
+
   it("paginação por PRODUTO (nunca parte um produto) e max_por_pagina respeitado", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
@@ -170,6 +193,27 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       expect(d.produtos).toHaveLength(1);
       expect(d.pagina).toEqual({ limite: 1, maximo: 1 }); // pedido 50, cortado no máximo da loja
       expect((await ler(c, k.chave, { cursor: "%%%" })).status).toBe("parametro_invalido");
+    });
+  });
+
+  it("G4 (ruling do controlador, G-migration fix 1): cursor do OUTRO modo = parametro_invalido (nunca volta a pagina 1 em silencio)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const k = await chave(c);
+      // cursor de modo TESTE ({"exemplo":n}) usado no modo NORMAL
+      const t1 = await ler(c, k.chave, { modo: "teste" });
+      expect(t1.proximo_cursor).toEqual(expect.any(String));
+      const misturadoNormal = await ler(c, k.chave, { modo: "normal", cursor: t1.proximo_cursor });
+      expect(misturadoNormal.status).toBe("parametro_invalido");
+      // cursor de modo NORMAL ({"depois":...}) usado no modo TESTE
+      await c.query(`UPDATE public.integracao_produtos SET estado = 'nao_integravel' WHERE tenant_id = $1`, [T]);
+      for (let i = 0; i < 3; i++) await marcar(c, (await modeloInterno(c)).id);
+      const n1 = await ler(c, k.chave, { limite: 2 });
+      expect(n1.proximo_cursor).toEqual(expect.any(String));
+      const misturadoTeste = await ler(c, k.chave, { modo: "teste", cursor: n1.proximo_cursor });
+      expect(misturadoTeste.status).toBe("parametro_invalido");
     });
   });
 

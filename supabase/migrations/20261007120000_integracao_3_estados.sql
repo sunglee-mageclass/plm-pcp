@@ -135,6 +135,18 @@ BEGIN
     IF r.estado <> 'nao_integravel' THEN
       RAISE EXCEPTION 'integracao_mudou: produto % ja esta %', r.modelo_id, r.estado USING ERRCODE = 'P0409';
     END IF;
+    -- ruling do controlador, G-migration fix 1 #G6 (B-M10): reconfere o modulo `criacao` E o modulo da ORIGEM
+    -- (produto_acabado/produto_importado), o MESMO predicado base que integracao_salvar reconfere via
+    -- _integracao_gates (v_base_ok/v_base_motivo) — sem isso, dava pra marcar (e travar) um produto de revenda
+    -- com o modulo produto_acabado desligado. Mesma mensagem/ERRCODE do salvar (integracao_sem_permissao: <gate>,
+    -- 42501) — usa o gate 'compartilhado' como representante do base_ok (todo gate de _integracao_gates herda o
+    -- mesmo v_base_ok/v_base_motivo quando o motivo é de módulo, não de permissão de seção).
+    IF NOT coalesce((public._integracao_gates(r.modelo_id) -> 'compartilhado' ->> 'ok')::boolean, false)
+       AND (public._integracao_gates(r.modelo_id) -> 'compartilhado' ->> 'motivo') IN
+           ('O módulo Estilo & Engenharia está desligado nesta loja.',
+            'O módulo da origem deste produto (Produto Acabado/Importado) está desligado nesta loja.') THEN
+      RAISE EXCEPTION 'integracao_sem_permissao: compartilhado' USING ERRCODE = '42501';
+    END IF;
     IF r.reprovado THEN
       RAISE EXCEPTION 'O produto "%" está reprovado e não pode ser integrado.', r.nome USING ERRCODE = 'P0001';
     END IF;
