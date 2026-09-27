@@ -157,6 +157,11 @@ DECLARE
   v_blq integer;
   v_k text;
 BEGIN
+  -- re-review round 1 (#6 nit): _valores não-objeto (ex.: array) faria jsonb_object_keys estourar 22023 cru;
+  -- recusa cedo com P0001 em PT, mesmo padrão de tudo mais nesta função.
+  IF jsonb_typeof(v_v) <> 'object' THEN
+    RAISE EXCEPTION 'Configuracao invalida: esperado um objeto.' USING ERRCODE = 'P0001';
+  END IF;
   -- revisão T6 #6 (Minor #6): chave desconhecida (typo) recusa cedo em vez de ser silenciosamente ignorada.
   FOR v_k IN SELECT jsonb_object_keys(v_v) LOOP
     IF v_k <> ALL(ARRAY['limite_por_minuto', 'max_por_pagina', 'validade_foto_dias', 'bloqueio_tentativas']) THEN
@@ -170,20 +175,28 @@ BEGIN
   END IF;
   -- revisão T6 #6 (Minor #6): valida TIPO antes do cast — um valor não-inteiro (jsonb_typeof <> 'number' ou número
   -- fracionário) dava um 22P02 cru em inglês; agora recusa com P0001 em PT, mesmo padrão das faixas abaixo.
+  -- re-review round 1 (#6 nit): o range do PR8 (-2147483648..2147483647, limite do tipo `integer` de 32 bits) é
+  -- conferido AQUI (antes de qualquer ::integer) — um valor fora disso (ex.: 3000000000) dava 22003 cru; agora cai
+  -- na mesma mensagem P0001, e como a faixa de negócio (1-600 etc.) é sempre mais estreita que o range do tipo,
+  -- nenhum valor hoje aceito pela faixa de negócio jamais bateria nesta checagem.
   IF v_v ? 'limite_por_minuto' AND (jsonb_typeof(v_v -> 'limite_por_minuto') <> 'number'
-      OR (v_v -> 'limite_por_minuto')::text !~ '^-?\d+$') THEN
+      OR (v_v -> 'limite_por_minuto')::text !~ '^-?\d+$'
+      OR (v_v -> 'limite_por_minuto')::text::numeric NOT BETWEEN -2147483648 AND 2147483647) THEN
     RAISE EXCEPTION 'Limite de consultas por minuto precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   IF v_v ? 'max_por_pagina' AND (jsonb_typeof(v_v -> 'max_por_pagina') <> 'number'
-      OR (v_v -> 'max_por_pagina')::text !~ '^-?\d+$') THEN
+      OR (v_v -> 'max_por_pagina')::text !~ '^-?\d+$'
+      OR (v_v -> 'max_por_pagina')::text::numeric NOT BETWEEN -2147483648 AND 2147483647) THEN
     RAISE EXCEPTION 'Maximo de produtos por pagina precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   IF v_v ? 'validade_foto_dias' AND (jsonb_typeof(v_v -> 'validade_foto_dias') <> 'number'
-      OR (v_v -> 'validade_foto_dias')::text !~ '^-?\d+$') THEN
+      OR (v_v -> 'validade_foto_dias')::text !~ '^-?\d+$'
+      OR (v_v -> 'validade_foto_dias')::text::numeric NOT BETWEEN -2147483648 AND 2147483647) THEN
     RAISE EXCEPTION 'Validade dos links das fotos precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   IF v_v ? 'bloqueio_tentativas' AND (jsonb_typeof(v_v -> 'bloqueio_tentativas') <> 'number'
-      OR (v_v -> 'bloqueio_tentativas')::text !~ '^-?\d+$') THEN
+      OR (v_v -> 'bloqueio_tentativas')::text !~ '^-?\d+$'
+      OR (v_v -> 'bloqueio_tentativas')::text::numeric NOT BETWEEN -2147483648 AND 2147483647) THEN
     RAISE EXCEPTION 'Bloqueio de IP precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   v_lim := coalesce((v_v ->> 'limite_por_minuto')::integer, v_cfg.limite_por_minuto);
@@ -362,8 +375,9 @@ DECLARE
   v_depois uuid;
   v_pag integer;
   v_lim integer;
-  v_sel jsonb;
   v_mais boolean;
+  v_pedidos integer;
+  v_ultimo_id uuid;
   v_campos text[];
   v_cols jsonb;
   v_prods jsonb := '[]'::jsonb;
@@ -449,51 +463,59 @@ BEGIN
   END IF;
 
   -- D21: página por PRODUTO (um produto nunca é partido), keyset por integracao_produtos.id.
-  -- revisão T6 #3 (Minor #3): a página inteira (produtos + jsonb_agg de linhas) é montada em UMA única SELECT
-  -- (v_sel), uma única foto (snapshot) sob READ COMMITTED — fecha a janela A-B-A em que um voltar+marcar concorrente
-  -- entre a leitura dos produtos e a leitura das linhas (2 statements separados, cada um com sua própria foto)
-  -- podia entregar um produto com linhas: [] (ver revisão do controlador). Também remove o loop `v_prods := v_prods
-  -- || …` (concatenação O(n²) que reserializa o jsonb inteiro a cada iteração, até 500x com max_por_pagina=500).
+  -- revisão T6 #3 (Minor #3, re-review round 1 — a 1ª rodada NÃO fechou a janela: v_sel e v_prods ainda eram 2
+  -- SELECTs/2 fotos separadas sob READ COMMITTED). Fix real desta rodada: TODA a página (seleção com keyset,
+  -- corte do "tem mais", união de campos e jsonb_agg de linhas) roda numa ÚNICA instrução com CTEs — uma foto só.
+  -- Isso fecha a janela A-B-A (voltar apaga linhas + marcar recria com a MESMA assinatura entre 2 statements
+  -- separados não pode mais acontecer, pois não há 2 statements) SEM adicionar nenhuma trava nova (nenhum FOR
+  -- SHARE/FOR UPDATE em integracao_produtos aqui — evita qualquer necessidade de reanalisar ordem de lock contra
+  -- marcar/voltar/desfazer e os gatilhos do espelho). `pedidos` (a reserva/contagem no acesso) é derivado do
+  -- MESMO resultado (agg_pagina.n), não de uma leitura à parte. Formato de saída idêntico ao de antes (mesmas
+  -- chaves, mesma ordem por id, mesmo tipo de cada valor).
   v_lim := least(greatest(coalesce(_limite, v_cfg.max_por_pagina), 1), v_cfg.max_por_pagina);
-  SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'modelo_id', s.modelo_id, 'estado', s.estado,
-                                               'assinatura', s.assinatura, 'integrado_em', s.integrado_em,
-                                               'campos', to_jsonb(s.campos)) ORDER BY s.id), '[]'::jsonb)
-    INTO v_sel
-    FROM (SELECT ip.* FROM public.integracao_produtos ip
-           WHERE ip.tenant_id = k.tenant_id
-             AND (ip.estado = 'integravel' OR (coalesce(_incluir_integrados, false) AND ip.estado = 'integrado'))
-             AND (v_depois IS NULL OR ip.id > v_depois)
-           ORDER BY ip.id
-           LIMIT v_lim + 1) s;
-  v_mais := jsonb_array_length(v_sel) > v_lim;
-  IF v_mais THEN
-    v_sel := v_sel - v_lim;
-  END IF;
-  -- D6: colunas = UNIÃO dos campos dos retratos da página, na ordem fixa
-  v_campos := ARRAY(SELECT u.x FROM unnest(public._integracao_layout()) WITH ORDINALITY AS u(x, n)
-                     WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(v_sel) AS p(x) WHERE (p.x -> 'campos') ? u.x)
-                     ORDER BY u.n);
+  WITH pagina AS (
+    SELECT ip.id, ip.modelo_id, ip.estado, ip.assinatura, ip.integrado_em, ip.campos
+      FROM public.integracao_produtos ip
+     WHERE ip.tenant_id = k.tenant_id
+       AND (ip.estado = 'integravel' OR (coalesce(_incluir_integrados, false) AND ip.estado = 'integrado'))
+       AND (v_depois IS NULL OR ip.id > v_depois)
+     ORDER BY ip.id
+     LIMIT v_lim + 1
+  ), pagina_trim AS (
+    SELECT p.*, count(*) OVER () AS n_total
+      FROM pagina p
+     ORDER BY p.id
+     LIMIT v_lim
+  ), campos_uniao AS (
+    SELECT ARRAY(SELECT u.x FROM unnest(public._integracao_layout()) WITH ORDINALITY AS u(x, n)
+                  WHERE EXISTS (SELECT 1 FROM pagina_trim pt WHERE u.x = ANY(pt.campos))
+                  ORDER BY u.n) AS campos
+  ), com_linhas AS (
+    SELECT pt.id, pt.modelo_id, pt.estado, pt.assinatura, pt.integrado_em, pt.n_total,
+           coalesce(ln.linhas, '[]'::jsonb) AS linhas
+      FROM pagina_trim pt
+      CROSS JOIN campos_uniao cu
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object('tipo', l.tipo, 'loja_nome', l.loja_nome,
+                 'valores', public._integracao_valores(l, cu.campos, pt.campos)) ORDER BY l.ordem) AS linhas
+          FROM public.integracao_linhas l
+         WHERE l.modelo_id = pt.modelo_id) ln ON true
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('modelo_id', cl.modelo_id, 'estado', cl.estado,
+                                               'assinatura', cl.assinatura, 'integrado_em', cl.integrado_em,
+                                               'linhas', cl.linhas) ORDER BY cl.id), '[]'::jsonb),
+         coalesce(max(cl.n_total), 0) > v_lim, coalesce(count(*), 0),
+         (array_agg(cl.id ORDER BY cl.id DESC))[1],
+         coalesce((SELECT cu.campos FROM campos_uniao cu), '{}'::text[])
+    INTO v_prods, v_mais, v_pedidos, v_ultimo_id, v_campos
+    FROM com_linhas cl;
   v_cols := public._integracao_colunas(v_campos);
-  -- UMA foto só: os ids da página (v_sel) entram como CTE e o jsonb_agg de linhas roda dentro da MESMA SELECT.
-  SELECT coalesce(jsonb_agg(jsonb_build_object(
-           'modelo_id', p.modelo_id, 'estado', p.estado, 'assinatura', p.assinatura, 'integrado_em', p.integrado_em,
-           'linhas', coalesce(ln.linhas, '[]'::jsonb)) ORDER BY p.id), '[]'::jsonb)
-    INTO v_prods
-    FROM (SELECT (s.x ->> 'id')::uuid AS id, s.x ->> 'modelo_id' AS modelo_id, s.x ->> 'estado' AS estado,
-                 s.x ->> 'assinatura' AS assinatura, s.x -> 'integrado_em' AS integrado_em,
-                 ARRAY(SELECT c.x FROM jsonb_array_elements_text(s.x -> 'campos') AS c(x)) AS campos_produto
-            FROM jsonb_array_elements(v_sel) AS s(x)) p
-    LEFT JOIN LATERAL (
-      SELECT jsonb_agg(jsonb_build_object('tipo', l.tipo, 'loja_nome', l.loja_nome,
-               'valores', public._integracao_valores(l, v_campos, p.campos_produto)) ORDER BY l.ordem) AS linhas
-        FROM public.integracao_linhas l
-       WHERE l.modelo_id = p.modelo_id::uuid) ln ON true;
-  UPDATE public.integracao_acessos SET detalhe = jsonb_build_object('pedidos', jsonb_array_length(v_sel)) WHERE id = v_acesso;
+  UPDATE public.integracao_acessos SET detalhe = jsonb_build_object('pedidos', v_pedidos) WHERE id = v_acesso;
   RETURN jsonb_build_object('status', 'ok', 'modo', 'normal', 'acesso_id', v_acesso, 'chave_id', k.id, 'tenant_id', k.tenant_id,
     'loja', jsonb_build_object('id', k.tenant_id, 'nome', v_loja), 'colunas', v_cols -> 'rotulos',
     'chaves_colunas', v_cols -> 'chaves', 'produtos', v_prods,
-    'proximo_cursor', CASE WHEN v_mais
-      THEN to_jsonb(encode(convert_to(jsonb_build_object('depois', v_sel -> (jsonb_array_length(v_sel) - 1) ->> 'id')::text, 'UTF8'), 'base64'))
+    'proximo_cursor', CASE WHEN v_mais AND v_ultimo_id IS NOT NULL
+      THEN to_jsonb(encode(convert_to(jsonb_build_object('depois', v_ultimo_id)::text, 'UTF8'), 'base64'))
       ELSE 'null'::jsonb END,
     'validade_foto_dias', v_cfg.validade_foto_dias,
     -- D39 (P-89 A): o programa do dev se ajusta sozinho se a loja mudar o "Máximo de produtos por página"
@@ -522,15 +544,20 @@ BEGIN
   -- nota 9: reconfere a chave e a loja de cada produto (a entrega é a 2ª fase INTERNA da rota, não um ack do ERP)
   SELECT * INTO k FROM public.integracao_chaves WHERE id = _chave_id;
   IF NOT FOUND OR k.revogada_em IS NOT NULL THEN
-    -- revisão T6 #4 (Minor #4): filtra por chave_id também aqui — sem isso, um _acesso_id de OUTRA chave (ou
-    -- agregado, chave_id NULL) seria fechado por engano quando _chave_id não bate mais (chave revogada no meio).
+    -- revisão T6 #4 (Minor #4) + re-review round 1 (residual): filtra por chave_id E status = 'reservado' também
+    -- aqui — sem isso, um _acesso_id de OUTRA chave (ou agregado, chave_id NULL) seria fechado por engano quando
+    -- _chave_id não bate mais (chave revogada no meio), e um RETRY depois de a chave já ter sido revogada (mas o
+    -- acesso já estava 'ok' de uma 1ª confirmação bem-sucedida) reescreveria esse 'ok' pra 'chave_invalida'.
     UPDATE public.integracao_acessos SET status = 'chave_invalida', concluido_em = now()
-     WHERE id = _acesso_id AND chave_id = _chave_id;
+     WHERE id = _acesso_id AND chave_id = _chave_id AND status = 'reservado';
     RETURN jsonb_build_object('status', 'chave_invalida', 'confirmados', '[]'::jsonb);
   END IF;
   SELECT t.ativo INTO v_ativo FROM public.tenants t WHERE t.id = k.tenant_id;
   IF NOT coalesce(v_ativo, false) THEN
-    UPDATE public.integracao_acessos SET status = 'loja_inativa', concluido_em = now() WHERE id = _acesso_id AND chave_id = k.id;
+    -- re-review round 1 (residual do #4): idem — só rebaixa um acesso ainda RESERVADO; um retry depois da loja
+    -- ficar inativa não reescreve um acesso já 'ok'. produtos_entregues/detalhe permanecem intocados nos 2 casos.
+    UPDATE public.integracao_acessos SET status = 'loja_inativa', concluido_em = now()
+     WHERE id = _acesso_id AND chave_id = k.id AND status = 'reservado';
     RETURN jsonb_build_object('status', 'loja_inativa', 'confirmados', '[]'::jsonb);
   END IF;
   -- revisão T6 #4 (Minor #4): só fecha um acesso que ainda está RESERVADO (fase 1 concluída, aguardando a fase 2) e é

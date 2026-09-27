@@ -90,6 +90,17 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
     });
   });
 
+  it("re-review round 1 (#6 nit): inteiro fora do range de 32 bits e _valores não-objeto viram P0001 PT (não 22003/22023 cru)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 3000000000}'::jsonb, 1)`, []))
+        .toMatch(/^P0001 .*numero inteiro/);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('[1,2,3]'::jsonb, 1)`, []))
+        .toMatch(/^P0001 .*objeto/);
+    });
+  });
+
   it("revisão T6 #7 (Minor #7): 42501 também em integracao_salvar_config_api e integracao_chave_revogar (não-super)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
@@ -311,6 +322,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       const entrega = { produtos: [{ modelo_id: outro.id, assinatura: assinaturaFalsa }], fotos_descartadas: 0, fotos_ausentes: 0 };
       const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
         [k.id, semIncluir.acesso_id, JSON.stringify(entrega)]);
+      // re-review round 1 (#1 nit): sem isto, um curto-circuito parametro_invalido (do guard do #4) passaria
+      // vazio aqui SEM testar isolamento nenhum — confirma que a fase 2 de fato RODOU (status 'ok') e ainda assim
+      // não marcou o produto de outra loja.
+      expect(cf.r.status).toBe("ok");
       expect(cf.r.confirmados.map((x: any) => x.modelo_id)).not.toContain(outro.id);
       expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [outro.id])).e).toBe("integravel");
       // (c) _integracao_limpar: linha antiga de outra loja (NÃO entregou) + linha NULL-tenant — cada chamada só apaga a sua
@@ -385,6 +400,37 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
         [t.chave_id, t.acesso_id, JSON.stringify({ produtos: [], fotos_descartadas: 0, fotos_ausentes: 0 })]);
       expect(cfTeste.r.status).toBe("parametro_invalido");
       expect((await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [t.acesso_id])).s).toBe("teste");
+    });
+  });
+
+  it("re-review round 1 (#4 leftover): retry depois de revogar a chave (ou desativar a loja) NÃO reescreve um acesso já 'ok'", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m1 = await modeloInterno(c);
+      await marcar(c, m1.id);
+      const k1 = await chave(c, "ERP 1");
+      const r1 = await ler(c, k1.chave);
+      expect((await confirmar(c, r1)).status).toBe("ok");
+      await c.query(`SELECT public.integracao_chave_revogar($1)`, [k1.id]);
+      // retry do MESMO acesso, agora com a chave revogada: recusa (chave_invalida), mas o acesso PERMANECE 'ok'
+      const cfRevogada = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [k1.id, r1.acesso_id, JSON.stringify({ produtos: [], fotos_descartadas: 0, fotos_ausentes: 0 })]);
+      expect(cfRevogada.r.status).toBe("chave_invalida");
+      expect((await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [r1.acesso_id])).s).toBe("ok");
+
+      const m2 = await modeloInterno(c);
+      await marcar(c, m2.id);
+      const k2 = await chave(c, "ERP 2");
+      const r2 = await ler(c, k2.chave);
+      expect((await confirmar(c, r2)).status).toBe("ok");
+      await c.query(`UPDATE public.tenants SET ativo = false WHERE id = $1`, [T]);
+      // retry do MESMO acesso, agora com a loja inativa: recusa (loja_inativa), mas o acesso PERMANECE 'ok'
+      const cfInativa = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [k2.id, r2.acesso_id, JSON.stringify({ produtos: [], fotos_descartadas: 0, fotos_ausentes: 0 })]);
+      expect(cfInativa.r.status).toBe("loja_inativa");
+      expect((await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [r2.acesso_id])).s).toBe("ok");
     });
   });
 
