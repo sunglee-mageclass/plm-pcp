@@ -47,3 +47,27 @@ describe("Integração — guarda única de alterações não salvas", () => {
     }
   });
 });
+
+// Fix round 1 — I2 (task-11-review.md + task-11-code-review.md): checagem de fonte (em vez de renderHook, sem
+// precedente na suíte unit deste repo) para a mutationKey do Salvar e o gate do Realtime contra ela; e M5 para o
+// sufixo único do canal.
+describe("useIntegracao — Salvar tem mutationKey e o Realtime não relista no meio dele (I2); canal com sufixo único (M5)", () => {
+  const s = ler("src/components/integracao/useIntegracao.ts");
+  it("useSalvarIntegracao declara mutationKey própria (chaveMutationSalvar)", () => {
+    expect(s).toMatch(/mutationKey:\s*chaveMutationSalvar\(tenantId\)/);
+  });
+  it("useIntegracaoAoVivo consulta qc.isMutating com a MESMA mutationKey antes de invalidar", () => {
+    const i = s.indexOf("function useIntegracaoAoVivo");
+    expect(i).toBeGreaterThan(-1);
+    const trecho = s.slice(i, s.indexOf("\n}", s.indexOf("ch.subscribe()", i)));
+    expect(trecho).toMatch(/qc\.isMutating\(\{\s*mutationKey:\s*chaveMutationSalvar\(tenantId\)\s*\}\)/);
+    // a invalidação só roda quando isMutating NÃO achou nada (o "> 0" seguido de um return/guarda antes do invalidate)
+    expect(trecho.indexOf("isMutating")).toBeLessThan(trecho.indexOf("invalidateQueries"));
+  });
+  it("o canal Realtime usa um sufixo por montagem (nunca reaproveita um tópico 'velho')", () => {
+    const i = s.indexOf("function useIntegracaoAoVivo");
+    const trecho = s.slice(i, s.indexOf("ch.subscribe()", i));
+    expect(trecho).toMatch(/Math\.random\(\)/);
+    expect(trecho).not.toMatch(/getChannels\(\)\.find/);
+  });
+});

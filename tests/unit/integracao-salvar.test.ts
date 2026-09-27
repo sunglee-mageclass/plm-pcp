@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { lerLista } from "@/lib/integracao/produtos";
 import { adicionarFotos, comSkus, editar, novoRascunho } from "@/lib/integracao/rascunho";
-import { salvarIntegracao, type DepsSalvar } from "@/components/integracao/salvar-integracao";
+import { entradaSkus, salvarIntegracao, TEXTO_RESULTADO_DESCONHECIDO, type DepsSalvar } from "@/components/integracao/salvar-integracao";
 import {
   MSG_PREVIA_DESATUALIZADA, MSG_PREVIA_DESCONHECIDA,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
@@ -66,13 +66,98 @@ describe("salvarIntegracao — fotos → integracao_salvar → SKUs", () => {
     const b = falsos({ aplicarSkus: vi.fn(async () => { throw Object.assign(new Error("x"), { code: "P0409" }); }) });
     expect((await salvarIntegracao([comSkus(novoRascunho(produto("m2")), SKUS)], b.d)).skusFalhas[0].texto).toBe(MSG_PREVIA_DESATUALIZADA);
   });
-  it("produto sem 'Tamanho em' (tamanhoTipo null): SKU não entra na prévia/aplicação (não crasha, não assume 'letra')", async () => {
+  // Fix round 1 (task-11-review.md Minor 1 / code-review.md M1): "Tamanho em" indefinido NÃO some mais em silêncio —
+  // vira uma `skusFalhas` explicando o motivo (nunca crasha, nunca assume "letra").
+  it("produto sem 'Tamanho em' (tamanhoTipo null): SKU não entra na prévia/aplicação, mas gera skusFalhas explicando (não crasha, não assume 'letra')", async () => {
     const { d, chamadas } = falsos();
     const r = await salvarIntegracao([comSkus(novoRascunho(produtoSemTamanho("m3")), SKUS)], d);
     expect(chamadas).toEqual([]);
     expect(d.previaSkus).not.toHaveBeenCalled();
     expect(d.aplicarSkus).not.toHaveBeenCalled();
     expect(r.skusOk).toEqual([]);
-    expect(r.skusFalhas).toEqual([]);
+    expect(r.skusFalhas).toEqual([{ modeloId: "m3", nome: "Produto m3",
+      texto: "O card foi salvo, mas os SKUs não foram gravados: defina \"Tamanho em\" no card do produto antes de gravar os SKUs." }]);
+  });
+
+  // Fix round 1 — Important 1 (task-11-review.md) / I1 (task-11-code-review.md): resultado DESCONHECIDO do passo 2
+  // (a RPC foi enviada, mas o erro não carrega um código de servidor — rede caiu depois do envio) NUNCA apaga as
+  // fotos que este Salvar subiu, porque o `integracao_salvar` pode já ter comitado.
+  it("resultado DESCONHECIDO (erro de rede sem code): mantém as fotos subidas e avisa para recarregar/conferir", async () => {
+    const { d, chamadas } = falsos({ salvar: vi.fn(async () => { throw Object.assign(new Error("Failed to fetch"), { code: "" }); }) });
+    await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ message: TEXTO_RESULTADO_DESCONHECIDO });
+    expect(chamadas).toEqual(["subir:c.jpg"]);
+    expect(d.apagarFotos).not.toHaveBeenCalled();
+  });
+  it("resultado DESCONHECIDO: mesmo sem `code` na propriedade do erro (undefined), mantém as fotos", async () => {
+    const { d, chamadas } = falsos({ salvar: vi.fn(async () => { throw new Error("Failed to fetch"); }) });
+    await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ message: TEXTO_RESULTADO_DESCONHECIDO });
+    expect(chamadas).toEqual(["subir:c.jpg"]);
+    expect(d.apagarFotos).not.toHaveBeenCalled();
+  });
+  it("recusa DEFINITIVA (code não-vazio, ex. 42501): apaga as fotos e repassa o erro ORIGINAL (não o texto de desconhecido)", async () => {
+    const { d, chamadas } = falsos({ salvar: vi.fn(async () => { throw Object.assign(new Error("sem permissao"), { code: "42501" }); }) });
+    await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ code: "42501", message: "sem permissao" });
+    expect(chamadas).toEqual(["subir:c.jpg", "apagar:t/fotos_modelo/c.jpg"]);
+  });
+  it("falha ANTES do envio (upload) nunca chama a RPC: apaga o que já subiu e repassa o erro original", async () => {
+    const { d, chamadas } = falsos({
+      subirFoto: vi.fn(async (f: File) => {
+        if (f.name === "b.jpg") throw Object.assign(new Error("upload falhou"), { code: "" });
+        chamadas.push(`subir:${f.name}`);
+        return `t/fotos_modelo/${f.name}`;
+      }),
+    });
+    const r1 = editar(novoRascunho(produto("m1")), "peso_kg", 0.3);
+    const r2 = adicionarFotos(r1, [
+      { id: "u1", file: new File(["x"], "a2.jpg") },
+      { id: "u2", file: new File(["x"], "b.jpg") },
+    ]);
+    await expect(salvarIntegracao([r2], d)).rejects.toMatchObject({ message: "upload falhou" });
+    // o 1º upload (a2.jpg) já tinha subido antes do 2º (b.jpg) falhar: apaga só o que subiu de verdade, e a RPC
+    // nunca chega a ser chamada (o erro é de ANTES do passo 2 — `rpcEnviada` continua false).
+    expect(chamadas).toEqual(["subir:a2.jpg", "apagar:t/fotos_modelo/a2.jpg"]);
+    expect(d.salvar).not.toHaveBeenCalled();
+  });
+  it("apagarFotos rejeitando: o erro ORIGINAL do passo 2 ainda é relançado (a falha de limpeza não mascara)", async () => {
+    const { d, chamadas } = falsos({
+      salvar: vi.fn(async () => { throw Object.assign(new Error("x"), { code: "P0409" }); }),
+      apagarFotos: vi.fn(async () => { throw new Error("falha ao limpar storage"); }),
+    });
+    await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ code: "P0409", message: "x" });
+    expect(chamadas).toEqual(["subir:c.jpg"]);
+  });
+
+  // Fix round 1 — Minor 8 (task-11-code-review.md M8): falha parcial de SKU com 2 produtos — o outro segue ok.
+  it("2 produtos com SKU, 1 falha na prévia: o outro entra em skusOk normalmente (o resto fica)", async () => {
+    const { d } = falsos({
+      previaSkus: vi.fn(async (id: string) => {
+        if (id === "m2") return { ...previaOk, erros: [{ variante_key: "v1", tamanho_key: "38|P", code: "P0001", mensagem: "SKU já usado por outro produto." }] } as never;
+        return previaOk as never;
+      }),
+    });
+    const r = await salvarIntegracao([comSkus(novoRascunho(produto("m2")), SKUS), comSkus(novoRascunho(produto("m4")), SKUS)], d);
+    expect(r.skusOk).toEqual(["m4"]);
+    expect(r.skusFalhas).toEqual([{ modeloId: "m2", nome: "Produto m2",
+      texto: "O card foi salvo, mas os SKUs não foram gravados: SKU já usado por outro produto." }]);
+  });
+
+  // Fix round 1 — M6 (task-11-code-review.md): o toast de falha de SKU usa o nome EDITADO no mesmo Salvar, não o
+  // nome antigo do servidor.
+  it("SKU falha num produto renomeado NESTE Salvar: a falha usa o nome NOVO (do rascunho), não o antigo", async () => {
+    const { d } = falsos({ previaSkus: vi.fn(async () => ({ ...previaOk,
+      erros: [{ variante_key: "v1", tamanho_key: "38|P", code: "P0001", mensagem: "SKU já usado por outro produto." }] }) as never) });
+    const renomeado = editar(comSkus(novoRascunho(produto("m2")), SKUS), "nome", "Nome Novo");
+    const r = await salvarIntegracao([renomeado], d);
+    expect(r.skusFalhas[0].nome).toBe("Nome Novo");
+  });
+});
+
+describe("entradaSkus — narrowing sem cast (Minor 2 / M1)", () => {
+  it("devolve null quando tamanhoTipo é null (nunca fabrica 'letra')", () => {
+    expect(entradaSkus(novoRascunho(produtoSemTamanho("m5")))).toBeNull();
+  });
+  it("devolve a entrada normalmente quando tamanhoTipo é conhecido", () => {
+    const e = entradaSkus(comSkus(novoRascunho(produto("m2")), SKUS));
+    expect(e).toMatchObject({ ref: "REF1", tamanhoTipo: "letra", modo: "manuais" });
   });
 });
