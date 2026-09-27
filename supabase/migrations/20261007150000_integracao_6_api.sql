@@ -155,11 +155,36 @@ DECLARE
   v_pag integer;
   v_foto integer;
   v_blq integer;
+  v_k text;
 BEGIN
+  -- revisão T6 #6 (Minor #6): chave desconhecida (typo) recusa cedo em vez de ser silenciosamente ignorada.
+  FOR v_k IN SELECT jsonb_object_keys(v_v) LOOP
+    IF v_k <> ALL(ARRAY['limite_por_minuto', 'max_por_pagina', 'validade_foto_dias', 'bloqueio_tentativas']) THEN
+      RAISE EXCEPTION 'Configuracao desconhecida: %', v_k USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
   PERFORM 1 FROM public.integracao_config c WHERE c.tenant_id = v_tenant FOR UPDATE;
   v_cfg := public._integracao_cfg(v_tenant);
   IF v_cfg.rev IS DISTINCT FROM _rev THEN
     RAISE EXCEPTION 'conflito_versao: a configuracao foi salva por outra pessoa' USING ERRCODE = 'P0409';
+  END IF;
+  -- revisão T6 #6 (Minor #6): valida TIPO antes do cast — um valor não-inteiro (jsonb_typeof <> 'number' ou número
+  -- fracionário) dava um 22P02 cru em inglês; agora recusa com P0001 em PT, mesmo padrão das faixas abaixo.
+  IF v_v ? 'limite_por_minuto' AND (jsonb_typeof(v_v -> 'limite_por_minuto') <> 'number'
+      OR (v_v -> 'limite_por_minuto')::text !~ '^-?\d+$') THEN
+    RAISE EXCEPTION 'Limite de consultas por minuto precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
+  END IF;
+  IF v_v ? 'max_por_pagina' AND (jsonb_typeof(v_v -> 'max_por_pagina') <> 'number'
+      OR (v_v -> 'max_por_pagina')::text !~ '^-?\d+$') THEN
+    RAISE EXCEPTION 'Maximo de produtos por pagina precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
+  END IF;
+  IF v_v ? 'validade_foto_dias' AND (jsonb_typeof(v_v -> 'validade_foto_dias') <> 'number'
+      OR (v_v -> 'validade_foto_dias')::text !~ '^-?\d+$') THEN
+    RAISE EXCEPTION 'Validade dos links das fotos precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
+  END IF;
+  IF v_v ? 'bloqueio_tentativas' AND (jsonb_typeof(v_v -> 'bloqueio_tentativas') <> 'number'
+      OR (v_v -> 'bloqueio_tentativas')::text !~ '^-?\d+$') THEN
+    RAISE EXCEPTION 'Bloqueio de IP precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   v_lim := coalesce((v_v ->> 'limite_por_minuto')::integer, v_cfg.limite_por_minuto);
   v_pag := coalesce((v_v ->> 'max_por_pagina')::integer, v_cfg.max_por_pagina);
@@ -344,7 +369,6 @@ DECLARE
   v_prods jsonb := '[]'::jsonb;
   v_ex jsonb;
   v_linhas integer;
-  r record;
 BEGIN
   IF _modo IS NULL OR _modo NOT IN ('normal', 'teste') THEN
     RETURN jsonb_build_object('status', 'parametro_invalido');
@@ -390,8 +414,10 @@ BEGIN
     ON CONFLICT (agregado, minuto) WHERE agregado IS NOT NULL DO UPDATE SET tentativas = a.tentativas + 1;
     RETURN jsonb_build_object('status', 'loja_inativa', 'tenant_id', k.tenant_id);
   END IF;
-  -- R7/V4: limite POR CHAVE contado e RESERVADO sob a trava da chave (rajada paralela não fura); 429 não conta
-  PERFORM pg_advisory_xact_lock(hashtext('integracao_chave:' || k.id::text));
+  -- R7/V4: limite POR CHAVE contado e RESERVADO sob a trava da chave (rajada paralela não fura); 429 não conta.
+  -- revisão T6 #8 (Minor #8): hashtextextended (64-bit, mesmo padrão de integracao_marcar/sku_modelo) em vez de
+  -- hashtext (32-bit) — evita compartilhar o namespace de 32 bits com outras travas do sistema.
+  PERFORM pg_advisory_xact_lock(hashtextextended('integracao_chave:' || k.id::text, 0));
   SELECT count(*), min(a.criado_em) INTO v_usadas, v_mais_velho FROM public.integracao_acessos a
    WHERE a.chave_id = k.id AND a.agregado IS NULL AND a.criado_em > now() - interval '60 seconds';
   IF v_usadas >= v_cfg.limite_por_minuto THEN
@@ -422,7 +448,12 @@ BEGIN
       'pagina', jsonb_build_object('limite', 2, 'maximo', v_cfg.max_por_pagina));
   END IF;
 
-  -- D21: página por PRODUTO (um produto nunca é partido), keyset por integracao_produtos.id
+  -- D21: página por PRODUTO (um produto nunca é partido), keyset por integracao_produtos.id.
+  -- revisão T6 #3 (Minor #3): a página inteira (produtos + jsonb_agg de linhas) é montada em UMA única SELECT
+  -- (v_sel), uma única foto (snapshot) sob READ COMMITTED — fecha a janela A-B-A em que um voltar+marcar concorrente
+  -- entre a leitura dos produtos e a leitura das linhas (2 statements separados, cada um com sua própria foto)
+  -- podia entregar um produto com linhas: [] (ver revisão do controlador). Também remove o loop `v_prods := v_prods
+  -- || …` (concatenação O(n²) que reserializa o jsonb inteiro a cada iteração, até 500x com max_por_pagina=500).
   v_lim := least(greatest(coalesce(_limite, v_cfg.max_por_pagina), 1), v_cfg.max_por_pagina);
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'modelo_id', s.modelo_id, 'estado', s.estado,
                                                'assinatura', s.assinatura, 'integrado_em', s.integrado_em,
@@ -443,17 +474,20 @@ BEGIN
                      WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(v_sel) AS p(x) WHERE (p.x -> 'campos') ? u.x)
                      ORDER BY u.n);
   v_cols := public._integracao_colunas(v_campos);
-  FOR r IN SELECT p.x AS p FROM jsonb_array_elements(v_sel) AS p(x) LOOP
-    v_prods := v_prods || jsonb_build_array(jsonb_build_object(
-      'modelo_id', r.p ->> 'modelo_id', 'estado', r.p ->> 'estado', 'assinatura', r.p ->> 'assinatura',
-      'integrado_em', r.p -> 'integrado_em',
-      'linhas', coalesce((
-        SELECT jsonb_agg(jsonb_build_object('tipo', l.tipo, 'loja_nome', l.loja_nome,
-                 'valores', public._integracao_valores(l, v_campos,
-                   ARRAY(SELECT c.x FROM jsonb_array_elements_text(r.p -> 'campos') AS c(x)))) ORDER BY l.ordem)
-          FROM public.integracao_linhas l
-         WHERE l.modelo_id = (r.p ->> 'modelo_id')::uuid), '[]'::jsonb)));
-  END LOOP;
+  -- UMA foto só: os ids da página (v_sel) entram como CTE e o jsonb_agg de linhas roda dentro da MESMA SELECT.
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'modelo_id', p.modelo_id, 'estado', p.estado, 'assinatura', p.assinatura, 'integrado_em', p.integrado_em,
+           'linhas', coalesce(ln.linhas, '[]'::jsonb)) ORDER BY p.id), '[]'::jsonb)
+    INTO v_prods
+    FROM (SELECT (s.x ->> 'id')::uuid AS id, s.x ->> 'modelo_id' AS modelo_id, s.x ->> 'estado' AS estado,
+                 s.x ->> 'assinatura' AS assinatura, s.x -> 'integrado_em' AS integrado_em,
+                 ARRAY(SELECT c.x FROM jsonb_array_elements_text(s.x -> 'campos') AS c(x)) AS campos_produto
+            FROM jsonb_array_elements(v_sel) AS s(x)) p
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(jsonb_build_object('tipo', l.tipo, 'loja_nome', l.loja_nome,
+               'valores', public._integracao_valores(l, v_campos, p.campos_produto)) ORDER BY l.ordem) AS linhas
+        FROM public.integracao_linhas l
+       WHERE l.modelo_id = p.modelo_id::uuid) ln ON true;
   UPDATE public.integracao_acessos SET detalhe = jsonb_build_object('pedidos', jsonb_array_length(v_sel)) WHERE id = v_acesso;
   RETURN jsonb_build_object('status', 'ok', 'modo', 'normal', 'acesso_id', v_acesso, 'chave_id', k.id, 'tenant_id', k.tenant_id,
     'loja', jsonb_build_object('id', k.tenant_id, 'nome', v_loja), 'colunas', v_cols -> 'rotulos',
@@ -482,18 +516,32 @@ DECLARE
   v_novos integer := 0;
   v_relidos integer := 0;
   v_agora timestamptz := now();
+  v_acesso_ok boolean;
   r record;
 BEGIN
   -- nota 9: reconfere a chave e a loja de cada produto (a entrega é a 2ª fase INTERNA da rota, não um ack do ERP)
   SELECT * INTO k FROM public.integracao_chaves WHERE id = _chave_id;
   IF NOT FOUND OR k.revogada_em IS NOT NULL THEN
-    UPDATE public.integracao_acessos SET status = 'chave_invalida', concluido_em = now() WHERE id = _acesso_id;
+    -- revisão T6 #4 (Minor #4): filtra por chave_id também aqui — sem isso, um _acesso_id de OUTRA chave (ou
+    -- agregado, chave_id NULL) seria fechado por engano quando _chave_id não bate mais (chave revogada no meio).
+    UPDATE public.integracao_acessos SET status = 'chave_invalida', concluido_em = now()
+     WHERE id = _acesso_id AND chave_id = _chave_id;
     RETURN jsonb_build_object('status', 'chave_invalida', 'confirmados', '[]'::jsonb);
   END IF;
   SELECT t.ativo INTO v_ativo FROM public.tenants t WHERE t.id = k.tenant_id;
   IF NOT coalesce(v_ativo, false) THEN
     UPDATE public.integracao_acessos SET status = 'loja_inativa', concluido_em = now() WHERE id = _acesso_id AND chave_id = k.id;
     RETURN jsonb_build_object('status', 'loja_inativa', 'confirmados', '[]'::jsonb);
+  END IF;
+  -- revisão T6 #4 (Minor #4): só fecha um acesso que ainda está RESERVADO (fase 1 concluída, aguardando a fase 2) e é
+  -- modo 'normal' da MESMA chave — trava a linha FOR UPDATE para não competir com outra confirmação da mesma reserva.
+  -- Uma chamada retry (já 'ok'), um acesso em modo 'teste' (nunca chama confirmar) ou de outra chave não confirmam
+  -- nada e devolvem parametro_invalido, sem reescrever produtos_entregues/detalhe nem RAISE 22P02 num id de exemplo.
+  SELECT true INTO v_acesso_ok FROM public.integracao_acessos a
+   WHERE a.id = _acesso_id AND a.chave_id = _chave_id AND a.status = 'reservado' AND a.modo = 'normal'
+   FOR UPDATE;
+  IF NOT coalesce(v_acesso_ok, false) THEN
+    RETURN jsonb_build_object('status', 'parametro_invalido', 'confirmados', '[]'::jsonb);
   END IF;
   v_ids := ARRAY(SELECT DISTINCT (e.x ->> 'modelo_id')::uuid
                    FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x) ORDER BY 1);
@@ -543,13 +591,26 @@ AS $function$
 DECLARE
   v_n integer;
 BEGIN
-  -- n4/D20: ≤ 500 linhas por chamada, SÓ da loja pedida (NULL = as agregadas sem loja), SÓ quem NÃO entregou produto
-  WITH alvo AS (
-    SELECT a.id FROM public.integracao_acessos a
-     WHERE a.tenant_id IS NOT DISTINCT FROM _tenant AND a.criado_em < now() - interval '90 days' AND a.produtos_entregues = 0
-     ORDER BY a.criado_em
-     LIMIT 500)
-  DELETE FROM public.integracao_acessos a USING alvo WHERE a.id = alvo.id;
+  -- n4/D20: ≤ 500 linhas por chamada, SÓ da loja pedida (NULL = as agregadas sem loja), SÓ quem NÃO entregou produto.
+  -- revisão T6 #2 (Important #2): o predicado antigo de igualdade nula-segura para _tenant não era indexável — 2
+  -- ramos ESTÁTICOS (tenant_id = _tenant OU tenant_id IS NULL) usam o índice idx_integracao_acessos_tenant
+  -- (tenant_id, criado_em DESC); a rota chama isto a cada request (todo tráfego de chave errada cai no ramo NULL),
+  -- então um seq scan crescente era custo por-request.
+  IF _tenant IS NULL THEN
+    WITH alvo AS (
+      SELECT a.id FROM public.integracao_acessos a
+       WHERE a.tenant_id IS NULL AND a.criado_em < now() - interval '90 days' AND a.produtos_entregues = 0
+       ORDER BY a.criado_em
+       LIMIT 500)
+    DELETE FROM public.integracao_acessos a USING alvo WHERE a.id = alvo.id;
+  ELSE
+    WITH alvo AS (
+      SELECT a.id FROM public.integracao_acessos a
+       WHERE a.tenant_id = _tenant AND a.criado_em < now() - interval '90 days' AND a.produtos_entregues = 0
+       ORDER BY a.criado_em
+       LIMIT 500)
+    DELETE FROM public.integracao_acessos a USING alvo WHERE a.id = alvo.id;
+  END IF;
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END

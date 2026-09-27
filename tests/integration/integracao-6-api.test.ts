@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import type { Client } from "pg";
 import { createHash } from "node:crypto";
 import { hasDb, withTx, comoUsuario, um } from "./db";
-import { CAMPOS_PADRAO, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, comoUsuarioCom, keywordsLoja, modeloInterno, prepara } from "./integracao-helpers";
+import { CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, comoUsuarioCom, keywordsLoja, modeloInterno, prepara } from "./integracao-helpers";
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 async function marcar(c: Client, id: string): Promise<void> {
@@ -72,6 +72,32 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
       expect(JSON.stringify((await um<{ r: any }>(c, `SELECT public.integracao_chaves_listar() AS r`)).r)).not.toContain(db.hash);
       await c.query(`SELECT public.integracao_chave_revogar($1)`, [k.id]);
       expect((await ler(c, k.chave)).status).toBe("chave_invalida");
+    });
+  });
+
+  it("revisão T6 #6 (Minor #6): config da API recusa tipo errado (P0001 PT) e chave desconhecida (typo)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": "abc"}'::jsonb, 1)`, [])).toMatch(/^P0001 .*numero inteiro/);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 1.5}'::jsonb, 1)`, [])).toMatch(/^P0001 .*numero inteiro/);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"max_por_pagina": " 60"}'::jsonb, 1)`, [])).toMatch(/^P0001 .*numero inteiro/);
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minutoo": 60}'::jsonb, 1)`, []))
+        .toMatch(/^P0001 Configuracao desconhecida: limite_por_minutoo/);
+      // válido continua passando (não regrediu a faixa)
+      const r = (await um<{ r: any }>(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 120}'::jsonb, 1) AS r`)).r;
+      expect(r.api.limite_por_minuto).toBe(120);
+    });
+  });
+
+  it("revisão T6 #7 (Minor #7): 42501 também em integracao_salvar_config_api e integracao_chave_revogar (não-super)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce33", [["integracao", true, true]], { tenantAdmin: true });
+      expect(await msg(c, `SELECT public.integracao_salvar_config_api('{"limite_por_minuto": 100}'::jsonb, 1)`, []))
+        .toBe("42501 Só o super admin pode fazer isto.");
+      expect(await msg(c, `SELECT public.integracao_chave_revogar($1)`, ["00000000-0000-4000-8000-000000000000"]))
+        .toBe("42501 Só o super admin pode fazer isto.");
     });
   });
 });
@@ -246,6 +272,153 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
         "SELECT public.integracao_chave_criar('x')"]) {
         expect(await msg(c, sql, [])).toBe("42501 Só o super admin pode fazer isto.");
       }
+    });
+  });
+
+  it("revisão T6 #7 (Minor #7): ACL dos 3 helpers internos inclui anon (não só authenticated/public)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      for (const f of ["_integracao_colunas(text[])", "_integracao_exemplo(text[],integer)", "_integracao_valores(public.integracao_linhas,text[],text[])"]) {
+        const a = await um<any>(c, `SELECT has_function_privilege('authenticated', 'public.${f}', 'EXECUTE') AS au,
+          has_function_privilege('anon', 'public.${f}', 'EXECUTE') AS an, has_function_privilege('public', 'public.${f}', 'EXECUTE') AS p`);
+        expect(a, f).toEqual({ au: false, an: false, p: false });
+      }
+    });
+  });
+
+  it("revisão T6 #1 (Important #1): isolamento cross-tenant nas 2 fases e na limpeza — outra loja nunca é alcançada", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      // produto de OUTRA loja, escolhido em TEMPO DE EXECUÇÃO (sem UUID fixo) — dentro da txn revertida do teste.
+      const outro = await um<{ id: string; tenant_id: string }>(c,
+        `SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T]);
+      expect(outro.tenant_id).not.toBe(T);
+      const assinaturaFalsa = "assinatura-de-teste-outra-loja";
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, assinatura)
+         VALUES ($1, $2, 'integravel', ARRAY['nome']::text[], $3)`,
+        [outro.tenant_id, outro.id, assinaturaFalsa],
+      );
+      const k = await chave(c);
+      // (a) ler nunca lista o produto de outra loja, com ou sem incluir_integrados
+      const semIncluir = await ler(c, k.chave);
+      expect(semIncluir.produtos.find((x: any) => x.modelo_id === outro.id)).toBeUndefined();
+      const comIncluir = await ler(c, k.chave, { incluir: true });
+      expect(comIncluir.produtos.find((x: any) => x.modelo_id === outro.id)).toBeUndefined();
+      // (b) confirmar com o modelo_id + assinatura da outra loja não marca nem devolve confirmado
+      const entrega = { produtos: [{ modelo_id: outro.id, assinatura: assinaturaFalsa }], fotos_descartadas: 0, fotos_ausentes: 0 };
+      const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [k.id, semIncluir.acesso_id, JSON.stringify(entrega)]);
+      expect(cf.r.confirmados.map((x: any) => x.modelo_id)).not.toContain(outro.id);
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [outro.id])).e).toBe("integravel");
+      // (c) _integracao_limpar: linha antiga de outra loja (NÃO entregou) + linha NULL-tenant — cada chamada só apaga a sua
+      await c.query(
+        `INSERT INTO public.integracao_acessos (tenant_id, ip, status, criado_em, produtos_entregues)
+         VALUES ($1, 'y', 'ok', now() - interval '100 days', 0), (NULL, 'z', 'chave_invalida', now() - interval '100 days', 0)`,
+        [outro.tenant_id],
+      );
+      const nT = (await um<{ n: number }>(c, `SELECT public._integracao_limpar($1) AS n`, [T])).n;
+      expect(nT).toBe(0); // nada da loja T pra limpar aqui
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id = $1 AND ip = 'y'`, [outro.tenant_id])).n).toBe("1");
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id IS NULL AND ip = 'z'`)).n).toBe("1");
+      const nNull = (await um<{ n: number }>(c, `SELECT public._integracao_limpar(NULL) AS n`)).n;
+      expect(nNull).toBeGreaterThanOrEqual(1);
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id IS NULL AND ip = 'z'`)).n).toBe("0");
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id = $1 AND ip = 'y'`, [outro.tenant_id])).n).toBe("1");
+      const nOutro = (await um<{ n: number }>(c, `SELECT public._integracao_limpar($1) AS n`, [outro.tenant_id])).n;
+      expect(nOutro).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_acessos WHERE tenant_id = $1 AND ip = 'y'`, [outro.tenant_id])).n).toBe("0");
+    });
+  });
+
+  it("revisão T6 #2 (Important #2): _integracao_limpar usa 2 ramos ESTÁTICOS indexáveis (tenant_id = _tenant OU tenant_id IS NULL)", async () => {
+    // O harness roda 1 conexão com dados mínimos por teste — um EXPLAIN aqui não é confiável (o planner escolhe Seq
+    // Scan de qualquer jeito numa tabela quase vazia, independente de índice existir). Em vez disso confere a FORMA do
+    // SQL instalado: nenhum "IS NOT DISTINCT FROM" (não-indexável) e os 2 ramos estáticos usando o índice existente.
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      const def = await DEF(c, "_integracao_limpar(uuid)");
+      expect(def).not.toMatch(/IS NOT DISTINCT FROM/);
+      expect(def).toMatch(/IF _tenant IS NULL THEN/);
+      expect(def).toMatch(/a\.tenant_id IS NULL AND/);
+      expect(def).toMatch(/a\.tenant_id = _tenant AND/);
+    });
+  });
+
+  it("revisão T6 #3 (Minor #3): produto entregue nunca vem com linhas vazias (página numa única foto)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      for (let i = 0; i < 3; i++) await marcar(c, (await modeloInterno(c)).id);
+      const k = await chave(c);
+      const r = await ler(c, k.chave, { limite: 50 });
+      expect(r.produtos.length).toBeGreaterThan(0);
+      for (const p of r.produtos) expect(p.linhas.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("revisão T6 #4 (Minor #4): confirmar recusa retry (acesso já 'ok') e acesso em modo teste; não reescreve nada", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await marcar(c, m.id);
+      const k = await chave(c);
+      const r = await ler(c, k.chave);
+      const cf1 = await confirmar(c, r);
+      expect(cf1.status).toBe("ok");
+      const antes = await um<{ n: number; d: any }>(c,
+        `SELECT produtos_entregues AS n, detalhe AS d FROM public.integracao_acessos WHERE id = $1`, [r.acesso_id]);
+      // retry do MESMO acesso (já 'ok') — não deve reescrever produtos_entregues/detalhe nem re-confirmar
+      const cf2 = await confirmar(c, r);
+      expect(cf2.status).toBe("parametro_invalido");
+      const depois = await um<{ n: number; d: any }>(c,
+        `SELECT produtos_entregues AS n, detalhe AS d FROM public.integracao_acessos WHERE id = $1`, [r.acesso_id]);
+      expect(depois).toEqual(antes);
+      // acesso em modo TESTE nunca confirma (nunca vira 'ok' por essa via)
+      const t = await ler(c, k.chave, { modo: "teste" });
+      const cfTeste = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [t.chave_id, t.acesso_id, JSON.stringify({ produtos: [], fotos_descartadas: 0, fotos_ausentes: 0 })]);
+      expect(cfTeste.r.status).toBe("parametro_invalido");
+      expect((await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [t.acesso_id])).s).toBe("teste");
+    });
+  });
+
+  it("revisão T6 #7 (Minor #7): modo teste conta DIRETO no limite por chave até estourar limite_excedido", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await c.query(`UPDATE public.integracao_config SET limite_por_minuto = 2 WHERE tenant_id = $1`, [T]);
+      const k = await chave(c);
+      expect((await ler(c, k.chave, { modo: "teste" })).status).toBe("ok");
+      expect((await ler(c, k.chave, { modo: "teste" })).status).toBe("ok");
+      const x = await ler(c, k.chave, { modo: "teste" });
+      expect(x.status).toBe("limite_excedido");
+      expect(x.retry_after).toBeGreaterThan(0);
+    });
+  });
+
+  it("revisão T6 #7 (Minor #7): assinatura mudou entre ler e confirmar (não só via voltar) ⇒ não marca", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 6);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await marcar(c, m.id);
+      const k = await chave(c);
+      const r = await ler(c, k.chave);
+      const entregaErrada = {
+        produtos: r.produtos.map((p: any) => ({ modelo_id: p.modelo_id, assinatura: `${p.assinatura}-adulterada` })),
+        fotos_descartadas: 0, fotos_ausentes: 0,
+      };
+      const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [r.chave_id, r.acesso_id, JSON.stringify(entregaErrada)]);
+      expect(cf.r.confirmados.map((x: any) => x.modelo_id)).not.toContain(m.id);
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [m.id])).e).toBe("integravel");
     });
   });
 
