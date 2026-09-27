@@ -296,6 +296,30 @@ BEGIN
     END IF;
   END IF;
 
+  -- ruling do controlador, revisão T5 #2 (Important #1 parte 2, plan-mandated): mesmo padrão da falta de nome
+  -- acima, agora para REF — 'ref_sku' marcado e a REF do card diferente da REF do espelho vira falta ANTES do
+  -- marcar (o usuário vê e resolve igualando as REFs, em vez de a mão dupla da migration 5 sobrescrever uma REF
+  -- em silêncio). Comparação EXATA (nullif dos dois lados, sem btrim) — mesmo estilo da falta de nome. A
+  -- reconciliação ÚNICA dos 34 pares já divergentes na cópia (achado da revisão) fica PENDENTE de decisão do
+  -- dono — nenhum backfill é feito aqui, só o check daqui pra frente.
+  IF 'ref_sku' = ANY(v_campos) THEN
+    IF m.origem = 'revenda' THEN
+      IF EXISTS (SELECT 1 FROM public.produtos_acabados pa
+                  WHERE pa.modelo_id = m.id
+                    AND nullif(pa.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')) THEN
+        v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'ref_sku',
+          'texto', 'REF diferente do Produto Acabado'));
+      END IF;
+    ELSIF m.origem = 'importado' THEN
+      IF EXISTS (SELECT 1 FROM public.produtos_importados pi
+                  WHERE pi.modelo_id = m.id
+                    AND nullif(pi.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')) THEN
+        v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'ref_sku',
+          'texto', 'REF diferente do Produto Importado'));
+      END IF;
+    END IF;
+  END IF;
+
   RETURN jsonb_build_object(
     'retrato', jsonb_build_object('v', 1, 'campos', to_jsonb(v_campos),
       'linhas', jsonb_build_array(jsonb_build_object('tipo', 'produto', 'ordem', 0, 'valores', v_prod,

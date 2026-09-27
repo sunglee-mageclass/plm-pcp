@@ -41,17 +41,36 @@ CREATE OR REPLACE FUNCTION public.fn_modelo_espelho_nome_ref()
 AS $function$
 DECLARE
   v_ref text := nullif(btrim(coalesce(NEW.ref::text, '')), '');
+  v_ref_mudou boolean := OLD.ref IS DISTINCT FROM NEW.ref;
 BEGIN
+  -- ruling do controlador, revisão T5 #1 (Important #1 parte 1): a REF só é copiada quando ELA MESMA mudou
+  -- (OLD.ref IS DISTINCT FROM NEW.ref no lado que está sendo GRAVADO — aqui, modelos) — nunca "de carona" numa
+  -- edição só de nome. Sem isso, renomear só o card sobrescrevia a REF do espelho em silêncio (e vice-versa na
+  -- outra função), e um produto travado com ref_sku marcado mas nome não marcado ficava sem conseguir renomear
+  -- (a trava recusava a mudança de REF que o gatilho tentava fazer de carona). Nome continua sempre.
+  -- ruling do controlador, revisão T5 #3 (Important #2): AND <tabela>.tenant_id = NEW.tenant_id em TODAS as 3
+  -- UPDATEs de sincronização — sem isso, produtos_importados (que, ao contrário de produtos_acabados, NÃO tem
+  -- um trg_pi_modelo_tenant equivalente ao trg_pa_modelo_tenant) deixava um usuário da loja A vincular seu
+  -- importado a um card da loja B (via modelo_id) e o gatilho escrevia nome/REF na linha de OUTRA loja.
+  -- ruling do controlador, revisão T5 #5 (Minor #5): produtos_acabados/produtos_importados.nome é varchar(200)
+  -- (modelos.nome é varchar(255)) — um nome de 201-255 chars gravado no card daria 22001 sem tradução ao tentar
+  -- sincronizar. Recusa cedo com mensagem PT clara (P0001), ANTES do UPDATE.
+  IF length(NEW.nome) > 200 THEN
+    RAISE EXCEPTION 'Nome muito longo para o Produto % (máx. 200 caracteres).',
+      CASE NEW.origem WHEN 'revenda' THEN 'Acabado' ELSE 'Importado' END USING ERRCODE = 'P0001';
+  END IF;
   IF NEW.origem = 'revenda' THEN
     UPDATE public.produtos_acabados pa
-       SET nome = NEW.nome, ref = coalesce(v_ref, pa.ref)
+       SET nome = NEW.nome, ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pa.ref) ELSE pa.ref END
      WHERE pa.modelo_id = NEW.id
-       AND (pa.nome IS DISTINCT FROM NEW.nome OR (v_ref IS NOT NULL AND pa.ref IS DISTINCT FROM v_ref));
+       AND pa.tenant_id = NEW.tenant_id
+       AND (pa.nome IS DISTINCT FROM NEW.nome OR (v_ref_mudou AND v_ref IS NOT NULL AND pa.ref IS DISTINCT FROM v_ref));
   ELSIF NEW.origem = 'importado' THEN
     UPDATE public.produtos_importados pi
-       SET nome = NEW.nome, ref = coalesce(v_ref, pi.ref)
+       SET nome = NEW.nome, ref = CASE WHEN v_ref_mudou THEN coalesce(v_ref, pi.ref) ELSE pi.ref END
      WHERE pi.modelo_id = NEW.id
-       AND (pi.nome IS DISTINCT FROM NEW.nome OR (v_ref IS NOT NULL AND pi.ref IS DISTINCT FROM v_ref));
+       AND pi.tenant_id = NEW.tenant_id
+       AND (pi.nome IS DISTINCT FROM NEW.nome OR (v_ref_mudou AND v_ref IS NOT NULL AND pi.ref IS DISTINCT FROM v_ref));
   END IF;
   RETURN NULL;
 END
@@ -65,18 +84,24 @@ CREATE OR REPLACE FUNCTION public.fn_espelho_modelo_nome_ref()
 AS $function$
 DECLARE
   v_ref text := nullif(btrim(coalesce(NEW.ref, '')), '');
+  v_ref_mudou boolean := OLD.ref IS DISTINCT FROM NEW.ref;
 BEGIN
   IF NEW.modelo_id IS NULL THEN
     RETURN NULL;
   END IF;
   -- R2 (G-plano do plano): a REF do espelho só chega ao card enquanto o card deixaria mudar a REF (a régua do refEditavel:
   -- ANTES do envio à Explosão); depois disso não propaga (os SKUs guardam a REF do card). O nome vale sempre.
+  -- ruling do controlador, revisão T5 #1 (Important #1 parte 1, espelhado aqui): idem — só copia a REF quando
+  -- ELA MESMA mudou no produto espelho (v_ref_mudou), nunca de carona numa edição só de nome.
+  -- ruling do controlador, revisão T5 #3 (Important #2, espelhado aqui): AND m.tenant_id = NEW.tenant_id — mesmo
+  -- fix de isolamento por loja, agora no sentido produto->card.
   UPDATE public.modelos m
      SET nome = NEW.nome,
-         ref = CASE WHEN v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) THEN v_ref ELSE m.ref END
+         ref = CASE WHEN v_ref_mudou AND v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) THEN v_ref ELSE m.ref END
    WHERE m.id = NEW.modelo_id
+     AND m.tenant_id = NEW.tenant_id
      AND (m.nome IS DISTINCT FROM NEW.nome
-          OR (v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) AND m.ref::text IS DISTINCT FROM v_ref));
+          OR (v_ref_mudou AND v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) AND m.ref::text IS DISTINCT FROM v_ref));
   RETURN NULL;
 END
 $function$;
@@ -319,19 +344,31 @@ BEGIN
   IF jsonb_typeof(v_itens) <> 'array' OR jsonb_array_length(v_itens) > 50 THEN
     RAISE EXCEPTION 'Envie no máximo 50 produtos por vez.' USING ERRCODE = 'P0001';
   END IF;
+  -- ruling do controlador, revisão T5 #6 (Minor #6, mesmo padrão de integracao_marcar/revisão T3 Minor #3):
+  -- modelo_id duplicado no payload tornaria o DISTINCT ON abaixo não-determinístico (2 conjuntos de campos
+  -- diferentes pro mesmo produto — qual vale, e com qual rev checar?); recusa cedo, ANTES de qualquer lock.
+  IF jsonb_array_length(v_itens) > 0 AND (SELECT count(*) FROM jsonb_array_elements(v_itens) AS e(x)) <>
+     (SELECT count(DISTINCT e.x ->> 'modelo_id') FROM jsonb_array_elements(v_itens) AS e(x)) THEN
+    RAISE EXCEPTION 'Produto repetido na lista — envie cada produto uma vez só.' USING ERRCODE = 'P0001';
+  END IF;
   FOR r IN
     SELECT DISTINCT ON ((e.x ->> 'modelo_id')::uuid) (e.x ->> 'modelo_id')::uuid AS modelo_id,
            (e.x ->> 'rev')::integer AS rev_base, coalesce(e.x -> 'campos', '{}'::jsonb) AS campos
       FROM jsonb_array_elements(v_itens) AS e(x)
      ORDER BY (e.x ->> 'modelo_id')::uuid
   LOOP
-    SELECT * INTO m FROM public.modelos x WHERE x.id = r.modelo_id AND x.tenant_id = v_tenant FOR UPDATE;
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'Produto não encontrado nesta loja.' USING ERRCODE = 'P0001';
-    END IF;
     v_c := r.campos;
     IF jsonb_typeof(v_c) <> 'object' OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_c) AS k(k) WHERE k.k <> ALL(v_chaves_ok)) THEN
       RAISE EXCEPTION 'Campo desconhecido na gravação da Integração.' USING ERRCODE = 'P0001';
+    END IF;
+    -- ruling do controlador, revisão T5 #6 (Minor #6): item sem campo nenhum (campos: {}) é PULADO por inteiro —
+    -- sem lock, sem checagem de rev, sem UPDATE, sem bump de rev, sem log — não é um "editar" de fato.
+    IF NOT EXISTS (SELECT 1 FROM jsonb_object_keys(v_c)) THEN
+      CONTINUE;
+    END IF;
+    SELECT * INTO m FROM public.modelos x WHERE x.id = r.modelo_id AND x.tenant_id = v_tenant FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Produto não encontrado nesta loja.' USING ERRCODE = 'P0001';
     END IF;
     IF m.rev IS DISTINCT FROM r.rev_base THEN
       RAISE EXCEPTION 'conflito_versao: o produto foi salvo por outra pessoa' USING ERRCODE = 'P0409';
@@ -354,6 +391,14 @@ BEGIN
     END IF;
     IF v_c ? 'ref' AND nullif(btrim(coalesce(v_c ->> 'ref', '')), '') IS NULL THEN
       RAISE EXCEPTION 'A REF não pode ficar vazia.' USING ERRCODE = 'P0001';
+    END IF;
+    -- ruling do controlador, revisão T5 #5 (Minor #5): recusa cedo, ANTES do UPDATE em modelos, um nome de comprado
+    -- que a sincronização (fn_modelo_espelho_nome_ref) rejeitaria de qualquer forma no espelho (varchar(200)) —
+    -- mensagem clara aqui em vez de deixar o gatilho estourar depois do UPDATE já ter mexido no card.
+    IF v_c ? 'nome' AND coalesce(m.origem, 'interno') IN ('revenda', 'importado')
+       AND length(btrim(v_c ->> 'nome')) > 200 THEN
+      RAISE EXCEPTION 'Nome muito longo para o Produto % (máx. 200 caracteres).',
+        CASE m.origem WHEN 'revenda' THEN 'Acabado' ELSE 'Importado' END USING ERRCODE = 'P0001';
     END IF;
     IF EXISTS (SELECT 1 FROM jsonb_each(v_c) AS e(key, value) WHERE e.key = ANY(v_num)
                 AND NOT CASE WHEN jsonb_typeof(e.value) = 'null' THEN true

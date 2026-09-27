@@ -188,6 +188,187 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
+  it("revisão T5 #1 (Important #1): REF só copia quando ELA MESMA muda — nome-only não mexe na REF; produto travado com ref_sku (sem nome) ainda renomeia", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await revenda(c);
+      // REFs DIVERGENTES de propósito (como os 34 pares reais achados na cópia — dados PRÉ-EXISTENTES
+      // à migration 5, então nunca passaram pelos gatilhos novos). Desliga os 2 gatilhos SÓ para montar
+      // esse estado inicial (senão a própria sincronização, já correta, convergeria as REFs na hora).
+      await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      await c.query(`UPDATE public.produtos_acabados SET ref = 'PADIVERGENTE' WHERE id = $1`, [m.produtoId]);
+      await c.query(`UPDATE public.modelos SET ref = 'CARDDIVERGE' WHERE id = $1`, [m.id]);
+      await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      // rename SÓ NOME pelo card: a REF de NENHUM dos 2 lados muda.
+      await salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { nome: "Bolsa Renomeada" } }]);
+      expect(await um(c, `SELECT nome, ref FROM public.modelos WHERE id = $1`, [m.id]))
+        .toEqual({ nome: "Bolsa Renomeada", ref: "CARDDIVERGE" });
+      expect(await um(c, `SELECT nome, ref FROM public.produtos_acabados WHERE id = $1`, [m.produtoId]))
+        .toEqual({ nome: "Bolsa Renomeada", ref: "PADIVERGENTE" });
+      // rename SÓ NOME pelo PA: idem, a REF de nenhum dos 2 lados muda.
+      await c.query(`UPDATE public.produtos_acabados SET nome = 'Bolsa da tela PA' WHERE id = $1`, [m.produtoId]);
+      expect(await um(c, `SELECT nome, ref FROM public.modelos WHERE id = $1`, [m.id]))
+        .toEqual({ nome: "Bolsa da tela PA", ref: "CARDDIVERGE" });
+      expect(await um(c, `SELECT nome, ref FROM public.produtos_acabados WHERE id = $1`, [m.produtoId]))
+        .toEqual({ nome: "Bolsa da tela PA", ref: "PADIVERGENTE" });
+      // AGORA uma mudança REAL de REF pelo card propaga (REFs ainda divergentes, mas dessa vez ELA mudou).
+      await c.query(`UPDATE public.modelos SET ref = 'CARDNOVAREF' WHERE id = $1`, [m.id]);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).r).toBe("CARDNOVAREF");
+      // produto TRAVADO (integrável) com ref_sku marcado mas nome NÃO marcado: um rename SÓ do nome não deve
+      // mais recusar com integracao_travado: ref_sku (a REF não é mais tocada de carona pelo gatilho).
+      const m2 = await revenda(c);
+      await c.query(`UPDATE public.modelos SET ref = 'CARD2REF' WHERE id = $1`, [m2.id]);
+      const refM2 = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m2.id])).r;
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, retrato, assinatura, marcado_em)
+         VALUES ($1, $2, 'integravel', ARRAY['ref_sku']::text[], jsonb_build_object('linhas', '[]'::jsonb), 'x', now())`,
+        [T, m2.id],
+      );
+      // rename só do nome, direto na tabela do espelho (como o Sheet/ProdutoAcabadoSheet faria) — não deve estourar.
+      await c.query(`UPDATE public.produtos_acabados SET nome = 'Nome Renomeado Sem Tocar REF' WHERE id = $1`, [m2.produtoId]);
+      expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m2.id])).n).toBe("Nome Renomeado Sem Tocar REF");
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m2.id])).r).toBe(refM2);
+    });
+  });
+
+  it("revisão T5 #2 (Important #1 parte 2): retrato ganha falta 'REF diferente do Produto Acabado/Importado' quando ref_sku marcado e REFs divergem", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await revenda(c);
+      // REFs divergentes de propósito — desliga os gatilhos da mão dupla SÓ para montar esse estado
+      // (pré-existente à migration 5 nos 34 pares reais da cópia; sem isso a sincronização convergiria na hora).
+      await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      await c.query(`UPDATE public.produtos_acabados SET ref = 'PADIFERENTE' WHERE id = $1`, [m.produtoId]);
+      await c.query(`UPDATE public.modelos SET ref = 'CARDDIFERENTE' WHERE id = $1`, [m.id]);
+      await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      const r1 = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r;
+      const faltasRef1 = r1.produtos[0].faltas.filter((f: any) => f.campo === "ref_sku");
+      expect(faltasRef1.some((f: any) => f.texto === "REF diferente do Produto Acabado")).toBe(true);
+      // igualando as REFs (mudança REAL de REF pelo PA, propaga e converge — a falta some).
+      await c.query(`UPDATE public.produtos_acabados SET ref = 'CARDDIFERENTE' WHERE id = $1`, [m.produtoId]);
+      const r2 = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r;
+      expect(r2.produtos[0].faltas.some((f: any) => f.campo === "ref_sku" && f.texto?.startsWith("REF diferente"))).toBe(false);
+      // importado: mesma falta, texto próprio.
+      const mi = await importado(c);
+      await c.query(`ALTER TABLE public.produtos_importados DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      await c.query(`UPDATE public.produtos_importados SET ref = 'PIDIFERENTE' WHERE id = $1`, [mi.produtoId]);
+      await c.query(`UPDATE public.modelos SET ref = 'CARDDIFIMP' WHERE id = $1`, [mi.id]);
+      await c.query(`ALTER TABLE public.produtos_importados ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      const r3 = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [mi.id])).r;
+      expect(r3.produtos[0].faltas.some((f: any) => f.campo === "ref_sku" && f.texto === "REF diferente do Produto Importado")).toBe(true);
+    });
+  });
+
+  it("revisão T5 #3 (Important #2): tenant isolation — importado de outra loja vinculado a card de outra loja não escreve cross-tenant", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await importado(c);
+      // Card JÁ existente de OUTRA loja (Ave Rara) na cópia — RLS de produtos_importados não valida modelo_id
+      // (só tenant_id da PRÓPRIA linha), então um usuário da Loja Teste consegue apontar seu importado pra lá.
+      const cardDeOutraLoja = "2ddfb3cf-8fb3-46ab-9ad7-e7319017a770"; // Ave Rara, VESTIDO CLARA
+      const nomeAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).n;
+      const refAntes = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).r;
+      await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [cardDeOutraLoja, m.produtoId]);
+      await c.query(`UPDATE public.produtos_importados SET nome = 'Nome Vazado', ref = 'REFVAZADA' WHERE id = $1`, [m.produtoId]);
+      // nada foi escrito no card da OUTRA loja.
+      expect(await um(c, `SELECT nome, ref FROM public.modelos WHERE id = $1`, [cardDeOutraLoja]))
+        .toEqual({ nome: nomeAntes, ref: refAntes });
+      // religa o importado ao MEU card (desfaz o vínculo cross-tenant) e confirma que a sincronização segue
+      // funcionando NORMALMENTE dentro da mesma loja (o fix de isolamento não quebrou o caminho são).
+      await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [m.id, m.produtoId]);
+      await c.query(`UPDATE public.modelos SET nome = 'Nome dentro da loja' WHERE id = $1`, [m.id]);
+      expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_importados WHERE id = $1`, [m.produtoId])).n).toBe("Nome dentro da loja");
+    });
+  });
+
+  it("revisão T5 #4 (Important #3, carry-forward ruling #1): rename por integracao_salvar (revenda E importado) fica byte-igual nos 2 lados; save antigo do PA dá P0409; save novo mantém", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      // revenda
+      const m = await revenda(c);
+      const revPaAntes = (await um<{ r: number }>(c, `SELECT rev AS r FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).r;
+      await salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { nome: "Bolsa Renomeada Pela Integracao" } }]);
+      expect(await um(c, `SELECT nome FROM public.modelos WHERE id = $1`, [m.id])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      expect(await um(c, `SELECT nome FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      const r1 = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r;
+      expect(r1.produtos[0].faltas.some((f: any) => f.campo === "nome")).toBe(false);
+      // o gatilho da mão dupla BUMPOU produtos_acabados.rev — um save do PA ainda segurando o rev de ANTES do
+      // rename (o "old name" que a tela PA ainda tinha carregado) dá P0409, NUNCA reescreve o nome antigo.
+      const vars = JSON.stringify([{ ordem: 1, cor_id: m.corId, cor_apelido_id: m.apelidoId, peso: 1, qtd: 5 }]);
+      const dadosVelhos = JSON.stringify({ nome: "Bolsa Areia velha", qtd_total: 5 });
+      const velho = await erro(c, () => c.query(`SELECT public.salvar_produto_acabado($1, $2::jsonb, $3::jsonb, $4)`,
+        [m.produtoId, dadosVelhos, vars, revPaAntes]));
+      expect(velho.code).toBe("P0409");
+      expect(await um(c, `SELECT nome FROM public.modelos WHERE id = $1`, [m.id])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      expect(await um(c, `SELECT nome FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      // um save do PA com o rev ATUAL e o MESMO nome novo mantém tudo igual dos 2 lados.
+      const revAtual = (await um<{ r: number }>(c, `SELECT rev AS r FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).r;
+      const dadosAtuais = JSON.stringify({ nome: "Bolsa Renomeada Pela Integracao", qtd_total: 5 });
+      await c.query(`SELECT public.salvar_produto_acabado($1, $2::jsonb, $3::jsonb, $4)`, [m.produtoId, dadosAtuais, vars, revAtual]);
+      expect(await um(c, `SELECT nome FROM public.modelos WHERE id = $1`, [m.id])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      expect(await um(c, `SELECT nome FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).toEqual({ nome: "Bolsa Renomeada Pela Integracao" });
+      // importado: mesma prova de byte-igualdade via integracao_salvar (faltava no teste original).
+      const mi = await importado(c);
+      await salvar(c, [{ modelo_id: mi.id, rev: await rev(c, mi.id), campos: { nome: "Macacao Renomeado Pela Integracao" } }]);
+      expect(await um(c, `SELECT nome FROM public.modelos WHERE id = $1`, [mi.id])).toEqual({ nome: "Macacao Renomeado Pela Integracao" });
+      expect(await um(c, `SELECT nome FROM public.produtos_importados WHERE id = $1`, [mi.produtoId])).toEqual({ nome: "Macacao Renomeado Pela Integracao" });
+    });
+  });
+
+  it("revisão T5 #5 (Minor #5): nome de comprado maior que 200 chars recusa com P0001 claro (integracao_salvar e via trigger)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const nomeGigante = "A".repeat(201);
+      const m = await revenda(c);
+      const r0 = await rev(c, m.id);
+      const e2 = await erro(c, async () => salvar(c, [{ modelo_id: m.id, rev: r0, campos: { nome: nomeGigante } }]));
+      expect(e2).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." });
+      expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m.id])).n).not.toBe(nomeGigante);
+      // via trigger direto (ex.: Sheet gravando modelos.nome sem passar por integracao_salvar) — a sincronização
+      // recusa com a mesma mensagem clara em vez de deixar o 22001 cru estourar.
+      const eTrig = await erro(c, () => c.query(`UPDATE public.modelos SET nome = $1 WHERE id = $2`, [nomeGigante, m.id]));
+      expect(eTrig).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." });
+      // importado: mesma mensagem, produto certo.
+      const mi = await importado(c);
+      const eImp = await erro(c, () => c.query(`UPDATE public.modelos SET nome = $1 WHERE id = $2`, [nomeGigante, mi.id]));
+      expect(eImp).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Importado (máx. 200 caracteres)." });
+    });
+  });
+
+  it("revisão T5 #6 (Minor #6): modelo_id duplicado recusa com P0001; item sem campos é pulado (sem rev bump, sem log)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await modeloInterno(c);
+      const r0 = await rev(c, m.id);
+      const dup = await erro(c, () => salvar(c, [
+        { modelo_id: m.id, rev: r0, campos: { ncm: "1111.11.11" } },
+        { modelo_id: m.id, rev: r0, campos: { ncm: "2222.22.22" } },
+      ]));
+      expect(dup).toEqual({ code: "P0001", message: "Produto repetido na lista — envie cada produto uma vez só." });
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("6109.10.00");
+      // item sem campo nenhum: nada muda, rev NÃO bumpa, nenhum log 'editar' novo é criado.
+      const logsAntes = (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_log WHERE modelo_id = $1 AND acao = 'editar'`, [m.id])).n;
+      const out = await salvar(c, [{ modelo_id: m.id, rev: r0, campos: {} }]);
+      expect(out.salvos).toBe(0);
+      expect(out.revs).toEqual({});
+      expect(await rev(c, m.id)).toBe(r0);
+      const logsDepois = (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_log WHERE modelo_id = $1 AND acao = 'editar'`, [m.id])).n;
+      expect(logsDepois).toBe(logsAntes);
+    });
+  });
+
   it.skipIf(!MIG_TXN)("_salvar_produto_importado_core: depois = antes + SÓ o TRECHO_IMP_FIXO", async () => {
     await withTx(async (c) => {
       await prepara(c, 4);
