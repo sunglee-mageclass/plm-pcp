@@ -112,6 +112,12 @@ export const TEXTO_CAMPOS_REGRA =
 export const TEXTO_TRAVA_SEMPRE = 'Travam sempre, marcados ou não: SKUs, cores e tamanhos das sublinhas e o "Tamanho em".';
 export const TEXTO_CONFIRMAR_CAMPOS =
   "Esta mudança vale para as próximas integrações. Produtos já integrados mantêm o retrato gravado no momento da integração deles.";
+// Fix round 1 T14 (revisão T14 #2, task-14-review.md Important I1): banner do P0409 — as suas mudanças (a
+// seleção rebaseada) já estão aplicadas por cima da versão nova do servidor; "usar a da loja" descarta e "manter
+// a minha" só fecha o aviso (o rascunho rebaseado já é o que está na tela).
+export const TEXTO_CAMPOS_CONFLITO =
+  "Outra pessoa mudou os campos da API — as suas mudanças foram mantidas por cima da versão nova.";
+export const TEXTO_CAMPOS_VAZIO = "Marque pelo menos um campo para salvar.";
 export function alternarCampo(sel: readonly string[], key: CampoKey, marcar: boolean): CampoKey[] {
   const s = new Set(sel);
   if (marcar) s.add(key);
