@@ -43,13 +43,15 @@ describe("integracao — formato de TODOS os arquivos .sql já escritos (estáti
 });
 
 describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn revertida)", () => {
-  it("7 tabelas: RLS ligada, 0 policy, sem SELECT p/ anon/authenticated", async () => {
+  it("7 tabelas: RLS ligada, 0 policy, sem privilegio nenhum p/ anon/authenticated", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
       for (const t of TABELAS) {
+        // ruling do controlador, revisão T1 #1 (Minor #3): confere TODOS os privilegios de linha/DML, não só SELECT.
         const r = await um<{ rls: boolean; pol: string; sa: boolean; sn: boolean }>(c,
           `SELECT k.relrowsecurity AS rls, (SELECT count(*) FROM pg_policy p WHERE p.polrelid = k.oid) AS pol,
-                  has_table_privilege('authenticated', k.oid, 'SELECT') AS sa, has_table_privilege('anon', k.oid, 'SELECT') AS sn
+                  has_table_privilege('authenticated', k.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS sa,
+                  has_table_privilege('anon', k.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS sn
              FROM pg_class k WHERE k.oid = ('public.' || $1)::regclass`, [t]);
         expect(r, t).toEqual({ rls: true, pol: "0", sa: false, sn: false });
       }
@@ -76,8 +78,19 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
                 c.campos, c.limite_por_minuto AS lim, c.max_por_pagina AS pag, c.validade_foto_dias AS foto, c.bloqueio_tentativas AS blq, c.rev
            FROM public.integracao_config c WHERE c.tenant_id = $1`, [T]);
       expect(r).toEqual({ faltam: "0", campos: [...CAMPOS_PADRAO], lim: 60, pag: 50, foto: 7, blq: 10, rev: 1 });
+      await c.query("SAVEPOINT a");
       await expect(c.query(`UPDATE public.integracao_config SET limite_por_minuto = 601 WHERE tenant_id = $1`, [T]))
         .rejects.toThrow(/integracao_config_limite_chk/);
+      await c.query("ROLLBACK TO SAVEPOINT a");
+      // ruling do controlador, revisão T1 #1 (Minor #4): exercita a FAIXA 1-500 do max_por_pagina (P-89 A), não só o default.
+      await c.query("SAVEPOINT b");
+      await expect(c.query(`UPDATE public.integracao_config SET max_por_pagina = 501 WHERE tenant_id = $1`, [T]))
+        .rejects.toThrow(/integracao_config_pagina_chk/);
+      await c.query("ROLLBACK TO SAVEPOINT b");
+      await c.query("SAVEPOINT c");
+      await expect(c.query(`UPDATE public.integracao_config SET max_por_pagina = 0 WHERE tenant_id = $1`, [T]))
+        .rejects.toThrow(/integracao_config_pagina_chk/);
+      await c.query("ROLLBACK TO SAVEPOINT c");
     });
   });
 
@@ -97,7 +110,9 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
   it("integracao_produtos é 1:1 com modelos por TRIGGER (não UNIQUE) + índice plano", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
-      const m = (await um<{ id: string }>(c, `SELECT id FROM public.modelos WHERE tenant_id = $1 LIMIT 1`, [T])).id;
+      // ruling do controlador, revisão T1 #1 (Minor #6): não depende de dado pré-existente na cópia — cria o próprio modelo.
+      const m = (await um<{ id: string }>(c,
+        `INSERT INTO public.modelos (tenant_id, nome) VALUES ($1, 'Modelo teste 1:1') RETURNING id`, [T])).id;
       await c.query(`INSERT INTO public.integracao_produtos (tenant_id, modelo_id) VALUES ($1, $2)`, [T, m]);
       await c.query("SAVEPOINT a");
       await expect(c.query(`INSERT INTO public.integracao_produtos (tenant_id, modelo_id) VALUES ($1, $2)`, [T, m]))
@@ -134,14 +149,51 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
     });
   });
 
-  it.skipIf(!MIG_TXN)("inverso 1 desfaz a 1 (tabelas e função somem; _seed volta ao md5 de antes)", async () => {
+  it.skipIf(!MIG_TXN)("inverso 1 desfaz a 1 (as 7 tabelas e a função somem; _seed volta ao md5 de antes)", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
       await aplica(c, INVERSOS[0]);
-      const r = await um<{ t: boolean; f: boolean; m: string }>(c,
-        `SELECT to_regclass('public.integracao_produtos') IS NULL AS t, to_regprocedure('public._integracao_layout()') IS NULL AS f,
+      // ruling do controlador, revisão T1 #1 (Minor #5): confere as 7 tabelas (não só integracao_produtos).
+      for (const t of TABELAS) {
+        const r = await um<{ ok: boolean }>(c, `SELECT to_regclass('public.' || $1) IS NULL AS ok`, [t]);
+        expect(r.ok, t).toBe(true);
+      }
+      const r = await um<{ f: boolean; m: string }>(c,
+        `SELECT to_regprocedure('public._integracao_layout()') IS NULL AS f,
                 md5(pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) AS m`);
-      expect(r).toEqual({ t: true, f: true, m: MD5_ANTES.seed });
+      expect(r).toEqual({ f: true, m: MD5_ANTES.seed });
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("inverso 1 recusa se _seed_tenant_defaults mudou por outra frente depois da migration 1", async () => {
+    // ruling do controlador, revisão T1 #1 (Important #1, aprovado): simula outra frente redefinindo
+    // _seed_tenant_defaults DEPOIS da migration 1 (corpo diferente, sem o TRECHO_SEED e sem bater com o "antes") —
+    // o inverso deve RECUSAR (RAISE P0001 ASCII) em vez de sobrescrever essa mudança em silêncio.
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await c.query(`
+        CREATE OR REPLACE FUNCTION public._seed_tenant_defaults(_tid uuid)
+         RETURNS void
+         LANGUAGE plpgsql
+         SECURITY DEFINER
+         SET search_path TO 'public'
+        AS $function$
+        BEGIN
+          -- [outra frente] corpo diferente, sem relação com o texto de antes nem com o TRECHO_SEED.
+          INSERT INTO public.tenant_config (tenant_id) VALUES (_tid) ON CONFLICT (tenant_id) DO NOTHING;
+        END;
+        $function$;
+      `);
+      await expect(aplica(c, INVERSOS[0])).rejects.toThrow(
+        /integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso/,
+      );
+      // ASCII-only, como toda mensagem desta frente (regra global).
+      const msg = await um<{ m: string }>(c,
+        `SELECT 'integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso' AS m`);
+      expect(/^[\x00-\x7F]*$/.test(msg.m)).toBe(true);
+      // as tabelas continuam existindo (a recusa aconteceu no $guarda$, antes de qualquer DROP).
+      const r = await um<{ ok: boolean }>(c, `SELECT to_regclass('public.integracao_produtos') IS NOT NULL AS ok`);
+      expect(r.ok).toBe(true);
     });
   });
 });

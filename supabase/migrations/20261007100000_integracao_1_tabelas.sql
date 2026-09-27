@@ -256,8 +256,11 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = ('public.' || t)::regclass) THEN
       RAISE EXCEPTION 'integracao_1: % tem policy', t USING ERRCODE = 'P0001';
     END IF;
-    IF has_table_privilege('authenticated', 'public.' || t, 'SELECT') OR has_table_privilege('anon', 'public.' || t, 'SELECT') THEN
-      RAISE EXCEPTION 'integracao_1: % legivel por anon/authenticated', t USING ERRCODE = 'P0001';
+    -- ruling do controlador, revisão T1 #1 (Minor #3): confere TODOS os privilegios de linha/DML, não só SELECT
+    -- (INSERT/UPDATE/DELETE/TRUNCATE concedidos a anon/authenticated passariam pelo check antigo sem serem pegos).
+    IF has_table_privilege('authenticated', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR has_table_privilege('anon', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+      RAISE EXCEPTION 'integracao_1: % legivel/gravavel por anon/authenticated', t USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
   IF position('[integracao v1]' IN pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) = 0 THEN

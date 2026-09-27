@@ -1,15 +1,30 @@
 -- Inverso de 20261007100000_integracao_1_tabelas.sql — MONTADO pela Task 1 (o bloco de _seed_tenant_defaults é o texto de
 -- ANTES, gerado por .superpowers/integracao/mig/dump_antes.sh a partir da cópia — nunca editar à mão). Rodar SÓ depois
 -- dos inversos 6..2 (guarda LIFO). APAGA as 7 tabelas da integração (config, chaves, acessos, log, espelho) e o que houver nelas.
+-- ruling do controlador, revisão T1 #1: o $guarda$ recusa se _seed_tenant_defaults mudou depois da migration 1 (aceita
+-- só o "antes" exato ou "antes"+TRECHO_SEED — nunca sobrescreve uma mudança de outra frente em silêncio).
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
 
 DO $guarda$
+DECLARE
+  v_def text;
 BEGIN
   IF to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)') IS NOT NULL THEN
     RAISE EXCEPTION 'integracao_1_down: volte a migration 2 antes (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
+  v_def := pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure);
+  IF md5(v_def) <> '01bd241680e24fdb665ca8ae81a6a1a3'
+     AND NOT (position('[integracao v1]' IN v_def) > 0
+              AND md5(replace(v_def, '
+  -- [integracao v1] Integração + API (set/2026): a config nasce com o padrão (campos do layout #1-#17 marcados, Foto
+  -- desmarcada — P-83 A). reset_loja e a criação de loja passam por aqui (N9/n6).
+  INSERT INTO public.integracao_config (tenant_id) VALUES (_tid)
+  ON CONFLICT (tenant_id) DO NOTHING;
+', '')) = '01bd241680e24fdb665ca8ae81a6a1a3') THEN
+    RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -78,12 +93,20 @@ $function$
 ;
 
 DO $pos$
+DECLARE
+  t text;
 BEGIN
   IF md5(pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) <> '01bd241680e24fdb665ca8ae81a6a1a3' THEN
     RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults nao voltou ao texto de antes' USING ERRCODE = 'P0001';
   END IF;
-  IF to_regclass('public.integracao_produtos') IS NOT NULL OR to_regprocedure('public._integracao_layout()') IS NOT NULL THEN
-    RAISE EXCEPTION 'integracao_1_down: objetos da migration 1 ainda existem' USING ERRCODE = 'P0001';
+  FOREACH t IN ARRAY ARRAY['integracao_config', 'integracao_segredo', 'integracao_produtos', 'integracao_linhas',
+                            'integracao_chaves', 'integracao_acessos', 'integracao_log'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      RAISE EXCEPTION 'integracao_1_down: tabela % ainda existe', t USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
+  IF to_regprocedure('public._integracao_layout()') IS NOT NULL THEN
+    RAISE EXCEPTION 'integracao_1_down: _integracao_layout ainda existe' USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;
