@@ -4,9 +4,12 @@ import {
   CAMPOS, CAMPOS_PADRAO, CAMPO_BY_KEY, CONFIG_API, LAYOUT_KEYS, TEXTO_ALERTA_INTEGRAR, TEXTO_ALERTA_PAGINA_PLANO_GRATUITO,
   alertaPaginaPlanoGratuito, infoCusto, ordenarCampos, rotuloDoCampoTravado, validarConfigApi,
 } from "@/lib/integracao/campos";
+import { modoCelula } from "@/lib/integracao/celula";
+import { lerLista } from "@/lib/integracao/produtos";
 
 const SQL1 = readFileSync("supabase/migrations/20261007100000_integracao_1_tabelas.sql", "utf8");
 const SQL2 = readFileSync("supabase/migrations/20261007110000_integracao_2_retrato.sql", "utf8");
+const SQL5 = readFileSync("supabase/migrations/20261007140000_integracao_5_salvar.sql", "utf8");
 
 describe("integracao/campos — catálogo × SQL (anti-drift)", () => {
   it("as 18 chaves na MESMA ordem do _integracao_layout() da migration 1", () => {
@@ -21,6 +24,21 @@ describe("integracao/campos — catálogo × SQL (anti-drift)", () => {
     const bloco = SQL2.slice(ini, SQL2.indexOf("$function$;", ini));
     const pares = Object.fromEntries([...bloco.matchAll(/'([a-z_]+)', '([^']+)'/g)].map((m) => [m[1], m[2]]));
     for (const c of CAMPOS) expect(pares[c.key], c.key).toBe(c.rotulo);
+  });
+  // G-migration fix 5, item L2: garante que CampoDef.gate (TS) e o CASE de integracao_salvar (SQL, migration 5)
+  // nunca driftem — cada CampoDef.coluna vira uma chave do CASE (v_k = jsonb_object_keys dos campos enviados no
+  // save); o gate lido por coluna tem de bater com o gate SQL decide pra essa mesma chave.
+  it("o gate por coluna = o CASE de integracao_salvar da migration 5 (nunca driftar)", () => {
+    const ini = SQL5.indexOf("v_gate := CASE v_k");
+    expect(ini).toBeGreaterThan(-1);
+    const bloco = SQL5.slice(ini, SQL5.indexOf("END;", ini) + "END;".length);
+    const whens = Object.fromEntries([...bloco.matchAll(/WHEN '([a-z_]+)' THEN '([a-z]+)'/g)].map((m) => [m[1], m[2]]));
+    const elseGate = bloco.match(/ELSE '([a-z]+)' END;/)![1];
+    for (const c of CAMPOS) {
+      if (!c.coluna || !c.gate) continue;
+      const esperado = whens[c.coluna] ?? elseGate;
+      expect(esperado, `${c.key} (coluna ${c.coluna})`).toBe(c.gate);
+    }
   });
 });
 
@@ -62,5 +80,32 @@ describe("integracao/campos — regras", () => {
   });
   it("texto do alerta do dono, verbatim", () => {
     expect(TEXTO_ALERTA_INTEGRAR).toBe("Você tem certeza? Se estiver errado, você poderá ser demitido");
+  });
+});
+
+// G-migration fix 5 (decisão do dono 27/set 15h4x): "Descrição" (= Metatag) só edita quem tem o Planejamento,
+// igual ao card — deixou de ser 'compartilhado' (Planejamento OU Desenvolvimento antes da Explosão).
+describe("integracao/campos — Descrição só edita com Planejamento (G-migration fix 5)", () => {
+  const g = (ok: boolean, motivo: string | null = null) => ({ ok, motivo });
+  const produto = (planOk: boolean) => lerLista({
+    campos: [], produtos: [{
+      modelo_id: "m1", origem: "interno", estado: "nao_integravel", rev: 1,
+      raw: { nome: "X", tamanho_tipo: "letra" },
+      // 'compartilhado' fica sempre ABERTO (simula Dev sem Planejamento, que ainda cobre 'compartilhado' por
+      // estar antes da Explosão) — se a célula ainda olhasse 'compartilhado' por engano, o teste passaria
+      // mesmo com o bug: por isso a diferença entre os dois casos está SÓ em 'planejamento'.
+      gates: { compartilhado: g(true), planejamento: g(planOk, planOk ? null : "Precisa da permissão de editar o Planejamento."),
+        preco: g(true), ref: g(true), sku: g(true), keywords: g(true) },
+    }],
+  }).produtos[0];
+  it("descricao/metatag: sem Planejamento (só Desenvolvimento) fica só leitura, mesmo com 'compartilhado' aberto", () => {
+    const p = produto(false);
+    expect(modoCelula(CAMPO_BY_KEY.get("descricao")!, p, false)).toEqual({ tipo: "leitura", motivo: "Precisa da permissão de editar o Planejamento.", travado: false });
+    // metatag é sempre leitura por ser espelho (P-80 A) — mas o MOTIVO (quando travado) tem de vir do MESMO gate.
+    expect(CAMPO_BY_KEY.get("metatag")!.gate).toBe("planejamento");
+  });
+  it("descricao: com Planejamento, edita", () => {
+    const p = produto(true);
+    expect(modoCelula(CAMPO_BY_KEY.get("descricao")!, p, false)).toEqual({ tipo: "editar" });
   });
 });

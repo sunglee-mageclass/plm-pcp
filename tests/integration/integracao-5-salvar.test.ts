@@ -276,6 +276,24 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
+  it("G-migration fix 5 (decisão do dono 27/set 15h4x): Descrição só grava com Planejamento — Desenvolvimento sozinho (sem Planejamento) é recusado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await modeloInterno(c);
+      // Só Integração + Desenvolvimento (SEM Planejamento) — antes desta rodada, 'compartilhado' liberava
+      // Desenvolvimento antes da Explosão; agora 'descricao_produto' usa o gate 'planejamento' (igual ao card).
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce25", [["integracao", true, true], ["criacao_desenvolvimento", true, true]]);
+      expect((await erro(c, async () => salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { descricao_produto: "Texto do Dev" } }]))).message)
+        .toBe("integracao_sem_permissao: descricao_produto");
+      // com Planejamento, grava normalmente (mesma mensagem de gate de sempre, agora recusando; aqui, sucesso)
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce26", [["integracao", true, true], ["criacao_planejamento", true, true]]);
+      const out = await salvar(c, [{ modelo_id: m.id, rev: await rev(c, m.id), campos: { descricao_produto: "Texto do Planejamento" } }]);
+      expect(out.salvos).toBe(1);
+      expect((await um<{ d: string }>(c, `SELECT descricao_produto AS d FROM public.modelos WHERE id = $1`, [m.id])).d).toBe("Texto do Planejamento");
+    });
+  });
+
   it("revenda: preço de venda vira preço FIXO (última edição manda); nome e REF gravam nos DOIS lados (D13); REF do espelho só antes da Explosão (R2)", async () => {
     await withTx(async (c) => {
       await prepara(c, 5);

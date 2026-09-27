@@ -561,7 +561,9 @@ BEGIN
     END IF;
     -- R2/V1/n5: a MESMA regra do card, campo a campo, reconferida no servidor (inclui módulo da origem)
     FOR v_k IN SELECT k.k FROM jsonb_object_keys(v_c) AS k(k) ORDER BY 1 LOOP
-      v_gate := CASE v_k WHEN 'nome' THEN 'compartilhado' WHEN 'descricao_produto' THEN 'compartilhado'
+      -- decisão do dono 27/set 15h4x (G-migration fix 5): "Descrição" (= Metatag, mesmo texto) só edita quem
+      -- tem o Planejamento, igual ao card — deixou de ser 'compartilhado' (Planejamento OU Dev antes da Explosão).
+      v_gate := CASE v_k WHEN 'nome' THEN 'compartilhado'
                          WHEN 'fotos_modelo' THEN 'compartilhado' WHEN 'ref' THEN 'ref'
                          WHEN 'preco_venda' THEN 'preco' WHEN 'preco_anterior' THEN 'preco' ELSE 'planejamento' END;
       IF NOT coalesce((v_g -> v_gate ->> 'ok')::boolean, false) THEN
