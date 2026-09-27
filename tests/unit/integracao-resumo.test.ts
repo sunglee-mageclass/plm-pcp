@@ -18,7 +18,9 @@ describe("resumo do Integrar (integracao_previa — sempre o dado SALVO)", () =>
     expect(r.campos).toEqual(["nome", "preco_venda", "foto"]);
     expect(r.entram.map((p) => p.modeloId)).toEqual(["m1"]);
     expect(r.sublinhas).toBe(2);
-    expect(r.fora).toEqual([{ nome: "Macacão", motivo: "Faltam: Peso" }]);
+    // Fix round 1 T13 (revisão T13 #7, code-review m7): `fora` ganhou `modeloId`/`ref` (a UI usa `modeloId` como key
+    // do React — nunca `nome`, que colide entre 2 produtos de mesmo nome — e mostra a REF ao lado do nome).
+    expect(r.fora).toEqual([{ modeloId: "m2", nome: "Macacão", ref: "BLBR0087", motivo: "Faltam: Peso" }]);
     expect(r.bloqueio).toBeNull();
     expect(itensMarcar(r)).toEqual([{ modelo_id: "m1", assinatura: ASS }]);
   });

@@ -373,6 +373,16 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
         qc.setQueryData(["integracao-lista", "t1"], nova);
         rerenderTrigger();
       },
+      // Fix round 1 T13 (revisão T13 #13): variante de `atualizarLista` que recebe uma `ListaIntegracao` JÁ
+      // PRONTA (não o jsonb cru) — usada quando o teste precisa controlar a IDENTIDADE de objeto de produtos
+      // individuais dentro de `produtos` (simulando o `structuralSharing` real do TanStack, que este harness
+      // mockado não reproduz sozinho porque não há fetch real por baixo).
+      atualizarListaPronta: (nova: ReturnType<typeof lerLista>) => {
+        listaRef.current = nova;
+        dataUpdatedAtRef.current += 1;
+        qc.setQueryData(["integracao-lista", "t1"], nova);
+        rerenderTrigger();
+      },
       // Simula um refetch em SEGUNDO PLANO cujo RESULTADO é idêntico (mesma referência) ao já em cache — só o
       // `dataUpdatedAt` muda. Usado pelo teste B-I1 (diálogo de fotos re-sincroniza mesmo sem a lista "mudar").
       refetchIdentico: () => { dataUpdatedAtRef.current += 1; rerenderTrigger(); },
@@ -1229,14 +1239,30 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
 
-    it("mapeamento de erro — P0409 integracao_mudou no Integrar: mostra o toast traduzido; 42501 no Voltar e P0001 (reprovado) no Integrar idem", async () => {
+    // Fix round 1 T13 (revisão T13 #12, code-review m9): a v1 só conferia o toast — nunca que `integracao_previa`
+    // é chamado DE NOVO (m2) nem que a 2ª confirmação manda a assinatura NOVA (a propriedade central da task: nunca
+    // integrar com assinatura velha). Conta as chamadas de `integracao_previa` e captura o payload de CADA
+    // `integracao_marcar` — a 2ª precisa levar uma assinatura DIFERENTE da 1ª (a que o refetch pós-erro trouxe).
+    it("mapeamento de erro — P0409 integracao_mudou no Integrar: RELÊ o resumo (2ª chamada de integracao_previa) e a 2ª confirmação manda a assinatura NOVA", async () => {
       const lista = listaRaw([produtoRaw()]);
       const erroMudou = Object.assign(new Error("integracao_mudou: produto m1 mudou desde o resumo"), { code: "P0409" });
+      let chamadasPrevia = 0;
+      const chamadasMarcar: unknown[] = [];
+      let marcarFalhaUmaVez = true;
       const view = await montarComMocks({
         lista,
-        rpcImpl: async (nome) => {
-          if (nome === "integracao_previa") return { data: previaRaw([previaProduto()]), error: null };
-          if (nome === "integracao_marcar") return { data: null, error: erroMudou };
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_previa") {
+            chamadasPrevia += 1;
+            // A 2ª prévia (pós-erro) traz uma assinatura NOVA — é o que o "confirme de novo" de fato confirma.
+            const assinatura = chamadasPrevia === 1 ? "a".repeat(64) : "b".repeat(64);
+            return { data: previaRaw([previaProduto({ assinatura })]), error: null };
+          }
+          if (nome === "integracao_marcar") {
+            chamadasMarcar.push(args);
+            if (marcarFalhaUmaVez) { marcarFalhaUmaVez = false; return { data: null, error: erroMudou }; }
+            return { data: { marcados: 1 }, error: null };
+          }
           throw new Error(`RPC inesperada: ${nome}`);
         },
       });
@@ -1244,22 +1270,35 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
       await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
-      const botaoConfirmar = botao("Tenho certeza — integrar");
-      await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(chamadasPrevia).toBe(1); // 1ª carga do resumo
+      const botaoConfirmar = () => botao("Tenho certeza — integrar");
+      await act(async () => { botaoConfirmar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
       expect((await toastMock()).error).toHaveBeenCalledWith(
         "O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.",
       );
+      expect(chamadasMarcar).toHaveLength(1);
+      expect((chamadasMarcar[0] as { _itens: { assinatura: string }[] })._itens[0].assinatura).toBe("a".repeat(64));
+      // m2: o `onError` relê o resumo SEMPRE (não só antes) — confirma que a 2ª chamada de `integracao_previa`
+      // de fato aconteceu (o `q.refetch()` do `onError`).
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadasPrevia).toBe(2);
+      // 2º clique em "Tenho certeza — integrar": manda a assinatura NOVA (a que a 2ª prévia trouxe) — nunca a velha.
+      await act(async () => { botaoConfirmar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadasMarcar).toHaveLength(2);
+      expect((chamadasMarcar[1] as { _itens: { assinatura: string }[] })._itens[0].assinatura).toBe("b".repeat(64));
       await view.desmontar();
     });
 
-    it("mapeamento de erro — 42501 (sem permissão) no Voltar mostra o toast traduzido pela mensagemErro", async () => {
+    it("mapeamento de erro — 42501 (sem permissão) no Voltar mostra o toast traduzido pela mensagemErro e invalida a lista", async () => {
       const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
       const erro42501 = Object.assign(new Error("Sem permissão para editar a Integração."), { code: "42501" });
+      let chamadasVoltar = 0;
       const view = await montarComMocks({
         lista,
         rpcImpl: async (nome) => {
-          if (nome === "integracao_voltar") return { data: null, error: erro42501 };
+          if (nome === "integracao_voltar") { chamadasVoltar += 1; return { data: null, error: erro42501 }; }
           throw new Error(`RPC inesperada: ${nome}`);
         },
       });
@@ -1270,16 +1309,18 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
       expect((await toastMock()).error).toHaveBeenCalledWith("Sem permissão para editar a Integração.");
+      expect(chamadasVoltar).toBe(1); // a RPC foi de fato chamada com o payload — prova de estado, não só o toast
       await view.desmontar();
     });
 
-    it("mapeamento de erro — P0001 (produto reprovado) no Integrar mostra a mensagem do servidor (RAISE em PT, usada verbatim)", async () => {
+    it("mapeamento de erro — P0001 (produto reprovado) no Integrar mostra a mensagem do servidor (RAISE em PT, usada verbatim) e relê o resumo", async () => {
       const lista = listaRaw([produtoRaw()]);
       const erroReprovado = Object.assign(new Error('O produto "Produto Teste" está reprovado e não pode ser integrado.'), { code: "P0001" });
+      let chamadasPrevia = 0;
       const view = await montarComMocks({
         lista,
         rpcImpl: async (nome) => {
-          if (nome === "integracao_previa") return { data: previaRaw([previaProduto()]), error: null };
+          if (nome === "integracao_previa") { chamadasPrevia += 1; return { data: previaRaw([previaProduto()]), error: null }; }
           if (nome === "integracao_marcar") return { data: null, error: erroReprovado };
           throw new Error(`RPC inesperada: ${nome}`);
         },
@@ -1292,6 +1333,113 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await act(async () => { botaoConfirmar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
       expect((await toastMock()).error).toHaveBeenCalledWith('O produto "Produto Teste" está reprovado e não pode ser integrado.');
+      // Fix round 1 T13 (m2): mesmo um erro que NÃO é P0409 relê o resumo (a assinatura antiga continua em
+      // `entram` sem isso) — prova de ESTADO: 2ª chamada de `integracao_previa` aconteceu.
+      expect(chamadasPrevia).toBe(2);
+      await view.desmontar();
+    });
+
+    // Fix round 1 T13 (revisão T13 #13, task-13-review.md Important I1): render-count de verdade, com o MESMO spy
+    // usado em "React.memo de verdade" (`rotuloEstado`, chamado por `EstadoCelula` a cada render de LinhaProduto) —
+    // prova que o memo continua funcionando DEPOIS da Task 13 acrescentar seleção/Integrável, não só que o checkbox
+    // exibe o estado certo (o teste "seleção e memo" já provava isso; não prova "só a linha certa renderiza").
+    it("React.memo de verdade (T13): marcar o checkbox de UMA linha não rerrenderiza NENHUMA linha (nem a própria — Estado não depende da seleção)", async () => {
+      const lista = listaRaw([
+        produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+      ]);
+      const view = await montarComMocks({ lista });
+      const rotuloSpy = vi.spyOn(view.produtosModulo, "rotuloEstado");
+      const { act } = await import("react");
+      const checkboxM1 = view.container.querySelector<HTMLButtonElement>('button[role="checkbox"][aria-label="Selecionar Produto Um"]');
+      expect(checkboxM1).not.toBeNull();
+      rotuloSpy.mockClear(); // limpa as chamadas do MOUNT — só interessam as do clique
+      await act(async () => { checkboxM1!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      // `estadoCelula` (que chama `rotuloEstado`) não depende de `marcado`/`onMarcar` — marcar um checkbox NÃO deve
+      // rerrenderizar NENHUMA linha (nem a própria m1): o React.memo de `LinhaProduto` só vê `marcado` mudar pra
+      // m1, e essa prop só afeta o `<Checkbox>`, não `estadoCelula`. Mas o COMPARADOR do memo é raso sobre TODAS as
+      // props — se `marcado` mudou, a linha de m1 RE-RENDERIZA (o memo não bate MAIS NADA sendo igual não importa,
+      // já que UMA prop mudou) — o que não pode acontecer é a linha de m2 (prop `marcado` continua `false`,
+      // identidade igual) renderizar de novo.
+      const chamadasParaM2 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m2");
+      expect(chamadasParaM2.length, "linha de m2 (não tocada pela seleção) NÃO deveria ter rerrenderizado").toBe(0);
+      rotuloSpy.mockRestore();
+      await view.desmontar();
+    });
+
+    it("React.memo de verdade (T13): um reload que muda só o REV de m1 (m2 com IDENTIDADE preservada, como o structural sharing real do TanStack faria) não rerrenderiza m2", async () => {
+      const lista = listaRaw([
+        produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+      ]);
+      const view = await montarComMocks({ lista });
+      const rotuloSpy = vi.spyOn(view.produtosModulo, "rotuloEstado");
+      const { act } = await import("react");
+      rotuloSpy.mockClear();
+      // Este harness mocka `useIntegracaoLista` direto (sem TanStack Query real por baixo) — `lerLista` sempre
+      // desserializa um jsonb novo, então `atualizarLista` sozinho NUNCA preserva identidade de objeto, mesmo pra
+      // produtos com conteúdo idêntico (o teste "React.memo de verdade" original, linha ~904, evita esse problema
+      // editando só `rascunhos`, sem tocar `lista.produtos`). Pra isolar especificamente o que o fix da T13 (#2)
+      // resolve — `ctxIntegrar` não deve invalidar por causa de OUTRO produto mudar — construo a lista nova e
+      // DEVOLVO ao produto de m2 e a `campos` (achado FORA do escopo desta revisão — `ordenarCampos`/`lerLista`
+      // sempre criam um array NOVO por chamada, então `ProdutosTabela`'s `useMemo(...,[lista.campos])` recalcula em
+      // TODO reload, mesmo sem essa causa — ver task-13-report.md "Fix round 1", nota de limitação conhecida) a
+      // MESMA referência que já tinham — é exatamente o que o `structuralSharing` de verdade do TanStack faria num
+      // reload onde só m1 mudou no servidor (comparação estrutural recursiva preserva sub-árvores intactas).
+      const { lerLista } = view.produtosModulo;
+      const listaAntiga = view.listaRef.current!;
+      const m2Antigo = listaAntiga.produtos.find((p) => p.modeloId === "m2")!;
+      const listaNovaRaw = listaRaw([
+        produtoRaw({ modelo_id: "m1", estado: "integravel", rev: 2, raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+        produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+      ]);
+      const listaNova = lerLista(listaNovaRaw);
+      listaNova.produtos = listaNova.produtos.map((p) => (p.modeloId === "m2" ? m2Antigo : p));
+      listaNova.campos = listaAntiga.campos; // isola o achado do `ctxIntegrar` — `campos` é uma questão à parte
+      await act(async () => { view.atualizarListaPronta(listaNova); });
+      const chamadasParaM2 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m2");
+      expect(chamadasParaM2.length, "linha de m2 (identidade preservada, como um structural sharing real faria) NÃO deveria ter rerrenderizado num reload que só mudou m1").toBe(0);
+      rotuloSpy.mockRestore();
+      await view.desmontar();
+    });
+
+    // Fix round 1 T13 (revisão T13 #14, code-review Important I1 — "Voltar entra em laço no P0409"): P0409 fecha/
+    // encolhe o diálogo (produtos derivados da lista fresca, nunca um snapshot fixo) — um 2º clique NUNCA reenvia o
+    // MESMO lote que acabou de ser rejeitado.
+    it("Voltar P0409: o diálogo FECHA sozinho (produto não é mais integravel na lista) — um 2º Voltar NÃO reenvia o mesmo id", async () => {
+      const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
+      const chamadasVoltar: unknown[] = [];
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome, args) => {
+          if (nome === "integracao_voltar") {
+            chamadasVoltar.push(args);
+            return { data: null, error: Object.assign(new Error("integracao_mudou: produto m1 esta integrado"), { code: "P0409" }) };
+          }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(document.body.textContent).toContain("Voltar para não integrável?");
+      const botaoConfirmar = () => botao("Voltar para não integrável");
+      await act(async () => { botaoConfirmar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      expect(chamadasVoltar).toHaveLength(1);
+      // A mensagem NUNCA promete "confirme de novo" (essa é a do Integrar, que TEM resumo) — o Voltar tem a sua.
+      expect((await toastMock()).error).toHaveBeenCalledWith(
+        "Algum produto já não está integrável (a API levou ou alguém voltou). Nada foi alterado — confira a lista.",
+      );
+      // A invalidação do `onError` relista o produto como `integrado` (a API "levou" — o cenário real do erro).
+      const listaPosErro = listaRaw([produtoRaw({ estado: "integrado" })]);
+      await act(async () => { view.atualizarLista(listaPosErro); });
+      // O diálogo FECHOU sozinho: nenhum produto derivado continua `integravel` na lista fresca — o texto do
+      // diálogo (que só aparece com ele aberto) sumiu do documento.
+      expect(document.body.textContent).not.toContain("Voltar para não integrável?");
+      // Sem diálogo aberto, não há como reenviar o MESMO lote — a prova definitiva do "nunca laço": só 1 chamada
+      // de `integracao_voltar` aconteceu no total, mesmo depois da relista.
+      expect(chamadasVoltar).toHaveLength(1);
       await view.desmontar();
     });
   });

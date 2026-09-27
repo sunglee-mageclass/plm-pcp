@@ -20,7 +20,9 @@ export type ProdutoPrevia = {
 };
 export type ResumoIntegrar = {
   campos: CampoKey[]; precisaVerCustos: boolean; podeVerCustos: boolean; entram: ProdutoPrevia[];
-  fora: { nome: string; motivo: string }[]; sublinhas: number; bloqueio: string | null;
+  // Fix round 1 T13 (revisão T13 #7, code-review m7): `modeloId`/`ref` além de `nome` — a UI usa `modeloId` como
+  // key do React (nunca `nome`, que colide quando 2 produtos têm o mesmo nome) e mostra a REF ao lado do nome.
+  fora: { modeloId: string; nome: string; ref: string | null; motivo: string }[]; sublinhas: number; bloqueio: string | null;
 };
 export const MOTIVO_MIN = 3;
 
@@ -56,7 +58,8 @@ export function lerResumo(raw: unknown): ResumoIntegrar {
   const o = obj(raw);
   const produtos = arr(o.produtos).map(produtoDe).filter((p) => p.modeloId !== "");
   const entram = produtos.filter((p) => motivoFora(p) === null);
-  const fora = produtos.filter((p) => motivoFora(p) !== null).map((p) => ({ nome: p.nome, motivo: motivoFora(p) as string }));
+  const fora = produtos.filter((p) => motivoFora(p) !== null)
+    .map((p) => ({ modeloId: p.modeloId, nome: p.nome, ref: p.ref, motivo: motivoFora(p) as string }));
   const precisaVerCustos = o.precisa_ver_custos === true;
   const podeVerCustos = o.pode_ver_custos !== false;
   const bloqueio = precisaVerCustos && !podeVerCustos ? TEXTO_PRECISA_CUSTO

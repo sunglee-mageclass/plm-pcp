@@ -104,8 +104,21 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
         // ⚠️ `QueryCache.find(filters)` DEFAULTA `exact: true` (só `findAll` respeita o prefixo por padrão —
         // conferido em `node_modules/@tanstack/query-core/…/queryCache.js:find`) — `find({queryKey: chaveLista(...),
         // type:"active"})` NUNCA bateria com a chave real de 5 elementos (só com a "achatada" de 2, que não existe
-        // de verdade). `findAll({..., type:"active"})[0]` é o jeito certo de achar a query ativa por PREFIXO.
-        const ativa = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId), type: "active" })[0];
+        // de verdade). `findAll({..., type:"active"})` é o jeito certo de achar as queries ativas por PREFIXO.
+        //
+        // Fix round 1 T13 (revisão T13 #9, code-review m11): a v1 pegava só `[0]` (a PRIMEIRA da lista por ordem de
+        // inserção do QueryCache) — hoje é sempre a única (a única observadora do prefixo é `useIntegracaoLista` de
+        // `ProdutosAba`, e o Radix desmonta abas inativas), mas essa suposição fica FORA deste arquivo. Em vez de
+        // confiar na posição, filtra explicitamente por `isActive()` (a MESMA checagem que `type:"active"` já faz
+        // por baixo — `query.js:isActive` = tem observer com `enabled !== false`) e, se por algum motivo aparecer
+        // mais de uma no futuro, pega a de MAIOR `dataUpdatedAt` (a que o refetch de fato tocou por último) — nunca
+        // a primeira por posição.
+        const ativasFiltradas = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId) })
+          .filter((query) => query.isActive());
+        const ativa = ativasFiltradas.reduce<typeof ativasFiltradas[number] | undefined>(
+          (acc, query) => (!acc || query.state.dataUpdatedAt > acc.state.dataUpdatedAt ? query : acc),
+          undefined,
+        );
         // `fetchStatus === "idle"` (terminou de buscar) com `status === "error"` NA QUERY ATIVA é a única evidência
         // real de que o refetch falhou; qualquer outra entrada em cache é só histórico, nunca prova da tentativa atual.
         const refetchFalhou = ativa?.state.status === "error" && ativa.state.fetchStatus === "idle";

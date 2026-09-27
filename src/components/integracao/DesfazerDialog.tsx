@@ -1,4 +1,11 @@
 // Integração — "Desfazer integração" (mockup 5): SÓ super admin (o servidor confere), só integrado, motivo obrigatório (≥ 3).
+//
+// Fix round 1 T13 (revisão T13 #10, task-13-review.md Minor m4): o `.length` de uma string JS conta UNIDADES
+// UTF-16, não CODE POINTS — um emoji/caractere astral (fora do BMP, ex. "👍") ocupa 2 unidades em `.length` mas só
+// 1 code point pra quem digita e pro Postgres (`length()` do servidor conta code points, `m3:245`). Sem isso,
+// "👍👍" (2 emojis) contava 4 aqui (botão HABILITADO) mas só 2 no servidor (P0001, abaixo do mínimo) — o T12b já
+// tinha essa mesma lição em `rascunho.ts` (`validarRascunho`, limite de nome do comprado). `[...motivo].length`
+// (iterador de code points) bate com o `length()` do Postgres.
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -31,7 +38,7 @@ export function DesfazerDialog({ produto, onFechar, onFeito }: { produto: Produt
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível desfazer a integração.")),
   });
-  const ok = motivo.trim().length >= MOTIVO_MIN;
+  const ok = [...motivo.trim()].length >= MOTIVO_MIN;
   return (
     <AlertDialog open onOpenChange={(o) => { if (!o && !desfazer.isPending) onFechar(); }}>
       <AlertDialogContent>

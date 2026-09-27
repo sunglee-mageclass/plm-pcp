@@ -404,17 +404,21 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
  *  nenhuma). `fotosFinais` substitui `fotos_modelo` quando o upload terminou (mesmo parâmetro de `payloadItem`);
  *  sem ele, mantém os caminhos já reais do rascunho (nunca os marcadores `novo:`, que só existem ANTES do Salvar).
  *
- *  Fix m-T1 (carry da revisão da Task 12b, task-13-brief.md): normaliza SÓ as colunas que de fato foram ENVIADAS
- *  (`colunasAlteradas(r)`, o MESMO filtro de `payloadItem` — é exatamente o que o servidor gravou desta vez). As
- *  demais colunas seguem `r.base[c]` (nunca `r.valores[c]`) — mas AINDA passam por `normalizado()`: `r.base` vem
- *  CRU do servidor (`valoresDoRaw`/`RawProduto`, sem trim/arredondamento — ver `rawDe`/`num`/`txt` em produtos.ts),
- *  e o resto do arquivo SEMPRE normaliza antes de comparar através de um save (`colunasAlteradas`, o filtro de
- *  falso-conflito de `mesclar`) — pular a normalização aqui quebraria essa convenção sem necessidade e sem pedido:
- *  o m-T1 pede trocar a FONTE (base, não valores), não abrir mão da normalização. Sem essa fonte corrigida, uma
- *  coluna NÃO tocada mas cujo `r.valores[c]` divergisse de `r.base[c]` por qualquer razão (ex.: um merge 3-vias em
- *  voo que já adotou um `fresh` mais novo para essa coluna, mas ainda não bateu em `r.base`) entraria na "espera"
- *  com um valor que o servidor NUNCA gravou nesta chamada — o próximo relista, no mesmo rev salvo, acenderia um
- *  "Outra pessoa mudou este campo" falso contra um dado que na verdade nunca mudou de verdade no banco. */
+ *  Fix m-T1 round 1 (carry da revisão da Task 12b, task-13-brief.md) — CORRIGIDO de verdade na T13 fix round 1
+ *  (revisão T13 #6, task-13-review.md m2 + task-13-code-review.md m4): normaliza SÓ as colunas que de fato foram
+ *  ENVIADAS (`colunasAlteradas(r)`, o MESMO filtro de `payloadItem` — é exatamente o que o servidor gravou desta
+ *  vez). As demais colunas usam `r.base[c]` CRU — SEM passar por `normalizado()`. A 1ª versão desta função (fix
+ *  round original) normalizava as duas fontes por engano, com uma premissa que as duas revisões da Task 13 corrigem:
+ *  o servidor só faz `UPDATE` nas colunas ENVIADAS — uma coluna NÃO tocada, com um valor legado não-normalizado no
+ *  banco (`nome="Blusa "` com espaço, `preco_anterior=0`, `ncm=""`), CONTINUA exatamente assim no banco depois deste
+ *  Save. `r.base[c]` já É esse valor cru (`valoresDoRaw`/`RawProduto`, sem trim/arredondamento — `rawDe`/`num`/`txt`
+ *  em produtos.ts) — é LITERALMENTE o que uma relista traria de volta (`fresh = valoresDoRaw(p.raw)` em `mesclar`).
+ *  Normalizar aqui (a v1) gravava na "espera" um valor DIFERENTE do banco (`null` em vez de `0`/`""`, "Blusa" sem
+ *  espaço) — na relista seguinte, `mergeDraft`/`igual(base,fresh)` (comparação CRUA, `colab/merge.ts`) via
+ *  `mesclar()` comparava esse `base` normalizado contra o `fresh` CRU da lista e via uma diferença que não existe de
+ *  verdade no servidor: um falso "Outra pessoa mudou este campo" contra ninguém. O filtro de convergência de
+ *  `mesclar` (m12, mais abaixo) normaliza `meu × dele` (o CONFLITO reportado por `mergeDraft`), não `base × fresh`
+ *  (a entrada CRUA de `mergeDraft`) — não protege este caso. */
 export function valoresPosSalvar(r: Rascunho, fotosFinais?: string[]): Valores {
   const enviadas = new Set(colunasAlteradas(r));
   const v = {} as Valores;
@@ -426,7 +430,7 @@ export function valoresPosSalvar(r: Rascunho, fotosFinais?: string[]): Valores {
     } else if (enviadas.has(c)) {
       (v as Record<ColunaEditavel, unknown>)[c] = normalizado(c, r.valores[c]);
     } else {
-      (v as Record<ColunaEditavel, unknown>)[c] = normalizado(c, r.base[c]);
+      (v as Record<ColunaEditavel, unknown>)[c] = r.base[c];
     }
   }
   return v;

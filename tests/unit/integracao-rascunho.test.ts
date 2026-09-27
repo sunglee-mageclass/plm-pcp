@@ -180,7 +180,7 @@ describe("rascunho por produto (staging)", () => {
   // nenhum pra rodar síncrono ou não — é só uma função chamada e o resultado conferido na hora.
   describe("resultadoPosSalvar (m-S1) — sobra + espera calculadas fora de qualquer updater de setState", () => {
     it("produto salvou por inteiro (sem sobra): some de proxRascunhos, entra em novosAguardando com os valores normalizados", () => {
-      let r = editar(rascunho(7), "nome", "Blusa Brisa Nova "); // espaço no fim — precisa normalizar (m-S2)
+      const r = editar(rascunho(7), "nome", "Blusa Brisa Nova "); // espaço no fim — precisa normalizar (m-S2)
       const rascunhosAtuais = { m1: r };
       const { proxRascunhos, novosAguardando } = resultadoPosSalvar(
         rascunhosAtuais,
@@ -242,36 +242,73 @@ describe("rascunho por produto (staging)", () => {
     });
   });
 
-  // m-T1 (carry da revisão da Task 12b, task-13-brief.md): `valoresPosSalvar` deve tirar o valor de uma coluna NÃO
-  // enviada (fora de `colunasAlteradas(r)`) de `r.base[c]` — nunca de `r.valores[c]`. Antes do fix, a função lia
-  // TODAS as 12 colunas de `r.valores`, sempre — inclusive as NÃO tocadas. Nota sobre o alcance da prova: como
-  // `colunasAlteradas` já EXCLUI qualquer coluna onde `normalizado(valores[c]) === normalizado(base[c])`, o valor
-  // FINAL de uma coluna não-tocada é sempre o mesmo (por construção) lendo de `valores` OU de `base` — os dois
-  // caminhos convergem depois de `normalizado()`. A ÚNICA coluna onde "de onde se lê" é observável de fato é
-  // `fotos_modelo` (tratada à parte, sem passar por `normalizado`, condicionada a `fotosFinais`) — é o teste que
-  // efetivamente distingue a versão antiga da corrigida (confirmado rodando esta suíte contra a v1 buggy: só ele
-  // falha). Os outros dois testes fixam o CONTRATO da função (o "nunca vaza um valor não confirmado pelo servidor"
-  // e "sem nenhuma coluna tocada, o resultado é `base`") — corretos e valiosos como regressão futura, mas não
-  // discriminam a v1 da v2 isoladamente (documentado aqui para não reivindicar mais do que provam).
-  describe("m-T1: valoresPosSalvar tira o valor de uma coluna NÃO enviada de r.base, nunca de r.valores", () => {
-    it("'fotos_modelo' não enviado ignora fotosFinais (nunca aplica um upload de outra coluna) — mantém base.fotos_modelo (DISCRIMINA a v1 buggy)", () => {
+  // m-T1, CORRIGIDO de verdade na T13 fix round 1 (revisão T13 #6, task-13-review.md m2 + task-13-code-review.md
+  // m4): `valoresPosSalvar` deve tirar o valor de uma coluna NÃO enviada (fora de `colunasAlteradas(r)`) de
+  // `r.base[c]` CRU — sem passar por `normalizado()`. A v1 (Task 13 round 0) normalizava as duas fontes por engano:
+  // como `colunasAlteradas` já EXCLUI qualquer coluna onde os dois lados normalizam igual, um `r.base[c]` JÁ
+  // normalizado nunca expunha a diferença — só um valor LEGADO não-normalizado no banco (nome com espaço, preço
+  // zero, texto vazio em vez de NULL) expõe: o servidor NUNCA toca essa coluna (só faz UPDATE nas enviadas), então
+  // ela continua exatamente assim no banco — normalizar aqui grava, na "espera", um valor DIFERENTE do que está lá.
+  describe("m-T1 (corrigido T13 fix round 1): valoresPosSalvar usa r.base[c] CRU pra colunas NÃO enviadas — nunca normalizado", () => {
+    it("probe do reviewer: base legado com ncm='' e preco_anterior=0 (nunca normalizados) — só 'nome' enviado, os dois ficam CRUS no resultado", () => {
+      let r = rascunho(7, { ncm: "", preco_anterior: 0 }); // legado: texto vazio / preço zero, nunca NULL
+      r = editar(r, "nome", "Blusa Brisa Nova"); // única coluna de fato ENVIADA
+      expect(colunasAlteradas(r)).toEqual(["nome"]);
+      const v = valoresPosSalvar(r);
+      expect(v.nome).toBe("Blusa Brisa Nova"); // a coluna ENVIADA passa por normalizado() normalmente
+      // As colunas NÃO enviadas mantêm o CRU do banco — nunca o normalizado (`null`/`null`), que o UPDATE real
+      // jamais gravaria nelas (o servidor só toca "nome" nesta chamada).
+      expect(v.ncm).toBe("");
+      expect(v.ncm).not.toBeNull();
+      expect(v.preco_anterior).toBe(0);
+      expect(v.preco_anterior).not.toBeNull();
+    });
+    it("prova executável do reviewer (m2): a versão BUGGY (normalizado(base)) gera um falso 'o servidor mudou' contra 'outra pessoa' que nunca mudou nada; a versão CRUA (o fix) não", () => {
+      // Cenário: produto com preco_anterior LEGADO = 0 (nunca NULL — um valor real no banco); só "nome" é enviado
+      // neste Salvar. A espera pós-Salvar (ruling B-I3) guarda `valoresPosSalvar(r)` como o `base` do próximo
+      // Rascunho "sem edição própria" — é exatamente esse `base` que um `mesclar()` seguinte vai comparar contra o
+      // `fresh` de uma relista.
+      let r = rascunho(7, { preco_anterior: 0 });
+      r = editar(r, "nome", "Blusa Brisa Nova");
+      const holdCru = valoresPosSalvar(r); // FIX: r.base[c] cru pra coluna não enviada
+      expect(holdCru.preco_anterior).toBe(0); // o fix preserva o valor real do banco
+      // A versão BUGGY (Task 13 round 0) normalizava a coluna não-enviada — pra preco_anterior, a régua de
+      // `normalizado()` (Minor R1-2, já documentada no arquivo) mapeia `<= 0` para `null` (o mesmo NULL de "sem
+      // preço/automático" que o servidor usa). Reproduz literalmente esse valor sem precisar exportar a função
+      // privada — é o comportamento já coberto e travado por outros testes deste arquivo (linha ~394, "preço
+      // zero/negativo nunca vai no payload nem conta como alterado").
+      const holdBuggy = { ...holdCru, preco_anterior: null };
+      // Uma relista chega (rev 9) — NINGUÉM tocou preco_anterior no banco; ele CONTINUA 0, o mesmo valor real.
+      const fresco = produto(9, { preco_anterior: 0, nome: "Blusa Brisa Nova" });
+      // Rascunho "sem edição própria" (não tocou preco_anterior) nascido de cada hold — `mesclar` decide se o
+      // servidor "mudou" comparando SEU PRÓPRIO `base` contra o `fresh` que chega agora.
+      const rDoCru = novoRascunho(produto(7, { ...holdCru, nome: "Blusa Brisa Nova" }));
+      const rDoBuggy = novoRascunho(produto(7, { ...holdBuggy, nome: "Blusa Brisa Nova" }));
+      const mescladoCru = mesclar(rDoCru, fresco);
+      const mescladoBuggy = mesclar(rDoBuggy, fresco);
+      // FIX: base (0) chega igual ao fresh (0) — o novo `base` pós-merge é 0, sem nenhum sinal de "mudou".
+      expect(mescladoCru.base.preco_anterior).toBe(0);
+      expect(mescladoCru.valores.preco_anterior).toBe(0);
+      // BUGGY: base ERA `null` (efeito colateral da normalização) != fresh (0, o valor real do banco) — o NOVO
+      // `base` pós-merge também vira 0 (mergeDraft's "atualizado" adota o fresco), mas só porque a comparação
+      // partiu de um `base` FALSO (`null`) que nunca existiu no banco — o rascunho, que nunca editou
+      // preco_anterior, passa por uma transição "o servidor mudou" que na fonte real (o banco) nunca aconteceu.
+      // Se o campo estivesse TOCADO nesse instante (o cenário do reviewer), essa mesma comparação falsa geraria um
+      // `conflito` de verdade contra uma mudança que não existe — a raiz do problema é a mesma nos dois casos.
+      expect(mescladoBuggy.base.preco_anterior).toBe(0);
+      // A prova direta da raiz: o `base` ANTES do merge (o hold) já divergia do banco real SEM nenhuma razão —
+      // com o fix, base-do-hold === valor-real-do-banco; com o bug, base-do-hold !== valor-real-do-banco.
+      expect(holdBuggy.preco_anterior).not.toBe(fresco.raw.preco_anterior); // a raiz do falso-conflito (bug)
+      expect(holdCru.preco_anterior).toBe(fresco.raw.preco_anterior); // o fix nunca diverge do banco sem motivo
+    });
+    it("'fotos_modelo' não enviado ignora fotosFinais (nunca aplica um upload de outra coluna) — mantém base.fotos_modelo cru", () => {
       let r = rascunho(7);
       r = editar(r, "ncm", "6109.90.00"); // só NCM tocado — fotos_modelo nunca editado
       const v = valoresPosSalvar(r, ["t/fotos_modelo/outro.jpg"]);
       expect(v.ncm).toBe("6109.90.00");
       expect(v.fotos_modelo).toEqual(r.base.fotos_modelo); // ignora `fotosFinais` — fotos não foram enviadas
     });
-    it("coluna NÃO enviada nunca vaza um valor da 'espera' que o SERVIDOR não gravou nesta chamada", () => {
-      let r = rascunho(7); // base.preco_anterior = 179.9 (fixture `raw`)
-      r = editar(r, "nome", "Blusa Brisa Nova"); // única coluna de fato ENVIADA — preco_anterior nunca tocado
-      expect(colunasAlteradas(r)).toEqual(["nome"]);
-      const v = valoresPosSalvar(r);
-      expect(v.nome).toBe("Blusa Brisa Nova");
-      // A "espera" pós-Salvar (ruling B-I3) usa este resultado como o valor CONFIÁVEL até a próxima relista — tem
-      // que ser exatamente o que o servidor já tinha (179.9), nunca inventar/vazar outro número.
-      expect(v.preco_anterior).toBe(179.9);
-    });
-    it("nenhuma coluna alterada: o resultado é idêntico a r.base em TODAS as 12 colunas", () => {
+    it("nenhuma coluna alterada: o resultado é idêntico a r.base (referência-a-referência) em TODAS as 12 colunas", () => {
       const r = rascunho(7);
       expect(colunasAlteradas(r)).toEqual([]);
       expect(valoresPosSalvar(r)).toEqual(r.base);

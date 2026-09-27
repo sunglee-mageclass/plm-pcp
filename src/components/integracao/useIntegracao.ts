@@ -64,6 +64,16 @@ export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina:
     // respeitava isso sozinho. Só reaproveita o dado anterior quando a query cujo dado será reaproveitado é DESTE
     // mesmo tenant (queryKey[1] é sempre o tenantId, ver chaveLista).
     placeholderData: (prev, query) => (query?.queryKey[1] === tenantId ? prev : undefined),
+    // Fix round 1 T13 (revisão T13 #11, code-review m5, limitação ACEITA): as tabelas de integração
+    // (`integracao_produtos`/`integracao_linhas`) não têm policy Realtime — `useIntegracaoAoVivo` só escuta UPDATE
+    // em `modelos`, e os 3 RPCs de estado (marcar/voltar/desfazer) NÃO tocam `modelos` (só travam com FOR NO KEY
+    // UPDATE). Outro usuário com a mesma lista aberta não vê integrar/voltar/desfazer em tempo real — o servidor
+    // continua garantindo a integridade (o Salvar dele falharia atômico com 42501 se tentasse editar um produto já
+    // travado), mas a UX fica tardia até essa aba relistar sozinha. `refetchOnWindowFocus: true` (explícito — já é
+    // o default do QueryClient desta app, sem override em `router.tsx`, mas documentado aqui de propósito) cobre o
+    // caso mais comum: o usuário troca de aba/janela e volta. Ver task-13-report.md "Fix round 1" para o registro
+    // completo desta limitação conhecida.
+    refetchOnWindowFocus: true,
     queryFn: async (): Promise<ListaIntegracao> => {
       const { data, error } = await supabase.rpc("integracao_listar" as any, { _situacao: situacao, _filtros: f, _pagina: pagina });
       if (error) throw error;

@@ -117,7 +117,14 @@ export function ProdutosAba() {
   const [keywordsAberto, setKeywordsAberto] = useState(false);
   const [selecionados, setSelecionados] = useState<ReadonlySet<string>>(new Set());
   const [integrarIds, setIntegrarIds] = useState<string[] | null>(null);
-  const [voltarProdutos, setVoltarProdutos] = useState<{ id: string; nome: string }[] | null>(null);
+  // Fix round 1 T13 (revisão T13 #5, code-review Important I1 — "Voltar entra em laço no P0409"): guarda só os IDS
+  // (não mais `{id,nome}` capturado no clique) — os PRODUTOS são derivados da lista ATUAL a cada render (o mesmo
+  // padrão de `pFotos`/`fotosDeId`, ver abaixo). Antes, `VoltarDialog` recebia um snapshot fixo de produtos; se o
+  // `integracao_voltar` desse P0409 (outra pessoa já integrou ou voltou ALGUM do lote), o diálogo continuava aberto
+  // com o MESMO snapshot — reclicar reenviava os MESMOS ids e recebia o MESMO P0409, um laço garantido (a única
+  // saída era Cancelar). Derivando da lista atual, o diálogo ENCOLHE sozinho para os produtos que continuam
+  // `integravel` assim que a invalidação (que já rodava no erro) traz a lista fresca, e fecha se não sobrar nenhum.
+  const [voltarIds, setVoltarIds] = useState<string[] | null>(null);
   const [desfazerDe, setDesfazerDe] = useState<ProdutoLista | null>(null);
   // m7 (revisão): o texto sujo do diálogo de Keywords também soma na guarda ÚNICA da página — sem isso, "Voltar" do
   // navegador ou F5 com o diálogo aberto e texto digitado saía sem perguntar (a guarda só olhava `rascunhos`).
@@ -277,6 +284,13 @@ export function ProdutosAba() {
     setKeywordsAberto(false);
     setKeywordsSujo(false);
     avisadosDescarte.current = new Set();
+    // Fix round 1 T13 (revisão T13 #3, code-review m3): a troca de loja zerava rascunhos/esperas mas NUNCA
+    // `selecionados`/`integrarIds`/`voltarIds`/`desfazerDe` — um produto selecionado ou um diálogo de estado
+    // aberto na loja ANTERIOR sobrevivia à troca, misturando ids de tenants diferentes na próxima ação em massa.
+    setSelecionados(new Set());
+    setIntegrarIds(null);
+    setVoltarIds(null);
+    setDesfazerDe(null);
   }, [tenantId]);
 
   // Fix round 1 T12b (A-I6/B-I2, D36 "nenhum rascunho fica escondido") — produtos com rascunho sujo que NÃO estão
@@ -404,27 +418,29 @@ export function ProdutosAba() {
   // Task 13: Estado ganha o "⋯" (só super admin, só integrado) que abre o Desfazer; Integrável é o toggle que abre
   // Integrar/Voltar. `estadoCelula`/`integravelCelula` continuam `useCallback` — são passados pra `ProdutosTabela`,
   // que os repassa pra `LinhaProduto` (React.memo): uma identidade nova a cada render invalidaria TODA linha.
-  // `ctxIntegrar` em `useMemo` (não um objeto literal recriado a cada render): os campos primitivos só mudam quando
-  // `lista` muda de verdade — assim `integravelCelula`/`massa` abaixo podem depender do OBJETO (identidade estável),
-  // sem precisar listar cada campo dele na dependência (e sem warning do react-hooks/exhaustive-deps).
+  //
+  // Fix round 1 T13 (revisão T13 #2, task-13-review.md Important I1 + task-13-code-review.md m10): a v1 tinha DOIS
+  // problemas de memo que a "prova" (o teste "seleção e memo") não media:
+  // (a) `ctxIntegrar` dependia de `lista` INTEIRO (`[lista]`) — com structural sharing do TanStack, `lista` ganha
+  //     identidade nova sempre que QUALQUER produto muda (realtime de outro usuário, `onSettled` de todo Save,
+  //     refetch por foco de janela), então `integravelCelula`/`massa` (que dependiam de `ctxIntegrar`) trocavam de
+  //     identidade e invalidavam TODA linha a cada reload — mesmo quando só 1 produto mudou. Fix: `useMemo` chaveado
+  //     nos 3 PRIMITIVOS (`lista?.pode.editar`, `precisaVerCustos`, `lista?.pode.verCustos`), não no objeto `lista`.
+  // (b) `idsSujosRef` (um ref lido dentro do `useCallback`) funcionava sem servir dado velho (confirmado pela
+  //     revisão), mas o acoplamento "dirty ⇔ identidade de r" ficava implícito e escrever ref no render é
+  //     anti-padrão. Fix (m10): removido — `integravelCelula` agora recebe `(p, r)` (o `r` já é a prop PRÓPRIA da
+  //     linha em `LinhaProduto`) e computa `temAlteracao(r)` ali mesmo, sem ref nem Set externo. Como `r` só muda de
+  //     identidade quando O PRÓPRIO produto é editado (é assim que o memo de linha já funciona pra `CelulaCampo`),
+  //     `integravelCelula` fica IGUAL a `estadoCelula`: identidade estável enquanto `ctxIntegrar` não mudar de
+  //     verdade, e o "tem rascunho" sempre fresco porque vem de uma prop, não de uma referência externa.
+  const podeEditar = lista?.pode.editar ?? false;
+  const podeVerCustos = lista?.pode.verCustos ?? false;
+  const precisaVerCustos = lista?.campos.includes("preco_custo") ?? false;
   const ctxIntegrar = useMemo(
-    () => ({
-      podeEditar: lista?.pode.editar ?? false,
-      precisaVerCustos: lista?.campos.includes("preco_custo") ?? false,
-      podeVerCustos: lista?.pode.verCustos ?? false,
-    }),
-    [lista],
+    () => ({ podeEditar, precisaVerCustos, podeVerCustos }),
+    [podeEditar, precisaVerCustos, podeVerCustos],
   );
   const idsSujos = useMemo(() => new Set(sujos.map((r) => r.modeloId)), [sujos]);
-  // `idsSujos` também mora num REF (nunca só na dependência do `useCallback` abaixo): editar UM produto muda
-  // `idsSujos` por INTEIRO (nova referência), e se `integravelCelula` dependesse dela diretamente, sua identidade
-  // mudaria a cada tecla — invalidando o React.memo de TODA LINHA da tabela (não só a tocada), regressão real
-  // pega pelo teste "React.memo de verdade" (integracao-tela-fonte.test.ts) quando a Task 13 acrescentou esta
-  // célula. Lendo do ref, `integravelCelula` só troca de identidade quando `ctxIntegrar` muda de verdade (a lista
-  // mudou) — cada linha continua vendo o `temRascunho` mais atual (o ref é sempre síncrono), sem pagar o preço de
-  // invalidar o memo de linhas não tocadas.
-  const idsSujosRef = useRef(idsSujos);
-  idsSujosRef.current = idsSujos;
   const estadoCelula = useCallback(
     (p: ProdutoLista) => (
       <EstadoCelula p={p} tz={tz} superAdmin={lista?.pode.super ?? false} onDesfazer={() => setDesfazerDe(p)} />
@@ -432,12 +448,12 @@ export function ProdutosAba() {
     [tz, lista?.pode.super],
   );
   const integravelCelula = useCallback(
-    (p: ProdutoLista) => (
+    (p: ProdutoLista, r: Rascunho) => (
       <IntegravelCelula p={p}
-        motivoIntegrar={motivoIntegrar(p, { ...ctxIntegrar, temRascunho: idsSujosRef.current.has(p.modeloId) })}
+        motivoIntegrar={motivoIntegrar(p, { ...ctxIntegrar, temRascunho: temAlteracao(r) })}
         motivoVoltar={motivoVoltar(p, ctxIntegrar.podeEditar)}
         onIntegrar={() => setIntegrarIds([p.modeloId])}
-        onVoltar={() => setVoltarProdutos([{ id: p.modeloId, nome: p.raw.nome }])} />
+        onVoltar={() => setVoltarIds([p.modeloId])} />
     ),
     [ctxIntegrar],
   );
@@ -449,13 +465,11 @@ export function ProdutosAba() {
     () => acoesEmMassa(selecionadosLista, { ...ctxIntegrar, rascunhos: idsSujos }),
     [selecionadosLista, ctxIntegrar, idsSujos],
   );
-  // A "seleção e memo" (achado carregado da revisão da Task 12b): `selecao` precisa trocar de IDENTIDADE quando a
-  // seleção muda — mas SÓ `marcado`/`onMarcar` (funções fechando sobre `selecionados`) mudam de identidade a cada
-  // seleção; `onTodos` não depende de `selecionados`. O objeto `selecao` em si É novo a cada render (não há como um
-  // objeto literal ser estável), então TODA linha re-renderiza no React.memo quando a seleção muda — mas como
-  // `marcado(id)` só LÊ o Set (não itera todas as linhas), o custo de cada re-render é mínimo, e o teste de render
-  // (abaixo, na suíte) confirma que o CHECKBOX de fato atualiza. `onTodos`/`onMarcar` em `useCallback` evitam
-  // recriar a FUNÇÃO em si desnecessariamente (embora o objeto que as agrupa mude de qualquer forma).
+  // "seleção e memo" (achado carregado da revisão da Task 12b, corrigido de verdade na T13 fix round 1 — ver o
+  // comentário grande acima de `integravelCelula`): `selecao` (o objeto) só é lido pelo CABEÇALHO da tabela
+  // (`todos`/`alguns`/`onTodos`) — cada LINHA recebe só `marcado` (boolean) + `onMarcar` (`useCallback` estável),
+  // nunca o objeto inteiro (`ProdutosTabela.tsx`). `onTodos`/`onMarcar` em `useCallback` evitam recriar a FUNÇÃO em
+  // si a cada render.
   const onTodosSelecao = useCallback(
     (v: boolean) => setSelecionados(v ? new Set((lista?.produtos ?? []).map((p) => p.modeloId)) : new Set()),
     [lista],
@@ -479,24 +493,55 @@ export function ProdutosAba() {
     }),
     [lista, selecionadosLista, selecionados, onTodosSelecao, onMarcarSelecao],
   );
-  const aposEstado = useCallback(() => {
+  // Fix round 1 T13 (revisão T13 #3, code-review m3): `selecionados` só zerava ao trocar situação/filtros/página —
+  // um produto que SAI da página numa relista (a API o integrou, outra pessoa renomeou e a ordenação mudou) ficava
+  // preso no Set pra sempre, e a barra mostrava "3 selecionado(s)" com só 2 marcáveis (o cabeçalho "todos" também
+  // ficava incoerente com o contador). Poda `selecionados` pelos ids da lista atual sempre que ela muda de verdade.
+  useEffect(() => {
+    if (!lista) return;
+    const idsAtuais = new Set(lista.produtos.map((p) => p.modeloId));
+    setSelecionados((s) => {
+      if ([...s].every((id) => idsAtuais.has(id))) return s;
+      return new Set([...s].filter((id) => idsAtuais.has(id)));
+    });
+  }, [lista]);
+  // Fix round 1 T13 (revisão T13 #4, code-review m12, nit): `aposEstado` zerava a seleção INTEIRA mesmo quando a
+  // ação veio do toggle de UMA linha (fora da barra de massa) — integrar/voltar por uma linha isolada apagava a
+  // seleção em massa que o usuário já tinha montado antes. Agora recebe os ids AFETADOS por esta ação e remove só
+  // esses do Set — uma ação de massa (que passa os ids de `massa.integrar`/`massa.voltar`) some da seleção como
+  // antes; uma ação de linha isolada nunca tocou a seleção em massa mesmo, então o efeito prático é idêntico pra
+  // esse caso (o id da linha pode nem estar selecionado).
+  const aposEstado = useCallback((idsAfetados?: string[]) => {
     setIntegrarIds(null);
-    setVoltarProdutos(null);
+    setVoltarIds(null);
     setDesfazerDe(null);
-    setSelecionados(new Set());
+    if (idsAfetados === undefined) { setSelecionados(new Set()); return; }
+    const afetados = new Set(idsAfetados);
+    setSelecionados((s) => new Set([...s].filter((id) => !afetados.has(id))));
   }, []);
   const barraMassa = lista && lista.pode.editar && (
     <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-sm">
-      <span className="tabular-nums">{selecionados.size} selecionado(s)</span>
-      <Button type="button" size="sm" disabled={massa.integrar.length === 0} onClick={() => setIntegrarIds(massa.integrar)}>
+      {/* Fix round 1 T13 (revisão T13 #3, code-review m3): mostra `selecionadosLista.length` (a interseção com a
+          lista atual, a mesma que as ações usam) — nunca `selecionados.size` cru, que podia incluir ids fantasmas
+          antes da poda do efeito acima rodar (a poda é assíncrona; entre a relista e o efeito, o Set ainda pode ter
+          um id que já saiu da página). */}
+      <span className="tabular-nums">{selecionadosLista.length} selecionado(s)</span>
+      {/* Fix round 1 T13 (revisão T13 #8, code-review m8): manda TODOS os selecionados elegíveis pro resumo — não
+          só `massa.integrar` (que já filtra por faltas/reprovado/etc., então abrir o resumo só com ELES escondia
+          em silêncio os que ficam de fora, quando o próprio resumo (`fora`, de `integracao_previa`) existe
+          EXATAMENTE pra explicar "por quê"). A ÚNICA exclusão do lado do cliente é `moduloBloqueado` — não-
+          negociável (regra do brief): um produto de módulo desligado nem tem como ENTRAR num lote de
+          `integracao_marcar` sem derrubar o lote INTEIRO com 42501 (atômico), então nunca é enviado pro resumo. */}
+      <Button type="button" size="sm" disabled={massa.integrar.length === 0}
+        onClick={() => setIntegrarIds(selecionadosLista.filter((p) => !p.moduloBloqueado).map((p) => p.modeloId))}>
         Integrar selecionados
       </Button>
-      {selecionados.size > 0 && massa.motivoIntegrar && <span className="text-xs text-muted-foreground">{massa.motivoIntegrar}</span>}
+      {selecionadosLista.length > 0 && massa.motivoIntegrar && <span className="text-xs text-muted-foreground">{massa.motivoIntegrar}</span>}
       <Button type="button" size="sm" variant="outline" disabled={massa.voltar.length === 0}
-        onClick={() => setVoltarProdutos(selecionadosLista.filter((p) => massa.voltar.includes(p.modeloId)).map((p) => ({ id: p.modeloId, nome: p.raw.nome })))}>
+        onClick={() => setVoltarIds(massa.voltar)}>
         Voltar selecionados
       </Button>
-      {selecionados.size > 0 && massa.motivoVoltar && <span className="text-xs text-muted-foreground">{massa.motivoVoltar}</span>}
+      {selecionadosLista.length > 0 && massa.motivoVoltar && <span className="text-xs text-muted-foreground">{massa.motivoVoltar}</span>}
     </div>
   );
   const onFotos = useCallback((p: ProdutoLista) => setFotosDeId(p.modeloId), []);
@@ -509,6 +554,24 @@ export function ProdutosAba() {
   useEffect(() => {
     if (fotosDeId && lista && (!pFotos || pFotos.estado !== "nao_integravel")) setFotosDeId(null);
   }, [fotosDeId, lista, pFotos]);
+
+  // Fix round 1 T13 (revisão T13 #5, code-review Important I1): os produtos do diálogo Voltar são DERIVADOS de
+  // `voltarIds` contra a lista ATUAL (página + cache de outras páginas/filtros, mesmo helper `produtosEmCache` que a
+  // sobra pós-Salvar já usa) a cada render — nunca um snapshot fixo. Só entram os que CONTINUAM `integravel` (o
+  // único estado que `integracao_voltar` aceita); um produto que a API já levou (ou que outra pessoa já voltou)
+  // durante a janela do diálogo aberto simplesmente SOME da lista mostrada, sem novo clique precisar reenviar um
+  // lote que o servidor rejeitaria de novo. Se NENHUM sobrar, o diálogo fecha sozinho (o efeito abaixo).
+  const voltarProdutosAtuais = useMemo(() => {
+    if (!voltarIds) return [];
+    const cache = produtosEmCache(qc, tenantId);
+    return voltarIds
+      .map((id) => lista?.produtos.find((p) => p.modeloId === id) ?? cache.get(id))
+      .filter((p): p is ProdutoLista => !!p && p.estado === "integravel")
+      .map((p) => ({ id: p.modeloId, nome: p.raw.nome }));
+  }, [voltarIds, lista, qc, tenantId]);
+  useEffect(() => {
+    if (voltarIds && lista && voltarProdutosAtuais.length === 0) setVoltarIds(null);
+  }, [voltarIds, lista, voltarProdutosAtuais]);
 
   const totalPag = lista ? totalPaginas(lista) : 1;
   // m4 (revisão): a página atual passou do total (produtos saíram) — nunca fica sem saída (EmptyState sem
@@ -648,9 +711,14 @@ export function ProdutosAba() {
           onSujoChange={setKeywordsSujo}
         />
       )}
-      {integrarIds && <IntegrarDialog ids={integrarIds} onFechar={() => setIntegrarIds(null)} onFeito={aposEstado} />}
-      {voltarProdutos && <VoltarDialog produtos={voltarProdutos} onFechar={() => setVoltarProdutos(null)} onFeito={aposEstado} />}
-      {desfazerDe && <DesfazerDialog produto={desfazerDe} onFechar={() => setDesfazerDe(null)} onFeito={aposEstado} />}
+      {/* Fix round 1 T13 (revisão T13 #4, code-review m12): cada `onFeito` passa os PRÓPRIOS ids que essa ação
+          afetou — `aposEstado` some só esses da seleção em massa (uma ação de linha isolada nem costuma estar na
+          seleção; uma ação de massa some exatamente os que acabaram de ser integrados/voltados). */}
+      {integrarIds && <IntegrarDialog ids={integrarIds} onFechar={() => setIntegrarIds(null)} onFeito={() => aposEstado(integrarIds)} />}
+      {voltarIds && voltarProdutosAtuais.length > 0 && (
+        <VoltarDialog produtos={voltarProdutosAtuais} onFechar={() => setVoltarIds(null)} onFeito={() => aposEstado(voltarIds)} />
+      )}
+      {desfazerDe && <DesfazerDialog produto={desfazerDe} onFechar={() => setDesfazerDe(null)} onFeito={() => aposEstado([desfazerDe.modeloId])} />}
       <PageActionBar>
         <Button type="button" variant="outline" onClick={() => router.history.back()}>
           <ArrowLeft className="h-4 w-4" />Voltar
