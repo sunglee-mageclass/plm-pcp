@@ -66,7 +66,12 @@ function mensagemIntegracao(code: string, msg: string): string | null {
     return "O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.";
   }
   if (code === "P0409" && msg.startsWith("keywords_mudou:")) {
-    return "Outra pessoa mudou as Keywords da loja enquanto você editava. O texto foi recarregado — confira e salve de novo.";
+    // Fix round 2 T12b (minor m6): "O texto foi recarregado" ficou falso pro caminho corrigido de
+    // `KeywordsDialog.tsx` — o texto DIGITADO nunca é tocado; só o valor de referência (`base`) atualiza por
+    // baixo. Esta função é um FALLBACK genérico (usado por qualquer chamador que deixe um erro cru chegar aqui,
+    // não só o diálogo — que já trata o P0409 localmente e nunca cai neste `return`); o texto agora descreve o
+    // que de fato acontece, sem prometer um recarregamento visível.
+    return "Outra pessoa mudou as Keywords da loja enquanto você editava. Confira o valor mais recente e salve de novo.";
   }
   return null;
 }

@@ -9,6 +9,22 @@
 // em laço, até fechar e reabrir o diálogo. Fix: no P0409, `await` de um `refetchQueries` de verdade (a MESMA lista
 // que carrega `keywords`, achada pelo PREFIXO da chave — `chaveLista`), lê o valor FRESCO do cache depois do
 // refetch resolver, troca só o `base` (nunca o `texto` digitado) e mostra o texto exato pedido pela revisão.
+//
+// Fix round 2 T12b (revisão R1 do task-12b-review.md "Re-review round 1" / R-I3 do task-12b-code-review.md
+// "Re-check round 1") — o fix round 1 ficou incompleto em 2 pontos, e o laço P0409 continuava aberto por 2
+// caminhos diferentes:
+// (a) "manter o meu" (na v1, o botão só escondia a faixa com `setNovoDaLoja(null)`) NUNCA atualizava `base` — como
+//     o servidor compara `coalesce(atual,'') IS DISTINCT FROM esperado` e `esperado` é sempre `base`, deixar
+//     `base` velho fazia TODO Salvar seguinte (mesmo depois de "manter o meu") bater em P0409 de novo, num laço de
+//     verdade — mesmo a própria mensagem dizendo "salve de novo para substituir" (que não funcionava). Fix: no
+//     P0409, `base` já é trocado pro valor FRESCO (o texto digitado nunca muda) — então tanto "manter o meu"
+//     quanto simplesmente salvar de novo já mandam `esperado` = o valor fresco, e o servidor aceita.
+// (b) a leitura do valor fresco usava `getQueriesData(...).find(d => !!d)` — `getQueriesData` devolve na ORDEM DE
+//     INSERÇÃO do QueryCache, não por atividade/recência. Se o usuário tivesse trocado de página/filtro/situação
+//     ANTES de abrir o Keywords, a query ativa (a que o `refetchQueries({type:"active"})` de fato atualizou) podia
+//     não ser a PRIMEIRA da lista — `.find(d => !!d)` pegava uma entrada INATIVA e desatualizada. Fix: lê pela
+//     query com o MAIOR `dataUpdatedAt` entre as em cache com este prefixo (a que o refetch acabou de tocar),
+//     nunca a primeira encontrada.
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -45,12 +61,17 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
   useEffect(() => { onSujoChange?.(dirty); }, [dirty, onSujoChange]);
   useEffect(() => () => onSujoChange?.(false), [onSujoChange]);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: onFechar });
+  // Fix round 2 T12b (R1(a)/R-I3(a)): "usar o novo" TROCA o texto pro valor fresco (nunca só adota em silêncio no
+  // `base` deixando o texto digitado antigo) — `base` já tinha sido atualizado no próprio P0409 (ver `salvar`).
   const usarTextoNovo = () => {
     if (novoDaLoja === null) return;
     setTexto(novoDaLoja);
-    setBase(novoDaLoja);
     setNovoDaLoja(null);
   };
+  // Fix round 2 T12b (R1(a)/R-I3(a)): "manter o meu" só esconde a faixa — `base` JÁ está no valor fresco desde o
+  // P0409 (não precisa trocar de novo aqui). Mantido como função nomeada (em vez de inline) só por simetria com
+  // `usarTextoNovo` e clareza no JSX.
+  const manterOMeu = () => setNovoDaLoja(null);
   const salvar = async () => {
     setSalvando(true);
     try {
@@ -62,18 +83,41 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
       onFechar();
     } catch (e) {
       if ((e as { code?: string })?.code === "P0409") {
-        toast.error(TEXTO_KEYWORDS_CONFLITO);
         // `await` de verdade — nunca lê `atual` (a prop) no mesmo commit, que ainda estaria velho. O refetch busca
         // a MESMA lista que carrega `keywords`; a chave é por PREFIXO (`chaveLista`) porque a query ativa tem mais
         // elementos (situação/filtros/página) do que essa chave "achatada" de 2.
         await qc.refetchQueries({ queryKey: chaveLista(tenantId), type: "active" });
-        const pares = qc.getQueriesData<ListaIntegracao>({ queryKey: chaveLista(tenantId) });
-        const fresco = pares.map(([, d]) => d).find((d): d is ListaIntegracao => !!d);
+        // Fix round 2 T12b (R1(b)/R-I3(b)): `getQueriesData(...).find(d => !!d)` pegava a PRIMEIRA entrada por
+        // ORDEM DE INSERÇÃO do QueryCache — nunca por atividade/recência. Se o usuário tivesse trocado de
+        // página/filtro/situação antes de abrir o Keywords, a 1ª entrada podia ser uma query INATIVA que o
+        // `refetchQueries({type:"active"})` acima nunca tocou, ainda com `keywords` velho. Em vez disso, varre
+        // `getQueryCache().findAll` com o mesmo prefixo e pega a de MAIOR `dataUpdatedAt` — a que o refetch
+        // acabou de atualizar (ou, na ausência de qualquer query ativa, a mais recente disponível mesmo assim).
+        const consultas = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId) });
+        let fresco: ListaIntegracao | undefined;
+        let maisRecente = -Infinity;
+        for (const q of consultas) {
+          const dado = q.state.data as ListaIntegracao | undefined;
+          if (!dado) continue;
+          if (q.state.dataUpdatedAt > maisRecente) {
+            maisRecente = q.state.dataUpdatedAt;
+            fresco = dado;
+          }
+        }
         if (fresco) {
-          // O texto DIGITADO fica exatamente como está — só o valor de referência (`novoDaLoja`) aparece, com as
-          // 2 ações explícitas (usar o novo troca base+texto; ignorar mantém o texto e o `base` velho, então o
-          // próximo Salvar ainda compara contra ele e pode dar P0409 de novo — decisão explícita do usuário).
-          setNovoDaLoja(fresco.keywords ?? "");
+          const valorFresco = fresco.keywords ?? "";
+          // Fix round 2 T12b (R1(a)/R-I3(a)): `base` troca pro valor FRESCO aqui mesmo — o texto DIGITADO fica
+          // exatamente como está. Sem isso, "manter o meu" (ou simplesmente salvar de novo) continuava comparando
+          // contra o `base` VELHO no próximo Salvar, e o servidor recusava com P0409 de novo — um laço de verdade,
+          // apesar do texto da mensagem prometer "salve de novo para substituir".
+          setBase(valorFresco);
+          setNovoDaLoja(valorFresco);
+          toast.error(TEXTO_KEYWORDS_CONFLITO);
+        } else {
+          // Não achou nenhuma lista em cache com dado (caso extremo — nunca teria carregado o diálogo, mas por
+          // segurança nunca deixa `base` desatualizado sem avisar: mensagem genérica, sem `novoDaLoja` (nada fresco
+          // pra oferecer como ação).
+          toast.error(mensagemErro(e, "Não foi possível salvar as Keywords."));
         }
       } else {
         toast.error(mensagemErro(e, "Não foi possível salvar as Keywords."));
@@ -105,7 +149,7 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
             <p className="text-xs text-muted-foreground">Texto novo da loja: {novoDaLoja || "(vazio)"}</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={usarTextoNovo}>usar o texto novo</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setNovoDaLoja(null)}>manter o meu</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={manterOMeu}>manter o meu</Button>
             </div>
           </div>
         )}

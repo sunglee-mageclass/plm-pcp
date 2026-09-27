@@ -420,16 +420,33 @@ describe("Fix round 1 T12b (A-I4/B-I7 a) — validarRascunho espelha as recusas 
     ]);
     expect(validarRascunho(r, "interno")).toEqual([]); // interno não tem o limite de 200
   });
+  // Fix round 2 T12b (minor, ambas as revisões): `.length` do JS conta unidades UTF-16, não CODE POINTS — o
+  // servidor (`char_length` do Postgres) conta code points. Um emoji (fora do BMP) ocupa 2 unidades em `.length`
+  // mas é 1 "caractere" de verdade — um nome com 150 emojis (150 code points, bem dentro do limite de 200) tinha
+  // `.length === 300` e era recusado no CLIENTE por engano, mesmo o servidor aceitando.
+  it("nome > 200: conta CODE POINTS (como o servidor), não unidades UTF-16 — emoji não conta em dobro", () => {
+    const nome150Emojis = "😀".repeat(150); // 150 code points; 300 unidades UTF-16 (cada emoji usa um par surrogate)
+    expect(nome150Emojis.length).toBe(300); // confirma a armadilha: `.length` cru veria 300, > 200
+    const r = editar(rascunho(7), "nome", nome150Emojis);
+    expect(validarRascunho(r, "revenda")).toEqual([]); // 150 code points está DENTRO do limite — nunca recusa
+    const nome201Emojis = "😀".repeat(201); // 201 code points — agora sim, fora do limite
+    const r2 = editar(rascunho(7), "nome", nome201Emojis);
+    expect(validarRascunho(r2, "revenda")).toEqual([
+      { coluna: "nome", texto: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." },
+    ]);
+  });
+  // Fix round 2 T12b (minor m-R4): a mensagem agora NOMEIA o campo (`"Peso": …`) — antes dizia só "…este campo."
+  // apesar de `erros[0].coluna` já estar disponível pro toast (`ProdutosAba.onSalvar`).
   it("valor numérico negativo", () => {
     const r = editar(rascunho(7), "peso_kg", -1);
     expect(validarRascunho(r, "interno")).toEqual([
-      { coluna: "peso_kg", texto: "Valor numérico inválido (use número maior ou igual a zero)." },
+      { coluna: "peso_kg", texto: '"Peso": valor numérico inválido (use número maior ou igual a zero).' },
     ]);
   });
   it("valor fora da escala numeric(p,s) da coluna", () => {
     const r = editar(rascunho(7), "peso_kg", 1e20); // numeric(10,3): 7 dígitos de parte inteira cabem, 1e20 não
     expect(validarRascunho(r, "interno")).toEqual([
-      { coluna: "peso_kg", texto: "Valor numérico fora da faixa permitida para este campo." },
+      { coluna: "peso_kg", texto: '"Peso": valor numérico fora da faixa permitida.' },
     ]);
   });
   it("NULL nunca é inválido (é 'automático'/sem valor, não um número fora de faixa)", () => {

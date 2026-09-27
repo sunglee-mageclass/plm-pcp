@@ -49,6 +49,20 @@ const EXTRA_TRAVA: Record<string, string> = {
 export function rotuloDoCampoTravado(campo: string): string {
   return EXTRA_TRAVA[campo] ?? CAMPO_BY_KEY.get(campo as CampoKey)?.rotulo ?? campo;
 }
+// Fix round 2 T12b (minor m-R4): mapa reverso ColunaEditavel → rótulo curto do campo — usado pra nomear o campo no
+// toast de `validarRascunho` (ex.: faixa numérica fora do permitido), que hoje só diz "…para este campo." mesmo
+// com `erros[0].coluna` disponível. `CAMPO_BY_KEY` é indexado por `CampoKey` (chave da API), não por `coluna` (a
+// coluna real do card) — como mais de um `CampoKey` pode apontar pra mesma coluna (ex.: "descricao"/"metatag" → a
+// mesma `descricao_produto`), o PRIMEIRO achado no catálogo (`CAMPOS`, ordem fixa do layout) vira o rótulo
+// canônico — `Map` nunca sobrescreve silenciosamente porque o `for` abaixo só define a chave quando ainda não
+// existe (`!has`).
+const CAMPO_POR_COLUNA = new Map<ColunaEditavel, string>();
+for (const c of CAMPOS) {
+  if (c.coluna !== null && !CAMPO_POR_COLUNA.has(c.coluna)) CAMPO_POR_COLUNA.set(c.coluna, c.rotuloCurto);
+}
+export function rotuloDaColuna(coluna: ColunaEditavel): string {
+  return CAMPO_POR_COLUNA.get(coluna) ?? coluna;
+}
 export function infoCusto(origem: string): string {
   if (origem === "revenda") return "Só leitura — revenda: valor da OC (bruto − desconto) + insumos.";
   if (origem === "importado") return "Só leitura — importado: custo de chegada (câmbio + frete) + insumos.";

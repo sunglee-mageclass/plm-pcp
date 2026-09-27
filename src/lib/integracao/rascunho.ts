@@ -56,7 +56,7 @@
 //   fica orfão no Storage. `aposSalvar` continua SEM lançar (Minor R1-3 — ele roda DEPOIS do commit; ver o
 //   comentário da própria função).
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
-import type { ColunaEditavel } from "@/lib/integracao/campos";
+import { rotuloDaColuna, type ColunaEditavel } from "@/lib/integracao/campos";
 import type { ProdutoLista, RawProduto, Sublinha } from "@/lib/integracao/produtos";
 import { precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
 import { tituloAoDigitar, tituloAoSair, tituloPaginaCalculado } from "@/lib/titulo-pagina";
@@ -315,7 +315,12 @@ export function validarRascunho(r: Rascunho, origem: ProdutoLista["origem"]): Er
   }
   if (cols.includes("nome") && (origem === "revenda" || origem === "importado")) {
     const nome = String(r.valores.nome ?? "").trim();
-    if (nome.length > LIMITE_NOME_COMPRADO) {
+    // Fix round 2 T12b (minor, ambas as revisões): `.length` do JS conta UNIDADES UTF-16, não CODE POINTS — um
+    // emoji/caractere astral (fora do BMP) ocupa 2 unidades em `.length` mas só 1 "caractere" pra quem digita e
+    // pro Postgres (`char_length` do servidor conta code points). Sem isso, um nome de ~101-200 code points com
+    // ALGUM caractere astral podia ser recusado no CLIENTE mesmo estando dentro do limite real do servidor —
+    // `[...nome].length` (iterador de code points) bate com `char_length`.
+    if ([...nome].length > LIMITE_NOME_COMPRADO) {
       erros.push({
         coluna: "nome",
         texto: `Nome muito longo para o Produto ${origem === "revenda" ? "Acabado" : "Importado"} (máx. 200 caracteres).`,
@@ -337,16 +342,19 @@ export function validarRascunho(r: Rascunho, origem: ProdutoLista["origem"]): Er
     const v = r.valores[coluna];
     if (v === null || v === undefined) continue; // NULL = "sem valor/automático" — nunca inválido
     if (typeof v !== "number" || !Number.isFinite(v)) {
-      erros.push({ coluna, texto: "Valor numérico inválido (use número maior ou igual a zero)." });
+      // Fix round 2 T12b (minor m-R4): nomeia o CAMPO — `erros[0].coluna` já existia, mas o texto sozinho ("…este
+      // campo.") não dizia qual, e o toast (`ProdutosAba.onSalvar`) só concatena `${r.nome}: ${erros[0].texto}` —
+      // sem o nome do campo aqui dentro, o usuário via só "Produto X: valor inválido", sem saber ONDE.
+      erros.push({ coluna, texto: `"${rotuloDaColuna(coluna)}": valor numérico inválido (use número maior ou igual a zero).` });
       continue;
     }
     if (v < 0) {
-      erros.push({ coluna, texto: "Valor numérico inválido (use número maior ou igual a zero)." });
+      erros.push({ coluna, texto: `"${rotuloDaColuna(coluna)}": valor numérico inválido (use número maior ou igual a zero).` });
       continue;
     }
     const arredondado = Math.round(v * 10 ** faixa.casas) / 10 ** faixa.casas;
     if (Math.abs(arredondado) >= 10 ** faixa.digitos) {
-      erros.push({ coluna, texto: "Valor numérico fora da faixa permitida para este campo." });
+      erros.push({ coluna, texto: `"${rotuloDaColuna(coluna)}": valor numérico fora da faixa permitida.` });
     }
   }
   return erros;

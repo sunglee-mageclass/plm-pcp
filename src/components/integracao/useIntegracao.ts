@@ -14,7 +14,7 @@
 // (mesmo padrão de `useChaveAtrasada` do Sheet, `useSkusModelo.ts`), e `usePreviasSkus` atrasa `JSON.stringify(
 // entradas)` — uma string igual a si mesma entre renders enquanto nada muda de verdade — e reconstrói o mapa via
 // `useMemo(() => JSON.parse(...))`.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -161,6 +161,13 @@ export function useIntegracaoConfig() {
  *  Sheet (`useSkusModelo.ts:194`); sem isso a célula de erro nunca seria "atual" e ficaria presa em "calculando…". */
 export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<string, PreviaSkus | undefined> {
   const tenantId = useActiveTenantId();
+  // Fix round 2 T12b (minor, ambas as revisões — "memoize previaDeErro"): sem isso, `previaDeErro(r, chave,
+  // q.error)` criava um objeto NOVO em TODO render deste hook pra cada query com erro — mesmo quando nada mudou
+  // (mesmo `r`, mesma `chave`, mesmo `error`). Qualquer célula/linha memoizada rio abaixo que recebesse essa
+  // `PreviaSkus` como prop nunca bateria no comparador raso do `React.memo`, rerrenderizando à toa. Chaveado por
+  // `${modeloId}:${chave}` — muda de identidade só quando a ENTRADA muda de verdade (o erro em si não carrega
+  // identidade própria pra comparar; a chave já é o que determina se a prévia "significa a mesma coisa").
+  const previaErroCache = useRef<Map<string, PreviaSkus>>(new Map());
   const comSku = rascunhos
     .map((r) => ({ r, e: entradaSkus(r) }))
     .filter((x): x is { r: Rascunho; e: EntradaSkus } => x.e !== null && temSkuAGravar(x.r));
@@ -195,11 +202,28 @@ export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<st
       };
     }),
   });
+  // Poda o cache de erro pelos ids AINDA com SKU a gravar neste render — mesmo padrão de `semRascunhoCache` em
+  // `ProdutosAba.tsx` (o cache não cresce sem limite entre digitações/navegações).
+  const vivos = new Set(comSku.map(({ r }) => `${r.modeloId}:${entradasAtrasadas[r.modeloId] ?? entradas[r.modeloId]}`));
+  for (const chave of previaErroCache.current.keys()) {
+    if (!vivos.has(chave)) previaErroCache.current.delete(chave);
+  }
   return Object.fromEntries(
     comSku.map(({ r }, i) => {
       const q = qs[i];
       const chave = entradasAtrasadas[r.modeloId] ?? entradas[r.modeloId];
-      if (q?.isError) return [r.modeloId, previaDeErro(r, chave, q.error)];
+      if (q?.isError) {
+        const chaveCache = `${r.modeloId}:${chave}`;
+        const cache = previaErroCache.current;
+        const emCache = cache.get(chaveCache);
+        // `emCache` já cobre "mesma entrada" (a chave já leva `chave`, que é o que caracteriza a tentativa) — um
+        // erro NOVO pra mesma entrada (ex.: um retry que falha de novo) reaproveita o mesmo objeto memoizado; só a
+        // MENSAGEM pode diferir de verdade num retry (rede instável), mas a UI trata isso como "mesma falha".
+        if (emCache) return [r.modeloId, emCache];
+        const novo = previaDeErro(r, chave, q.error);
+        cache.set(chaveCache, novo);
+        return [r.modeloId, novo];
+      }
       return [r.modeloId, q?.data];
     }),
   );

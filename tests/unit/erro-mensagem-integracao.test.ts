@@ -19,8 +19,10 @@ describe("mensagemErro — recusas da Integração (traduz pelo code + prefixo A
     expect(mensagemErro({ code: "42501", message: "integracao_sem_custo: x" })).toBe('Com "Preço de custo" marcado, só integra quem pode ver custos.');
     expect(mensagemErro({ code: "P0409", message: "integracao_mudou: produto x mudou desde o resumo" }))
       .toBe("O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.");
+    // Fix round 2 T12b (minor m6): "O texto foi recarregado" ficou falso pro caminho corrigido de
+    // `KeywordsDialog.tsx` (o texto digitado nunca é tocado) — texto atualizado pra descrever o que de fato acontece.
     expect(mensagemErro({ code: "P0409", message: "keywords_mudou: as keywords da loja mudaram" }))
-      .toBe("Outra pessoa mudou as Keywords da loja enquanto você editava. O texto foi recarregado — confira e salve de novo.");
+      .toBe("Outra pessoa mudou as Keywords da loja enquanto você editava. Confira o valor mais recente e salve de novo.");
     expect(mensagemErro({ code: "P0409", message: "conflito_versao: o produto foi salvo por outra pessoa" })).toMatch(/Outra pessoa salvou/);
   });
   it("42501 próprios da Integração mostram o motivo real", () => {

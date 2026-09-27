@@ -39,7 +39,7 @@ import {
   FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, faixaPagina, rotuloEstado, textoFaltas, tomEstado, totalPaginas,
   type EstadoIntegracao, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
-import { aposSalvar, mesclar, novoRascunho, temAlteracao, validarRascunho, type Rascunho } from "@/lib/integracao/rascunho";
+import { aposSalvar, mesclar, novoRascunho, temAlteracao, validarRascunho, type Rascunho, type Valores } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
 import { chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
@@ -115,6 +115,38 @@ export function ProdutosAba() {
   // m7 (revisão): o texto sujo do diálogo de Keywords também soma na guarda ÚNICA da página — sem isso, "Voltar" do
   // navegador ou F5 com o diálogo aberto e texto digitado saía sem perguntar (a guarda só olhava `rascunhos`).
   const [keywordsSujo, setKeywordsSujo] = useState(false);
+  // Fix round 2 T12b (R1/R-I1): ids já avisados por "descartadas" — o efeito de merge roda de novo a cada
+  // `q.dataUpdatedAt` (B-I1), então sem isso o MESMO produto tocaria o toast a cada relista idêntica enquanto seu
+  // id continuar em `rascunhosRef.current` por qualquer razão (não deveria, mas o aviso é 1x por produto de
+  // qualquer forma — nunca depende de o id ainda existir ou não em `rascunhos`).
+  const avisadosDescarte = useRef<Set<string>>(new Set());
+  // Fix round 2 T12b (R3/ruling B-I3, nunca implementado antes): depois de um Salvar bem-sucedido SEM sobra (tudo
+  // gravou), a lista em cache só reflete o valor novo depois do refetch de `onSettled` (useIntegracao.ts) — uma
+  // janela de alguns segundos em que `lista.produtos` (e portanto `rascunhoDe`/as células) ainda mostram os
+  // valores VELHOS. Sem essa "espera", 2 problemas: (1) a célula pisca de volta pro valor anterior por um
+  // instante; (2) se o usuário digitar de novo NESSA janela, o novo rascunho nasceria com `base`/`rev` do produto
+  // AINDA VELHO da lista — um Salvar imediato levaria o `rev` errado (P0409/conflito falso contra si mesmo). Este
+  // mapa guarda, por produto, os valores E o rev que ACABARAM de ser salvos; enquanto `salvosAguardando[id]`
+  // existir, todo lugar que monta um Rascunho novo (rascunhoDe → novoRascunho) usa ESSES valores/rev em vez dos da
+  // lista em cache — nunca o `lista.produtos.find(...)` puro. Cai sozinho (limpo no efeito de merge) assim que a
+  // relista mostra `p.rev >= aguardando.rev` — o servidor finalmente alcançou.
+  const [salvosAguardando, setSalvosAguardando] = useState<Record<string, { valores: Valores; rev: number }>>({});
+  const salvosAguardandoRef = useRef(salvosAguardando);
+  salvosAguardandoRef.current = salvosAguardando;
+  // Substitui `raw`/`rev` do produto pelos valores SALVOS enquanto a espera durar — nunca o inverso (a lista em
+  // cache vence assim que alcança ou ultrapassa o rev salvo; ver a limpeza no efeito de merge abaixo).
+  const produtoComHold = useCallback(
+    (p: ProdutoLista): ProdutoLista => {
+      const aguardando = salvosAguardando[p.modeloId];
+      if (!aguardando || aguardando.rev < p.rev) return p;
+      return {
+        ...p,
+        rev: aguardando.rev,
+        raw: { ...p.raw, ...aguardando.valores, tamanho_tipo: p.raw.tamanho_tipo },
+      };
+    },
+    [salvosAguardando],
+  );
   const q = useIntegracaoLista(situacao, filtros, pagina);
   const idsPagina = useMemo(() => (q.data?.produtos ?? []).map((p) => p.modeloId), [q.data]);
   useIntegracaoAoVivo(idsPagina);
@@ -133,14 +165,21 @@ export function ProdutosAba() {
   // m6 (revisão): o debounce da busca NUNCA aplica um filtro novo enquanto há rascunho sujo/Salvar em voo — sem
   // isso, digitar em Buscar e editar uma célula em menos de 400 ms mudava a lista debaixo do usuário com filtros
   // "travados" na tela (uma das portas de entrada do rascunho escondido, I2/B-I2).
+  // Fix round 2 T12b (R2/R-I2): o efeito também dispara quando `travaFiltro` solta (Salvar terminou, edição
+  // desfeita, Keywords fechou) — sem mudar `busca` nenhuma. Antes, isso chamava `setPagina(1)` incondicionalmente
+  // e jogava o usuário de volta pra página 1 mesmo com a busca intacta (ex.: Salvar na página 3). Agora só reseta
+  // a página quando a busca DE FATO mudou em relação ao que já está aplicado em `filtros.busca` — comparado FORA
+  // do updater de `setFiltros` (nunca chamar `setPagina` de dentro de um updater funcional, que o React pode
+  // invocar mais de uma vez).
   useEffect(() => {
     if (travaFiltro) return;
     const t = setTimeout(() => {
-      setFiltros((f) => (f.busca === busca ? f : { ...f, busca }));
+      if (filtros.busca === busca) return;
+      setFiltros((f) => ({ ...f, busca }));
       setPagina(1);
     }, 400);
     return () => clearTimeout(t);
-  }, [busca, travaFiltro]);
+  }, [busca, travaFiltro, filtros.busca]);
 
   // Chegou versão nova do servidor: merge 3-vias por produto; quem virou integrável por outra pessoa perde o rascunho
   // (avisa). Fix round 1 T12b (B-I1/parte do I1): depende também de `q.dataUpdatedAt` — um refetch cujo RESULTADO é
@@ -151,36 +190,95 @@ export function ProdutosAba() {
   useEffect(() => {
     if (!lista) return;
     const prox: Record<string, Rascunho> = {};
-    const descartados: string[] = [];
-    let mudou = false;
+    const descartarIds: string[] = [];
+    const descartados: { id: string; nome: string }[] = [];
+    let mudouAlgo = false;
     for (const [id, r] of Object.entries(rascunhosRef.current)) {
       const p = lista.produtos.find((x) => x.modeloId === id);
       if (!p) { prox[id] = r; continue; } // fora da página atual — vira "escondido" (ver `escondidos` abaixo)
       if (p.estado !== "nao_integravel") {
-        mudou = true;
-        if (temAlteracao(r)) descartados.push(r.nome);
+        mudouAlgo = true;
+        descartarIds.push(id);
+        if (temAlteracao(r) && !avisadosDescarte.current.has(id)) descartados.push({ id, nome: r.nome });
         continue;
       }
       const m = mesclar(r, p);
-      if (m !== r) mudou = true;
+      if (m !== r) mudouAlgo = true;
       prox[id] = m;
     }
-    if (mudou) setRascunhos((rs) => ({ ...rs, ...prox })); // m8: updater funcional, mesmo sendo seguro hoje sem ele
-    for (const nome of descartados) {
+    // Fix round 2 T12b (R1/R-I1): regressão do fix round 1 (m8) — `{...rs, ...prox}` NUNCA remove uma chave, só
+    // sobrescreve; um id que virou integrável (pulado com `continue` acima, portanto ausente de `prox`) ficava
+    // preso em `rs` pra sempre, e um Salvar seguinte reenviava um rascunho de um produto que não é mais editável
+    // (42501 do servidor, ou pior, resgatando um payload velho). O updater agora parte de `rs`, aplica `prox` por
+    // cima (produtos que sobreviveram/mesclaram) e DELETA explicitamente cada id descartado.
+    if (mudouAlgo) {
+      setRascunhos((rs) => {
+        const seguinte = { ...rs, ...prox };
+        for (const id of descartarIds) delete seguinte[id];
+        return seguinte;
+      });
+    }
+    for (const { id, nome } of descartados) {
+      avisadosDescarte.current.add(id);
       toast.warning(`As alterações de "${nome}" foram descartadas: outra pessoa deixou o produto integrável.`);
     }
     // `q.dataUpdatedAt` na dependência é de propósito (B-I1): força re-checagem num refetch cujo dado é idêntico
     // por structural sharing (a referência de `lista` não muda sozinha nesse caso).
   }, [lista, q.dataUpdatedAt]);
 
+  // Ruling B-I3 — fim da espera: solta o "salvo, aguardando lista" assim que a PRÓPRIA lista mostrar `p.rev >=
+  // aguardando.rev` pra aquele produto (o servidor finalmente alcançou; a partir daqui a lista É a fonte mais
+  // atual, não precisa mais do valor guardado aqui). Um produto que sumiu da página (raro, mas possível — filtro
+  // mudou no meio) mantém a espera até reaparecer; não há pressa em limpar isso (é só um mapa auxiliar, nunca
+  // exposto fora desta tela).
+  useEffect(() => {
+    if (!lista) return;
+    const idsAguardando = Object.keys(salvosAguardandoRef.current);
+    if (idsAguardando.length === 0) return;
+    let mudou = false;
+    const prox = { ...salvosAguardandoRef.current };
+    for (const id of idsAguardando) {
+      const p = lista.produtos.find((x) => x.modeloId === id);
+      if (p && p.rev >= prox[id].rev) {
+        delete prox[id];
+        mudou = true;
+      }
+    }
+    if (mudou) setSalvosAguardando(prox);
+  }, [lista, q.dataUpdatedAt]);
+
+  // Fix round 2 T12b (minor m4): super admin troca de loja com rascunhos sujos pendentes (mesmo depois de cancelar
+  // um "Descartar?" da guarda de navegação — `useAbaSuja`/`UnsavedChangesGuard` protegem TROCAR DE ROTA, não
+  // trocar de loja no mesmo componente) — sem isso, os rascunhos da loja ANTERIOR continuavam em `rascunhos` e
+  // iam num Salvar seguinte contra a loja NOVA (a faixa de escondidos ajudava a perceber, mas não impedia).
+  // `tenantId` é a fonte de verdade de "qual loja" (a MESMA que toda queryKey desta tela já usa, P-57) — todo
+  // estado por-produto reseta quando ele muda; filtros/situação/página (preferência de navegação, não dado de
+  // produto) continuam como estavam.
+  const tenantIdRef = useRef(tenantId);
+  useEffect(() => {
+    if (tenantIdRef.current === tenantId) return;
+    tenantIdRef.current = tenantId;
+    setRascunhos({});
+    setSalvosAguardando({});
+    setFotosDeId(null);
+    setKeywordsAberto(false);
+    setKeywordsSujo(false);
+    avisadosDescarte.current = new Set();
+  }, [tenantId]);
+
   // Fix round 1 T12b (A-I6/B-I2, D36 "nenhum rascunho fica escondido") — produtos com rascunho sujo que NÃO estão
   // na página atual (renomeado, saiu do filtro, mudou de estado noutra aba, ou o próprio Salvar fez sobrar SKU
   // depois de uma renomeação que moveu o produto de página). Nunca ficam presos: aparecem numa faixa própria com
   // nome + ações, independente da página/filtro atual.
   const idsPaginaAtual = useMemo(() => new Set((lista?.produtos ?? []).map((p) => p.modeloId)), [lista]);
+  // Fix round 2 T12b (minor m-R7): com `lista` ainda `undefined` (1º carregamento, ou uma troca de loja/filtro
+  // ainda em voo), `idsPaginaAtual` fica um Set VAZIO — sem essa guarda, TODO rascunho sujo passaria a aparecer
+  // momentaneamente na faixa "fora desta página" (nenhum id bate num Set vazio), mesmo que o produto continue
+  // exatamente na página atual assim que a lista chegar. Sem `lista` de verdade ainda não há como saber se algo
+  // está "fora" — a resposta correta é "nenhum é considerado escondido ainda", não "todos são".
   const escondidos = useMemo(
-    () => sujos.filter((r) => !idsPaginaAtual.has(r.modeloId)),
-    [sujos, idsPaginaAtual],
+    () => (lista ? sujos.filter((r) => !idsPaginaAtual.has(r.modeloId)) : []),
+    [sujos, idsPaginaAtual, lista],
   );
 
   // Props ESTÁVEIS para o React.memo de LinhaProduto (achado do code-review T12a, carregado no carry desta task):
@@ -191,7 +289,9 @@ export function ProdutosAba() {
   // m2 (revisão) — poda pelos ids da PÁGINA atual a cada render: o cache não cresce sem limite entre navegações.
   const semRascunhoCache = useRef<Map<string, Rascunho>>(new Map());
   if (lista) {
-    const vivos = new Set(lista.produtos.map((p) => `${p.modeloId}:${p.rev}`));
+    // B-I3: a chave "viva" usa o rev EFETIVO (com hold aplicado), senão a entrada que `rascunhoDe` acabou de criar
+    // pra um produto em espera seria podada no MESMO render (o `p.rev` cru da lista ainda não bateu).
+    const vivos = new Set(lista.produtos.map((p) => `${p.modeloId}:${produtoComHold(p).rev}`));
     for (const chave of semRascunhoCache.current.keys()) {
       if (!vivos.has(chave)) semRascunhoCache.current.delete(chave);
     }
@@ -200,20 +300,29 @@ export function ProdutosAba() {
     (p: ProdutoLista): Rascunho => {
       const existente = rascunhos[p.modeloId];
       if (existente) return existente;
-      const chave = `${p.modeloId}:${p.rev}`;
+      // Ruling B-I3: enquanto há um "salvo, aguardando lista" pra este produto, o Rascunho SEM edição própria
+      // nasce dos valores SALVOS (não dos da lista em cache, que podem continuar mostrando o valor pré-Salvar).
+      const efetivo = produtoComHold(p);
+      const chave = `${efetivo.modeloId}:${efetivo.rev}`;
       const cache = semRascunhoCache.current;
       const emCache = cache.get(chave);
       if (emCache) return emCache;
-      const novo = novoRascunho(p);
+      const novo = novoRascunho(efetivo);
       cache.set(chave, novo);
       return novo;
     },
-    [rascunhos],
+    [rascunhos, produtoComHold],
   );
   const atualizar = useCallback(
     (p: ProdutoLista, f: (r: Rascunho) => Rascunho) =>
-      setRascunhos((rs) => ({ ...rs, [p.modeloId]: f(rs[p.modeloId] ?? novoRascunho(p)) })),
-    [],
+      setRascunhos((rs) => {
+        // Ruling B-I3: uma edição NOVA que nasce durante a espera parte de `base`/`rev` = os valores SALVOS (não os
+        // da lista em cache, ainda velha) — sem isso, um Salvar imediato dessa edição mandaria um `rev` atrasado e
+        // levaria um P0409/conflito falso contra o PRÓPRIO Salvar que acabou de terminar.
+        const efetivo = produtoComHold(p);
+        return { ...rs, [p.modeloId]: f(rs[p.modeloId] ?? novoRascunho(efetivo)) };
+      }),
+    [produtoComHold],
   );
 
   const onSalvar = () => {
@@ -245,6 +354,11 @@ export function ProdutosAba() {
       // pulado por inteiro: nunca ressuscitado.
       onSuccess: (res) => {
         const cache = produtosEmCache(qc, tenantId);
+        // Ruling B-I3: junta os "salvo, aguardando lista" deste Salvar — só para os produtos que gravaram por
+        // inteiro (sem sobra: `aposSalvar` devolveu null). Um produto com sobra NÃO entra aqui — ele já mostra o
+        // rascunho residual, que é a fonte de verdade mais atual que existe (mais nova que qualquer coisa que a
+        // lista possa trazer).
+        const novosAguardando: Record<string, { valores: Valores; rev: number }> = {};
         setRascunhos((rs) => {
           const prox = { ...rs };
           for (const enviado of enviados) {
@@ -252,8 +366,9 @@ export function ProdutosAba() {
             // produto virou integrável/saiu da lista) — não ressuscitar, mesmo que os SKUs dele tenham falhado.
             const atual = rs[enviado.modeloId];
             if (!atual) continue;
+            const revSalvo = res.revs[enviado.modeloId];
             let sobra = aposSalvar(atual, {
-              rev: res.revs[enviado.modeloId],
+              rev: revSalvo,
               fotos: res.fotos[enviado.modeloId],
               skusGravados: res.skusOk.includes(enviado.modeloId),
             });
@@ -263,10 +378,19 @@ export function ProdutosAba() {
               prox[enviado.modeloId] = sobra;
             } else {
               delete prox[enviado.modeloId];
+              if (revSalvo !== undefined) {
+                novosAguardando[enviado.modeloId] = {
+                  valores: { ...atual.valores, fotos_modelo: res.fotos[enviado.modeloId] ?? atual.valores.fotos_modelo },
+                  rev: revSalvo,
+                };
+              }
             }
           }
           return prox;
         });
+        if (Object.keys(novosAguardando).length > 0) {
+          setSalvosAguardando((sa) => ({ ...sa, ...novosAguardando }));
+        }
         if (res.salvos > 0) toast.success(res.salvos === 1 ? "1 produto salvo." : `${res.salvos} produtos salvos.`);
         if (res.skusOk.length > 0) toast.success(`SKUs gravados em ${res.skusOk.length} produto(s).`);
         for (const f of res.skusFalhas) toast.error(`${f.nome}: ${f.texto}`);
@@ -296,7 +420,10 @@ export function ProdutosAba() {
   const onFotos = useCallback((p: ProdutoLista) => setFotosDeId(p.modeloId), []);
   // Fix round 1 T12b (B-I1): deriva da lista ATUAL a cada render — nunca o snapshot capturado no clique. Fecha
   // sozinho se o produto sumir da lista OU deixar de ser editável (travou por outra pessoa) enquanto está aberto.
-  const pFotos = fotosDeId ? (lista?.produtos.find((p) => p.modeloId === fotosDeId) ?? null) : null;
+  // Ruling B-I3: passa por `produtoComHold` — se o diálogo continuar aberto logo depois de um Salvar sem sobra, as
+  // fotos exibidas são as SALVAS, não as velhas da lista em cache que ainda não relistou.
+  const pFotosBruto = fotosDeId ? (lista?.produtos.find((p) => p.modeloId === fotosDeId) ?? null) : null;
+  const pFotos = pFotosBruto ? produtoComHold(pFotosBruto) : null;
   useEffect(() => {
     if (fotosDeId && lista && (!pFotos || pFotos.estado !== "nao_integravel")) setFotosDeId(null);
   }, [fotosDeId, lista, pFotos]);
@@ -308,10 +435,15 @@ export function ProdutosAba() {
     if (lista && lista.produtos.length === 0 && lista.total > 0 && pagina > totalPag) setPagina(totalPag);
   }, [lista, pagina, totalPag]);
 
+  // Fix round 2 T12b (R4/m-R1): buscava por `r.valores.ref` — o REF DIGITADO, ainda não salvo. Se o usuário editou
+  // a REF (ou ela ainda nem chegou a bater no servidor), essa busca nunca encontra o produto na lista (que só
+  // conhece o REF CONFIRMADO), e "mostrar" parece simplesmente não fazer nada. Usa `r.base.ref`/`r.base.nome` — o
+  // valor que o SERVIDOR confirma, o único que a busca de `integracao_listar` de fato indexa.
   const mostrarEscondido = (r: Rascunho) => {
+    const termo = r.base.ref ? String(r.base.ref) : r.base.nome;
     setSituacao("nao_integrados");
-    setFiltros({ ...FILTROS_VAZIOS, busca: r.valores.ref ? String(r.valores.ref) : r.nome });
-    setBusca(r.valores.ref ? String(r.valores.ref) : r.nome);
+    setFiltros({ ...FILTROS_VAZIOS, busca: termo });
+    setBusca(termo);
     setPagina(1);
   };
   const descartarEscondido = (r: Rascunho) => setRascunhos((rs) => {
@@ -334,8 +466,11 @@ export function ProdutosAba() {
             {escondidos.map((r) => (
               <li key={r.modeloId} className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate">{r.nome}</span>
-                <Button type="button" variant="outline" size="sm" onClick={() => mostrarEscondido(r)}>mostrar</Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => descartarEscondido(r)}>descartar</Button>
+                {/* Fix round 2 T12b (minor m3): "mostrar" troca filtro/situação/página (já travados por
+                    `travaFiltro` durante o Salvar) e "descartar" apaga o rascunho — os dois desabilitados enquanto
+                    o Salvar está em voo, pra não correr com o `setRascunhos` do `onSuccess`/`onError`. */}
+                <Button type="button" variant="outline" size="sm" disabled={salvar.isPending} onClick={() => mostrarEscondido(r)}>mostrar</Button>
+                <Button type="button" variant="ghost" size="sm" disabled={salvar.isPending} onClick={() => descartarEscondido(r)}>descartar</Button>
               </li>
             ))}
           </ul>

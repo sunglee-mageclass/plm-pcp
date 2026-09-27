@@ -305,6 +305,60 @@ describe("Fix round 1 T12b (A-I3) — 'usar o novo' do SKU mostra o valor novo m
     expect(input.value).not.toBe("BLTS0001-AZ-P");
     view.unmount();
   });
+
+  // Fix round 2 T12b (minor m-R6): a v1 só limpava o snapshot quando `sub.sku` chegava a ser EXATAMENTE o valor
+  // snapshotado ("SKU-FRESCO-DO-SERVIDOR") — se a relista seguinte trouxesse um TERCEIRO valor (nem o antigo, nem
+  // o snapshotado; ex.: alguém regerou o SKU de novo antes do Realtime confirmar o primeiro), a célula ficava
+  // presa mostrando o snapshot pra sempre, mesmo com um dado mais novo (o terceiro valor) já disponível na lista.
+  it("regressão m-R6: relista com um TERCEIRO valor de SKU (nem o antigo nem o snapshotado) solta o snapshot e mostra o valor novo da lista", () => {
+    const produto = produtoComSublinha(); // sublinha tem sku="BLTS0001-AZ-P" (o valor "velho")
+    let rascunho = novoRascunho(produto);
+    rascunho = { ...rascunho, skus: { regerar: false, manuais: { "v1|P": { varianteKey: "v1", tamanhoKey: "P", sku: "MEU-SKU", id: "sku-1", rev: 3 } } } };
+    const entrada = chaveEntradaPrevia({ ref: "BLTS0001", tamanhoTipo: "letra", aGravar: rascunho.skus, virgem: false });
+    const previaComConflito = {
+      matriz: {
+        status: "ok" as const, tamanho_tipo: "letra" as const, tamanho_tipo_card: "letra" as const, faltas: [], avisos: [],
+        linhas: [{
+          variante_key: "v1", variante_ordem: 1, cor_nome: "Azul", apelido_nome: null, tamanho_key: "P", tamanho_ordem: 1,
+          id: "sku-1-NOVO", sku: "SKU-FRESCO-DO-SERVIDOR", manual: true, rev: 9, sku_previsto: null, faltas: [], avisos: [], conflito_com: null,
+          estado: "manual" as const,
+          previa: { acao: "erro" as const, sku_de: "SKU-FRESCO-DO-SERVIDOR", sku_para: "MEU-SKU", mensagem: null, code: "P0409" },
+        }],
+      },
+      assinatura: "a".repeat(32), erros: [], nConflitos: 1,
+      entrada,
+      desconhecida: false,
+    };
+    const onAtualizar = (f: (r: Rascunho) => Rascunho) => { rascunho = f(rascunho); };
+    const props = (produtoAgora: ProdutoLista, previa: unknown) => createElement(CelulaCampo, {
+      campo: campoSku(), produto: produtoAgora, indice: 0, rascunho, previa: previa as never, salvando: false,
+      onAtualizar, onKeywords: () => {}, onFotos: () => {},
+    });
+    const view = montar(props(produto, previaComConflito));
+    const botaoUsarNovo = [...view.container.querySelectorAll("button")].find((b) => b.textContent === "usar o novo");
+    act(() => { botaoUsarNovo!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(rascunho.skus.manuais["v1|P"]).toBeUndefined();
+    // Sem manual restando, a prévia some no próximo render (mesma mecânica do teste anterior) — o snapshot
+    // ("SKU-FRESCO-DO-SERVIDOR") é o que sustenta a célula.
+    view.rerender(props(produto, undefined));
+    let input = view.container.querySelector("input") as HTMLInputElement;
+    expect(input.value).toBe("SKU-FRESCO-DO-SERVIDOR");
+    // A relista seguinte chega com um TERCEIRO valor — nem "BLTS0001-AZ-P" (o original) nem "SKU-FRESCO-DO-SERVIDOR"
+    // (o snapshotado). Isso É uma atualização de verdade da lista (outra pessoa regerou de novo); o snapshot precisa
+    // soltar e mostrar esse valor novo, nunca ficar preso no snapshotado.
+    const produtoTerceiroValor = produtoComSublinha({
+      sublinhas: [{
+        variante_key: "v1", tamanho_key: "P", variante_ordem: 1, tamanho_ordem: 1,
+        cor_nome: "Azul", apelido_nome: null, tamanho: "P", sku_id: "sku-1", sku: "SKU-TERCEIRO-VALOR",
+        sku_rev: 10, manual: false,
+      }],
+    });
+    view.rerender(props(produtoTerceiroValor, undefined));
+    input = view.container.querySelector("input") as HTMLInputElement;
+    expect(input.value).toBe("SKU-TERCEIRO-VALOR");
+    expect(input.value).not.toBe("SKU-FRESCO-DO-SERVIDOR");
+    view.unmount();
+  });
 });
 
 describe("Fix round 2 (R1-2) — selo 'automático' do Preço anterior editável VOLTOU", () => {

@@ -123,6 +123,86 @@ describe("useIntegracao — useValorAtrasado só aceita string (I3); queryFn der
   });
 });
 
+// Fix round 2 T12b (minor, ambas as revisões — "memoize previaDeErro"): render de VERDADE (não regex-on-source) —
+// `usePreviasSkus` precisa devolver a MESMA referência de `PreviaSkus` de erro entre 2 renders quando nada mudou
+// (mesmo rascunho, mesma entrada, RPC continua falhando do mesmo jeito). Harness próprio: monta um componente que
+// chama o hook de verdade e expõe o resultado via ref; mocka só `supabase.rpc` (falha sempre) e `useActiveTenantId`.
+describe("useIntegracao — usePreviasSkus memoiza previaDeErro (identidade estável entre renders sem mudança real)", () => {
+  async function montarPreviasSkus(rascunhoInicial: unknown) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: { rpc: async () => ({ data: null, error: Object.assign(new Error("falhou"), { code: "" }) }) },
+    }));
+    const { createElement } = await import("react");
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { usePreviasSkus } = await import("@/components/integracao/useIntegracao");
+    const resultadoRef: { current: Record<string, unknown> } = { current: {} };
+    let rascunhoAtual = rascunhoInicial;
+    function Sonda() {
+      resultadoRef.current = usePreviasSkus([rascunhoAtual as any], true);
+      return null;
+    }
+    // `retry: false` — sem isso, o QueryClient tenta de novo (com backoff) antes de marcar `isError`, e o polling
+    // do teste levaria segundos reais pra ver o erro de verdade.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const arvore = () => createElement(QueryClientProvider, { client: qc }, createElement(Sonda));
+    await act(async () => { root.render(arvore()); });
+    return {
+      resultadoRef,
+      // Rerender com um rascunho DIFERENTE (novo objeto, mas mesma entrada relevante) — simula o que acontece na
+      // tela real (o objeto `Rascunho` muda de referência a cada `setRascunhos`, mesmo sem edição de verdade).
+      rerenderComNovoObjetoEquivalente: (novo: unknown) => {
+        rascunhoAtual = novo;
+        return act(async () => { root.render(arvore()); });
+      },
+      aguardarErro: async () => {
+        // A query precisa resolver (falhar) e re-renderizar antes do resultado ter `previaDeErro` no lugar de `undefined`.
+        for (let i = 0; i < 20 && !(resultadoRef.current as any).m1; i++) {
+          await act(async () => { await new Promise((r) => setTimeout(r, 20)); root.render(arvore()); });
+        }
+      },
+      desmontar: async () => { await act(async () => root.unmount()); container.remove(); },
+    };
+  }
+
+  it("2 renders com o MESMO erro e a MESMA entrada devolvem a MESMA referência de PreviaSkus (não recria à toa)", async () => {
+    const { novoRascunho, comSkus } = await import("@/lib/integracao/rascunho");
+    const { lerLista } = await import("@/lib/integracao/produtos");
+    const construirRascunho = () => {
+      const lista = lerLista({
+        campos: [], produtos: [{
+          modelo_id: "m1", origem: "interno", estado: "nao_integravel", rev: 1,
+          raw: { nome: "Produto Teste", ref: "REF0001", tamanho_tipo: "letra" },
+          faltas: [], completo: true, sublinhas: [],
+        }],
+      });
+      const p = lista.produtos[0];
+      return comSkus(novoRascunho(p), {
+        regerar: false,
+        manuais: { "v1|P": { varianteKey: "v1", tamanhoKey: "P", sku: "MEU-SKU", id: "s1", rev: 1 } },
+      });
+    };
+    const view = await montarPreviasSkus(construirRascunho());
+    await view.aguardarErro();
+    const primeiraReferencia = (view.resultadoRef.current as any).m1;
+    expect(primeiraReferencia, "esperava uma PreviaSkus de erro pra m1").toBeDefined();
+    // Rerender com um NOVO objeto Rascunho (referência diferente, mas MESMA entrada: mesmo modeloId/ref/skus) —
+    // exatamente o que acontece na tela real a cada `setRascunhos`. A entrada (chave) não mudou, e o erro é o
+    // mesmo — a `PreviaSkus` devolvida precisa ser a MESMA referência (memoizada), não uma recriada à toa.
+    await view.rerenderComNovoObjetoEquivalente(construirRascunho());
+    await view.aguardarErro();
+    const segundaReferencia = (view.resultadoRef.current as any).m1;
+    expect(segundaReferencia).toBe(primeiraReferencia); // MESMA referência — prova a memoização
+    await view.desmontar();
+  });
+});
+
 // Fix round 2 — Minor R2/R3 (task-11-review.md) / N3 (task-11-code-review.md): sem cópias locais de textos já
 // exportados, e o erro de resultado desconhecido preserva a causa original.
 describe("salvar-integracao — sem textos duplicados (N3); cause preservada (R3)", () => {
@@ -205,22 +285,31 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
       Link: ({ children, className }: { children: unknown; className?: string }) => h("a", { className }, children),
     }));
-    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    // m4 (revisão): `tenantIdRef` é MUTÁVEL — o teste de troca de loja (`trocarTenant`) muda o valor e dispara um
+    // re-render, sem precisar reconstruir o mock inteiro.
+    const tenantIdRef = { current: "t1" };
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => tenantIdRef.current }));
     vi.doMock("@/hooks/useStoreTimezone", () => ({ useStoreTimezone: () => "America/Sao_Paulo" }));
     vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ canView: () => true }) }));
     vi.doMock("@/hooks/useTenantBranding", () => ({ useTenantBranding: () => ({ nome: "Loja Teste" }) }));
     vi.doMock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
     // `listaRef.current` guarda a lista JÁ LIDA por `lerLista` (o mesmo shape que `useIntegracaoLista` devolve de
     // verdade) — os testes constroem a entrada como o JSONB CRU (`listaRaw`/`produtoRaw`), igual à fixture `p()` de
-    // integracao-celula.test.ts, e este helper faz a conversão uma vez só, aqui.
-    const listaRef = { current: lerLista(opts.lista) };
+    // integracao-celula.test.ts, e este helper faz a conversão uma vez só, aqui. Tipo aceita `undefined` (m-R7):
+    // simula `q.data` ainda não chegado (1º carregamento, ou troca de loja/filtro em voo).
+    const listaRef: { current: ReturnType<typeof lerLista> | undefined } = { current: lerLista(opts.lista) };
     const dataUpdatedAtRef = { current: 1 };
     let rerenderTrigger = () => {};
+    // Fix round 2 T12b (R2/R-I2): registra CADA `pagina` que `ProdutosAba` pede ao hook — a lista mockada é estática
+    // (não reage ao argumento), então a única forma de observar um `setPagina(1)` indevido é espiar o PRÓPRIO
+        // argumento recebido aqui, não o texto renderizado (que só reflete a lista, nunca o estado interno da página).
+    const paginasChamadas: number[] = [];
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
-      useIntegracaoLista: () => ({
-        data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current,
-      }),
+      useIntegracaoLista: (_situacao: unknown, _filtros: unknown, pagina: number) => {
+        paginasChamadas.push(pagina);
+        return { data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current };
+      },
       useIntegracaoAoVivo: () => {},
       usePreviasSkus: () => ({}),
       invalidarIntegracao: () => {},
@@ -278,7 +367,22 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       // Simula um refetch em SEGUNDO PLANO cujo RESULTADO é idêntico (mesma referência) ao já em cache — só o
       // `dataUpdatedAt` muda. Usado pelo teste B-I1 (diálogo de fotos re-sincroniza mesmo sem a lista "mudar").
       refetchIdentico: () => { dataUpdatedAtRef.current += 1; rerenderTrigger(); },
+      // m-R7: simula `q.data` voltando a `undefined` (troca de loja/filtro em voo, ou o 1º carregamento) sem
+      // desmontar o componente — o `rascunhos` (staging) sobrevive a essa transição.
+      zerarLista: () => { listaRef.current = undefined; rerenderTrigger(); },
+      // m4: troca de loja SEM desmontar o componente (o super admin muda de loja no mesmo painel) — muda
+      // `tenantId` e a lista mockada (nova loja, produto diferente) na mesma leva, como aconteceria de verdade
+      // (a query muda de key e o TanStack busca a lista nova).
+      trocarTenant: (novoTenantId: string, novaListaRaw: { produtos: Record<string, unknown>[] } & Record<string, unknown>) => {
+        tenantIdRef.current = novoTenantId;
+        listaRef.current = lerLista(novaListaRaw);
+        dataUpdatedAtRef.current += 1;
+        rerenderTrigger();
+      },
       salvarSpy,
+      // R2/R-I2: última `pagina` que `ProdutosAba` pediu ao hook (o estado interno, não o que a lista mockada
+      // devolve — ela é estática).
+      paginaAtual: () => paginasChamadas[paginasChamadas.length - 1],
       rodarSalvar: async () => {
         const fs = pendingResolvers;
         pendingResolvers = [];
@@ -345,6 +449,132 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     const listaNova = listaRaw([produtoRaw({ rev: 2, estado: "integravel" })]);
     await act(async () => { view.atualizarLista(listaNova); });
     expect((await toastMock()).warning).toHaveBeenCalled();
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b — revisão R1 (task-12b-review.md "Re-review round 1") / R-I1 (task-12b-code-review.md
+  // "Re-check round 1"): regressão do fix round 1 (m8) — o updater `{...rs, ...prox}` NUNCA remove uma chave que
+  // `prox` não tem, então um produto que virou integrável ficava PRESO em `rascunhos` pra sempre. Prova OBSERVÁVEL
+  // (estado real, não só o toast): com 2 produtos sujos, um vira integrável; um Salvar seguinte das linhas
+  // restantes precisa mandar SÓ o produto que continua editável — se o descartado ainda estivesse em `rascunhos`,
+  // ele reapareceria no payload do 2º Salvar mesmo sem estar mais na tela. Também prova que o toast "descartadas"
+  // dispara UMA vez só por produto, mesmo que o efeito rode de novo numa relista idêntica (`q.dataUpdatedAt`).
+  it("regressão R1/R-I1: produto vira integrável — o rascunho é REMOVIDO de vez (não sobrevive pra um Salvar seguinte); toast 1x só", async () => {
+    const lista = listaRaw([
+      produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+      produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+    ]);
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const inputM1 = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Um"]');
+    const inputM2 = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Dois"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputM1()!, "Um Editado");
+      inputM1()!.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(inputM2()!, "Dois Editado");
+      inputM2()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // m1 vira integrável (outra pessoa integrou) — m2 continua editável e sujo.
+    const listaNova = listaRaw([
+      produtoRaw({ modelo_id: "m1", estado: "integravel", rev: 2, raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
+      produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
+    ]);
+    await act(async () => { view.atualizarLista(listaNova); });
+    const toasts = await toastMock();
+    expect(toasts.warning).toHaveBeenCalledTimes(1);
+    // Uma relista IDÊNTICA (mesmo dado, só `dataUpdatedAt` muda — B-I1) não deve repetir o toast pro mesmo produto.
+    await act(async () => { view.refetchIdentico(); });
+    expect(toasts.warning).toHaveBeenCalledTimes(1);
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    const chamadas = view.salvarSpy.mock.calls as unknown as Array<[Array<{ modeloId: string }>]>;
+    const enviados = chamadas[0]?.[0] ?? [];
+    // SÓ m2 (o que ainda é editável) pode ter sido enviado — m1 (integrável) nunca deveria reaparecer num payload.
+    expect(enviados.map((r) => r.modeloId)).toEqual(["m2"]);
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b — revisão R2 (task-12b-review.md) / R-I2 (task-12b-code-review.md): o debounce da busca
+  // reaplicava `setPagina(1)` toda vez que `travaFiltro` soltava (Salvar terminou), mesmo sem a busca ter mudado —
+  // um Salvar na página 3 jogava o usuário de volta pra página 1 assim que o botão destravava. Prova OBSERVÁVEL (o
+  // ESTADO interno `pagina` do componente, via `paginaAtual()` — espiona o argumento que `ProdutosAba` passa pro
+  // hook a cada render; a lista mockada é estática e não reage a esse argumento, então o texto "Página X de" NUNCA
+  // mudaria mesmo com o bug presente): navega pra página 3, edita e Salva — `pagina` precisa continuar 3 depois
+  // que `travaFiltro` solta e o debounce roda de novo (janela real de 400ms — a suíte não usa fake timers).
+  it("regressão R2/R-I2: Salvar na página 3 não volta pra página 1 (busca não mudou)", async () => {
+    const pagina1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto P1", ref: "REF0001", tamanho_tipo: "letra" } })],
+      { pagina: 1, total: 150 });
+    const view = await montarComMocks({ lista: pagina1 });
+    const { act } = await import("react");
+    expect(view.paginaAtual()).toBe(1);
+    const botaoProxima = () => [...view.container.querySelectorAll("button")].find((b) => b.textContent === "Próxima");
+    // Página 1 → 2 → 3 (o componente decide sozinho via `setPagina((n) => n + 1)`; a lista mockada nem precisa
+    // saber — só serve pra manter `lista.produtos` não-vazio e o botão "Próxima" habilitado via `totalPaginas`).
+    await act(async () => { botaoProxima()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(view.paginaAtual()).toBe(2);
+    await act(async () => { botaoProxima()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(view.paginaAtual()).toBe(3);
+    // Edita o produto (a lista mockada continua com m1, mesmo "na página 3" pro estado do componente — só o rótulo
+    // de página muda de fato no servidor de verdade; aqui o que importa é o ESTADO `pagina`, não o texto) e Salva.
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto P1"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Produto P1 Editado");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    // `travaFiltro` solta (Salvar concluído, `sujos` esvaziou) — o debounce da busca roda de novo (deps mudaram),
+    // mas a busca continua "" (nunca digitada): a página não pode ter sido resetada pra 1. Espera passar da janela
+    // real de 400ms do debounce (a suíte não usa fake timers) pra dar tempo do efeito (com ou sem o bug) disparar.
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
+    expect(view.paginaAtual()).toBe(3);
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b — ruling B-I3 (nunca implementado nas rodadas anteriores): depois de um Salvar SEM sobra
+  // (tudo gravou), a lista em cache SÓ reflete o valor novo depois do refetch de `onSettled` — uma janela real em
+  // que a lista mockada aqui continua parada no valor VELHO (o harness nunca chama `atualizarLista` sozinho; só o
+  // teste decide quando "o servidor relistou"). 2 provas OBSERVÁVEIS: (1) a célula mostra o valor SALVO mesmo
+  // com a lista ainda velha (não pisca de volta); (2) editar de novo NESSA janela e salvar de novo manda o REV
+  // SALVO (não o rev antigo da lista) — sem isso, o 2º Salvar levaria um rev atrasado e um P0409 contra o próprio
+  // Salvar que acabou de terminar.
+  it("ruling B-I3: sobra em espera até a lista confirmar — célula mostra o valor salvo, e um novo Salvar usa o rev salvo", async () => {
+    const lista = listaRaw([produtoRaw({ rev: 1 })]);
+    const view = await montarComMocks({
+      lista,
+      salvarImpl: async () => ({ salvos: 1, revs: { m1: 2 }, fotos: {}, skusOk: [], skusFalhas: [] }),
+    });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Salvo");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    // A lista mockada CONTINUA em rev 1/"Produto Teste" (o `onSettled` real chamaria `atualizarLista`, mas o teste
+    // não simula isso ainda de propósito — é exatamente a janela que o ruling B-I3 cobre). Mesmo assim, a célula
+    // não pode voltar a mostrar o nome antigo.
+    expect(input()!.value).toBe("Nome Salvo");
+    // Edita de novo NESSA janela (a lista ainda não confirmou) e salva de novo — o item enviado precisa levar o
+    // rev SALVO (2), nunca o rev 1 da lista, que ainda está velha.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Salvo De Novo");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    const chamadas = view.salvarSpy.mock.calls as unknown as Array<[Array<{ modeloId: string; rev: number }>]>;
+    const segundaChamada = chamadas[1]?.[0] ?? [];
+    const itemM1 = segundaChamada.find((it) => it.modeloId === "m1");
+    expect(itemM1?.rev).toBe(2);
     await view.desmontar();
   });
 
@@ -484,6 +714,38 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     await view.desmontar();
   });
 
+  // Fix round 2 T12b — revisão R4 (task-12b-review.md) / m-R1 (task-12b-code-review.md): "mostrar" buscava por
+  // `r.valores.ref` (o REF DIGITADO, ainda não salvo) em vez de `r.base.ref`/`r.base.nome` (o valor CONFIRMADO
+  // pelo servidor — o único que `integracao_listar` de fato indexa). Se o usuário tivesse editado a REF antes do
+  // produto sumir de página, "mostrar" buscava por um REF que a lista nunca teria, e parecia simplesmente não
+  // fazer nada. Prova OBSERVÁVEL: o campo de busca (`#f-busca`, reflete o estado `busca`) precisa ficar com o REF
+  // BASE (confirmado), nunca o REF editado no rascunho.
+  it("regressão R4/m-R1: 'mostrar' busca pelo REF BASE (confirmado), nunca o REF editado no rascunho", async () => {
+    const lista = listaRaw([produtoRaw()], { campos: ["ref_sku"] });
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const inputRef = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="REF / SKU —"]');
+    expect(inputRef(), "input de REF").not.toBeNull();
+    // Edita a REF (o rascunho passa a ter um REF DIFERENTE do base "REF0001").
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputRef()!, "REF-EDITADA-AINDA-NAO-SALVA");
+      inputRef()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(inputRef()!.value).toBe("REF-EDITADA-AINDA-NAO-SALVA");
+    // O produto sai da página atual (renomeado/filtrado por outra razão qualquer).
+    await act(async () => { view.atualizarLista(listaRaw([])); });
+    expect(view.container.textContent).toContain("fora desta página");
+    const botaoMostrar = [...view.container.querySelectorAll("button")].find((b) => b.textContent === "mostrar");
+    expect(botaoMostrar, "botão 'mostrar' na faixa de escondidos").toBeDefined();
+    await act(async () => { botaoMostrar!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const buscaInput = () => view.container.querySelector<HTMLInputElement>("#f-busca");
+    // O campo de busca precisa ficar com o REF BASE ("REF0001"), NUNCA o REF editado no rascunho.
+    expect(buscaInput()?.value).toBe("REF0001");
+    expect(buscaInput()?.value).not.toBe("REF-EDITADA-AINDA-NAO-SALVA");
+    await view.desmontar();
+  });
+
   // Fix round 1 T12b — revisão B-I6/A-I2: onKeywords estável via useCallback (o memo das linhas não quebra a cada
   // tecla). Prova indireta pelo comportamento: abrir Keywords não perde o rascunho em edição na MESMA sessão.
   it("onKeywords é estável entre renders (useCallback) — abrir o diálogo não perde o rascunho da linha", async () => {
@@ -553,6 +815,97 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     const listaTravada = listaRaw([produtoRaw({ estado: "integravel", rev: 2 })], { campos: ["nome", "preco_venda", "foto"] });
     await act(async () => { view.atualizarLista(listaTravada); });
     expect(document.body.textContent).not.toContain("Fotos — Produto Teste");
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b (minor m-R7): com `lista` (q.data) ainda `undefined` — 1º carregamento, ou uma troca de
+  // loja/filtro em voo — `idsPaginaAtual` é um Set VAZIO, e SEM a guarda TODO rascunho sujo passava a aparecer
+  // (por um instante) na faixa "fora desta página", mesmo continuando exatamente onde estava. Prova OBSERVÁVEL:
+  // suja um rascunho, zera a lista (`q.data` volta a `undefined`, sem desmontar o componente) e confirma que a
+  // faixa NÃO aparece nesse instante.
+  it("regressão m-R7: lista undefined (1º carregamento/troca em voo) não faz o rascunho aparecer como 'fora desta página'", async () => {
+    const lista = listaRaw([produtoRaw()]);
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Editando Durante Troca De Loja");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(view.container.textContent).not.toContain("fora desta página");
+    // `q.data` volta a `undefined` (ex.: `useActiveTenantId()` mudou e a query ainda não resolveu de novo) — o
+    // componente continua montado, o rascunho continua em `rascunhos` (staging sobrevive).
+    await act(async () => { view.zerarLista(); });
+    expect(view.container.textContent).not.toContain("fora desta página");
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b (minor m3): "mostrar"/"descartar" da faixa de escondidos precisam ficar DESABILITADOS
+  // enquanto o Salvar está em voo — evita correr com o `setRascunhos` do `onSuccess`/`onError` (ex.: "descartar"
+  // clicado bem no instante em que o Salvar decide se aquele rascunho sobra ou não).
+  it("regressão m3: 'mostrar'/'descartar' da faixa de escondidos ficam desabilitados durante o Salvar", async () => {
+    const lista = listaRaw([
+      produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Visível", ref: "REF0001", tamanho_tipo: "letra" } }),
+      produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Escondido", ref: "REF0002", tamanho_tipo: "letra" } }),
+    ]);
+    const view = await montarComMocks({ lista });
+    const { act } = await import("react");
+    const inputM1 = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Visível"]');
+    const inputM2 = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Nome — Produto Escondido"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputM1()!, "Visível Editado");
+      inputM1()!.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(inputM2()!, "Escondido Editado");
+      inputM2()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // m2 sai da página (só m1 continua na lista) — vira "escondido".
+    await act(async () => {
+      view.atualizarLista(listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Visível", ref: "REF0001", tamanho_tipo: "letra" } })]));
+    });
+    expect(view.container.textContent).toContain("fora desta página");
+    const botaoMostrar = () => [...view.container.querySelectorAll("button")].find((b) => b.textContent === "mostrar");
+    const botaoDescartar = () => [...view.container.querySelectorAll("button")].find((b) => b.textContent === "descartar");
+    expect(botaoMostrar()?.hasAttribute("disabled")).toBe(false);
+    expect(botaoDescartar()?.hasAttribute("disabled")).toBe(false);
+    // Dispara o Salvar (m1, o único visível/sujo na página) — SEM esperar `rodarSalvar()` (a mutation fica "em voo").
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain("Salvando…"); // confirma que a mutation está em voo
+    expect(botaoMostrar()?.hasAttribute("disabled")).toBe(true);
+    expect(botaoDescartar()?.hasAttribute("disabled")).toBe(true);
+    await view.rodarSalvar();
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b (minor m4): super admin troca de loja com um rascunho sujo pendente — sem zerar `rascunhos`
+  // por `tenantId`, a edição da loja ANTERIOR continuava presente e ia num Salvar seguinte contra a loja NOVA.
+  // Prova OBSERVÁVEL: a edição feita na loja 1 desaparece (nem no input, nem na faixa de escondidos) assim que a
+  // loja troca — mesmo sem o usuário ter salvo ou descartado explicitamente.
+  it("regressão m4: trocar de loja com rascunho sujo pendente ZERA o staging (nunca vaza pra loja nova)", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })]);
+    const view = await montarComMocks({ lista: listaLoja1 });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Editando Na Loja 1");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input()!.value).toBe("Editando Na Loja 1");
+    const botaoSalvarAntes = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    expect(botaoSalvarAntes()?.hasAttribute("disabled")).toBe(false); // sujo — confirma que o rascunho existe
+    // Super admin troca pra loja 2 (SEM salvar nem descartar explicitamente) — outro produto, outro tenantId.
+    const listaLoja2 = listaRaw([produtoRaw({ modelo_id: "m9", raw: { nome: "Produto Loja 2", ref: "REF0009", tamanho_tipo: "letra" } })]);
+    await act(async () => { view.trocarTenant("t2", listaLoja2); });
+    // `textContent` NUNCA inclui o `value` de um <input> (a célula de Nome é editável) — confere pelo próprio input.
+    expect(input()!.value).toBe("Produto Loja 2"); // o rascunho da loja 1 sumiu; mostra o produto NOVO sem edição
+    expect(view.container.textContent).not.toContain("fora desta página"); // não sobrou como "escondido"
+    // O Salvar da loja NOVA precisa estar DESABILITADO (nada sujo) — se o rascunho da loja 1 tivesse vazado, o
+    // botão continuaria habilitado e um Salvar mandaria `modelo_id: "m1"` (da loja 1) contra a loja 2.
+    const botaoSalvarDepois = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    expect(botaoSalvarDepois()?.hasAttribute("disabled")).toBe(true);
     await view.desmontar();
   });
 });
@@ -647,6 +1000,71 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
     expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false);
     await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     expect(view.onFecharSpy).toHaveBeenCalled();
+    await view.desmontar();
+  });
+
+  // Fix round 2 T12b — revisão R1 (task-12b-review.md) / R-I3 (task-12b-code-review.md): o fix round 1 deixava o
+  // laço P0409 aberto por 2 caminhos. Prova OBSERVÁVEL dos DOIS ao mesmo tempo (nunca só o toast):
+  // (a) "manter o meu" — depois de escolher essa ação, um Salvar seguinte precisa mandar `esperado` = o valor
+  //     FRESCO (não o `atual` original que o diálogo carregou) — só assim o servidor aceita em vez de dar P0409 de
+  //     novo. Espiona os ARGUMENTOS da 2ª chamada RPC.
+  // (b) leitura por PREFIXO precisa pegar a query com maior `dataUpdatedAt`, nunca a primeira em ordem de inserção
+  //     — o cache é semeado com 2 entradas: uma "antiga" (inserida ANTES do refetch, com keywords desatualizado) e
+  //     a que o `refetchQueries({type:"active"})` de fato escreve por cima (mais recente). Sem essa fix, o
+  //     `.find(d => !!d)` original pegaria a antiga (inserida primeiro) e o "usar o texto novo"/`base` carregariam
+  //     o valor ERRADO.
+  it("regressão R1/R-I3: 'manter o meu' manda esperado=fresco no Salvar seguinte (sem laço); lê a query de MAIOR dataUpdatedAt, nunca a 1ª em cache", async () => {
+    const chamadasRpc: unknown[] = [];
+    let chamada = 0;
+    const view = await montarKeywords({
+      rpcImpl: async (_nome, args) => {
+        chamada += 1;
+        chamadasRpc.push(args);
+        if (chamada === 1) return { data: null, error: Object.assign(new Error("keywords_mudou: outra pessoa mudou"), { code: "P0409" }) };
+        return { data: null, error: null };
+      },
+    });
+    const { act } = await import("react");
+    const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-keywords");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, Meu Texto");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const { lerLista } = view;
+    // Semeia a entrada ANTIGA primeiro (ordem de inserção) — nunca deveria ser a escolhida.
+    view.qc.setQueryData(
+      ["integracao-lista", "t1", "nao_integrados", {}, 1],
+      lerLista({ campos: [], produtos: [], keywords: "Moda, Verão, VALOR ERRADO (entrada antiga)" }),
+    );
+    // Um pequeno atraso real garante `dataUpdatedAt` estritamente maior na 2ª escrita (Date.now() em ms).
+    await new Promise((r) => setTimeout(r, 5));
+    // A entrada MAIS RECENTE (o que o refetchQueries de verdade escreveria por cima) — é essa que deve vencer.
+    view.qc.setQueryData(
+      ["integracao-lista", "t1", "integrados", {}, 1],
+      lerLista({ campos: [], produtos: [], keywords: "Moda, Verão, valor correto do servidor" }),
+    );
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent === "Salvar" || b.textContent === "Salvando…");
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // O texto digitado nunca muda sozinho.
+    expect(textarea()?.value).toBe("Moda, Verão, Meu Texto");
+    // A faixa de conflito mostra o valor CORRETO (o de maior dataUpdatedAt) — nunca o "errado" da entrada antiga.
+    expect(document.body.textContent).toContain("Moda, Verão, valor correto do servidor");
+    expect(document.body.textContent).not.toContain("VALOR ERRADO");
+    const botaoManterOMeu = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "manter o meu");
+    expect(botaoManterOMeu, "ação 'manter o meu' deveria aparecer").toBeDefined();
+    await act(async () => { botaoManterOMeu!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // O texto continua o mesmo (nunca mudou) — "manter o meu" só fecha a faixa.
+    expect(textarea()?.value).toBe("Moda, Verão, Meu Texto");
+    // Salva de novo (2ª chamada RPC) — precisa passar (o mock deixa) E o argumento `esperado` precisa ser o valor
+    // FRESCO (não o `atual` original "Moda, Verão" que o diálogo carregou ao montar).
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false);
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(chamadasRpc.length).toBe(2);
+    const argsSegundaChamada = chamadasRpc[1] as { _keywords: { valor: string; esperado: string } };
+    expect(argsSegundaChamada._keywords.esperado).toBe("Moda, Verão, valor correto do servidor");
+    expect(argsSegundaChamada._keywords.valor).toBe("Moda, Verão, Meu Texto");
+    expect(view.onFecharSpy).toHaveBeenCalled(); // 2º Salvar teve sucesso — sem laço
     await view.desmontar();
   });
 
