@@ -390,17 +390,35 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       const rv = await revenda(c);
       const im = await importado(c);
       await c.query(`UPDATE public.modelos SET ref = NULL WHERE id = $1`, [rv.id]);
-      // ruling do controlador, G-migration fix 4 #K2(c): a comparação "diverge?" e o "sem REF" usam EXATAMENTE
-      // nullif(x,'') SEM btrim (mesma expressão da falta "REF diferente" em _integracao_retrato_core) — string
-      // vazia de verdade ('') é o caso "sem REF"; só-espaço ('   ') NÃO é mais tratado como vazio (é um valor real
-      // que diverge e, se não repetir, É gravado no produto — comportamento coerente com a falta, que também não
-      // faz btrim).
+      // K2(c) usa nullif(x,'') SEM btrim para "diverge?"; string vazia de verdade ('') é "sem REF".
       await c.query(`UPDATE public.modelos SET ref = '' WHERE id = $1`, [im.id]);
       const refPaAntes = rv.ref;
       const refPiAntes = im.ref;
       await aplica(c, MIGRACOES[4]);
       expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe(refPaAntes);
       expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_importados WHERE id = $1`, [im.produtoId])).r).toBe(refPiAntes);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("K2(c)-4b (ruling do controlador, G-migration fix 4b): card com REF SÓ-ESPAÇO ('   ') é tratado como SEM REF — pulado, nunca grava um branco no produto", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      // ruling do controlador, G-migration fix 4b: K2(c) (rodada 4) unificou a comparação "diverge?" e o "skip
+      // sem REF" para usar EXATAMENTE nullif(x,'') sem btrim — efeito colateral: um card cuja REF é só espaço
+      // ('   ') passou a contar como um valor REAL e divergente, e o backfill escreveria esse '   ' verbatim no
+      // produto (uma REF em branco na cara, em dado de produção). Fix desta rodada: a regra de SKIP volta a
+      // tratar espaço-só (e NULL/vazio) como "sem REF" via nullif(btrim(x),'') IS NULL — SÓ para decidir se pula;
+      // a comparação "diverge?" continua EXATAMENTE nullif(x,'') sem btrim (K2c intocado) e o valor gravado
+      // continua sendo a REF do card como está, sem transformar.
+      await c.query(`UPDATE public.modelos SET ref = '   ' WHERE id = $1`, [rv.id]);
+      const refAntes = rv.ref;
+      await aplica(c, MIGRACOES[4]);
+      // GREEN esperado: pulado — o produto mantém a própria REF, nunca recebe '   '.
+      const pa = await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId]);
+      expect(pa.r).toBe(refAntes);
+      expect(pa.r).not.toBe("   ");
     });
   });
 

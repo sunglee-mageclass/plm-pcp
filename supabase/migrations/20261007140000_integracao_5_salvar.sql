@@ -63,6 +63,12 @@ $guarda$;
 --     _integracao_retrato_core (m2:317-334): `nullif(x, '')` SEM btrim (não `nullif(btrim(x),'')`) — e o valor
 --     GRAVADO é a REF do card COMO ESTÁ (m.ref::text, sem transformar) — assim, depois da ida, a falta "REF
 --     diferente" (que também não faz btrim) some de fato para os casos corrigidos, byte a byte.
+-- ruling do controlador, G-migration fix 4b: K2(c) (acima) teve um efeito colateral — um card cuja REF é SÓ
+-- ESPAÇO ('   ') passou a contar como um valor REAL e divergente (nullif('   ','') não é NULL), e o backfill
+-- gravaria esse '   ' verbatim no produto: uma REF em branco na cara, em dado de produção. Fix: a regra de
+-- SKIP ("sem REF") volta a usar `nullif(btrim(m.ref::text), '') IS NULL` (cobre NULL, vazio e só-espaço) — SÓ
+-- para decidir se a linha é pulada; a comparação "diverge?" continua EXATAMENTE `nullif(x, '')` sem btrim
+-- (K2(c) intocado) e o valor GRAVADO continua sendo a REF do card como está, sem transformar.
 DO $backfill_ref_j1$
 DECLARE
   v_atualizadas int;
@@ -71,56 +77,58 @@ DECLARE
 BEGIN
   WITH divergentes AS (
     SELECT pa.id AS produto_id, pa.tenant_id, pa.ref AS ref_atual,
-           nullif(m.ref::text, '') AS ref_card
+           nullif(m.ref::text, '') AS ref_card,
+           nullif(btrim(m.ref::text), '') IS NULL AS ref_card_ausente
       FROM public.produtos_acabados pa
       JOIN public.modelos m ON m.id = pa.modelo_id AND m.tenant_id = pa.tenant_id
      WHERE nullif(pa.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')
   ),
   repetidas AS (
     SELECT d.produto_id FROM divergentes d
-     WHERE d.ref_card IS NOT NULL
+     WHERE NOT d.ref_card_ausente
        AND EXISTS (SELECT 1 FROM public.modelos m2
                     WHERE m2.tenant_id = d.tenant_id AND m2.id <> (SELECT pa2.modelo_id FROM public.produtos_acabados pa2 WHERE pa2.id = d.produto_id)
                       AND nullif(m2.ref::text, '') = d.ref_card)
   ),
   atualizaveis AS (
     SELECT d.produto_id, d.ref_card FROM divergentes d
-     WHERE d.ref_card IS NOT NULL AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
+     WHERE NOT d.ref_card_ausente AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
   ),
   upd AS (
     UPDATE public.produtos_acabados pa SET ref = a.ref_card, updated_at = now()
       FROM atualizaveis a WHERE pa.id = a.produto_id
     RETURNING pa.id
   )
-  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card IS NULL), (SELECT count(*) FROM repetidas)
+  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card_ausente), (SELECT count(*) FROM repetidas)
     INTO v_atualizadas, v_sem_ref, v_repetidas;
   RAISE NOTICE 'integracao_5 J1 (produtos_acabados): % atualizadas, % puladas sem REF no card, % puladas por REF repetida',
     v_atualizadas, v_sem_ref, v_repetidas;
 
   WITH divergentes AS (
     SELECT pi.id AS produto_id, pi.tenant_id, pi.ref AS ref_atual,
-           nullif(m.ref::text, '') AS ref_card
+           nullif(m.ref::text, '') AS ref_card,
+           nullif(btrim(m.ref::text), '') IS NULL AS ref_card_ausente
       FROM public.produtos_importados pi
       JOIN public.modelos m ON m.id = pi.modelo_id AND m.tenant_id = pi.tenant_id
      WHERE nullif(pi.ref::text, '') IS DISTINCT FROM nullif(m.ref::text, '')
   ),
   repetidas AS (
     SELECT d.produto_id FROM divergentes d
-     WHERE d.ref_card IS NOT NULL
+     WHERE NOT d.ref_card_ausente
        AND EXISTS (SELECT 1 FROM public.modelos m2
                     WHERE m2.tenant_id = d.tenant_id AND m2.id <> (SELECT pi2.modelo_id FROM public.produtos_importados pi2 WHERE pi2.id = d.produto_id)
                       AND nullif(m2.ref::text, '') = d.ref_card)
   ),
   atualizaveis AS (
     SELECT d.produto_id, d.ref_card FROM divergentes d
-     WHERE d.ref_card IS NOT NULL AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
+     WHERE NOT d.ref_card_ausente AND NOT EXISTS (SELECT 1 FROM repetidas r WHERE r.produto_id = d.produto_id)
   ),
   upd AS (
     UPDATE public.produtos_importados pi SET ref = a.ref_card, updated_at = now()
       FROM atualizaveis a WHERE pi.id = a.produto_id
     RETURNING pi.id
   )
-  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card IS NULL), (SELECT count(*) FROM repetidas)
+  SELECT (SELECT count(*) FROM upd), (SELECT count(*) FROM divergentes WHERE ref_card_ausente), (SELECT count(*) FROM repetidas)
     INTO v_atualizadas, v_sem_ref, v_repetidas;
   RAISE NOTICE 'integracao_5 J1 (produtos_importados): % atualizadas, % puladas sem REF no card, % puladas por REF repetida',
     v_atualizadas, v_sem_ref, v_repetidas;
