@@ -261,6 +261,7 @@ causa, correção); diferença de RESULTADO ou de regra de negócio ⇒ PARE e c
 | D37 | Selos/travas das outras telas: UMA consulta por loja (`integracao_estado_modelos(NULL)` = só integráveis/integrados, TETO de 5000 — os mais recentes; N5), cache compartilhado `["integracao-estado", loja]`, sem retry (antes da ida em produção cai em "sem trava") | Evita N consultas por card; nada de retrato/custo sai para quem não tem a permissão | não |
 | D38 | **RESOLVIDA pela P-89 A (dono 27/set: "A — padrão 50, máximo 100 (plano gratuito)").** CPU do Worker (R4 + R4-r2): o plano gratuito do Cloudflare dá **10 ms de CPU por consulta**; a medição mínima do guardião (r2) deu p95 ≈ 4,5 ms (50), 13,8 ms (200) e 42,8 ms (500). Aplicado: "Máximo de produtos por página" com **padrão/semente/recomendado 50** (`DEFAULT` da migration 1, `_integracao_cfg`, `CONFIG_API` da Task 9); a **faixa do banco continua 1–500** (`integracao_config_pagina_chk` e a validação da migration 6 NÃO baixam) — aumentar depois é só mudar a configuração da loja na aba API, sem migration nem deploy; acima de **100** a tela mostra, além do "fora do recomendado", o alerta "Acima de 100 pode passar do limite de processamento do plano gratuito do Cloudflare (10 ms por consulta). Só use com o plano pago (Workers Paid)." (Tasks 9/15). A Task 20b mede 50/100/200/500 (fora do gate, só imprime) e o G-deploy (Task 25) confere o CPU REAL com a página padrão 50. Se no futuro o dono subir acima de 100: é a regra do alerta (só com Workers Paid) — e medir de novo. O G-deploy também confere que a conta aceita `ratelimits` (senão o binding sai — D23) | Um estouro de CPU derruba a página inteira da API | **respondida** (P-89 A) |
 | D39 | A resposta da API traz `pagina: {limite, maximo}` (entre `gerado_em` e `linhas`): `limite` = quantos produtos por página ESTA resposta usou (o `limite` pedido cortado no máximo; sem `limite` = o máximo; no modo teste = 2, o tamanho das páginas de exemplo) e `maximo` = o "Máximo de produtos por página" da loja HOJE. Vem do `_integracao_ler`/`integracao_exemplo` (Task 6) e passa pelo `montarResposta` (Task 16; ausente = `null`); o Manual ensina a seguir o `proximo_cursor` e a ler `pagina.maximo` (Task 16) | P-89 A — "isso pode mudar depois … tem como já preparar isso?": o programa do dev se ajusta sozinho quando a loja mudar o máximo, sem versão nova da API | não (formato decidido no plano; vai no Manual) |
+| D40 | Todo inverso que restaura uma função EXISTENTE (não criada por esta frente) a partir do dump "antes" leva um `$guarda$` que RECUSA (RAISE P0001 ASCII) a menos que a função ainda seja exatamente a versão instalada pela migration desta frente (md5 = "antes" OU "antes" + o TRECHO desta frente removido) — nunca sobrescreve em silêncio uma mudança feita por outra frente depois desta. Vale para as 3 funções: `_seed_tenant_defaults` (Task 1), `_pa_recomputar_precos_modelo`/`_imp_recomputar_precos_modelo` (Task 4) e `_salvar_produto_importado_core` (Task 5); cada inverso ganha um teste que simula a mudança alheia e confere a recusa | Revisão T1 #1 (Important #1, `.superpowers/sdd/2026-09-26-tela-integracao-api/task-1-review.md`): sem o guarda, um rollback de emergência rodado depois de outra frente mudar a mesma função apagaria essa mudança sem avisar — o `$pos$` só conferia o md5 FINAL, não se havia algo a mais gravado no meio | não |
 
 ## 3. Mapa de arquivos
 
@@ -1090,14 +1091,51 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn rever
     });
   });
 
-  it.skipIf(!MIG_TXN)("inverso 1 desfaz a 1 (tabelas e função somem; _seed volta ao md5 de antes)", async () => {
+  it.skipIf(!MIG_TXN)("inverso 1 desfaz a 1 (as 7 tabelas e a função somem; _seed volta ao md5 de antes)", async () => {
     await withTx(async (c) => {
       await prepara(c, 1);
       await aplica(c, INVERSOS[0]);
-      const r = await um<{ t: boolean; f: boolean; m: string }>(c,
-        `SELECT to_regclass('public.integracao_produtos') IS NULL AS t, to_regprocedure('public._integracao_layout()') IS NULL AS f,
+      // D40/revisão T1 #1 (Minor #5): confere as 7 tabelas (não só integracao_produtos).
+      for (const t of TABELAS) {
+        const r = await um<{ ok: boolean }>(c, `SELECT to_regclass('public.' || $1) IS NULL AS ok`, [t]);
+        expect(r.ok, t).toBe(true);
+      }
+      const r = await um<{ f: boolean; m: string }>(c,
+        `SELECT to_regprocedure('public._integracao_layout()') IS NULL AS f,
                 md5(pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) AS m`);
-      expect(r).toEqual({ t: true, f: true, m: MD5_ANTES.seed });
+      expect(r).toEqual({ f: true, m: MD5_ANTES.seed });
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("inverso 1 recusa se _seed_tenant_defaults mudou por outra frente depois da migration 1", async () => {
+    // D40/revisão T1 #1 (Important #1): simula outra frente redefinindo _seed_tenant_defaults DEPOIS da migration 1
+    // (corpo diferente, sem o TRECHO_SEED e sem bater com o "antes") — o inverso deve RECUSAR (RAISE P0001 ASCII) em
+    // vez de sobrescrever essa mudança em silêncio.
+    await withTx(async (c) => {
+      await prepara(c, 1);
+      await c.query(`
+        CREATE OR REPLACE FUNCTION public._seed_tenant_defaults(_tid uuid)
+         RETURNS void
+         LANGUAGE plpgsql
+         SECURITY DEFINER
+         SET search_path TO 'public'
+        AS $function$
+        BEGIN
+          -- [outra frente] corpo diferente, sem relação com o texto de antes nem com o TRECHO_SEED.
+          INSERT INTO public.tenant_config (tenant_id) VALUES (_tid) ON CONFLICT (tenant_id) DO NOTHING;
+        END;
+        $function$;
+      `);
+      await expect(aplica(c, INVERSOS[0])).rejects.toThrow(
+        /integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso/,
+      );
+      // ASCII-only, como toda mensagem desta frente (regra global).
+      const msg = await um<{ m: string }>(c,
+        `SELECT 'integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso' AS m`);
+      expect(/^[\x00-\x7F]*$/.test(msg.m)).toBe(true);
+      // as tabelas continuam existindo (a recusa aconteceu no $guarda$, antes de qualquer DROP).
+      const r = await um<{ ok: boolean }>(c, `SELECT to_regclass('public.integracao_produtos') IS NOT NULL AS ok`);
+      expect(r.ok).toBe(true);
     });
   });
 });
@@ -1394,24 +1432,65 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 ```
 
-- [ ] **Step 6: Montar o inverso 1 (o "antes" de `_seed_tenant_defaults` vem do dump — nunca redigitado)**
+- [ ] **Step 6: Montar o inverso 1 por script (o "antes" de `_seed_tenant_defaults` vem do dump — nunca redigitado; o
+      `$guarda$` recusa se a função mudou por outra frente depois desta migration — D40/revisão T1 #1)**
+
+O `$guarda$` do inverso NÃO pode só checar, no `$pos$` final, se `_seed_tenant_defaults` voltou ao md5 de "antes" —
+isso confere o resultado depois do `CREATE OR REPLACE`, não se havia uma mudança ALHEIA no meio. Sem checar ANTES de
+sobrescrever, um rollback de emergência rodado depois de outra frente redefinir essa função (ex.: um fix futuro nela)
+apagaria essa mudança em silêncio. O gerador (`montar_inverso_1.sh`, criado nesta Task — não versionado, igual
+`dump_antes.sh`) escreve um `DO $guarda$` que só deixa passar quando `_seed_tenant_defaults` ainda é EXATAMENTE: o
+"antes" (md5 `01bd241680e24fdb665ca8ae81a6a1a3`, já sem o INSERT desta frente) OU "antes" + o `TRECHO_SEED` desta
+frente (mesmo texto de `tests/integration/integracao-1-tabelas.test.ts`, removido antes do md5); qualquer outro texto
+(mudança de outra frente) dispara `RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults mudou depois da
+migration 1 - refazer o inverso' USING ERRCODE = 'P0001'` (ASCII) sem tocar em nenhum DROP. O `$pos$` final confere
+as 7 tabelas (não só `integracao_produtos`) + `_integracao_layout`.
 
 ```bash
+cat > .superpowers/integracao/mig/montar_inverso_1.sh <<'BASH'
+#!/usr/bin/env bash
+# Monta supabase/rollback/20261007100000_integracao_1_tabelas_down.sql. O bloco de _seed_tenant_defaults é o texto de
+# ANTES (.superpowers/integracao/mig/antes/_seed_tenant_defaults.sql, de dump_antes.sh) — nunca editar à mão. Rodar de
+# novo sempre que o "antes" mudar. O $guarda$ RECUSA (RAISE P0001 ASCII) a menos que _seed_tenant_defaults ainda seja a
+# versão instalada pela migration 1: md5 = "antes" OU ("antes" + TRECHO_SEED removido) — D40/revisão T1 #1.
+set -euo pipefail
+TOP="$(git rev-parse --show-toplevel)"; cd "$TOP"
+case "$TOP" in */.claude/worktrees/integracao-impl) ;; *) echo "PARE: rode de dentro da worktree integracao-impl"; exit 1;; esac
 A=.superpowers/integracao/mig/antes
+OUT=supabase/rollback/20261007100000_integracao_1_tabelas_down.sql
+[ -f "$A/_seed_tenant_defaults.sql" ] || { echo "PARE: rode dump_antes.sh primeiro"; exit 1; }
+
+# TRECHO_SEED literal (idêntico a tests/integration/integracao-1-tabelas.test.ts TRECHO_SEED).
+TRECHO=$'\n  -- [integracao v1] Integração + API (set/2026): a config nasce com o padrão (campos do layout #1-#17 marcados, Foto\n  -- desmarcada — P-83 A). reset_loja e a criação de loja passam por aqui (N9/n6).\n  INSERT INTO public.integracao_config (tenant_id) VALUES (_tid)\n  ON CONFLICT (tenant_id) DO NOTHING;\n'
+
 {
 cat <<'SQL'
 -- Inverso de 20261007100000_integracao_1_tabelas.sql — MONTADO pela Task 1 (o bloco de _seed_tenant_defaults é o texto de
 -- ANTES, gerado por .superpowers/integracao/mig/dump_antes.sh a partir da cópia — nunca editar à mão). Rodar SÓ depois
 -- dos inversos 6..2 (guarda LIFO). APAGA as 7 tabelas da integração (config, chaves, acessos, log, espelho) e o que houver nelas.
+-- D40/revisão T1 #1: o $guarda$ recusa se _seed_tenant_defaults mudou depois da migration 1 (aceita só o "antes"
+-- exato ou "antes"+TRECHO_SEED — nunca sobrescreve uma mudança de outra frente em silêncio).
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
 
 DO $guarda$
+DECLARE
+  v_def text;
 BEGIN
   IF to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)') IS NOT NULL THEN
     RAISE EXCEPTION 'integracao_1_down: volte a migration 2 antes (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
+  v_def := pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure);
+  IF md5(v_def) <> '01bd241680e24fdb665ca8ae81a6a1a3'
+     AND NOT (position('[integracao v1]' IN v_def) > 0
+              AND md5(replace(v_def, '
+SQL
+printf '%s' "$TRECHO" | tail -c +2
+cat <<'SQL'
+', '')) = '01bd241680e24fdb665ca8ae81a6a1a3') THEN
+    RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults mudou depois da migration 1 - refazer o inverso' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -1430,12 +1509,20 @@ printf '%s\n;\n' "$(cat "$A/_seed_tenant_defaults.sql")"
 cat <<'SQL'
 
 DO $pos$
+DECLARE
+  t text;
 BEGIN
   IF md5(pg_get_functiondef('public._seed_tenant_defaults(uuid)'::regprocedure)) <> '01bd241680e24fdb665ca8ae81a6a1a3' THEN
     RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults nao voltou ao texto de antes' USING ERRCODE = 'P0001';
   END IF;
-  IF to_regclass('public.integracao_produtos') IS NOT NULL OR to_regprocedure('public._integracao_layout()') IS NOT NULL THEN
-    RAISE EXCEPTION 'integracao_1_down: objetos da migration 1 ainda existem' USING ERRCODE = 'P0001';
+  FOREACH t IN ARRAY ARRAY['integracao_config', 'integracao_segredo', 'integracao_produtos', 'integracao_linhas',
+                            'integracao_chaves', 'integracao_acessos', 'integracao_log'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      RAISE EXCEPTION 'integracao_1_down: tabela % ainda existe', t USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
+  IF to_regprocedure('public._integracao_layout()') IS NOT NULL THEN
+    RAISE EXCEPTION 'integracao_1_down: _integracao_layout ainda existe' USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;
@@ -1443,8 +1530,13 @@ $pos$;
 NOTIFY pgrst, 'reload schema';
 COMMIT;
 SQL
-} > supabase/rollback/20261007100000_integracao_1_tabelas_down.sql
-grep -c 'CREATE OR REPLACE FUNCTION public._seed_tenant_defaults' supabase/rollback/20261007100000_integracao_1_tabelas_down.sql   # 1
+} > "$OUT"
+echo "escrito: $OUT ($(wc -l < "$OUT" | tr -d ' ') linhas)"
+grep -c 'CREATE OR REPLACE FUNCTION public._seed_tenant_defaults' "$OUT"
+grep -c "RAISE EXCEPTION 'integracao_1_down: _seed_tenant_defaults mudou depois da migration 1" "$OUT"
+BASH
+chmod +x .superpowers/integracao/mig/montar_inverso_1.sh
+bash .superpowers/integracao/mig/montar_inverso_1.sh
 ```
 
 - [ ] **Step 7: Rodar e ver passar (N3)**
@@ -3309,6 +3401,32 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
         fi: "CREATE TRIGGER trg_sync_foto_modelo_importado AFTER INSERT OR UPDATE OF foto_url, modelo_id ON public.produtos_importados FOR EACH ROW EXECUTE FUNCTION _sync_foto_modelo_do_produto()" });
     });
   });
+
+  it.skipIf(!MIG_TXN)("inverso 4 recusa se um dos 2 recálculos mudou por outra frente depois da migration 4", async () => {
+    // D40/revisão T1 #1 (Important #1, mesmo padrão do inverso 1): simula outra frente redefinindo
+    // _pa_recomputar_precos_modelo DEPOIS da migration 4 (corpo diferente, sem TRECHO_B1 e sem bater com o "antes") —
+    // o inverso deve RECUSAR (RAISE P0001 ASCII) sem tocar em nenhum DROP/gatilho.
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await c.query(`
+        CREATE OR REPLACE FUNCTION public._pa_recomputar_precos_modelo(_produto_id uuid)
+         RETURNS void LANGUAGE plpgsql AS $function$
+        BEGIN
+          -- [outra frente] corpo diferente, sem relação com o texto de antes nem com o TRECHO_B1.
+          PERFORM 1;
+        END; $function$;
+      `);
+      await expect(aplica(c, INVERSOS[3])).rejects.toThrow(
+        /integracao_4_down: _pa_recomputar_precos_modelo mudou depois da migration 4 - refazer o inverso/,
+      );
+      // as travas continuam existindo e o recálculo NÃO voltou ao "antes" (a recusa aconteceu no $guarda$, antes de qualquer DROP).
+      const r = await um<{ n: string; pa: string }>(c,
+        `SELECT (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%') AS n,
+                md5(pg_get_functiondef('public._pa_recomputar_precos_modelo(uuid)'::regprocedure)) AS pa`);
+      expect(r.n).not.toBe("0");
+      expect(r.pa).not.toBe(MD5_ANTES.pa);
+    });
+  });
 });
 ```
 
@@ -3746,24 +3864,66 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 ```
 
-- [ ] **Step 4: Montar o inverso 4 (o "antes" dos 2 recálculos vem do dump da Task 1 — nunca redigitado)**
+- [ ] **Step 4: Montar o inverso 4 por script (o "antes" dos 2 recálculos vem do dump da Task 1 — nunca redigitado; o
+      `$guarda$` recusa se QUALQUER um dos 2 mudou por outra frente depois desta migration — D40/revisão T1 #1, MESMO
+      padrão do inverso 1)**
 
 ```bash
+cat > .superpowers/integracao/mig/montar_inverso_4.sh <<'BASH'
+#!/usr/bin/env bash
+# Monta supabase/rollback/20261007130000_integracao_4_trava_down.sql. Os 2 recálculos voltam ao texto de ANTES
+# (.superpowers/integracao/mig/antes/{_pa,_imp}_recomputar_precos_modelo.sql, de dump_antes.sh) — nunca editar à mão.
+# O $guarda$ RECUSA (RAISE P0001 ASCII) a menos que os 2 ainda sejam a versão instalada pela migration 4: md5 = "antes"
+# OU ("antes" + TRECHO_B1 removido), CADA UM checado independente — D40/revisão T1 #1 (mesmo padrão do inverso 1).
+set -euo pipefail
+TOP="$(git rev-parse --show-toplevel)"; cd "$TOP"
+case "$TOP" in */.claude/worktrees/integracao-impl) ;; *) echo "PARE: rode de dentro da worktree integracao-impl"; exit 1;; esac
 A=.superpowers/integracao/mig/antes
+OUT=supabase/rollback/20261007130000_integracao_4_trava_down.sql
+[ -f "$A/_pa_recomputar_precos_modelo.sql" ] && [ -f "$A/_imp_recomputar_precos_modelo.sql" ] || { echo "PARE: rode dump_antes.sh primeiro"; exit 1; }
+
+# TRECHO_B1 literal (idêntico a tests/integration/integracao-4-trava.test.ts TRECHO_B1).
+TRECHO=$'  -- [integracao v1] B1: produto travado pela Integração com "Preço de venda" marcado — o recálculo automático (OC, MO,\n  -- markup, preço fixo) NÃO mexe no preco_venda: fica congelado (o retrato já tem o valor enviado). O atacado segue.\n  if public._integracao_campo_travado(v_modelo_id, \'preco_venda\') then\n    v_preco_venda := v_venda_atual;\n  end if;\n\n'
+
 {
 cat <<'SQL'
 -- Inverso de 20261007130000_integracao_4_trava.sql — MONTADO pela Task 4 (os 2 recálculos voltam ao texto de ANTES,
 -- gerado por .superpowers/integracao/mig/dump_antes.sh — nunca editar à mão). Rodar SÓ depois do inverso 5 (LIFO).
 -- Tira TODA a trava (produtos integráveis/integrados ficam editáveis) e devolve a foto ao gatilho original (sem WHEN).
+-- D40/revisão T1 #1: o $guarda$ recusa se QUALQUER um dos 2 recálculos mudou depois da migration 4 (aceita só o
+-- "antes" exato ou "antes"+TRECHO_B1 de CADA UM — nunca sobrescreve uma mudança de outra frente em silêncio).
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
 
 DO $guarda$
+DECLARE
+  v_pa text;
+  v_imp text;
 BEGIN
   IF to_regprocedure('public.integracao_salvar(jsonb,jsonb)') IS NOT NULL THEN
     RAISE EXCEPTION 'integracao_4_down: volte a migration 5 antes (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
+  v_pa := pg_get_functiondef('public._pa_recomputar_precos_modelo(uuid)'::regprocedure);
+  v_imp := pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure);
+  IF md5(v_pa) <> '72c96c624de8f4530c862d8abb6a1283'
+     AND NOT (position('[integracao v1]' IN v_pa) > 0
+              AND md5(replace(v_pa, '
+SQL
+printf '%s' "$TRECHO" | tail -c +1
+cat <<'SQL'
+', '')) = '72c96c624de8f4530c862d8abb6a1283') THEN
+    RAISE EXCEPTION 'integracao_4_down: _pa_recomputar_precos_modelo mudou depois da migration 4 - refazer o inverso' USING ERRCODE = 'P0001';
+  END IF;
+  IF md5(v_imp) <> '5baca24d0de45b8c5f291fef39472238'
+     AND NOT (position('[integracao v1]' IN v_imp) > 0
+              AND md5(replace(v_imp, '
+SQL
+printf '%s' "$TRECHO" | tail -c +1
+cat <<'SQL'
+', '')) = '5baca24d0de45b8c5f291fef39472238') THEN
+    RAISE EXCEPTION 'integracao_4_down: _imp_recomputar_precos_modelo mudou depois da migration 4 - refazer o inverso' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -3809,8 +3969,13 @@ $pos$;
 NOTIFY pgrst, 'reload schema';
 COMMIT;
 SQL
-} > supabase/rollback/20261007130000_integracao_4_trava_down.sql
-grep -c 'CREATE OR REPLACE FUNCTION public._[pi][am][p]*_recomputar_precos_modelo' supabase/rollback/20261007130000_integracao_4_trava_down.sql   # 2
+} > "$OUT"
+echo "escrito: $OUT ($(wc -l < "$OUT" | tr -d ' ') linhas)"
+grep -c 'CREATE OR REPLACE FUNCTION public._[pi][am][p]*_recomputar_precos_modelo' "$OUT"   # 2
+grep -c "RAISE EXCEPTION 'integracao_4_down: _.*_recomputar_precos_modelo mudou depois da migration 4" "$OUT"   # 2
+BASH
+chmod +x .superpowers/integracao/mig/montar_inverso_4.sh
+bash .superpowers/integracao/mig/montar_inverso_4.sh
 ```
 
 - [ ] **Step 5: Rodar e ver passar (N3)**
@@ -4079,6 +4244,29 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
                 (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_modelo_espelho_nome_ref','trg_espelho_modelo_nome_ref')) AS g,
                 md5(pg_get_functiondef('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)'::regprocedure)) AS m`);
       expect(r).toEqual({ n: "0", g: "0", m: MD5_ANTES.impCore });
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("inverso 5 recusa se _salvar_produto_importado_core mudou por outra frente depois da migration 5", async () => {
+    // D40/revisão T1 #1 (Important #1, mesmo padrão dos inversos 1/4): simula outra frente redefinindo
+    // _salvar_produto_importado_core DEPOIS da migration 5 (corpo diferente, sem TRECHO_IMP_FIXO e sem bater com o
+    // "antes") — o inverso deve RECUSAR (RAISE P0001 ASCII) sem tocar em nenhum DROP/gatilho.
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await c.query(`
+        CREATE OR REPLACE FUNCTION public._salvar_produto_importado_core(_id uuid, _dados jsonb, _variantes jsonb, _etapas jsonb)
+         RETURNS uuid LANGUAGE plpgsql AS $function$
+        BEGIN
+          -- [outra frente] corpo diferente, sem relação com o texto de antes nem com o TRECHO_IMP_FIXO.
+          RETURN _id;
+        END; $function$;
+      `);
+      await expect(aplica(c, INVERSOS[4])).rejects.toThrow(
+        /integracao_5_down: _salvar_produto_importado_core mudou depois da migration 5 - refazer o inverso/,
+      );
+      // as funções/gatilhos da migration 5 continuam existindo (a recusa aconteceu no $guarda$, antes de qualquer DROP).
+      const r = await um<{ n: boolean }>(c, `SELECT to_regprocedure('public.integracao_salvar(jsonb,jsonb)') IS NOT NULL AS n`);
+      expect(r.n).toBe(true);
     });
   });
 });
@@ -4553,24 +4741,56 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 ```
 
-- [ ] **Step 4: Montar o inverso 5 (o "antes" do save do importado vem do dump)**
+- [ ] **Step 4: Montar o inverso 5 por script (o "antes" do save do importado vem do dump; o `$guarda$` recusa se
+      `_salvar_produto_importado_core` mudou por outra frente depois desta migration — D40/revisão T1 #1, MESMO
+      padrão dos inversos 1 e 4)**
 
 ```bash
+cat > .superpowers/integracao/mig/montar_inverso_5.sh <<'BASH'
+#!/usr/bin/env bash
+# Monta supabase/rollback/20261007140000_integracao_5_salvar_down.sql. O save do importado volta ao texto de ANTES
+# (.superpowers/integracao/mig/antes/_salvar_produto_importado_core.sql, de dump_antes.sh) — nunca editar à mão. O
+# $guarda$ RECUSA (RAISE P0001 ASCII) a menos que _salvar_produto_importado_core ainda seja a versão instalada pela
+# migration 5: md5 = "antes" OU ("antes" + TRECHO_IMP_FIXO removido) — D40/revisão T1 #1 (mesmo padrão dos inversos 1/4).
+set -euo pipefail
+TOP="$(git rev-parse --show-toplevel)"; cd "$TOP"
+case "$TOP" in */.claude/worktrees/integracao-impl) ;; *) echo "PARE: rode de dentro da worktree integracao-impl"; exit 1;; esac
 A=.superpowers/integracao/mig/antes
+OUT=supabase/rollback/20261007140000_integracao_5_salvar_down.sql
+[ -f "$A/_salvar_produto_importado_core.sql" ] || { echo "PARE: rode dump_antes.sh primeiro"; exit 1; }
+
+# TRECHO_IMP_FIXO literal (idêntico a tests/integration/integracao-5-salvar.test.ts TRECHO_IMP_FIXO); aspas simples
+# do SQL escapadas ('\''), porque este bloco entra dentro de um literal SQL '...' no replace() do $guarda$.
+TRECHO=$'  -- [integracao v1] D14/R1: o preço do Importado grava no SALVAR da tela, NESTA transação (a do _rev_base do wrapper).\n  -- Preço FIXO no _dados = preço exato do canal e ZERA o markup dele; sem fixo, markup não-nulo LIMPA o fixo ("última\n  -- edição manda", como a revenda — fix 2efa2ba); sem nenhum dos dois, o fixo fica (outros gravadores não mandam as chaves).\n  if coalesce(nullif(_dados->>\'\'preco_atacado_fixo\'\',\'\'\'\')::numeric, 1) <= 0\n     or coalesce(nullif(_dados->>\'\'preco_varejo_fixo\'\',\'\'\'\')::numeric, 1) <= 0 then\n    raise exception \'\'O preço precisa ser maior que zero.\'\' using errcode = \'\'P0001\'\';\n  end if;\n  update public.produtos_importados p\n     set preco_atacado_fixo = n.af, markup_atacado = n.am, preco_varejo_fixo = n.vf, markup_varejo = n.vm\n    from (select\n            case when nullif(_dados->>\'\'preco_atacado_fixo\'\',\'\'\'\') is not null then (_dados->>\'\'preco_atacado_fixo\'\')::numeric\n                 when nullif(_dados->>\'\'markup_atacado\'\',\'\'\'\') is not null then null else x.preco_atacado_fixo end as af,\n            case when nullif(_dados->>\'\'preco_atacado_fixo\'\',\'\'\'\') is not null then null else x.markup_atacado end as am,\n            case when nullif(_dados->>\'\'preco_varejo_fixo\'\',\'\'\'\') is not null then (_dados->>\'\'preco_varejo_fixo\'\')::numeric\n                 when nullif(_dados->>\'\'markup_varejo\'\',\'\'\'\') is not null then null else x.preco_varejo_fixo end as vf,\n            case when nullif(_dados->>\'\'preco_varejo_fixo\'\',\'\'\'\') is not null then null else x.markup_varejo end as vm\n            from public.produtos_importados x where x.id = v_id) n\n   where p.id = v_id\n     and (p.preco_atacado_fixo, p.markup_atacado, p.preco_varejo_fixo, p.markup_varejo) is distinct from (n.af, n.am, n.vf, n.vm);\n\n'
+
 {
 cat <<'SQL'
 -- Inverso de 20261007140000_integracao_5_salvar.sql — MONTADO pela Task 5 (o save do importado volta ao texto de ANTES,
 -- gerado por .superpowers/integracao/mig/dump_antes.sh — nunca editar à mão). Rodar SÓ depois do inverso 6 (LIFO).
 -- Preços fixos de importado já gravados FICAM (a coluna já existia; o recálculo continua lendo); a mão dupla por gatilho sai.
+-- D40/revisão T1 #1: o $guarda$ recusa se _salvar_produto_importado_core mudou depois da migration 5 (aceita só o
+-- "antes" exato ou "antes"+TRECHO_IMP_FIXO — nunca sobrescreve uma mudança de outra frente em silêncio).
 SET client_encoding = 'UTF8';
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL transaction_timeout = '3s';
 
 DO $guarda$
+DECLARE
+  v_def text;
 BEGIN
   IF to_regprocedure('public._integracao_ler(text,boolean,text,integer,text,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'integracao_5_down: volte a migration 6 antes (LIFO)' USING ERRCODE = 'P0001';
+  END IF;
+  v_def := pg_get_functiondef('public._salvar_produto_importado_core(uuid,jsonb,jsonb,jsonb)'::regprocedure);
+  IF md5(v_def) <> '47584858f55524d18d326dfff00139e6'
+     AND NOT (position('[integracao v1]' IN v_def) > 0
+              AND md5(replace(v_def, '
+SQL
+printf '%s' "$TRECHO" | tail -c +1
+cat <<'SQL'
+', '')) = '47584858f55524d18d326dfff00139e6') THEN
+    RAISE EXCEPTION 'integracao_5_down: _salvar_produto_importado_core mudou depois da migration 5 - refazer o inverso' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -4602,9 +4822,13 @@ $pos$;
 NOTIFY pgrst, 'reload schema';
 COMMIT;
 SQL
-} > supabase/rollback/20261007140000_integracao_5_salvar_down.sql
-grep -c 'CREATE OR REPLACE FUNCTION public._salvar_produto_importado_core' supabase/rollback/20261007140000_integracao_5_salvar_down.sql   # 1
-```
+} > "$OUT"
+echo "escrito: $OUT ($(wc -l < "$OUT" | tr -d ' ') linhas)"
+grep -c 'CREATE OR REPLACE FUNCTION public._salvar_produto_importado_core' "$OUT"   # 1
+grep -c "RAISE EXCEPTION 'integracao_5_down: _salvar_produto_importado_core mudou depois da migration 5" "$OUT"   # 1
+BASH
+chmod +x .superpowers/integracao/mig/montar_inverso_5.sh
+bash .superpowers/integracao/mig/montar_inverso_5.sh
 
 - [ ] **Step 5: Rodar e ver passar (N3)**
 
@@ -13796,3 +14020,9 @@ re-conferência (mesmo arquivo, V/n) · **GP** = G-plano do PLANO (`g-plano-inte
 | **r2 n-b** foto com `WHEN` também muda o app já na ida | 1 parágrafo no aviso do RODAR (T8 Step 8) |
 | **r2 n-c** `excluir_loja` sem teste | tirado da tabela de riscos (§6): mesmo apagamento do `reset_loja`, sem teste próprio |
 | **r2 n-d** bug pré-existente do markup atacado da revenda no Sheet | §6 (latente, fora desta frente); registro fora do plano é do controlador |
+
+**Revisão T1 #1 — revisão da Task 1 (`.superpowers/sdd/2026-09-26-tela-integracao-api/task-1-review.md`)**
+
+| Requisito | Onde |
+|---|---|
+| **T1 #1** inverso de função EXISTENTE precisa recusar se a função mudou por outra frente depois desta migration (não só conferir o md5 final) | D40; guarda no inverso 1 (T1 Step 6, `_seed_tenant_defaults`), no inverso 4 (T4 Step 4, `_pa_recomputar_precos_modelo`/`_imp_recomputar_precos_modelo`) e no inverso 5 (T5 Step 4, `_salvar_produto_importado_core`); teste de recusa em cada suíte (T1/T4/T5) |
