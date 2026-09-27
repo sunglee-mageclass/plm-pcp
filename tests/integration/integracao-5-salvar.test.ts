@@ -364,6 +364,153 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
+  it.skipIf(!MIG_TXN)("J1 (ruling do controlador, G-migration fix 3, P-90 A): backfill da REF do card — revenda e importado divergentes recebem a REF do card", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      const im = await importado(c);
+      // Diverge as REFs (card != produto) ANTES da migration 5 rodar — mesmo padrão de divergência já usado nos
+      // testes de retrato/T5 (REF diferente do Produto Acabado/Importado).
+      await c.query(`UPDATE public.modelos SET ref = 'RVDCARDX' WHERE id = $1`, [rv.id]);
+      await c.query(`UPDATE public.modelos SET ref = 'IMPCARDX' WHERE id = $1`, [im.id]);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe(rv.ref);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_importados WHERE id = $1`, [im.produtoId])).r).toBe(im.ref);
+      await aplica(c, MIGRACOES[4]);
+      // GREEN: a REF do card (não a antiga do produto) venceu nos dois.
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe("RVDCARDX");
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_importados WHERE id = $1`, [im.produtoId])).r).toBe("IMPCARDX");
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("J1: card sem REF (NULL ou vazio) é pulado — o produto mantém a própria REF", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      const im = await importado(c);
+      await c.query(`UPDATE public.modelos SET ref = NULL WHERE id = $1`, [rv.id]);
+      await c.query(`UPDATE public.modelos SET ref = '   ' WHERE id = $1`, [im.id]); // só espaço = vazio (btrim)
+      const refPaAntes = rv.ref;
+      const refPiAntes = im.ref;
+      await aplica(c, MIGRACOES[4]);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe(refPaAntes);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_importados WHERE id = $1`, [im.produtoId])).r).toBe(refPiAntes);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("J1: REF do card repetida em outro card da MESMA loja pula os DOIS produtos; a MESMA string de REF em OUTRA loja não conta como repetida (isolamento)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const a = await revenda(c);
+      const b = await revenda(c);
+      const isolado = await revenda(c); // 3º produto da MESMA loja, REF única dentro dela
+      const refAntesA = a.ref;
+      const refAntesB = b.ref;
+      // Os 2 cards da MESMA loja apontam pra REF repetida (ex. real: Ave Rara ACBO0142 = CLUTCH CHIARA/LILLY).
+      await c.query(`UPDATE public.modelos SET ref = 'REPETIDA1' WHERE id = ANY($1::uuid[])`, [[a.id, b.id]]);
+      await c.query(`UPDATE public.modelos SET ref = 'SOISOLADO' WHERE id = $1`, [isolado.id]);
+      // Escolhe um card de OUTRA loja em tempo de execução (nunca UUID fixo; skip limpo se a cópia não tiver
+      // nenhum de origem revenda com produto espelho próprio) e coloca ali a MESMA string 'REPETIDA1' que os 2
+      // cards da loja de teste usam — se a checagem de repetição não fosse tenant-scoped (bug de isolamento), os
+      // 2 da loja de teste continuariam pulados de qualquer forma (já são reais), mas o card ISOLADO (que não
+      // repete DENTRO da própria loja) é a prova real: ele tem que ser atualizado normalmente mesmo que a string
+      // 'SOISOLADO' nunca apareça em outra loja, e o card cruzado com 'REPETIDA1' de outra loja não pode
+      // contaminar a decisão da loja de teste em nenhuma direção.
+      const outroPa = await um<{ modelo_id: string; tenant_id: string; ref: string | null } | undefined>(c,
+        `SELECT pa.modelo_id, pa.tenant_id, m.ref::text AS ref FROM public.produtos_acabados pa
+           JOIN public.modelos m ON m.id = pa.modelo_id
+          WHERE pa.tenant_id <> $1 ORDER BY pa.id LIMIT 1`, [T]);
+      if (outroPa) {
+        await c.query(`UPDATE public.modelos SET ref = 'REPETIDA1' WHERE id = $1`, [outroPa.modelo_id]);
+      }
+      await aplica(c, MIGRACOES[4]);
+      // Os 2 da MESMA loja continuam com a REF ANTIGA do produto — ambos pulados por REF repetida (dentro da loja).
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [a.produtoId])).r).toBe(refAntesA);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [b.produtoId])).r).toBe(refAntesB);
+      // Prova de isolamento: o produto isolado da MESMA loja (REF única dentro dela) FOI atualizado normalmente —
+      // a string 'REPETIDA1' usada em outra loja não interferiu na loja de teste em nenhum sentido.
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [isolado.produtoId])).r).toBe("SOISOLADO");
+      // O backfill nunca escreve em modelos.ref (só nos produtos) — confirma que o UPDATE de setup no card de
+      // outra loja não foi revertido nem tocado pelo backfill (que roda só para o tenant corrente na CTE, mas
+      // como garantia extra confirmamos que o valor colocado no setup persiste intocado).
+      if (outroPa) {
+        const cardOutro = await um<{ r: string | null }>(c, `SELECT ref::text AS r FROM public.modelos WHERE id = $1`, [outroPa.modelo_id]);
+        expect(cardOutro.r).toBe("REPETIDA1");
+      }
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("J1: segunda ida da migration 5 atualiza 0 linhas (idempotente) — o NOTICE e o dado ficam parados", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      await c.query(`UPDATE public.modelos SET ref = 'RVDIDEMP1' WHERE id = $1`, [rv.id]);
+      await aplica(c, MIGRACOES[4]);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe("RVDIDEMP1");
+      // 2ª ida: já não há divergência (card e produto já com a mesma REF) — 0 linhas mudam. Capturamos os NOTICEs
+      // do client (pg emite 'notice' no Client) para confirmar a contagem "0 atualizadas" nos dois blocos.
+      const notices: string[] = [];
+      const onNotice = (n: { message?: string }) => { if (n.message) notices.push(n.message); };
+      c.on("notice", onNotice);
+      try {
+        await aplica(c, MIGRACOES[4]);
+      } finally {
+        c.off("notice", onNotice);
+      }
+      const j1Notices = notices.filter((n) => n.includes("integracao_5 J1"));
+      expect(j1Notices).toHaveLength(2); // 1 para produtos_acabados, 1 para produtos_importados
+      for (const n of j1Notices) expect(n).toMatch(/: 0 atualizadas,/);
+      // Dado inalterado (prova independente do NOTICE, caso a captura falhe por algum motivo de driver).
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe("RVDIDEMP1");
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("J1: o backfill nao dispara nem e recusado por trava/gatilho do espelho — o nome do produto NAO volta para o card", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      // Diverge REF (dispara o backfill) E nome (para provar que o backfill NUNCA copia nome nem aciona a mão
+      // dupla — que ainda nem existe no schema neste ponto, m5 a cria DEPOIS do backfill no arquivo).
+      await c.query(`UPDATE public.modelos SET ref = 'RVDNOMEX', nome = 'Nome do CARD' WHERE id = $1`, [rv.id]);
+      await c.query(`UPDATE public.produtos_acabados SET nome = 'Nome do PRODUTO (diferente)' WHERE id = $1`, [rv.produtoId]);
+      const nomeCardAntes = (await um<{ n: string }>(c, `SELECT nome::text AS n FROM public.modelos WHERE id = $1`, [rv.id])).n;
+      await aplica(c, MIGRACOES[4]);
+      // A REF foi atualizada (prova que o backfill rodou de verdade)...
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe("RVDNOMEX");
+      // ...mas o NOME do card não mudou (o backfill só toca REF; a mão dupla de nome/ref só é criada DEPOIS do
+      // backfill no arquivo da migration — não pode ter disparado retroativamente sobre um UPDATE já commitado).
+      expect((await um<{ n: string }>(c, `SELECT nome::text AS n FROM public.modelos WHERE id = $1`, [rv.id])).n).toBe(nomeCardAntes);
+      // fn_integracao_trava_espelho (m4, já existe neste ponto) também não recusou nem interferiu: nenhum
+      // integracao_produtos foi criado nesta txn (0 linhas), então a trava sempre fez CONTINUE/early-return —
+      // confirmado pelo UPDATE de REF ter passado sem erro (se a trava tivesse bloqueado, aplica() teria lançado).
+      expect((await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.integracao_produtos WHERE tenant_id = $1`, [T])).n).toBe(0);
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("J1 RED: com o bloco de backfill removido do arquivo, a REF divergente NAO muda (prova que o teste pega a ausência do fix)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      const rv = await revenda(c);
+      await c.query(`UPDATE public.modelos SET ref = 'RVDREDTST' WHERE id = $1`, [rv.id]);
+      const refAntes = rv.ref;
+      // Remove o bloco DO $backfill_ref_j1$ ... $backfill_ref_j1$; inteiro do texto da migration 5 (RED: simula
+      // "antes do fix" aplicando o resto da migration sem o passo de dados) — mesmo padrão de mutação de arquivo
+      // já usado pelos testes "Minor #7"/G9 desta suíte (regex sobre o texto lido de disco, nunca editando o
+      // arquivo em si).
+      const semBackfill = ler(MIGRACOES[4]).replace(/DO \$backfill_ref_j1\$[\s\S]*?\$backfill_ref_j1\$;\n\n/, "");
+      expect(semBackfill).not.toBe(ler(MIGRACOES[4])); // confere que o regex realmente casou algo
+      await aplicarSql(c, semTravas(semBackfill, "teste-j1-red"), "teste-j1-red");
+      // RED confirmado: sem o passo de dados, a REF divergente NÃO é corrigida (fica com o valor antigo do produto).
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).toBe(refAntes);
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [rv.produtoId])).r).not.toBe("RVDREDTST");
+    });
+  });
+
   it("n5: módulo da origem desligado = gate recusa; Keywords: só admin, conferência do valor carregado (P0409 keywords_mudou)", async () => {
     await withTx(async (c) => {
       await prepara(c, 5);
