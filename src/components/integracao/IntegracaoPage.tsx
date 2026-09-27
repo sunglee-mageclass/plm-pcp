@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ROTULO_ABA, abasVisiveis, type Aba } from "@/lib/integracao/abas";
 import { GuardaIntegracaoContext } from "./guard";
 import { ProdutosAba } from "./ProdutosAba";
+import { CamposAba } from "./CamposAba";
 
 function AbaPendente() {
   return <EmptyState icon={Construction} title="Em construção" description="Esta aba chega nas próximas tasks do plano da Integração." />;
@@ -17,7 +18,7 @@ function AbaPendente() {
 // Cada task da tela troca a sua entrada (Tasks 12b, 14, 15, 16 e 17).
 const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   produtos: ProdutosAba,
-  campos: AbaPendente,
+  campos: CamposAba,
   api: AbaPendente,
   manual: AbaPendente,
   log: AbaPendente,

@@ -104,3 +104,24 @@ export const TEXTO_ALERTA_LAYOUT =
   "Este campo faz parte do layout obrigatório da API. Se ele sair, o programa do dev pode deixar de funcionar. Tem certeza?";
 export const TEXTO_MAO_DUPLA =
   "Os campos editados aqui são os MESMOS do card do produto — mudou aqui, muda lá (e vice-versa), enquanto não estiver integrável.";
+
+// ── Aba "Campos da API" (Task 14) ──────────────────────────────────────────────────────────────────────────────────────
+export const TEXTO_SO_SUPER = "Esta aba é só do super admin. Admin da loja e usuários com permissão veem só Produtos e Log.";
+export const TEXTO_CAMPOS_REGRA =
+  'Marcado = entra na API e é obrigatório para integrar. A ordem é sempre esta (layout fixo do pedido). Os campos do layout (1–17) vêm marcados por padrão numa loja NOVA; "Foto do Modelo" nasce DESMARCADA (opcional). Mudar a seleção vale só para as PRÓXIMAS integrações — retratos já gravados não mudam.';
+export const TEXTO_TRAVA_SEMPRE = 'Travam sempre, marcados ou não: SKUs, cores e tamanhos das sublinhas e o "Tamanho em".';
+export const TEXTO_CONFIRMAR_CAMPOS =
+  "Esta mudança vale para as próximas integrações. Produtos já integrados mantêm o retrato gravado no momento da integração deles.";
+export function alternarCampo(sel: readonly string[], key: CampoKey, marcar: boolean): CampoKey[] {
+  const s = new Set(sel);
+  if (marcar) s.add(key);
+  else s.delete(key);
+  return ordenarCampos([...s]);
+}
+export const precisaAlertaLayout = (key: CampoKey, marcar: boolean): boolean => !marcar && (CAMPO_BY_KEY.get(key)?.layout ?? false);
+export const rotuloNaLista = (key: CampoKey): string => (key === "foto" ? "Foto do Modelo" : (CAMPO_BY_KEY.get(key)?.rotulo ?? key));
+export function mesmaSelecao(a: readonly string[], b: readonly string[]): boolean {
+  const x = ordenarCampos(a);
+  const y = ordenarCampos(b);
+  return x.length === y.length && x.every((k, i) => k === y[i]);
+}
