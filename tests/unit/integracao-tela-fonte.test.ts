@@ -71,3 +71,60 @@ describe("useIntegracao — Salvar tem mutationKey e o Realtime não relista no 
     expect(trecho).not.toMatch(/getChannels\(\)\.find/);
   });
 });
+
+// Fix round 2 — Important R1 (task-11-review.md "Re-review round 1") / I3 (task-11-code-review.md "Re-check round
+// 1"): o debounce da rodada 1 comparava um OBJETO recriado a cada render por `===`, o que nunca vale e gera um
+// re-render a cada 300ms para sempre. Checagem de fonte (mesma justificativa da I2/M5 acima — sem precedente de
+// `renderHook` na suíte unit deste repo para testar esse loop com fake timers de verdade): `useValorAtrasado` só
+// aceita `string`, e `usePreviasSkus` atrasa um `JSON.stringify` (nunca o objeto `entradas` cru).
+describe("useIntegracao — useValorAtrasado só aceita string (I3); queryFn deriva da chave, não do 'e' do render (N1); previaDeErro usa a chave (N2)", () => {
+  const s = ler("src/components/integracao/useIntegracao.ts");
+  it("useValorAtrasado(valor: string, ...) — nunca um objeto/array/generic", () => {
+    const i = s.indexOf("function useValorAtrasado");
+    expect(i).toBeGreaterThan(-1);
+    const assinatura = s.slice(i, s.indexOf(")", i) + 1);
+    expect(assinatura).toMatch(/function useValorAtrasado\(valor: string, ms: number\)/);
+    expect(assinatura).not.toMatch(/<T>/);
+  });
+  it("usePreviasSkus atrasa JSON.stringify(entradas), nunca o objeto cru", () => {
+    const i = s.indexOf("function usePreviasSkus");
+    const trecho = s.slice(i, s.indexOf("useQueries(", i));
+    expect(trecho).toMatch(/useValorAtrasado\(entradasStr,\s*300\)/);
+    expect(trecho).toMatch(/JSON\.stringify\(entradas\)/);
+    expect(trecho).toMatch(/JSON\.parse\(entradasStrAtrasada\)/);
+    expect(trecho).toMatch(/useMemo\(/);
+    // nunca a chamada antiga (regressão da rodada 1): useValorAtrasado direto no objeto `entradas`.
+    expect(trecho).not.toMatch(/useValorAtrasado\(entradas,/);
+  });
+  it("o queryFn deriva ref/tamanhoTipo/manuais/modo de entradaDaChave(chave), não do 'e' do render (N1)", () => {
+    const i = s.indexOf("function usePreviasSkus");
+    const trecho = s.slice(i, s.indexOf("function previaDeErro", i));
+    expect(trecho).toMatch(/const ed = entradaDaChave\(chave\)/);
+    expect(trecho).toMatch(/_ref:\s*ed\.ref/);
+    expect(trecho).toMatch(/_tamanho_tipo:\s*ed\.tamanhoTipo/);
+    expect(trecho).toMatch(/_manuais:\s*ed\.manuais/);
+    expect(trecho).toMatch(/_modo:\s*ed\.modo/);
+  });
+  it("previaDeErro usa a chave da query como 'entrada' (N2), nunca o literal 'erro'", () => {
+    const i = s.indexOf("function previaDeErro");
+    expect(i).toBeGreaterThan(-1);
+    const trecho = s.slice(i, s.indexOf("\n}", i));
+    expect(trecho).toMatch(/entrada:\s*chave,/);
+    expect(trecho).not.toMatch(/entrada:\s*"erro"/);
+  });
+});
+
+// Fix round 2 — Minor R2/R3 (task-11-review.md) / N3 (task-11-code-review.md): sem cópias locais de textos já
+// exportados, e o erro de resultado desconhecido preserva a causa original.
+describe("salvar-integracao — sem textos duplicados (N3); cause preservada (R3)", () => {
+  const s = ler("src/components/integracao/salvar-integracao.ts");
+  it("importa TEXTO_FOTOS_SEM_UPLOAD e PREFIXO_SKUS_NAO_GRAVADOS, sem cópias locais", () => {
+    expect(s).toMatch(/TEXTO_FOTOS_SEM_UPLOAD/);
+    expect(s).toMatch(/PREFIXO_SKUS_NAO_GRAVADOS/);
+    expect(s).not.toMatch(/TEXTO_FOTOS_NOVAS_PERDIDAS/);
+    expect(s).not.toMatch(/PREFIXO_SKUS_NAO_GRAVADOS_LOCAL/);
+  });
+  it("o erro de resultado desconhecido leva { cause: e }", () => {
+    expect(s).toMatch(/new Error\(TEXTO_RESULTADO_DESCONHECIDO,\s*\{\s*cause:\s*e\s*\}\)/);
+  });
+});

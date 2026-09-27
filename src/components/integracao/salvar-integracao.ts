@@ -10,11 +10,18 @@
 // DESCONHECIDO (falha de rede depois do envio: `code` vazio/ausente — o `integracao_salvar` pode já ter COMITADO), os
 // uploads são MANTIDOS (o pior caso é um órfão no Storage) e relança um erro com texto em PT pedindo para recarregar e
 // conferir — nunca o card ficando com um caminho para um objeto que este Salvar acabou de apagar.
+//
+// Fix round 2 (task-11-review.md "Re-review round 1" Minor R2/R3 + task-11-code-review.md "Re-check round 1" N3):
+// os textos do marcador `novo:` sem upload e do prefixo "SKUs não gravados" importam as constantes JÁ exportadas
+// (`TEXTO_FOTOS_SEM_UPLOAD`, `PREFIXO_SKUS_NAO_GRAVADOS`) em vez de manter cópias locais (evita drift de texto); e o
+// erro de resultado desconhecido preserva a causa original via `{ cause: e }`.
 import {
-  MSG_PREVIA_DESCONHECIDA, manuaisParaRpc, mensagemAplicarSkus, mensagemErroPrevia, nadaAGravar, resumoAplicacao,
-  type ManualRpc, type PreviaSkus,
+  MSG_PREVIA_DESCONHECIDA, PREFIXO_SKUS_NAO_GRAVADOS, manuaisParaRpc, mensagemAplicarSkus, mensagemErroPrevia,
+  resumoAplicacao, type ManualRpc, type PreviaSkus,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
-import { PREFIXO_FOTO_NOVA, colunasAlteradas, payloadItem, type ItemSalvar, type Rascunho } from "@/lib/integracao/rascunho";
+import {
+  PREFIXO_FOTO_NOVA, TEXTO_FOTOS_SEM_UPLOAD, colunasAlteradas, payloadItem, type ItemSalvar, type Rascunho,
+} from "@/lib/integracao/rascunho";
 
 export type EntradaSkus = { ref: string; tamanhoTipo: "letra" | "numero"; manuais: ManualRpc[]; modo: "manuais" };
 export type DepsSalvar = {
@@ -86,7 +93,7 @@ export async function salvarIntegracao(rascunhos: Rascunho[], deps: DepsSalvar):
           // Minor 3 (task-11-review.md): marcador `novo:<id>` sem upload correspondente falha alto (mesma rede de
           // segurança do `payloadItem` da Task 10) em vez de ser filtrado em silêncio — o `catch` logo abaixo já
           // cobre a limpeza dos uploads que ESTA tentativa efetivamente fez.
-          if (c === undefined) throw new Error(TEXTO_FOTOS_NOVAS_PERDIDAS);
+          if (c === undefined) throw new Error(TEXTO_FOTOS_SEM_UPLOAD);
           return c;
         });
         fotos[r.modeloId] = finais;
@@ -108,7 +115,9 @@ export async function salvarIntegracao(rascunhos: Rascunho[], deps: DepsSalvar):
       await deps.apagarFotos(subidos).catch(() => undefined);
     }
     if (rpcEnviada && !recusaDefinitiva(e)) {
-      throw new Error(TEXTO_RESULTADO_DESCONHECIDO);
+      // R3 (task-11-review.md "Re-review round 1"): `{ cause: e }` preserva o erro original para diagnóstico (DevTools,
+      // logs) sem mudar o texto que `mensagemErro` mostra ao usuário (ela só lê `.message`/`.code`, nunca `.cause`).
+      throw new Error(TEXTO_RESULTADO_DESCONHECIDO, { cause: e });
     }
     throw e;
   }
@@ -124,7 +133,7 @@ export async function salvarIntegracao(rascunhos: Rascunho[], deps: DepsSalvar):
     if (e === null) {
       skusFalhas.push({
         modeloId: r.modeloId, nome: nomeAtualDoRascunho(r),
-        texto: `${PREFIXO_SKUS_NAO_GRAVADOS_LOCAL}defina "Tamanho em" no card do produto antes de gravar os SKUs.`,
+        texto: `${PREFIXO_SKUS_NAO_GRAVADOS}defina "Tamanho em" no card do produto antes de gravar os SKUs.`,
       });
       continue;
     }
@@ -148,14 +157,6 @@ export async function salvarIntegracao(rascunhos: Rascunho[], deps: DepsSalvar):
   }
   return { ...res, fotos, skusOk, skusFalhas };
 }
-
-/** Minor 3 (task-11-review.md): texto do marcador `novo:<id>` sem upload correspondente — reusa o mesmo prefixo da
- *  Task 10 (`TEXTO_FOTOS_SEM_UPLOAD`) para ficar consistente com o texto que o usuário já vê quando `payloadItem`
- *  recusa por falta de `fotosFinais`. */
-const TEXTO_FOTOS_NOVAS_PERDIDAS = "Não foi possível enviar as fotos novas. Tente salvar de novo.";
-/** Mesmo prefixo de `sku-previa.ts` (`PREFIXO_SKUS_NAO_GRAVADOS`) — duplicado aqui como const local só para o texto de
- *  "Tamanho em" ausente, que não tem uma mensagem pronta na seção Códigos (lá o campo é sempre preenchido). */
-const PREFIXO_SKUS_NAO_GRAVADOS_LOCAL = "O card foi salvo, mas os SKUs não foram gravados: ";
 
 /** M6 (code-review.md): o nome do TOAST usa o do RASCUNHO (o que a pessoa digitou nesta mesma sessão de Salvar),
  *  nunca o nome antigo do servidor — se este Salvar também renomeou o produto, o toast de falha de SKU já mostra o

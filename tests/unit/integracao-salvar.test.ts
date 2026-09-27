@@ -94,6 +94,13 @@ describe("salvarIntegracao — fotos → integracao_salvar → SKUs", () => {
     expect(chamadas).toEqual(["subir:c.jpg"]);
     expect(d.apagarFotos).not.toHaveBeenCalled();
   });
+  // Fix round 2 — R3 (task-11-review.md "Re-review round 1"): o erro original vira `cause` (diagnóstico), sem mudar
+  // o texto que `mensagemErro` mostra pro usuário (ela só lê message/code).
+  it("resultado DESCONHECIDO: preserva o erro original em `cause` (diagnóstico, sem mudar o texto mostrado)", async () => {
+    const original = Object.assign(new Error("Failed to fetch"), { code: "" });
+    const { d } = falsos({ salvar: vi.fn(async () => { throw original; }) });
+    await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ message: TEXTO_RESULTADO_DESCONHECIDO, cause: original });
+  });
   it("recusa DEFINITIVA (code não-vazio, ex. 42501): apaga as fotos e repassa o erro ORIGINAL (não o texto de desconhecido)", async () => {
     const { d, chamadas } = falsos({ salvar: vi.fn(async () => { throw Object.assign(new Error("sem permissao"), { code: "42501" }); }) });
     await expect(salvarIntegracao([comFoto()], d)).rejects.toMatchObject({ code: "42501", message: "sem permissao" });

@@ -6,13 +6,24 @@
 // leva o tenant na key, debounce de 300ms (igual ao Sheet) e expõe erro (M2); a lista não mostra a loja anterior como
 // placeholder ao trocar de tenant (M3); `invalidarIntegracao` também invalida `produtos-importados` (M4); o canal
 // Realtime usa um sufixo único por montagem (M5).
-import { useEffect, useState } from "react";
+//
+// Fix round 2 (task-11-review.md "Re-review round 1" Important R1 + task-11-code-review.md "Re-check round 1" I3): o
+// round 1 debounçava um OBJETO novo a cada render (`useValorAtrasado(entradas, 300)`, comparado por `===`) — como
+// `entradas` nunca é a MESMA referência 2 renders seguidos, o efeito reagendava `setV` pra sempre, gerando um
+// re-render da aba Produtos a cada 300ms mesmo sem nenhum rascunho. Fix: `useValorAtrasado` agora só aceita STRING
+// (mesmo padrão de `useChaveAtrasada` do Sheet, `useSkusModelo.ts`), e `usePreviasSkus` atrasa `JSON.stringify(
+// entradas)` — uma string igual a si mesma entre renders enquanto nada muda de verdade — e reconstrói o mapa via
+// `useMemo(() => JSON.parse(...))`.
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { BUCKET, uploadFile } from "@/components/planejamento/modelo-shared";
-import { chaveEntradaPrevia, lerPrevia, type ErroPrevia, type LinhaPrevia, type PreviaSkus } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
+import {
+  chaveEntradaPrevia, entradaDaChave, lerPrevia, PREFIXO_SKUS_NAO_GRAVADOS,
+  type ErroPrevia, type LinhaPrevia, type PreviaSkus,
+} from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 import { filtrosParaRpc, lerLista, type Filtros, type ListaIntegracao, type Situacao } from "@/lib/integracao/produtos";
 import type { Rascunho } from "@/lib/integracao/rascunho";
 import { entradaSkus, salvarIntegracao, temSkuAGravar, type DepsSalvar, type EntradaSkus, type ResultadoSalvar } from "./salvar-integracao";
@@ -21,11 +32,13 @@ import { entradaSkus, salvarIntegracao, temSkuAGravar, type DepsSalvar, type Ent
  *  MESMA key para não relistar no meio do Salvar (o `onSettled` da mutation já relista depois). */
 export const chaveMutationSalvar = (tenantId: string) => ["integracao-salvar", tenantId] as const;
 
-/** Atrasa a troca de um VALOR — mesmo padrão de `useChaveAtrasada` da seção Códigos (`useSkusModelo.ts`): a REF é
- *  digitada letra a letra, e sem atraso cada tecla dispararia uma chamada de `skus_previa` por produto (M2). Aqui o
- *  valor é o conjunto INTEIRO de chaves-por-produto (join estável), porque `usePreviasSkus` monta um número VARIÁVEL
- *  de queries (uma por rascunho com SKU) — não dá pra chamar um hook de atraso por item dentro do `.map()`. */
-function useValorAtrasado<T>(valor: T, ms: number): T {
+/** Atrasa a troca de uma STRING — mesmo padrão de `useChaveAtrasada` da seção Códigos (`useSkusModelo.ts`): a REF é
+ *  digitada letra a letra, e sem atraso cada tecla dispararia uma chamada de `skus_previa` por produto (M2).
+ *  Fix round 2 (Important R1/I3): o TIPO é restrito a `string` de propósito — um objeto/array recriado a cada render
+ *  nunca é `===` ao anterior, então o efeito reagendaria o `setTimeout` pra sempre (loop de re-render a cada `ms`,
+ *  mesmo sem nenhuma mudança real). Uma string é igual a si mesma entre renders quando o CONTEÚDO não muda; o
+ *  chamador que precisar atrasar um objeto deve serializar (`JSON.stringify`) antes de passar aqui. */
+function useValorAtrasado(valor: string, ms: number): string {
   const [v, setV] = useState(valor);
   useEffect(() => {
     if (v === valor) return;
@@ -134,7 +147,18 @@ export function useIntegracaoConfig() {
  *  padrão de `useChaveAtrasada` da seção Códigos — pra não disparar 1 chamada de `skus_previa` por tecla digitada; e
  *  um erro de RPC vira `PreviaSkus.erros` (o MESMO shape que `situacaoPrevia`/`SkuCelula` já sabem ler — ver
  *  `sku-previa.ts:situacaoPrevia`, que sintetiza uma `PreviaLinha` de "erro" a partir de `erros` quando a linha não
- *  tem `previa` própria) em vez de deixar a célula presa mostrando "carregando" pra sempre. */
+ *  tem `previa` própria) em vez de deixar a célula presa mostrando "carregando" pra sempre.
+ *
+ *  Fix round 2 (Important R1/I3): o debounce agora atrasa uma STRING (`JSON.stringify(entradas)`), nunca o objeto —
+ *  ver o comentário de `useValorAtrasado`. O mapa atrasado volta via `useMemo(() => JSON.parse(...))`, então só muda
+ *  de referência quando a STRING atrasada muda de verdade (nunca a cada render).
+ *  Fix round 2 (Minor R1/N1): o `queryFn` deriva `ref`/`tamanhoTipo`/`manuais`/`modo` da PRÓPRIA chave da query
+ *  (`entradaDaChave(chave)`, o mesmo helper que `useSkusModelo.ts` usa) — nunca do `e` "atual" do render que criou a
+ *  query. Sem isso, um refetch da chave ATRASADA (invalidação, refoco) dentro da janela de debounce computaria a
+ *  prévia com a entrada NOVA mas rotularia o resultado com a chave/entrada VELHA.
+ *  Fix round 2 (Minor R2/N2): erro vira `previaDeErro(r, chave, err)` — a `PreviaSkus.entrada` agora é a CHAVE da
+ *  query (não o literal "erro"), pra bater com `previa.entrada === chaveAtual` se a T12a espelhar esse padrão do
+ *  Sheet (`useSkusModelo.ts:194`); sem isso a célula de erro nunca seria "atual" e ficaria presa em "calculando…". */
 export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<string, PreviaSkus | undefined> {
   const tenantId = useActiveTenantId();
   const comSku = rascunhos
@@ -143,9 +167,14 @@ export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<st
   const entradas = Object.fromEntries(
     comSku.map(({ r, e }) => [r.modeloId, chaveEntradaPrevia({ ref: e.ref, tamanhoTipo: e.tamanhoTipo, aGravar: r.skus, virgem: false })]),
   );
-  const entradasAtrasadas = useValorAtrasado(entradas, 300);
+  const entradasStr = JSON.stringify(entradas);
+  const entradasStrAtrasada = useValorAtrasado(entradasStr, 300);
+  const entradasAtrasadas: Record<string, string> = useMemo(
+    () => JSON.parse(entradasStrAtrasada) as Record<string, string>,
+    [entradasStrAtrasada],
+  );
   const qs = useQueries({
-    queries: comSku.map(({ r, e }) => {
+    queries: comSku.map(({ r }) => {
       // A chave USADA na query é a atrasada quando existe (mesmo modeloId ainda presente); sem par atrasado (produto
       // que acabou de ganhar o 1º SKU manual neste render), usa a de agora — não há o que atrasar ainda.
       const chave = entradasAtrasadas[r.modeloId] ?? entradas[r.modeloId];
@@ -154,8 +183,11 @@ export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<st
         enabled: ativo && !!tenantId,
         placeholderData: keepPreviousData,
         queryFn: async (): Promise<PreviaSkus> => {
+          // N1: a entrada da CHAMADA vem da própria chave da query, não do `e` do render que a criou (que pode já
+          // estar defasado se um refetch acontecer dentro da janela do debounce).
+          const ed = entradaDaChave(chave);
           const { data, error } = await supabase.rpc("skus_previa" as any, {
-            _modelo_id: r.modeloId, _ref: e.ref, _tamanho_tipo: e.tamanhoTipo, _manuais: e.manuais, _modo: e.modo,
+            _modelo_id: r.modeloId, _ref: ed.ref, _tamanho_tipo: ed.tamanhoTipo, _manuais: ed.manuais, _modo: ed.modo,
           });
           if (error) throw error;
           return lerPrevia(data, chave);
@@ -166,7 +198,8 @@ export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<st
   return Object.fromEntries(
     comSku.map(({ r }, i) => {
       const q = qs[i];
-      if (q?.isError) return [r.modeloId, previaDeErro(r, q.error)];
+      const chave = entradasAtrasadas[r.modeloId] ?? entradas[r.modeloId];
+      if (q?.isError) return [r.modeloId, previaDeErro(r, chave, q.error)];
       return [r.modeloId, q?.data];
     }),
   );
@@ -178,8 +211,10 @@ export function usePreviasSkus(rascunhos: Rascunho[], ativo: boolean): Record<st
  *  prévia ainda está carregando. Cada linha "a gravar" também entra em `matriz.linhas` (com o SKU já digitado) —
  *  sem isso, o futuro `SkuCelula` (T12a/T14, que casa por `variante_key`/`tamanho_key`) nunca encontraria a linha e o
  *  erro nunca apareceria de fato. `desconhecida: true`/`assinatura: null` (fail-closed, igual a uma prévia ilegível)
- *  garante que ninguém tenta aplicar SKU em cima de uma prévia que nunca chegou a existir de verdade. */
-function previaDeErro(r: Rascunho, err: unknown): PreviaSkus {
+ *  garante que ninguém tenta aplicar SKU em cima de uma prévia que nunca chegou a existir de verdade.
+ *  Fix round 2 (N2): `entrada` é a CHAVE da query que falhou, nunca o literal "erro" — ver o comentário de
+ *  `usePreviasSkus`. */
+function previaDeErro(r: Rascunho, chave: string, err: unknown): PreviaSkus {
   const mensagem = mensagemErro(err, "Não foi possível calcular a prévia dos SKUs.");
   const manuais = Object.values(r.skus.manuais);
   const erros: ErroPrevia[] = manuais.map((m) => ({
@@ -193,7 +228,7 @@ function previaDeErro(r: Rascunho, err: unknown): PreviaSkus {
   }));
   return {
     matriz: { status: "desconhecido", tamanho_tipo: null, tamanho_tipo_card: null, linhas, faltas: [], avisos: [] },
-    assinatura: null, erros, nConflitos: 0, entrada: "erro", desconhecida: true,
+    assinatura: null, erros, nConflitos: 0, entrada: chave, desconhecida: true,
   };
 }
 
