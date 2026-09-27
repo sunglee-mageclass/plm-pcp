@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { lerLista } from "@/lib/integracao/produtos";
 import {
   PREFIXO_FOTO_NOVA,
+  TEXTO_FOTOS_SEM_UPLOAD,
   adicionarFotos,
   aposSalvar,
   colunasAlteradas,
@@ -172,6 +173,21 @@ describe("rascunho por produto (staging)", () => {
     expect(r2.valores.preco_anterior).toBeNull();
     expect(payloadItem(r2)?.campos.preco_anterior).toBeNull();
   });
+  it("Minor #3/fix round 3: payloadItem LANÇA com texto PT exato quando há fotos novas pendentes sem fotosFinais", () => {
+    // Regressão fechada na rodada 3: o fix round 2 removeu essa guarda por engano ao trocar o texto pra PT — a
+    // guarda TEM que continuar existindo (round 0 Minor #3 + round 1 item 4: "keep this throw"), só o TEXTO
+    // mudou pra PT (Minor R1-5). Roda em T11 passo 1, ANTES de qualquer escrita — o catch de lá apaga os
+    // uploads já feitos, então uma foto nova nunca fica órfã nem some em silêncio do payload.
+    const f = adicionarFotos(rascunho(7), [{ id: "u1", file: arquivo("c.jpg") }]);
+    expect(() => payloadItem(f)).toThrow(TEXTO_FOTOS_SEM_UPLOAD);
+    expect(() => payloadItem(f)).toThrow(
+      "Não foi possível enviar as fotos novas. Tente salvar de novo.",
+    );
+    // com o argumento certo (o resultado do upload), funciona normalmente — não lança
+    expect(
+      payloadItem(f, ["t/fotos_modelo/a.jpg", "t/fotos_modelo/b.jpg", "novo-path.jpg"]),
+    ).not.toBeNull();
+  });
 });
 
 describe("Minor R1-3 (fix round 2): aposSalvar NUNCA lança — degrada quando falta o resultado do upload", () => {
@@ -197,6 +213,20 @@ describe("Minor R1-3 (fix round 2): aposSalvar NUNCA lança — degrada quando f
     // de rev e adotar fotos_modelo do servidor sozinho (tocados vazio = "não tocado segue o servidor").
     expect(sobra!.rev).toBe(7);
     expect(sobra!.tocados.size).toBe(0);
+    // Test-gap nit (re-review round 2): não basta provar as PRECONDIÇÕES (rev/tocados) — prova o efeito real:
+    // o PRÓXIMO mesclar (vendo a rev 8 nova do servidor, já com as fotos novas gravadas lá) adota fotos_modelo
+    // do servidor por inteiro, mesmo sem qualquer ação explícita de "usar o novo" do usuário.
+    const doServidor = produto(8, {
+      fotos_modelo: ["t/fotos_modelo/a.jpg", "t/fotos_modelo/b.jpg", "t/fotos_modelo/c.jpg"],
+    });
+    const merged = mesclar(sobra!, doServidor);
+    expect(merged.rev).toBe(8);
+    expect(merged.valores.fotos_modelo).toEqual([
+      "t/fotos_modelo/a.jpg",
+      "t/fotos_modelo/b.jpg",
+      "t/fotos_modelo/c.jpg",
+    ]);
+    expect(merged.conflitos).toEqual([]); // adoção silenciosa — não é um conflito, fotos_modelo não estava tocada
   });
   it("com fotosNovas pendentes e COM o.fotos: caminho normal, adota o novo rev", () => {
     const comFoto = adicionarFotos(rascunho(7), [{ id: "u1", file: arquivo("c.jpg") }]);

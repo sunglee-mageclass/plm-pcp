@@ -43,8 +43,18 @@
 //   silenciosamente, sem inventar um estado inconsistente. A checagem também saiu de ANTES do early-return
 //   `skusGravados || nadaAGravar` para DEPOIS — só importa quando o rascunho de fato sobra.
 // - Minor R1-4: mensagem de ação em massa cobrindo o bloqueio por módulo — ver `produtos.ts` (`acoesEmMassa`).
-// - Minor R1-5: os textos de fallback (agora não mais exceptions) são PT, seguros pro usuário — nunca citam
-//   "Task 11"/nomes de função internos, que apareceriam crus no toast via `mensagemErro` se algum dia alcançados.
+// - Minor R1-5: texto PT seguro pro usuário quando `payloadItem` recusa (ver fix round 3 abaixo — a v2 removeu o
+//   texto junto da guarda por engano; a rodada 3 devolveu os dois).
+//
+// Fix round 3 (task-10-review.md, "Re-review round 2"):
+// - Regressão fechada: o fix round 2 removeu, por engano, a guarda de `payloadItem` que o round 0 (Minor #3) e o
+//   round 1 (item 4, revisão explícita: "keep this throw") tinham deixado de propósito — o round 2 devia SÓ trocar
+//   o texto pra PT (Minor R1-5), não apagar a guarda inteira. Restaurada: quando `fotos_modelo` está entre as
+//   colunas alteradas (há `fotosNovas` pendentes) e o chamador não passa `fotosFinais`, `payloadItem` lança com o
+//   texto PT "Não foi possível enviar as fotos novas. Tente salvar de novo." Roda em T11 passo 1, ANTES de
+//   qualquer escrita no banco, dentro do `try` — o `catch` correspondente apaga os uploads já feitos, então nada
+//   fica orfão no Storage. `aposSalvar` continua SEM lançar (Minor R1-3 — ele roda DEPOIS do commit; ver o
+//   comentário da própria função).
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
 import type { ColunaEditavel } from "@/lib/integracao/campos";
 import type { ProdutoLista, RawProduto, Sublinha } from "@/lib/integracao/produtos";
@@ -259,17 +269,29 @@ export function usarNovo(r: Rascunho, path: string): Rascunho {
   };
 }
 
+/** Texto PT, seguro pro usuário (Minor R1-5/fix round 3) — nunca cita nome de função/task interna. Se o guard de
+ *  `payloadItem` algum dia disparar (não deveria, no fluxo planejado — ver o comentário da função), esse é o
+ *  texto que chega ao toast (via `mensagemErro`). */
+export const TEXTO_FOTOS_SEM_UPLOAD =
+  "Não foi possível enviar as fotos novas. Tente salvar de novo.";
 /** Item do `integracao_salvar`: só as colunas alteradas (as ausentes não gravam). SKU NÃO vai aqui (passo 3).
  *  Important #2 (fix round 1) — `preco_anterior`/`preco_venda` NUNCA mandam 0/negativo: o servidor aceita `>= 0`
  *  na validação genérica de `integracao_salvar`, mas `preco_venda` de revenda/importado é repassado a
  *  `salvar_precos_fixo_produto_acabado/_importado`, que RAISE P0001 pra qualquer valor NÃO-NULL `<= 0` — e aborta
  *  o LOTE inteiro (sem savepoint). NULL é a única codificação de "sem preço"/"automático" que não estoura.
- *  Minor R1-5 — foto nova pendente sem `fotosFinais` não lança mais (ver `aposSalvar`); aqui a checagem já era só
- *  defensiva e o caminho feliz (T11 sempre passa `fotosFinais` quando há `fotosNovas` — ver task-10-review.md
- *  Important #4/round-1) permanece: sem o argumento, cai no fallback local de remover os marcadores `novo:`. */
+ *  Minor #3 (round 0) / fix round 3 — GUARDA RESTAURADA: quando `fotos_modelo` está entre as colunas alteradas
+ *  (há `fotosNovas` pendentes de upload) e o chamador não informa `fotosFinais`, esta função LANÇA (nunca
+ *  descarta os marcadores `novo:` em silêncio). Isto roda em T11 passo 1, ANTES de qualquer escrita no banco,
+ *  dentro do `try` do Salvar — o `catch` correspondente apaga os uploads que essa tentativa já tiver feito, então
+ *  nada fica órfão no Storage nem sem sinal nenhum pro usuário. O caminho feliz (T11 sempre passa `fotosFinais`
+ *  quando há `fotosNovas`) nunca exercita este ramo; ele é a rede de segurança para um T11 que esqueça o
+ *  argumento — bem diferente de `aposSalvar` (Minor R1-3), que roda DEPOIS do commit e por isso NUNCA lança. */
 export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | null {
   const cols = colunasAlteradas(r);
   if (cols.length === 0) return null;
+  if (cols.includes("fotos_modelo") && r.fotosNovas.length > 0 && fotosFinais === undefined) {
+    throw new Error(TEXTO_FOTOS_SEM_UPLOAD);
+  }
   const campos: ItemSalvar["campos"] = {};
   for (const c of cols) {
     const v = r.valores[c];
