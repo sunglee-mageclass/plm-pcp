@@ -578,6 +578,125 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     await view.desmontar();
   });
 
+  // Fix round 3 T12b — code-review "Re-check round 2" (m-S5, gap de teste): faltava prova executável de que a
+  // espera "salvo, aguardando lista" (ruling B-I3) CEDE de verdade quando a relista chega com um rev MAIOR que o
+  // salvo (outra pessoa editou o MESMO produto no meio) — a leitura do código já dizia que sim
+  // (`produtoComHold` só substitui quando `aguardando.rev >= p.rev`; um rev da lista MAIOR sempre vence), mas
+  // nunca havia um teste conferindo o valor do SERVIDOR aparecendo na célula.
+  it("regressão m-S5 (a): a espera CEDE quando a relista chega com rev MAIOR e o valor de outra pessoa (mostra o valor do servidor, não o salvo)", async () => {
+    const lista = listaRaw([produtoRaw({ rev: 1 })]);
+    const view = await montarComMocks({
+      lista,
+      salvarImpl: async () => ({ salvos: 1, revs: { m1: 2 }, fotos: {}, skusOk: [], skusFalhas: [] }),
+    });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Salvo");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    expect(input()!.value).toBe("Nome Salvo"); // a espera está segurando o valor salvo (rev 2)
+    // A relista chega com rev 3 (MAIOR que o salvo, rev 2) e um valor de OUTRA PESSOA — a espera precisa CEDER na
+    // hora: a lista É a fonte mais atual agora, não a espera.
+    await act(async () => {
+      view.atualizarLista(listaRaw([produtoRaw({ rev: 3, raw: { nome: "Nome De Outra Pessoa", ref: "REF0001", tamanho_tipo: "letra" } })]));
+    });
+    expect(input()!.value).toBe("Nome De Outra Pessoa");
+    expect(input()!.value).not.toBe("Nome Salvo");
+    await view.desmontar();
+  });
+
+  // Fix round 3 T12b (m-S5, gap de teste): um rascunho NASCIDO durante a janela da espera (o usuário digita de
+  // novo antes da lista confirmar) precisa virar CONFLITO de verdade se a relista, quando finalmente chega, traz
+  // um valor DIFERENTE do que o rascunho tinha tocado — a espera não pode mascarar uma edição alheia real.
+  it("regressão m-S5 (b): um rascunho nascido durante a espera vira CONFLITO quando a relista chega com outro valor no MESMO campo tocado", async () => {
+    const lista = listaRaw([produtoRaw({ rev: 1 })]);
+    const view = await montarComMocks({
+      lista,
+      salvarImpl: async () => ({ salvos: 1, revs: { m1: 2 }, fotos: {}, skusOk: [], skusFalhas: [] }),
+    });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Salvo");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    // Edita de novo DURANTE a espera (a lista ainda não confirmou) — este rascunho nasce com base/rev = os
+    // valores SALVOS (rev 2), não os da lista (ainda rev 1).
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Nome Editado Na Janela");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input()!.value).toBe("Nome Editado Na Janela");
+    // A relista finalmente chega com rev 3 (MAIOR que o rascunho, que está em rev 2) e um valor DIFERENTE no MESMO
+    // campo (nome) que o rascunho tocou — conflito de verdade, nunca uma adoção silenciosa do valor alheio.
+    await act(async () => {
+      view.atualizarLista(listaRaw([produtoRaw({ rev: 3, raw: { nome: "Nome De Outra Pessoa", ref: "REF0001", tamanho_tipo: "letra" } })]));
+    });
+    expect(input()!.value).toBe("Nome Editado Na Janela"); // o meu não some
+    expect(view.container.textContent).toContain("Outra pessoa mudou este campo.");
+    await view.desmontar();
+  });
+
+  // Fix round 3 T12b — code-review "Re-check round 2" (m-S1): a v1 preenchia `novosAguardando` DENTRO do updater
+  // de `setRascunhos` e lia a variável logo DEPOIS, fora dele — funcionava só porque o React roda o updater de
+  // forma "eager" quando a fibra NÃO tem nenhuma atualização pendente no instante da chamada; com uma atualização
+  // JÁ enfileirada na mesma fibra (outro `setState` do MESMO componente, cenário real de produção — o `onSuccess`
+  // do TanStack Query roda fora do sistema de eventos sintéticos do React), o React NÃO calcula mais eager, e a
+  // variável lida logo depois (fora do updater) chegaria vazia — um flash transitório provado empiricamente
+  // (confirmado isolando `novosAguardando`/o handler `onChange` chamado direto via a prop interna
+  // `__reactProps$...`, contornando a trava `disabled` real do campo de busca durante o Salvar — nenhum jeito de
+  // reproduzir isso com uma interação de usuário real e um `act()` completo depois, já que o flash se "cura"
+  // sozinho no próximo commit). Correção: o cálculo INTEIRO virou a função PURA `resultadoPosSalvar`
+  // (`rascunho.ts`) — chamada aqui ANTES de qualquer `setState`, nunca dentro de um updater, então o resultado
+  // nunca depende de QUANDO o React decide rodar um updater. A prova de regressão de verdade (que não depende de
+  // nenhuma race interna do React pra ser determinística) mora em `integracao-rascunho.test.ts`, testando
+  // `resultadoPosSalvar` diretamente. Este teste aqui é só o "fio wiring": confirma que `ProdutosAba` de fato
+  // aplica o resultado dessa função nos dois `set` esperados, num Salvar normal.
+  it("onSuccess aplica o resultado de resultadoPosSalvar (sobra + espera) nos dois setState esperados", async () => {
+    const lista = listaRaw([produtoRaw({ modelo_id: "m1", rev: 1, raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } })]);
+    const view = await montarComMocks({
+      lista,
+      salvarImpl: async () => ({ salvos: 1, revs: { m1: 2 }, fotos: {}, skusOk: [], skusFalhas: [] }),
+    });
+    const { act } = await import("react");
+    const inputM1 = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputM1()!, "Um Editado");
+      inputM1()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    // A célula continua mostrando o valor SALVO (a espera B-I3 está ativa) mesmo com a lista mockada ainda no rev
+    // velho — prova que `setSalvosAguardando` recebeu o resultado de `resultadoPosSalvar`.
+    expect(inputM1()!.value).toBe("Um Editado");
+    // Edita de novo e salva de novo: o item enviado precisa levar o REV SALVO (2, da espera), nunca o rev 1 da
+    // lista mockada (que nunca avançou) — prova indireta de que a espera tem o rev certo.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputM1()!, "Um Editado De Novo");
+      inputM1()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await view.rodarSalvar();
+    const chamadas = view.salvarSpy.mock.calls as unknown as Array<[Array<{ modeloId: string; rev: number }>]>;
+    const segundaChamada = chamadas[1]?.[0] ?? [];
+    const itemM1 = segundaChamada.find((it) => it.modeloId === "m1");
+    expect(itemM1?.rev).toBe(2);
+    await view.desmontar();
+  });
+
   it("mapeamento de erro: onError do Salvar mostra o toast traduzido por mensagemErro e NÃO perde os rascunhos", async () => {
     const lista = listaRaw([produtoRaw()]);
     const erro42501 = Object.assign(new Error("integracao_sem_permissao:preco_venda"), { code: "42501" });
@@ -1065,6 +1184,43 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
     expect(argsSegundaChamada._keywords.esperado).toBe("Moda, Verão, valor correto do servidor");
     expect(argsSegundaChamada._keywords.valor).toBe("Moda, Verão, Meu Texto");
     expect(view.onFecharSpy).toHaveBeenCalled(); // 2º Salvar teve sucesso — sem laço
+    await view.desmontar();
+  });
+
+  // Fix round 3 T12b (m-S4, code-review "Re-check round 2"): se o PRÓPRIO `refetchQueries` falhar por rede, o
+  // `dataUpdatedAt` da query ativa não avança — o "fresco" encontrado podia ser exatamente o dado VELHO que já
+  // causou o P0409, e o toast dizia "Outra pessoa mudou as Keywords" sem avisar que a causa real foi uma falha de
+  // conexão (nada de laço sem saída — cada tentativa relê de novo — mas confuso pro usuário). Prova: semeia uma
+  // query com `status: "error"` (via `qc.fetchQuery` com um `queryFn` que rejeita) na MESMA chave por prefixo —
+  // o toast precisa nomear a falha de rede, nunca o texto genérico de conflito.
+  it("regressão m-S4: refetch que falha por rede mostra uma mensagem de FALHA DE CONEXÃO, nunca o texto genérico de 'outra pessoa mudou'", async () => {
+    const view = await montarKeywords({
+      rpcImpl: async () => ({ data: null, error: Object.assign(new Error("keywords_mudou: outra pessoa mudou"), { code: "P0409" }) }),
+    });
+    const { act } = await import("react");
+    const textarea = () => document.body.querySelector<HTMLTextAreaElement>("#integracao-keywords");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, Meu Texto");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Semeia a query (mesma chave por prefixo) com um `queryFn` que REJEITA — deixa `state.status === "error"` e
+    // `fetchStatus === "idle"` (terminou de tentar) depois que a Promise resolve, exatamente como o
+    // `refetchQueries` real deixaria numa falha de rede genuína.
+    await view.qc.fetchQuery({
+      queryKey: ["integracao-lista", "t1", "nao_integrados", {}, 1],
+      queryFn: () => Promise.reject(new Error("Failed to fetch")),
+      retry: false,
+    }).catch(() => {});
+    const { toast } = await import("sonner");
+    const toastMock = toast as unknown as { error: ReturnType<typeof vi.fn> };
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent === "Salvar" || b.textContent === "Salvando…");
+    await act(async () => { botaoSalvar()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(textarea()?.value).toBe("Moda, Verão, Meu Texto"); // o texto digitado nunca muda
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.",
+    );
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Outra pessoa mudou"));
     await view.desmontar();
   });
 

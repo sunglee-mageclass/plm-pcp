@@ -39,7 +39,7 @@ import {
   FILTROS_VAZIOS, ROTULO_ESTADO, ROTULO_ORIGEM, faixaPagina, rotuloEstado, textoFaltas, tomEstado, totalPaginas,
   type EstadoIntegracao, type Filtros, type ListaIntegracao, type ProdutoLista, type Situacao,
 } from "@/lib/integracao/produtos";
-import { aposSalvar, mesclar, novoRascunho, temAlteracao, validarRascunho, type Rascunho, type Valores } from "@/lib/integracao/rascunho";
+import { mesclar, novoRascunho, resultadoPosSalvar, temAlteracao, validarRascunho, type EsperaAguardando, type Rascunho } from "@/lib/integracao/rascunho";
 import { useAbaSuja } from "./guard";
 import { chaveLista, useIntegracaoAoVivo, useIntegracaoLista, usePreviasSkus, useSalvarIntegracao } from "./useIntegracao";
 import { ProdutosTabela } from "./ProdutosTabela";
@@ -130,7 +130,7 @@ export function ProdutosAba() {
   // existir, todo lugar que monta um Rascunho novo (rascunhoDe → novoRascunho) usa ESSES valores/rev em vez dos da
   // lista em cache — nunca o `lista.produtos.find(...)` puro. Cai sozinho (limpo no efeito de merge) assim que a
   // relista mostra `p.rev >= aguardando.rev` — o servidor finalmente alcançou.
-  const [salvosAguardando, setSalvosAguardando] = useState<Record<string, { valores: Valores; rev: number }>>({});
+  const [salvosAguardando, setSalvosAguardando] = useState<Record<string, EsperaAguardando>>({});
   const salvosAguardandoRef = useRef(salvosAguardando);
   salvosAguardandoRef.current = salvosAguardando;
   // Substitui `raw`/`rev` do produto pelos valores SALVOS enquanto a espera durar — nunca o inverso (a lista em
@@ -226,26 +226,31 @@ export function ProdutosAba() {
     // por structural sharing (a referência de `lista` não muda sozinha nesse caso).
   }, [lista, q.dataUpdatedAt]);
 
-  // Ruling B-I3 — fim da espera: solta o "salvo, aguardando lista" assim que a PRÓPRIA lista mostrar `p.rev >=
+  // Ruling B-I3 — fim da espera: solta o "salvo, aguardando lista" assim que a lista mostrar `p.rev >=
   // aguardando.rev` pra aquele produto (o servidor finalmente alcançou; a partir daqui a lista É a fonte mais
-  // atual, não precisa mais do valor guardado aqui). Um produto que sumiu da página (raro, mas possível — filtro
-  // mudou no meio) mantém a espera até reaparecer; não há pressa em limpar isso (é só um mapa auxiliar, nunca
-  // exposto fora desta tela).
+  // atual, não precisa mais do valor guardado aqui).
+  // Fix round 3 T12b (m-S3, code-review "Re-check round 2"): a v1 só olhava a PÁGINA atual (`lista.produtos`) —
+  // um produto que sai da página (renomeado, trocou de filtro no meio) mantinha a espera no mapa até reaparecer
+  // NAQUELA MESMA página/filtro, mesmo que ele já estivesse visível e com o rev novo em OUTRA página/filtro/
+  // situação já em cache (`produtosEmCache`, o mesmo helper que a re-mesclagem pós-Salvar e o "mostrar" já usam).
+  // Sem custo de RPC nova — é só um outro lugar pra olhar antes de desistir. Seguro (nunca prendia de verdade;
+  // era só memória), mas agora solta mais cedo sempre que possível.
   useEffect(() => {
     if (!lista) return;
     const idsAguardando = Object.keys(salvosAguardandoRef.current);
     if (idsAguardando.length === 0) return;
+    const cache = produtosEmCache(qc, tenantId);
     let mudou = false;
     const prox = { ...salvosAguardandoRef.current };
     for (const id of idsAguardando) {
-      const p = lista.produtos.find((x) => x.modeloId === id);
+      const p = lista.produtos.find((x) => x.modeloId === id) ?? cache.get(id);
       if (p && p.rev >= prox[id].rev) {
         delete prox[id];
         mudou = true;
       }
     }
     if (mudou) setSalvosAguardando(prox);
-  }, [lista, q.dataUpdatedAt]);
+  }, [lista, q.dataUpdatedAt, qc, tenantId]);
 
   // Fix round 2 T12b (minor m4): super admin troca de loja com rascunhos sujos pendentes (mesmo depois de cancelar
   // um "Descartar?" da guarda de navegação — `useAbaSuja`/`UnsavedChangesGuard` protegem TROCAR DE ROTA, não
@@ -353,41 +358,21 @@ export function ProdutosAba() {
       // rascunho cujo id sumiu do estado vivo (`rs[id]` ausente — virou integrável durante o Salvar, m9/m1) é
       // pulado por inteiro: nunca ressuscitado.
       onSuccess: (res) => {
-        const cache = produtosEmCache(qc, tenantId);
-        // Ruling B-I3: junta os "salvo, aguardando lista" deste Salvar — só para os produtos que gravaram por
-        // inteiro (sem sobra: `aposSalvar` devolveu null). Um produto com sobra NÃO entra aqui — ele já mostra o
-        // rascunho residual, que é a fonte de verdade mais atual que existe (mais nova que qualquer coisa que a
-        // lista possa trazer).
-        const novosAguardando: Record<string, { valores: Valores; rev: number }> = {};
-        setRascunhos((rs) => {
-          const prox = { ...rs };
-          for (const enviado of enviados) {
-            // m9/m1 (revisão): `rs[id]` ausente = o merge already descartou este rascunho durante o Salvar (o
-            // produto virou integrável/saiu da lista) — não ressuscitar, mesmo que os SKUs dele tenham falhado.
-            const atual = rs[enviado.modeloId];
-            if (!atual) continue;
-            const revSalvo = res.revs[enviado.modeloId];
-            let sobra = aposSalvar(atual, {
-              rev: revSalvo,
-              fotos: res.fotos[enviado.modeloId],
-              skusGravados: res.skusOk.includes(enviado.modeloId),
-            });
-            if (sobra) {
-              const fresco = cache.get(enviado.modeloId);
-              if (fresco && fresco.rev > sobra.rev) sobra = mesclar(sobra, fresco);
-              prox[enviado.modeloId] = sobra;
-            } else {
-              delete prox[enviado.modeloId];
-              if (revSalvo !== undefined) {
-                novosAguardando[enviado.modeloId] = {
-                  valores: { ...atual.valores, fotos_modelo: res.fotos[enviado.modeloId] ?? atual.valores.fotos_modelo },
-                  rev: revSalvo,
-                };
-              }
-            }
-          }
-          return prox;
-        });
+        // Fix round 3 T12b (m-S1, code-review "Re-check round 2"): a sobra pós-Salvar + a espera "salvo,
+        // aguardando lista" (ruling B-I3) são calculadas por uma função PURA (`resultadoPosSalvar`, `rascunho.ts`
+        // — testável sem nenhum React envolvido), chamada AQUI, FORA de qualquer updater de `setState`, a partir
+        // de `rascunhosRef.current` (o estado VIVO, nunca `rascunhos` capturado no fechamento de `onSalvar` antes
+        // do `await`). A v1 (round 2) fazia esse cálculo DENTRO do updater de `setRascunhos` e lia o resultado de
+        // uma variável de fora, logo depois de chamar `setRascunhos(...)` — funcionava só quando o React roda o
+        // updater de forma "eager" (fibra sem update pendente no instante da chamada); com uma atualização já
+        // enfileirada na mesma fibra (outro `setState` do mesmo componente, cenário real já que o `onSuccess` do
+        // TanStack Query roda fora do sistema de eventos sintéticos do React), o updater só rodava no PRÓXIMO
+        // commit — a variável lida logo depois chegava vazia, e a espera nunca era criada (flash transitório do
+        // valor antigo). Com o cálculo fora de qualquer updater, os dois `set` recebem o resultado já pronto —
+        // nenhum efeito colateral dentro de um updater, e o resultado nunca depende de QUANDO o React decide
+        // rodar o updater.
+        const { proxRascunhos, novosAguardando } = resultadoPosSalvar(rascunhosRef.current, enviados, res, produtosEmCache(qc, tenantId));
+        setRascunhos(proxRascunhos);
         if (Object.keys(novosAguardando).length > 0) {
           setSalvosAguardando((sa) => ({ ...sa, ...novosAguardando }));
         }

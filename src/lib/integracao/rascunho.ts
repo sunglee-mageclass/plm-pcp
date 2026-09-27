@@ -392,6 +392,28 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
   }
   return { modelo_id: r.modeloId, rev: r.rev, campos };
 }
+/** Fix round 3 T12b (m-S2, code-review "Re-check round 2") — os valores que um produto SALVOU por inteiro (sem
+ *  sobra de rascunho), pra guardar na espera "salvo, aguardando lista" (ruling B-I3, `ProdutosAba.tsx`). Usa a
+ *  MESMA `normalizado()` que `colunasAlteradas`/`mesclar` já usam pra decidir "alterado"/filtrar falso-conflito —
+ *  a MESMA régua que o servidor aplica (`_integracao_retrato_core`/`integracao_salvar`: `btrim`, `nullif`, preço
+ *  arredondado/`<=0`→NULL). Sem isso, a espera guardava os valores CRUS do rascunho ("Blusa " em vez de "Blusa",
+ *  preço `0` em vez de `NULL`) — como a espera fica sob a MESMA chave de cache `${id}:${rev}` até o próximo bump
+ *  de rev (m-S2), um merge futuro comparando o valor CRU da espera contra o valor NORMALIZADO que o servidor de
+ *  fato gravou podia acender um falso "Outra pessoa mudou este campo" (o filtro de convergência do m12 só cobre
+ *  quando o rascunho NORMALIZADO bate com o fresco — aqui o valor da espera nunca passava por normalização
+ *  nenhuma). `fotosFinais` substitui `fotos_modelo` quando o upload terminou (mesmo parâmetro de `payloadItem`);
+ *  sem ele, mantém os caminhos já reais do rascunho (nunca os marcadores `novo:`, que só existem ANTES do Salvar). */
+export function valoresPosSalvar(r: Rascunho, fotosFinais?: string[]): Valores {
+  const v = {} as Valores;
+  for (const c of COLUNAS) {
+    if (c === "fotos_modelo") {
+      v.fotos_modelo = fotosFinais ?? r.valores.fotos_modelo.filter((f) => !f.startsWith(PREFIXO_FOTO_NOVA));
+    } else {
+      (v as Record<ColunaEditavel, unknown>)[c] = normalizado(c, r.valores[c]);
+    }
+  }
+  return v;
+}
 /** Depois do Salvar: o que gravou vira a base; sobra rascunho SÓ se os SKUs "a gravar" não gravaram (passo 3).
  *  Minor R1-3 (fix round 2) — NUNCA lança: este código roda DEPOIS de um Salvar já commitado no servidor (T12b,
  *  dentro do onSuccess), então um throw aqui vira um erro de render pós-sucesso e não protege nada (as fotos já
@@ -429,6 +451,68 @@ export function aposSalvar(
     fotosNovas: [],
     conflitos: [],
   };
+}
+export type ResultadoSalvarLote = {
+  salvos: number;
+  revs: Record<string, number>;
+  fotos: Record<string, string[]>;
+  skusOk: string[];
+};
+export type EsperaAguardando = { valores: Valores; rev: number };
+export type ResultadoPosSalvar = {
+  proxRascunhos: Record<string, Rascunho>;
+  novosAguardando: Record<string, EsperaAguardando>;
+};
+/** Fix round 3 T12b (m-S1, code-review "Re-check round 2") — a computação INTEIRA de "o que sobra em `rascunhos`
+ *  depois do Salvar" + "quais produtos entram na espera 'salvo, aguardando lista' (ruling B-I3)", extraída de
+ *  `ProdutosAba.onSuccess` pra uma função PURA, testável sem nenhum React envolvido. A v1 (round 2) fazia esse
+ *  cálculo DENTRO do updater de `setRascunhos` e lia o resultado (`novosAguardando`) de uma variável de fora,
+ *  logo depois de chamar `setRascunhos(...)` — funcionava só quando o React roda o updater de forma "eager"
+ *  (nenhuma atualização pendente na fibra no instante da chamada); com uma atualização JÁ enfileirada na mesma
+ *  fibra (outro `setState` do mesmo componente disparado no mesmo instante, fora de um `act()`/lote de eventos —
+ *  cenário real de produção, já que o `onSuccess` do TanStack Query roda fora do sistema de eventos sintéticos do
+ *  React), o updater passa a rodar só no PRÓXIMO commit — a variável lida logo depois chegava vazia, e a espera
+ *  nunca era criada (um flash transitório do valor antigo, "curado" sozinho no commit seguinte, mas real). Como
+ *  função PURA chamada ANTES de qualquer `setState`, este código nunca depende de QUANDO o React decide rodar um
+ *  updater — o resultado é sempre calculado de uma vez, síncrono, na chamada.
+ *
+ *  `rascunhosAtuais` é o estado VIVO no instante do sucesso (`rascunhosRef.current` em `ProdutosAba`, nunca o
+ *  `rascunhos` capturado no fechamento de `onSalvar`/antes do `await`). `enviados` é a lista de `Rascunho`s que
+ *  foram de fato mandados nesse Salvar. `cache` é o mapa id→produto mais recente em cache (`produtosEmCache`),
+ *  usado pra re-mesclar uma sobra contra um rev mais novo já disponível (I4(c)). */
+export function resultadoPosSalvar(
+  rascunhosAtuais: Record<string, Rascunho>,
+  enviados: readonly Rascunho[],
+  res: ResultadoSalvarLote,
+  cache: ReadonlyMap<string, ProdutoLista>,
+): ResultadoPosSalvar {
+  const proxRascunhos: Record<string, Rascunho> = { ...rascunhosAtuais };
+  const novosAguardando: Record<string, EsperaAguardando> = {};
+  for (const enviado of enviados) {
+    // m9/m1 (revisão): `rascunhosAtuais[id]` ausente = o merge already descartou este rascunho durante o Salvar (o
+    // produto virou integrável/saiu da lista) — não ressuscitar, mesmo que os SKUs dele tenham falhado.
+    const atual = rascunhosAtuais[enviado.modeloId];
+    if (!atual) continue;
+    const revSalvo = res.revs[enviado.modeloId];
+    let sobra = aposSalvar(atual, {
+      rev: revSalvo,
+      fotos: res.fotos[enviado.modeloId],
+      skusGravados: res.skusOk.includes(enviado.modeloId),
+    });
+    if (sobra) {
+      const fresco = cache.get(enviado.modeloId);
+      if (fresco && fresco.rev > sobra.rev) sobra = mesclar(sobra, fresco);
+      proxRascunhos[enviado.modeloId] = sobra;
+    } else {
+      delete proxRascunhos[enviado.modeloId];
+      if (revSalvo !== undefined) {
+        // Fix round 3 T12b (m-S2): valores NORMALIZADOS (mesma régua do servidor), nunca os CRUS do rascunho —
+        // ver o comentário de `valoresPosSalvar`.
+        novosAguardando[enviado.modeloId] = { valores: valoresPosSalvar(atual, res.fotos[enviado.modeloId]), rev: revSalvo };
+      }
+    }
+  }
+  return { proxRascunhos, novosAguardando };
 }
 /** A sublinha da lista no formato da seção Códigos (digitarSku/skuExibido/situacaoPrevia leem este shape). */
 export function linhaSkuDaSublinha(s: Sublinha): LinhaSku {

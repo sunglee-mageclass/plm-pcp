@@ -96,7 +96,16 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
         const consultas = qc.getQueryCache().findAll({ queryKey: chaveLista(tenantId) });
         let fresco: ListaIntegracao | undefined;
         let maisRecente = -Infinity;
+        let refetchFalhou = false;
         for (const q of consultas) {
+          // Fix round 3 T12b (m-S4, code-review "Re-check round 2"): se o PRÓPRIO refetch (linha acima) falhar
+          // por rede, `dataUpdatedAt` da query ativa NÃO avança — o "fresco" encontrado pode ser exatamente o
+          // dado VELHO que já causou o P0409, e o próximo Salvar bateria em P0409 de novo sem avisar que a causa
+          // foi uma falha de rede (nunca um laço sem saída — cada tentativa relê de novo — mas confuso: o usuário
+          // vê "outra pessoa mudou" repetido, achando que alguém digitou de novo). Detecta pelo `status`/
+          // `fetchStatus` da query ATIVA (a única que o `refetchQueries` acima de fato tocou): `fetchStatus ===
+          // "idle"` (terminou de buscar) com `status === "error"` é uma falha real, não "sem query pra refazer".
+          if (q.state.status === "error" && q.state.fetchStatus === "idle") refetchFalhou = true;
           const dado = q.state.data as ListaIntegracao | undefined;
           if (!dado) continue;
           if (q.state.dataUpdatedAt > maisRecente) {
@@ -104,7 +113,11 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
             fresco = dado;
           }
         }
-        if (fresco) {
+        if (refetchFalhou) {
+          // O texto digitado nunca é tocado; `base` também fica como estava (nada de novo pra confiar) — o
+          // usuário sabe que precisa tentar de novo por causa da rede, não porque outra pessoa mudou algo.
+          toast.error("Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.");
+        } else if (fresco) {
           const valorFresco = fresco.keywords ?? "";
           // Fix round 2 T12b (R1(a)/R-I3(a)): `base` troca pro valor FRESCO aqui mesmo — o texto DIGITADO fica
           // exatamente como está. Sem isso, "manter o meu" (ou simplesmente salvar de novo) continuava comparando

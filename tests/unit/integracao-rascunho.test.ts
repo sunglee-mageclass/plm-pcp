@@ -15,6 +15,7 @@ import {
   novoRascunho,
   payloadItem,
   removerFoto,
+  resultadoPosSalvar,
   sairTitulo,
   temAlteracao,
   usarNovo,
@@ -169,6 +170,77 @@ describe("rascunho por produto (staging)", () => {
     expect(temAlteracao(sobra)).toBe(true);
     expect(aposSalvar(s, { rev: 8, skusGravados: true })).toBeNull();
   });
+
+  // Fix round 3 T12b — code-review "Re-check round 2" (m-S1): a computação de "o que sobra em `rascunhos`" + "quem
+  // entra na espera 'salvo, aguardando lista' (ruling B-I3)" saiu de dentro de um updater de `setRascunhos`
+  // (`ProdutosAba.tsx`, onde o resultado só era correto quando o React rodava o updater de forma "eager") pra uma
+  // função PURA, `resultadoPosSalvar` — testável aqui sem NENHUM React/timing envolvido. Isso é o que faz "o teste
+  // não depender do updater rodar de forma síncrona" (instrução explícita do controlador): não existe updater
+  // nenhum pra rodar síncrono ou não — é só uma função chamada e o resultado conferido na hora.
+  describe("resultadoPosSalvar (m-S1) — sobra + espera calculadas fora de qualquer updater de setState", () => {
+    it("produto salvou por inteiro (sem sobra): some de proxRascunhos, entra em novosAguardando com os valores normalizados", () => {
+      let r = editar(rascunho(7), "nome", "Blusa Brisa Nova "); // espaço no fim — precisa normalizar (m-S2)
+      const rascunhosAtuais = { m1: r };
+      const { proxRascunhos, novosAguardando } = resultadoPosSalvar(
+        rascunhosAtuais,
+        [r],
+        { salvos: 1, revs: { m1: 8 }, fotos: {}, skusOk: [] },
+        new Map(),
+      );
+      expect(proxRascunhos.m1).toBeUndefined(); // sumiu — nada pendente
+      expect(novosAguardando.m1).toEqual({
+        rev: 8,
+        valores: expect.objectContaining({ nome: "Blusa Brisa Nova" }), // aparado — m-S2
+      });
+    });
+    it("produto com SKU pendente (sobra de verdade): fica em proxRascunhos, NÃO entra em novosAguardando", () => {
+      const comSku = comSkus(rascunho(7), {
+        regerar: false,
+        manuais: { "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 } },
+      });
+      const rascunhosAtuais = { m1: comSku };
+      const { proxRascunhos, novosAguardando } = resultadoPosSalvar(
+        rascunhosAtuais,
+        [comSku],
+        { salvos: 1, revs: { m1: 8 }, fotos: {}, skusOk: [] }, // SKU não gravou (m1 não está em skusOk)
+        new Map(),
+      );
+      expect(proxRascunhos.m1).toBeDefined();
+      expect(proxRascunhos.m1?.rev).toBe(8);
+      expect(novosAguardando.m1).toBeUndefined();
+    });
+    it("rascunho ausente do estado vivo (virou integrável/saiu da lista durante o Salvar): nunca ressuscitado, nem em proxRascunhos nem em novosAguardando (m9/m1)", () => {
+      const r = editar(rascunho(7), "nome", "Editado");
+      const rascunhosAtuais: Record<string, ReturnType<typeof rascunho>> = {}; // m1 já sumiu de `rascunhos`
+      const { proxRascunhos, novosAguardando } = resultadoPosSalvar(
+        rascunhosAtuais,
+        [r], // ainda assim foi ENVIADO nesse lote (capturado antes do sumiço)
+        { salvos: 1, revs: { m1: 8 }, fotos: {}, skusOk: [] },
+        new Map(),
+      );
+      expect(proxRascunhos.m1).toBeUndefined();
+      expect(novosAguardando.m1).toBeUndefined();
+    });
+    it("re-mescla a sobra contra um rev mais novo já em cache (I4(c)), preserva os OUTROS rascunhos intocados em proxRascunhos", () => {
+      const comSku = comSkus(rascunho(7), {
+        regerar: false,
+        manuais: { "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 } },
+      });
+      const outroIntocado = rascunho(3, { modelo_id: "m2" } as never);
+      const rascunhosAtuais = { m1: comSku, m2: outroIntocado };
+      const fresco = produto(9, { nome: "Nome Do Servidor Mais Novo" });
+      const cache = new Map([[fresco.modeloId, fresco]]);
+      const { proxRascunhos } = resultadoPosSalvar(
+        rascunhosAtuais,
+        [comSku],
+        { salvos: 1, revs: { m1: 8 }, fotos: {}, skusOk: [] },
+        cache,
+      );
+      expect(proxRascunhos.m1?.rev).toBe(9); // mesclou contra o rev 9 do cache, não ficou preso em 8
+      expect(proxRascunhos.m2).toBe(outroIntocado); // outro rascunho, nunca tocado pelo Salvar de m1, sobrevive intacto
+    });
+  });
+
   it("ruling G1 (revisto no fix round 1): limpar preco_anterior grava NULL (automático)", () => {
     const r2 = editar(rascunho(7), "preco_anterior", null);
     expect(r2.valores.preco_anterior).toBeNull();
