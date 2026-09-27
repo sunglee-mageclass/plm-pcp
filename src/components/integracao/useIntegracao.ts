@@ -21,7 +21,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { BUCKET, uploadFile } from "@/components/planejamento/modelo-shared";
 import {
-  chaveEntradaPrevia, entradaDaChave, lerPrevia, PREFIXO_SKUS_NAO_GRAVADOS,
+  chaveEntradaPrevia, entradaDaChave, lerPrevia,
   type ErroPrevia, type LinhaPrevia, type PreviaSkus,
 } from "@/components/planejamento/planejamento-detail/codigos/sku-previa";
 import { filtrosParaRpc, lerLista, type Filtros, type ListaIntegracao, type Situacao } from "@/lib/integracao/produtos";

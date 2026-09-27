@@ -310,15 +310,21 @@ describe("estado vem de `estado`, nunca de marcado_em/marcado_por (ruling)", () 
   });
 });
 
-describe("ruling P-99 (reprovado): lerLista tolera um integrável reprovado normalmente", () => {
-  it("integracao_listar não manda campo 'reprovado' (fica só em integracao_previa) — lerLista lê como produto comum", () => {
-    // O servidor (_integracao_base) já filtra: 'nao_integravel' reprovado some da lista; 'integravel'/'integrado'
-    // reprovado CONTINUA visível, sem nenhuma marca extra no payload de integracao_listar (só integracao_previa tem
-    // 'reprovado' — fora do escopo desta Task). O badge de reprovado vem na Task 12a; aqui só garantimos que um
-    // produto assim não quebra a leitura nem finge ser outra coisa.
-    const p = lista([cru({ estado: "integravel", completo: true, faltas: [] })]).produtos[0];
-    expect(p.estado).toBe("integravel");
-    expect(motivoVoltar(p, true)).toBeNull();
+describe("ruling P-99 A (controlador, Task 12a): integracao_listar agora manda 'reprovado' por produto", () => {
+  it("reprovado: true SÓ quando o servidor manda === true (fail-closed nos dois sentidos)", () => {
+    const p1 = lista([cru({ estado: "integravel", completo: true, faltas: [], reprovado: true })])
+      .produtos[0];
+    expect(p1.reprovado).toBe(true);
+    // O servidor já filtra: 'nao_integravel' reprovado some da lista; 'integravel'/'integrado' reprovado CONTINUA
+    // visível — o badge (Task 12a) mostra ao lado do estado, mas o produto segue integrável/integrado normalmente.
+    expect(p1.estado).toBe("integravel");
+    expect(motivoVoltar(p1, true)).toBeNull();
+  });
+  it("ausente/string/number nunca acende o badge por engano", () => {
+    expect(lista([cru({})]).produtos[0].reprovado).toBe(false);
+    expect(lista([cru({ reprovado: "true" })]).produtos[0].reprovado).toBe(false);
+    expect(lista([cru({ reprovado: 1 })]).produtos[0].reprovado).toBe(false);
+    expect(lista([cru({ reprovado: false })]).produtos[0].reprovado).toBe(false);
   });
 });
 

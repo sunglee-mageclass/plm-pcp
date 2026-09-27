@@ -108,6 +108,7 @@ export type ProdutoLista = {
   retratoDifere: CampoKey[];
   gates: Gates;
   moduloBloqueado: boolean;
+  reprovado: boolean;
 };
 export type ListaIntegracao = {
   pagina: number;
@@ -247,6 +248,9 @@ function produtoDe(v: unknown): ProdutoLista {
     // d2-M3: chave BOOLEANA à parte de `gates` (não é um GateKey) — true SÓ quando === true (fail-closed nos dois
     // sentidos: ausente/string/number nunca vira bloqueio nem destrava por engano).
     moduloBloqueado: g.modulo_bloqueado === true,
+    // P-99 A (controlador, Task 12a): `integracao_listar` manda `reprovado` (boolean) por produto — lido TOLERANTE,
+    // igual ao resto do arquivo: true SÓ quando === true (ausente/string/number nunca acende o badge por engano).
+    reprovado: o.reprovado === true,
   };
 }
 export function lerLista(raw: unknown): ListaIntegracao {
