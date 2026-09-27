@@ -261,6 +261,31 @@ BEGIN
                        WHERE pi.modelo_id = m.id ORDER BY 1);
   END IF;
 
+  -- ruling do controlador, revisão T4 #1 (Important #1, opção b): 'nome' marcado em produto revenda/importado
+  -- vira falta quando o nome do card (modelos.nome) diverge do nome do PRODUTO ESPELHO. O card do Produto
+  -- Acabado (_salvar_produto_acabado_core) sempre copia produtos_acabados.nome -> modelos.nome a cada save —
+  -- se o usuário renomeou só o card no Sheet do Planejamento (ou há um espaço a mais), todo save do PA volta a
+  -- travar com integracao_travado: nome mesmo sem editar nada de fato. A falta avisa ANTES do marcar (o
+  -- retrato fica incompleto e marcar recusa) em vez de deixar o produto travado destravável só por
+  -- voltar/desfazer. _salvar_produto_importado_core NÃO grava nome/ref em modelos (confirmado lendo
+  -- 20260904180000_produto_importado_fixes_review.sql) — mas a checagem entra igual para o importado por
+  -- SIMETRIA/robustez a uma mudança futura desse core (o teste cobre só o caso revenda, que é o alcançável hoje).
+  IF 'nome' = ANY(v_campos) THEN
+    IF m.origem = 'revenda' THEN
+      IF EXISTS (SELECT 1 FROM public.produtos_acabados pa
+                  WHERE pa.modelo_id = m.id AND btrim(coalesce(pa.nome::text, '')) <> btrim(coalesce(m.nome::text, ''))) THEN
+        v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'nome',
+          'texto', 'Nome diferente do Produto Acabado'));
+      END IF;
+    ELSIF m.origem = 'importado' THEN
+      IF EXISTS (SELECT 1 FROM public.produtos_importados pi
+                  WHERE pi.modelo_id = m.id AND btrim(coalesce(pi.nome::text, '')) <> btrim(coalesce(m.nome::text, ''))) THEN
+        v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'nome',
+          'texto', 'Nome diferente do Produto Importado'));
+      END IF;
+    END IF;
+  END IF;
+
   RETURN jsonb_build_object(
     'retrato', jsonb_build_object('v', 1, 'campos', to_jsonb(v_campos),
       'linhas', jsonb_build_array(jsonb_build_object('tipo', 'produto', 'ordem', 0, 'valores', v_prod,

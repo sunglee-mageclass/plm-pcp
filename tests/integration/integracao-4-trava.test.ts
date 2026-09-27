@@ -1,11 +1,14 @@
 /** Integração + API — migration 4 (trava §8, foto WHEN, B1). Plano Task 4. Só na cópia (N3), txn revertida. */
 import { describe, it, expect } from "vitest";
-import type { Client } from "pg";
-import { hasDb, withTx, comoUsuario, um } from "./db";
+import { Client } from "pg";
+import type { Client as ClientType } from "pg";
+import { hasDb, withTx, comoUsuario, um, dbUrl } from "./db";
 import {
   CAMPOS_PADRAO, DEF, INVERSOS, LAYOUT, LOCAL, MD5_ANTES, MIG_TXN, T, U, aplica, camposLoja, imediato, keywordsLoja,
   modeloInterno, prepara, revenda,
 } from "./integracao-helpers";
+
+const SSL = false; // cópia local, sem SSL — mesmo padrão de integracao-3-estados.test.ts/kanban-auto.test.ts
 
 /** Trecho inserido nos 2 recálculos (diff mínimo — o "depois" menos ISTO é o "antes"). */
 export const TRECHO_B1 =
@@ -16,11 +19,11 @@ export const TRECHO_B1 =
   "  end if;\n" +
   "\n";
 
-async function marcar(c: Client, id: string): Promise<void> {
+async function marcar(c: ClientType, id: string): Promise<void> {
   const a = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [id])).r.produtos[0].assinatura;
   await c.query(`SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`, [id, a]);
 }
-async function falha(c: Client, sql: string, params: unknown[] = []): Promise<string> {
+async function falha(c: ClientType, sql: string, params: unknown[] = []): Promise<string> {
   await c.query("SAVEPOINT f");
   try {
     await c.query(sql, params);
@@ -136,6 +139,35 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     });
   });
 
+  it("revisão T4 #1 (Important #1, ruling do controlador — opção b): nome do card diferente do Produto Acabado vira falta e marcar recusa; nomes iguais marca normal; save sem mudar nada passa", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await revenda(c);
+      // renomeia SÓ o card (Sheet do Planejamento edita modelos.nome; o PA fica com o nome antigo) — a mesma
+      // divergência que _salvar_produto_acabado_core reproduziria a cada save (ele sempre copia pa.nome -> modelos.nome).
+      await c.query(`UPDATE public.modelos SET nome = nome || ' renomeado' WHERE id = $1`, [m.id]);
+      const previa = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r.produtos[0];
+      expect(previa.completo).toBe(false);
+      expect(previa.faltas).toContainEqual({ campo: "nome", texto: "Nome diferente do Produto Acabado" });
+      expect(await falha(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [m.id, previa.assinatura])).toMatch(/^P0001/);
+      // iguala os nomes (edita o PRODUTO, não o card — o card fica sob controle de quem tem permissão de preço/planejamento)
+      await c.query(`UPDATE public.produtos_acabados SET nome = (SELECT nome FROM public.modelos WHERE id = $1) WHERE modelo_id = $1`, [m.id]);
+      const previa2 = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r.produtos[0];
+      expect(previa2.completo).toBe(true);
+      expect(previa2.faltas).not.toContainEqual(expect.objectContaining({ campo: "nome" }));
+      await marcar(c, m.id);
+      // save do PA que NÃO muda o nome (mesmo nome do produto, já igual ao do card) passa sem travar — a falta só
+      // acontece quando os 2 já DIVERGEM antes do marcar; depois de marcado, o `nome` trava por IS DISTINCT FROM real.
+      const nome = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).n;
+      const dados = { nome, qtd_total: 7, valor_unitario: 40, desconto_pct: 0, markup_varejo: 3 };
+      const mesmas = [{ ordem: 1, cor_id: m.corId, cor_apelido_id: m.apelidoId, peso: 1, qtd: 7 }];
+      expect(await falha(c, `SELECT public.salvar_produto_acabado($1, $2::jsonb, $3::jsonb, NULL)`, [m.produtoId, dados, JSON.stringify(mesmas)])).toBe("PASSOU");
+    });
+  });
+
   it("nota 14 (D11): save do Produto Acabado com o MESMO conjunto de cores passa (apaga/recria); trocar a cor é recusado no COMMIT", async () => {
     await withTx(async (c) => {
       await prepara(c, 4);
@@ -150,6 +182,27 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       await imediato(c);
       const outra = (await um<{ id: string }>(c, `INSERT INTO public.cores (tenant_id, nome) VALUES ($1, 'Outra cor teste') RETURNING id`, [T])).id;
       await c.query(`UPDATE public.produto_acabado_variantes SET cor_id = $2 WHERE produto_acabado_id = $1`, [m.produtoId, outra]);
+      await expect(imediato(c)).rejects.toThrow(/integracao_travado: variantes/);
+    });
+  });
+
+  it("revisão T4 #2 (Important #2, plan-mandated): mover a variante de um PA TRAVADO para OUTRO PA (UPDATE do FK, tipo PATCH REST) é recusado no COMMIT — o conjunto de cores do produto de ORIGEM não pode encolher escondido", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await revenda(c);
+      await marcar(c, m.id);
+      // um 2º produto acabado (NÃO travado) do MESMO tenant — o destino da mudança de FK.
+      const outroProdutoId = (await um<{ id: string }>(c,
+        `INSERT INTO public.produtos_acabados (tenant_id, nome, ref, valor_unitario, desconto_pct, qtd_total, markup_varejo)
+         VALUES ($1, 'Outro produto T4-2', 'OUT-T42', 40, 0, 5, 3) RETURNING id`, [T])).id;
+      const varianteId = (await um<{ id: string }>(c,
+        `SELECT id FROM public.produto_acabado_variantes WHERE produto_acabado_id = $1 LIMIT 1`, [m.produtoId])).id;
+      // move a variante (a ÚNICA cor do produto travado) para o outro produto — checar só NEW.produto_acabado_id
+      // deixaria passar: o destino não está travado. O conjunto de cores do produto de ORIGEM (m.produtoId) encolhe
+      // para VAZIO, o que deveria recusar (D11) — antes do fix, fn_integracao_trava_variantes só olhava NEW.
+      await c.query(`UPDATE public.produto_acabado_variantes SET produto_acabado_id = $2 WHERE id = $1`, [varianteId, outroProdutoId]);
       await expect(imediato(c)).rejects.toThrow(/integracao_travado: variantes/);
     });
   });
@@ -178,6 +231,17 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       const m = await modeloInterno(c, { semSku: true });
       await marcar(c, m.id);
       expect(await falha(c, `SELECT public.gerar_skus_modelo($1, false)`, [m.id])).toMatch(/^42501 integracao_travado: sku$/);
+    });
+  });
+
+  it("revisão T4 #5 (Minor #5, plan-mandated): _integracao_campo_travado tem EXECUTE revogado dos 3 (PUBLIC/anon/authenticated), não só authenticated/public", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      const r = await um<{ pub: boolean; anon: boolean; auth: boolean }>(c,
+        `SELECT has_function_privilege('public', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE') AS pub,
+                has_function_privilege('anon', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE') AS anon,
+                has_function_privilege('authenticated', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE') AS auth`);
+      expect(r).toEqual({ pub: false, anon: false, auth: false });
     });
   });
 
@@ -214,14 +278,20 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     await withTx(async (c) => {
       await prepara(c, 4);
       await aplica(c, INVERSOS[3]);
-      const r = await um<{ n: string; f: string; fi: string; pa: string; imp: string }>(c,
+      const r = await um<{ n: string; f: string; fi: string; pa: string; imp: string; funcoes: string }>(c,
         `SELECT (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%' OR tgname LIKE 'trg_sync_foto_modelo_%_upd') AS n,
                 (SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'trg_sync_foto_modelo_acabado') AS f,
                 (SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'trg_sync_foto_modelo_importado') AS fi,
                 md5(pg_get_functiondef('public._pa_recomputar_precos_modelo(uuid)'::regprocedure)) AS pa,
-                md5(pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure)) AS imp`);
-      // N4 (G-plano do plano): o gatilho de foto do IMPORTADO também volta ao original
-      expect(r).toEqual({ n: "0", pa: MD5_ANTES.pa, imp: MD5_ANTES.imp,
+                md5(pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure)) AS imp,
+                (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
+                   AND proname IN ('fn_integracao_trava_modelos', 'fn_integracao_trava_modelos_del', 'fn_integracao_trava_skus',
+                                   'fn_integracao_trava_espelho', 'fn_integracao_trava_variantes', '_integracao_campo_travado')
+                )::text AS funcoes`);
+      // N4 (G-plano do plano): o gatilho de foto do IMPORTADO também volta ao original.
+      // revisão T4 #4 (Minor #4, mesma classe de T2 #7/T3 #4): as 6 funções da trava (5 fn_integracao_trava_*
+      // + _integracao_campo_travado) TÊM que ter sumido — não só os gatilhos e os 2 recálculos.
+      expect(r).toEqual({ n: "0", funcoes: "0", pa: MD5_ANTES.pa, imp: MD5_ANTES.imp,
         f: "CREATE TRIGGER trg_sync_foto_modelo_acabado AFTER INSERT OR UPDATE OF foto_url, modelo_id ON public.produtos_acabados FOR EACH ROW EXECUTE FUNCTION _sync_foto_modelo_do_produto()",
         fi: "CREATE TRIGGER trg_sync_foto_modelo_importado AFTER INSERT OR UPDATE OF foto_url, modelo_id ON public.produtos_importados FOR EACH ROW EXECUTE FUNCTION _sync_foto_modelo_do_produto()" });
     });
@@ -253,35 +323,88 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
     });
   });
 
-  it("revisão T3->T4 (carry, ruling do controlador): marcar concorrente com salvar_produto_acabado serializa por FOR SHARE em modelos — o retrato gravado nao fica com variantes_chaves obsoleto", async () => {
-    // A trava (fn_integracao_trava_espelho/fn_integracao_trava_variantes) le integracao_produtos com EXISTS puro, que
-    // NAO enxerga uma marcar concorrente ainda nao commitada (read committed) nem e bloqueada por ela: salvar_produto_acabado
-    // nunca tocava `modelos` nem a advisory lock 'sku_modelo:<id>' que marcar toma. Fix: os pontos de leitura de
-    // integracao_produtos nas 2 funcoes de trava tomam antes `SELECT 1 FROM modelos WHERE id = <modelo> FOR SHARE`,
-    // que CONFLITA com o `FOR NO KEY UPDATE` que marcar toma sobre a mesma linha — serializa as duas sem mudar o
-    // resultado (SHARE x SHARE nao conflita entre elas; so conflita com NO KEY UPDATE/UPDATE). Prova aqui: com a
-    // trava em vigor, salvar_produto_acabado (que reescreve variantes) so roda depois que a outra sessao libera o
-    // FOR NO KEY UPDATE de modelos — nesta suite (1 conexao, txn unica) provamos indiretamente pelo LOCK MODE
-    // registrado em pg_locks durante a chamada de fn_integracao_trava_espelho/variantes.
-    await withTx(async (c) => {
-      await prepara(c, 4);
-      await comoUsuario(c, U);
-      await keywordsLoja(c, "k");
-      const m = await revenda(c);
-      await marcar(c, m.id);
-      // trocar a cor da variante precisa terminar disparando fn_integracao_trava_variantes (deferred) que agora
-      // toma FOR SHARE em modelos antes de olhar integracao_produtos — a chamada tem que suceder (mesma sessao,
-      // sem outro lock concorrente) e ainda assim recusar a mudança real de cor no COMMIT (D11 continua valendo).
-      const outra = (await um<{ id: string }>(c, `INSERT INTO public.cores (tenant_id, nome) VALUES ($1, 'Outra cor T3T4') RETURNING id`, [T])).id;
-      await c.query(`UPDATE public.produto_acabado_variantes SET cor_id = $2 WHERE produto_acabado_id = $1`, [m.produtoId, outra]);
-      // SET CONSTRAINTS ALL IMMEDIATE deixa a txn abortada se o gatilho adiado der RAISE — SAVEPOINT em volta
-      // (mesmo padrão de `falha()`) pra poder continuar testando na MESMA transação depois.
-      await c.query("SAVEPOINT g");
-      await expect(imediato(c)).rejects.toThrow(/integracao_travado: variantes/);
-      await c.query("ROLLBACK TO SAVEPOINT g");
-      await c.query("SET CONSTRAINTS ALL DEFERRED");
-      // e a trava do espelho (fn_integracao_trava_espelho) tambem precisa ter tomado o FOR SHARE — save inócuo passa.
-      expect(await falha(c, `UPDATE public.produtos_acabados SET qtd_total = qtd_total WHERE id = $1`, [m.produtoId])).toBe("PASSOU");
-    });
+  it("revisão T3->T4 (carry, ruling do controlador — Important #3 da revisão da Task 4, REAL 2 conexões): fn_integracao_trava_espelho fica esperando o FOR NO KEY UPDATE de um marcar concorrente em modelos (55P03 com lock_timeout curto), depois passa", async () => {
+    // Important #3 da revisão: o teste antigo (mesma sessão, sem 2ª conexão) não provava nada — passava
+    // igual com ou sem as linhas FOR SHARE. Prova de verdade (mesmo padrão de integracao-3-estados.test.ts
+    // "Important #1 (revisão T3)"): uma 2ª conexão prende `modelos FOR NO KEY UPDATE` (a MESMA trava que
+    // integracao_marcar de fato toma) sobre um produto_acabado LIGADO já commitado na cópia (nenhum id fixo —
+    // escolhido em runtime); a txn do teste, com lock_timeout curto, tenta um UPDATE inócuo em
+    // produtos_acabados — precisa esperar e estourar 55P03 (mesmo código/mecanismo de um lock de linha
+    // comum) porque fn_integracao_trava_espelho agora toma FOR SHARE em modelos ANTES de olhar
+    // integracao_produtos. Soltando a 2ª conexão, o MESMO UPDATE passa.
+    const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
+    await segunda.connect();
+    try {
+      await withTx(async (c) => {
+        await prepara(c, 4);
+        await comoUsuario(c, U);
+        // escolhe em runtime um produto_acabado LIGADO já commitado na cópia (a suíte não cria um novo —
+        // o novo nasceria DENTRO desta txn, invisível pra 2ª conexão até o commit, que nunca acontece aqui).
+        const alvo = await um<{ pa_id: string; modelo_id: string }>(c,
+          `SELECT pa.id AS pa_id, pa.modelo_id AS modelo_id FROM public.produtos_acabados pa
+            WHERE pa.modelo_id IS NOT NULL ORDER BY pa.id LIMIT 1`);
+
+        await segunda.query("BEGIN");
+        await segunda.query(`SELECT 1 FROM public.modelos WHERE id = $1 FOR NO KEY UPDATE`, [alvo.modelo_id]);
+
+        await c.query("SET LOCAL lock_timeout = '300ms'");
+        await c.query("SAVEPOINT trava_espelho");
+        let travou = false;
+        try {
+          await c.query(`UPDATE public.produtos_acabados SET qtd_total = qtd_total WHERE id = $1`, [alvo.pa_id]);
+        } catch (e: any) {
+          travou = e.code === "55P03";
+          await c.query("ROLLBACK TO SAVEPOINT trava_espelho");
+        }
+        expect(travou).toBe(true);
+
+        // solta a 2ª conexão — agora o MESMO UPDATE (lock_timeout normal de novo) passa.
+        await segunda.query("ROLLBACK");
+        await c.query("SET LOCAL lock_timeout = '500ms'");
+        await c.query(`UPDATE public.produtos_acabados SET qtd_total = qtd_total WHERE id = $1`, [alvo.pa_id]);
+      });
+    } finally {
+      await segunda.end();
+    }
+  });
+
+  it("revisão T4 #3 (Important #3, mesmo padrão — caminho ADIADO das variantes): fn_integracao_trava_variantes (constraint trigger, disparado por imediato) também fica esperando o FOR NO KEY UPDATE de modelos", async () => {
+    const segunda = new Client({ connectionString: dbUrl()!, ssl: SSL });
+    await segunda.connect();
+    try {
+      await withTx(async (c) => {
+        await prepara(c, 4);
+        await comoUsuario(c, U);
+        const alvo = await um<{ pa_id: string; modelo_id: string }>(c,
+          `SELECT pa.id AS pa_id, pa.modelo_id AS modelo_id FROM public.produtos_acabados pa
+            WHERE pa.modelo_id IS NOT NULL ORDER BY pa.id LIMIT 1`);
+        // toca a linha de variante (mesmo valor — não muda o conjunto de cores) pra ter algo pendente
+        // no gatilho ADIADO quando `imediato()` disparar SET CONSTRAINTS ALL IMMEDIATE.
+        await c.query(`UPDATE public.produto_acabado_variantes SET peso = peso WHERE produto_acabado_id = $1`, [alvo.pa_id]);
+
+        await segunda.query("BEGIN");
+        await segunda.query(`SELECT 1 FROM public.modelos WHERE id = $1 FOR NO KEY UPDATE`, [alvo.modelo_id]);
+
+        await c.query("SET LOCAL lock_timeout = '300ms'");
+        await c.query("SAVEPOINT trava_var");
+        let travou = false;
+        try {
+          await imediato(c);
+        } catch (e: any) {
+          travou = e.code === "55P03";
+          await c.query("ROLLBACK TO SAVEPOINT trava_var");
+        }
+        expect(travou).toBe(true);
+        await c.query("SET CONSTRAINTS ALL DEFERRED");
+
+        // solta a 2ª conexão — o MESMO disparo do gatilho adiado agora passa (mesmo conjunto de cores: D11 não recusa).
+        await segunda.query("ROLLBACK");
+        await c.query("SET LOCAL lock_timeout = '500ms'");
+        await c.query(`UPDATE public.produto_acabado_variantes SET peso = peso WHERE produto_acabado_id = $1`, [alvo.pa_id]);
+        await imediato(c);
+      });
+    } finally {
+      await segunda.end();
+    }
   });
 });

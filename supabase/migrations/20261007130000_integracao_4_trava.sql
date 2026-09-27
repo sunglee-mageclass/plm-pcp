@@ -239,30 +239,53 @@ AS $function$
 DECLARE
   -- TG_ARGV: [0] tabela do produto, [1] coluna FK nas variantes, [2] tabela das variantes
   v_prod uuid;
+  v_prod_old uuid;
+  v_prods uuid[];
   v_modelo uuid;
   v_esperado uuid[];
   v_atual uuid[];
+  p uuid;
 BEGIN
   v_prod := (to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) ->> TG_ARGV[1])::uuid;
-  EXECUTE format('SELECT p.modelo_id FROM public.%I p WHERE p.id = $1', TG_ARGV[0]) INTO v_modelo USING v_prod;
-  IF v_modelo IS NULL THEN
-    RETURN NULL;
+  -- ruling do controlador, revisão T4 #2 (Important #2, plan-mandated): num UPDATE que MUDA o FK do produto
+  -- (move a linha de variante para OUTRO produto_acabado/produto_importado), checar só NEW deixava passar uma
+  -- troca que TIRA a cor de um produto TRAVADO (o conjunto do produto de ORIGEM encolhe e nada recusa) — mesmo
+  -- padrão que fn_integracao_trava_skus já fazia com ARRAY[OLD.modelo_id, NEW.modelo_id]. Fix: em UPDATE com
+  -- FK mudando, checa o conjunto de AMBOS os produtos (origem E destino); DELETE/INSERT continuam checando só 1.
+  IF TG_OP = 'UPDATE' THEN
+    v_prod_old := (to_jsonb(OLD) ->> TG_ARGV[1])::uuid;
+    IF v_prod_old IS DISTINCT FROM v_prod THEN
+      v_prods := ARRAY[v_prod_old, v_prod];
+    ELSE
+      v_prods := ARRAY[v_prod];
+    END IF;
+  ELSE
+    v_prods := ARRAY[v_prod];
   END IF;
-  -- Carry T3->T4 (ruling do controlador, mesmo fix de fn_integracao_trava_espelho): FOR SHARE em modelos ANTES de
-  -- ler integracao_produtos — este é um CONSTRAINT TRIGGER ADIADO (roda no COMMIT da txn que apagou/recriou as
-  -- variantes), então o FOR SHARE aqui serializa contra um integracao_marcar que ainda esteja segurando o
-  -- FOR NO KEY UPDATE da MESMA linha de modelos (fila; sem mudar o resultado da comparação de conjunto abaixo).
-  PERFORM 1 FROM public.modelos WHERE id = v_modelo FOR SHARE;
-  SELECT ip.variantes_chaves INTO v_esperado FROM public.integracao_produtos ip
-   WHERE ip.modelo_id = v_modelo AND ip.estado IN ('integravel', 'integrado');
-  IF NOT FOUND OR v_esperado IS NULL THEN
-    RETURN NULL;
-  END IF;
-  EXECUTE format('SELECT ARRAY(SELECT DISTINCT public._sku_variante_key(v.cor_id, v.cor_apelido_id) FROM public.%I v WHERE v.%I = $1 ORDER BY 1)',
-                 TG_ARGV[2], TG_ARGV[1]) INTO v_atual USING v_prod;
-  IF v_atual IS DISTINCT FROM v_esperado THEN
-    RAISE EXCEPTION 'integracao_travado: variantes' USING ERRCODE = '42501';
-  END IF;
+  FOREACH p IN ARRAY v_prods LOOP
+    IF p IS NULL THEN
+      CONTINUE;
+    END IF;
+    EXECUTE format('SELECT m.modelo_id FROM public.%I m WHERE m.id = $1', TG_ARGV[0]) INTO v_modelo USING p;
+    IF v_modelo IS NULL THEN
+      CONTINUE;
+    END IF;
+    -- Carry T3->T4 (ruling do controlador, mesmo fix de fn_integracao_trava_espelho): FOR SHARE em modelos ANTES
+    -- de ler integracao_produtos — este é um CONSTRAINT TRIGGER ADIADO (roda no COMMIT da txn que apagou/recriou
+    -- as variantes), então o FOR SHARE aqui serializa contra um integracao_marcar que ainda esteja segurando o
+    -- FOR NO KEY UPDATE da MESMA linha de modelos (fila; sem mudar o resultado da comparação de conjunto abaixo).
+    PERFORM 1 FROM public.modelos WHERE id = v_modelo FOR SHARE;
+    SELECT ip.variantes_chaves INTO v_esperado FROM public.integracao_produtos ip
+     WHERE ip.modelo_id = v_modelo AND ip.estado IN ('integravel', 'integrado');
+    IF NOT FOUND OR v_esperado IS NULL THEN
+      CONTINUE;
+    END IF;
+    EXECUTE format('SELECT ARRAY(SELECT DISTINCT public._sku_variante_key(v.cor_id, v.cor_apelido_id) FROM public.%I v WHERE v.%I = $1 ORDER BY 1)',
+                   TG_ARGV[2], TG_ARGV[1]) INTO v_atual USING p;
+    IF v_atual IS DISTINCT FROM v_esperado THEN
+      RAISE EXCEPTION 'integracao_travado: variantes' USING ERRCODE = '42501';
+    END IF;
+  END LOOP;
   RETURN NULL;
 END
 $function$;
@@ -438,7 +461,10 @@ BEGIN
      OR position('[integracao v1]' IN pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'integracao_4: recalculos sem o trecho B1' USING ERRCODE = 'P0001';
   END IF;
+  -- ruling do controlador, revisão T4 #5 (Minor #5, plan-mandated): faltava checar `anon` (pg_default_acl
+  -- concede EXECUTE direto a anon em função nova — migrations 2 e 3 já checam os 3; esta pulava anon).
   IF has_function_privilege('authenticated', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE')
      OR has_function_privilege('public', 'public._integracao_campo_travado(uuid,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'integracao_4: _integracao_campo_travado executavel (inv. 9)' USING ERRCODE = 'P0001';
   END IF;

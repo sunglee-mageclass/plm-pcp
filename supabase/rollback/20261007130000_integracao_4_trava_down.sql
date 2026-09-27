@@ -181,6 +181,9 @@ end $function$
 DROP FUNCTION IF EXISTS public._integracao_campo_travado(uuid, text);
 
 DO $pos$
+DECLARE
+  f text;
+  v_n integer := 0;
 BEGIN
   IF md5(pg_get_functiondef('public._pa_recomputar_precos_modelo(uuid)'::regprocedure)) <> '72c96c624de8f4530c862d8abb6a1283'
      OR md5(pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure)) <> '5baca24d0de45b8c5f291fef39472238' THEN
@@ -188,6 +191,19 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%' OR tgname LIKE 'trg_sync_foto_modelo_%_upd') THEN
     RAISE EXCEPTION 'integracao_4_down: gatilhos da trava ainda existem' USING ERRCODE = 'P0001';
+  END IF;
+  -- ruling do controlador, revisão T4 #4 (Minor #4, mesma classe de T2 #7/T3 #4): confere as 6 funções desta
+  -- migration (5 fn_integracao_trava_* + _integracao_campo_travado) via DROP...IF EXISTS acima — sem este count,
+  -- drift de assinatura passaria em silêncio.
+  FOREACH f IN ARRAY ARRAY['public.fn_integracao_trava_variantes()', 'public.fn_integracao_trava_espelho()',
+                            'public.fn_integracao_trava_skus()', 'public.fn_integracao_trava_modelos_del()',
+                            'public.fn_integracao_trava_modelos()', 'public._integracao_campo_travado(uuid,text)'] LOOP
+    IF to_regprocedure(f) IS NOT NULL THEN
+      v_n := v_n + 1;
+    END IF;
+  END LOOP;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'integracao_4_down: % das 6 funcoes da trava ainda existem', v_n USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;
