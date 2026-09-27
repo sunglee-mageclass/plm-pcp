@@ -4829,6 +4829,7 @@ grep -c "RAISE EXCEPTION 'integracao_5_down: _salvar_produto_importado_core mudo
 BASH
 chmod +x .superpowers/integracao/mig/montar_inverso_5.sh
 bash .superpowers/integracao/mig/montar_inverso_5.sh
+```
 
 - [ ] **Step 5: Rodar e ver passar (N3)**
 
