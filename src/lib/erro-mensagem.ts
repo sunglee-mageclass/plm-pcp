@@ -7,6 +7,8 @@
 //
 // Uso: toast.error(mensagemErro(e, "Erro ao excluir."))
 
+import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
+
 // SQLSTATE / código PostgREST → mensagem amigável.
 const POR_CODIGO: Record<string, string> = {
   "23503": "Não é possível concluir: este registro está em uso por outros dados. Remova ou troque os vínculos antes.",
@@ -18,6 +20,9 @@ const POR_CODIGO: Record<string, string> = {
   "22001": "Texto longo demais para um dos campos.",
   "22003": "Número fora do intervalo permitido.",
   "40001": "Conflito de acesso simultâneo. Tente novamente.",
+  // Revisão T5 Minor 4: pode acontecer quando o mesmo produto comprado é salvo simultaneamente
+  // pelo Sheet do Planejamento e pela tela de Produto Acabado/Importado.
+  "40P01": "Outra pessoa salvou este produto ao mesmo tempo. Tente de novo.",
   "42501": "Você não tem permissão para esta ação.",
   P0409: "Outra pessoa salvou este registro agora há pouco. A tela foi atualizada — confira suas alterações e salve de novo.",
   P0001: "", // RAISE das nossas funções: já vem em PT, usa a própria mensagem.
@@ -33,7 +38,34 @@ const MENSAGENS_42501_PROPRIAS = new Set([
   "Apenas o administrador da loja pode ligar ou desligar o Kanban automático.",
   "Apenas o administrador da loja pode restaurar as colunas do Kanban.",
   "Sem permissão para mover cards do Desenvolvimento.",
+  // Integração + API (motivo real, não o genérico)
+  "Sem permissão para ver a Integração.",
+  "Sem permissão para editar a Integração.",
+  "Só o super admin pode fazer isto.",
+  "Loja inativa ou sem loja — operação não permitida.",
 ]);
+
+// Integração + API: as recusas do banco chegam em ASCII com prefixo (lição P-58/P-59 — 5xx só ASCII); a tela traduz aqui.
+function mensagemIntegracao(code: string, msg: string): string | null {
+  if (code === "42501" && msg.startsWith("integracao_travado:")) {
+    const campo = msg.slice("integracao_travado:".length).trim();
+    if (campo === "excluir") {
+      return "Produto travado pela Integração (integrável ou integrado). Volte para não integrável na tela Integração antes de excluir.";
+    }
+    return `Produto travado pela Integração (integrável ou integrado): "${rotuloDoCampoTravado(campo)}" não pode mudar. Volte para não integrável na tela Integração (ou, se já integrado, peça ao super admin para desfazer).`;
+  }
+  if (code === "42501" && msg.startsWith("integracao_sem_permissao:")) {
+    return "Você não tem permissão para editar este campo (mesma regra do card do produto).";
+  }
+  if (code === "42501" && msg.startsWith("integracao_sem_custo:")) return 'Com "Preço de custo" marcado, só integra quem pode ver custos.';
+  if (code === "P0409" && msg.startsWith("integracao_mudou:")) {
+    return "O produto mudou desde o resumo (outra pessoa editou, integrou ou voltou). Confira o resumo novo e confirme de novo.";
+  }
+  if (code === "P0409" && msg.startsWith("keywords_mudou:")) {
+    return "Outra pessoa mudou as Keywords da loja enquanto você editava. O texto foi recarregado — confira e salve de novo.";
+  }
+  return null;
+}
 
 function getCode(e: any): string {
   return String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
@@ -78,6 +110,9 @@ export function mensagemErro(e: unknown, fallback?: string): string {
 
   // RAISE custom (P0001) das nossas funções → mensagem já está em PT.
   if (code === "P0001" && msg) return msg;
+
+  const integracao = mensagemIntegracao(code, msg);
+  if (integracao) return integracao;
 
   // 42501 do Kanban automático com texto próprio → mostra o motivo real.
   if (code === "42501" && MENSAGENS_42501_PROPRIAS.has(msg)) return msg;

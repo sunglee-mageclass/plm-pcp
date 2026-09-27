@@ -15,6 +15,7 @@ import {
   Moon,
   KeyRound,
   ArrowLeft,
+  Plug,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
@@ -315,6 +316,14 @@ export function AppSidebar() {
                     <Link to="/admin/usuarios">
                       <Users className="h-4 w-4" />
                       <span>Gerenciar Usuários</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/integracao")} tooltip="Integração">
+                    <Link to="/integracao">
+                      <Plug className="h-4 w-4" />
+                      <span>Integração</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

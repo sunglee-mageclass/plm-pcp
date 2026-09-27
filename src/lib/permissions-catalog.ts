@@ -193,6 +193,17 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "dashboard_leadtime", label: "Leadtime" },
     ],
   },
+  {
+    // Integração + API (set/2026, P-65 A): página única, link direto no menu da loja (sem hub); NÃO é módulo contratável —
+    // fica fora dos interruptores de Gerenciar Lojas (como o `importar`) e `tenant_module_enabled('integracao')` = ligado.
+    // Super admin também a vê em "Admin Mestre" (app-sidebar). Editar = integrar/voltar/editar campos (o servidor confere).
+    module: "integracao",
+    label: "Integração",
+    basePath: "/integracao",
+    pages: [
+      { key: "integracao", label: "Integração", description: "Organiza os produtos que o programa externo (ERP/e-commerce) lê pela API.", modes: ["full"] },
+    ],
+  },
 ];
 
 export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>

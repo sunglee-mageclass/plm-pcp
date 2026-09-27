@@ -55,7 +55,7 @@ const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
     if (seen.has(key)) continue;
     // "importar" (Importar Dados) NÃO é módulo contratável — é infra de Cadastro, sempre ligada
     // (isModuleEnabled cai no `?? true`). Fora dos toggles de contratação do super_admin.
-    if (key === "importar") continue;
+    if (key === "importar" || key === "integracao") continue; // infra/tela, não módulo contratável (nota 12 do G-plano)
     seen.add(key);
     out.push({ key, label: m.label });
   }
@@ -365,7 +365,8 @@ function LojasPage() {
               Apaga <strong>todos os dados de negócio</strong> (cadastro, desenvolvimento,
               OCs, CAD, CQ, produção, financeiro e estoque) e devolve a loja ao estado
               inicial. Mantém a loja, os usuários, as permissões e a configuração, e
-              recria as categorias fixas (Corte/Oficina) e os 12 meses.
+              recria as categorias fixas (Corte/Oficina) e os 12 meses. Apaga também a Integração da loja (Campos da API
+              voltam ao padrão; chaves, acessos e log somem — o ERP perde o acesso).
               <strong> Não pode ser desfeito.</strong> Para confirmar, digite o nome da loja:
             </AlertDialogDescription>
           </AlertDialogHeader>
