@@ -50,6 +50,10 @@ DROP TRIGGER IF EXISTS trg_zz_integracao_trava_del ON public.modelos;
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava ON public.modelo_skus;
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava ON public.produtos_acabados;
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava ON public.produtos_importados;
+-- ruling do controlador, G-migration fix 2 #H1: trg_pi_modelo_tenant sai (a função
+-- enforce_produto_acabado_modelo_tenant é PRÉ-EXISTENTE — de trg_pa_modelo_tenant, fora desta frente — e não é
+-- dropada aqui; só o gatilho que esta frente criou).
+DROP TRIGGER IF EXISTS trg_pi_modelo_tenant ON public.produtos_importados;
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava_var ON public.produto_acabado_variantes;
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava_var ON public.produto_importado_variantes;
 DROP TRIGGER IF EXISTS trg_sync_foto_modelo_acabado_upd ON public.produtos_acabados;
@@ -189,7 +193,8 @@ BEGIN
      OR md5(pg_get_functiondef('public._imp_recomputar_precos_modelo(uuid)'::regprocedure)) <> '5baca24d0de45b8c5f291fef39472238' THEN
     RAISE EXCEPTION 'integracao_4_down: recalculos nao voltaram ao texto de antes' USING ERRCODE = 'P0001';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%' OR tgname LIKE 'trg_sync_foto_modelo_%_upd') THEN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%' OR tgname LIKE 'trg_sync_foto_modelo_%_upd'
+             OR tgname = 'trg_pi_modelo_tenant') THEN
     RAISE EXCEPTION 'integracao_4_down: gatilhos da trava ainda existem' USING ERRCODE = 'P0001';
   END IF;
   -- ruling do controlador, revisão T4 #4 (Minor #4, mesma classe de T2 #7/T3 #4): confere as 6 funções desta

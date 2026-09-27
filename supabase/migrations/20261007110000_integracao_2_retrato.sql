@@ -416,6 +416,10 @@ BEGIN
     WHEN NOT v_mod_origem THEN 'O módulo da origem deste produto (Produto Acabado/Importado) está desligado nesta loja.'
   END;
   v_base_ok := v_base_motivo IS NULL;
+  -- ruling do controlador, G-migration fix 2 #H3 (A + B-DM-3): sinal ESTRUTURADO e estável (chave ASCII, não
+  -- texto em PT) pra quem precisa decidir "é módulo desligado?" sem comparar mensagem — usado por
+  -- integracao_marcar (G6) pra reconferir o mesmo predicado de integracao_salvar sem depender do TEXTO do
+  -- motivo (que poderia mudar por qualquer edição de UI/copy e destravar tudo em silêncio, B-DM-3).
   v_enviado := coalesce(m.enviado_cad, false);
   v_revelada := coalesce(m.ordem_criacao_enviada, false)
     AND coalesce(public._ref_exibir_gate(m.tenant_id, public._kanban_status_gate(m.tenant_id, m.id, m.status_desenvolvimento)), false);
@@ -427,6 +431,9 @@ BEGIN
   RETURN jsonb_build_object(
     'estado', v_estado,
     'origem', coalesce(m.origem, 'interno'),
+    -- #H3: chave ASCII estável — true só quando o motivo de base é de MÓDULO (criacao ou origem desligados),
+    -- nunca por permissão de seção ou estado travado. Consumidores decidem por isto, não pelo texto do motivo.
+    'modulo_bloqueado', v_base_ok = false AND (NOT v_criacao OR NOT v_mod_origem) AND v_estado = 'nao_integravel',
     'compartilhado', public._integracao_gate(v_base_ok, v_base_motivo, v_plan OR (v_dev AND NOT v_enviado),
       'Precisa da permissão de editar o Planejamento (ou o Desenvolvimento antes do envio à Explosão).'),
     'planejamento', public._integracao_gate(v_base_ok, v_base_motivo, v_plan, 'Precisa da permissão de editar o Planejamento.'),

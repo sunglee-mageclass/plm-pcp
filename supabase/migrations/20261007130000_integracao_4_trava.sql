@@ -28,7 +28,8 @@
 -- e fn_integracao_trava_skus não precisam do FOR SHARE extra: a 1ª já roda sobre a PRÓPRIA linha de modelos (o UPDATE
 -- que a disparou já pediu a trava de linha nela); a 2ª está coberta pela MESMA advisory lock 'sku_modelo:<id>' que TODO
 -- gravador de modelo_skus (geração/edição manual) e agora também marcar tomam, na mesma ordem — sem gap.
--- Contagens: +6 funções (2 redefinidas não contam) | +9 gatilhos (7 novos + foto: -2 +4).
+-- Contagens: +6 funções (2 redefinidas não contam) | +10 gatilhos (7 novos + foto: -2 +4 + trg_pi_modelo_tenant,
+-- G-migration fix 2 #H1).
 -- Inverso: supabase/rollback/20261007130000_integracao_4_trava_down.sql (SÓ depois do inverso 5).
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -51,6 +52,12 @@ BEGIN
   END IF;
   IF to_regprocedure('public._sync_foto_modelo_do_produto()') IS NULL THEN
     RAISE EXCEPTION 'integracao_4: _sync_foto_modelo_do_produto ausente' USING ERRCODE = 'P0001';
+  END IF;
+  -- ruling do controlador, G-migration fix 2 #H1 (A-d1 + B-DI-1): enforce_produto_acabado_modelo_tenant
+  -- (o guard genérico já usado por trg_pa_modelo_tenant em produtos_acabados) precisa existir antes de
+  -- reusá-la em produtos_importados.
+  IF to_regprocedure('public.enforce_produto_acabado_modelo_tenant()') IS NULL THEN
+    RAISE EXCEPTION 'integracao_4: enforce_produto_acabado_modelo_tenant ausente' USING ERRCODE = 'P0001';
   END IF;
 END
 $guarda$;
@@ -321,6 +328,15 @@ CREATE OR REPLACE TRIGGER trg_zz_integracao_trava BEFORE UPDATE OR DELETE ON pub
   FOR EACH ROW EXECUTE FUNCTION public.fn_integracao_trava_espelho();
 CREATE OR REPLACE TRIGGER trg_zz_integracao_trava BEFORE UPDATE OR DELETE ON public.produtos_importados
   FOR EACH ROW EXECUTE FUNCTION public.fn_integracao_trava_espelho();
+-- ruling do controlador, G-migration fix 2 #H1 (A-d1 + B-DI-1): produtos_importados não tinha o equivalente de
+-- trg_pa_modelo_tenant — um usuário da loja A conseguia vincular o importado dele a um card da loja B (bastando
+-- saber o UUID), e dali _sync_foto_modelo_do_produto/_imp_recomputar_precos_modelo (e agora tambem
+-- salvar_precos_fixo_produto_importado/o preço fixo aceito no _dados desta frente) escreviam no card de B sem
+-- filtro de loja — o G8 fechou os 2 gatilhos de LEITURA/trava, mas a causa raiz (o vínculo cruzado em si, que
+-- permite ESCRITA cross-tenant) continuava aberta. enforce_produto_acabado_modelo_tenant() é genérica (usa
+-- NEW.modelo_id/NEW.tenant_id, sem referência à tabela) — reusada tal e qual, sem função nova.
+CREATE OR REPLACE TRIGGER trg_pi_modelo_tenant BEFORE INSERT OR UPDATE OF modelo_id ON public.produtos_importados
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_produto_acabado_modelo_tenant();
 DROP TRIGGER IF EXISTS trg_zz_integracao_trava_var ON public.produto_acabado_variantes;
 CREATE CONSTRAINT TRIGGER trg_zz_integracao_trava_var AFTER INSERT OR UPDATE OR DELETE ON public.produto_acabado_variantes
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
@@ -471,8 +487,10 @@ end $function$;
 
 DO $pos$
 BEGIN
+  -- ruling do controlador, G-migration fix 2 #H1: 9 -> 10 (soma +1 pelo trg_pi_modelo_tenant novo).
   IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_zz_integracao_trava', 'trg_zz_integracao_trava_del',
-        'trg_zz_integracao_trava_var', 'trg_sync_foto_modelo_acabado_upd', 'trg_sync_foto_modelo_importado_upd')) <> 9 THEN
+        'trg_zz_integracao_trava_var', 'trg_sync_foto_modelo_acabado_upd', 'trg_sync_foto_modelo_importado_upd',
+        'trg_pi_modelo_tenant')) <> 10 THEN
     RAISE EXCEPTION 'integracao_4: gatilhos da trava incompletos' USING ERRCODE = 'P0001';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname LIKE 'trg_zz_integracao%' AND tgenabled <> 'O') THEN

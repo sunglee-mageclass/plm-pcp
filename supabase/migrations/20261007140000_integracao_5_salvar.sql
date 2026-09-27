@@ -95,22 +95,28 @@ AS $function$
 DECLARE
   v_ref text := nullif(btrim(coalesce(NEW.ref, '')), '');
   v_ref_mudou boolean := OLD.ref IS DISTINCT FROM NEW.ref;
+  v_nome_mudou boolean := OLD.nome IS DISTINCT FROM NEW.nome;
 BEGIN
   IF NEW.modelo_id IS NULL THEN
     RETURN NULL;
   END IF;
   -- R2 (G-plano do plano): a REF do espelho só chega ao card enquanto o card deixaria mudar a REF (a régua do refEditavel:
-  -- ANTES do envio à Explosão); depois disso não propaga (os SKUs guardam a REF do card). O nome vale sempre.
+  -- ANTES do envio à Explosão); depois disso não propaga (os SKUs guardam a REF do card).
   -- ruling do controlador, revisão T5 #1 (Important #1 parte 1, espelhado aqui): idem — só copia a REF quando
   -- ELA MESMA mudou no produto espelho (v_ref_mudou), nunca de carona numa edição só de nome.
   -- ruling do controlador, revisão T5 #3 (Important #2, espelhado aqui): AND m.tenant_id = NEW.tenant_id — mesmo
   -- fix de isolamento por loja, agora no sentido produto->card.
+  -- ruling do controlador, G-migration fix 2 #H4 (A + B-DM-5): agora o NOME também só copia quando ELE MESMO
+  -- mudou (v_nome_mudou) — antes o UPDATE sempre fazia `nome = NEW.nome`, então mudar SÓ a REF no produto espelho
+  -- (com nomes já divergentes) sobrescrevia o nome do card "de carona" com o nome NÃO-mudado do produto. Espelha
+  -- o mesmo fix aplicado no sentido card->produto (G7, fn_modelo_espelho_nome_ref) — a assimetria era exatamente
+  -- o que faltava fechar (G7 só cobriu 1 direção).
   UPDATE public.modelos m
-     SET nome = NEW.nome,
+     SET nome = CASE WHEN v_nome_mudou THEN NEW.nome ELSE m.nome END,
          ref = CASE WHEN v_ref_mudou AND v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) THEN v_ref ELSE m.ref END
    WHERE m.id = NEW.modelo_id
      AND m.tenant_id = NEW.tenant_id
-     AND (m.nome IS DISTINCT FROM NEW.nome
+     AND ((v_nome_mudou AND m.nome IS DISTINCT FROM NEW.nome)
           OR (v_ref_mudou AND v_ref IS NOT NULL AND NOT coalesce(m.enviado_cad, false) AND m.ref::text IS DISTINCT FROM v_ref));
   RETURN NULL;
 END
@@ -457,16 +463,23 @@ BEGIN
                              ELSE false END) THEN
       RAISE EXCEPTION 'Valor numérico inválido (use número maior ou igual a zero).' USING ERRCODE = 'P0001';
     END IF;
-    -- ruling do controlador, G-migration fix 1 #G3 (A-M6 + B-M4): numero fora da escala da coluna (ex.: peso_kg
-    -- 1e20 em numeric(10,3)) tem que RAISE P0001 em PT ANTES do UPDATE — nunca 22003 cru. Checagem INLINE (sem
-    -- função nova, pra não mexer na contagem/ACL #9 da suíte 7): a parte inteira de um numeric(p,s) tem no máximo
-    -- (p - s) dígitos — abs(valor arredondado na escala) < 10^(p - s) cabe; senão estoura ao gravar.
+    -- ruling do controlador, G-migration fix 1 #G3 (A-M6 + B-M4), estendido no G-migration fix 2 #H2 (A + B-DM-2):
+    -- numero fora da escala da coluna (ex.: peso_kg 1e20 em numeric(10,3)) tem que RAISE P0001 em PT ANTES do
+    -- UPDATE — nunca 22003 cru. Checagem INLINE (sem função nova, pra não mexer na contagem/ACL #9 da suíte 7): a
+    -- parte inteira de um numeric(p,s) tem no máximo (p - s) dígitos — abs(valor arredondado na escala) <
+    -- 10^(p - s) cabe; senão estoura ao gravar. #H2: o G3 cobria peso/medidas/preco_anterior mas esquecia
+    -- 'preco_venda' — no COMPRADO (revenda/importado) esse valor vai para produtos_acabados/importados.
+    -- preco_varejo_fixo numeric(12,2) pelos wrappers (salvar_precos_fixo_produto_*, mais abaixo nesta função),
+    -- então 1e20 ainda estourava 22003 cru sem essa entrada na lista. modelos.preco_venda (caminho INTERNO) não
+    -- tem escala fixa — a mesma faixa de negócio (10^10) é aplicada por uniformidade/defesa, sem regressão real
+    -- (nenhum preço de negócio chega perto disso).
     IF EXISTS (SELECT 1 FROM jsonb_each(v_c) AS e(key, value)
                 WHERE jsonb_typeof(e.value) = 'number'
                   AND ((e.key = 'peso_kg' AND abs(round((e.value #>> '{}')::numeric, 3)) >= 10.0 ^ (10 - 3))
                     OR (e.key IN ('comprimento_cm', 'largura_cm', 'altura_cm')
                         AND abs(round((e.value #>> '{}')::numeric, 2)) >= 10.0 ^ (10 - 2))
-                    OR (e.key = 'preco_anterior' AND abs(round((e.value #>> '{}')::numeric, 2)) >= 10.0 ^ (12 - 2)))) THEN
+                    OR (e.key IN ('preco_anterior', 'preco_venda')
+                        AND abs(round((e.value #>> '{}')::numeric, 2)) >= 10.0 ^ (12 - 2)))) THEN
       RAISE EXCEPTION 'Valor numérico fora da faixa permitida para este campo.' USING ERRCODE = 'P0001';
     END IF;
     IF v_c ? 'fotos_modelo' THEN

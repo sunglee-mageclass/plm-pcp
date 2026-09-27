@@ -137,14 +137,12 @@ BEGIN
     END IF;
     -- ruling do controlador, G-migration fix 1 #G6 (B-M10): reconfere o modulo `criacao` E o modulo da ORIGEM
     -- (produto_acabado/produto_importado), o MESMO predicado base que integracao_salvar reconfere via
-    -- _integracao_gates (v_base_ok/v_base_motivo) — sem isso, dava pra marcar (e travar) um produto de revenda
-    -- com o modulo produto_acabado desligado. Mesma mensagem/ERRCODE do salvar (integracao_sem_permissao: <gate>,
-    -- 42501) — usa o gate 'compartilhado' como representante do base_ok (todo gate de _integracao_gates herda o
-    -- mesmo v_base_ok/v_base_motivo quando o motivo é de módulo, não de permissão de seção).
-    IF NOT coalesce((public._integracao_gates(r.modelo_id) -> 'compartilhado' ->> 'ok')::boolean, false)
-       AND (public._integracao_gates(r.modelo_id) -> 'compartilhado' ->> 'motivo') IN
-           ('O módulo Estilo & Engenharia está desligado nesta loja.',
-            'O módulo da origem deste produto (Produto Acabado/Importado) está desligado nesta loja.') THEN
+    -- _integracao_gates — sem isso, dava pra marcar (e travar) um produto de revenda com o modulo
+    -- produto_acabado desligado. Mesma mensagem/ERRCODE do salvar (integracao_sem_permissao: <gate>, 42501).
+    -- ruling do controlador, G-migration fix 2 #H3 (A + B-DM-3): a checagem NÃO compara mais o TEXTO do motivo
+    -- (frágil — qualquer edição de copy destravaria isto em silêncio). _integracao_gates agora expõe
+    -- 'modulo_bloqueado' (chave ASCII estável, true só quando o motivo de base é de módulo) — usa ISSO.
+    IF coalesce((public._integracao_gates(r.modelo_id) ->> 'modulo_bloqueado')::boolean, false) THEN
       RAISE EXCEPTION 'integracao_sem_permissao: compartilhado' USING ERRCODE = '42501';
     END IF;
     IF r.reprovado THEN

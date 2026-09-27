@@ -141,6 +141,37 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
+  it("H2 (ruling do controlador, G-migration fix 2 · A + B-DM-2): preco_venda de COMPRADO fora da escala numeric(12,2) = P0001 PT (nunca 22003 cru)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      // revenda: preco_venda vai para produtos_acabados.preco_varejo_fixo numeric(12,2) pelo wrapper
+      // salvar_precos_fixo_produto_acabado — a checagem de escala do G3 nao cobria 'preco_venda'.
+      const mRev = await revenda(c);
+      const r0 = await rev(c, mRev.id);
+      const eRev = await erro(c, () => salvar(c, [{ modelo_id: mRev.id, rev: r0, campos: { preco_venda: 1e20 } }]));
+      expect(eRev.code).toBe("P0001");
+      expect(eRev.message).not.toMatch(/numeric field overflow/i);
+      // importado: mesmo caminho, produtos_importados.preco_varejo_fixo numeric(12,2)
+      const mImp = await importado(c);
+      const r1 = await rev(c, mImp.id);
+      const eImp = await erro(c, () => salvar(c, [{ modelo_id: mImp.id, rev: r1, campos: { preco_venda: 1e20 } }]));
+      expect(eImp.code).toBe("P0001");
+      expect(eImp.message).not.toMatch(/numeric field overflow/i);
+      // valor dentro da escala continua gravando (revenda) — preco_venda vira preco fixo, sem quebrar B1
+      const r2 = await rev(c, mRev.id);
+      const okRev = await salvar(c, [{ modelo_id: mRev.id, rev: r2, campos: { preco_venda: 199.9 } }]);
+      expect(okRev.salvos).toBe(1);
+      expect((await um<{ v: string }>(c, `SELECT preco_venda::text AS v FROM public.modelos WHERE id = $1`, [mRev.id])).v).toBe("199.90");
+      // interno: preco_venda numeric SEM escala definida (modelos.preco_venda) — nao precisa de checagem por
+      // faixa (fora do escopo de precisao/escala fixa), mas continua exigindo >=0 (checagem pre-existente).
+      const mInt = await modeloInterno(c);
+      const r3 = await rev(c, mInt.id);
+      const okInt = await salvar(c, [{ modelo_id: mInt.id, rev: r3, campos: { preco_venda: 250.5 } }]);
+      expect(okInt.salvos).toBe(1);
+    });
+  });
+
   it.skipIf(!MIG_TXN)("G9 (ruling do controlador, G-migration fix 1 · A-M4/B-M5): $pos$ da migration 5 confere anon em _salvar_precos_fixo_produto_importado_core e a ACL de salvar_precos_fixo_produto_importado", async () => {
     await withTx(async (c) => {
       await prepara(c, 5);
@@ -394,18 +425,16 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
-  it("revisão T5 #3 (Important #2): tenant isolation — importado de outra loja vinculado a card de outra loja não escreve cross-tenant", async (ctx) => {
+  it("revisão T5 #3 (Important #2) + G-migration fix 2 #H1: tenant isolation — vínculo cruzado é RECUSADO na origem (trg_pi_modelo_tenant); dentro da mesma loja segue funcionando", async (ctx) => {
     await withTx(async (c) => {
       await prepara(c, 5);
       await comoUsuario(c, U);
       const m = await importado(c);
-      // Card JÁ existente de OUTRA loja na cópia — RLS de produtos_importados não valida modelo_id (só tenant_id
-      // da PRÓPRIA linha), então um usuário da Loja Teste consegue apontar seu importado pra lá. resíduos T7 #3
-      // (T5 N2): escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo). ruling do controlador, revisão T7 #11 (fix
-      // round 1, Minor 1): SEM `NOT EXISTS produtos_importados`, o card escolhido podia JÁ ter um importado
-      // vinculado — o UPDATE deste teste (linha abaixo) estouraria unique_violation via `trg_pi_unique_modelo`
-      // (enforce_unique_fk('modelo_id')) ao tentar dar um SEGUNDO importado ao mesmo card, quebrando o teste por
-      // um motivo alheio ao que ele prova. `ORDER BY id` torna a escolha determinística entre execuções.
+      // ruling do controlador, G-migration fix 2 #H1 (A-d1 + B-DI-1): produtos_importados GANHOU
+      // trg_pi_modelo_tenant (reusa enforce_produto_acabado_modelo_tenant, mesmo guard de produtos_acabados) —
+      // o vínculo cruzado que este teste antes CRIAVA pra provar isolamento na sincronização agora é recusado
+      // ANTES de chegar lá. É uma garantia mais forte que a original (a ponte cross-tenant não nasce mais),
+      // então o teste passa a provar a RECUSA em si, não mais o comportamento pós-vínculo.
       const candidato = await um<{ id: string } | undefined>(c,
         `SELECT m.id FROM public.modelos m
           WHERE m.tenant_id <> $1
@@ -418,14 +447,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       const cardDeOutraLoja = candidato.id;
       const nomeAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).n;
       const refAntes = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).r;
-      await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [cardDeOutraLoja, m.produtoId]);
-      await c.query(`UPDATE public.produtos_importados SET nome = 'Nome Vazado', ref = 'REFVAZADA' WHERE id = $1`, [m.produtoId]);
-      // nada foi escrito no card da OUTRA loja.
+      const e = await erro(c, () => c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [cardDeOutraLoja, m.produtoId]));
+      expect(e.message).toMatch(/Modelo de outra loja não pode ser vinculado aqui\./);
+      // nada foi escrito no card da OUTRA loja (o vínculo nem chegou a existir).
       expect(await um(c, `SELECT nome, ref FROM public.modelos WHERE id = $1`, [cardDeOutraLoja]))
         .toEqual({ nome: nomeAntes, ref: refAntes });
-      // religa o importado ao MEU card (desfaz o vínculo cross-tenant) e confirma que a sincronização segue
-      // funcionando NORMALMENTE dentro da mesma loja (o fix de isolamento não quebrou o caminho são).
-      await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [m.id, m.produtoId]);
+      // dentro da MESMA loja a sincronização segue funcionando NORMALMENTE (o fix de isolamento não quebrou o
+      // caminho são) — m já nasce vinculado ao próprio card pelo fixture importado().
       await c.query(`UPDATE public.modelos SET nome = 'Nome dentro da loja' WHERE id = $1`, [m.id]);
       expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_importados WHERE id = $1`, [m.produtoId])).n).toBe("Nome dentro da loja");
     });
@@ -513,6 +541,39 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       // controle: mudar o NOME de fato (com o nome > 200) continua recusado — o guard segue vivo
       const eNome = await erro(c, () => c.query(`UPDATE public.modelos SET nome = $1 WHERE id = $2`, [nomeGigante + "x", modeloId]));
       expect(eNome).toEqual({ code: "P0001", message: "Nome muito longo para o Produto Acabado (máx. 200 caracteres)." });
+    });
+  });
+
+  it("H4 (ruling do controlador, G-migration fix 2 · A + B-DM-5): fn_espelho_modelo_nome_ref (produto -> card) so copia o NOME quando ele mesmo muda; REF-only nao mexe no nome do card", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await revenda(c);
+      // nomes JÁ divergentes, reproduzindo um residual real (ex.: card editado ANTES desta migration existir) sem
+      // qualquer gatilho de sincronização interferir: desliga trg_espelho_modelo_nome_ref, muda SÓ modelos.nome
+      // (nada re-sincroniza produtos_acabados.nome), religa o gatilho antes da parte que o teste exercita.
+      await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      await c.query(`UPDATE public.modelos SET nome = 'Nome do Card Divergente' WHERE id = $1`, [m.id]);
+      await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      const nomeCardAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m.id])).n;
+      expect(nomeCardAntes).toBe("Nome do Card Divergente");
+      const nomeProdutoAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).n;
+      expect(nomeProdutoAntes).not.toBe("Nome do Card Divergente"); // continua o nome ORIGINAL do fixture — nunca sincronizou
+      // agora muda SÓ a REF no produto espelho — o NOME do produto não mudou.
+      const novaRef = `RVDH4${Date.now().toString(36).toUpperCase()}`;
+      await c.query(`UPDATE public.produtos_acabados SET ref = $1 WHERE id = $2`, [novaRef, m.produtoId]);
+      // a REF propaga (regra pré-existente, R2/T5#1 — REF só antes da Explosão)
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m.id])).r).toBe(novaRef);
+      // mas o NOME do card NÃO foi sobrescrito "de carona" pelo UPDATE de REF — continua "Nome do Card Divergente"
+      // (o bug pré-H4 gravaria o nome ORIGINAL do produto aqui, porque o UPDATE de sincronização copiava
+      // nome=NEW.nome sempre que nome OU ref do trigger disparasse, mesmo com NEW.nome inalterado).
+      const nomeCardDepois = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m.id])).n;
+      expect(nomeCardDepois).toBe("Nome do Card Divergente");
+      // controle: mudar o NOME de fato no produto espelho continua propagando pro card (regra normal intacta)
+      await c.query(`UPDATE public.produtos_acabados SET nome = 'Nome Vindo do Produto' WHERE id = $1`, [m.produtoId]);
+      expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("Nome Vindo do Produto");
     });
   });
 

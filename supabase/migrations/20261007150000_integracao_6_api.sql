@@ -540,6 +540,7 @@ DECLARE
   k public.integracao_chaves%ROWTYPE;
   v_ativo boolean;
   v_ids uuid[];
+  v_produtos jsonb;
   v_conf jsonb := '[]'::jsonb;
   v_conf_ids uuid[] := '{}'::uuid[];
   v_novos integer := 0;
@@ -581,18 +582,30 @@ BEGIN
   -- balanceada da T7 (integracao_marcar/integracao_salvar) ANTES do ::uuid abaixo — sem isso, um modelo_id sem
   -- cara de uuid vindo da rota estourava 22P02 cru (HTTP 500) em vez de seguir o contrato de erro da função
   -- (parametro_invalido, o mesmo já usado 2 linhas acima para um acesso/chave que não bate).
-  IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x)
+  -- ruling do controlador, G-migration fix 2 #H6 (A + B-DM-4): _entrega->'produtos' que NÃO é array (objeto,
+  -- string, número, JSONB null) fazia jsonb_array_elements estourar 22023 cru ("cannot extract elements from a
+  -- scalar/object") ANTES mesmo de chegar na checagem de modelo_id. coalesce(...,'[]') só cobre a CHAVE ausente
+  -- (SQL NULL); um valor JSONB null EXPLÍCITO (jsonb_typeof = 'null') passa direto pelo coalesce e ainda estoura
+  -- (confirmado: jsonb_array_elements('null'::jsonb) também dá "cannot extract elements from a scalar"). Chave
+  -- AUSENTE continua sendo "nenhum produto" (comportamento pré-existente, normaliza pra '[]'); um `produtos` que
+  -- EXISTE mas não é array — inclusive um `null` explícito, que é diferente de omitir a chave — é payload mal
+  -- formado e segue o mesmo contrato de erro (parametro_invalido) já usado nesta função.
+  IF _entrega ? 'produtos' AND jsonb_typeof(_entrega -> 'produtos') <> 'array' THEN
+    RETURN jsonb_build_object('status', 'parametro_invalido', 'confirmados', '[]'::jsonb);
+  END IF;
+  v_produtos := coalesce(_entrega -> 'produtos', '[]'::jsonb);
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_produtos) AS e(x)
               WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
                  OR NOT (e.x ->> 'modelo_id' ~* '^(\{[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}|[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})$')) THEN
     RETURN jsonb_build_object('status', 'parametro_invalido', 'confirmados', '[]'::jsonb);
   END IF;
   v_ids := ARRAY(SELECT DISTINCT (e.x ->> 'modelo_id')::uuid
-                   FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x) ORDER BY 1);
+                   FROM jsonb_array_elements(v_produtos) AS e(x) ORDER BY 1);
   PERFORM 1 FROM public.integracao_produtos ip
    WHERE ip.modelo_id = ANY(v_ids) AND ip.tenant_id = k.tenant_id ORDER BY ip.modelo_id FOR UPDATE;
   FOR r IN
     SELECT DISTINCT ON (ip.modelo_id) ip.id, ip.modelo_id, ip.estado, ip.assinatura, ip.integrado_em, e.x ->> 'assinatura' AS ass
-      FROM jsonb_array_elements(coalesce(_entrega -> 'produtos', '[]'::jsonb)) AS e(x)
+      FROM jsonb_array_elements(v_produtos) AS e(x)
       JOIN public.integracao_produtos ip ON ip.modelo_id = (e.x ->> 'modelo_id')::uuid AND ip.tenant_id = k.tenant_id
      ORDER BY ip.modelo_id
   LOOP

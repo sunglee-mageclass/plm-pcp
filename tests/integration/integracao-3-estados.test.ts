@@ -157,6 +157,58 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
     });
   });
 
+  it("H3 (ruling do controlador, G-migration fix 2 · A + B-DM-3): _integracao_gates expoe 'modulo_bloqueado' ESTRUTURADO — integracao_marcar nao depende do TEXTO PT do motivo", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await revenda(c);
+      const PERM: Array<[string, boolean, boolean]> = [["integracao", true, true], ["criacao_planejamento", true, true],
+        ["criacao_planejamento:preco_venda", true, true], ["criacao_desenvolvimento", true, true],
+        ["criacao_planejamento:custos", true, true]];
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce42", PERM);
+
+      // sinal ESTRUTURADO: modulo_bloqueado = false com o modulo ligado
+      const gatesOn = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
+      expect(gatesOn.modulo_bloqueado).toBe(false);
+
+      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": false}'::jsonb WHERE tenant_id = $1`, [T]);
+      const gatesOff = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
+      expect(gatesOff.modulo_bloqueado).toBe(true);
+
+      // ruling do controlador, G-migration fix 2 #H3: prova de que a checagem NÃO é mais por TEXTO — muda a
+      // mensagem PT de _integracao_gates.compartilhado.motivo (simulado direto no retorno, sem editar a função)
+      // e confirma que integracao_marcar CONTINUA recusando (porque agora olha 'modulo_bloqueado', não o texto).
+      // Se a checagem ainda comparasse a string antiga, uma mudança de copy destravaria isto em silêncio — o
+      // teste abaixo prova que isso NÃO acontece mais: o marcar recusa mesmo com o texto do motivo diferente do
+      // literal original (fixture: consulta _integracao_gates com um motivo customizado via override temporário
+      // não é viável sem tocar a função; a prova real é indireta — confirmamos que o predicado usado por
+      // integracao_marcar é 'modulo_bloqueado' e não texto, lendo o código-fonte da função redefinida).
+      const def = (await um<{ d: string }>(c, `SELECT pg_get_functiondef('public.integracao_marcar(jsonb)'::regprocedure) AS d`)).d;
+      expect(def).toContain("modulo_bloqueado");
+      expect(def).not.toMatch(/O módulo Estilo & Engenharia está desligado nesta loja\./);
+      expect(def).not.toMatch(/O módulo da origem deste produto/);
+
+      // efeito continua o mesmo (recusa com módulo desligado)
+      const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::uuid, 'assinatura', $2::text)))`,
+        [m.id, await assinatura(c, m.id)]);
+      expect(e).toEqual({ code: "42501", message: "integracao_sem_permissao: compartilhado" });
+
+      // religa: modulo_bloqueado volta a false, marcar volta a funcionar
+      await c.query(`UPDATE public.tenant_config SET modules = modules || '{"produto_acabado": true}'::jsonb WHERE tenant_id = $1`, [T]);
+      const gatesBack = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m.id])).r;
+      expect(gatesBack.modulo_bloqueado).toBe(false);
+      expect(await marcar(c, m.id)).toEqual({ marcados: 1 });
+
+      // modulo_bloqueado NÃO confunde com outros motivos de base_ok=false (ex.: sem permissão de Integração)
+      await comoUsuario(c, U);
+      const m2 = await modeloInterno(c);
+      await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce43", [["integracao", true, false]]);
+      const gatesSemPerm = (await um<{ r: any }>(c, `SELECT public._integracao_gates($1::uuid) AS r`, [m2.id])).r;
+      expect(gatesSemPerm.modulo_bloqueado).toBe(false); // motivo é permissão, não módulo
+    });
+  });
+
   it("P-75 A: com Preço de custo marcado só integra quem VÊ custos; sem custo marcado, integra", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);

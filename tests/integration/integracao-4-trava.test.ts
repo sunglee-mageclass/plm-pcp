@@ -132,26 +132,78 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
         [revendaMesmaLoja.produtoId, outroCard.id]);
       expect(bloqueado).toMatch(/Modelo de outra loja/);
 
-      // produtos_importados NÃO TEM o trigger equivalente (gap documentado, T5 #3/parecer B-M7) — o vínculo
-      // cruzado É possível hoje; é exatamente o caso que fn_integracao_trava_espelho/_variantes têm de tratar
-      // SEM ler/travar o card da OUTRA loja (compara tenant_id ANTES do FOR SHARE).
+      // ruling do controlador, G-migration fix 2 #H1 (A-d1 + B-DI-1): produtos_importados GANHOU o mesmo guard
+      // (trg_pi_modelo_tenant, reusa enforce_produto_acabado_modelo_tenant) — o vínculo cruzado que antes era
+      // possível (gap T5 #3) agora é BLOQUEADO igual à revenda. A metade "espelho" do G8 (fn_integracao_trava_
+      // espelho não ler/travar card de outra loja) fica coberta pelo teste dedicado H1 abaixo, que constrói o
+      // vínculo cruzado por FORA da trigger (INSERT direto, sem passar pelo guard) — a única forma de reproduzir
+      // o cenário agora que a causa raiz está fechada.
       const imp = await importado(c);
-      await c.query(`UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`, [imp.produtoId, outroCard.id]);
-      // marca o card da OUTRA loja como integravel/integrado (simulado direto, sem depender do módulo dela) — 1ª
-      // linha para este modelo_id dentro da txn do teste, sem precisar de ON CONFLICT.
-      await c.query(
-        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, assinatura)
-         VALUES ($1, $2, 'integravel', ARRAY['nome']::text[], 'assinatura-fake-outra-loja')`,
-        [outroCard.tenant_id, outroCard.id],
-      );
-      // renomear o produto_importado (agora vinculado ao card de OUTRA loja, que está travado lá) TEM que passar —
-      // o gatilho não pode ler o estado de integração de um card que não é desta loja.
-      const semTravar = await falha(c, `UPDATE public.produtos_importados SET nome = nome || ' Y' WHERE id = $1`, [imp.produtoId]);
-      expect(semTravar).toBe("PASSOU");
-      // idem para variantes do importado vinculado cross-tenant (constraint trigger adiado)
-      const semTravarVar = await falha(c,
-        `UPDATE public.produto_importado_variantes SET cor_id = cor_id WHERE produto_importado_id = $1`, [imp.produtoId]);
-      expect(semTravarVar).toBe("PASSOU");
+      const bloqueadoImp = await falha(c, `UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`,
+        [imp.produtoId, outroCard.id]);
+      expect(bloqueadoImp).toMatch(/Modelo de outra loja/);
+    });
+  });
+
+  it("H1 (ruling do controlador, G-migration fix 2 · A-d1 + B-DI-1): trg_pi_modelo_tenant recusa vinculo cruzado; foto/preco nao escrevem no card de outra loja", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const outroCard = await um<{ id: string; tenant_id: string; nome: string }>(c,
+        `SELECT id, tenant_id, nome::text AS nome FROM public.modelos WHERE tenant_id <> $1 ORDER BY id LIMIT 1`, [T]);
+      expect(outroCard.tenant_id).not.toBe(T);
+
+      // (a) UPDATE de modelo_id pra outra loja é recusado — mesma mensagem/guard de produtos_acabados
+      const imp = await importado(c);
+      const bloqueado = await falha(c, `UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`,
+        [imp.produtoId, outroCard.id]);
+      expect(bloqueado).toMatch(/Modelo de outra loja não pode ser vinculado aqui\./);
+      // nada foi vinculado
+      expect((await um<{ n: number }>(c, `SELECT count(*)::int AS n FROM public.produtos_importados WHERE id = $1 AND modelo_id = $2`,
+        [imp.produtoId, outroCard.id])).n).toBe(0);
+
+      // (b) INSERT com modelo_id de outra loja também é recusado (mesmo guard, BEFORE INSERT)
+      const bloqueadoInsert = await falha(c,
+        `INSERT INTO public.produtos_importados (tenant_id, nome, ref, moeda_compra, valor_unitario_m1, cotacao_ref,
+                cotacao_final, qtd_total, markup_varejo, modelo_id)
+         VALUES ($1, 'PI cross-tenant', 'PICROSS1', 'USD', 10, 1, 5, 5, 3, $2)`, [T, outroCard.id]);
+      expect(bloqueadoInsert).toMatch(/Modelo de outra loja não pode ser vinculado aqui\./);
+
+      // (c) MESMA loja continua funcionando (o guard não regride o caso normal)
+      const mesmaLoja = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET origem = 'importado' WHERE id = $1`, [mesmaLoja.id]);
+      const okMesmaLoja = await falha(c, `UPDATE public.produtos_importados SET modelo_id = $2 WHERE id = $1`,
+        [imp.produtoId, mesmaLoja.id]);
+      expect(okMesmaLoja).toBe("PASSOU");
+    });
+  });
+
+  it("H1/H5 (ruling do controlador, G-migration fix 2): com o vinculo cruzado agora bloqueado, prova a recusa (nao ha mais como reproduzir o vazamento do espelho por essa via)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 4);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const outroCard = await um<{ id: string; tenant_id: string; fotos: string[]; preco: string | null }>(c,
+        `SELECT id, tenant_id, fotos_modelo AS fotos, preco_venda::text AS preco FROM public.modelos WHERE tenant_id <> $1 ORDER BY id LIMIT 1`, [T]);
+      // H5: a metade "variantes" do G8 não provava nada de verdade (falha() não chama imediato(); variantes_chaves
+      // NULL já dava CONTINUE). Prova de verdade: com H1 fechando a causa raiz, a ÚNICA forma de exercitar o
+      // caminho de escrita (foto/preço) seria já ter um vínculo cruzado — que H1 agora impede de nascer. Prova a
+      // recusa do vínculo (nem UPDATE nem INSERT criam a ponte) E que o estado do card de outra loja não mudou
+      // com a tentativa (UPDATE inteiro desfeito pelo BEFORE trigger — nenhuma coluna é tocada, nem foto_url).
+      const imp = await importado(c);
+      const r = await falha(c, `UPDATE public.produtos_importados SET modelo_id = $2, foto_url = $3 WHERE id = $1`,
+        [imp.produtoId, outroCard.id, `${T}/fotos_modelo/x.jpg`]);
+      expect(r).toMatch(/Modelo de outra loja não pode ser vinculado aqui\./);
+      const cardDepois = await um<{ fotos: string[]; preco: string | null }>(c,
+        `SELECT fotos_modelo AS fotos, preco_venda::text AS preco FROM public.modelos WHERE id = $1`, [outroCard.id]);
+      expect(cardDepois.fotos).toEqual(outroCard.fotos);
+      expect(cardDepois.preco).toBe(outroCard.preco);
+      // _imp_recomputar_precos_modelo no produto (modelo_id continua NULL — o UPDATE acima foi revertido) não
+      // toca NENHUM card (v_modelo_id NULL = early return no código, confirmado por leitura)
+      expect(await falha(c, `SELECT public._imp_recomputar_precos_modelo($1)`, [imp.produtoId])).toBe("PASSOU");
+      const cardFinal = await um<{ preco: string | null }>(c, `SELECT preco_venda::text AS preco FROM public.modelos WHERE id = $1`, [outroCard.id]);
+      expect(cardFinal.preco).toBe(outroCard.preco);
     });
   });
 

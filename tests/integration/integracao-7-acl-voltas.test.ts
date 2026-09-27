@@ -103,7 +103,9 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
       for (const rel of MIGRACOES) await aplica(c, rel);
       const ida1 = await retratoBanco(c);
       expect(Number(ida1.f) - Number(antes.f)).toBe(46);
-      expect(Number(ida1.g) - Number(antes.g)).toBe(13);
+      // ruling do controlador, G-migration fix 2 #H1: 13 -> 14 (+trg_pi_modelo_tenant, reusa
+      // enforce_produto_acabado_modelo_tenant — função pré-existente, sem função nova).
+      expect(Number(ida1.g) - Number(antes.g)).toBe(14);
       expect(ida1.t).toBe("7");
       for (const rel of MIGRACOES) await aplica(c, rel); // 2ª ida: idempotente (guardas aceitam o texto novo)
       expect(await retratoBanco(c)).toEqual(ida1);

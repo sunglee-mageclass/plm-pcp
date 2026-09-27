@@ -149,7 +149,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
     });
   });
 
-  it("G5 (ruling do controlador, G-migration fix 1): modelo_id de _entrega invalido segue o contrato de erro (sem 22P02)", async () => {
+  it("G5 (ruling do controlador, G-migration fix 1) + H6 (fix 2 · A + B-DM-4): modelo_id/produtos invalidos de _entrega seguem o contrato EXATO de erro (parametro_invalido, sem 22P02/22023, acesso continua reservado)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
       await comoUsuario(c, U);
@@ -163,12 +163,39 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
       for (const invalido of ["nao-e-um-uuid", "{" + r1.produtos[0].modelo_id, r1.produtos[0].modelo_id + "}", "", "12345"]) {
         const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
           [r1.chave_id, r1.acesso_id, JSON.stringify({ produtos: [{ modelo_id: invalido, assinatura: "x" }] })]);
-        expect(cf.r.status, invalido).not.toBe(undefined);
-        expect(cf.r.confirmados ?? []).toEqual([]);
+        // H6: contrato EXATO — nao so "status existe", mas o status CERTO (parametro_invalido) e confirmados vazio.
+        expect(cf.r, invalido).toEqual({ status: "parametro_invalido", confirmados: [] });
+        // o acesso continua RESERVADO (a rota pode repetir a fase 2) — nao foi fechado como 'ok' nem qualquer outro estado.
+        const acesso = await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [r1.acesso_id]);
+        expect(acesso.s, invalido).toBe("reservado");
       }
-      // entrega valida continua confirmando (comportamento pre-existente intocado)
+      // H6 (A + B-DM-4): _entrega->'produtos' que NÃO é array (objeto, string, null) — jsonb_array_elements
+      // estourava 22023 cru ("cannot extract elements from a scalar") porque coalesce(_entrega->'produtos','[]')
+      // só ajuda quando a chave está AUSENTE (jsonb null de verdade), não quando ela existe com um tipo errado.
+      for (const entregaRuim of [
+        { produtos: { modelo_id: "x" } },      // objeto em vez de array
+        { produtos: "nao-e-array" },           // string
+        { produtos: 123 },                     // numero
+        { produtos: null },                    // json null EXPLICITO (diferente de omitir a chave) — payload mal formado
+      ]) {
+        const cf = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+          [r1.chave_id, r1.acesso_id, JSON.stringify(entregaRuim)]);
+        expect(cf.r, JSON.stringify(entregaRuim)).toEqual({ status: "parametro_invalido", confirmados: [] });
+        const acesso = await um<{ s: string }>(c, `SELECT status AS s FROM public.integracao_acessos WHERE id = $1`, [r1.acesso_id]);
+        expect(acesso.s, JSON.stringify(entregaRuim)).toBe("reservado");
+      }
+      // entrega valida continua confirmando (comportamento pre-existente intocado) — usa r1 (ainda 'reservado',
+      // nenhum dos casos ruins acima o consumiu: todos deram parametro_invalido sem tocar o estado do acesso).
       const cfOk = await confirmar(c, r1);
       expect(cfOk.status).toBe("ok");
+
+      // chave 'produtos' AUSENTE continua tratada como "nenhum produto" — regressão: nao vira erro (comportamento
+      // pré-existente preservado; só um produtos PRESENTE com tipo errado é que agora segue o contrato de erro).
+      // Precisa de um acesso 'reservado' FRESCO (o r1 acima já foi consumido pelo confirmar de verdade).
+      const r2 = await ler(c, k.chave);
+      const cfVazio = await um<{ r: any }>(c, `SELECT public._integracao_confirmar($1, $2, $3::jsonb) AS r`,
+        [r2.chave_id, r2.acesso_id, JSON.stringify({})]);
+      expect(cfVazio.r).toEqual({ status: "ok", confirmados: [] });
     });
   });
 
