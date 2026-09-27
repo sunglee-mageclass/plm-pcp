@@ -555,20 +555,26 @@ export function ProdutosAba() {
     if (fotosDeId && lista && (!pFotos || pFotos.estado !== "nao_integravel")) setFotosDeId(null);
   }, [fotosDeId, lista, pFotos]);
 
-  // Fix round 1 T13 (revisão T13 #5, code-review Important I1): os produtos do diálogo Voltar são DERIVADOS de
-  // `voltarIds` contra a lista ATUAL (página + cache de outras páginas/filtros, mesmo helper `produtosEmCache` que a
-  // sobra pós-Salvar já usa) a cada render — nunca um snapshot fixo. Só entram os que CONTINUAM `integravel` (o
-  // único estado que `integracao_voltar` aceita); um produto que a API já levou (ou que outra pessoa já voltou)
-  // durante a janela do diálogo aberto simplesmente SOME da lista mostrada, sem novo clique precisar reenviar um
-  // lote que o servidor rejeitaria de novo. Se NENHUM sobrar, o diálogo fecha sozinho (o efeito abaixo).
+  // Fix round 2 T13 (revisão T13 #12, code-review "Re-check round 1" I1-R): a v1 (fix round 1) caía no fallback
+  // `produtosEmCache` quando o produto não estava em `lista.produtos` — mas `produtosEmCache` junta TODAS as
+  // listas em CACHE da loja, INCLUSIVE as INATIVAS (outra situação/filtro que o usuário já visitou nesta sessão).
+  // Como nenhum dos 3 RPCs de estado toca `modelos` (só trava a linha), o `rev` da lista (=`modelos.rev`) NUNCA
+  // muda quando um produto integra/volta/desfaz — uma cópia INATIVA e desatualizada, ainda `integravel`, EMPATA em
+  // rev com a versão nova e pode "ganhar" o `p.rev > atual.rev` de `produtosEmCache` (que só troca em rev
+  // ESTRITAMENTE maior). Cenário real: o usuário filtra Estado=Integrável (query B) pra escolher o que voltar,
+  // enquanto a lista sem filtro (query A, agora INATIVA) ainda mostra o produto como `integravel`; a API leva o
+  // produto, B relista sem ele, mas o fallback acha a cópia velha em A — o diálogo NUNCA fecha e o P0409 se repete.
+  // `invalidarIntegracao`/`invalidateQueries` só relê as queries ATIVAS por padrão, então a cópia em A fica presa
+  // até o gc (5 min). Fix: SEM fallback de cache — deriva SÓ de `lista.produtos` (a página/filtro ATIVO). Os
+  // `voltarIds` sempre nascem da página atual (toggle da linha ou `massa.voltar` = página ∩ seleção), então um
+  // produto que sai da lista ativa cai fora do array — o diálogo encolhe ou fecha, nunca mostra uma cópia velha.
   const voltarProdutosAtuais = useMemo(() => {
-    if (!voltarIds) return [];
-    const cache = produtosEmCache(qc, tenantId);
+    if (!voltarIds || !lista) return [];
     return voltarIds
-      .map((id) => lista?.produtos.find((p) => p.modeloId === id) ?? cache.get(id))
+      .map((id) => lista.produtos.find((p) => p.modeloId === id))
       .filter((p): p is ProdutoLista => !!p && p.estado === "integravel")
       .map((p) => ({ id: p.modeloId, nome: p.raw.nome }));
-  }, [voltarIds, lista, qc, tenantId]);
+  }, [voltarIds, lista]);
   useEffect(() => {
     if (voltarIds && lista && voltarProdutosAtuais.length === 0) setVoltarIds(null);
   }, [voltarIds, lista, voltarProdutosAtuais]);

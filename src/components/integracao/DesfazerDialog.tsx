@@ -6,6 +6,12 @@
 // "👍👍" (2 emojis) contava 4 aqui (botão HABILITADO) mas só 2 no servidor (P0001, abaixo do mínimo) — o T12b já
 // tinha essa mesma lição em `rascunho.ts` (`validarRascunho`, limite de nome do comprado). `[...motivo].length`
 // (iterador de code points) bate com o `length()` do Postgres.
+//
+// Fix round 2 T13 (revisão T13 #13, task-13-code-review.md "Re-check round 1" m5, metade do Desfazer): `onError`
+// só mostrava o toast — nunca invalidava a lista/estado/log, ao contrário de Integrar e Voltar (que já invalidam em
+// QUALQUER erro desde o fix round 1). Um erro aqui (ex.: outro super admin já desfez este MESMO produto entre abrir
+// o diálogo e confirmar) deixava a linha "Integrado" com o "⋯" ainda oferecendo Desfazer sobre um estado que já
+// mudou, até uma relista externa. Fix: `invalidarIntegracao(...)` também no `onError`, igual aos outros 2 diálogos.
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -36,7 +42,10 @@ export function DesfazerDialog({ produto, onFechar, onFeito }: { produto: Produt
       invalidarIntegracao(qc, tenantId, [produto.modeloId]);
       onFeito();
     },
-    onError: (e) => toast.error(mensagemErro(e, "Não foi possível desfazer a integração.")),
+    onError: (e) => {
+      toast.error(mensagemErro(e, "Não foi possível desfazer a integração."));
+      invalidarIntegracao(qc, tenantId, [produto.modeloId]);
+    },
   });
   const ok = [...motivo.trim()].length >= MOTIVO_MIN;
   return (

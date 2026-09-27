@@ -313,6 +313,12 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     // (não reage ao argumento), então a única forma de observar um `setPagina(1)` indevido é espiar o PRÓPRIO
         // argumento recebido aqui, não o texto renderizado (que só reflete a lista, nunca o estado interno da página).
     const paginasChamadas: number[] = [];
+    // n3 (fix round 2 T13, revisão T13 #15, task-13-review.md "Re-review round 1"): virou `vi.fn()` (era
+    // `() => {}`) — os diálogos (`VoltarDialog`/`DesfazerDialog`/`IntegrarDialog`) importam `invalidarIntegracao`
+    // deste MESMO módulo mockado; sem o spy, nenhum teste consegue provar que a invalidação de fato aconteceu
+    // (só o toast/a contagem de chamada de RPC), então o texto "e invalida a lista" no título de um teste não
+    // tinha nenhuma asserção correspondente. Exposto no retorno como `invalidarIntegracaoSpy`.
+    const invalidarIntegracaoSpy = vi.fn();
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
       useIntegracaoLista: (_situacao: unknown, _filtros: unknown, pagina: number) => {
@@ -321,7 +327,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       },
       useIntegracaoAoVivo: () => {},
       usePreviasSkus: () => ({}),
-      invalidarIntegracao: () => {},
+      invalidarIntegracao: invalidarIntegracaoSpy,
       useSalvarIntegracao: () => ({
         isPending: mutationState.isPending,
         mutate: (rascunhos: unknown[], handlers: { onSuccess?: (r: unknown) => void; onError?: (e: unknown) => void }) => {
@@ -400,6 +406,7 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       },
       salvarSpy,
       rpcSpy,
+      invalidarIntegracaoSpy,
       // R2/R-I2: última `pagina` que `ProdutosAba` pediu ao hook (o estado interno, não o que a lista mockada
       // devolve — ela é estática).
       paginaAtual: () => paginasChamadas[paginasChamadas.length - 1],
@@ -1097,6 +1104,86 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
 
+    // m8(c) (fix round 2 T13, revisão T13 #16, task-13-review.md "Re-review round 1"): fix round 1 (m1) já tinha
+    // corrigido o `disabled` do "Tenho certeza — integrar" pra incluir `q.isError` e `r.bloqueio`
+    // (`IntegrarDialog.tsx:124`), mas nenhum teste cobria essas 2 condições de fato — só o caminho feliz (prévia OK,
+    // sem bloqueio). Sem essa cobertura, uma regressão futura no `disabled` (ex.: tirar `q.isError` ou `r.bloqueio`
+    // por engano numa refatoração) passaria batido pela suíte.
+    it("'Tenho certeza — integrar' fica DESABILITADO quando um REFETCH falha (q.isError) mesmo com um resumo ANTERIOR (r) ainda em cache — TanStack v5 preserva `data` em erro", async () => {
+      // Cenário do comentário m1 (`IntegrarDialog.tsx:121-123`): a 1ª busca da prévia tem SUCESSO (`r` fica
+      // populado, o botão habilita normalmente); um `refetch()` seguinte (ex.: o retry automático do `onError`
+      // do `marcar`, m2) FALHA — TanStack v5 mantém o `r` velho em `q.data` mesmo com `q.isError=true`. Sem
+      // `q.isError` no `disabled`, o botão continuaria clicável sobre um resumo que a tela nem mostra mais (a UI
+      // troca a tabela pela mensagem de erro, mas o `onClick` ainda leria o `r` desatualizado).
+      const lista = listaRaw([produtoRaw()]);
+      let chamadasPrevia = 0;
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome) => {
+          if (nome === "integracao_previa") {
+            chamadasPrevia += 1;
+            if (chamadasPrevia === 1) return { data: previaRaw([previaProduto()]), error: null }; // 1ª: sucesso
+            return { data: null, error: Object.assign(new Error("boom"), { code: "XX000" }) }; // demais: falha
+          }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      const botaoConfirmar = () => botao("Tenho certeza — integrar");
+      // 1ª busca teve sucesso: o botão aparece HABILITADO (prova de que o cenário não é "sempre desabilitado").
+      expect(botaoConfirmar(), "botão deveria existir com a 1ª prévia carregada").toBeDefined();
+      expect(botaoConfirmar()?.hasAttribute("disabled")).toBe(false);
+      // Dispara o refetch que vai falhar (o mesmo botão "Tentar de novo" não aparece com sucesso — usa o refetch
+      // exposto pela própria query via um 2º evento de erro do `marcar`; mais simples e direto aqui: chama
+      // `view.qc.refetchQueries` na MESMA key que `IntegrarDialog` usa, reproduzindo o "refetch em voo" do m2 sem
+      // depender da mutação inteira).
+      await act(async () => {
+        await view.qc.refetchQueries({ queryKey: ["integracao-previa", "t1", ["m1"]] }).catch(() => {});
+      });
+      // Espera o retry padrão (default do TanStack) esgotar e `q.isError` assentar — este `qc` não desliga retry.
+      for (let i = 0; i < 40 && !document.body.textContent?.includes("Não foi possível montar o resumo."); i++) {
+        await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+      }
+      expect(chamadasPrevia).toBeGreaterThan(1);
+      // Prova de ESTADO: a tela mostra a mensagem de erro (não a tabela do `r` velho).
+      expect(document.body.textContent).toContain("Não foi possível montar o resumo.");
+      // A prova real do m1: mesmo com `r` (o resumo ANTERIOR) ainda existindo em `q.data` (TanStack v5 preserva
+      // `data` em erro — não veio de `undefined`), o botão fica desabilitado por causa de `q.isError`.
+      expect(botaoConfirmar(), "botão continua no DOM (a v1 do fix o mostrava clicável aqui)").toBeDefined();
+      expect(botaoConfirmar()?.hasAttribute("disabled")).toBe(true);
+      await view.desmontar();
+    }, 15000);
+
+    it("'Tenho certeza — integrar' fica DESABILITADO quando o resumo vem com bloqueio (r.bloqueio), mesmo com a prévia carregada com sucesso", async () => {
+      const lista = listaRaw([produtoRaw()]);
+      const view = await montarComMocks({
+        lista,
+        rpcImpl: async (nome) => {
+          // `bloqueio` é DERIVADO por `lerResumo` (nunca lido direto do payload) de `precisa_ver_custos && !
+          // pode_ver_custos` — reproduz o cenário real ("Preço de custo" marcado em Campos da API sem permissão
+          // de ver custos), não um campo `bloqueio` inventado no raw.
+          if (nome === "integracao_previa") {
+            return { data: previaRaw([previaProduto()], { precisa_ver_custos: true, pode_ver_custos: false }), error: null };
+          }
+          throw new Error(`RPC inesperada: ${nome}`);
+        },
+      });
+      const { act } = await import("react");
+      const toggle = view.container.querySelector<HTMLButtonElement>('button[role="switch"][aria-label^="Integrável"]');
+      await act(async () => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      // Prova de ESTADO: a prévia carregou com SUCESSO (não é o ramo `q.isError` do teste anterior) — o texto do
+      // bloqueio (derivado, TEXTO_PRECISA_CUSTO) aparece; o que desabilita aqui é SÓ `r.bloqueio`.
+      expect(document.body.textContent).toContain("Precisa poder ver custos (Preço de custo está marcado)");
+      const botaoConfirmar = () => botao("Tenho certeza — integrar");
+      expect(botaoConfirmar(), "botão deveria existir (a prévia carregou) mas desabilitado").toBeDefined();
+      expect(botaoConfirmar()?.hasAttribute("disabled")).toBe(true);
+      await view.desmontar();
+    });
+
     it("fluxo Voltar: desliga o toggle de um produto integrável → 'Voltar para não integrável' chama integracao_voltar com o id", async () => {
       const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
       let chamadaVoltar: unknown;
@@ -1291,6 +1378,10 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
 
+    // n3 (fix round 2 T13, revisão T13 #15, task-13-review.md "Re-review round 1"): o título dizia "e invalida a
+    // lista" mas o teste só contava a chamada da RPC — nenhuma asserção provava a invalidação de verdade. Agora
+    // `invalidarIntegracaoSpy` (exposto por `montarComMocks`) é checado com o tenant + o id do produto, igual ao
+    // que `VoltarDialog.tsx` chama no `onError` (`invalidarIntegracao(qc, tenantId, ids)`).
     it("mapeamento de erro — 42501 (sem permissão) no Voltar mostra o toast traduzido pela mensagemErro e invalida a lista", async () => {
       const lista = listaRaw([produtoRaw({ estado: "integravel" })]);
       const erro42501 = Object.assign(new Error("Sem permissão para editar a Integração."), { code: "42501" });
@@ -1310,6 +1401,10 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
       expect((await toastMock()).error).toHaveBeenCalledWith("Sem permissão para editar a Integração.");
       expect(chamadasVoltar).toBe(1); // a RPC foi de fato chamada com o payload — prova de estado, não só o toast
+      // A invalidação de verdade (não só o toast): `onError` do VoltarDialog chama `invalidarIntegracao(qc,
+      // tenantId, [id do produto])` — mesmo em erro de PERMISSÃO (não só P0409), pra nunca deixar a linha presa
+      // com um estado local que já não bate com o que o servidor confirmou.
+      expect(view.invalidarIntegracaoSpy).toHaveBeenCalledWith(view.qc, "t1", ["m1"]);
       await view.desmontar();
     });
 
@@ -1339,11 +1434,15 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       await view.desmontar();
     });
 
-    // Fix round 1 T13 (revisão T13 #13, task-13-review.md Important I1): render-count de verdade, com o MESMO spy
-    // usado em "React.memo de verdade" (`rotuloEstado`, chamado por `EstadoCelula` a cada render de LinhaProduto) —
-    // prova que o memo continua funcionando DEPOIS da Task 13 acrescentar seleção/Integrável, não só que o checkbox
-    // exibe o estado certo (o teste "seleção e memo" já provava isso; não prova "só a linha certa renderiza").
-    it("React.memo de verdade (T13): marcar o checkbox de UMA linha não rerrenderiza NENHUMA linha (nem a própria — Estado não depende da seleção)", async () => {
+    // Fix round 1 T13 (revisão T13 #13, task-13-review.md Important I1) — TÍTULO CORRIGIDO no fix round 2 (revisão
+    // T13 #14, task-13-review.md "Re-review round 1" n1): o título original dizia "não rerrenderiza NENHUMA linha
+    // (nem a própria)", o que é FALSO — a linha de m1 (a tocada) RE-RENDERIZA sim, porque o comparador do
+    // `React.memo` é raso sobre TODAS as props: `marcado` mudou pra m1, então TODA a linha de m1 (inclusive
+    // `estadoCelula`, que não depende de `marcado`) roda de novo. O que o teste de fato prova (e o único ponto que
+    // importa pro memo) é que a linha de m2 (prop `marcado` continua `false`, identidade igual) NÃO re-renderiza. A
+    // ausência de um controle positivo (m1 > 0) também tornava a suíte cega a uma sabotagem que quebrasse o spy em
+    // si — corrigido abaixo, no mesmo padrão do 12b (linha ~934, `chamadasParaM1... toBeGreaterThan(0)`).
+    it("React.memo de verdade (T13): marcar o checkbox de UMA linha rerrenderiza SÓ ela (m1 > 0, m2 = 0)", async () => {
       const lista = listaRaw([
         produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Um", ref: "REF0001", tamanho_tipo: "letra" } }),
         produtoRaw({ modelo_id: "m2", raw: { nome: "Produto Dois", ref: "REF0002", tamanho_tipo: "letra" } }),
@@ -1355,12 +1454,11 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       expect(checkboxM1).not.toBeNull();
       rotuloSpy.mockClear(); // limpa as chamadas do MOUNT — só interessam as do clique
       await act(async () => { checkboxM1!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-      // `estadoCelula` (que chama `rotuloEstado`) não depende de `marcado`/`onMarcar` — marcar um checkbox NÃO deve
-      // rerrenderizar NENHUMA linha (nem a própria m1): o React.memo de `LinhaProduto` só vê `marcado` mudar pra
-      // m1, e essa prop só afeta o `<Checkbox>`, não `estadoCelula`. Mas o COMPARADOR do memo é raso sobre TODAS as
-      // props — se `marcado` mudou, a linha de m1 RE-RENDERIZA (o memo não bate MAIS NADA sendo igual não importa,
-      // já que UMA prop mudou) — o que não pode acontecer é a linha de m2 (prop `marcado` continua `false`,
-      // identidade igual) renderizar de novo.
+      // Controle POSITIVO (n1): a linha de m1 (a TOCADA) precisa ter rerrenderizado — se o spy não interceptasse de
+      // verdade (ex.: sabotagem no import), este teste passaria "por acidente" mostrando 0 chamadas pras duas.
+      const chamadasParaM1 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m1");
+      expect(chamadasParaM1.length, "linha de m1 (tocada pela seleção) deveria ter rerrenderizado").toBeGreaterThan(0);
+      // O que o memo de fato garante: m2 (prop `marcado` continua `false`, identidade igual) NÃO re-renderiza.
       const chamadasParaM2 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m2");
       expect(chamadasParaM2.length, "linha de m2 (não tocada pela seleção) NÃO deveria ter rerrenderizado").toBe(0);
       rotuloSpy.mockRestore();
@@ -1397,6 +1495,11 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
       listaNova.produtos = listaNova.produtos.map((p) => (p.modeloId === "m2" ? m2Antigo : p));
       listaNova.campos = listaAntiga.campos; // isola o achado do `ctxIntegrar` — `campos` é uma questão à parte
       await act(async () => { view.atualizarListaPronta(listaNova); });
+      // Controle POSITIVO (revisão T13 #14, n1): m1 (o produto que DE FATO mudou — novo rev/estado) precisa ter
+      // rerrenderizado — sem isso, um spy quebrado (ou um mock que nunca chama `estadoCelula`) faria as duas
+      // asserções de m2 abaixo passarem "por acidente" mostrando 0 chamadas pras duas linhas.
+      const chamadasParaM1 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m1");
+      expect(chamadasParaM1.length, "linha de m1 (rev mudou no reload) deveria ter rerrenderizado").toBeGreaterThan(0);
       const chamadasParaM2 = rotuloSpy.mock.calls.filter((c) => (c[0] as unknown as { modeloId?: string }).modeloId === "m2");
       expect(chamadasParaM2.length, "linha de m2 (identidade preservada, como um structural sharing real faria) NÃO deveria ter rerrenderizado num reload que só mudou m1").toBe(0);
       rotuloSpy.mockRestore();

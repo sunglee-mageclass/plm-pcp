@@ -263,43 +263,48 @@ describe("rascunho por produto (staging)", () => {
       expect(v.preco_anterior).toBe(0);
       expect(v.preco_anterior).not.toBeNull();
     });
-    it("prova executável do reviewer (m2): a versão BUGGY (normalizado(base)) gera um falso 'o servidor mudou' contra 'outra pessoa' que nunca mudou nada; a versão CRUA (o fix) não", () => {
-      // Cenário: produto com preco_anterior LEGADO = 0 (nunca NULL — um valor real no banco); só "nome" é enviado
-      // neste Salvar. A espera pós-Salvar (ruling B-I3) guarda `valoresPosSalvar(r)` como o `base` do próximo
-      // Rascunho "sem edição própria" — é exatamente esse `base` que um `mesclar()` seguinte vai comparar contra o
-      // `fresh` de uma relista.
+    // n2 (fix round 2 T13, revisão T13 #14, task-13-review.md "Re-review round 1"): a versão anterior deste teste
+    // era TAUTOLÓGICA — montava `holdBuggy` à mão (`{...holdCru, preco_anterior: null}`) e comparava contra
+    // constantes fixas; nunca chamava `valoresPosSalvar` sobre um rascunho onde `preco_anterior` estivesse
+    // TOCADO no instante do merge seguinte, então nunca exercitava o caminho de CONFLITO de `mergeDraft` (só o
+    // de "não tocado, adota o fresco" — que nunca gera `conflitos`, non-tautologicamente sempre `[]`). Reescrito
+    // pra reproduzir o cenário de verdade descrito pelo reviewer: (1) o usuário edita "nome" e Salva com
+    // preco_anterior LEGADO (0, nunca NULL) fora do payload — a espera pós-Salvar (`resultadoPosSalvar`/
+    // `EsperaAguardando`, ruling B-I3) guarda `valoresPosSalvar(r)` como o `raw` que `produtoComHold`
+    // (`ProdutosAba.tsx`) sobrepõe na lista enquanto a relista não alcança; (2) o rascunho que a tela mostra
+    // NESSE instante nasce desse `raw` com hold (`novoRascunho`) e o usuário edita preco_anterior DE NOVO
+    // (mesmo valor, 0) ANTES da relista chegar — exatamente o que marca a coluna como TOCADA pra o próximo
+    // `mesclar`; (3) chega uma relista de rev estranho (outra pessoa salvou noutro campo) que NUNCA tocou
+    // preco_anterior no banco — continua 0, o valor real. Com a versão CRUA (o fix), `mesclar(...).conflitos`
+    // é `[]` (o servidor não mudou o campo — nada a discutir). Com a versão BUGGY (normalizado(base) — preco
+    // <=0 vira `null`, régua de `normalizado()`/Minor R1-2), o `base` do hold já nasce `null` != fresh (0) —
+    // como agora o campo ESTÁ tocado, `mergeDraft` gera um `conflito` de verdade contra uma mudança que nunca
+    // existiu no banco. RED contra a v1 (round 0): sabotar `valoresPosSalvar` pra usar `normalizado(c,
+    // r.base[c])` na branch não-enviada reproduz `conflitos.length === 1` aqui.
+    it("preco_anterior TOCADO de novo durante a espera pós-Salvar + relista alheia (nunca tocou o campo no banco): mesclar(...).conflitos é [] — a versão BUGGY geraria um conflito falso", () => {
+      // Passo 1: Salva só "nome"; preco_anterior (legado, 0) fica de fora do payload.
       let r = rascunho(7, { preco_anterior: 0 });
       r = editar(r, "nome", "Blusa Brisa Nova");
-      const holdCru = valoresPosSalvar(r); // FIX: r.base[c] cru pra coluna não enviada
-      expect(holdCru.preco_anterior).toBe(0); // o fix preserva o valor real do banco
-      // A versão BUGGY (Task 13 round 0) normalizava a coluna não-enviada — pra preco_anterior, a régua de
-      // `normalizado()` (Minor R1-2, já documentada no arquivo) mapeia `<= 0` para `null` (o mesmo NULL de "sem
-      // preço/automático" que o servidor usa). Reproduz literalmente esse valor sem precisar exportar a função
-      // privada — é o comportamento já coberto e travado por outros testes deste arquivo (linha ~394, "preço
-      // zero/negativo nunca vai no payload nem conta como alterado").
-      const holdBuggy = { ...holdCru, preco_anterior: null };
-      // Uma relista chega (rev 9) — NINGUÉM tocou preco_anterior no banco; ele CONTINUA 0, o mesmo valor real.
-      const fresco = produto(9, { preco_anterior: 0, nome: "Blusa Brisa Nova" });
-      // Rascunho "sem edição própria" (não tocou preco_anterior) nascido de cada hold — `mesclar` decide se o
-      // servidor "mudou" comparando SEU PRÓPRIO `base` contra o `fresh` que chega agora.
-      const rDoCru = novoRascunho(produto(7, { ...holdCru, nome: "Blusa Brisa Nova" }));
-      const rDoBuggy = novoRascunho(produto(7, { ...holdBuggy, nome: "Blusa Brisa Nova" }));
-      const mescladoCru = mesclar(rDoCru, fresco);
-      const mescladoBuggy = mesclar(rDoBuggy, fresco);
-      // FIX: base (0) chega igual ao fresh (0) — o novo `base` pós-merge é 0, sem nenhum sinal de "mudou".
-      expect(mescladoCru.base.preco_anterior).toBe(0);
-      expect(mescladoCru.valores.preco_anterior).toBe(0);
-      // BUGGY: base ERA `null` (efeito colateral da normalização) != fresh (0, o valor real do banco) — o NOVO
-      // `base` pós-merge também vira 0 (mergeDraft's "atualizado" adota o fresco), mas só porque a comparação
-      // partiu de um `base` FALSO (`null`) que nunca existiu no banco — o rascunho, que nunca editou
-      // preco_anterior, passa por uma transição "o servidor mudou" que na fonte real (o banco) nunca aconteceu.
-      // Se o campo estivesse TOCADO nesse instante (o cenário do reviewer), essa mesma comparação falsa geraria um
-      // `conflito` de verdade contra uma mudança que não existe — a raiz do problema é a mesma nos dois casos.
-      expect(mescladoBuggy.base.preco_anterior).toBe(0);
-      // A prova direta da raiz: o `base` ANTES do merge (o hold) já divergia do banco real SEM nenhuma razão —
-      // com o fix, base-do-hold === valor-real-do-banco; com o bug, base-do-hold !== valor-real-do-banco.
-      expect(holdBuggy.preco_anterior).not.toBe(fresco.raw.preco_anterior); // a raiz do falso-conflito (bug)
-      expect(holdCru.preco_anterior).toBe(fresco.raw.preco_anterior); // o fix nunca diverge do banco sem motivo
+      const hold = valoresPosSalvar(r); // FIX: r.base[c] cru pra coluna não enviada
+      expect(hold.preco_anterior).toBe(0); // o fix preserva o valor real do banco (não normaliza pra null)
+
+      // Passo 2: enquanto a espera dura, a tela mostra o produto com o `raw` sobreposto pelo hold
+      // (`produtoComHold`, ProdutosAba.tsx) — o usuário reabre a célula e edita preco_anterior DE NOVO (mesmo
+      // valor 0), o que marca a coluna como TOCADA no rascunho que nasce desse hold.
+      const produtoComHold = produto(7, { ...hold, nome: "Blusa Brisa Nova" });
+      let rSobreHold = novoRascunho(produtoComHold);
+      rSobreHold = editar(rSobreHold, "preco_anterior", 0);
+      expect(colunasAlteradas(rSobreHold)).toEqual([]); // 0 == 0 normalizado: nada "alterado" a enviar
+      expect(rSobreHold.tocados.has("preco_anterior")).toBe(true); // mas a coluna FICA tocada
+
+      // Passo 3: relista de rev estranho — outra pessoa salvou "nome" de novo alhures; preco_anterior NUNCA foi
+      // tocado no banco, continua 0 (o mesmo valor real, nunca NULL).
+      const fresco = produto(9, { preco_anterior: 0, nome: "Blusa Brisa Nova v2" });
+      const mesclado = mesclar(rSobreHold, fresco);
+
+      // FIX: base do hold (0) == fresh (0) → NADA mudou de verdade nesse campo → SEM conflito, mesmo tocado.
+      expect(mesclado.conflitos).toEqual([]);
+      expect(mesclado.valores.preco_anterior).toBe(0);
     });
     it("'fotos_modelo' não enviado ignora fotosFinais (nunca aplica um upload de outra coluna) — mantém base.fotos_modelo cru", () => {
       let r = rascunho(7);
