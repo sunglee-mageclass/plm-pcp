@@ -1,10 +1,15 @@
 -- Integração + API — 3/6: ESTADOS e LOG (spec §4, §5, §9). Só funções.
--- integracao_marcar: recalcula o retrato com trava de linha (modelos FOR NO KEY UPDATE + integracao_produtos FOR UPDATE, ordem estável), compara a
+-- integracao_marcar: recalcula o retrato com trava de linha (advisory lock sku_modelo:<id> IGUAL aos gravadores de SKU
+-- + modelos FOR NO KEY UPDATE + integracao_produtos FOR UPDATE, ordem estável), compara a
 -- assinatura HMAC do resumo (diferente = P0409 integracao_mudou, ASCII), exige completo e não reprovado (D9), P-75 A
 -- (Preço de custo marcado ⇒ só quem vê custos), grava estado + retrato + ESPELHO + log 'integrar', atômico. NÃO compara
 -- modelos.rev (D10). integracao_voltar: só de integrável (P-63 A), individual ou em massa, atômico, apaga o espelho.
 -- integracao_desfazer: SÓ super admin, só integrado (D27), motivo obrigatório, log com o retrato antigo inteiro.
 -- integracao_log_listar: Log por papel (N11) + custo mascarado no retrato do log (inv. #12).
+-- Revisão T3 #1 (Important #1): marcar serializa com os gravadores de SKU (_aplicar_skus_modelo_core/
+-- _gerar_skus_modelo_core/_salvar_sku_manual_core) via o MESMO pg_advisory_xact_lock('sku_modelo:'||id), tomado ANTES
+-- do lock de linha em modelos — senão um Regerar/Salvar concorrente grava SKUs novos sem que marcar perceba (a trava
+-- de modelos é só FOR NO KEY UPDATE, que não conflita com o KEY SHARE que os gravadores tomam via FK).
 -- Contagens: +6 funções | +0 gatilhos. Inverso: supabase/rollback/20261007120000_integracao_3_estados_down.sql.
 SET client_encoding = 'UTF8';
 BEGIN;
@@ -52,6 +57,7 @@ DECLARE
   v_tenant uuid := public._integracao_exige(true);
   v_cfg public.integracao_config;
   v_ids uuid[];
+  v_id uuid;
   v_custos jsonb;
   v_loja text;
   v_ret jsonb;
@@ -63,6 +69,12 @@ BEGIN
   IF jsonb_typeof(_itens) IS DISTINCT FROM 'array' OR jsonb_array_length(_itens) = 0 OR jsonb_array_length(_itens) > 200 THEN
     RAISE EXCEPTION 'Envie de 1 a 200 produtos para integrar.' USING ERRCODE = 'P0001';
   END IF;
+  -- Revisão T3 #3 (Minor #3): modelo_id duplicado no payload tornaria o DISTINCT ON abaixo não-determinístico
+  -- (2 assinaturas diferentes pro mesmo produto — qual vale?); recusa cedo, ANTES de qualquer trava.
+  IF (SELECT count(*) FROM jsonb_array_elements(_itens) AS e(x)) <>
+     (SELECT count(DISTINCT e.x ->> 'modelo_id') FROM jsonb_array_elements(_itens) AS e(x)) THEN
+    RAISE EXCEPTION 'Produto repetido na lista — envie cada produto uma vez só.' USING ERRCODE = 'P0001';
+  END IF;
   v_cfg := public._integracao_cfg(v_tenant);
   -- P-75 A: com "Preço de custo" marcado, só integra quem pode VER custos
   IF 'preco_custo' = ANY(v_cfg.campos) AND NOT public._pode_ver_custos() THEN
@@ -72,6 +84,14 @@ BEGIN
   IF (SELECT count(*) FROM public.modelos m WHERE m.id = ANY(v_ids) AND m.tenant_id = v_tenant) <> cardinality(v_ids) THEN
     RAISE EXCEPTION 'Produto não encontrado nesta loja.' USING ERRCODE = 'P0001';
   END IF;
+  -- Revisão T3 #1 (Important #1, plan-mandated): serializa com os gravadores de SKU ANTES do lock de linha em
+  -- modelos — mesma chave ('sku_modelo:'||id), MESMO hashtextextended, loop FOREACH (não PERFORM…FROM unnest: o
+  -- planner pode avaliar a função volátil do target-list antes do ORDER BY). v_ids já vem ordenado (linha acima),
+  -- então 2 marcar em massa concorrentes pedem as travas na MESMA ordem — sem deadlock com eles mesmos nem com os
+  -- gravadores de SKU (que travam 1 modelo por vez).
+  FOREACH v_id IN ARRAY v_ids LOOP
+    PERFORM pg_advisory_xact_lock(hashtextextended('sku_modelo:' || v_id::text, 0));
+  END LOOP;
   -- trava em ordem estável (2 integrações em massa não se travam mutuamente) e serializa com a edição do card (§9)
   -- N3 (G-plano do plano): FOR NO KEY UPDATE basta (não bloqueia FKs que apontam para modelos)
   PERFORM 1 FROM public.modelos m WHERE m.id = ANY(v_ids) ORDER BY m.id FOR NO KEY UPDATE;
@@ -228,10 +248,14 @@ BEGIN
   -- N11: admin da loja / permissão veem só ações de PRODUTO; campos/chaves/config = só super admin
   SELECT count(*) INTO v_total FROM public.integracao_log l
    WHERE l.tenant_id = v_tenant AND (v_super OR l.acao IN ('editar', 'integrar', 'voltar', 'desfazer', 'integrado'));
+  -- Revisão T3 #4 (Minor #1): `? 'retrato'` também é true com o VALOR json null (desfazer grava exatamente isso se
+  -- `integracao_produtos.retrato` já era NULL) — `_integracao_mascarar('null')` faz `jsonb_set` num escalar e
+  -- RAISE. Guarda por `jsonb_typeof(...) = 'object'`: só mascara quando de fato é um objeto; json null passa direto
+  -- (mesmo v_ver ou não — não há custo pra mascarar num retrato ausente).
   SELECT coalesce(jsonb_agg(jsonb_build_object(
            'id', l.id, 'acao', l.acao, 'quem', l.quem, 'quando', l.criado_em, 'modelo_id', l.modelo_id,
            'modelo_nome', l.modelo_nome,
-           'detalhe', CASE WHEN v_ver OR NOT (l.detalhe ? 'retrato') THEN l.detalhe
+           'detalhe', CASE WHEN v_ver OR jsonb_typeof(l.detalhe -> 'retrato') IS DISTINCT FROM 'object' THEN l.detalhe
                            ELSE jsonb_set(l.detalhe, '{retrato}',
                                           coalesce(public._integracao_mascarar(l.detalhe -> 'retrato'), 'null'::jsonb)) END)
            ORDER BY l.criado_em DESC, l.id), '[]'::jsonb)
