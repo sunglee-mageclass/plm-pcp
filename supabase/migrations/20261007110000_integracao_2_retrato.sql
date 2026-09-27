@@ -19,7 +19,10 @@ BEGIN
     RAISE EXCEPTION 'integracao_2: aplique a migration 1 antes' USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public._skus_calc_ref_tipo(uuid,text,text)') IS NULL
+     OR to_regprocedure('public._sku_tamanho_lado(text,text)') IS NULL
+     OR to_regprocedure('public._sku_variante_key(uuid,uuid)') IS NULL
      OR to_regprocedure('public._custo_unitario_modelos_core(uuid[])') IS NULL
+     OR to_regprocedure('public._pode_ver_custos()') IS NULL
      OR to_regprocedure('public._kanban_status_gate(uuid,uuid,text)') IS NULL
      OR to_regprocedure('public._ref_exibir_gate(uuid,text)') IS NULL THEN
     RAISE EXCEPTION 'integracao_2: dependencia ausente (SKU previa / custo / kanban)' USING ERRCODE = 'P0001';
@@ -73,9 +76,11 @@ CREATE OR REPLACE FUNCTION public._integracao_num(_v numeric, _casas integer)
  SET search_path TO 'public'
 AS $function$
   -- D4: texto com ponto; ≤ 0 ou NULL = NULL (0 nunca conta como preenchido); _casas NULL = sem zeros à direita.
-  SELECT CASE WHEN _v IS NULL OR _v <= 0 THEN NULL
-              WHEN _casas IS NULL THEN trim_scale(_v)::text
-              ELSE round(_v, _casas)::text END
+  -- Revisão T2 Minor #3: o teste <= 0 usa o valor ARREDONDADO (não o bruto) — senão 0 < v < 0.005 (ex.: 0.001 com
+  -- 2 casas) arredondaria para "0.00"/"0.000" e passaria como preenchido, violando "0 nunca conta".
+  SELECT CASE WHEN _v IS NULL THEN NULL
+              WHEN _casas IS NULL THEN CASE WHEN trim_scale(_v) <= 0 THEN NULL ELSE trim_scale(_v)::text END
+              ELSE CASE WHEN round(_v, _casas) <= 0 THEN NULL ELSE round(_v, _casas)::text END END
 $function$;
 
 CREATE OR REPLACE FUNCTION public._integracao_mascarar(_retrato jsonb)
@@ -172,7 +177,7 @@ BEGIN
       FROM public._skus_calc_ref_tipo(m.id, m.ref, v_tipo) k
       LEFT JOIN public.modelo_skus sk
         ON sk.modelo_id = m.id AND sk.variante_key = k.variante_key AND sk.tamanho_key = k.tamanho_key
-     ORDER BY k.variante_ordem NULLS LAST, k.tamanho_ordem NULLS LAST, k.tamanho_key
+     ORDER BY k.variante_ordem NULLS LAST, k.tamanho_ordem NULLS LAST, k.tamanho_key, k.variante_key
   LOOP
     v_n := v_n + 1;
     v_tam := nullif(coalesce(public._sku_tamanho_lado(s.tamanho_key, v_tipo), s.tamanho_key), '');
@@ -180,7 +185,7 @@ BEGIN
     FOREACH c IN ARRAY v_campos LOOP
       CONTINUE WHEN c = 'foto';
       v_linha := v_linha || jsonb_build_object(c, CASE c
-        WHEN 'nome' THEN coalesce(to_jsonb(nullif(btrim(m.nome), '') || ' ' || coalesce(v_tam, '')), 'null'::jsonb)
+        WHEN 'nome' THEN coalesce(to_jsonb(nullif(concat_ws(' ', nullif(btrim(m.nome), ''), v_tam), '')), 'null'::jsonb)
         WHEN 'ref_sku' THEN coalesce(to_jsonb(nullif(btrim(coalesce(s.sku, '')), '')), 'null'::jsonb)
         WHEN 'cor_base' THEN coalesce(to_jsonb(s.cor_nome), 'null'::jsonb)
         WHEN 'cor_apelido' THEN coalesce(to_jsonb(s.apelido_nome), 'null'::jsonb)
@@ -224,13 +229,21 @@ BEGIN
   IF v_sem_tam > 0 THEN
     v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'tamanho', 'texto', v_sem_tam || ' variante(s) sem tamanho'));
   END IF;
+  -- ruling do controlador, revisão T2 Minor #5: "Tamanho em" NULL nunca é assumido como letra em silêncio — vira
+  -- falta sempre que tamanho/ref_sku estiver marcado (mesmo v_tipo continuando 'letra' só para montar a matriz acima).
+  IF m.tamanho_tipo IS NULL AND v_campos && ARRAY['tamanho', 'ref_sku']::text[] THEN
+    v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'tamanho_tipo', 'texto', 'Tamanho em'));
+  END IF;
 
   -- FOTOS (só se "Foto do Modelo" marcado): modelos.fotos_modelo nas 3 origens (B1b)
   IF 'foto' = ANY(v_campos) THEN
     v_fotos := coalesce(m.fotos_modelo, '{}'::text[]);
     IF cardinality(v_fotos) = 0 THEN
       v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'foto', 'texto', 'Foto do Modelo'));
-    ELSIF EXISTS (SELECT 1 FROM unnest(v_fotos) AS p(x) WHERE p.x IS NULL OR NOT starts_with(p.x, m.tenant_id::text || '/')) THEN
+    -- Minor #6: além do prefixo <tenant>/, falha fechado em qualquer segmento '..'/'.'/vazio (rejeita '//','/./','/../')
+    ELSIF EXISTS (SELECT 1 FROM unnest(v_fotos) AS p(x)
+                   WHERE p.x IS NULL OR NOT starts_with(p.x, m.tenant_id::text || '/')
+                      OR EXISTS (SELECT 1 FROM unnest(string_to_array(p.x, '/')) AS seg(s) WHERE seg.s IN ('', '.', '..'))) THEN
       v_faltas := v_faltas || jsonb_build_array(jsonb_build_object('campo', 'foto', 'texto', 'foto de outra loja'));
     END IF;
   END IF;
@@ -261,13 +274,21 @@ $function$;
 
 CREATE OR REPLACE FUNCTION public._integracao_assinar(_retrato jsonb)
  RETURNS text
- LANGUAGE sql
+ LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  SELECT encode(extensions.hmac(convert_to(_retrato::text, 'UTF8'), s.segredo, 'sha256'), 'hex')
-    FROM public.integracao_segredo s
-   WHERE s.id = 1
+DECLARE
+  v_segredo bytea;
+BEGIN
+  -- Minor #2: falha FECHADO se o segredo sumir (nunca retorna NULL) — um assinatura NULL/ausente do cliente passaria
+  -- pelo check `IS DISTINCT FROM` de staleness da T3 como se fosse igual.
+  SELECT s.segredo INTO v_segredo FROM public.integracao_segredo s WHERE s.id = 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'integracao_2: segredo ausente' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN encode(extensions.hmac(convert_to(_retrato::text, 'UTF8'), v_segredo, 'sha256'), 'hex');
+END
 $function$;
 
 CREATE OR REPLACE FUNCTION public._integracao_gate(_base_ok boolean, _base_motivo text, _ok boolean, _motivo text)

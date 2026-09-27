@@ -1,8 +1,10 @@
 /** Integração + API — migration 2 (retrato/leituras). Plano Task 2. Só na cópia (N3), txn revertida. */
 import { describe, it, expect } from "vitest";
 import { hasDb, withTx, comoUsuario, um } from "./db";
+import { aplicarSql } from "./mig-txn";
 import {
-  CAMPOS_PADRAO, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, keywordsLoja, modeloInterno, prepara, revenda,
+  CAMPOS_PADRAO, INVERSOS, LAYOUT, LOCAL, MIG_TXN, T, U, aplica, camposLoja, comoUsuarioCom, cor, keywordsLoja, ler, modeloInterno, prepara,
+  revenda, semTravas,
 } from "./integracao-helpers";
 
 const AVE_RARA = "20c84a36-b7a0-4c26-ac59-52cb11e9d979"; // loja com mais modelos na cópia (medição)
@@ -130,6 +132,115 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
       expect((await um<{ a: string }>(c, q, [m.id, CAMPOS_PADRAO])).a).not.toBe(a1.a);
     });
   });
+
+  it("Minor #1 (revisão T2): ordem da assinatura é estável mesmo com 2 variantes no MESMO ordem (empate)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      // 2ª variante (cor diferente) no MESMO `ordem` da 1ª — modelo_tecido_variantes não tem UNIQUE(ordem);
+      // sem o tiebreaker `, k.variante_key`, a ordem das duas sublinhas ficaria indefinida entre chamadas.
+      const corId2 = await cor(c, `Preto ${m.ref}`, `X`);
+      const mt = (await um<{ id: string }>(c, `SELECT id FROM public.modelo_tecidos WHERE modelo_id = $1`, [m.id])).id;
+      const artigo = (await um<{ id: string }>(c, `SELECT artigo_id FROM public.modelo_tecidos WHERE id = $1`, [mt])).id;
+      const vt2 = (await um<{ id: string }>(c,
+        `INSERT INTO public.variantes_tecido (tenant_id, artigo_id, cor_id, cor_apelido_id, nome_variante) VALUES ($1, $2, $3, NULL, $4) RETURNING id`,
+        [T, artigo, corId2, `Var2 ${m.ref}`])).id;
+      await c.query(`INSERT INTO public.modelo_tecido_variantes (modelo_tecido_id, variante_tecido_id, ordem) VALUES ($1, $2, 1)`, [mt, vt2]);
+      // ambas as variantes (m.corId e corId2) agora compartilham ordem=1 => compartilham a MESMA linha de
+      // modelo_grades (variante_numero=1, já criada por modeloInterno via gradeESkus) => empate real no ORDER BY.
+      const r1 = await retrato(c, m.id);
+      const r2 = await retrato(c, m.id);
+      const pares1 = r1.retrato.linhas.filter((l) => l.tipo === "variante").map((l: any) => [l.tamanho_key, l.variante_key]);
+      const pares2 = r2.retrato.linhas.filter((l) => l.tipo === "variante").map((l: any) => [l.tamanho_key, l.variante_key]);
+      expect(pares1).toEqual(pares2); // ESTÁVEL entre chamadas (sem o tiebreaker, empate ficaria indefinido)
+      // ORDER BY é tamanho_ordem/tamanho_key primeiro, variante_key por ÚLTIMO (tiebreaker) — dentro de cada
+      // tamanho_key (2 sublinhas empatadas, mesmo modelo_grades), as variante_key vêm em ordem ASCENDENTE.
+      const porTamanho = new Map<string, string[]>();
+      for (const [tam, vk] of pares1) porTamanho.set(tam, [...(porTamanho.get(tam) ?? []), vk]);
+      for (const vks of porTamanho.values()) expect(vks).toEqual([...vks].sort());
+    });
+  });
+
+  it("Minor #2 (revisão T2): assinatura falha FECHADO (RAISE P0001) se o segredo sumir", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await c.query(`DELETE FROM public.integracao_segredo WHERE id = 1`);
+      await expect(
+        um(c, `SELECT public._integracao_assinar(public._integracao_retrato_core($1, $2::text[],
+              public._custo_unitario_modelos_core(ARRAY[$1::uuid]) -> $1::text) -> 'retrato') AS a`,
+          [m.id, CAMPOS_PADRAO]),
+      ).rejects.toThrow(/integracao_2: segredo ausente/);
+    });
+  });
+
+  it("Minor #3 (revisão T2): valor arredondado ≤ 0 vira falta (0 < v < 0.005 não conta como preenchido)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      // peso_kg 3 casas: 0.0001 arredonda p/ "0.000" (bruto > 0, arredondado = 0) — precisa continuar sendo falta.
+      await c.query(`UPDATE public.modelos SET peso_kg = 0.0001 WHERE id = $1`, [m.id]);
+      const r = await retrato(c, m.id);
+      expect(r.retrato.linhas[0].valores.peso).toBeNull();
+      expect(r.faltas).toEqual(expect.arrayContaining([{ campo: "peso", texto: "Peso" }]));
+      // 2 casas: 0.001 arredonda p/ "0.00" — mesma regra no preco_custo (usa _integracao_num com 2 casas).
+      await c.query(`UPDATE public.modelos SET peso_kg = 0.220, custo_peca_previsto = 0.001 WHERE id = $1`, [m.id]);
+      const r2 = await retrato(c, m.id);
+      expect(r2.retrato.linhas[0].valores.preco_custo).toBeNull();
+      expect(r2.faltas).toEqual(expect.arrayContaining([{ campo: "preco_custo", texto: "Preço de custo (o estimado não conta)" }]));
+    });
+  });
+
+  it("Minor #4 (revisão T2): nome da sublinha sem tamanho não deixa espaço sobrando", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      // chave de tamanho vazia ("") não resolve lado nenhum (letra/numero NULL) => v_tam fica NULL na sublinha.
+      await c.query(`UPDATE public.modelo_grades SET grades = '{"": 5}'::jsonb, grade_total = 5 WHERE modelo_id = $1`, [m.id]);
+      const r = await retrato(c, m.id);
+      const sub = r.retrato.linhas.find((l) => l.tipo === "variante");
+      expect(sub?.valores.tamanho).toBeNull();
+      expect(sub?.valores.nome).toBe((r.retrato.linhas[0].valores.nome as string));
+      expect(sub?.valores.nome?.endsWith(" ")).toBe(false);
+    });
+  });
+
+  it("Minor #5 (ruling, revisão T2): 'Tamanho em' ausente vira falta quando tamanho/ref_sku estão marcados", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET tamanho_tipo = NULL WHERE id = $1`, [m.id]);
+      const r = await retrato(c, m.id);
+      expect(r.faltas).toEqual(expect.arrayContaining([{ campo: "tamanho_tipo", texto: "Tamanho em" }]));
+      // sem tamanho nem ref_sku marcados, a ausência de "Tamanho em" NÃO é falta.
+      const r2 = await retrato(c, m.id, CAMPOS_PADRAO.filter((c2) => c2 !== "tamanho" && c2 !== "ref_sku"));
+      expect(r2.faltas.find((f) => f.campo === "tamanho_tipo")).toBeUndefined();
+    });
+  });
+
+  it("Minor #6 (revisão T2): segmento '..'/'.'/vazio no caminho da foto falha fechado", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      for (const caminho of [`${T}/../outra/x.jpg`, `${T}/./x.jpg`, `${T}//x.jpg`]) {
+        await c.query(`UPDATE public.modelos SET fotos_modelo = ARRAY[$2::text] WHERE id = $1`, [m.id, caminho]);
+        const r = await retrato(c, m.id, LAYOUT);
+        expect(r.faltas).toEqual(expect.arrayContaining([{ campo: "foto", texto: "foto de outra loja" }]));
+      }
+    });
+  });
 });
 
 describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura", () => {
@@ -170,18 +281,60 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
       const lr = await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [rep.ref]);
       expect(lr.r.total).toBe(0);
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce03", [["integracao", true, true]]);
-      const g = (await um<{ r: any }>(c, `SELECT public.integracao_listar(NULL, jsonb_build_object('busca', $1::text), 1) AS r`, [m.ref])).r.produtos[0].gates;
+      // Important #1 (revisão T2): custo mascarado no `vivo` do listar, para quem NÃO vê custos.
+      const semCusto = (await um<{ r: any }>(c, `SELECT public.integracao_listar(NULL, jsonb_build_object('busca', $1::text), 1) AS r`, [m.ref])).r;
+      for (const l of semCusto.produtos[0].vivo.linhas) expect(l.valores.preco_custo).toBeNull();
+      const g = semCusto.produtos[0].gates;
       expect(g.compartilhado).toEqual({ ok: false, motivo: "Precisa da permissão de editar o Planejamento (ou o Desenvolvimento antes do envio à Explosão)." });
       expect(g.planejamento).toEqual({ ok: false, motivo: "Precisa da permissão de editar o Planejamento." });
       expect(g.preco).toEqual({ ok: false, motivo: "Precisa da permissão de preço de venda." });
       expect(g.ref).toEqual({ ok: false, motivo: "Precisa da permissão de editar o Desenvolvimento." });
       expect(g.keywords).toEqual({ ok: false, motivo: "Só o admin da loja muda as Keywords." });
+
+      // Important #1 (revisão T2): retrato GRAVADO com preco_custo diferente do vivo — mascarado para ce03
+      // (não vê custos: retrato_difere NÃO contém 'preco_custo'), visível para U (retrato_difere CONTÉM).
+      // Usa um modelo À PARTE (m2) para não travar `m` (o resto do teste depende de `m` continuar nao_integravel).
+      await comoUsuario(c, U);
+      const m2 = await modeloInterno(c);
+      const vivoAgora = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m2.id])).r.produtos[0].retrato;
+      const gravado = JSON.parse(JSON.stringify(vivoAgora));
+      gravado.linhas[0].valores.preco_custo = "1.00";
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, retrato)
+         VALUES ($1, $2, 'integravel', $3::text[], $4::jsonb)`,
+        [T, m2.id, CAMPOS_PADRAO, JSON.stringify(gravado)],
+      );
+      await comoUsuario(c, "00000000-0000-4000-8000-00000000ce03"); // já criado acima; só troca o JWT da txn, sem reinserir permissão
+      const l3 = (await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [m2.ref])).r.produtos[0];
+      expect(l3.retrato.linhas[0].valores.preco_custo).toBeNull();
+      expect(l3.retrato_difere).not.toContain("preco_custo");
+      await comoUsuario(c, U);
+      const l4 = (await um<{ r: any }>(c, `SELECT public.integracao_listar('todos', jsonb_build_object('busca', $1::text), 1) AS r`, [m2.ref])).r.produtos[0];
+      expect(l4.retrato_difere).toContain("preco_custo");
       await comoUsuarioCom(c, "00000000-0000-4000-8000-00000000ce04", [["integracao", true, true], ["criacao_planejamento", true, true],
         ["criacao_planejamento:preco_venda", true, true], ["criacao_desenvolvimento", true, true]]);
       const g2 = (await um<{ r: any }>(c, `SELECT public.integracao_listar(NULL, jsonb_build_object('busca', $1::text), 1) AS r`, [m.ref])).r.produtos[0].gates;
       expect(g2.compartilhado.ok && g2.planejamento.ok && g2.preco.ok && g2.sku.ok).toBe(true);
       expect(g2.ref.ok).toBe(false);
       expect(g2.ref.motivo).toMatch(/^A REF aparece a partir da etapa ".+" do kanban\.$/);
+    });
+  });
+
+  it("Important #1 (revisão T2): cross-tenant — previa/estado_modelos ignoram id de outra loja", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      // modelo de outra loja já existente na cópia (AVE_RARA, tenant != T) — leitura só, nenhum dado é alterado.
+      const outraLoja = "2ddfb3cf-8fb3-46ab-9ad7-e7319017a770";
+      const p = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [outraLoja])).r;
+      expect(p.produtos).toEqual([]);
+      await c.query(
+        `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos)
+         VALUES ('20c84a36-b7a0-4c26-ac59-52cb11e9d979', $1, 'integravel', ARRAY['nome']::text[])`,
+        [outraLoja],
+      );
+      const e = (await um<{ r: any }>(c, `SELECT public.integracao_estado_modelos(ARRAY[$1::uuid]) AS r`, [outraLoja])).r;
+      expect(e).toEqual({});
     });
   });
 
@@ -230,6 +383,20 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
                     'integracao_estado_modelos','integracao_config_ler')) AS n,
                 to_regclass('public.integracao_produtos') IS NOT NULL AS t`);
       expect(r).toEqual({ n: "0", t: true });
+    });
+  });
+
+  it.skipIf(!MIG_TXN)("Minor #7 (revisão T2): o pos-check do inverso 2 pega QUALQUER uma das 15 sobrando, não só 1", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      // remove o DROP de 1 das 15 funções (uma DIFERENTE da que o pos-check antigo checava sozinho,
+      // _integracao_retrato_core) — se o pos-check só olhasse aquela 1 (o bug que o Minor #7 corrigiu),
+      // esta outra função sobrando passaria batido. Com o loop sobre as 15, o arquivo tem que RAISE.
+      const semDrop = ler(INVERSOS[1]).replace(
+        /DROP FUNCTION IF EXISTS public\._integracao_rotulos\(\);\n/,
+        "",
+      );
+      await expect(aplicarSql(c, semTravas(semDrop, "teste-minor7"), "teste-minor7")).rejects.toThrow(/funcao\(oes\) da migration 2 ainda existem/);
     });
   });
 });

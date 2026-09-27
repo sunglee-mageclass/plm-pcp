@@ -30,9 +30,19 @@ DROP FUNCTION IF EXISTS public._integracao_cfg(uuid);
 DROP FUNCTION IF EXISTS public._integracao_rotulos();
 
 DO $pos$
+DECLARE
+  n integer;
 BEGIN
-  IF to_regprocedure('public._integracao_retrato_core(uuid,text[],jsonb)') IS NOT NULL THEN
-    RAISE EXCEPTION 'integracao_2_down: funcoes da migration 2 ainda existem' USING ERRCODE = 'P0001';
+  -- Minor #7: confere as 15, não só 1 (a suite ja testava as 15; o arquivo que roda em producao tinha so 1) -
+  -- e este e o texto que de fato roda em producao.
+  SELECT count(*) INTO n FROM pg_proc
+   WHERE pronamespace = 'public'::regnamespace
+     AND proname IN ('_integracao_rotulos', '_integracao_cfg', '_integracao_num', '_integracao_mascarar',
+       '_integracao_retrato_core', '_integracao_assinar', '_integracao_gate', '_integracao_gates', '_integracao_base',
+       '_integracao_exige', '_integracao_exige_super', 'integracao_previa', 'integracao_listar',
+       'integracao_estado_modelos', 'integracao_config_ler');
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'integracao_2_down: % funcao(oes) da migration 2 ainda existem', n USING ERRCODE = 'P0001';
   END IF;
 END
 $pos$;
