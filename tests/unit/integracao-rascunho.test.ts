@@ -68,11 +68,8 @@ const produto = (rev: number, r: Record<string, unknown> = {}) =>
     ],
   }).produtos[0];
 const arquivo = (nome: string) => new File(["x"], nome, { type: "image/jpeg" });
-const rascunho = (
-  rev: number,
-  r: Record<string, unknown> = {},
-  nomeLoja: string | null = NOME_LOJA,
-) => novoRascunho(produto(rev, r), nomeLoja);
+// Fix round 2 (Important R1-1): novoRascunho voltou à assinatura do brief — sem nomeLoja.
+const rascunho = (rev: number, r: Record<string, unknown> = {}) => novoRascunho(produto(rev, r));
 
 describe("rascunho por produto (staging)", () => {
   it("nasce igual ao servidor; editar marca a coluna e o alterado", () => {
@@ -125,11 +122,6 @@ describe("rascunho por produto (staging)", () => {
     expect(colunasAlteradas(u)).toEqual([]);
     expect(mesclar(r, produto(8))).toBe(r); // mesmo rev = nada muda
   });
-  it("merge 3-vias: nomeLoja sobrevive ao merge quando omitido, e troca quando informado", () => {
-    const r = rascunho(7);
-    expect(mesclar(r, produto(8)).nomeLoja).toBe(NOME_LOJA);
-    expect(mesclar(r, produto(8), "Outra Loja").nomeLoja).toBe("Outra Loja");
-  });
   it("Minor #5: conflito antigo que convergiu por fora (fresh já bate com o meu valor) é dropado no próximo merge", () => {
     let r = editar(rascunho(7), "peso_kg", 0.3);
     r = mesclar(r, produto(8, { peso_kg: 0.28 })); // conflito: meu 0.3 x dele 0.28
@@ -150,7 +142,7 @@ describe("rascunho por produto (staging)", () => {
       sku: "BLBR0087-BCO-P",
       estado: "ok",
     });
-    const r = comSkus(novoRascunho(p, NOME_LOJA), {
+    const r = comSkus(novoRascunho(p), {
       regerar: false,
       manuais: {
         "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 },
@@ -175,13 +167,6 @@ describe("rascunho por produto (staging)", () => {
     expect(temAlteracao(sobra)).toBe(true);
     expect(aposSalvar(s, { rev: 8, skusGravados: true })).toBeNull();
   });
-  it("Minor #3: fotos novas pendentes nunca somem em silêncio — payloadItem/aposSalvar lançam sem o resultado do upload", () => {
-    const f = adicionarFotos(rascunho(7), [{ id: "u1", file: arquivo("c.jpg") }]);
-    expect(() => payloadItem(f)).toThrow(/fotosFinais/);
-    expect(() => aposSalvar(f, { rev: 8, skusGravados: false })).toThrow(/o\.fotos/);
-    // com o argumento certo, funciona normalmente (não lança)
-    expect(payloadItem(f, ["x"])).not.toBeNull();
-  });
   it("ruling G1 (revisto no fix round 1): limpar preco_anterior grava NULL (automático)", () => {
     const r2 = editar(rascunho(7), "preco_anterior", null);
     expect(r2.valores.preco_anterior).toBeNull();
@@ -189,28 +174,74 @@ describe("rascunho por produto (staging)", () => {
   });
 });
 
-describe("Important #1 (fix round 1): título automático segue a mesma regra do Sheet", () => {
+describe("Minor R1-3 (fix round 2): aposSalvar NUNCA lança — degrada quando falta o resultado do upload", () => {
+  it("sem fotosNovas, comportamento igual ao de sempre mesmo sem o.fotos", () => {
+    const r = editar(rascunho(7), "peso_kg", 0.3);
+    expect(() => aposSalvar(r, { rev: 8, skusGravados: false })).not.toThrow();
+    expect(aposSalvar(r, { rev: 8, skusGravados: false })).toBeNull(); // nada de SKU pendente = some
+  });
+  it("com fotosNovas pendentes e SEM o.fotos: não lança, mantém rev PRÉ-salvar (o próximo merge adota do servidor)", () => {
+    const comFoto = adicionarFotos(rascunho(7), [{ id: "u1", file: arquivo("c.jpg") }]);
+    const comSku = comSkus(comFoto, {
+      regerar: false,
+      manuais: {
+        "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 },
+      },
+    });
+    let sobra: ReturnType<typeof aposSalvar> = null;
+    expect(() => {
+      sobra = aposSalvar(comSku, { rev: 8, skusGravados: false }); // o.fotos OMITIDO de propósito
+    }).not.toThrow();
+    expect(sobra).not.toBeNull();
+    // rev fica no PRÉ-salvar (7), não no 8 novo — o próximo mesclar(r, produto(8...)) vai detectar a diferença
+    // de rev e adotar fotos_modelo do servidor sozinho (tocados vazio = "não tocado segue o servidor").
+    expect(sobra!.rev).toBe(7);
+    expect(sobra!.tocados.size).toBe(0);
+  });
+  it("com fotosNovas pendentes e COM o.fotos: caminho normal, adota o novo rev", () => {
+    const comFoto = adicionarFotos(rascunho(7), [{ id: "u1", file: arquivo("c.jpg") }]);
+    const comSku = comSkus(comFoto, {
+      regerar: false,
+      manuais: {
+        "v1|38|P": { varianteKey: "v1", tamanhoKey: "38|P", sku: "X-1", id: "s1", rev: 2 },
+      },
+    });
+    const sobra = aposSalvar(comSku, {
+      rev: 8,
+      fotos: ["t/fotos_modelo/a.jpg", "t/fotos_modelo/b.jpg", "t/fotos_modelo/c.jpg"],
+      skusGravados: false,
+    })!;
+    expect(sobra.rev).toBe(8);
+    expect(sobra.valores.fotos_modelo).toEqual([
+      "t/fotos_modelo/a.jpg",
+      "t/fotos_modelo/b.jpg",
+      "t/fotos_modelo/c.jpg",
+    ]);
+  });
+});
+
+describe("Important #1/R1-1 (fix rounds 1-2): título automático — nomeLoja é argumento de chamada", () => {
   // "Blusa Brisa" → nomeEmTitulo "Blusa Brisa"; + " | " + "Loja Teste" = calculado
   const CALCULADO = "Blusa Brisa | Loja Teste";
   it("blur com o texto idêntico ao automático mantém titulo_pagina NULL", () => {
-    let r = editarTitulo(rascunho(7), CALCULADO); // digitou exatamente o automático
+    let r = editarTitulo(rascunho(7), CALCULADO, NOME_LOJA); // digitou exatamente o automático
     expect(r.valores.titulo_pagina).toBeNull();
-    r = sairTitulo(r); // blur não muda nada (já é null)
+    r = sairTitulo(r, NOME_LOJA); // blur não muda nada (já é null)
     expect(r.valores.titulo_pagina).toBeNull();
     expect(colunasAlteradas(r)).toEqual([]); // nunca "alterado" — nasceu com titulo_pagina null também
   });
   it("redigitar o mesmo texto do automático (com espaço extra) volta a NULL no blur", () => {
-    let r = editarTitulo(rascunho(7), "Um Título Manual Qualquer");
+    let r = editarTitulo(rascunho(7), "Um Título Manual Qualquer", NOME_LOJA);
     expect(r.valores.titulo_pagina).toBe("Um Título Manual Qualquer");
-    r = editarTitulo(r, `${CALCULADO}  `); // redigitou o automático + espaço — onChange não bate (string diferente)
+    r = editarTitulo(r, `${CALCULADO}  `, NOME_LOJA); // redigitou o automático + espaço — onChange não bate
     expect(r.valores.titulo_pagina).toBe(`${CALCULADO}  `);
-    r = sairTitulo(r); // onBlur apara e reconhece que aparado == calculado → NULL
+    r = sairTitulo(r, NOME_LOJA); // onBlur apara e reconhece que aparado == calculado → NULL
     expect(r.valores.titulo_pagina).toBeNull();
   });
   it("um título manual de verdade permanece manual (não vira NULL)", () => {
-    let r = editarTitulo(rascunho(7), "Vestido Longo Edição Especial");
+    let r = editarTitulo(rascunho(7), "Vestido Longo Edição Especial", NOME_LOJA);
     expect(r.valores.titulo_pagina).toBe("Vestido Longo Edição Especial");
-    r = sairTitulo(r);
+    r = sairTitulo(r, NOME_LOJA);
     expect(r.valores.titulo_pagina).toBe("Vestido Longo Edição Especial");
     expect(colunasAlteradas(r)).toEqual(["titulo_pagina"]);
     expect(payloadItem(r)?.campos.titulo_pagina).toBe("Vestido Longo Edição Especial");
@@ -223,9 +254,41 @@ describe("Important #1 (fix round 1): título automático segue a mesma regra do
     expect(r.valores.titulo_pagina).toBeNull(); // continua automático — o cálculo ao vivo usa o Nome novo
     expect(colunasAlteradas(r)).toEqual(["nome"]); // só o nome está "alterado", não o título
   });
+  it("R1-1: o nome da loja chega DEPOIS do rascunho criado (useTenantBranding ainda carregando) — sem staleness", () => {
+    // O rascunho nasce ANTES do nome da loja carregar (nomeLoja não é mais guardado nele — é argumento de
+    // chamada). Quando o nome finalmente chega, editarTitulo/sairTitulo já comparam contra "Nome | Loja" correto,
+    // sem precisar de nenhum merge/refresh do rascunho — é exatamente a diferença do fix R1-1 vs a v1 (fix round 1)
+    // que guardava nomeLoja no Rascunho e ficava stale.
+    const r0 = rascunho(7); // nasce sem nenhuma noção de loja
+    const rDepoisDoNomeChegar = editarTitulo(r0, CALCULADO, NOME_LOJA); // agora a tela já tem o nome
+    expect(rDepoisDoNomeChegar.valores.titulo_pagina).toBeNull(); // reconhece como automático corretamente
+  });
+  it("R1-1: nomeLoja null (ainda carregando) nunca colapsa o digitado para NULL nem trata Nome puro como automático", () => {
+    const r0 = rascunho(7);
+    // digitar o automático "de verdade" (com loja) enquanto nomeLoja ainda é null: não tem como comparar, então
+    // mantém EXATAMENTE o que foi digitado (nunca vira manual por engano nem NULL por engano).
+    const r1 = editarTitulo(r0, CALCULADO, null);
+    expect(r1.valores.titulo_pagina).toBe(CALCULADO); // mantido como digitado, NÃO virou NULL
+    const r2 = sairTitulo(r1, null); // blur também não normaliza sem o automático calculável
+    expect(r2.valores.titulo_pagina).toBe(CALCULADO);
+    // digitar só o Nome (sem "| Loja") enquanto nomeLoja é null: mantém como está — NUNCA assume que é o
+    // automático (que teria "| Loja" quando o nome carregar).
+    const r3 = editarTitulo(rascunho(7), "Blusa Brisa", null);
+    expect(r3.valores.titulo_pagina).toBe("Blusa Brisa"); // não virou NULL
+  });
+  it("Minor R1-1: um blur/edição que não muda nada NÃO marca titulo_pagina como tocado (nunca gera conflito por tab-through)", () => {
+    const r0 = rascunho(7); // titulo_pagina já é null (automático)
+    const r1 = sairTitulo(r0, NOME_LOJA); // blur sem digitar nada — resultado também é null
+    expect(r1).toBe(r0); // MESMA referência — editar não foi chamado, tocados não mudou
+    expect(r1.tocados.has("titulo_pagina")).toBe(false);
+    // idem para editarTitulo digitando o próprio automático de novo (sem mudança real de valor)
+    const rManual = editarTitulo(rascunho(7), "Manual X", NOME_LOJA);
+    const rMesmoTexto = editarTitulo(rManual, "Manual X", NOME_LOJA);
+    expect(rMesmoTexto).toBe(rManual); // sem mudança = mesma referência, não re-toca
+  });
 });
 
-describe("Important #2 (fix round 1): preço zero/negativo nunca vai no payload como 0", () => {
+describe("Important #2/Minor R1-2 (fix rounds 1-2): preço zero/negativo nunca vai no payload nem conta como alterado", () => {
   it("preco_anterior 0/negativo vira NULL no payload (precoAnteriorOuNull)", () => {
     const r0 = editar(rascunho(7), "preco_anterior", 0);
     expect(payloadItem(r0)?.campos.preco_anterior).toBeNull();
@@ -241,5 +304,19 @@ describe("Important #2 (fix round 1): preço zero/negativo nunca vai no payload 
     expect(payloadItem(rNeg)?.campos.preco_venda).toBeNull();
     const rOk = editar(rascunho(7), "preco_venda", 129.9);
     expect(payloadItem(rOk)?.campos.preco_venda).toBe(129.9);
+  });
+  it("Minor R1-2: base NULL + digitar 0 NÃO conta como 'alterado' (0 e NULL são o MESMO valor normalizado)", () => {
+    // raw.preco_anterior da fixture é 179.9 (preenchido) — usamos um produto com preco_anterior NULL de base.
+    const base = rascunho(7, { preco_anterior: null, preco_venda: null });
+    expect(colunasAlteradas(base)).toEqual([]);
+    const comZero = editar(editar(base, "preco_anterior", 0), "preco_venda", 0);
+    expect(colunasAlteradas(comZero)).toEqual([]); // 0 == NULL pra fins de "alterado" (os 2 são "automático")
+    expect(temAlteracao(comZero)).toBe(false);
+    expect(payloadItem(comZero)).toBeNull(); // nada realmente mudou — no-op não vira update/log no servidor
+  });
+  it("Minor R1-2: sub-centavo não passa como 'preenchido' (arredonda a 2 casas antes do > 0)", () => {
+    const base = rascunho(7, { preco_venda: null });
+    const comSubCentavo = editar(base, "preco_venda", 0.001);
+    expect(colunasAlteradas(comSubCentavo)).toEqual([]); // arredonda pra 0.00 = NULL, não "alterado"
   });
 });

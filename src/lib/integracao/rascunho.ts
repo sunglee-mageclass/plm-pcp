@@ -3,40 +3,48 @@
 // @/lib/colab/merge). Foto nova = marcador "novo:<id>" na posição dela (o upload só acontece no Salvar — Task 11). SKU à mão
 // = o MESMO "a gravar" da seção Códigos (sku-previa.ts), gravado no passo 3 do Salvar.
 //
-// Ruling G1 (task-10-report.md, revisto no fix round 1): titulo_pagina/preco_anterior NULL = AUTOMÁTICO.
+// Ruling G1 (task-10-report.md, revisto nos fix rounds 1 e 2): titulo_pagina/preco_anterior NULL = AUTOMÁTICO.
 //
-// Fix round 1 (task-10-review.md):
-// - Important #1 (título): a regra "digitar igual ao automático mantém NULL" pertence a ESTA task (não a Task
-//   11/12, como a v1 deste arquivo deferia sem ruling). Reusa os helpers PRONTOS do Sheet
-//   (`tituloAoDigitar`/`tituloAoSair`/`tituloPaginaCalculado`, `src/lib/titulo-pagina.ts`) — sem reimplementar a
-//   regra aqui. MUDANÇA DE INTERFACE (documentada para Task 11/12 poderem plugar): `Rascunho` ganhou o campo
-//   `nomeLoja: string | null` (a marca da loja, `tenants.nome` — a MESMA fonte que `_titulo_pagina_calculado` usa
-//   no servidor); `novoRascunho(p, nomeLoja)` e `mesclar(r, p, nomeLoja?)` passam a receber esse parâmetro (em
-//   `mesclar`, omitir mantém o `nomeLoja` que já estava no rascunho — o nome da loja não muda entre um merge e
-//   outro). Duas funções NOVAS espelham o onChange/onBlur do campo no Sheet: `editarTitulo(r, digitado)` (a cada
-//   tecla, `tituloAoDigitar`) e `sairTitulo(r)` (ao perder o foco, `tituloAoSair` — normaliza espaço nas pontas e
-//   "digitou igual ao automático com espaço a mais" de volta pra NULL). Renomear o produto (`editar(r,"nome",v)`)
-//   NÃO toca `titulo_pagina` — se já é NULL (automático), continua NULL (o automático é recalculado AO VIVO na
-//   exibição via `tituloPaginaCalculado(novoNome, nomeLoja)`, nunca gravado); se é manual, fica como está (mesmo
-//   comportamento do Sheet: só o próprio campo Título decide quando volta a ser automático).
-// - Important #2 (preço zero/negativo): `payloadItem` agora espelha o Sheet — `preco_anterior` via
-//   `precoAnteriorOuNull` (vazio/0/negativo = NULL = automático, `planejamento-detail/helpers.ts`) e `preco_venda`
-//   via `v > 0 ? v : null` (o MESMO padrão do Sheet, `PlanejamentoDetail.tsx:1705`, `numOr0(v) > 0 ? … : null` —
-//   nunca manda 0). Crítico no SQL real (`integracao_salvar` m5): `preco_venda=0` num produto revenda/importado
-//   chega em `salvar_precos_fixo_produto_acabado/_importado`, que RAISE P0001 "O preço precisa ser maior que
-//   zero." para qualquer valor NÃO-NULL ≤ 0 — e por não ter savepoint nem catch, aborta o LOTE inteiro de até 50
-//   produtos do `integracao_salvar`. Mandar NULL em vez de 0 é a única forma de "sem preço"/"volta a derivar do
-//   markup" que a função aceita sem RAISE.
-// - Minor #2: `colunasAlteradas` compara valores NORMALIZADOS (não crus) — texto aparado (`nome`/`ref`) e
-//   texto-ou-null aparado (`ncm`/`titulo_pagina`/`descricao_produto`) evitam falso "alterado" por só espaço extra
-//   ou `null` vs `""` (mesmo padrão de `normalizarDraftSalvo`/`textoOuNull` do Sheet).
-// - Minor #3: `payloadItem`/`aposSalvar` NUNCA descartam foto nova em silêncio — se há `fotosNovas` pendentes e o
-//   chamador não informa o resultado do upload (`fotosFinais`/`o.fotos`), a função lança (falha alto e cedo, em
-//   vez de perder a foto silenciosamente numa Task 11 futura que esqueça o parâmetro).
-// - Minor #5: `mesclar` também derruba um conflito ANTIGO cujo valor já bate com o novo `fresh` (o servidor
-//   convergiu pro meu valor entretanto) — sem isso, um conflito resolvido "por fora" (ex.: outra aba salvou
-//   exatamente o que eu tinha) ficava preso pra sempre, porque a 2ª chamada de `mergeDraft` não o re-emite nem o
-//   remove por si (ele só emite conflito quando HÁ divergência NOVA entre base e fresh).
+// Fix round 1 (task-10-review.md): título reusa tituloAoDigitar/tituloAoSair/tituloPaginaCalculado (Important #1);
+// preco_anterior/preco_venda nunca mandam 0/negativo (Important #2); colunasAlteradas compara valores normalizados
+// (Minor #2 original — texto); fotos novas nunca somem em silêncio (Minor #3); mesclar derruba conflito antigo
+// convergido por fora (Minor #5); formatarValor nunca imprime "R$ NaN" (Minor #6, em produtos.ts).
+//
+// Fix round 2 (task-10-review.md, "Re-review round 1"):
+// - Important R1-1: `nomeLoja` NÃO fica mais guardado no Rascunho — era capturado 1x em `novoRascunho`/`mesclar` e
+//   nunca atualizava (a tela só tem o nome pronto depois que `useTenantBranding()` carrega, e um rascunho nascido
+//   antes disso ficava comparando pra sempre contra "Nome" em vez de "Nome | Loja"). Agora `nomeLoja` é argumento
+//   DE CHAMADA de `editarTitulo`/`sairTitulo`/`tituloCalculadoDoRascunho` — a MESMA forma que o Sheet usa (prop a
+//   cada render, nunca guardada em estado). `Rascunho`/`novoRascunho`/`mesclar` voltam à assinatura do brief
+//   (`novoRascunho(p)`, `mesclar(r, p)`) — T11/T12b chamam como já estava escrito no plano.
+//   - O nome vem de `useTenantBranding().nome` (NÃO de `integracao_config_ler` — essa RPC não devolve
+//     `tenants.nome`, m2:706-721; o comentário da v1 estava errado e foi corrigido aqui).
+//   - Sem caso especial no Sheet para `nomeLoja === null` (confirmado lendo `InfoGeraisSecao.tsx:226-254`: o botão
+//     "voltar ao automático" e o badge "automático" não checam `nomeLoja`, só `tituloAutomatico`/`tituloCalculado`).
+//     A regra segura adotada aqui (instrução do controlador, já que o Sheet não tem um guard explícito): com
+//     `nomeLoja` NULL, `editarTitulo`/`sairTitulo` NUNCA colapsam um título digitado para NULL, e NUNCA tratam um
+//     Nome puro (sem "| Loja") como automático — o texto digitado fica exatamente como foi digitado. Isso evita o
+//     efeito colateral pior (a Task 10 original: comparar contra "Nome" sem loja faria o usuário digitar o
+//     automático de verdade "Nome | Loja Real" e o sistema achar que é manual, OU digitar só "Nome" e o sistema
+//     achar que é automático e mandar NULL — os dois errados). **T12a PRECISA desabilitar a célula/campo do título
+//     enquanto `useTenantBranding().nome` ainda é null** (loading) — assim o usuário nunca edita o título antes do
+//     nome da loja estar pronto, e essa mitigação de "manter o texto digitado" nunca chega a ser exercitada na UI
+//     real (ela existe só como rede de segurança caso a Task 12a esqueça o disable).
+// - Minor R1-1: `editarTitulo`/`sairTitulo` retornam `r` INALTERADO (mesma referência) quando o novo valor é
+//   `igual` ao atual — nunca marcam `titulo_pagina` como tocado num blur que não mudou nada (senão um tab-through
+//   sem editar vira, num merge futuro, um conflito com quem editou o título de verdade, em vez de adoção silenciosa).
+// - Minor R1-2: `normalizado` agora também mapeia preco_anterior/preco_venda `<= 0` para NULL (evita "alterado"
+//   falso quando o valor base já é NULL e o usuário digita 0) e usa a MESMA arredondada-a-centavos de
+//   `precoAnteriorOuNull`/`numeroOuNull(v,2)` antes do `> 0`, pra não deixar passar um sub-centavo.
+// - Minor R1-3: `aposSalvar` NÃO lança mais. Roda DEPOIS de um Salvar já commitado no servidor (plan T12b,
+//   dentro do onSuccess) — um throw ali vira erro de render pós-sucesso e nunca protege dado (as fotos já estão no
+//   Storage). Em vez disso, se há `fotosNovas` pendentes e `o.fotos` não veio, o rascunho residual mantém o `rev`
+//   PRÉ-salvar (não o `o.rev` novo) — assim o próximo `mesclar` (tocados vazio) adota `fotos_modelo` do servidor
+//   silenciosamente, sem inventar um estado inconsistente. A checagem também saiu de ANTES do early-return
+//   `skusGravados || nadaAGravar` para DEPOIS — só importa quando o rascunho de fato sobra.
+// - Minor R1-4: mensagem de ação em massa cobrindo o bloqueio por módulo — ver `produtos.ts` (`acoesEmMassa`).
+// - Minor R1-5: os textos de fallback (agora não mais exceptions) são PT, seguros pro usuário — nunca citam
+//   "Task 11"/nomes de função internos, que apareceriam crus no toast via `mensagemErro` se algum dia alcançados.
 import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
 import type { ColunaEditavel } from "@/lib/integracao/campos";
 import type { ProdutoLista, RawProduto, Sublinha } from "@/lib/integracao/produtos";
@@ -71,10 +79,6 @@ export type Rascunho = {
   nome: string;
   rev: number;
   tamanhoTipo: "letra" | "numero" | null;
-  /** Ruling 1 do fix round 1: a marca da loja (`tenants.nome`) — necessária pro Título automático
-   *  (`tituloPaginaCalculado`). Vem de fora (a tela lê de `integracao_config_ler`/outra fonte; `integracao_listar`
-   *  não manda `tenants.nome`). `null` enquanto ainda não carregou (mesmo contrato do `nomeLoja` do Sheet). */
-  nomeLoja: string | null;
   base: Valores;
   valores: Valores;
   tocados: ReadonlySet<ColunaEditavel>;
@@ -104,15 +108,13 @@ export function valoresDoRaw(raw: RawProduto): Valores {
     fotos_modelo: [...raw.fotos_modelo],
   };
 }
-/** `nomeLoja`: mudança de interface do fix round 1 (Important #1) — a tela (Task 11/12) passa `tenants.nome`. */
-export function novoRascunho(p: ProdutoLista, nomeLoja: string | null): Rascunho {
+export function novoRascunho(p: ProdutoLista): Rascunho {
   const v = valoresDoRaw(p.raw);
   return {
     modeloId: p.modeloId,
     nome: p.raw.nome,
     rev: p.rev,
     tamanhoTipo: p.raw.tamanho_tipo,
-    nomeLoja,
     base: v,
     valores: { ...v, fotos_modelo: [...v.fotos_modelo] },
     tocados: new Set(),
@@ -136,15 +138,30 @@ export function editar<K extends ColunaEditavel>(
   };
 }
 /** Título calculado AO VIVO (nunca gravado) a partir do Nome do RASCUNHO + nome da loja — o mesmo par que o Sheet
- *  usa (`InfoGeraisSecao.tsx`: `tituloPaginaCalculado(draft.nome, nomeLoja)`). */
-export const tituloCalculadoDoRascunho = (r: Rascunho): string =>
-  tituloPaginaCalculado(r.valores.nome, r.nomeLoja);
-/** Important #1 — onChange do campo Título: `tituloAoDigitar` (digitar igual ao automático mantém/volta a NULL). */
-export const editarTitulo = (r: Rascunho, digitado: string): Rascunho =>
-  editar(r, "titulo_pagina", tituloAoDigitar(digitado, tituloCalculadoDoRascunho(r)));
-/** Important #1 — onBlur do campo Título: `tituloAoSair` (só espaço, ou aparado == automático, volta a NULL). */
-export const sairTitulo = (r: Rascunho): Rascunho =>
-  editar(r, "titulo_pagina", tituloAoSair(r.valores.titulo_pagina, tituloCalculadoDoRascunho(r)));
+ *  usa (`InfoGeraisSecao.tsx`: `tituloPaginaCalculado(draft.nome, nomeLoja)`). `nomeLoja` é argumento de CHAMADA
+ *  (fix round 2, Important R1-1) — a tela lê `useTenantBranding().nome` a cada render e passa aqui, exatamente
+ *  como o Sheet passa pra `InfoGeraisSecao`; nunca fica guardado no rascunho (senão ficaria stale). */
+export const tituloCalculadoDoRascunho = (r: Rascunho, nomeLoja: string | null): string =>
+  tituloPaginaCalculado(r.valores.nome, nomeLoja);
+/** Important #1 (fix round 1) + Important R1-1/Minor R1-1 (fix round 2) — onChange do campo Título.
+ *  `nomeLoja` null (nome da loja ainda não carregou): NUNCA colapsa o digitado pra NULL nem trata um Nome puro
+ *  como automático — mantém exatamente o que a pessoa digitou (rede de segurança; T12a deve desabilitar o campo
+ *  nesse estado, então esse ramo não deveria ser exercitado na prática). Minor R1-1: retorna `r` sem tocar quando
+ *  o valor não muda (nunca marca `titulo_pagina` como tocado num blur/edição que é no-op). */
+export function editarTitulo(r: Rascunho, digitado: string, nomeLoja: string | null): Rascunho {
+  const novo =
+    nomeLoja === null
+      ? digitado
+      : tituloAoDigitar(digitado, tituloCalculadoDoRascunho(r, nomeLoja));
+  return igual(novo, r.valores.titulo_pagina) ? r : editar(r, "titulo_pagina", novo);
+}
+/** Important #1 (fix round 1) + Important R1-1/Minor R1-1 (fix round 2) — onBlur do campo Título.
+ *  `nomeLoja` null: nunca colapsa pra NULL (mesma rede de segurança de `editarTitulo`). */
+export function sairTitulo(r: Rascunho, nomeLoja: string | null): Rascunho {
+  if (nomeLoja === null) return r; // nada a normalizar sem o automático calculável — mantém o que já está
+  const novo = tituloAoSair(r.valores.titulo_pagina, tituloCalculadoDoRascunho(r, nomeLoja));
+  return igual(novo, r.valores.titulo_pagina) ? r : editar(r, "titulo_pagina", novo);
+}
 export function adicionarFotos(r: Rascunho, novas: FotoNova[]): Rascunho {
   if (novas.length === 0) return r;
   return editar({ ...r, fotosNovas: [...r.fotosNovas, ...novas] }, "fotos_modelo", [
@@ -165,11 +182,22 @@ const TEXTO_OU_NULL: ReadonlySet<ColunaEditavel> = new Set([
   "titulo_pagina",
   "descricao_produto",
 ]);
-/** Minor #2 — valor NORMALIZADO pra fim de comparação de alteração (não altera o que fica no rascunho, só o que
- *  `colunasAlteradas` compara): texto aparado; `nome`/`ref` nunca viram NULL (o servidor recusa vazio, mas aqui é
- *  só igualdade — comparar "" com "" já funciona); os 3 texto-ou-null tratam NULL/""/"  " como o MESMO valor. */
+const PRECOS: ReadonlySet<ColunaEditavel> = new Set(["preco_anterior", "preco_venda"]);
+/** Preço normalizado a 2 casas; `<= 0` (ou não-finito) vira NULL — mesma régua de `precoAnteriorOuNull`/
+ *  `numeroOuNull(v,2)` do Sheet (Minor R1-2: sem isso, um sub-centavo passava e um valor <= 0 contava como
+ *  "diferente de NULL", marcando "alterado" por engano). */
+function precoNormalizado(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  const arred = Math.round(v * 100) / 100;
+  return arred > 0 ? arred : null;
+}
+/** Minor #2 (fix round 1) + Minor R1-2 (fix round 2) — valor NORMALIZADO pra fim de comparação de alteração (não
+ *  altera o que fica no rascunho, só o que `colunasAlteradas` compara): texto aparado; os 3 texto-ou-null tratam
+ *  NULL/""/"  " como o MESMO valor; preco_anterior/preco_venda tratam `<= 0` e NULL como o MESMO valor (os dois
+ *  significam "automático/sem preço" pro servidor — ver `payloadItem`). */
 function normalizado(coluna: ColunaEditavel, v: unknown): unknown {
   if (coluna === "nome" || coluna === "ref") return typeof v === "string" ? v.trim() : v;
+  if (PRECOS.has(coluna)) return precoNormalizado(v);
   if (TEXTO_OU_NULL.has(coluna)) {
     const s = typeof v === "string" ? v.trim() : v;
     return s === "" || s === null || s === undefined ? null : s;
@@ -183,8 +211,9 @@ export const temAlteracao = (r: Rascunho): boolean =>
 export const comSkus = (r: Rascunho, skus: SkusAGravar): Rascunho => ({ ...r, skus });
 
 /** Chegou versão nova do servidor (rev diferente): merge 3-vias — não tocado segue o servidor; tocado e mudado lá = conflito.
- *  `nomeLoja` opcional (Important #1): omitir mantém o que já estava no rascunho (o nome da loja não muda entre merges). */
-export function mesclar(r: Rascunho, p: ProdutoLista, nomeLoja?: string | null): Rascunho {
+ *  Fix round 2 (Important R1-1): assinatura de volta ao brief — `mesclar(r, p)`, sem `nomeLoja` (que não é mais
+ *  guardado no rascunho). */
+export function mesclar(r: Rascunho, p: ProdutoLista): Rascunho {
   if (p.rev === r.rev) return r;
   const fresh = valoresDoRaw(p.raw);
   const m = mergeDraft({
@@ -193,10 +222,10 @@ export function mesclar(r: Rascunho, p: ProdutoLista, nomeLoja?: string | null):
     fresh,
     touched: r.tocados as ReadonlySet<string>,
   });
-  // Minor #5: um conflito ANTIGO (de um merge anterior) cujo valor no rascunho já bate com o `fresh` de AGORA
-  // convergiu por fora (ex.: outra aba salvou exatamente o que eu tinha) — não fica preso pra sempre; `mergeDraft`
-  // só reemite/remove um path que TEM divergência nova entre base/fresh, então um conflito já resolvido desse
-  // jeito precisa ser dropado aqui, fora do resultado do merge.
+  // Minor #5 (fix round 1): um conflito ANTIGO (de um merge anterior) cujo valor no rascunho já bate com o
+  // `fresh` de AGORA convergiu por fora (ex.: outra aba salvou exatamente o que eu tinha) — não fica preso pra
+  // sempre; `mergeDraft` só reemite/remove um path que TEM divergência nova entre base/fresh, então um conflito
+  // já resolvido desse jeito precisa ser dropado aqui, fora do resultado do merge.
   const antigosVivos = r.conflitos.filter(
     (c) =>
       !m.conflitos.some((n) => n.path === c.path) &&
@@ -208,7 +237,6 @@ export function mesclar(r: Rascunho, p: ProdutoLista, nomeLoja?: string | null):
     rev: p.rev,
     nome: p.raw.nome,
     tamanhoTipo: p.raw.tamanho_tipo,
-    nomeLoja: nomeLoja ?? r.nomeLoja,
     base: fresh,
     valores: m.valor,
     conflitos,
@@ -232,17 +260,14 @@ export function usarNovo(r: Rascunho, path: string): Rascunho {
 }
 
 /** Item do `integracao_salvar`: só as colunas alteradas (as ausentes não gravam). SKU NÃO vai aqui (passo 3).
- *  Important #2 — `preco_anterior`/`preco_venda` NUNCA mandam 0/negativo: o servidor aceita `>= 0` na validação
- *  genérica de `integracao_salvar`, mas `preco_venda` de revenda/importado é repassado a
+ *  Important #2 (fix round 1) — `preco_anterior`/`preco_venda` NUNCA mandam 0/negativo: o servidor aceita `>= 0`
+ *  na validação genérica de `integracao_salvar`, mas `preco_venda` de revenda/importado é repassado a
  *  `salvar_precos_fixo_produto_acabado/_importado`, que RAISE P0001 pra qualquer valor NÃO-NULL `<= 0` — e aborta
  *  o LOTE inteiro (sem savepoint). NULL é a única codificação de "sem preço"/"automático" que não estoura.
- *  Minor #3 — foto nova pendente exige `fotosFinais` (lança em vez de perder a foto em silêncio). */
+ *  Minor R1-5 — foto nova pendente sem `fotosFinais` não lança mais (ver `aposSalvar`); aqui a checagem já era só
+ *  defensiva e o caminho feliz (T11 sempre passa `fotosFinais` quando há `fotosNovas` — ver task-10-review.md
+ *  Important #4/round-1) permanece: sem o argumento, cai no fallback local de remover os marcadores `novo:`. */
 export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | null {
-  if (r.fotosNovas.length > 0 && fotosFinais === undefined && r.tocados.has("fotos_modelo")) {
-    throw new Error(
-      "payloadItem: há fotos novas pendentes de upload — informe fotosFinais (Task 11).",
-    );
-  }
   const cols = colunasAlteradas(r);
   if (cols.length === 0) return null;
   const campos: ItemSalvar["campos"] = {};
@@ -253,30 +278,34 @@ export function payloadItem(r: Rascunho, fotosFinais?: string[]): ItemSalvar | n
         fotosFinais ?? r.valores.fotos_modelo.filter((f) => !f.startsWith(PREFIXO_FOTO_NOVA));
     else if (c === "nome" || c === "ref") campos[c] = String(v ?? "").trim();
     else if (c === "preco_anterior") campos.preco_anterior = precoAnteriorOuNull(v);
-    else if (c === "preco_venda")
-      campos.preco_venda = typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+    else if (c === "preco_venda") campos.preco_venda = precoNormalizado(v);
     else if (TEXTO_OU_NULL.has(c)) campos[c] = String(v ?? "").trim() || null;
     else campos[c] = typeof v === "number" && Number.isFinite(v) ? v : null;
   }
   return { modelo_id: r.modeloId, rev: r.rev, campos };
 }
 /** Depois do Salvar: o que gravou vira a base; sobra rascunho SÓ se os SKUs "a gravar" não gravaram (passo 3).
- *  Minor #3 — se há `fotosNovas` pendentes, `o.fotos` é obrigatório (senão o rascunho perderia a foto sem avisar). */
+ *  Minor R1-3 (fix round 2) — NUNCA lança: este código roda DEPOIS de um Salvar já commitado no servidor (T12b,
+ *  dentro do onSuccess), então um throw aqui vira um erro de render pós-sucesso e não protege nada (as fotos já
+ *  estão no Storage). Quando há `fotosNovas` pendentes e o upload (`o.fotos`) não veio, o rascunho residual
+ *  DEGRADA: mantém o `rev` PRÉ-salvar (não adota `o.rev`) e os marcadores `novo:` saem de `fotos_modelo` — como
+ *  `tocados` fica vazio, o PRÓXIMO `mesclar` (rev != atual) adota `fotos_modelo` do servidor silenciosamente
+ *  (fluxo normal de "campo não tocado segue o servidor"), sem qualquer estado inconsistente ficar exposto na UI. */
 export function aposSalvar(
   r: Rascunho,
   o: { rev?: number; fotos?: string[]; skusGravados: boolean },
 ): Rascunho | null {
-  if (r.fotosNovas.length > 0 && o.fotos === undefined) {
-    throw new Error("aposSalvar: há fotos novas pendentes de upload — informe o.fotos (Task 11).");
-  }
   if (o.skusGravados || nadaAGravar(r.skus)) return null;
+  const semFotosDoUpload = r.fotosNovas.length > 0 && o.fotos === undefined;
   const valores: Valores = {
     ...r.valores,
     fotos_modelo: o.fotos ?? r.valores.fotos_modelo.filter((f) => !f.startsWith(PREFIXO_FOTO_NOVA)),
   };
   return {
     ...r,
-    rev: o.rev ?? r.rev,
+    // Minor R1-3: sem o resultado do upload, mantém o rev PRÉ-salvar (nunca o novo) — o próximo mesclar detecta
+    // rev diferente e adota fotos_modelo do servidor sozinho, sem inventar um "salvo" que não é fiel ao real.
+    rev: semFotosDoUpload ? r.rev : (o.rev ?? r.rev),
     base: valores,
     valores: { ...valores },
     tocados: new Set(),

@@ -433,4 +433,52 @@ describe("motivos de integrar/voltar (P-75 A, mockup 2 e 4)", () => {
     expect(m.integrar).not.toContain("blk");
     expect(m.motivoIntegrar).toBeNull(); // há pelo menos 1 integrável no lote — a ação segue disponível
   });
+  const gateBloqueado = (motivo: string) => ({
+    compartilhado: { ok: false, motivo },
+    planejamento: { ok: false, motivo: null },
+    preco: { ok: false, motivo: null },
+    ref: { ok: false, motivo: null },
+    sku: { ok: false, motivo: null },
+    keywords: { ok: false, motivo: null },
+    modulo_bloqueado: true,
+  });
+  it("Minor R1-4: 1 selecionado bloqueado por módulo — a mensagem em massa usa o motivo REAL dele", () => {
+    const MOTIVO =
+      "O módulo da origem deste produto (Produto Acabado/Importado) está desligado nesta loja.";
+    const soBloqueado: ProdutoLista = completo({
+      modelo_id: "blk",
+      origem: "revenda",
+      gates: gateBloqueado(MOTIVO),
+    });
+    const m = acoesEmMassa([soBloqueado], { ...ctx, rascunhos: new Set() });
+    expect(m.integrar).toEqual([]);
+    expect(m.motivoIntegrar).toBe(MOTIVO); // NUNCA o texto genérico — o usuário vê a causa real
+  });
+  it("Minor R1-4: todos os selecionados bloqueados por módulo — a mensagem genérica cita 'módulo desligado'", () => {
+    const b1: ProdutoLista = completo({
+      modelo_id: "b1",
+      origem: "revenda",
+      gates: gateBloqueado("m1"),
+    });
+    const b2: ProdutoLista = completo({
+      modelo_id: "b2",
+      origem: "importado",
+      gates: gateBloqueado("m2"),
+    });
+    const m = acoesEmMassa([b1, b2], { ...ctx, rascunhos: new Set() });
+    expect(m.integrar).toEqual([]);
+    expect(m.motivoIntegrar).toContain("módulo desligado");
+  });
+  it("Minor R1-4: mistura de bloqueado por módulo com outro incompleto — a mensagem genérica menciona as duas causas", () => {
+    const bloqueado: ProdutoLista = completo({
+      modelo_id: "blk",
+      origem: "revenda",
+      gates: gateBloqueado("m1"),
+    });
+    const incompleto: ProdutoLista = lista([cru({ modelo_id: "inc" })]).produtos[0]; // completo:false
+    const m = acoesEmMassa([bloqueado, incompleto], { ...ctx, rascunhos: new Set() });
+    expect(m.integrar).toEqual([]);
+    expect(m.motivoIntegrar).toContain("módulo desligado");
+    expect(m.motivoIntegrar).toContain("incompleto");
+  });
 });

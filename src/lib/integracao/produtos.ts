@@ -24,6 +24,11 @@
 //   (contradiz o próprio ruling T2 do m2: "'Tamanho em' NULL nunca é assumido como letra em silêncio" — a falta
 //   "tamanho_tipo" já cobre a UI). Ajuste vazou pro `RawProduto`/`rascunho.ts` (`Rascunho.tamanhoTipo`).
 // - Minor #6: `formatarValor`/`textoDaLinha` nunca imprimem "R$ NaN" — texto não-numérico vira "—".
+//
+// Fix round 2 (task-10-review.md, "Re-review round 1"):
+// - Minor R1-4: `acoesEmMassa` — quando NENHUM selecionado pode integrar por módulo bloqueado, a mensagem
+//   genérica agora cita o motivo real (com 1 selecionado, usa o motivo dele; com vários, some "módulo desligado"
+//   na lista de causas) — antes dizia só "(incompleto, já integrável ou integrado)", escondendo a causa real.
 import { brl } from "@/lib/format";
 import { CAMPO_BY_KEY, ordenarCampos, type CampoKey, type GateKey } from "@/lib/integracao/campos";
 
@@ -424,8 +429,18 @@ export function acoesEmMassa(sel: ProdutoLista[], c: CtxMassa): AcoesMassa {
   else if (pendentes.length > 1)
     mi = `Salve as alterações antes de integrar — ${pendentes.length} produtos têm edição pendente.`;
   else if (c.precisaVerCustos && !c.podeVerCustos) mi = TEXTO_PRECISA_CUSTO;
-  else if (integrar.length === 0)
-    mi = "Nenhum selecionado pode ser integrado (incompleto, já integrável ou integrado).";
+  else if (integrar.length === 0) {
+    // Minor R1-4 (fix round 2): quando TODOS os selecionados estão bloqueados por módulo, a mensagem genérica
+    // omitia o motivo real. Se houver exatamente 1 selecionado, usa o motivo dele (o mesmo texto do servidor,
+    // via motivoIntegrar/moduloBloqueado); com 2+ selecionados e módulo sendo a única razão em todos, entra no
+    // texto genérico com "módulo desligado" na lista de causas.
+    if (sel.length === 1) mi = motivoIntegrar(sel[0], { ...c, temRascunho: false });
+    else if (sel.every((p) => p.moduloBloqueado))
+      mi = "Nenhum selecionado pode ser integrado (módulo desligado na loja).";
+    else
+      mi =
+        "Nenhum selecionado pode ser integrado (incompleto, já integrável, integrado ou módulo desligado).";
+  }
   const mv =
     sel.length === 0
       ? "Selecione produtos."
