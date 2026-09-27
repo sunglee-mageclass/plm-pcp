@@ -316,31 +316,44 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
     });
   });
 
-  it("resíduos T7 #11 (fix round 1, Minor 3): marcar recusa modelo_id inválido/não-string com P0001 (nunca 22P02) — 'abc', '', objeto, número", async () => {
+  it("resíduos T7 #11/#12 (fix rounds 1-2, Minor 3): marcar recusa modelo_id inválido/não-string/chave desbalanceada com P0001 (nunca 22P02) — aceita sem hifen e com as 2 chaves", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
       const msg = "Envie o modelo_id de cada produto.";
-      for (const item of [
-        `jsonb_build_object('modelo_id', 'abc', 'assinatura', 'x')`,
-        `jsonb_build_object('modelo_id', '', 'assinatura', 'x')`,
-        `jsonb_build_object('modelo_id', jsonb_build_object('a', 1), 'assinatura', 'x')`,
-        `jsonb_build_object('modelo_id', 123, 'assinatura', 'x')`,
-      ]) {
-        const e = await erro(c, `SELECT public.integracao_marcar(jsonb_build_array(${item}))`, []);
-        expect(e.code, item).toBe("P0001");
-        expect(e.message, item).toBe(msg);
+      const semId = await modeloInterno(c);
+      const casosInvalidos: unknown[] = ["abc", "", { a: 1 }, 123,
+        // ruling T7 #12 (re-review round 1, Minor 3): chave DESBALANCEADA — só abrindo ou só fechando — precisa
+        // continuar dando P0001, nunca o 22P02 cru que o ::uuid dá pra chaves desbalanceadas.
+        `{${semId.id}`, `${semId.id}}`];
+      for (const modeloId of casosInvalidos) {
+        const e = await erro(c,
+          `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::jsonb, 'assinatura', 'x')))`,
+          [JSON.stringify(modeloId)]);
+        expect(e.code, JSON.stringify(modeloId)).toBe("P0001");
+        expect(e.message, JSON.stringify(modeloId)).toBe(msg);
       }
-      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com chaves) NÃO devem cair no "sem modelo_id" —
-      // decisão documentada na migration: o check espelha o que ::uuid de fato aceita.
-      const m = await modeloInterno(c);
-      const a = await assinatura(c, m.id);
-      const semHifen = m.id.replace(/-/g, "");
-      const eSemHifen = await erro(c,
-        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::text, 'assinatura', $2::text)))`,
-        [semHifen, a]);
-      expect(eSemHifen.message).not.toBe(msg); // segue adiante (aceito), erro (se houver) é de outra natureza
+      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com as 2 chaves) precisam SEGUIR ADIANTE de verdade —
+      // ruling T7 #12: a asserção antiga só checava message !== msg, que um "esperava erro" (sucesso) OU um 22P02
+      // satisfazem igualmente; agora chama o RPC de verdade e confirma o efeito observável (produto marcado).
+      const semHifen = await modeloInterno(c);
+      const aSemHifen = await assinatura(c, semHifen.id);
+      const rSemHifen = await um<{ r: any }>(c,
+        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::text, 'assinatura', $2::text))) AS r`,
+        [semHifen.id.replace(/-/g, ""), aSemHifen]);
+      expect(rSemHifen.r).toEqual({ marcados: 1 });
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [semHifen.id])).e)
+        .toBe("integravel");
+
+      const comChaves = await modeloInterno(c);
+      const aComChaves = await assinatura(c, comChaves.id);
+      const rComChaves = await um<{ r: any }>(c,
+        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('modelo_id', $1::text, 'assinatura', $2::text))) AS r`,
+        [`{${comChaves.id}}`, aComChaves]);
+      expect(rComChaves.r).toEqual({ marcados: 1 });
+      expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [comChaves.id])).e)
+        .toBe("integravel");
     });
   });
 

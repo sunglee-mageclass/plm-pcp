@@ -426,28 +426,74 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
     });
   });
 
-  it("resíduos T7 #11 (fix round 1, Minor 3): salvar recusa modelo_id inválido/não-string com P0001 (nunca 22P02) — 'abc', '', objeto, número", async () => {
+  it("resíduos T7 #11/#12 (fix rounds 1-2, Minor 3): salvar recusa modelo_id inválido/não-string/chave desbalanceada com P0001 (nunca 22P02) — aceita sem hifen e com as 2 chaves", async () => {
     await withTx(async (c) => {
       await prepara(c, 5);
       await comoUsuario(c, U);
       const msg = "Envie o modelo_id de cada produto.";
+      const semId = await modeloInterno(c);
       const casos: Array<[string, unknown]> = [
         ["'abc'", "abc"],
         ["''", ""],
         ["objeto", { a: 1 }],
         ["número", 123],
+        // ruling T7 #12 (re-review round 1, Minor 3): chave DESBALANCEADA — só abrindo ou só fechando — precisa
+        // continuar dando P0001, nunca o 22P02 cru que o ::uuid dá pra chaves desbalanceadas.
+        ["chave-abre-só", `{${semId.id}`],
+        ["chave-fecha-só", `${semId.id}}`],
       ];
       for (const [rotulo, valor] of casos) {
         const e = await erro(c, () => salvar(c, [{ modelo_id: valor, rev: 0, campos: { ncm: "1111.11.11" } }]));
         expect(e.code, rotulo).toBe("P0001");
         expect(e.message, rotulo).toBe(msg);
       }
-      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com chaves) NÃO devem cair no "sem modelo_id".
+      // formatos que o ::uuid do Postgres ACEITA (sem hifen, com as 2 chaves) precisam SEGUIR ADIANTE de verdade —
+      // ruling T7 #12: a asserção antiga só checava message !== msg (um "esperava erro" de sucesso OU um 22P02
+      // satisfazem igualmente); agora chama o RPC de verdade e confirma o efeito observável (ncm gravado).
+      const semHifenModelo = await modeloInterno(c);
+      const r0SemHifen = await rev(c, semHifenModelo.id);
+      const semHifen = semHifenModelo.id.replace(/-/g, "");
+      const outSemHifen = await salvar(c, [{ modelo_id: semHifen, rev: r0SemHifen, campos: { ncm: "3333.33.33" } }]);
+      expect(outSemHifen.salvos).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [semHifenModelo.id])).n).toBe("3333.33.33");
+
+      const comChavesModelo = await modeloInterno(c);
+      const r0ComChaves = await rev(c, comChavesModelo.id);
+      const outComChaves = await salvar(c, [{ modelo_id: `{${comChavesModelo.id}}`, rev: r0ComChaves, campos: { ncm: "4444.44.44" } }]);
+      expect(outComChaves.salvos).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [comChavesModelo.id])).n).toBe("4444.44.44");
+    });
+  });
+
+  it("resíduos T7 #12 (fix round 2, ruling do controlador — mesma classe, rev malformado): salvar recusa rev não-inteiro/fora do range com P0001 (nunca 22P02/22003)", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const msg = "A revisao (rev) precisa ser um numero inteiro.";
       const m = await modeloInterno(c);
       const r0 = await rev(c, m.id);
-      const semHifen = m.id.replace(/-/g, "");
-      const eSemHifen = await erro(c, () => salvar(c, [{ modelo_id: semHifen, rev: r0, campos: { ncm: "3333.33.33" } }]));
-      expect(eSemHifen.message).not.toBe(msg);
+      const casos: Array<[string, unknown]> = [
+        ["string 'abc'", "abc"],
+        ["fracionário 1.5", 1.5],
+        ["objeto", { a: 1 }],
+        ["fora do range 32 bits", 3000000000],
+        ["fora do range negativo", -3000000000],
+      ];
+      for (const [rotulo, valor] of casos) {
+        const e = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: valor, campos: { ncm: "5555.55.55" } }]));
+        expect(e.code, rotulo).toBe("P0001");
+        expect(e.message, rotulo).toBe(msg);
+      }
+      // nada foi gravado por nenhuma das tentativas inválidas.
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("6109.10.00");
+      // rev ausente (null) continua válido — comportamento pré-existente (P0409 se m.rev não for null, não P0001
+      // deste check) — aqui bate porque r0 é o rev real, então SEM enviar rev nenhum (null) dá conflito de versão.
+      const eNull = await erro(c, () => salvar(c, [{ modelo_id: m.id, rev: null, campos: { ncm: "6666.66.66" } }]));
+      expect(eNull.code).toBe("P0409");
+      // rev correto (inteiro válido) continua funcionando normalmente.
+      const out = await salvar(c, [{ modelo_id: m.id, rev: r0, campos: { ncm: "7777.77.77" } }]);
+      expect(out.salvos).toBe(1);
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("7777.77.77");
     });
   });
 

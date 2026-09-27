@@ -355,15 +355,33 @@ BEGIN
   -- (que doutra forma estouraria 22P02 cru). Formato aceito = o MESMO que o cast ::uuid do Postgres aceita (32 hex,
   -- com ou sem os hifens 8-4-4-4-12, opcionalmente entre chaves) — não só a grafia canônica com hifens, pra não
   -- recusar por engano um id válido só por formatação diferente da que o cast já tolera.
+  -- ruling do controlador, revisão T7 #12 (fix round 2, re-review round 1 Minor 3, mesmo fix de integracao_marcar):
+  -- \{? e \}? eram INDEPENDENTES — uma chave sozinha ("{<uuid>" ou "<uuid>}") passava o regex mas o ::uuid rejeita
+  -- chaves desbalanceadas, deixando 22P02 cru alcançável. Fix: par ATÔMICO '^(\{H\}|H)$'.
   IF jsonb_array_length(v_itens) > 0
      AND (SELECT count(*) FILTER (WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
-                                       OR NOT (e.x ->> 'modelo_id' ~* '^\{?([0-9a-f]{8})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{12})\}?$'))
+                                       OR NOT (e.x ->> 'modelo_id' ~* '^(\{[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}|[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})$'))
             FROM jsonb_array_elements(v_itens) AS e(x)) > 0 THEN
     RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
   END IF;
   IF jsonb_array_length(v_itens) > 0 AND (SELECT count(*) FROM jsonb_array_elements(v_itens) AS e(x)) <>
      (SELECT count(DISTINCT (e.x ->> 'modelo_id')::uuid) FROM jsonb_array_elements(v_itens) AS e(x)) THEN
     RAISE EXCEPTION 'Produto repetido na lista — envie cada produto uma vez só.' USING ERRCODE = 'P0001';
+  END IF;
+  -- ruling do controlador, revisão T7 #12 (fix round 2, "same class" item ruled this round): (e.x->>'rev')::integer
+  -- (linha do FOR abaixo) estourava 22P02 cru (string não-numérica/objeto) ou 22003 cru (fora do range de 32 bits)
+  -- pra um rev malformado — mesmo padrão de integracao_salvar_config_api (T6 #6, m6): valida TIPO e RANGE ANTES de
+  -- qualquer cast. rev É opcional (jsonb null = "nenhuma base enviada", conferido depois via IS DISTINCT FROM em
+  -- m.rev — comportamento pré-existente, não mexido aqui); só um rev PRESENTE e NÃO-null passa pela validação.
+  -- Fracionário (1.5) é pego por trunc(x) <> x — jsonb_typeof='number' e range OK não bastam (1.5 está no range
+  -- mas ::integer estoura 22P02 no cast direto texto->integer que o FOR já fazia).
+  IF (SELECT count(*) FILTER (WHERE jsonb_typeof(e.x -> 'rev') NOT IN ('null')
+                                  AND (jsonb_typeof(e.x -> 'rev') <> 'number'
+                                       OR (e.x -> 'rev')::text::numeric NOT BETWEEN -2147483648 AND 2147483647
+                                       OR trunc((e.x -> 'rev')::text::numeric) <> (e.x -> 'rev')::text::numeric))
+        FROM jsonb_array_elements(v_itens) AS e(x)
+       WHERE e.x ? 'rev') > 0 THEN
+    RAISE EXCEPTION 'A revisao (rev) precisa ser um numero inteiro.' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN
     SELECT DISTINCT ON ((e.x ->> 'modelo_id')::uuid) (e.x ->> 'modelo_id')::uuid AS modelo_id,

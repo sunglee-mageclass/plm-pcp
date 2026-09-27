@@ -85,8 +85,13 @@ BEGIN
   -- MAIS RESTRITIVA (só a forma com hifens) rejeitaria como "sem modelo_id" um id que o ::uuid abaixo aceitaria de
   -- bom grado, recusando por engano uma requisição válida só por causa da formatação. O count(DISTINCT ...::uuid) e
   -- os JOINs abaixo continuam castando a MESMA string (agora garantidamente aceita pelo cast) — nada muda ali.
+  -- ruling do controlador, revisão T7 #12 (fix round 2, re-review round 1 Minor 3): a 1ª versão do regex tinha
+  -- \{? e \}? INDEPENDENTES, então uma string com só UMA chave ("{<uuid>" ou "<uuid>}") passava o regex mas o
+  -- ::uuid rejeita chaves desbalanceadas — 22P02 cru continuava alcançável nesses 2 casos. Fix: as chaves agora
+  -- são um par ATÔMICO — '^(\{H\}|H)$', H = 8-4-4-4-12 hex com hifens opcionais — então só "sem chave nenhuma" ou
+  -- "as duas chaves" passam; uma chave sozinha cai no "sem modelo_id" (P0001), nunca chega ao cast.
   IF (SELECT count(*) FILTER (WHERE jsonb_typeof(e.x -> 'modelo_id') IS DISTINCT FROM 'string'
-                                  OR NOT (e.x ->> 'modelo_id' ~* '^\{?([0-9a-f]{8})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{12})\}?$'))
+                                  OR NOT (e.x ->> 'modelo_id' ~* '^(\{[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}|[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})$'))
         FROM jsonb_array_elements(_itens) AS e(x)) > 0 THEN
     RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
   END IF;
