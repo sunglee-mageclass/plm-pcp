@@ -34,6 +34,44 @@ async function falha(c: ClientType, sql: string, params: unknown[] = []): Promis
     return `${e.code} ${e.message}`;
   }
 }
+/**
+ * ruling do controlador, T8 ensaio #1: a migration 5 (mão dupla nome/REF, trg_modelo_espelho_nome_ref /
+ * trg_espelho_modelo_nome_ref) é INCONDICIONAL de propósito (P-88 A) — com as 6 migrations aplicadas de
+ * verdade, um UPDATE cru em modelos.nome não fica mais divergente do produto espelho: o gatilho resincroniza
+ * na MESMA transação, antes que _integracao_retrato_core consiga observar a falta "Nome diferente". A falta
+ * continua necessária para divergência que já existe em DADO LEGADO (linhas gravadas antes desta migration
+ * existir) ou por um caminho fora do gatilho — não para um UPDATE feito hoje com o gatilho ativo. Este helper
+ * reproduz esse cenário legado: desliga os 2 gatilhos (se existirem — a suíte pode rodar isolada, só 1..4, ou
+ * contra a cópia com as 6 aplicadas de verdade; `to_regclass`/`pg_trigger` decide em runtime), roda `fn` (que
+ * cria a divergência sem nenhum gatilho interferindo) e SEMPRE religa antes de devolver — mesmo se `fn` (ou uma
+ * asserção dentro dela) lançar. Um savepoint isola a fase de checagem/disable de qualquer erro anterior.
+ */
+async function comMirrorDesligado(c: ClientType, tabelaEspelho: "produtos_acabados" | "produtos_importados", fn: () => Promise<void>): Promise<void> {
+  await c.query("SAVEPOINT mirror_check");
+  const existe = (await um<{ m: boolean; e: boolean }>(
+    c,
+    `SELECT
+       EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE c.relname = 'modelos' AND t.tgname = 'trg_modelo_espelho_nome_ref' AND NOT t.tgisinternal) AS m,
+       EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE c.relname = $1 AND t.tgname = 'trg_espelho_modelo_nome_ref' AND NOT t.tgisinternal) AS e`,
+    [tabelaEspelho],
+  ));
+  await c.query("RELEASE SAVEPOINT mirror_check");
+  const disable = existe.m && existe.e;
+  if (disable) {
+    await c.query(`ALTER TABLE public.${tabelaEspelho} DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+    await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+  }
+  try {
+    await fn();
+  } finally {
+    if (disable) {
+      await c.query(`ALTER TABLE public.${tabelaEspelho} ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
+    }
+  }
+}
 const CASOS: Array<[campo: string, set: string]> = [
   ["nome", "nome = nome || ' X'"], ["ref_sku", "ref = ref || 'X'"], ["preco_anterior", "preco_anterior = 1"],
   ["preco_venda", "preco_venda = 1"], ["peso", "peso_kg = 1"], ["ncm", "ncm = '0000.00.00'"], ["titulo", "titulo_pagina = 'x'"],
@@ -388,9 +426,15 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       await comoUsuario(c, U);
       await keywordsLoja(c, "k");
       const m = await revenda(c);
-      // renomeia SÓ o card (Sheet do Planejamento edita modelos.nome; o PA fica com o nome antigo) — a mesma
-      // divergência que _salvar_produto_acabado_core reproduziria a cada save (ele sempre copia pa.nome -> modelos.nome).
-      await c.query(`UPDATE public.modelos SET nome = nome || ' renomeado' WHERE id = $1`, [m.id]);
+      // ruling do controlador (T8 ensaio #1): renomeia SÓ o card, reproduzindo uma divergência de DADO LEGADO
+      // (linha gravada antes da mão dupla da migration 5 existir, ou por um caminho fora do gatilho) — com o
+      // gatilho trg_modelo_espelho_nome_ref/trg_espelho_modelo_nome_ref ATIVO (P-88 A, incondicional por
+      // desenho), este UPDATE cru seria resincronizado na mesma transação e a divergência nunca existiria de
+      // fato; desligamos os 2 lados só durante a criação do dado divergente (comMirrorDesligado é no-op se as 6
+      // migrations não estiverem todas aplicadas, ex. suíte isolada em 1..4).
+      await comMirrorDesligado(c, "produtos_acabados", async () => {
+        await c.query(`UPDATE public.modelos SET nome = nome || ' renomeado' WHERE id = $1`, [m.id]);
+      });
       const previa = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r.produtos[0];
       expect(previa.completo).toBe(false);
       expect(previa.faltas).toContainEqual({ campo: "nome", texto: "Nome diferente do Produto Acabado" });
@@ -421,7 +465,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 4: trava", () => {
       // com espaço a mais no nome ('Blusa ') e o card sem ('Blusa') é EXATAMENTE o cenário que a comparação com
       // btrim (fix da revisão T4 #1, anterior a este) deixava passar batido, mesmo a trava recusando depois
       // (fn_integracao_trava_modelos usa NEW.nome IS DISTINCT FROM OLD.nome, também sem trim).
-      await c.query(`UPDATE public.produtos_acabados SET nome = 'Blusa ' WHERE modelo_id = $1`, [m.id]);
+      // ruling do controlador (T8 ensaio #1): mesmo motivo do T4 #1 acima — com o gatilho da mão dupla ATIVO
+      // (migration 5), um UPDATE cru em produtos_acabados.nome propagaria pra modelos.nome (mudança REAL, o
+      // próprio nome mudou) e fecharia a divergência antes do retrato observá-la; desligado só durante a criação
+      // do dado divergente (legado).
+      await comMirrorDesligado(c, "produtos_acabados", async () => {
+        await c.query(`UPDATE public.produtos_acabados SET nome = 'Blusa ' WHERE modelo_id = $1`, [m.id]);
+      });
       const previa = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [m.id])).r.produtos[0];
       expect(previa.completo).toBe(false);
       expect(previa.faltas).toContainEqual({ campo: "nome", texto: "Nome diferente do Produto Acabado" });
