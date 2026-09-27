@@ -20,6 +20,19 @@
 //   clique em "Confirmar e salvar", então não há como entrar em loop.
 // - Outros erros (rede, P0001, 42501): a seleção local FICA como estava (`ed` intocado); só mostra o toast
 //   traduzido. Nenhum reset para `null`.
+//
+// Fix round 2 (task-14-review.md "Re-review round 1", Minor n1-n3):
+// - n1: o banner do P0409 agora MOSTRA o que a outra pessoa mudou (`diffCampos`, a lista de campos entre a base
+//   ANTIGA e a fresca). 3 variantes de texto guardadas em `conflito`: campos mudaram de verdade (lista o diff);
+//   falso conflito — mesma lista de campos, só o rev mudou (Task 15 salvando a config da API, MESMO rev
+//   compartilhado) → `TEXTO_CAMPOS_CONFLITO_SO_REV`; e "não sobrou nada pra salvar" quando o rebase deixa a
+//   seleção do usuário IDÊNTICA à fresca → `TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR` (nunca afirma "suas mudanças
+//   foram mantidas" quando não sobrou mudança nenhuma).
+// - n2: os dois pontos que criam/atualizam `ed` (toggle normal e "Desmarcar mesmo assim") fecham o rascunho
+//   (`setEd(null)`) sempre que a nova seleção fica IGUAL à base — a tela volta a espelhar o servidor ao vivo
+//   (um refetch de outra pessoa passa a aparecer na hora, não fica preso atrás de um `ed` "vazio" mas não-nulo).
+// - n3: os checkboxes desabilitam durante `salvar.isPending` — cobre o `await refetchQueries` do `onSuccess`
+//   (antes, um toggle nesse intervalo era perdido pelo `setEd(null)` que vem em seguida).
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
@@ -37,9 +50,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
-  CAMPOS, TEXTO_ALERTA_LAYOUT, TEXTO_CAMPOS_CONFLITO, TEXTO_CAMPOS_REGRA, TEXTO_CAMPOS_VAZIO, TEXTO_CONFIRMAR_CAMPOS,
-  TEXTO_SO_SUPER, TEXTO_TRAVA_SEMPRE, alternarCampo, mesmaSelecao, ordenarCampos, precisaAlertaLayout, rotuloNaLista,
-  type CampoKey,
+  CAMPOS, TEXTO_ALERTA_LAYOUT, TEXTO_CAMPOS_CONFLITO, TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR, TEXTO_CAMPOS_CONFLITO_SO_REV,
+  TEXTO_CAMPOS_REGRA, TEXTO_CAMPOS_VAZIO, TEXTO_CONFIRMAR_CAMPOS, TEXTO_SO_SUPER, TEXTO_TRAVA_SEMPRE, alternarCampo,
+  diffCampos, mesmaSelecao, ordenarCampos, precisaAlertaLayout, rotuloNaLista, type CampoKey,
 } from "@/lib/integracao/campos";
 import { useAbaSuja } from "./guard";
 import { chaveConfig, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
@@ -58,6 +71,18 @@ function rebasear(ed: Edicao, fresco: CampoKey[]): CampoKey[] {
   return ordenarCampos([...base, ...marcadosPorMim]);
 }
 
+/** Fix round 2 T14 (n2, task-14-review.md Minor n2): aplica um toggle sobre a edição atual (ou congela uma nova
+ *  a partir do `servidor`/`rev` vivo, se `e` ainda é `null`) e devolve `null` quando o resultado volta a bater
+ *  com a `base` — a tela então PARA de espelhar um rascunho e volta a seguir o servidor ao vivo (sem isso, um
+ *  usuário que desfaz manualmente o próprio toggle ficava preso com `ed` não-nulo, "surdo" a um refetch de outra
+ *  pessoa que chegasse nesse meio-tempo). */
+function aplicarToggle(e: Edicao | null, servidor: CampoKey[], rev: number, key: CampoKey, marcar: boolean): Edicao | null {
+  const base = e?.base ?? servidor;
+  const sel = alternarCampo(e?.sel ?? servidor, key, marcar);
+  if (mesmaSelecao(sel, base)) return null;
+  return { sel, base, rev: e?.rev ?? rev };
+}
+
 export function CamposAba() {
   const router = useRouter();
   const tenantId = useActiveTenantId();
@@ -66,7 +91,9 @@ export function CamposAba() {
   const [ed, setEd] = useState<Edicao | null>(null);
   const [alerta, setAlerta] = useState<CampoKey | null>(null);
   const [confirmar, setConfirmar] = useState(false);
-  const [conflito, setConflito] = useState(false);
+  // n1: o banner do P0409 guarda o TEXTO já resolvido (uma das 3 variantes) — decidido no momento do conflito,
+  // não recalculado no render (a base ANTIGA já foi substituída pela fresca a essa altura).
+  const [conflito, setConflito] = useState<string | null>(null);
   const servidor = ordenarCampos(q.data?.campos ?? []);
   const atual = ed?.sel ?? servidor;
   const sujo = ed !== null && !mesmaSelecao(ed.sel, ed.base);
@@ -79,7 +106,7 @@ export function CamposAba() {
     },
     onSuccess: async () => {
       setConfirmar(false);
-      setConflito(false);
+      setConflito(null);
       // m2 (task-14-review.md): espera o config fresco chegar ANTES de limpar `ed` — sem isso os checkboxes
       // piscavam de volta pro estado pré-Salvar por um instante (a invalidação não é aguardada) até o refetch
       // trazer o valor salvo.
@@ -107,15 +134,32 @@ export function CamposAba() {
         toast.error("Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.");
         return;
       }
+      if (!ed) return; // não deveria acontecer (o Salvar só habilita com ed !== null), mas é fail-safe.
       const fresco = ordenarCampos(r.data.campos);
-      setEd((p) => (p ? { sel: rebasear(p, fresco), base: fresco, rev: r.data!.rev } : p));
-      setConflito(true);
-      toast.error(TEXTO_CAMPOS_CONFLITO);
+      const baseAntiga = ed.base;
+      const rebaseado = rebasear(ed, fresco);
+      // n1: 3 cenários — decididos com a base ANTIGA (antes deste conflito) e a seleção fresca do servidor:
+      // (a) os CAMPOS não mudaram (só o rev — Task 15 salvou a config da API, mesmo rev compartilhado): falso
+      //     conflito, nada pra rebasear de verdade.
+      // (b) o rebase deixou a seleção do usuário IDÊNTICA à fresca: não sobrou mudança nenhuma pra manter (nunca
+      //     afirma "suas mudanças foram mantidas" quando não sobrou mudança nenhuma).
+      // (c) caso geral: lista o que a OUTRA pessoa mudou (diff base-antiga → fresca).
+      const nadaRestou = mesmaSelecao(rebaseado, fresco);
+      const mensagem = mesmaSelecao(baseAntiga, fresco)
+        ? TEXTO_CAMPOS_CONFLITO_SO_REV
+        : nadaRestou
+          ? TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR
+          : `${TEXTO_CAMPOS_CONFLITO} Mudou na loja: ${diffCampos(baseAntiga, fresco)}.`;
+      setConflito(mensagem);
+      // n2: se o rebase devolveu exatamente a seleção fresca (nada de próprio do usuário sobrou), fecha o
+      // rascunho — a tela volta a espelhar o servidor ao vivo em vez de ficar presa num `ed` "vazio".
+      setEd(nadaRestou ? null : { sel: rebaseado, base: fresco, rev: r.data!.rev });
+      toast.error(mensagem);
     },
   });
   const alternar = (key: CampoKey, marcar: boolean) => {
     if (precisaAlertaLayout(key, marcar)) setAlerta(key);
-    else setEd((e) => (e ? { ...e, sel: alternarCampo(e.sel, key, marcar) } : { sel: alternarCampo(servidor, key, marcar), base: servidor, rev: q.data!.rev }));
+    else setEd((e) => aplicarToggle(e, servidor, q.data!.rev, key, marcar));
   };
   return (
     <div className="space-y-4">
@@ -138,12 +182,12 @@ export function CamposAba() {
               <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => void q.refetch()}>Tentar de novo</Button>
             </div>
           )}
-          {conflito && (
+          {conflito !== null && (
             <div className="space-y-2 rounded-md border border-[var(--tone-warning-fg)] bg-[var(--tone-warning-bg)] p-3 text-sm">
-              <p>{TEXTO_CAMPOS_CONFLITO}</p>
+              <p>{conflito}</p>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setEd(null); setConflito(false); }}>usar a da loja</Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setConflito(false)}>manter a minha</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setEd(null); setConflito(null); }}>usar a da loja</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConflito(null)}>manter a minha</Button>
               </div>
             </div>
           )}
@@ -155,7 +199,15 @@ export function CamposAba() {
                 return (
                   <li key={c.key} className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0">
                     <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{i + 1}</span>
-                    <Checkbox id={`campo-${c.key}`} checked={marcado} onCheckedChange={(v) => alternar(c.key, v === true)} />
+                    {/* n3 (task-14-review.md): desabilita durante salvar.isPending — cobre o await
+                        refetchQueries do onSuccess (antes, um toggle nessa janela era perdido pelo setEd(null)
+                        que vinha logo depois). */}
+                    <Checkbox
+                      id={`campo-${c.key}`}
+                      checked={marcado}
+                      disabled={salvar.isPending}
+                      onCheckedChange={(v) => alternar(c.key, v === true)}
+                    />
                     <label htmlFor={`campo-${c.key}`} className="flex-1 text-sm">{rotuloNaLista(c.key)}</label>
                     <StatusBadge tone={c.layout ? "neutral" : "info"}>{c.layout ? "layout" : "opcional"}</StatusBadge>
                   </li>
@@ -182,7 +234,7 @@ export function CamposAba() {
               variant="destructive"
               onClick={() => {
                 if (alerta) {
-                  setEd((e) => (e ? { ...e, sel: alternarCampo(e.sel, alerta, false) } : { sel: alternarCampo(servidor, alerta, false), base: servidor, rev: q.data!.rev }));
+                  setEd((e) => aplicarToggle(e, servidor, q.data!.rev, alerta, false));
                 }
                 setAlerta(null);
               }}

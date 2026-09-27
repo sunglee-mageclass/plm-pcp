@@ -115,9 +115,32 @@ export const TEXTO_CONFIRMAR_CAMPOS =
 // Fix round 1 T14 (revisão T14 #2, task-14-review.md Important I1): banner do P0409 — as suas mudanças (a
 // seleção rebaseada) já estão aplicadas por cima da versão nova do servidor; "usar a da loja" descarta e "manter
 // a minha" só fecha o aviso (o rascunho rebaseado já é o que está na tela).
+// Fix round 2 T14 (revisão T14 #n1, task-14-review.md Minor n1): 3 textos, um por cenário — o mesmo tom do banner
+// de conflito do KeywordsDialog (curto, sem prometer nada que não aconteceu):
+// - TEXTO_CAMPOS_CONFLITO: outra pessoa mudou OS CAMPOS de verdade — a lista de campos muda (usado com o diff).
+// - TEXTO_CAMPOS_CONFLITO_SO_REV: falso conflito — o rev mudou mas os campos são os MESMOS (alguém salvou só a
+//   config da API da Task 15, que compartilha o mesmo rev). Nada pra rebasear de verdade.
+// - TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR: depois do rebase a seleção do usuário ficou IDÊNTICA à do servidor —
+//   não afirma "suas mudanças foram mantidas" (não sobrou mudança nenhuma pra manter).
 export const TEXTO_CAMPOS_CONFLITO =
   "Outra pessoa mudou os campos da API — as suas mudanças foram mantidas por cima da versão nova.";
+export const TEXTO_CAMPOS_CONFLITO_SO_REV =
+  "A configuração foi salva por outra pessoa enquanto você editava; as suas mudanças continuam aqui.";
+export const TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR =
+  "Outra pessoa já salvou exatamente a mudança que você fez — não sobrou nada para salvar.";
 export const TEXTO_CAMPOS_VAZIO = "Marque pelo menos um campo para salvar.";
+/** Fix round 2 T14 (n1): monta "Peso (desmarcado), Foto (marcado)" — o diff entre a base ANTIGA (antes do
+ *  conflito) e a seleção FRESCA do servidor, na ordem do layout. Usado só para MOSTRAR o que a OUTRA pessoa
+ *  mudou (nunca o diff do próprio usuário, que já está refletido nos checkboxes rebaseados). */
+export function diffCampos(baseAntiga: readonly string[], fresco: readonly string[]): string {
+  const marcados = ordenarCampos(fresco.filter((k) => !baseAntiga.includes(k)));
+  const desmarcados = ordenarCampos(baseAntiga.filter((k) => !fresco.includes(k)));
+  const partes = [
+    ...desmarcados.map((k) => `${rotuloNaLista(k)} (desmarcado)`),
+    ...marcados.map((k) => `${rotuloNaLista(k)} (marcado)`),
+  ];
+  return partes.join(", ");
+}
 export function alternarCampo(sel: readonly string[], key: CampoKey, marcar: boolean): CampoKey[] {
   const s = new Set(sel);
   if (marcar) s.add(key);

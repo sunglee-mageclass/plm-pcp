@@ -19,10 +19,28 @@
 // - m4(b): "marca sujo" também prova que o botão Salvar habilita (não só o estado do checkbox).
 // - m4(c): teste de `onSuccess` (toast, refetch, invalidação, reset do rascunho).
 // - m4(d): "Manter marcado" (cancelar o alerta do layout mantém o campo marcado).
+//
+// Fix round 2 (task-14-review.md "Re-review round 1"):
+// - R1 (Important, test-only): o teste de I1 do round 1 era VAZIO nas duas propriedades que importam — o mock de
+//   `integracao_config_ler` devolvia SEMPRE a config pós-conflito (rev 2, sem Peso), inclusive na carga inicial,
+//   então "Peso desmarcado" valia mesmo SEM rebase nenhum (Peso nunca esteve marcado pra começo de conversa) e
+//   "_rev: 2 no 2º save" valia mesmo SEM nenhum refresh de rev (o rev congelado no 1º toggle já era 2). Reescrito
+//   abaixo: a 1ª leitura devolve `{17 campos INCLUINDO Peso, rev 1}`, só a leitura PÓS-conflito devolve
+//   `{sem Peso, rev 2}` — agora "Peso marcado antes / desmarcado depois" e "1º save manda rev 1, 2º manda rev 2"
+//   são provas de verdade do rebase e do refresh de rev. Duas sabotagens têm que virar RED: (a) manter `ed.rev`
+//   velho no handler do P0409 em vez do `r.data.rev` fresco; (b) trocar `rebasear(ed, fresco)` por `ed.sel` cru.
+// - n1: o banner agora lista o que a OUTRA pessoa mudou; testes para os 3 textos (diff normal, falso conflito
+//   "só rev", "nada a salvar" quando o rebase zera a diferença).
+// - n2: `ed` some quando o usuário desfaz o próprio toggle (volta a bater com a base) — a tela volta a espelhar
+//   o servidor ao vivo.
+// - n3: os checkboxes desabilitam durante `salvar.isPending`.
+// - n4: título do teste 42501 corrigido (só testava 42501, nunca rede); teste do guard resetando pra `false`
+//   após sucesso/desmontagem; teste do ramo de erro em BACKGROUND do m1 (lista com dado em cache continua
+//   visível, só ganha o aviso inline).
 import { describe, it, expect, vi } from "vitest";
 import { act } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { alternarCampo, mesmaSelecao, precisaAlertaLayout, rotuloNaLista } from "@/lib/integracao/campos";
+import { alternarCampo, mesmaSelecao, ordenarCampos, precisaAlertaLayout, rotuloNaLista } from "@/lib/integracao/campos";
 
 // n6 (mesma razão de integracao-celula.test.ts): silencia o aviso de act() do React 19 dev.
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -308,15 +326,20 @@ describe("CamposAba — render", () => {
     await view.desmontar();
   });
 
-  it("I1: P0409 conflito_versao MANTÉM a seleção do usuário (rebaseada), mostra o banner, e o PRÓXIMO save usa o rev fresco (sem loop)", async () => {
+  it("R1/I1: P0409 conflito_versao MANTÉM a seleção do usuário (rebaseada), mostra o banner, e o PRÓXIMO save usa o rev fresco (sem loop)", async () => {
+    // R1 fix (task-14-review.md "Re-review round 1"): a 1ª leitura (carga inicial) devolve os 17 campos do
+    // layout COM Peso e rev 1 — só a leitura seguinte (a que o handler do P0409 dispara) devolve a versão SEM
+    // Peso e rev 2. Assim "Peso desmarcado" só vale se o rebase de verdade rodou (Peso ESTAVA marcado antes), e
+    // "_rev: 2 no 2º save" só vale se o refresh de rev de verdade aconteceu (o rev congelado no 1º toggle foi 1).
+    let leiturasConfig = 0;
     let chamadasSalvar = 0;
     const view = await montar({
       rev: 1,
       rpcImpl: async (nome) => {
         if (nome === "integracao_config_ler") {
+          leiturasConfig++;
+          if (leiturasConfig === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
           // A config fresca do servidor (outra pessoa salvou): perdeu "peso" (desmarcado por ela) e ganhou rev 2.
-          // O usuário local marcou "foto" (não estava no layout) — o rebase deve manter "foto" mesmo em cima
-          // dessa base nova, e "peso" deve continuar fora (a base nova já não tem).
           const fresco = CAMPOS_17.filter((k) => k !== "peso");
           return { data: { campos: fresco, layout: [], rev: 2, api: null }, error: null };
         }
@@ -330,7 +353,10 @@ describe("CamposAba — render", () => {
         return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
       },
     });
-    // Usuário marca Foto (1º toggle — congela base=os 17 originais, rev=1).
+    // Peso está marcado ANTES do conflito (a 1ª leitura tem os 17, incluindo Peso).
+    const linhaPeso = () => Array.from(view.container.querySelectorAll("li")).find((li) => li.textContent?.includes("Peso") && !li.textContent?.includes("Preço"))!;
+    expect(linhaPeso().querySelector('button[role="checkbox"]')?.getAttribute("data-state")).toBe("checked");
+    // Usuário marca Foto (1º toggle — congela base=os 17 originais COM Peso, rev=1).
     await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
     await act(async () => { botaoSalvar().click(); });
     await act(async () => { botaoDoc("Confirmar e salvar").click(); });
@@ -338,27 +364,27 @@ describe("CamposAba — render", () => {
     await view.esperar();
     // Exatamente 1 tentativa de salvar até aqui — nunca um retry automático em loop.
     expect(chamadasSalvar).toBe(1);
-    expect(view.toastMocks.error).toHaveBeenCalledWith("Outra pessoa mudou os campos da API — as suas mudanças foram mantidas por cima da versão nova.");
     // A confirmação fecha (não fica esperando um 2º clique sobre o mesmo payload rejeitado).
     expect(document.body.textContent).not.toMatch(/Confirmar mudança de campos/);
     // O banner de conflito aparece.
     expect(view.container.textContent).toMatch(/as suas mudanças foram mantidas por cima da versão nova/);
-    // A seleção do usuário foi PRESERVADA e REBASEADA: Foto continua marcada (o que ele marcou); Peso continua
-    // desmarcado (a base fresca já não tinha — não é uma perda do usuário, é o estado real do servidor agora).
+    // A seleção do usuário foi PRESERVADA e REBASEADA: Foto continua marcada (o que ele marcou); Peso agora
+    // DESMARCADO — só é prova de rebase de verdade porque Peso ESTAVA marcado antes do conflito.
     expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
-    const semPeso = Array.from(view.container.querySelectorAll("li")).find((li) => li.textContent?.includes("Peso") && !li.textContent?.includes("Preço"));
-    expect(semPeso?.querySelector('button[role="checkbox"]')?.getAttribute("data-state")).toBe("unchecked");
-    // 2º Salvar: deve mandar o REV FRESCO (2), não o velho (1) que já foi rejeitado.
+    expect(linhaPeso().querySelector('button[role="checkbox"]')?.getAttribute("data-state")).toBe("unchecked");
+    // 2º Salvar: deve mandar o REV FRESCO (2), não o velho (1) que já foi rejeitado — só é prova de refresh de
+    // verdade porque o rev CONGELADO no 1º toggle era 1 (a 1ª leitura), não 2.
     await act(async () => { botaoSalvar().click(); });
     await act(async () => { botaoDoc("Confirmar e salvar").click(); });
     await view.esperar();
     expect(chamadasSalvar).toBe(2);
-    const args2 = view.rpcSpy.mock.calls.filter((c) => c[0] === "integracao_salvar_config")[1][1] as { _rev: number };
-    expect(args2._rev).toBe(2);
+    const chamadas = view.rpcSpy.mock.calls.filter((c) => c[0] === "integracao_salvar_config");
+    expect((chamadas[0][1] as { _rev: number })._rev).toBe(1);
+    expect((chamadas[1][1] as { _rev: number })._rev).toBe(2);
     await view.desmontar();
   });
 
-  it("I1: 42501 (sem permissão) e falha de rede mantêm a seleção do usuário intocada (sem rebase, sem reset)", async () => {
+  it("I1: 42501 (sem permissão) mantém a seleção do usuário intocada (sem rebase, sem reset)", async () => {
     const view = await montar({
       rev: 1,
       rpcImpl: async (nome) => {
@@ -380,6 +406,25 @@ describe("CamposAba — render", () => {
     await view.desmontar();
   });
 
+  it("n4: falha de rede (erro sem code, ex.: 'Failed to fetch') também mantém a seleção do usuário intocada", async () => {
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+        if (nome === "integracao_salvar_config") return { data: null, error: new Error("Failed to fetch") };
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
+    expect(view.container.textContent).not.toMatch(/as suas mudanças foram mantidas/);
+    expect(botaoSalvar().disabled).toBe(false);
+    await view.desmontar();
+  });
+
   it("m1: erro de carga (1ª vez, sem dado nenhum) mostra 'Tentar de novo'", async () => {
     const view = await montar({
       rpcImpl: async () => ({ data: null, error: new Error("falhou") }),
@@ -387,6 +432,198 @@ describe("CamposAba — render", () => {
     expect(view.container.textContent).toMatch(/Não foi possível carregar os campos/);
     const tentar = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Tentar de novo");
     expect(tentar).toBeDefined();
+    await view.desmontar();
+  });
+
+  it("n4: erro de carga em BACKGROUND (dado já em cache) mantém a lista visível, só soma um aviso inline", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+          return { data: null, error: new Error("falhou de novo") };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    // Carga inicial ok: a lista está visível.
+    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
+    // Um refetch em BACKGROUND que falha (ex.: reabrir a aba) não pode esconder a lista já carregada.
+    // `refetchQueries` rejeita quando a query falha (throwOnError da própria promise, não do componente) —
+    // engolido de propósito aqui: o que importa é o ESTADO da query (isError), não a promise da chamada.
+    await act(async () => { await view.qc.refetchQueries({ queryKey: ["integracao-config", "t1"] }).catch(() => {}); });
+    await view.esperar();
+    expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
+    expect(view.container.textContent).toMatch(/Não foi possível atualizar os campos/);
+    const tentar = Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "Tentar de novo");
+    expect(tentar).toBeDefined();
+    await view.desmontar();
+  });
+
+  it("n4: useAbaSuja volta para false depois de um Salvar bem-sucedido, e também ao desmontar", async () => {
+    const view = await montar({ rev: 5, comGuarda: true });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    expect(view.informarSujoSpy).toHaveBeenCalledWith("campos", true);
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    expect(view.informarSujoSpy).toHaveBeenLastCalledWith("campos", false);
+    await view.desmontar();
+    // A desmontagem também reporta `false` (guard.ts: o segundo useEffect roda no cleanup).
+    expect(view.informarSujoSpy).toHaveBeenLastCalledWith("campos", false);
+  });
+
+  it("n1: o banner lista o que a OUTRA pessoa mudou (diff base-antiga → fresca)", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+          // A outra pessoa desmarcou Peso e marcou Foto — o diff deve citar os dois. O usuário local mexeu num
+          // campo DIFERENTE (Largura), então o rebase não consome nada desse diff — ele aparece intacto no banner.
+          const fresco = ordenarCampos([...CAMPOS_17.filter((k) => k !== "peso"), "foto"]);
+          return { data: { campos: fresco, layout: [], rev: 2, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") {
+          return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    // Largura é campo de layout — desmarcar passa pelo alerta "Tem certeza?" (congela a base no clique do checkbox).
+    await act(async () => { checkboxDe(view.container, "Largura").click(); });
+    await act(async () => { botaoDoc("Desmarcar mesmo assim").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    expect(view.container.textContent).toMatch(/Mudou na loja:/);
+    expect(view.container.textContent).toMatch(/Peso \(desmarcado\)/);
+    expect(view.container.textContent).toMatch(/Foto do Modelo \(marcado\)/);
+    await view.desmontar();
+  });
+
+  it("n1: falso conflito (rev mudou, mas os CAMPOS continuam os mesmos — Task 15 salvou só a config da API)", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          // MESMA lista de campos nas duas leituras — só o rev muda (compartilhado com a Task 15).
+          return { data: { campos: CAMPOS_17, layout: [], rev: leituras === 1 ? 1 : 2, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") {
+          return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    expect(view.container.textContent).toMatch(/A configuração foi salva por outra pessoa enquanto você editava; as suas mudanças continuam aqui\./);
+    // Foto continua marcada — a mudança do usuário sobrevive ao falso conflito.
+    expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
+    await view.desmontar();
+  });
+
+  it("n1/n2: quando o rebase deixa a seleção IDÊNTICA à fresca, avisa 'não sobrou nada' e limpa o rascunho (ed volta a espelhar o servidor)", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+          // A outra pessoa JÁ marcou Foto — exatamente a mesma mudança que o usuário local fez.
+          return { data: { campos: CAMPOS_18, layout: [], rev: 2, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") {
+          return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); }); // mesma mudança que a loja já tem
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    expect(view.container.textContent).toMatch(/não sobrou nada para salvar/);
+    // n2: o rascunho fechou — Salvar volta a ficar desabilitado (a seleção "espelha" o servidor, que já tem Foto).
+    expect(botaoSalvar().disabled).toBe(true);
+    expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
+    await view.desmontar();
+  });
+
+  it("n2: desfazer manualmente o próprio toggle (voltar pra base) fecha o rascunho de verdade — um refetch DEPOIS aparece na hora", async () => {
+    // A prova de que `ed` virou null de verdade (não só que `sujo`/Salvar ficaram desabilitados, que também
+    // aconteceria com `ed` não-nulo mas `sel===base`): um refetch em BACKGROUND que chega DEPOIS de desfazer o
+    // toggle só pode aparecer nos checkboxes se a tela estiver espelhando `q.data` ao vivo (ed===null). Com `ed`
+    // preso não-nulo (sabotagem), os checkboxes continuariam mostrando o `ed.sel` velho, cego ao refetch.
+    let leituras = 0;
+    const view = await montar({
+      rev: 3,
+      comGuarda: true,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 3, api: null }, error: null };
+          // A loja mudou por fora (outra pessoa): Peso saiu.
+          return { data: { campos: CAMPOS_17.filter((k) => k !== "peso"), layout: [], rev: 4, api: null }, error: null };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    const foto = () => checkboxDe(view.container, "Foto do Modelo");
+    await act(async () => { foto().click(); }); // marca
+    expect(botaoSalvar().disabled).toBe(false);
+    expect(view.informarSujoSpy).toHaveBeenCalledWith("campos", true);
+    await act(async () => { foto().click(); }); // desmarca de novo — volta a bater com a base
+    expect(botaoSalvar().disabled).toBe(true);
+    expect(view.informarSujoSpy).toHaveBeenLastCalledWith("campos", false);
+    // Refetch em background chega DEPOIS de desfazer o toggle — só aparece se `ed` for null (tela ao vivo).
+    await act(async () => { await view.qc.refetchQueries({ queryKey: ["integracao-config", "t1"] }); });
+    await view.esperar();
+    const linhaPeso = Array.from(view.container.querySelectorAll("li")).find((li) => li.textContent?.includes("Peso") && !li.textContent?.includes("Preço"))!;
+    expect(linhaPeso.querySelector('button[role="checkbox"]')?.getAttribute("data-state")).toBe("unchecked");
+    await view.desmontar();
+  });
+
+  it("n3: os checkboxes desabilitam durante o Salvar (inclusive no refetch pós-sucesso aguardado)", async () => {
+    let liberarRefetch: (() => void) | null = null;
+    const travaRefetch = new Promise<void>((resolve) => { liberarRefetch = resolve; });
+    let leituras = 0;
+    const view = await montar({
+      rev: 5,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras > 1) { await travaRefetch; return { data: { campos: CAMPOS_18, layout: [], rev: 6, api: null }, error: null }; }
+          return { data: { campos: CAMPOS_17, layout: [], rev: 5, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") return { data: null, error: null };
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    // A mutation ainda está pendente (presa no refetch travado) — os checkboxes têm que estar desabilitados.
+    expect(checkboxDe(view.container, "Foto do Modelo").disabled).toBe(true);
+    liberarRefetch!();
+    await view.esperar();
+    await view.esperar();
+    expect(checkboxDe(view.container, "Foto do Modelo").disabled).toBe(false);
     await view.desmontar();
   });
 });
