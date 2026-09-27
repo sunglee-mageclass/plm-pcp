@@ -247,7 +247,7 @@ causa, correção); diferença de RESULTADO ou de regra de negócio ⇒ PARE e c
 | D21 | Cursor = base64 de JSON (`{"depois":"<id>"}`; teste `{"exemplo":2}`), paginação por `integracao_produtos.id` | Estável enquanto produtos viram integrados | não |
 | D22 | Modo teste: 4 produtos fictícios em 2 páginas; foto = arquivo PÚBLICO do site `/integracao/exemplo-produto.svg` (n3); "Ver resposta de exemplo" usa a mesma função com foto `null` | P-82 A + N12 | não |
 | D23 | Teto do Workers = binding `ratelimits` `INTEGRACAO_TETO_IP` 600/60 s por IP (produção e staging); ausente = sem teto | R7 (≥ 600) sem config na tela | não |
-| D24 | Gates por campo numa função SQL (`_integracao_gates`) usada pela lista (célula só leitura + motivo) e pelo `integracao_salvar` (recusa): nome/descrição/fotos = Planejamento OU Dev antes da Explosão; peso/NCM/título/medidas = Planejamento; preço de venda/anterior = Planejamento + `:preco_venda`; REF = Dev + revelada + não enviada à Explosão (sem o "Editar" do Sheet); SKU = Planejamento; Keywords = admin da loja/super; sempre `integracao` editar + módulo `criacao` + módulo da origem | R2/V1/n5 sem espelho TS (sem deriva) | não |
+| D24 | Gates por campo numa função SQL (`_integracao_gates`) usada pela lista (célula só leitura + motivo) e pelo `integracao_salvar` (recusa): nome/fotos = Planejamento OU Dev antes da Explosão; descrição/peso/NCM/título/medidas = Planejamento (descrição: decisão do dono 27/set — igual ao card; G-migration fix 5, 0ba6487b); preço de venda/anterior = Planejamento + `:preco_venda`; REF = Dev + revelada + não enviada à Explosão (sem o "Editar" do Sheet); SKU = Planejamento; Keywords = admin da loja/super; sempre `integracao` editar + módulo `criacao` + módulo da origem | R2/V1/n5 sem espelho TS (sem deriva) | não |
 | D25 | `integracao_config` semeada nas lojas atuais (migration 1) e por `_seed_tenant_defaults` (redefinida: +1 INSERT); a leitura tolera linha ausente (= padrão) | N9/n6 literal + defesa | não |
 | D26 | `reset_loja` apaga toda a integração da loja (config volta ao padrão; chaves, acessos e log somem); o segredo HMAC é global e fica. Opção A do guardião + AVISO no diálogo de Reset de Gerenciar Lojas ("Apaga também a Integração da loja…") | É o reset da loja inteira; preservar log/acessos redefiniria `_wipe_tenant_core` (mais risco) | **sim** (opção A) |
 | D27 | Desfazer só de produto INTEGRADO (integrável volta pelo toggle); motivo ≥ 3 caracteres | P-63 A / spec §4 | não |
@@ -4631,6 +4631,7 @@ BEGIN
     END IF;
     -- R2/V1/n5: a MESMA regra do card, campo a campo, reconferida no servidor (inclui módulo da origem)
     FOR v_k IN SELECT k.k FROM jsonb_object_keys(v_c) AS k(k) ORDER BY 1 LOOP
+      -- (G-migration fix 5, 27/set: o braço descricao_produto → compartilhado SAIU — Descrição cai no ELSE 'planejamento')
       v_gate := CASE v_k WHEN 'nome' THEN 'compartilhado' WHEN 'descricao_produto' THEN 'compartilhado'
                          WHEN 'fotos_modelo' THEN 'compartilhado' WHEN 'ref' THEN 'ref'
                          WHEN 'preco_venda' THEN 'preco' WHEN 'preco_anterior' THEN 'preco' ELSE 'planejamento' END;
