@@ -197,6 +197,18 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
     });
   });
 
+  it("resíduos T7 #1 (T2 N1): _integracao_num(0.004,2) e _integracao_num(0.0004,3) chamados DIRETO — NULL, não '0.00'/'0.000'", async () => {
+    // O teste "Minor #3" acima só prova o efeito (falta aparecendo) via a coluna do modelo — não prova o valor de
+    // RETORNO da própria função nos 2 casos-limite citados no plano. Chamado direto (como postgres/service_role,
+    // dono da conexão de teste — as internas têm EXECUTE revogado de PUBLIC/anon/authenticated, não do dono).
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      const r = await um<{ a: string | null; b: string | null }>(c,
+        `SELECT public._integracao_num(0.004, 2) AS a, public._integracao_num(0.0004, 3) AS b`);
+      expect(r).toEqual({ a: null, b: null });
+    });
+  });
+
   it("Minor #4 (revisão T2): nome da sublinha sem tamanho não deixa espaço sobrando", async () => {
     await withTx(async (c) => {
       await prepara(c, 2);
@@ -210,6 +222,23 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: retrato", () => {
       expect(sub?.valores.tamanho).toBeNull();
       expect(sub?.valores.nome).toBe((r.retrato.linhas[0].valores.nome as string));
       expect(sub?.valores.nome?.endsWith(" ")).toBe(false);
+    });
+  });
+
+  it("resíduos T7 #2 (T2 N2): nome do produto em branco => nome da sublinha é NULL (JSON null), não o rótulo de tamanho sozinho", async () => {
+    // concat_ws() descarta o lado NULL em silêncio — sem essa correção, um nome em branco (btrim => '') faria a
+    // sublinha exibir só o tamanho ("P") como se fosse o "nome" do produto, em vez de admitir que falta o nome.
+    await withTx(async (c) => {
+      await prepara(c, 2);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      await c.query(`UPDATE public.modelos SET nome = '   ' WHERE id = $1`, [m.id]);
+      const r = await retrato(c, m.id);
+      expect(r.retrato.linhas[0].valores.nome).toBeNull();
+      const sub = r.retrato.linhas.find((l) => l.tipo === "variante");
+      expect(sub?.valores.tamanho).toBe("P");
+      expect(sub?.valores.nome).toBeNull();
     });
   });
 
@@ -324,14 +353,17 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 2: RPCs de leitura",
     await withTx(async (c) => {
       await prepara(c, 2);
       await comoUsuario(c, U);
-      // modelo de outra loja já existente na cópia (AVE_RARA, tenant != T) — leitura só, nenhum dado é alterado.
-      const outraLoja = "2ddfb3cf-8fb3-46ab-9ad7-e7319017a770";
+      // resíduos T7 #3 (T2 N3): modelo de OUTRA loja escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo) — leitura
+      // só, nenhum dado é alterado.
+      const outro = await um<{ id: string; tenant_id: string }>(c,
+        `SELECT id, tenant_id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T]);
+      const outraLoja = outro.id;
       const p = (await um<{ r: any }>(c, `SELECT public.integracao_previa(ARRAY[$1::uuid]) AS r`, [outraLoja])).r;
       expect(p.produtos).toEqual([]);
       await c.query(
         `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos)
-         VALUES ('20c84a36-b7a0-4c26-ac59-52cb11e9d979', $1, 'integravel', ARRAY['nome']::text[])`,
-        [outraLoja],
+         VALUES ($1, $2, 'integravel', ARRAY['nome']::text[])`,
+        [outro.tenant_id, outraLoja],
       );
       const e = (await um<{ r: any }>(c, `SELECT public.integracao_estado_modelos(ARRAY[$1::uuid]) AS r`, [outraLoja])).r;
       expect(e).toEqual({});

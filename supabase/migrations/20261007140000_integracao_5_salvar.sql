@@ -347,8 +347,15 @@ BEGIN
   -- ruling do controlador, revisão T5 #6 (Minor #6, mesmo padrão de integracao_marcar/revisão T3 Minor #3):
   -- modelo_id duplicado no payload tornaria o DISTINCT ON abaixo não-determinístico (2 conjuntos de campos
   -- diferentes pro mesmo produto — qual vale, e com qual rev checar?); recusa cedo, ANTES de qualquer lock.
+  -- resíduos T7 #6 (T5 N3, ruling do controlador, mesmo fix da T3 C): (a) item SEM modelo_id ganha mensagem
+  -- PRÓPRIA, ANTES do check de duplicata; (b) duplicata comparada por ::uuid (não texto cru), então um mesmo UUID
+  -- em caixa alta/baixa conta como o mesmo produto.
+  IF jsonb_array_length(v_itens) > 0
+     AND (SELECT count(*) FILTER (WHERE e.x ->> 'modelo_id' IS NULL) FROM jsonb_array_elements(v_itens) AS e(x)) > 0 THEN
+    RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
+  END IF;
   IF jsonb_array_length(v_itens) > 0 AND (SELECT count(*) FROM jsonb_array_elements(v_itens) AS e(x)) <>
-     (SELECT count(DISTINCT e.x ->> 'modelo_id') FROM jsonb_array_elements(v_itens) AS e(x)) THEN
+     (SELECT count(DISTINCT (e.x ->> 'modelo_id')::uuid) FROM jsonb_array_elements(v_itens) AS e(x)) THEN
     RAISE EXCEPTION 'Produto repetido na lista — envie cada produto uma vez só.' USING ERRCODE = 'P0001';
   END IF;
   FOR r IN

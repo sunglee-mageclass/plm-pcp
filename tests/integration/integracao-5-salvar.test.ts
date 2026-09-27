@@ -219,18 +219,33 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [m.produtoId])).r).toBe("CARDNOVAREF");
       // produto TRAVADO (integrável) com ref_sku marcado mas nome NÃO marcado: um rename SÓ do nome não deve
       // mais recusar com integracao_travado: ref_sku (a REF não é mais tocada de carona pelo gatilho).
+      // resíduos T7 #7 (T5 N1): m2 precisa nascer GENUINAMENTE divergente (REF do card != REF do espelho) —
+      // um UPDATE simples em modelos.ref (mudança REAL) já dispara a sincronização e CONVERGE as REFs na hora
+      // (o próprio comportamento provado acima, linhas 217-219), tornando o teste abaixo vacuamente verdadeiro
+      // (refM2 seria lido DEPOIS de já convergido). Mesmo padrão de DISABLE/ENABLE TRIGGER usado para 'm' acima.
       const m2 = await revenda(c);
+      await c.query(`ALTER TABLE public.produtos_acabados DISABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos DISABLE TRIGGER trg_modelo_espelho_nome_ref`);
+      await c.query(`UPDATE public.produtos_acabados SET ref = 'PA2DIVERGENTE' WHERE id = $1`, [m2.produtoId]);
       await c.query(`UPDATE public.modelos SET ref = 'CARD2REF' WHERE id = $1`, [m2.id]);
+      await c.query(`ALTER TABLE public.produtos_acabados ENABLE TRIGGER trg_espelho_modelo_nome_ref`);
+      await c.query(`ALTER TABLE public.modelos ENABLE TRIGGER trg_modelo_espelho_nome_ref`);
       const refM2 = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m2.id])).r;
+      expect(refM2).toBe("CARD2REF");
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [m2.produtoId])).r).toBe("PA2DIVERGENTE");
       await c.query(
         `INSERT INTO public.integracao_produtos (tenant_id, modelo_id, estado, campos, retrato, assinatura, marcado_em)
          VALUES ($1, $2, 'integravel', ARRAY['ref_sku']::text[], jsonb_build_object('linhas', '[]'::jsonb), 'x', now())`,
         [T, m2.id],
       );
-      // rename só do nome, direto na tabela do espelho (como o Sheet/ProdutoAcabadoSheet faria) — não deve estourar.
+      // rename só do nome, direto na tabela do espelho (como o Sheet/ProdutoAcabadoSheet faria) — não deve estourar
+      // MESMO com as REFs genuinamente divergentes (a REF não é tocada de carona pelo gatilho — fix T5 #1).
       await c.query(`UPDATE public.produtos_acabados SET nome = 'Nome Renomeado Sem Tocar REF' WHERE id = $1`, [m2.produtoId]);
       expect((await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [m2.id])).n).toBe("Nome Renomeado Sem Tocar REF");
       expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [m2.id])).r).toBe(refM2);
+      // as REFs SEGUEM divergentes depois do rename só-de-nome (prova de que o teste não estava mascarando
+      // convergência já tendo acontecido — refM2 é a REF genuína, não uma que já tinha sido sincronizada).
+      expect((await um<{ r: string }>(c, `SELECT ref AS r FROM public.produtos_acabados WHERE id = $1`, [m2.produtoId])).r).toBe("PA2DIVERGENTE");
     });
   });
 
@@ -272,9 +287,10 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       await prepara(c, 5);
       await comoUsuario(c, U);
       const m = await importado(c);
-      // Card JÁ existente de OUTRA loja (Ave Rara) na cópia — RLS de produtos_importados não valida modelo_id
-      // (só tenant_id da PRÓPRIA linha), então um usuário da Loja Teste consegue apontar seu importado pra lá.
-      const cardDeOutraLoja = "2ddfb3cf-8fb3-46ab-9ad7-e7319017a770"; // Ave Rara, VESTIDO CLARA
+      // Card JÁ existente de OUTRA loja na cópia — RLS de produtos_importados não valida modelo_id (só tenant_id
+      // da PRÓPRIA linha), então um usuário da Loja Teste consegue apontar seu importado pra lá. resíduos T7 #3
+      // (T5 N2): escolhido EM TEMPO DE EXECUÇÃO (não um UUID fixo).
+      const cardDeOutraLoja = (await um<{ id: string }>(c, `SELECT id FROM public.modelos WHERE tenant_id <> $1 LIMIT 1`, [T])).id;
       const nomeAntes = (await um<{ n: string }>(c, `SELECT nome AS n FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).n;
       const refAntes = (await um<{ r: string }>(c, `SELECT ref AS r FROM public.modelos WHERE id = $1`, [cardDeOutraLoja])).r;
       await c.query(`UPDATE public.produtos_importados SET modelo_id = $1 WHERE id = $2`, [cardDeOutraLoja, m.produtoId]);
@@ -366,6 +382,34 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 5: integracao_salvar
       expect(await rev(c, m.id)).toBe(r0);
       const logsDepois = (await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_log WHERE modelo_id = $1 AND acao = 'editar'`, [m.id])).n;
       expect(logsDepois).toBe(logsAntes);
+    });
+  });
+
+  it("resíduos T7 #6 (T5 N3): salvar recusa item SEM modelo_id (mensagem PRÓPRIA) e duplicata por UUID em CAIXA DIFERENTE", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 5);
+      await comoUsuario(c, U);
+      const m = await modeloInterno(c);
+      const r0 = await rev(c, m.id);
+      // item sem modelo_id: mensagem PRÓPRIA (não "Produto repetido na lista").
+      const semId = await erro(c, () => salvar(c, [{ rev: r0, campos: { ncm: "1111.11.11" } }]));
+      expect(semId.code).toBe("P0001");
+      expect(semId.message).not.toMatch(/repetido/);
+      expect(semId.message).toBe("Envie o modelo_id de cada produto.");
+      // 2 itens sem modelo_id: mesma mensagem própria (não "repetido" por acidente do count(DISTINCT NULL) = 0).
+      const dois = await erro(c, () => salvar(c, [
+        { rev: r0, campos: { ncm: "1111.11.11" } },
+        { rev: r0, campos: { ncm: "2222.22.22" } },
+      ]));
+      expect(dois.message).toBe("Envie o modelo_id de cada produto.");
+      // mesmo UUID em caixa alta E baixa = MESMO produto — antes do fix, count(DISTINCT text) via ->> contava
+      // como 2 produtos diferentes e o duplicado passava batido (2 UPDATEs concorrentes na MESMA linha).
+      const dup = await erro(c, () => salvar(c, [
+        { modelo_id: m.id, rev: r0, campos: { ncm: "1111.11.11" } },
+        { modelo_id: m.id.toUpperCase(), rev: r0, campos: { ncm: "2222.22.22" } },
+      ]));
+      expect(dup).toEqual({ code: "P0001", message: "Produto repetido na lista — envie cada produto uma vez só." });
+      expect((await um<{ n: string }>(c, `SELECT ncm AS n FROM public.modelos WHERE id = $1`, [m.id])).n).toBe("6109.10.00");
     });
   });
 

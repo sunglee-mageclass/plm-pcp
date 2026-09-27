@@ -185,7 +185,8 @@ BEGIN
     FOREACH c IN ARRAY v_campos LOOP
       CONTINUE WHEN c = 'foto';
       v_linha := v_linha || jsonb_build_object(c, CASE c
-        WHEN 'nome' THEN coalesce(to_jsonb(nullif(concat_ws(' ', nullif(btrim(m.nome), ''), v_tam), '')), 'null'::jsonb)
+        WHEN 'nome' THEN CASE WHEN nullif(btrim(m.nome), '') IS NULL THEN 'null'::jsonb
+                              ELSE to_jsonb(concat_ws(' ', btrim(m.nome), v_tam)) END
         WHEN 'ref_sku' THEN coalesce(to_jsonb(nullif(btrim(coalesce(s.sku, '')), '')), 'null'::jsonb)
         WHEN 'cor_base' THEN coalesce(to_jsonb(s.cor_nome), 'null'::jsonb)
         WHEN 'cor_apelido' THEN coalesce(to_jsonb(s.apelido_nome), 'null'::jsonb)

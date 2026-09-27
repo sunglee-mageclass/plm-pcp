@@ -129,6 +129,43 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
     });
   });
 
+  it("resíduos T7 #5 (T3 B): 'em massa é atômico' independe de QUAL id (bom ou ruim) é o MENOR — cobre as 2 ordens", async () => {
+    // integracao_voltar re-ordena _modelo_ids por ORDER BY 1 internamente (ASC por id); o teste original acima
+    // criava 'a' (bom, marcado) e 'b' (ruim) com ids aleatórios (gen_random_uuid) sem forçar as 2 ordens possíveis
+    // — a asserção final (o bom permanece integravel) é sempre verdadeira por construção (a função é atômica: UMA
+    // chamada = UMA transação, RAISE em qualquer ponto desfaz tudo), mas nada garantia que o teste exercitasse o
+    // caminho em que o ID DO BOM é o MAIOR (ruim processado primeiro, bom nunca chega a ser tocado pelo loop) E o
+    // caminho em que é o MENOR (bom processado e desfeito pelo loop, depois desfeito de novo pelo ROLLBACK
+    // implícito da exceção) — ambos precisam devolver EXATAMENTE o mesmo resultado observável.
+    for (const bomMenor of [true, false]) {
+      await withTx(async (c) => {
+        await prepara(c, 3);
+        await comoUsuario(c, U);
+        await keywordsLoja(c, "k");
+        let bom = await modeloInterno(c);
+        let ruim = await modeloInterno(c);
+        // gera de novo até a relação de ids pedida aparecer (ids são gen_random_uuid — não há como fixar sem
+        // tocar o fixture; o loop converge rápido, 50% de chance por tentativa).
+        for (let tentativas = 0; (bom.id < ruim.id) !== bomMenor && tentativas < 40; tentativas++) {
+          bom = await modeloInterno(c);
+          ruim = await modeloInterno(c);
+        }
+        expect(bom.id < ruim.id).toBe(bomMenor);
+        await marcar(c, bom.id);
+        const e = await erro(c, `SELECT public.integracao_voltar(ARRAY[$1::uuid, $2::uuid])`, [bom.id, ruim.id]);
+        expect(e.code).toBe("P0409");
+        // o bom permanece INTOCADO (integravel, espelho INTACTO com as 3 linhas do marcar: 1 produto + 2
+        // variantes) e o ruim permanece nao_integravel (sem linha em integracao_produtos) — nas 2 ordens.
+        const estados = await um<{ bom: string; ruim: string; linhas: string }>(c,
+          `SELECT coalesce((SELECT estado FROM public.integracao_produtos WHERE modelo_id = $1), 'nao_integravel') AS bom,
+                  coalesce((SELECT estado FROM public.integracao_produtos WHERE modelo_id = $2), 'nao_integravel') AS ruim,
+                  (SELECT count(*)::text FROM public.integracao_linhas WHERE modelo_id = $1) AS linhas`,
+          [bom.id, ruim.id]);
+        expect(estados).toEqual({ bom: "integravel", ruim: "nao_integravel", linhas: "3" });
+      });
+    }
+  });
+
   it("desfazer: SÓ super admin, só integrado, motivo obrigatório; log leva o retrato antigo; apaga o espelho", async () => {
     await withTx(async (c) => {
       await prepara(c, 3);
@@ -236,6 +273,45 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       expect(e.code).toBe("P0001");
       expect(e.message).toMatch(/repetido/);
       // nada foi marcado: nem sequer uma linha de integracao_produtos foi criada pro modelo.
+      expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_produtos WHERE modelo_id = $1`, [m.id])).n).toBe("0");
+    });
+  });
+
+  it("resíduos T7 #6 (T3 C): marcar recusa item SEM modelo_id (mensagem PRÓPRIA, não 'repetido') e duplicata por UUID em CAIXA DIFERENTE", async () => {
+    await withTx(async (c) => {
+      await prepara(c, 3);
+      await comoUsuario(c, U);
+      await keywordsLoja(c, "k");
+      const m = await modeloInterno(c);
+      // item sem modelo_id: mensagem PRÓPRIA (não reutiliza "Produto repetido na lista").
+      const semId = await erro(
+        c,
+        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('assinatura', 'x')))`,
+        [],
+      );
+      expect(semId.code).toBe("P0001");
+      expect(semId.message).not.toMatch(/repetido/);
+      expect(semId.message).toBe("Envie o modelo_id de cada produto.");
+      // 2 itens sem modelo_id: mesma mensagem (não "repetido" por acidente do count(DISTINCT NULL) = 0).
+      const dois = await erro(
+        c,
+        `SELECT public.integracao_marcar(jsonb_build_array(jsonb_build_object('assinatura', 'x'), jsonb_build_object('assinatura', 'y')))`,
+        [],
+      );
+      expect(dois.message).toBe("Envie o modelo_id de cada produto.");
+      // mesmo UUID em caixa alta E baixa = MESMO produto (antes do fix, count(DISTINCT text) via ->> os contava
+      // como 2 produtos diferentes e o duplicado passava batido).
+      const a = await assinatura(c, m.id);
+      const maiuscula = m.id.toUpperCase();
+      const dup = await erro(
+        c,
+        `SELECT public.integracao_marcar(jsonb_build_array(
+           jsonb_build_object('modelo_id', $1::text, 'assinatura', $2::text),
+           jsonb_build_object('modelo_id', $3::text, 'assinatura', 'outra')))`,
+        [m.id, a, maiuscula],
+      );
+      expect(dup.code).toBe("P0001");
+      expect(dup.message).toMatch(/repetido/);
       expect((await um<{ n: string }>(c, `SELECT count(*) AS n FROM public.integracao_produtos WHERE modelo_id = $1`, [m.id])).n).toBe("0");
     });
   });
@@ -366,11 +442,29 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 3: estados", () => {
       expect((await um<{ e: string }>(c, `SELECT estado AS e FROM public.integracao_produtos WHERE modelo_id = $1`, [foreignDesfazer])).e)
         .toBe("integrado");
 
-      // log_listar: nenhuma linha da OUTRA loja aparece (nem total nem linhas) — o log_listar do usuário T
-      // não tem NADA além do que T já tinha (0, já que nenhuma ação de T rodou nesse teste).
+      // resíduos T7 #4 (T3 A): torna o teste de isolamento do log_listar NÃO-vacuoso — insere uma linha de log de
+      // OUTRA loja (Ave Rara) e OUTRA da PRÓPRIA loja (T) dentro da txn, e confere que só a de T aparece, com o
+      // total batendo com a contagem REAL (não um 0 vazio de coincidência).
+      await c.query(
+        `INSERT INTO public.integracao_log (tenant_id, acao, quem, modelo_id, modelo_nome, detalhe)
+         VALUES ($1, 'integrar', 'outra loja', $2, 'Produto de outra loja', '{}'::jsonb)`,
+        [AVE_RARA, foreignVoltar],
+      );
+      const minhaLinha = await modeloInterno(c);
+      await c.query(
+        `INSERT INTO public.integracao_log (tenant_id, acao, quem, modelo_id, modelo_nome, detalhe)
+         VALUES ($1, 'integrar', 'eu', $2, 'Meu produto', '{}'::jsonb)`,
+        [T, minhaLinha.id],
+      );
+      const totalReal = await um<{ n: string }>(c,
+        `SELECT count(*) AS n FROM public.integracao_log WHERE tenant_id = $1 AND acao IN ('editar','integrar','voltar','desfazer','integrado')`,
+        [T]);
       const meu = (await um<{ r: any }>(c, `SELECT public.integracao_log_listar(1) AS r`)).r;
-      expect(meu.total).toBe(0);
-      expect(meu.linhas).toEqual([]);
+      expect(meu.total).toBe(Number(totalReal.n));
+      expect(meu.total).toBe(1);
+      expect(meu.linhas).toHaveLength(1);
+      expect(meu.linhas.every((l: any) => l.modelo_id !== foreignVoltar)).toBe(true);
+      expect(meu.linhas[0].modelo_id).toBe(minhaLinha.id);
     });
   });
 

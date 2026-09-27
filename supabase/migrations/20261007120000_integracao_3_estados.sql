@@ -71,8 +71,17 @@ BEGIN
   END IF;
   -- Revisão T3 #3 (Minor #3): modelo_id duplicado no payload tornaria o DISTINCT ON abaixo não-determinístico
   -- (2 assinaturas diferentes pro mesmo produto — qual vale?); recusa cedo, ANTES de qualquer trava.
+  -- resíduos T7 #6 (T3 C, ruling do controlador): (a) item SEM modelo_id é recusado com mensagem PRÓPRIA, ANTES do
+  -- check de duplicata (senão 2 itens sem modelo_id caem no check de baixo com count(DISTINCT NULL)=0, que NUNCA
+  -- bate com count(*), e o usuário veria "Produto repetido" para um erro que não é sobre repetição); (b) a
+  -- comparação de duplicata agora casta pra uuid ANTES do DISTINCT — um mesmo UUID em caixa alta/baixa
+  -- (ex.: 'ABC...' vs 'abc...') tem representação TEXTUAL diferente mas é o MESMO produto; sem o cast, count(DISTINCT
+  -- text) contaria os 2 como produtos diferentes e o duplicado passaria batido.
+  IF (SELECT count(*) FILTER (WHERE e.x ->> 'modelo_id' IS NULL) FROM jsonb_array_elements(_itens) AS e(x)) > 0 THEN
+    RAISE EXCEPTION 'Envie o modelo_id de cada produto.' USING ERRCODE = 'P0001';
+  END IF;
   IF (SELECT count(*) FROM jsonb_array_elements(_itens) AS e(x)) <>
-     (SELECT count(DISTINCT e.x ->> 'modelo_id') FROM jsonb_array_elements(_itens) AS e(x)) THEN
+     (SELECT count(DISTINCT (e.x ->> 'modelo_id')::uuid) FROM jsonb_array_elements(_itens) AS e(x)) THEN
     RAISE EXCEPTION 'Produto repetido na lista — envie cada produto uma vez só.' USING ERRCODE = 'P0001';
   END IF;
   v_cfg := public._integracao_cfg(v_tenant);

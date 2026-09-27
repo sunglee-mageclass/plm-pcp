@@ -349,8 +349,11 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: as 2 fases da API
   });
 
   it("revisão T6 #2 (Important #2): _integracao_limpar usa 2 ramos ESTÁTICOS indexáveis (tenant_id = _tenant OU tenant_id IS NULL)", async () => {
-    // O harness roda 1 conexão com dados mínimos por teste — um EXPLAIN aqui não é confiável (o planner escolhe Seq
-    // Scan de qualquer jeito numa tabela quase vazia, independente de índice existir). Em vez disso confere a FORMA do
+    // resíduos T7 #9 (texto): EXPLAIN não é confiável aqui não porque o planner "escolha Seq Scan de qualquer jeito
+    // numa tabela quase vazia" (re-review round 1 confirmou, com enable_seqscan=off, que o planner ESCOLHE Index
+    // Scan pros 2 ramos estáticos quando o índice existe) — o motivo real é que EXPLAIN não enxerga statements
+    // DENTRO de plpgsql (_integracao_limpar real é chamado de dentro de outra função plpgsql pela rota; não dá
+    // pra rodar EXPLAIN no SQL que roda lá dentro sem extrair o statement). Por isso a checagem é sobre a FORMA do
     // SQL instalado: nenhum "IS NOT DISTINCT FROM" (não-indexável) e os 2 ramos estáticos usando o índice existente.
     await withTx(async (c) => {
       await prepara(c, 6);

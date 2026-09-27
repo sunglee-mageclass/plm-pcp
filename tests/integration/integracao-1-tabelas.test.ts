@@ -16,6 +16,53 @@ export const TRECHO_SEED =
   "  INSERT INTO public.integracao_config (tenant_id) VALUES (_tid)\n" +
   "  ON CONFLICT (tenant_id) DO NOTHING;\n";
 
+/**
+ * resíduos T7 #8: remove comentários SQL ('--...' até o fim da linha; '/*...*\/') e literais de string
+ * ('...' com '' como escape de aspas simples) ANTES de rodar o regex de DDL perigosa — sem isso,
+ * `/ENABLE\s+ALWAYS/` casa com o texto dentro de um COMENTÁRIO (ex.: "-- ... nunca ENABLE ALWAYS ...") ou de um
+ * literal usado numa mensagem de RAISE (ex.: 'gatilho fora do modo padrao (nunca ENABLE ALWAYS)'), nenhum dos
+ * quais é DDL de verdade. Preserva o comprimento em linhas (comentário/literal viram espaços, nunca são
+ * removidos por inteiro) para não deslocar nenhuma outra asserção que dependa de números de linha.
+ */
+function semComentariosNemLiterais(sql: string): string {
+  let out = "";
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    // comentário de linha: -- até o fim da linha (preserva o \n)
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      let j = i;
+      while (j < n && sql[j] !== "\n") j++;
+      out += " ".repeat(j - i) + (sql[j] === "\n" ? "\n" : "");
+      i = j + (sql[j] === "\n" ? 1 : 0);
+      continue;
+    }
+    // comentário de bloco: /* ... */ (troca por espaços, preservando \n internos)
+    if (sql[i] === "/" && sql[i + 1] === "*") {
+      const fim = sql.indexOf("*/", i + 2);
+      const j = fim === -1 ? n : fim + 2;
+      for (let k = i; k < j; k++) out += sql[k] === "\n" ? "\n" : " ";
+      i = j;
+      continue;
+    }
+    // literal de string: '...' com '' como escape de aspas simples dentro do literal
+    if (sql[i] === "'") {
+      let j = i + 1;
+      while (j < n) {
+        if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+        if (sql[j] === "'") { j += 1; break; }
+        j++;
+      }
+      for (let k = i; k < j; k++) out += sql[k] === "\n" ? "\n" : " ";
+      i = j;
+      continue;
+    }
+    out += sql[i];
+    i++;
+  }
+  return out;
+}
+
 describe("integracao — formato de TODOS os arquivos .sql já escritos (estático)", () => {
   const arquivos = [...MIGRACOES, ...INVERSOS].filter((rel) => existsSync(ROOT + rel));
   it("há pelo menos a migration 1", () => expect(arquivos).toContain(MIGRACOES[0]));
@@ -35,11 +82,26 @@ describe("integracao — formato de TODOS os arquivos .sql já escritos (estáti
       expect(t, rel).toContain("DO $pos$");
       expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeGreaterThan(t.indexOf("DO $pos$"));
       expect(t.indexOf("NOTIFY pgrst, 'reload schema';"), rel).toBeLessThan(t.indexOf("\nCOMMIT;"));
-      expect(t, rel).not.toMatch(/CREATE\s+POLICY|DROP\s+POLICY|ENABLE\s+ALWAYS|\\i\s/i);
+      // resíduos T7 #8: só o SQL "de verdade" (sem comentários nem literais) é checado contra DDL perigosa —
+      // ver semComentariosNemLiterais acima.
+      const semRuido = semComentariosNemLiterais(t);
+      expect(semRuido, rel).not.toMatch(/CREATE\s+POLICY|DROP\s+POLICY|ENABLE\s+ALWAYS|\\i\s/i);
       // N1: na IDA, gatilho comum = CREATE OR REPLACE TRIGGER (o DROP antes pegaria trava exclusiva da tabela)
       if (rel.startsWith("supabase/migrations/")) expect(t, rel).not.toMatch(/^CREATE TRIGGER /m);
     });
   }
+
+  it("resíduos T7 #8: semComentariosNemLiterais ainda PEGA um ENABLE ALWAYS de verdade (fora de comentário/literal)", () => {
+    const ddlReal = `-- comentário citando ENABLE ALWAYS (não deve contar)\nALTER TABLE public.x ENABLE ALWAYS TRIGGER y;\n`;
+    const limpo = semComentariosNemLiterais(ddlReal);
+    expect(limpo).toMatch(/ENABLE\s+ALWAYS/i);
+    // e confirma que o comentário sozinho (sem DDL real) NÃO casa mais.
+    const soComentario = semComentariosNemLiterais("-- nunca ENABLE ALWAYS — só um comentário\nSELECT 1;\n");
+    expect(soComentario).not.toMatch(/ENABLE\s+ALWAYS/i);
+    // e um RAISE citando a frase dentro de um literal também não casa.
+    const soLiteral = semComentariosNemLiterais("RAISE EXCEPTION 'gatilho fora do padrao (nunca ENABLE ALWAYS)';\n");
+    expect(soLiteral).not.toMatch(/ENABLE\s+ALWAYS/i);
+  });
 });
 
 describe.skipIf(!hasDb || !LOCAL)("integracao — migration 1 (cópia, txn revertida)", () => {
