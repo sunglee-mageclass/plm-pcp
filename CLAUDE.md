@@ -324,6 +324,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   carga (`isError`) mostra um **banner "Tentar de novo"** no lugar do formulário em vez de deixar
   a tela parecendo carregada com dado pela metade. Não remover essas travas achando-as
   redundantes — cada uma tem um caso GRAVE documentado no comentário `P-57 A` do arquivo.
+  Config da Loja teve 2 fixes extras no mesmo pacote: **merge 3-vias por loja** (`current`/base/
+  rascunho — trocar de loja no meio da edição não mistura config de tenants diferentes) e o
+  dialog **"Nomenclaturas"** (editor de `tab_labels`/`campos_editaveis`) ganhou `tenantId` na
+  própria `queryKey` (`["tenant_config","nomenclaturas_edit",tenantId]`) — sem isso, trocar de
+  loja com o dialog aberto podia mostrar/gravar nomenclaturas da loja ERRADA.
 
 ## Invariantes a preservar (não regredir)
 
