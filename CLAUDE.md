@@ -179,7 +179,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   exato da categoria (é texto livre por loja; hard-coded `["Tecido"...]` sumia quando a loja renomeava).
   `artigos`/`aviamentos` têm `representante_id` (FK `representantes`)
 - **criacao**: **plan-tecido** (Plan. Tecido — planejamento de TECIDO por coleção, acima de Plan. Produto;
-  ver [[project_plan_tecido]] e docs/mapeamento §2C. NÃO mesclado — branch `feature/plan-tecido-a1`),
+  ver [[project_plan_tecido]] e docs/mapeamento §2C. NÃO mesclado — branch `feature/plan-tecido-a1`;
+  ganhou o dialog **"Distribuir por loja"** por produto, set/2026 — ver seção "Sheet unificado do
+  Planejamento" abaixo e docs/mapeamento §17.5),
   **produto-acabado** (Produto Acabado/Revenda — planejador por coleção→subcoleção, canvas de
   cards com espelho `modelos.origem='revenda'`; página `criacao_produto_acabado`, exige
   módulos `produto_acabado` E `otb`; ver docs/mapeamento §2D e invariante 13. NÃO mesclado —
@@ -311,6 +313,17 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   do PCP na grade compartilhada dispara re-merge no CQ aberto, cross-tela). Spec/plano original em
   `.superpowers/sdd/2026-08-03-concorrencia-multiusuario/`; não reinventar o merge ao levar novas
   telas.
+- **Fix "salvar rápido" / hidratação (P-57, set/2026, deploy 26/set)** — investigação de 26/set achou
+  que 6 telas (Planejamento, CQ Pré/Pós, Direcionamento, PCP Oficina, PCP Serviços, Config da Loja)
+  deixavam o Salvar/Confirmar habilitado ANTES da 1ª carga de dados terminar (várias queries em
+  paralelo); salvar nesse instante grava um estado incompleto por cima do que já existia no
+  servidor (regressão de dado, pior que um erro visível). Fix: cada tela ganhou um estado
+  `hydrated` (true só depois que TODAS as queries relevantes semearam o rascunho local) e os
+  botões de Salvar/Confirmar/Desmarcar levaram `|| !hydrated || !tenantId` no `disabled` (o
+  `tenantId` cobre a corrida de render do `useActiveTenantId` antes do tenant resolver). Erro de
+  carga (`isError`) mostra um **banner "Tentar de novo"** no lugar do formulário em vez de deixar
+  a tela parecendo carregada com dado pela metade. Não remover essas travas achando-as
+  redundantes — cada uma tem um caso GRAVE documentado no comentário `P-57 A` do arquivo.
 
 ## Invariantes a preservar (não regredir)
 
@@ -771,6 +784,61 @@ edições da Explosão/CAD feitas ali só bumpam o `rev` do `cad` (`trg_colab_re
 do Dev aberto em paralelo não escuta; o Dev não recarrega o CAD sozinho. A etapa do kanban
 ("Mover para…") fica **FORA do Salvar** — muda na hora, direto pela RPC do kanban. Campo novo
 `modelos.descricao_produto` (seção 1, migration `20260930180000`) editável nos dois Sheets.
+
+**Sheet do Dev OCULTO + trava por seção (P-53, set/2026, deploy 26/set):**
+`src/routes/_authenticated/criacao.desenvolvimento.tsx` tem `const SHEET_DEV_ATIVO = false` —
+esconde o Sheet antigo do Dev (reativar = trocar para `true`); o Sheet do Planejamento passou a
+ser o único editor de card em uso na prática. Com um só editor, `PlanejamentoDetail.tsx` decide
+POR SEÇÃO, pelas DUAS permissões (`criacao_planejamento`/`criacao_desenvolvimento`), o que cada
+usuário edita — não herda mais uma permissão só: preço de venda é seção à parte
+(`criacao_planejamento:preco_venda`); campos compartilhados (coleção/subcoleção/linha/semana/mês/
+ano, croqui/anexos, aviamentos/M.O., grade do comprado) seguem editáveis por QUALQUER um dos dois
+papéis, espelhando o que o Dev antigo permitia; ações de ciclo (Lançar, Duplicar, Cancelar Ordem,
+Enviar Ordem de Criação, Excluir) são só do Planejamento. `ReadOnlyScope` aplica o fieldset do
+`SheetContent` pelas 2 permissões.
+
+**Reorganização do Sheet F3.6 (set/2026, migration `20261005100000`, deploy 26/set):** a seção 1
+"Informações Gerais do Produto" (`InfoGeraisSecao.tsx`) ganhou layout novo — L2 Nome do Modelo
+(50%) | Versão (25%) | **NCM do Produto** (25%, `modelos.ncm` texto livre, sem tabela/sugestão) ·
+L4 **Título para a página** (`modelos.titulo_pagina`; `NULL` = automático — Nome em "Iniciais
+Maiúsculas" + `" | "` + `tenants.nome`, calculado por `_titulo_pagina_calculado`/
+`src/lib/titulo-pagina.ts`; digitar igual ao automático mantém `NULL`) · L6 **Peso (kg)/
+Comprimento/Largura/Altura (cm)** (`modelos.peso_kg`/`comprimento_cm`/`largura_cm`/`altura_cm`,
+nullable, `MoneyInput` com casas fixas). **Preço anterior** (`modelos.preco_anterior`) entra na
+seção Preço. **Keywords da loja** (`tenant_config.keywords` text) fica em Config da Loja (só
+texto livre hoje, para uma tela FUTURA de super admin ler). Mesmos 6 campos + `tamanho_tipo`
+replicados pelo "Replicar card(s)" do Plan. Tecido. Detalhe de fórmulas: `mapeamento-campos-
+calculos.md` §17.3.
+
+**SKU automático + SKU em prévia (F3.5a/F3.5b, set/2026, migrations `20261003100000`/
+`20261005110000`/`20261006100000`/`20261006120000`, deploy 26/set):** nova seção "4. Códigos" no
+Sheet do Planejamento (`CodigosSecao.tsx`) mostra REF + **"Tamanho em"** (Letra/Número —
+`modelos.tamanho_tipo`, agora **obrigatório no produto**, DEFAULT `'letra'`; **sem padrão da
+loja** — a chave legada `tenant_config.sku_config.tamanho_padrao` é ignorada) + a tabela de SKUs
+por variante×tamanho (`modelo_skus`) + botão **Regerar**. **Formato do SKU** configurável em
+Config da Loja (`FormatoSkuCard.tsx`): partes `ref`/`cor_base`/`cor_apelido`/`tamanho` na ordem
+escolhida + separadores; siglas de cor em `cores`/`cores_apelido`, siglas de tamanho por LADO em
+`tenant_config.tamanhos_sku`. Montagem espelhada byte a byte banco↔TS
+(`src/lib/sku-montar.ts` ⇄ `public._sku_*`, anti-drift `tests/fixtures/sku-casos.ts`): sem
+acento, MAIÚSCULO; falta de sigla (cor base ou tamanho) BLOQUEIA a linha (`faltas`); apelido sem
+sigla cai para a cor base (`aviso`, não bloqueia). **SKU em prévia:** "Regerar" não grava direto —
+devolve uma prévia só-leitura com assinatura; o Salvar do card manda essa assinatura para
+`aplicar_skus_modelo`, que confere se nada mudou (REF/"Tamanho em"/grade/cores) e só então grava,
+senão `RAISE P0409 previa_desatualizada` (mensagem ASCII — ver a regra de "RAISE 5xx só ASCII" na
+seção de Colaboração). Detalhe: `mapeamento-campos-calculos.md` §17.1–§17.2.
+
+**Distribuição por produto (set/2026, migration `20261006100000`, deploy 26/set):** dialog
+**"Distribuir por loja"** no card do Plan. Tecido (`DistribuirPorLojaDialog.tsx`) substitui a
+antiga tela `/distribuicao` — grava em `plan_tecido_variantes.distribuicao` (SÓ Tecido 1) por
+cor×loja×tamanho; célula calculada = `round(proporção×Base)`, corrigível à mão (vira "manual" até
+"↺ voltar ao calculado"); tamanhos mostrados = a grade filtrada pelo lado de `tamanho_tipo`. O
+total por cor preenche a quantidade de peças do card; resumo por modelo também aparece no
+Direcionamento. Card já **Enviado à Explosão** abre o dialog **SÓ LEITURA**. **A página antiga
+`/distribuicao` está OCULTA** (`src/routes/_authenticated/distribuicao.index.tsx`, `const
+PAGINA_ATIVA = false`, P-49 B) — fora do menu, mas as tabelas/RPCs antigas (`distribuicao_
+tabelas` + 3 RPCs) NÃO foram dropadas (guardadas para aposentar depois, em partes — ver
+`feedback_aposentar_ocultar_primeiro` na memória). Detalhe: `mapeamento-campos-calculos.md`
+§17.5–§17.6.
 
 ## O que NÃO fazer
 
