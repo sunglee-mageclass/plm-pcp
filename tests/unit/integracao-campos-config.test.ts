@@ -451,8 +451,10 @@ describe("CamposAba — render", () => {
     // Carga inicial ok: a lista está visível.
     expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
     // Um refetch em BACKGROUND que falha (ex.: reabrir a aba) não pode esconder a lista já carregada.
-    // `refetchQueries` rejeita quando a query falha (throwOnError da própria promise, não do componente) —
-    // engolido de propósito aqui: o que importa é o ESTADO da query (isError), não a promise da chamada.
+    // p3 (task-14-review.md): `refetchQueries` NÃO rejeita quando a query falha — no query-core 5.101 a própria
+    // promise ENGOLE o erro internamente (a menos que `throwOnError` seja passado), então o `.catch(() => {})`
+    // abaixo não faz nada de fato; fica só por precaução/documentação (o que importa de verdade é o ESTADO da
+    // query, `isError`, checado logo abaixo — não a promise desta chamada).
     await act(async () => { await view.qc.refetchQueries({ queryKey: ["integracao-config", "t1"] }).catch(() => {}); });
     await view.esperar();
     expect(view.container.querySelectorAll('button[role="checkbox"]').length).toBe(18);
@@ -561,6 +563,102 @@ describe("CamposAba — render", () => {
     // n2: o rascunho fechou — Salvar volta a ficar desabilitado (a seleção "espelha" o servidor, que já tem Foto).
     expect(botaoSalvar().disabled).toBe(true);
     expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
+    await view.desmontar();
+  });
+
+  // p1 (task-14-review.md, revisão T14 "Re-review round 2"): quando a mudança do usuário está CONTIDA na mudança
+  // maior da loja (ele só marcou Foto; a loja marcou Foto E TAMBÉM desmarcou Peso), o rebase ainda deixa a seleção
+  // do usuário IDÊNTICA à fresca (nadaRestou=true) — mas dizer "exatamente a mudança que você fez" seria falso (a
+  // loja mudou MAIS coisa). O banner "nada a salvar" precisa CONTINUAR listando "Mudou na loja: …" com o que mais
+  // mudou por lá, e mostrar 1 botão só de dispensar (não há "minha" vs "da loja" pra escolher — ed já é null).
+  it("p1: mudança do usuário CONTIDA na da loja — 'nada a salvar' ainda lista 'Mudou na loja: …' e mostra 1 botão só (Entendi)", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+          // A loja marcou Foto (a MESMA mudança do usuário) E TAMBÉM desmarcou Peso (mudança A MAIS, que o
+          // usuário não fez) — a mudança do usuário está CONTIDA na da loja, não é idêntica a ela.
+          const fresco = ordenarCampos([...CAMPOS_17.filter((k) => k !== "peso"), "foto"]);
+          return { data: { campos: fresco, layout: [], rev: 2, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") {
+          return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); }); // só isso — não mexeu em Peso
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    // Ainda é "nada a salvar" (a seleção do usuário, rebaseada, bate com a fresca) — mas SEM "exatamente".
+    expect(view.container.textContent).toMatch(/não sobrou nada para salvar/);
+    expect(view.container.textContent).not.toMatch(/exatamente/);
+    // E lista o que MAIS mudou na loja (Peso desmarcado) — informação que o usuário não causou.
+    expect(view.container.textContent).toMatch(/Mudou na loja:/);
+    expect(view.container.textContent).toMatch(/Peso \(desmarcado\)/);
+    // 1 botão só no banner ("Entendi") — não "usar a da loja"/"manter a minha" (não há nada pra escolher: ed é null).
+    const botoesBanner = Array.from(view.container.querySelectorAll("button")).filter(
+      (b) => b.textContent === "Entendi" || b.textContent === "usar a da loja" || b.textContent === "manter a minha",
+    );
+    expect(botoesBanner.map((b) => b.textContent)).toEqual(["Entendi"]);
+    await view.desmontar();
+  });
+
+  // p2 (task-14-review.md, revisão T14 "Re-review round 2"): os botões do banner de conflito desabilitam durante
+  // um 2º Salvar em voo — um clique em "usar a da loja"/"manter a minha" nesse intervalo não pode disputar com o
+  // `setEd` que o onError do 2º save aplicar ao resolver.
+  it("p2: os botões do banner de conflito desabilitam enquanto um 2º Salvar está em voo", async () => {
+    let leituras = 0;
+    let chamadasSalvar = 0;
+    let liberarSegundoSalvar: (() => void) | null = null;
+    const travaSegundoSalvar = new Promise<void>((resolve) => { liberarSegundoSalvar = resolve; });
+    const view = await montar({
+      rev: 1,
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: CAMPOS_17, layout: [], rev: 1, api: null }, error: null };
+          const fresco = CAMPOS_17.filter((k) => k !== "peso");
+          return { data: { campos: fresco, layout: [], rev: 2, api: null }, error: null };
+        }
+        if (nome === "integracao_salvar_config") {
+          chamadasSalvar++;
+          if (chamadasSalvar === 1) {
+            return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+          }
+          // 2º save: fica pendente até o teste liberar — simula uma rede lenta enquanto o banner ainda está aberto.
+          await travaSegundoSalvar;
+          return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        }
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    await view.esperar();
+    // O banner do 1º conflito está aberto — dispara um 2º Salvar (fica pendente, travado de propósito).
+    expect(view.container.textContent).toMatch(/Mudou na loja:/);
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    // Enquanto o 2º save está em voo, os botões do banner (ainda visível, da mensagem do 1º conflito) desabilitam.
+    const botaoUsarLoja = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "usar a da loja") as HTMLButtonElement | undefined;
+    const botaoManterMinha = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "manter a minha") as HTMLButtonElement | undefined;
+    expect(botaoUsarLoja()?.disabled).toBe(true);
+    expect(botaoManterMinha()?.disabled).toBe(true);
+    liberarSegundoSalvar!();
+    await view.esperar();
+    await view.esperar();
+    // Depois que o 2º save resolve (outro P0409), o banner volta a ficar clicável.
+    expect(botaoUsarLoja()?.disabled).toBe(false);
+    expect(botaoManterMinha()?.disabled).toBe(false);
     await view.desmontar();
   });
 

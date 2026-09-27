@@ -122,12 +122,17 @@ export const TEXTO_CONFIRMAR_CAMPOS =
 //   config da API da Task 15, que compartilha o mesmo rev). Nada pra rebasear de verdade.
 // - TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR: depois do rebase a seleção do usuário ficou IDÊNTICA à do servidor —
 //   não afirma "suas mudanças foram mantidas" (não sobrou mudança nenhuma pra manter).
+// Fix round 3 T14/T15 (task-14-review.md p1): a mudança do usuário pode estar CONTIDA na seleção nova da loja
+// (ex.: ele marcou só "Foto"; a loja marcou "Foto" E desmarcou "Peso") sem ser IDÊNTICA a ela — "exatamente a
+// mudança que você fez" era impreciso nesse caso (a loja mudou MAIS do que ele mudou). O texto foi suavizado (tira
+// "exatamente") e o banner (CamposAba.tsx) sempre soma "Mudou na loja: …" com o diff de verdade quando esse
+// cenário acontece, para o usuário ver o que mais mudou por lá além da sua própria edição.
 export const TEXTO_CAMPOS_CONFLITO =
   "Outra pessoa mudou os campos da API — as suas mudanças foram mantidas por cima da versão nova.";
 export const TEXTO_CAMPOS_CONFLITO_SO_REV =
   "A configuração foi salva por outra pessoa enquanto você editava; as suas mudanças continuam aqui.";
 export const TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR =
-  "Outra pessoa já salvou exatamente a mudança que você fez — não sobrou nada para salvar.";
+  "A sua mudança já está salva na loja — não sobrou nada para salvar.";
 export const TEXTO_CAMPOS_VAZIO = "Marque pelo menos um campo para salvar.";
 /** Fix round 2 T14 (n1): monta "Peso (desmarcado), Foto (marcado)" — o diff entre a base ANTIGA (antes do
  *  conflito) e a seleção FRESCA do servidor, na ordem do layout. Usado só para MOSTRAR o que a OUTRA pessoa

@@ -33,7 +33,7 @@
 //   (um refetch de outra pessoa passa a aparecer na hora, não fica preso atrás de um `ed` "vazio" mas não-nulo).
 // - n3: os checkboxes desabilitam durante `salvar.isPending` — cobre o `await refetchQueries` do `onSuccess`
 //   (antes, um toggle nesse intervalo era perdido pelo `setEd(null)` que vem em seguida).
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Save } from "lucide-react";
@@ -89,6 +89,22 @@ export function CamposAba() {
   const qc = useQueryClient();
   const q = useIntegracaoConfig();
   const [ed, setEd] = useState<Edicao | null>(null);
+  // p2 (task-14-review.md, revisão T14 "Re-review round 2"): espelha `ed` SINCRONAMENTE a cada set — o handler do
+  // P0409 (fora de um evento React, dentro de um `await`) precisa do `ed` MAIS ATUAL no instante em que o refetch
+  // resolve, não o capturado no fechamento no início do `onError`. Ler dentro do updater funcional de `setEd`
+  // pareceria mais correto, mas o valor computado a partir dele (a mensagem do banner) não pode ser lido de volta
+  // com segurança logo em seguida — React só GARANTE chamar o updater até o próximo render, não sincronamente no
+  // ponto da chamada (mesma lição do "m-S1" documentada no fix round 3 da T12b: nunca compute algo DENTRO de um
+  // updater e leia o resultado FORA dele no mesmo tick). Por isso o rebase roda como função PURA sobre `edRef.
+  // current` (sempre atualizado), e só então `setEd`/`setConflito` recebem o valor já pronto.
+  const edRef = useRef<Edicao | null>(null);
+  const definirEd = (novo: Edicao | null | ((e: Edicao | null) => Edicao | null)) => {
+    setEd((atual) => {
+      const prox = typeof novo === "function" ? (novo as (e: Edicao | null) => Edicao | null)(atual) : novo;
+      edRef.current = prox;
+      return prox;
+    });
+  };
   const [alerta, setAlerta] = useState<CampoKey | null>(null);
   const [confirmar, setConfirmar] = useState(false);
   // n1: o banner do P0409 guarda o TEXTO já resolvido (uma das 3 variantes) — decidido no momento do conflito,
@@ -111,7 +127,7 @@ export function CamposAba() {
       // piscavam de volta pro estado pré-Salvar por um instante (a invalidação não é aguardada) até o refetch
       // trazer o valor salvo.
       await qc.refetchQueries({ queryKey: chaveConfig(tenantId) });
-      setEd(null);
+      definirEd(null);
       toast.success("Campos da API salvos. Valem para as próximas integrações.");
       invalidarIntegracao(qc, tenantId);
     },
@@ -134,32 +150,46 @@ export function CamposAba() {
         toast.error("Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.");
         return;
       }
-      if (!ed) return; // não deveria acontecer (o Salvar só habilita com ed !== null), mas é fail-safe.
+      // p2 (task-14-review.md, revisão T14 "Re-review round 2"): lê `edRef.current` (sempre sincronizado por
+      // `definirEd`), não o `ed` capturado no fechamento no início deste `onError` — entre o `await q.refetch()`
+      // acima e este ponto, um clique no banner de um conflito ANTERIOR ("usar a da loja"/"manter a minha") pode
+      // ter mudado `ed`. O rebase roda como função PURA (fora de qualquer updater — nunca compute algo dentro de
+      // um `setState(fn)` e leia o resultado de volta no mesmo tick logo em seguida: o React só garante chamar o
+      // updater até o próximo render, não sincronamente no ponto da chamada; mesma lição do "m-S1" documentada no
+      // fix round 3 da T12b em `rascunho.ts:resultadoPosSalvar`) e só então `definirEd`/`setConflito` recebem o
+      // valor JÁ PRONTO.
+      const edAtual = edRef.current;
+      if (!edAtual) return; // fail-safe: não deveria acontecer (Salvar só habilita com ed !== null).
       const fresco = ordenarCampos(r.data.campos);
-      const baseAntiga = ed.base;
-      const rebaseado = rebasear(ed, fresco);
-      // n1: 3 cenários — decididos com a base ANTIGA (antes deste conflito) e a seleção fresca do servidor:
+      const baseAntiga = edAtual.base;
+      const rebaseado = rebasear(edAtual, fresco);
+      const nadaRestou = mesmaSelecao(rebaseado, fresco);
+      const somenteRev = mesmaSelecao(baseAntiga, fresco);
+      // n1/p1: 3 cenários — decididos com a base ANTIGA (antes deste conflito) e a seleção fresca do servidor:
       // (a) os CAMPOS não mudaram (só o rev — Task 15 salvou a config da API, mesmo rev compartilhado): falso
       //     conflito, nada pra rebasear de verdade.
       // (b) o rebase deixou a seleção do usuário IDÊNTICA à fresca: não sobrou mudança nenhuma pra manter (nunca
-      //     afirma "suas mudanças foram mantidas" quando não sobrou mudança nenhuma).
+      //     afirma "suas mudanças foram mantidas" quando não sobrou mudança nenhuma). Mesmo aqui, se a loja mudou
+      //     MAIS do que a própria edição do usuário (ex.: ele só marcou Foto; a loja marcou Foto E desmarcou
+      //     Peso), o "Mudou na loja: …" continua aparecendo — a mudança do usuário estava CONTIDA na da loja, não
+      //     necessariamente IDÊNTICA a ela (p1: texto suavizado, sem "exatamente").
       // (c) caso geral: lista o que a OUTRA pessoa mudou (diff base-antiga → fresca).
-      const nadaRestou = mesmaSelecao(rebaseado, fresco);
-      const mensagem = mesmaSelecao(baseAntiga, fresco)
+      const diff = diffCampos(baseAntiga, fresco);
+      const mensagem = somenteRev
         ? TEXTO_CAMPOS_CONFLITO_SO_REV
         : nadaRestou
-          ? TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR
-          : `${TEXTO_CAMPOS_CONFLITO} Mudou na loja: ${diffCampos(baseAntiga, fresco)}.`;
-      setConflito(mensagem);
+          ? diff === "" ? TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR : `${TEXTO_CAMPOS_CONFLITO_NADA_A_SALVAR} Mudou na loja: ${diff}.`
+          : `${TEXTO_CAMPOS_CONFLITO} Mudou na loja: ${diff}.`;
       // n2: se o rebase devolveu exatamente a seleção fresca (nada de próprio do usuário sobrou), fecha o
       // rascunho — a tela volta a espelhar o servidor ao vivo em vez de ficar presa num `ed` "vazio".
-      setEd(nadaRestou ? null : { sel: rebaseado, base: fresco, rev: r.data!.rev });
+      definirEd(nadaRestou ? null : { sel: rebaseado, base: fresco, rev: r.data.rev });
+      setConflito(mensagem);
       toast.error(mensagem);
     },
   });
   const alternar = (key: CampoKey, marcar: boolean) => {
     if (precisaAlertaLayout(key, marcar)) setAlerta(key);
-    else setEd((e) => aplicarToggle(e, servidor, q.data!.rev, key, marcar));
+    else definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, key, marcar));
   };
   return (
     <div className="space-y-4">
@@ -186,8 +216,20 @@ export function CamposAba() {
             <div className="space-y-2 rounded-md border border-[var(--tone-warning-fg)] bg-[var(--tone-warning-bg)] p-3 text-sm">
               <p>{conflito}</p>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setEd(null); setConflito(null); }}>usar a da loja</Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setConflito(null)}>manter a minha</Button>
+                {/* p1: quando não sobrou rascunho nenhum do usuário (ed já é null — "nada a salvar"/falso conflito),
+                    não há "minha" vs "da loja" pra escolher: 1 botão só de dispensar o aviso.
+                    p2: os dois botões desabilitam durante `salvar.isPending` — um 2º save (deste MESMO conflito ou
+                    de um clique seguinte) pode estar em voo; clicar "usar a da loja" nesse intervalo não pode
+                    disputar com o `setEd` que o onError desse 2º save fizer ao resolver (ver o comentário do
+                    onError acima sobre o updater funcional). */}
+                {ed !== null ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" disabled={salvar.isPending} onClick={() => { definirEd(null); setConflito(null); }}>usar a da loja</Button>
+                    <Button type="button" variant="ghost" size="sm" disabled={salvar.isPending} onClick={() => setConflito(null)}>manter a minha</Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="ghost" size="sm" disabled={salvar.isPending} onClick={() => setConflito(null)}>Entendi</Button>
+                )}
               </div>
             </div>
           )}
@@ -234,7 +276,7 @@ export function CamposAba() {
               variant="destructive"
               onClick={() => {
                 if (alerta) {
-                  setEd((e) => aplicarToggle(e, servidor, q.data!.rev, alerta, false));
+                  definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, alerta, false));
                 }
                 setAlerta(null);
               }}

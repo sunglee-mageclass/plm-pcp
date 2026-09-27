@@ -11,6 +11,7 @@ import { ROTULO_ABA, abasVisiveis, type Aba } from "@/lib/integracao/abas";
 import { GuardaIntegracaoContext } from "./guard";
 import { ProdutosAba } from "./ProdutosAba";
 import { CamposAba } from "./CamposAba";
+import { ApiAba } from "./ApiAba";
 
 function AbaPendente() {
   return <EmptyState icon={Construction} title="Em construção" description="Esta aba chega nas próximas tasks do plano da Integração." />;
@@ -19,7 +20,7 @@ function AbaPendente() {
 const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   produtos: ProdutosAba,
   campos: CamposAba,
-  api: AbaPendente,
+  api: ApiAba,
   manual: AbaPendente,
   log: AbaPendente,
 };
