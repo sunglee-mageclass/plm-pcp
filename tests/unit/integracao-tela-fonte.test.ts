@@ -57,6 +57,89 @@ describe("Integração — guarda única de alterações não salvas", () => {
   });
 });
 
+// revisão T15 #1 (code-review I1, "wrong-store save"): render de verdade de `IntegracaoPage` provando o remonte
+// por `key={tenantId}` — trocar de loja com uma aba suja NUNCA deixa o rascunho vivo, mesmo que o super admin
+// cancele o "Descartar alterações?" da guarda de navegação (aqui simulado deixando o `useBlocker` sempre "idle",
+// ou seja, a troca de tenant NÃO passa pela navegação de rota — é só a mudança do `tenantId`, exatamente como o
+// `TenantSwitcher` faz: server primeiro, e o React re-renderiza com o novo tenantId antes do `navigate`).
+describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avisa se havia algo sujo", () => {
+  async function montar(opts: { tenantIdRef: { current: string } }) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => opts.tenantIdRef.current }));
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: true }) }));
+    const toastMocks = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
+    vi.doMock("sonner", () => ({ toast: toastMocks }));
+    vi.doMock("@tanstack/react-router", () => ({
+      useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
+    }));
+    const { createElement, useState } = await import("react");
+    const { act } = await import("react");
+    const { useAbaSuja } = await import("@/components/integracao/guard");
+    const { useActiveTenantId } = await import("@/hooks/useActiveTenantId");
+    // Stub das 3 abas reais: cada uma só expõe um botão "sujar"/"limpar" que chama `useAbaSuja`, e mostra o
+    // tenantId ATUAL que recebeu — prova direta de que o remonte por `key` reinicia o estado local (o stub nunca
+    // guardaria "sujo" de uma montagem pra outra sozinho; só reflete o que ESTA instância fez).
+    function ProdutosAbaStub() {
+      const [sujo, setSujo] = useState(false);
+      useAbaSuja("produtos", sujo);
+      return createElement(
+        "div", null,
+        `tenant:${useActiveTenantId()}`,
+        createElement("button", { onClick: () => setSujo(true) }, "sujar-produtos"),
+      );
+    }
+    vi.doMock("@/components/integracao/ProdutosAba", () => ({ ProdutosAba: ProdutosAbaStub }));
+    vi.doMock("@/components/integracao/CamposAba", () => ({ CamposAba: () => null }));
+    vi.doMock("@/components/integracao/ApiAba", () => ({ ApiAba: () => null }));
+    const { createRoot } = await import("react-dom/client");
+    const { SidebarProvider } = await import("@/components/ui/sidebar");
+    const { IntegracaoPage } = await import("@/components/integracao/IntegracaoPage");
+    // `vi.doMock` registra o mock pro resto do ARQUIVO de teste, não só pro `vi.resetModules()` seguinte — sem
+    // desfazer aqui, os stubs de ProdutosAba/CamposAba/ApiAba vazariam pros testes de `ProdutosAba` mais abaixo
+    // no mesmo arquivo (que fazem seu PRÓPRIO `vi.resetModules()` + import dinâmico, mas herdariam este mock
+    // registrado). `IntegracaoPage` já capturou a versão mockada no import acima; desmockar agora não afeta
+    // MAIS nada desta montagem, só evita vazar pros testes seguintes.
+    vi.doUnmock("@/components/integracao/ProdutosAba");
+    vi.doUnmock("@/components/integracao/CamposAba");
+    vi.doUnmock("@/components/integracao/ApiAba");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const arvore = () => createElement(SidebarProvider, null, createElement(IntegracaoPage));
+    await act(async () => { root.render(arvore()); });
+    return {
+      container, toastMocks,
+      rerender: () => act(async () => { root.render(arvore()); }),
+      desmontar: () => act(async () => { root.unmount(); container.remove(); }),
+    };
+  }
+
+  it("trocar de tenant com a aba suja remonta (some o 'sujo') e mostra o toast de aviso", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    expect(view.container.textContent).toContain("tenant:lojaA");
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    // Troca de loja (o TenantSwitcher já mudou no servidor — aqui só o tenantId ativo muda).
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.container.textContent).toContain("tenant:lojaB");
+    // O toast de aviso apareceu — havia algo sujo no momento da troca.
+    expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
+    await view.desmontar();
+  });
+
+  it("trocar de tenant SEM nada sujo não mostra nenhum toast", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    await view.desmontar();
+  });
+});
+
 // Fix round 1 — I2 (task-11-review.md + task-11-code-review.md): checagem de fonte (em vez de renderHook, sem
 // precedente na suíte unit deste repo) para a mutationKey do Salvar e o gate do Realtime contra ela; e M5 para o
 // sufixo único do canal.
@@ -1052,6 +1135,26 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     // botão continuaria habilitado e um Salvar mandaria `modelo_id: "m1"` (da loja 1) contra a loja 2.
     const botaoSalvarDepois = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
     expect(botaoSalvarDepois()?.hasAttribute("disabled")).toBe(true);
+    await view.desmontar();
+  });
+
+  // revisão T15 #1 (code-review I1, "wrong-store save" — item 1 do pedido do controlador): `KeywordsDialog` só
+  // existe montado como `{keywordsAberto && <KeywordsDialog/>}` dentro de `ProdutosAba` — o efeito de troca de
+  // tenant (m4, acima) já faz `setKeywordsAberto(false)`, então o diálogo desmonta por inteiro na troca (nenhum
+  // rascunho de Keywords sobrevive, porque não há ONDE ele sobreviver). Prova OBSERVÁVEL: abre o diálogo, troca de
+  // loja, confirma que ele sumiu do DOM.
+  it("revisão T15 #1: trocar de loja fecha o KeywordsDialog aberto (não deixa rascunho de Keywords vazar)", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })],
+      { campos: ["nome", "preco_venda", "keywords"] });
+    const view = await montarComMocks({ lista: listaLoja1 });
+    const { act } = await import("react");
+    const botaoEditarKeywords = () => [...view.container.querySelectorAll("button")].find((b) => b.textContent === "editar");
+    await act(async () => { botaoEditarKeywords()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain("Keywords da loja");
+    const listaLoja2 = listaRaw([produtoRaw({ modelo_id: "m9", raw: { nome: "Produto Loja 2", ref: "REF0009", tamanho_tipo: "letra" } })],
+      { campos: ["nome", "preco_venda", "keywords"] });
+    await act(async () => { view.trocarTenant("t2", listaLoja2); });
+    expect(document.body.textContent).not.toContain("Keywords da loja");
     await view.desmontar();
   });
 

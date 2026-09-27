@@ -58,8 +58,11 @@ import { useAbaSuja } from "./guard";
 import { chaveConfig, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
 
 /** Congela `sel`+`base`+`rev` no instante do 1º toggle (I2) — nunca lê `q.data.rev` de novo até o rascunho
- *  esvaziar (Salvar com sucesso ou "usar a da loja"). */
-type Edicao = { sel: CampoKey[]; base: CampoKey[]; rev: number };
+ *  esvaziar (Salvar com sucesso ou "usar a da loja"). `tenantId` (revisão T15 #1, code-review I1, defesa em
+ *  profundidade): a página já remonta a aba inteira com `key={tenantId}` ao trocar de loja (IntegracaoPage), mas
+ *  o rascunho também carrega a loja em que nasceu — o mutationFn recusa salvar se ela não bater mais com a
+ *  atual, cobrindo qualquer forma futura de a página NÃO remontar por engano. */
+type Edicao = { sel: CampoKey[]; base: CampoKey[]; rev: number; tenantId: string };
 
 /** Rebaseia o diff do usuário (vs `base` velha) em cima da seleção FRESCA do servidor (I1): campos que o usuário
  *  desmarcou (estavam em `base`, não em `sel`) continuam fora; campos que o usuário marcou (não estavam em
@@ -76,11 +79,13 @@ function rebasear(ed: Edicao, fresco: CampoKey[]): CampoKey[] {
  *  com a `base` — a tela então PARA de espelhar um rascunho e volta a seguir o servidor ao vivo (sem isso, um
  *  usuário que desfaz manualmente o próprio toggle ficava preso com `ed` não-nulo, "surdo" a um refetch de outra
  *  pessoa que chegasse nesse meio-tempo). */
-function aplicarToggle(e: Edicao | null, servidor: CampoKey[], rev: number, key: CampoKey, marcar: boolean): Edicao | null {
+function aplicarToggle(
+  e: Edicao | null, servidor: CampoKey[], rev: number, tenantId: string, key: CampoKey, marcar: boolean,
+): Edicao | null {
   const base = e?.base ?? servidor;
   const sel = alternarCampo(e?.sel ?? servidor, key, marcar);
   if (mesmaSelecao(sel, base)) return null;
-  return { sel, base, rev: e?.rev ?? rev };
+  return { sel, base, rev: e?.rev ?? rev, tenantId: e?.tenantId ?? tenantId };
 }
 
 export function CamposAba() {
@@ -117,6 +122,12 @@ export function CamposAba() {
   const salvar = useMutation({
     mutationFn: async () => {
       // ed sempre não-nulo aqui: o botão Salvar só habilita com `sujo` (que exige ed !== null).
+      // revisão T15 #1 (code-review I1, defesa em profundidade): recusa ANTES de qualquer chamada de rede se o
+      // rascunho nasceu numa loja diferente da atual — não deveria acontecer (a página remonta por
+      // `key={tenantId}`), mas aqui é a última linha de defesa contra gravar o rascunho da loja errada.
+      if (ed!.tenantId !== tenantId) {
+        throw Object.assign(new Error("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança."), { code: "LOJA_MUDOU" });
+      }
       const { error } = await supabase.rpc("integracao_salvar_config" as any, { _campos: ed!.sel, _rev: ed!.rev });
       if (error) throw error;
     },
@@ -182,14 +193,14 @@ export function CamposAba() {
           : `${TEXTO_CAMPOS_CONFLITO} Mudou na loja: ${diff}.`;
       // n2: se o rebase devolveu exatamente a seleção fresca (nada de próprio do usuário sobrou), fecha o
       // rascunho — a tela volta a espelhar o servidor ao vivo em vez de ficar presa num `ed` "vazio".
-      definirEd(nadaRestou ? null : { sel: rebaseado, base: fresco, rev: r.data.rev });
+      definirEd(nadaRestou ? null : { sel: rebaseado, base: fresco, rev: r.data.rev, tenantId: edAtual.tenantId });
       setConflito(mensagem);
       toast.error(mensagem);
     },
   });
   const alternar = (key: CampoKey, marcar: boolean) => {
     if (precisaAlertaLayout(key, marcar)) setAlerta(key);
-    else definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, key, marcar));
+    else definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, tenantId, key, marcar));
   };
   return (
     <div className="space-y-4">
@@ -276,7 +287,7 @@ export function CamposAba() {
               variant="destructive"
               onClick={() => {
                 if (alerta) {
-                  definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, alerta, false));
+                  definirEd((e) => aplicarToggle(e, servidor, q.data!.rev, tenantId, alerta, false));
                 }
                 setAlerta(null);
               }}

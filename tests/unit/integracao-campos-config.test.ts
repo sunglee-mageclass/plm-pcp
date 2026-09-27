@@ -84,6 +84,10 @@ describe("CamposAba — render", () => {
     rev?: number;
     rpcImpl?: (nome: string, args: unknown) => Promise<{ data: unknown; error: unknown }>;
     comGuarda?: boolean;
+    // revisão T15 #1 (code-review I1): permite mudar o tenant ATIVO no meio do teste, sem desmontar o
+    // componente — simula o cenário em que a página NÃO remonta (o `key={tenantId}` de `IntegracaoPage`
+    // normalmente cobre isso; este teste prova a defesa em profundidade DENTRO de `CamposAba` sozinha).
+    tenantIdRef?: { current: string };
   } = {}) {
     vi.resetModules();
     const campos = opts.campos ?? CAMPOS_17;
@@ -92,7 +96,8 @@ describe("CamposAba — render", () => {
       opts.rpcImpl ?? (async () => ({ data: { campos, layout: campos, rev, api: null }, error: null })),
     );
     vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
-    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    const tRef = opts.tenantIdRef ?? { current: "t1" };
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => tRef.current }));
     const toastMocks = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
     vi.doMock("sonner", () => ({ toast: toastMocks }));
     vi.doMock("@tanstack/react-router", () => ({ useRouter: () => ({ history: { back: () => {} } }) }));
@@ -722,6 +727,28 @@ describe("CamposAba — render", () => {
     await view.esperar();
     await view.esperar();
     expect(checkboxDe(view.container, "Foto do Modelo").disabled).toBe(false);
+    await view.desmontar();
+  });
+
+  // revisão T15 #1 (code-review I1, "wrong-store save" — defesa em profundidade): o `TenantSwitcher` troca a loja
+  // NO SERVIDOR antes de navegar; se o super admin cancela o "Descartar alterações?" da guarda de navegação, a
+  // página (normalmente) remonta a aba por `key={tenantId}` — mas ESTE teste prova que, mesmo que isso NÃO
+  // aconteça (bug futuro, engano de composição), `CamposAba` sozinha recusa salvar o rascunho da loja errada: o
+  // `Edicao` carrega o `tenantId` em que nasceu, e o mutationFn recusa ANTES de qualquer chamada de rede se ele
+  // não bate mais com o tenant ATIVO.
+  it("revisão T15 #1: rascunho nascido na loja A não é salvo depois de o tenant ativo virar B (RPC nunca chamada)", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ rev: 3, tenantIdRef });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); }); // rascunho nasce em lojaA
+    // O super admin troca de loja (o componente NÃO desmonta — simula a ausência do key={tenantId}/um bug futuro).
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    // A RPC de salvar NUNCA foi chamada — a recusa acontece ANTES de qualquer chamada de rede.
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config")).toBe(false);
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança.");
     await view.desmontar();
   });
 });

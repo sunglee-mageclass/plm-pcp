@@ -20,7 +20,7 @@
 // - Os inputs travam durante `salvar.isPending`.
 // - Enquanto os valores locais voltam a bater com os do servidor, o rascunho fecha (`ed = null`) e a tela volta a
 //   espelhar o servidor ao vivo.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, KeyRound, Save } from "lucide-react";
@@ -39,7 +39,8 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
-  TEXTO_CONFIG_API, TEXTO_REVOGAR, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
+  TEXTO_CONFIG_API, TEXTO_CONFIG_API_CONFLITO, TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR, TEXTO_CONFIG_API_CONFLITO_SO_REV,
+  TEXTO_REVOGAR, diffConfigApi, entregaAcesso, fmtData, lerAcessos, lerChaves, rotuloChaveAcesso, statusAcesso,
   textoForaRecomendado, type Chave,
 } from "@/lib/integracao/api-tela";
 import {
@@ -53,7 +54,7 @@ import { NovaChaveDialog } from "./NovaChaveDialog";
 
 type Valores = Record<ChaveConfigApi, number>;
 
-function Chaves() {
+function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolean) => void }) {
   const tenantId = useActiveTenantId();
   const tz = useStoreTimezone();
   const qc = useQueryClient();
@@ -79,7 +80,13 @@ function Chaves() {
       void qc.invalidateQueries({ queryKey: ["integracao-chaves", tenantId] });
       invalidarIntegracao(qc, tenantId);
     },
-    onError: (e) => toast.error(mensagemErro(e, "Não foi possível revogar a chave.")),
+    // revisão T15 #4/m8 (code review): se outra pessoa já revogou a MESMA chave, o servidor recusa (P0001 "já
+    // revogada") e — sem isso — a linha continuava mostrando "Revogar" pra sempre (o cache antigo nunca era
+    // atualizado). Invalida a lista MESMO no erro, pra próxima leitura já vir com o estado real do servidor.
+    onError: (e) => {
+      toast.error(mensagemErro(e, "Não foi possível revogar a chave."));
+      void qc.invalidateQueries({ queryKey: ["integracao-chaves", tenantId] });
+    },
   });
   return (
     <div className="space-y-3">
@@ -113,7 +120,7 @@ function Chaves() {
         </div>
       )}
       <p className="text-xs text-muted-foreground">Chaves: só o super admin cria/revoga. Guia completo de uso em Manual da API.</p>
-      {nova && <NovaChaveDialog onFechar={() => setNova(false)} />}
+      {nova && <NovaChaveDialog onFechar={() => setNova(false)} onVisibilidadeChave={onVisibilidadeChave} />}
       <AlertDialog open={revogar !== null} onOpenChange={(o) => { if (!o && !rev.isPending) setRevogar(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -176,8 +183,11 @@ function Acessos() {
 }
 
 /** Congela `vals`+`base`+`rev` no instante da 1ª edição — nunca lê `q.data.rev` de novo até o rascunho esvaziar
- *  (Salvar com sucesso ou os valores voltarem a bater com o servidor). MESMO padrão de `Edicao` em `CamposAba.tsx`. */
-type Edicao = { vals: Valores; base: Valores; rev: number };
+ *  (Salvar com sucesso ou os valores voltarem a bater com o servidor). MESMO padrão de `Edicao` em `CamposAba.tsx`.
+ *  `tenantId` (revisão T15 #1, code-review I1, defesa em profundidade): mesma razão de `CamposAba.tsx` — a página
+ *  já remonta por `key={tenantId}` ao trocar de loja, mas o mutationFn recusa salvar se o rascunho nasceu numa
+ *  loja diferente da atual, cobrindo qualquer forma futura de a página NÃO remontar por engano. */
+type Edicao = { vals: Valores; base: Valores; rev: number; tenantId: string };
 
 const igual = (a: Valores, b: Valores): boolean => CHAVES_CONFIG_API.every((k) => a[k] === b[k]);
 
@@ -190,24 +200,54 @@ function rebasear(ed: Edicao, fresco: Valores): Valores {
   }
   return out;
 }
+/** Chaves que o usuário de fato TOCOU nesta edição (valor difere da base congelada) — usado pra restringir o
+ *  alerta "Fora do recomendado" e o "Voltar ao recomendado" só ao que ele mudou (revisão T15 #4/m7, code review):
+ *  sem isso, um campo que a loja já tinha de propósito fora do recomendado (ex.: `max_por_pagina=200` num plano
+ *  pago) entrava no alerta e era revertido em silêncio por um "Voltar ao recomendado" que o usuário pediu para
+ *  OUTRO campo. */
+function chavesTocadas(ed: Edicao): ChaveConfigApi[] {
+  return CHAVES_CONFIG_API.filter((k) => ed.vals[k] !== ed.base[k]);
+}
 
-function Configuracoes({ ativo }: { ativo: boolean }) {
+function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: (sujo: boolean) => void }) {
   const router = useRouter();
   const tenantId = useActiveTenantId();
   const qc = useQueryClient();
   const q = useIntegracaoConfig();
   const [ed, setEd] = useState<Edicao | null>(null);
+  // revisão T15 (code-review m7, nit de consistência do fix p2 da CamposAba): espelha `ed` sincronamente — o
+  // handler do P0409 (fora de um evento React, dentro de um `await`) lê `edRef.current` em vez do `ed` capturado
+  // no fechamento, MESMA razão/MESMO padrão de `CamposAba.tsx:definirEd` (nunca compute algo dentro do updater
+  // funcional e leia de volta no mesmo tick — lição "m-S1" da T12b).
+  const edRef = useRef<Edicao | null>(null);
+  const definirEd = (novo: Edicao | null | ((e: Edicao | null) => Edicao | null)) => {
+    setEd((atual) => {
+      const prox = typeof novo === "function" ? (novo as (e: Edicao | null) => Edicao | null)(atual) : novo;
+      edRef.current = prox;
+      return prox;
+    });
+  };
   const [alerta, setAlerta] = useState<ChaveConfigApi[] | null>(null);
   const [conflito, setConflito] = useState<string | null>(null);
   const servidor = q.data?.api ?? null;
   const vals = ed?.vals ?? servidor;
   const sujo = ed !== null && !igual(ed.vals, ed.base);
-  useAbaSuja("api", sujo);
+  // revisão T15 #2 (task review + code review I2): `useAbaSuja` é por ABA, não por SUB-COMPONENTE — se
+  // `Configuracoes` e `NovaChaveDialog` chamassem `useAbaSuja("api", …)` cada um, a última chamada a rodar
+  // sobrescreveria a outra. O agregado mora em `ApiAba` (`sujoConfig || chaveVisivel`), que é o ÚNICO lugar que
+  // chama `useAbaSuja` — aqui só reporta o próprio "sujo" pro pai via prop.
+  useEffect(() => { onSujoChange(sujo); }, [sujo, onSujoChange]);
   const v = vals ? validarConfigApi(vals) : { erros: {}, foraRecomendado: [] as ChaveConfigApi[] };
   const temErro = Object.keys(v.erros).length > 0;
   const salvar = useMutation({
     mutationFn: async () => {
       // ed sempre não-nulo aqui: o botão Salvar só habilita com `sujo` (que exige ed !== null).
+      // revisão T15 #1 (code-review I1, defesa em profundidade): recusa ANTES de qualquer chamada de rede se o
+      // rascunho nasceu numa loja diferente da atual — não deveria acontecer (a página remonta por
+      // `key={tenantId}`), mas aqui é a última linha de defesa.
+      if (ed!.tenantId !== tenantId) {
+        throw Object.assign(new Error("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança."), { code: "LOJA_MUDOU" });
+      }
       const { error } = await supabase.rpc("integracao_salvar_config_api" as any, { _valores: ed!.vals, _rev: ed!.rev });
       if (error) throw error;
     },
@@ -217,7 +257,7 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
       // Espera o config fresco chegar ANTES de limpar `ed` — mesma lição do m2 de `CamposAba.tsx`: sem isso os
       // campos piscariam de volta pro estado pré-Salvar por um instante.
       await qc.refetchQueries({ queryKey: chaveConfig(tenantId) });
-      setEd(null);
+      definirEd(null);
       toast.success("Configurações da API salvas.");
       invalidarIntegracao(qc, tenantId);
     },
@@ -236,63 +276,107 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
         toast.error("Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.");
         return;
       }
-      if (!ed) return; // fail-safe: não deveria acontecer (Salvar só habilita com ed !== null).
+      // revisão T15 (mesmo padrão do fix p2 da CamposAba): lê `edRef.current`, não `ed` do fechamento.
+      const edAtual = edRef.current;
+      if (!edAtual) return; // fail-safe: não deveria acontecer (Salvar só habilita com ed !== null).
       const fresco = r.data.api;
-      const baseAntiga = ed.base;
-      const rebaseado = rebasear(ed, fresco);
+      const baseAntiga = edAtual.base;
+      const rebaseado = rebasear(edAtual, fresco);
       const nadaRestou = igual(rebaseado, fresco);
-      const mensagem = igual(baseAntiga, fresco)
-        ? "A configuração foi salva por outra pessoa enquanto você editava; as suas mudanças continuam aqui."
+      const somenteRev = igual(baseAntiga, fresco);
+      // revisão T15 #3/m1 (task review I1 + code review m5): banner com o MESMO padrão de 3 variantes de
+      // `CamposAba.tsx` — inclui o diff do que a OUTRA pessoa mudou (`diffConfigApi`), e nunca afirma "mudanças
+      // mantidas" quando não sobrou nada (texto suavizado, sem "exatamente" — mesmo espírito do p1 da T14/T15).
+      const diff = diffConfigApi(baseAntiga, fresco);
+      const mensagem = somenteRev
+        ? TEXTO_CONFIG_API_CONFLITO_SO_REV
         : nadaRestou
-          ? "Outra pessoa já salvou exatamente a mudança que você fez — não sobrou nada para salvar."
-          : "Outra pessoa mudou as configurações da API — as suas mudanças foram mantidas por cima da versão nova.";
+          ? diff === "" ? TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR : `${TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR} Mudou na loja: ${diff}.`
+          : `${TEXTO_CONFIG_API_CONFLITO} Mudou na loja: ${diff}.`;
       setConflito(mensagem);
-      setEd(nadaRestou ? null : { vals: rebaseado, base: fresco, rev: r.data.rev });
+      definirEd(nadaRestou ? null : { vals: rebaseado, base: fresco, rev: r.data.rev, tenantId: edAtual.tenantId });
       toast.error(mensagem);
     },
   });
   const mudarValor = (k: ChaveConfigApi, novo: number) => {
-    setEd((e) => {
+    definirEd((e) => {
       const base = e?.base ?? servidor;
       if (!base) return e;
       const novosVals = { ...(e?.vals ?? servidor ?? base), [k]: novo };
       if (igual(novosVals, base)) return null;
-      return { vals: novosVals, base, rev: e?.rev ?? q.data!.rev };
+      return { vals: novosVals, base, rev: e?.rev ?? q.data!.rev, tenantId: e?.tenantId ?? tenantId };
     });
   };
   const pedirSalvar = () => {
-    if (v.foraRecomendado.length > 0) setAlerta(v.foraRecomendado);
+    // revisão T15 #4/m7 (code review): o alerta (e o "Voltar ao recomendado" que ele oferece) só considera as
+    // chaves que o USUÁRIO tocou nesta edição — `v.foraRecomendado` lista TODO campo fora do recomendado, mesmo
+    // um que a loja já tinha de propósito (ex.: `max_por_pagina=200` num plano pago) e que o usuário não mexeu;
+    // sem essa interseção, "Voltar ao recomendado" revertia esse campo em silêncio.
+    const tocadas = ed ? new Set(chavesTocadas(ed)) : new Set<ChaveConfigApi>();
+    const foraTocadas = v.foraRecomendado.filter((k) => tocadas.has(k));
+    if (foraTocadas.length > 0) setAlerta(foraTocadas);
     else salvar.mutate();
   };
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">{TEXTO_CONFIG_API}</p>
-      {conflito !== null && (
-        <div className="space-y-2 rounded-md border border-[var(--tone-warning-fg)] bg-[var(--tone-warning-bg)] p-3 text-sm">
-          <p>{conflito}</p>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setConflito(null)}>Entendi</Button>
+      {/* revisão T15 #4/m6 (code review): a config ficava em "Carregando…" pra sempre se a 1ª carga falhasse —
+          mesmo padrão P-57 de `CamposAba.tsx` (mensagem + "Tentar de novo"). Sem risco de dado incompleto (o
+          Salvar segue desabilitado até `vals` existir). */}
+      {q.isError && !q.data ? (
+        <div className="space-y-2">
+          <p className="text-sm text-destructive">{mensagemErro(q.error, "Não foi possível carregar as configurações.")}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => void q.refetch()}>Tentar de novo</Button>
         </div>
-      )}
-      {!vals ? <p className="text-sm text-muted-foreground">Carregando…</p> : (
-        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-          {CHAVES_CONFIG_API.map((k) => {
-            const c = CONFIG_API[k];
-            const erro = v.erros[k];
-            return (
-              <div key={k} className="grid gap-1">
-                <Label htmlFor={`cfg-${k}`}>{c.rotulo}</Label>
-                <NumberInput id={`cfg-${k}`} integer value={vals[k]} aria-invalid={!!erro} disabled={salvar.isPending}
-                  onChange={(e) => mudarValor(k, Math.trunc(Number(e.target.value)))} />
-                <p className="text-xs text-muted-foreground">Recomendado: {c.recomendado} · Faixa permitida: {c.min}–{c.max}</p>
-                {erro && <p className="text-xs text-destructive" role="alert">{erro}</p>}
-                {/* P-89 A: acima de 100 por página pode passar dos 10 ms de CPU do plano gratuito do Cloudflare */}
-                {k === "max_por_pagina" && !erro && alertaPaginaPlanoGratuito(vals.max_por_pagina) && (
-                  <p className="text-xs text-[var(--tone-warning-fg)]" role="alert">{TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>
+      ) : (
+        <>
+          {q.isError && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <span>{mensagemErro(q.error, "Não foi possível atualizar as configurações.")}</span>
+              <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => void q.refetch()}>Tentar de novo</Button>
+            </div>
+          )}
+          {conflito !== null && (
+            <div className="space-y-2 rounded-md border border-[var(--tone-warning-fg)] bg-[var(--tone-warning-bg)] p-3 text-sm">
+              <p>{conflito}</p>
+              <div className="flex flex-wrap gap-2">
+                {/* revisão T15 #3 (task review I1): MESMO padrão de CamposAba — com rascunho vivo (`ed !== null`),
+                    "usar a da loja" (descarta) e "manter a minha" (só fecha o banner, o rascunho rebaseado já está
+                    na tela); sem rascunho (`ed === null`, nada a escolher), 1 botão só. Ambos desabilitam durante
+                    um 2º Salvar em voo (mesma razão do p2 da CamposAba). */}
+                {ed !== null ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" disabled={salvar.isPending} onClick={() => { definirEd(null); setConflito(null); }}>usar a da loja</Button>
+                    <Button type="button" variant="ghost" size="sm" disabled={salvar.isPending} onClick={() => setConflito(null)}>manter a minha</Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="ghost" size="sm" disabled={salvar.isPending} onClick={() => setConflito(null)}>Entendi</Button>
                 )}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          )}
+          {!vals ? <p className="text-sm text-muted-foreground">Carregando…</p> : (
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+              {CHAVES_CONFIG_API.map((k) => {
+                const c = CONFIG_API[k];
+                const erro = v.erros[k];
+                return (
+                  <div key={k} className="grid gap-1">
+                    <Label htmlFor={`cfg-${k}`}>{c.rotulo}</Label>
+                    <NumberInput id={`cfg-${k}`} integer value={vals[k]} aria-invalid={!!erro} disabled={salvar.isPending}
+                      onChange={(e) => mudarValor(k, Math.trunc(Number(e.target.value)))} />
+                    <p className="text-xs text-muted-foreground">Recomendado: {c.recomendado} · Faixa permitida: {c.min}–{c.max}</p>
+                    {erro && <p className="text-xs text-destructive" role="alert">{erro}</p>}
+                    {/* P-89 A: acima de 100 por página pode passar dos 10 ms de CPU do plano gratuito do Cloudflare */}
+                    {k === "max_por_pagina" && !erro && alertaPaginaPlanoGratuito(vals.max_por_pagina) && (
+                      <p className="text-xs text-[var(--tone-warning-fg)]" role="alert">{TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
       <AlertDialog open={alerta !== null} onOpenChange={(o) => { if (!o && !salvar.isPending) setAlerta(null); }}>
         <AlertDialogContent>
@@ -308,13 +392,16 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={salvar.isPending} onClick={() => {
-              setEd((e) => {
+              definirEd((e) => {
                 const base = e?.base ?? servidor;
                 if (!base) return e;
                 const novosVals = { ...(e?.vals ?? servidor ?? base) };
+                // revisão T15 #4/m7 (code review): `alerta` já vem filtrado só pelas chaves TOCADAS (ver
+                // `pedirSalvar`) — reverter todas as chaves de `alerta` para o recomendado nunca mais mexe num
+                // campo que o usuário não tocou.
                 for (const k of alerta ?? []) novosVals[k] = CONFIG_API[k].recomendado;
                 if (igual(novosVals, base)) return null;
-                return { vals: novosVals, base, rev: e?.rev ?? q.data!.rev };
+                return { vals: novosVals, base, rev: e?.rev ?? q.data!.rev, tenantId: e?.tenantId ?? tenantId };
               });
             }}>Voltar ao recomendado</AlertDialogCancel>
             <Button type="button" disabled={salvar.isPending} onClick={() => salvar.mutate()}>Salvar mesmo assim</Button>
@@ -335,6 +422,13 @@ function Configuracoes({ ativo }: { ativo: boolean }) {
 
 export function ApiAba() {
   const [sub, setSub] = useState("chaves");
+  // revisão T15 #2 (task review + code review I2): a aba conta como suja tanto com um rascunho de Configurações
+  // pendente quanto com uma chave nova ainda VISÍVEL na tela (fechar sem copiar perde o segredo pra sempre — a
+  // guarda de navegação da página tem que bloquear Voltar/F5/troca de rota do mesmo jeito que bloqueia um
+  // rascunho comum). Os dois estados vêm de baixo via prop; só este componente chama `useAbaSuja`.
+  const [sujoConfig, setSujoConfig] = useState(false);
+  const [chaveVisivel, setChaveVisivel] = useState(false);
+  useAbaSuja("api", sujoConfig || chaveVisivel);
   return (
     <div className="space-y-4">
       <p className="rounded-md bg-[var(--tone-info-bg)] p-3 text-sm text-[var(--tone-info-fg)]">{TEXTO_SO_SUPER}</p>
@@ -344,9 +438,11 @@ export function ApiAba() {
           <TabsTrigger value="acessos">Acessos recentes</TabsTrigger>
           <TabsTrigger value="config">Configurações da API</TabsTrigger>
         </TabsList>
-        <TabsContent value="chaves" className="mt-4"><Chaves /></TabsContent>
+        <TabsContent value="chaves" className="mt-4"><Chaves onVisibilidadeChave={setChaveVisivel} /></TabsContent>
         <TabsContent value="acessos" className="mt-4"><Acessos /></TabsContent>
-        <TabsContent value="config" className="mt-4" forceMount hidden={sub !== "config"}><Configuracoes ativo={sub === "config"} /></TabsContent>
+        <TabsContent value="config" className="mt-4" forceMount hidden={sub !== "config"}>
+          <Configuracoes ativo={sub === "config"} onSujoChange={setSujoConfig} />
+        </TabsContent>
       </Tabs>
     </div>
   );

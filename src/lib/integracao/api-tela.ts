@@ -33,10 +33,14 @@ export function fmtData(iso: string | null, tz: string): string {
   const v = (t: Intl.DateTimeFormatPartTypes) => p.find((x) => x.type === t)?.value ?? "";
   return `${v("day")}/${v("month")}/${v("year")}`;
 }
+// revisão T15 #4 (m5/m9, task review + code review): duas chaves podem ter o MESMO nome (ex.: depois de uma
+// rotação — cria uma nova com o nome antigo e revoga a velha); o Log identifica uma chave por "nome + final"
+// (D32/mockup), então Acessos precisa do mesmo par — só o nome não distingue. `final` já vem do servidor (nunca o
+// hash) e é seguro de mostrar.
 export function rotuloChaveAcesso(a: Acesso): string {
   if (a.status === "chave_invalida") return `Chave inválida (IP ${a.ip ?? "desconhecido"})`;
   if (a.status === "ip_bloqueado") return `IP bloqueado (${a.ip ?? "desconhecido"})`;
-  const nome = a.chave ? a.chave : "—";
+  const nome = a.chave ? (a.final ? `${a.chave} ····${a.final}` : a.chave) : "—";
   return a.modo === "teste" ? `${nome} (modo teste)` : nome;
 }
 export function statusAcesso(a: Acesso): { texto: string; tom: StatusTone } {
@@ -68,3 +72,23 @@ export const TEXTO_REVOGAR = "O ERP perde o acesso na hora. Esta ação não pod
 export const TEXTO_CONFIG_API =
   "Só o super admin edita. Valor fora da faixa permitida: erro na hora, Salvar desabilitado. Valor dentro da faixa mas fora do recomendado: alerta antes de salvar (com opção de voltar ao recomendado). Toda mudança fica no Log.";
 export const TEXTO_FECHAR_SEM_COPIAR = "Você copiou a chave? Ela não pode ser mostrada de novo depois de fechar.";
+
+// revisão T15 #3/m1 (task review I1 + code review m5): o banner de conflito da config da API ganha o MESMO padrão
+// de 3 variantes de `CamposAba.tsx` (`TEXTO_CAMPOS_CONFLITO*`), mas com texto próprio — "os campos"/"a seleção" lá
+// vira "as configurações"/"os valores" aqui. Constantes (não mais texto inline no componente), pra entrar na lista
+// do painel do dono junto dos textos novos desta rodada.
+export const TEXTO_CONFIG_API_CONFLITO =
+  "Outra pessoa mudou as configurações da API — as suas mudanças foram mantidas por cima da versão nova.";
+export const TEXTO_CONFIG_API_CONFLITO_SO_REV =
+  "A configuração foi salva por outra pessoa enquanto você editava; as suas mudanças continuam aqui.";
+export const TEXTO_CONFIG_API_CONFLITO_NADA_A_SALVAR = "A sua mudança já está salva na loja — não sobrou nada para salvar.";
+/** revisão T15 #3/m1: monta "Validade das fotos: 7 → 14" (o que a OUTRA pessoa mudou, comparando a base ANTIGA
+ *  com os valores frescos do servidor) — mesmo espírito de `diffCampos` em campos.ts, mas por VALOR numérico (não
+ *  por marcado/desmarcado). Só entra na lista quem de fato mudou. */
+export function diffConfigApi(baseAntiga: Record<ChaveConfigApi, number>, fresco: Record<ChaveConfigApi, number>): string {
+  const partes: string[] = [];
+  for (const k of Object.keys(CONFIG_API) as ChaveConfigApi[]) {
+    if (baseAntiga[k] !== fresco[k]) partes.push(`${CONFIG_API[k].rotuloCurto}: ${baseAntiga[k]} → ${fresco[k]}`);
+  }
+  return partes.join(", ");
+}
