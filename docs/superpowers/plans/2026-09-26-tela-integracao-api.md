@@ -107,7 +107,9 @@ e `docs/superpowers/plans/2026-09-25-sku-previa-regerar.md` (checkout principal)
   `conflito_versao: …`, `keywords_mudou: …`); a trava é `42501` com `integracao_travado: <campo>` (ASCII); validações
   `P0001` em PT. Nunca `P0002`. Teste por COMANDO com regex do Postgres usando `\y` (nunca `\b`).
 - Contagens funções|gatilhos: NADA cravado — os scripts conferem o DELTA lido na hora: ida completa = **+46 funções |
-  +13 gatilhos** (cópia hoje: 495|277; por migration: +1|+1, +15|0, +6|0, +6|+9, +5|+3, +13|0).
+  +14 gatilhos** (cópia hoje: 495|277; por migration: +1|+1, +15|0, +6|0, +6|+10, +5|+3, +13|0). [G-migration fix 2, 27/set:
+  +1 gatilho `trg_pi_modelo_tenant` na m4 — os scripts reais da Task 8 já usam +46|+14; os blocos de código da Task 8 abaixo
+  mostram o valor antigo e ficam como histórico.]
 
 **Tela**
 - Gates de todo commit: `bash .superpowers/integracao/gates.sh` → `GATES INTEGRACAO: ok` (tsc — o build NÃO checa tipos —,
@@ -13558,7 +13560,7 @@ git merge --ff-only integracao/impl && git log --oneline -3
 cd "/Users/sunglee/PLM + Criação/plm-pcp/.claude/worktrees/integracao-impl"
 INTEG_DONO_AVISADO=sim bash .superpowers/integracao/copia.sh ida
 ```
-Expected: ff sem conflito; `== COPIA ida OK — <contagem>` (= a de antes + 46|+13). Não-ff (outra frente entrou antes) ⇒ na
+Expected: ff sem conflito; `== COPIA ida OK — <contagem>` (= a de antes + 46|+14). Não-ff (outra frente entrou antes) ⇒ na
 WORKTREE `git merge --no-ff --no-edit feature/plan-tecido-a1` (sem stash), `gates.sh`, G-commit de novo, e só então o ff.
 
 - [ ] **Step 4: Preparação da QA NA CÓPIA (controlador — nunca o executor; "QA não semeia banco")**
@@ -13843,7 +13845,7 @@ linhas do Log); avisar no painel "QA da Integração verde na cópia — pode us
   Métricas) e o `pagina` da resposta (`{"limite":50,"maximo":50}`). `exceededCpu` ou CPU perto de 10 ms com 50 ⇒ P-xx ao dono
   (baixar o máximo da loja na aba API é imediato, sem deploy; ou Workers Paid). Se no futuro o dono subir acima de 100: a tela
   avisa (só com Workers Paid) — medir de novo do mesmo jeito. Revogar a chave no fim.
-- Memória: `project_tela_integracao` (FEITO: produção + deploy; contagem = base + 46|+13; volta LIFO; D5/D6/D9/D13/D14/D18/
+- Memória: `project_tela_integracao` (FEITO: produção + deploy; contagem = base + 46|+14; volta LIFO; D5/D6/D9/D13/D14/D18/
   D26/D28/D33/D34/D38 comunicadas), `project_preco_fixo_revenda` (o importado ganhou o gravador de preço fixo — D14) e
   `feedback_staging_nada_grava_antes_salvar` (a aba Produtos segue o padrão).
 
