@@ -13,7 +13,14 @@
 //   (comparador raso nas props relevantes) — uma tecla digitada numa célula só rerrenderiza a linha do produto
 //   tocado, não a tabela inteira. `celula`/callbacks por linha são estáveis por `modeloId` (montados 1x por linha).
 // - M8/Acessibilidade (code-review): a seta de abrir/fechar sublinhas ganhou `aria-expanded`.
-import { memo, useCallback, useState, type ReactNode } from "react";
+//
+// Fix round 2 (task-12a-report.md "Fix round 2"; code-review "Re-check round 1" R5): `campos` virou `useMemo`
+// chaveado em `lista.campos` — sem isso, o array era recriado em TODO render da tabela e o `React.memo` de
+// `LinhaProduto` nunca batia (invalidava todas as linhas sempre, mesmo antes da T12b existir). ⚠️ Risco futuro
+// registrado pela revisão: quando a T13 ligar `selecao`, o objeto passado como prop precisa trocar de IDENTIDADE
+// a cada mudança de seleção (nunca um objeto estável com `marcado` lendo um ref) — senão o checkbox marcado fica
+// desatualizado por trás do memo.
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -111,7 +118,14 @@ export function ProdutosTabela({
     else n.add(id);
     return n;
   }), []);
-  const campos = lista.campos.map((k) => CAMPO_BY_KEY.get(k)).filter((c): c is CampoDef => !!c);
+  // Fix round 2 (R5, code-review): `campos` precisa ser ESTÁVEL por identidade entre renders — senão o
+  // React.memo de `LinhaProduto` nunca bate (um array novo a cada render invalida o comparador raso e TODA linha
+  // rerrenderiza sempre, mesmo antes da T12b existir). `useMemo` chaveado em `lista.campos` (o array de CHAVES,
+  // que só muda quando a config de colunas muda de verdade).
+  const campos = useMemo(
+    () => lista.campos.map((k) => CAMPO_BY_KEY.get(k)).filter((c): c is CampoDef => !!c),
+    [lista.campos],
+  );
   return (
     <div className="max-w-full overflow-x-auto rounded-md border">
       <table className="w-full min-w-max border-collapse text-sm">

@@ -1,7 +1,7 @@
 // Integração — uma célula da aba Produtos (linha do produto ou sublinha variante × tamanho). Edita SÓ o rascunho (staging);
-// `modoCelula` decide editar × ler. Custo, cor, apelido e tamanho: só leitura com "i" + "abrir card" (P-80 A). Linha
-// integrável/integrada: RETRATO + cadeado; "i" âmbar quando o vivo difere (N10). SKU da sublinha: digitado vira "a gravar"
-// (mesmas regras da seção Códigos, incluindo desfazer/conflito) e a prévia do servidor diz a situação.
+// `modoCelula`/`travaOuGate` decidem editar × ler. Custo, cor, apelido e tamanho: só leitura com "i" + "abrir card"
+// (P-80 A). Linha integrável/integrada: RETRATO + cadeado; "i" âmbar quando o vivo difere (N10). SKU da sublinha: digitado
+// vira "a gravar" (mesmas regras da seção Códigos, incluindo desfazer/conflito) e a prévia do servidor diz a situação.
 //
 // Adaptações do controlador sobre o brief da Task 12a (ver task-12a-report.md):
 // - Título: NÃO usa o `editar` genérico — usa `tituloExibido`/`editarTitulo`/`sairTitulo` (rascunho.ts), passando
@@ -10,33 +10,30 @@
 // - Título e "Preço anterior" em modo automático (raw NULL): mostram o valor automático + selo "automático".
 // - Reprovado: badge fica na coluna Estado (ProdutosTabela), não aqui.
 //
-// Fix round 1 (ver task-12a-report.md "Fix round 1" para o detalhe de cada item; reviews: task-12a-review.md +
-// task-12a-code-review.md):
-// - I4/Important 3: SKU ganhou "desfazer o SKU digitado" (`semManual`) e, em conflito de versão (P0409),
-//   "manter o meu" (`manterMeu` de sku-previa.ts, adota id/rev novos da linha) / "usar o novo" (`semManual`) —
-//   mesmas 3 ações de `CodigosSecao.tsx:245-257`, mesmos helpers, NENHUMA reimplementação.
-// - I1/Important (peso/medidas): trocado `NumberInput` por `MoneyInput decimals={3|2} fixedDecimals`, mesmo padrão
-//   de `InfoGeraisSecao.tsx:43-50`. Vazio vira NULL (nunca 0); negativo é bloqueado na própria célula (não pode
-//   mais abortar o lote); casas limitadas na digitação.
-// - I3/Important (edição pendente que uma trava esconde): em leitura, se a coluna está em `colunasAlteradas(r)` (ou
-//   há SKU manual pendente), a célula mostra o valor do RASCUNHO com realce âmbar + "descartar alteração"
-//   (`usarNovo`/`semManual`) em vez do valor do servidor — e, enquanto `salvando`, toda célula editável mostra o
-//   valor do rascunho (desabilitado), nunca o antigo do servidor.
-// - I5 (NCM): `filtrarNcm` (helpers.ts) aplicado ao digitar, igual ao card.
-// - I6/I7 (sublinhas + amber): chave estável `variante|tamanho` (ProdutosTabela.tsx) + Input de SKU CONTROLADO
-//   (nunca `defaultValue`/`key={exibido}`) — uma relista nunca move o texto digitado para outra linha. O amber do
-//   InfoHover passa a funcionar porque `InfoHover.tsx` agora usa `cn()` (tailwind-merge) — nada mudou aqui além de
-//   depender do fix do componente compartilhado.
-// - Minors: closures do SKU calculadas dentro do updater; badge "calculando…" contra prévia desatualizada; título
-//   captura `e.target.value` antes do updater; SKU vira leitura com "Defina 'Tamanho em'..." quando
-//   `tamanho_tipo` é NULL; Preço anterior mostra o automático como PLACEHOLDER quando editável; título nunca fica
-//   desabilitado para sempre (mostra erro + permite editar se `useTenantBranding` falhar); aria-label com campo +
-//   produto em toda célula editável; textos de trava padronizados via `TEXTO_TRAVADO_*`/"Salvando…" também no SKU e
-//   nas células só-leitura; Keywords (store-level, gate independente do estado do produto — `_integracao_gates`
-//   usa `v_int`, nunca o `estado` da linha) fica editável em QUALQUER linha, mesmo travada.
+// Fix round 1 (task-12a-report.md "Fix round 1"): Reprovado por estado, InfoHover cn(), SKU desfazer/conflito,
+// MoneyInput em peso/medidas, edição pendente sob trava, NCM filtrado, sublinhas por chave estável.
+//
+// Fix round 2 (task-12a-report.md "Fix round 2"; reviews: task-12a-review.md "Re-review round 1" + task-12a-code-
+// review.md "Re-check round 1"):
+// - CRÍTICO (C1/R1): `SkuCelula` tinha um `useMemo` DEPOIS de um `return` condicional — alternar editável↔leitura
+//   (o que acontece em TODO Salvar, via `salvando`) trocava a contagem de hooks e derrubava a rota
+//   ("Rendered fewer/more hooks than expected"). Corrigido separando a parte editável em `SkuCelulaEditavel`
+//   (hooks só ali, incondicionais) — `SkuCelula` decide qual renderizar SEM nenhum hook próprio.
+// - R1-1/R2: "salvando" deixou de cair na UI de `LeituraComPendencia` ("Sua alteração não pode ser salva" +
+//   "descartar"). Essa UI agora só aparece por trava/gate real (`travaOuGate`, de `celula.ts`); durante o Salvar,
+//   a célula mostra o CONTROLE normal desabilitado com o valor do RASCUNHO (nunca a mensagem de erro nem o botão
+//   de descartar, e nunca o valor antigo do servidor).
+// - R1-2: o selo "automático" do Preço anterior editável VOLTOU (tinha sumido no round 1, deixando só o
+//   placeholder) — mostra as duas coisas, como o header sempre disse.
+// - R3: "manter o meu" do SKU agora usa a linha da PRÉVIA (`lp`), não a da lista (`linha`, com `rev` desatualizado
+//   — `aplicar_skus_modelo` não faz UPDATE em `modelos`, então a relista por Realtime nunca traria o rev novo).
+// - Minors: `RotateCcw` no lugar do glifo "↺"; `LeituraComPendencia` formata o valor (dinheiro/peso/fotos) em vez
+//   de mostrar o texto cru; nenhum `toast` dentro do updater; o selo "automático" de leitura só aparece quando
+//   `!usaRetrato(p)` (concorda com o texto do retrato mostrado); toda célula travada mostra o texto da trava via
+//   `InfoHover`.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Lock } from "lucide-react";
+import { Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,9 +46,9 @@ import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { cn } from "@/lib/utils";
 import { filtrarNcm } from "@/components/planejamento/planejamento-detail/helpers";
 import { infoCusto, type CampoDef, type ColunaEditavel } from "@/lib/integracao/campos";
-import { infoEdicao, modoCelula, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
+import { infoEdicao, travaOuGate, TEXTO_TRAVADO_INTEGRADO, TEXTO_TRAVADO_INTEGRAVEL } from "@/lib/integracao/celula";
 import {
-  avisoRetrato, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
+  avisoRetrato, formatarValor, linhasVariante, textoFotos, usaRetrato, valorCelula, type ProdutoLista, type Sublinha,
 } from "@/lib/integracao/produtos";
 import {
   colunasAlteradas, comSkus, editar, editarTitulo, linhaSkuDaSublinha, manterMeu, sairTitulo,
@@ -94,10 +91,10 @@ function Leitura({ texto, info, aviso, travado, cardId, selo }: {
     </div>
   );
 }
-/** I3/Important (edição pendente escondida): quando a célula está em modo LEITURA (trava/gate fechado) mas a
- *  coluna tem uma edição pendente no rascunho (`colunasAlteradas`), mostra o valor do RASCUNHO com realce âmbar +
- *  "descartar alteração" — em vez do valor do servidor, que faria a edição sumir sem aviso e o Salvar falhar
- *  42501 no lote inteiro sem forma de desfazer na célula. */
+/** Fix round 2 (R2): SÓ para trava/gate real (`travaOuGate`) — NUNCA para `salvando` (ver o comentário de
+ *  `travaOuGate` em celula.ts). Quando a coluna tem uma edição pendente no rascunho (`colunasAlteradas`) mas um
+ *  gate FECHOU depois da edição (ex.: REF travada pelo envio à Explosão), mostra o valor do RASCUNHO — formatado
+ *  como o CAMPO exige (dinheiro/peso/fotos), nunca o texto cru — com realce âmbar + "descartar alteração". */
 function LeituraComPendencia({ texto, motivo, cardId, onDescartar }: {
   texto: string; motivo: string | null; cardId?: string; onDescartar: () => void;
 }) {
@@ -114,44 +111,38 @@ function LeituraComPendencia({ texto, motivo, cardId, onDescartar }: {
     </div>
   );
 }
+/** Formata o valor do RASCUNHO igual ao que a célula editável mostraria (dinheiro/peso/medida em BR, fotos como
+ *  contagem, texto como está) — nunca o valor cru (Minor R6, code-review: "179.9"/caminhos do Storage/`novo:<id>`). */
+function valorRascunhoFormatado(campo: CampoDef, col: ColunaEditavel, r: Rascunho): string {
+  if (col === "fotos_modelo") return textoFotos(r.valores.fotos_modelo.length);
+  const v = r.valores[col];
+  if (campo.tipo === "dinheiro" || campo.tipo === "peso" || campo.tipo === "medida") {
+    return formatarValor(campo.key, v === null || v === undefined ? null : String(v));
+  }
+  const s = String(v ?? "").trim();
+  return s === "" ? "—" : s;
+}
 function sublinhaDe(p: ProdutoLista, indice: number): Sublinha | undefined {
   const l = linhasVariante(p)[indice];
   return l ? p.sublinhas.find((s) => s.varianteKey === l.varianteKey && s.tamanhoKey === l.tamanhoKey) : undefined;
 }
 
-/** SKU da sublinha — mesmas 3 ações da seção Códigos (`CodigosSecao.tsx:245-257`): "Desfazer o SKU digitado"
- *  (`semManualSku`), "manter o meu" (`manterMeuSku`, adota id/rev NOVOS da linha) e "usar o novo" (`semManualSku`,
- *  descarta o manual) em conflito de versão. Input CONTROLADO por chave estável `variante|tamanho` (I6) — nunca
- *  `defaultValue`, então uma relista nunca troca o texto de linha. */
-function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
-  p: ProdutoLista; indice: number; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean;
+/** Parte EDITÁVEL do SKU — só é montada quando `editavel && sub` (checado por `SkuCelula`, sem hooks). Todo hook
+ *  mora aqui, incondicional: separar este componente é o que fecha o Critical do round 2 (C1/R1 — um `useMemo`
+ *  depois de um `return` condicional derrubava a rota a cada Salvar). */
+function SkuCelulaEditavel({ p, r, sub, previa, onAtualizar }: {
+  p: ProdutoLista; r: Rascunho; sub: Sublinha; previa: PreviaSkus | undefined;
   onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
 }) {
-  const sub = sublinhaDe(p, indice);
-  const travadoEstado = p.estado !== "nao_integravel";
-  // M4/Minor (code-review): sem "Tamanho em" definido no card, esse SKU nunca entra na prévia nem no passo 3 do
-  // Salvar (`entradaSkus` devolve null) — a célula não oferece uma edição que nunca grava.
-  const semTamanhoTipo = p.raw.tamanho_tipo === null;
-  const editavel = !travadoEstado && p.gates.sku.ok && !semTamanhoTipo && !salvando && !!sub;
   const [texto, setTexto] = useState<string | null>(null);
-  if (!editavel || !sub) {
-    const motivo = travadoEstado
-      ? (p.estado === "integrado" ? TEXTO_TRAVADO_INTEGRADO : TEXTO_TRAVADO_INTEGRAVEL)
-      : salvando ? TEXTO_SALVANDO
-      : semTamanhoTipo ? "Defina \"Tamanho em\" no card para editar o SKU."
-      : !p.gates.sku.ok ? p.gates.sku.motivo
-      : null;
-    return <Leitura texto={valorCelula(p, "ref_sku", indice)} travado={travadoEstado} info={motivo} />;
-  }
   const linha = linhaSkuDaSublinha(sub);
   const chave = chaveLinhaSku(sub.varianteKey, sub.tamanhoKey);
   const exibido = skuExibido(linha, r.skus);
   const digitado = r.skus.manuais[chave];
   const lp = previa?.matriz.linhas.find((x) => x.variante_key === sub.varianteKey && x.tamanho_key === sub.tamanhoKey);
-  // M2/Minor (code-review): a prévia só conta se pertence à entrada ATUAL do rascunho (compara `previa.entrada`
-  // com a chave calculada de agora) — senão mostra "calculando…" em vez da situação de um plano velho (ex.: "igual"
-  // para um SKU acabado de digitar, herdado do debounce de 300ms). A chave tem que ser EXATAMENTE a que
-  // `usePreviasSkus`/`entradaSkus` (useIntegracao.ts/salvar-integracao.ts) calculam: `r.valores.ref` aparado e
+  // M2/Minor (code-review, round 1): a prévia só conta se pertence à entrada ATUAL do rascunho (compara
+  // `previa.entrada` com a chave calculada de agora) — senão mostra "calculando…" em vez da situação de um plano
+  // velho. A chave tem que ser EXATAMENTE a que `usePreviasSkus`/`entradaSkus` calculam: `r.valores.ref` aparado e
   // `r.tamanhoTipo` do RASCUNHO — nunca `p.raw.*` (o produto salvo), senão a comparação nunca bate.
   const entradaAtual = useMemo(
     () => chaveEntradaPrevia({ ref: String(r.valores.ref ?? "").trim(), tamanhoTipo: r.tamanhoTipo ?? "letra", aGravar: r.skus, virgem: false }),
@@ -163,26 +154,27 @@ function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
   return (
     <div className="flex min-w-[10rem] flex-col gap-1">
       <Input
-        // Input CONTROLADO (I6): o valor vem do estado local `texto` (rascunho de digitação) até o blur confirmar;
-        // sincroniza com `exibido` quando NADA foi digitado ainda nesta sessão de foco (mesmo padrão do `SkuCampo`
-        // do Sheet, `CodigosSecao.tsx:43-45` — mas sem useEffect: o valor derivado evita o flash de um valor velho).
+        // Input CONTROLADO (I6, round 1): o valor vem do estado local `texto` até o blur confirmar; sincroniza com
+        // `exibido` quando nada foi digitado ainda nesta sessão de foco.
         value={texto ?? exibido}
         aria-label={`SKU — ${p.raw.nome} · ${sub.corNome ?? "variante"} · ${sub.tamanho ?? "tamanho"}`}
         className={cn("h-8", digitado && "bg-[var(--tone-warning-bg)]")}
         onChange={(e) => setTexto(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
         onBlur={(e) => {
-          // M1/Minor (code-review): calcula dentro do updater, sobre o `x.skus` MAIS RECENTE (nunca o `r` capturado
-          // no render que criou este handler) — evita perder uma escrita concorrente em `skus`.
+          // R4/Minor (code-review, round 2): valida FORA do updater (só para decidir o toast — updaters devem ser
+          // puros; StrictMode/uma reexecução dobraria o toast). A gravação em si continua dentro do updater, sobre
+          // `x.skus` mais recente (M1/round 1 — nunca o `r` capturado no render que criou este handler).
           const v = e.target.value;
           setTexto(null);
+          const preVerificacao = digitarSku(r.skus, linha, v);
+          if (preVerificacao.erro) {
+            toast.error(preVerificacao.erro);
+            return;
+          }
           onAtualizar((x) => {
             const out = digitarSku(x.skus, linha, v);
-            if (out.erro) {
-              toast.error(out.erro);
-              return x;
-            }
-            return out.aGravar === x.skus ? x : comSkus(x, out.aGravar);
+            return out.erro || out.aGravar === x.skus ? x : comSkus(x, out.aGravar);
           });
         }}
       />
@@ -195,13 +187,18 @@ function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
         {digitado && !sit?.conflitoVersao && (
           <Button type="button" variant="ghost" size="iconSm" aria-label="Desfazer o SKU digitado" title="Desfazer o SKU digitado"
             onClick={() => onAtualizar((x) => comSkus(x, semManualSku(x.skus, chave)))}>
-            ↺
+            <RotateCcw className="h-4 w-4" />
           </Button>
         )}
       </span>
       {sit?.conflitoVersao && (
         <span className="flex flex-wrap gap-2 text-xs">
-          <Button type="button" variant="outline" size="sm" onClick={() => onAtualizar((x) => comSkus(x, manterMeuSku(x.skus, linha)))}>
+          <Button type="button" variant="outline" size="sm"
+            // R3/Important (code-review, round 2): usa a linha da PRÉVIA (`lp`), não a da lista (`linha`) — o
+            // `rev` da lista fica PRESO no valor antigo porque `aplicar_skus_modelo` nunca faz UPDATE em
+            // `modelos`, então o Realtime (que só escuta `modelos`) nunca traria o rev novo aqui. `lp` existe
+            // sempre que `sit` existe (mesma condição acima). Como o Sheet faz em `CodigosSecao.tsx:88`.
+            onClick={() => lp && onAtualizar((x) => comSkus(x, manterMeuSku(x.skus, lp as LinhaPrevia)))}>
             manter o meu
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => onAtualizar((x) => comSkus(x, semManualSku(x.skus, chave)))}>
@@ -211,6 +208,31 @@ function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
       )}
     </div>
   );
+}
+
+/** SKU da sublinha — mesmas 3 ações da seção Códigos (`CodigosSecao.tsx:245-257`): "Desfazer o SKU digitado",
+ *  "manter o meu"/"usar o novo" em conflito de versão. SEM hooks próprios (C1/round 2): só decide se monta
+ *  `SkuCelulaEditavel` (que concentra todo hook, incondicional) ou a leitura. */
+function SkuCelula({ p, indice, r, previa, salvando, onAtualizar }: {
+  p: ProdutoLista; indice: number; r: Rascunho; previa: PreviaSkus | undefined; salvando: boolean;
+  onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
+}) {
+  const sub = sublinhaDe(p, indice);
+  const travadoEstado = p.estado !== "nao_integravel";
+  // M4/Minor (code-review, round 1): sem "Tamanho em" definido no card, esse SKU nunca entra na prévia nem no
+  // passo 3 do Salvar (`entradaSkus` devolve null) — a célula não oferece uma edição que nunca grava.
+  const semTamanhoTipo = p.raw.tamanho_tipo === null;
+  const editavel = !travadoEstado && p.gates.sku.ok && !semTamanhoTipo && !salvando && !!sub;
+  if (editavel && sub) {
+    return <SkuCelulaEditavel p={p} r={r} sub={sub} previa={previa} onAtualizar={onAtualizar} />;
+  }
+  const motivo = travadoEstado
+    ? (p.estado === "integrado" ? TEXTO_TRAVADO_INTEGRADO : TEXTO_TRAVADO_INTEGRAVEL)
+    : salvando ? TEXTO_SALVANDO
+    : semTamanhoTipo ? "Defina \"Tamanho em\" no card para editar o SKU."
+    : !p.gates.sku.ok ? p.gates.sku.motivo
+    : null;
+  return <Leitura texto={valorCelula(p, "ref_sku", indice)} travado={travadoEstado} info={motivo} />;
 }
 
 function CelulaSublinha({ campo, p, indice, r, previa, salvando, onAtualizar }: {
@@ -236,13 +258,9 @@ const TIMEOUT_LOJA_MS = 8000;
 
 /** Célula do Título (produto, `indice===null`): controlador — NÃO usa o `editar` genérico de `rascunho.ts`.
  *  `editarTitulo`/`sairTitulo` precisam do nome da loja a cada chamada (nunca guardado em estado, senão ficaria
- *  stale). Enquanto `nomeLoja` é null (loading), a célula fica DESABILITADA com um hint curto. Minor (code-review,
- *  M6): se a query nunca resolver (erro de rede, sem linha em `tenants`), `disabled` para sempre travaria o campo
- *  pra sempre; depois de `TIMEOUT_LOJA_MS` sem resolver, a célula libera a edição (sem a regra de colapso
- *  automático — o texto digitado fica exatamente como está) e avisa com um hint. */
-function CelulaTitulo({ p, r, salvando, modo, onAtualizar }: {
-  p: ProdutoLista; r: Rascunho; salvando: boolean;
-  modo: ReturnType<typeof modoCelula>; onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
+ *  stale). Enquanto `nomeLoja` é null (loading), a célula fica DESABILITADA com um hint curto. */
+function CelulaTitulo({ campo, p, r, salvando, onAtualizar }: {
+  campo: CampoDef; p: ProdutoLista; r: Rascunho; salvando: boolean; onAtualizar: (f: (r: Rascunho) => Rascunho) => void;
 }) {
   const { nome: nomeLoja } = useTenantBranding();
   const [travadoPorTimeout, setTravadoPorTimeout] = useState(false);
@@ -254,16 +272,22 @@ function CelulaTitulo({ p, r, salvando, modo, onAtualizar }: {
   const aviso = avisoRetrato(p, "titulo");
   const col: ColunaEditavel = "titulo_pagina";
   const pendente = colunasAlteradas(r).includes(col);
-  if (modo.tipo === "leitura") {
+  // Fix round 2 (R2): a trava é decidida SÓ por `travaOuGate` (nunca por `salvando`) — "Salvando…" não vira
+  // `LeituraComPendencia`. Usa o `campo` de verdade (o mesmo `CampoDef` de "titulo" que `ProdutosTabela` já
+  // resolveu via `CAMPO_BY_KEY`), não um objeto reconstruído à mão.
+  const trava = travaOuGate(campo, p);
+  if (trava.tipo === "leitura") {
     if (pendente) {
       return (
-        <LeituraComPendencia texto={String(r.valores.titulo_pagina ?? "—")} motivo={modo.motivo}
+        <LeituraComPendencia texto={tituloExibido(r.valores.titulo_pagina, "—")} motivo={trava.motivo}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
       );
     }
-    const automatico = p.raw.titulo_pagina === null;
+    // Minor m5/M5(c) (code-review): o selo "automático" só aparece quando a linha mostra o VIVO (não o retrato) —
+    // uma linha travada mostra o retrato, que pode discordar do `raw` vivo.
+    const automatico = !usaRetrato(p) && p.raw.titulo_pagina === null;
     return (
-      <Leitura texto={valorCelula(p, "titulo", null)} info={modo.motivo} aviso={aviso} travado={modo.travado}
+      <Leitura texto={valorCelula(p, "titulo", null)} info={trava.motivo} aviso={aviso} travado={trava.travado}
         selo={automatico ? <StatusBadge tone="neutral" className="normal-case tracking-normal">automático</StatusBadge> : null} />
     );
   }
@@ -271,12 +295,11 @@ function CelulaTitulo({ p, r, salvando, modo, onAtualizar }: {
   // segurança de `editarTitulo`/`sairTitulo` para `nomeLoja===null`: nunca colapsa o digitado pra NULL nem confunde
   // "Nome" puro com automático).
   const carregandoLoja = nomeLoja === null && !travadoPorTimeout;
-  const alterada = pendente;
   const conflito = r.conflitos.find((c) => c.path === col);
   const automatico = r.valores.titulo_pagina === null;
   const calculado = nomeLoja === null ? "" : tituloCalculadoDoRascunho(r, nomeLoja);
   const exibido = tituloExibido(r.valores.titulo_pagina, calculado);
-  const realce = cn(alterada && "bg-[var(--tone-warning-bg)]", conflito && "ring-2 ring-[var(--tone-warning-fg)]");
+  const realce = cn(pendente && "bg-[var(--tone-warning-bg)]", conflito && "ring-2 ring-[var(--tone-warning-fg)]");
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-center gap-1">
@@ -324,26 +347,33 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   if (indice !== null) {
     return <CelulaSublinha campo={campo} p={p} indice={indice} r={r} previa={previa} salvando={salvando} onAtualizar={onAtualizar} />;
   }
-  const modo = modoCelula(campo, p, salvando);
-  const travado = modo.tipo === "leitura" && modo.travado;
+  // Fix round 2 (R2): `trava` decide SÓ trava/gate (nunca `salvando`) — é o que governa `LeituraComPendencia`.
+  // Quando a trava/gate está aberta, `salvando` é tratado localmente por cada controle (`disabled={salvando}`),
+  // nunca reaproveitando `modoCelula` para essa parte (evitaria a UI de pendência aparecer por engano — R2).
+  const trava = travaOuGate(campo, p);
   const aviso = avisoRetrato(p, campo.key);
   const selo = campo.key === "nome" && usaRetrato(p) ? <StatusBadge tone="neutral">retrato</StatusBadge> : null;
   if (campo.key === "titulo") {
-    return <CelulaTitulo p={p} r={r} salvando={salvando} modo={modo} onAtualizar={onAtualizar} />;
+    return <CelulaTitulo campo={campo} p={p} r={r} salvando={salvando} onAtualizar={onAtualizar} />;
   }
+  // Fix round 2 (m7/R7 — reviews): linha travada (integrável/integrado) mostra o CADEADO — mas até agora sem
+  // nenhum texto explicando por quê nas células "somente_leitura por natureza" (custo/cor/tamanho) e na metatag.
+  // Quando travado, o "i" prioriza o motivo da TRAVA (TEXTO_TRAVADO_*) sobre a info "natural" do campo (ex.: "Só
+  // leitura — vem da cor do tecido…") — a trava é a informação mais relevante nesse estado.
+  const motivoTrava = trava.tipo === "leitura" && trava.travado ? trava.motivo : null;
+  const travado = trava.tipo === "leitura" && trava.travado;
   if (campo.tipo === "somente_leitura") {
-    const info = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
-    return <Leitura texto={valorCelula(p, campo.key, null)} info={info} aviso={aviso} travado={travado} cardId={p.modeloId} />;
+    const infoNatural = campo.key === "preco_custo" ? infoCusto(p.origem) : (campo.info ?? null);
+    return <Leitura texto={valorCelula(p, campo.key, null)} info={motivoTrava ?? infoNatural} aviso={aviso} travado={travado} cardId={p.modeloId} />;
   }
   if (campo.key === "metatag") {
     const texto = p.estado === "nao_integravel" ? (String(r.valores.descricao_produto ?? "").trim() || "—") : valorCelula(p, "metatag", null);
-    return <Leitura texto={texto} info={campo.info ?? null} aviso={aviso} travado={travado} />;
+    return <Leitura texto={texto} info={motivoTrava ?? (campo.info ?? null)} aviso={aviso} travado={travado} />;
   }
   if (campo.key === "keywords") {
     // Minor 4 (task review) — Keywords é da LOJA (tenant_config.keywords), não do produto: o gate do servidor
     // (`_integracao_gates`, chave `keywords`) usa `v_int` (permissão de ver a Integração), NUNCA o `estado` da
-    // linha — então "editar" fica disponível em QUALQUER linha, mesmo travada (senão, com o filtro "Integrados",
-    // Keywords ficaria inalcançável: a célula é o único ponto de entrada até a T12b trazer um de fora das linhas).
+    // linha — então "editar" fica disponível em QUALQUER linha, mesmo travada.
     const g = p.gates.keywords;
     const pode = g.ok && !salvando;
     return (
@@ -360,26 +390,29 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
   }
   const col = campo.coluna as ColunaEditavel;
   const pendente = colunasAlteradas(r).includes(col);
-  if (modo.tipo === "leitura") {
-    // I3/Important (code-review): uma edição pendente que um gate FECHOU depois (ex.: REF travada pelo envio à
-    // Explosão enquanto a pessoa ainda tinha o rascunho aberto) não pode sumir da tela — senão o Salvar falha
-    // 42501 no lote inteiro sem forma de desfazer nesta célula.
+  if (trava.tipo === "leitura") {
+    // I3/Important (code-review, round 1) + R2 (round 2): uma edição pendente que um gate FECHOU depois (ex.: REF
+    // travada pelo envio à Explosão) não pode sumir da tela — mostra o RASCUNHO formatado + "descartar alteração".
+    // Isto NUNCA olha `salvando` (round 2) — só a trava/gate real.
     if (pendente) {
       return (
-        <LeituraComPendencia texto={String(r.valores[col] ?? "—")} motivo={modo.motivo} cardId={p.modeloId}
+        <LeituraComPendencia texto={valorRascunhoFormatado(campo, col, r)} motivo={trava.motivo} cardId={p.modeloId}
           onDescartar={() => onAtualizar((x) => usarNovo(x, col))} />
       );
     }
     // Preço anterior automático (controlador): raw NULL = o servidor já grava o valor automático em vivo/retrato
-    // (`valorCelula` lê pronto); aqui só soma o badge "automático", sem mexer no texto.
-    const automaticoLeitura = campo.key === "preco_anterior" && p.raw.preco_anterior === null;
+    // (`valorCelula` lê pronto); aqui só soma o badge "automático" quando a linha mostra o VIVO (m5/M5(c) — não
+    // discordar do retrato numa linha travada).
+    const automaticoLeitura = campo.key === "preco_anterior" && !usaRetrato(p) && p.raw.preco_anterior === null;
     const seloComAutomatico = automaticoLeitura
       ? <StatusBadge tone="neutral" className="normal-case tracking-normal">automático</StatusBadge>
       : selo;
     return (
-      <Leitura texto={valorCelula(p, campo.key, null)} info={modo.motivo} aviso={aviso} travado={modo.travado} selo={seloComAutomatico} />
+      <Leitura texto={valorCelula(p, campo.key, null)} info={trava.motivo} aviso={aviso} travado={trava.travado} selo={seloComAutomatico} />
     );
   }
+  // A partir daqui, a trava/gate está ABERTA — resta só o `disabled={salvando}` de cada controle abaixo (mostra o
+  // valor do RASCUNHO desabilitado durante o Salvar, nunca a UI de pendência).
   const alterada = pendente;
   const conflito = r.conflitos.find((c) => c.path === col);
   const info = infoEdicao(campo, p);
@@ -394,20 +427,21 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
       </Button>
     );
   } else if (campo.tipo === "dinheiro") {
-    // I1/Important (peso/medidas usam esse mesmo ramo pra dinheiro): MoneyInput já era usado aqui — placeholder
-    // troca para o automático quando "Preço anterior" está em modo automático (Minor 1/M5, task review).
+    // R1-2/Important (task review, round 2): o selo "automático" VOLTOU — some junto com o placeholder do
+    // automático (não troca um pelo outro; o header sempre pediu os dois).
     const automatico = campo.key === "preco_anterior" && r.valores.preco_anterior === null;
     const placeholder = automatico ? valorCelula(p, "preco_anterior", null).replace(/^R\$\s*/, "") : "0,00";
     controle = (
-      <MoneyInput fixedDecimals aria-label={ariaLabel} placeholder={placeholder} disabled={salvando}
-        className={cn("h-8 w-28 text-right tabular-nums", realce)}
-        value={(r.valores[col] as number | null) ?? ""}
-        onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} />
+      <div className="flex items-center gap-1">
+        <MoneyInput fixedDecimals aria-label={ariaLabel} placeholder={placeholder} disabled={salvando}
+          className={cn("h-8 w-28 text-right tabular-nums", realce)}
+          value={(r.valores[col] as number | null) ?? ""}
+          onChange={(e) => set(e.target.value === "" ? null : Number(e.target.value))} />
+        {automatico && <StatusBadge tone="neutral" className="shrink-0 normal-case tracking-normal">automático</StatusBadge>}
+      </div>
     );
   } else if (campo.tipo === "peso" || campo.tipo === "medida") {
-    // I1/Important (code-review): MoneyInput com casas fixas (3 no peso, 2 nas medidas), igual ao card
-    // (`InfoGeraisSecao.tsx:43-50`) — vazio emite "" (`set` converte pra NULL, nunca 0) e negativo é bloqueado pela
-    // própria máscara do MoneyInput (nunca chega a `payloadItem`, então nunca aborta o lote inteiro no servidor).
+    // I1/Important (code-review, round 1): MoneyInput com casas fixas (3 no peso, 2 nas medidas), igual ao card.
     const casas = campo.tipo === "peso" ? 3 : 2;
     controle = (
       <MoneyInput fixedDecimals decimals={casas} aria-label={ariaLabel} placeholder={casas === 3 ? "0,000" : "0,00"} disabled={salvando}
@@ -421,8 +455,7 @@ export function CelulaCampo({ campo, produto: p, indice, rascunho: r, previa, sa
         value={String(r.valores[col] ?? "")} onChange={(e) => set(e.target.value)} />
     );
   } else if (campo.key === "ncm") {
-    // I5/Important (code-review): mesmo filtro do card (`filtrarNcm`, helpers.ts) — só dígitos e pontos, vírgula
-    // vira ponto, até 10 caracteres. Sem isso, texto livre gravava e ia pra API.
+    // I5/Important (code-review, round 1): mesmo filtro do card (`filtrarNcm`, helpers.ts).
     controle = (
       <Input aria-label={ariaLabel} inputMode="decimal" placeholder="0000.00.00" disabled={salvando}
         className={cn("h-8 min-w-[9rem]", realce)}
