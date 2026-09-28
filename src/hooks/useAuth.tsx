@@ -105,15 +105,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Admin/super_admin/tenant_admin always bypass page restrictions.
+  // Admin/super_admin/tenant_admin always bypass page restrictions — EXCEPT the Integração
+  // page (P-107 A, set/2026): the owner's rule is that even a tenant_admin must NOT see/use
+  // it unless the SUPER ADMIN grants the `integracao` permission to that specific user. Papéis
+  // never carry it. So `integracao`/`integracao:*` skip the admin bypass entirely and always
+  // fall through to the explicit `permissions` check — only isSuperAdmin passes directly.
   // Memoizados p/ não recriar o value do contexto a cada render (evita re-render de
   // toda a árvore autenticada que consome useAuth).
   const canView = useCallback((pagina: string) => {
-    if (isSuperAdmin || isAdmin || isTenantAdmin) return true;
+    const isIntegracao = pagina === "integracao" || pagina.startsWith("integracao:");
+    if (isSuperAdmin) return true;
+    if (!isIntegracao && (isAdmin || isTenantAdmin)) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_ver);
   }, [isSuperAdmin, isAdmin, isTenantAdmin, permissions]);
   const canEdit = useCallback((pagina: string) => {
-    if (isSuperAdmin || isAdmin || isTenantAdmin) return true;
+    const isIntegracao = pagina === "integracao" || pagina.startsWith("integracao:");
+    if (isSuperAdmin) return true;
+    if (!isIntegracao && (isAdmin || isTenantAdmin)) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_editar);
   }, [isSuperAdmin, isAdmin, isTenantAdmin, permissions]);
 

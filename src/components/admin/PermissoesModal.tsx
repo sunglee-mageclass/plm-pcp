@@ -29,6 +29,20 @@ export type PermissoesModalProps = {
 
 const emptyPerm = { pode_ver: false, pode_editar: false };
 
+// P-107 A (set/2026, D7-tela): a Integração só aparece/edita com a permissão dada PELO SUPER
+// ADMIN no próprio usuário. A linha "Integração" no editor de USUÁRIO só aparece quando quem
+// está editando é o super admin (mode="super"); no editor de PAPEL ela NUNCA aparece (papéis
+// nunca carregam `integracao` — o banco também ignora essa escrita em silêncio, mas o front
+// não deve nem oferecer/enviar). `catalogoSemIntegracao` filtra o módulo inteiro fora da grade.
+const catalogoSemIntegracao = PAGES_CATALOG.filter((m) => m.module !== "integracao");
+const paginasSemIntegracao = (keys: readonly string[]) => keys.filter((k) => k !== "integracao" && !k.startsWith("integracao:"));
+// Pré-computado UMA vez (não a cada render) — `ALL_PAGE_KEYS_SEM_INTEGRACAO` é usado como
+// dependência de useMemo/useEffect; uma nova array a cada render (ex.: chamar
+// `paginasSemIntegracao(ALL_PAGE_KEYS)` direto no corpo do componente) muda de referência
+// sempre, invalidando o memo de `initial` em todo render e disparando um loop de
+// `useEffect(() => setState(initial), [initial])`.
+const ALL_PAGE_KEYS_SEM_INTEGRACAO = paginasSemIntegracao(ALL_PAGE_KEYS);
+
 export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const qc = useQueryClient();
   // Admins (admin/tenant_admin/super_admin) furam user_can_view → têm acesso total.
@@ -36,6 +50,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const isAdminRole = ["admin", "tenant_admin", "super_admin"].includes(user.role ?? "");
   const callTenant = useServerFn(savePermissions);
   const callSuper = useServerFn(savePermissionsAsSuperAdmin);
+  // P-107 A: quem está EDITANDO é o super admin só quando mode="super" (rota admin/usuarios.tsx);
+  // mode="tenant" é sempre o admin da loja (admin/usuarios-loja.tsx). A linha "Integração" e seu
+  // módulo só entram na grade/estado/payload para o super admin.
+  const viewerESuperAdmin = mode === "super";
+  const catalogo = viewerESuperAdmin ? PAGES_CATALOG : catalogoSemIntegracao;
+  const pageKeys = viewerESuperAdmin ? ALL_PAGE_KEYS : ALL_PAGE_KEYS_SEM_INTEGRACAO;
 
   const { data: existing, isLoading } = useQuery({
     queryKey: ["perms", user.id],
@@ -72,7 +92,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
 
   const initial = useMemo<PermState>(() => {
     const base: PermState = {};
-    for (const key of ALL_PAGE_KEYS) {
+    for (const key of pageKeys) {
       // #4d: parte do PAPEL (se houver), senão do default do perfil. As exceções do usuário
       // (user_permissions) sobrepõem — inclusive exceção NEGATIVA (linha com ver=false que o
       // papel concedia). Uma página SEM linha de exceção herda o papel.
@@ -82,11 +102,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
     }
     if (!isAdminRole) {
       for (const p of existing ?? []) {
+        if (!viewerESuperAdmin && (p.pagina === "integracao" || p.pagina.startsWith("integracao:"))) continue;
         base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
       }
     }
     return base;
-  }, [existing, isAdminRole, temPapel, papelBase]);
+  }, [existing, isAdminRole, temPapel, papelBase, pageKeys, viewerESuperAdmin]);
 
   const [state, setState] = useState<PermState>(initial);
   const [submitting, setSubmitting] = useState(false);
@@ -108,7 +129,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
 
   const toggleAllInModule = (moduleKey: string, field: "pode_ver" | "pode_editar", v: boolean) => {
     setState((s) => {
-      const mod = PAGES_CATALOG.find((m) => m.module === moduleKey);
+      const mod = catalogo.find((m) => m.module === moduleKey);
       if (!mod) return s;
       const next = { ...s };
       for (const p of mod.pages) {
@@ -130,7 +151,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const voltarAoPapel = () => {
     if (!papelBase) return;
     const next: PermState = {};
-    for (const key of ALL_PAGE_KEYS) next[key] = { ...(papelBase[key] ?? emptyPerm) };
+    for (const key of pageKeys) next[key] = { ...(papelBase[key] ?? emptyPerm) };
     setState(next);
   };
 
@@ -143,7 +164,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const onSave = async () => {
     setSubmitting(true);
     try {
-      const perms = ALL_PAGE_KEYS
+      // P-107 A: `pageKeys` já exclui `integracao*` quando o viewer não é super admin — o
+      // payload nunca leva a permissão de Integração nesse caso (o banco a ignoraria mesmo
+      // assim, mas o front não deve nem tentar enviar).
+      const perms = pageKeys
         .map((k) => ({ pagina: k, ...state[k] }))
         .filter((p) => p.pode_ver || p.pode_editar);
       if (mode === "super") {
@@ -206,7 +230,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
-          PAGES_CATALOG.map((m) => {
+          catalogo.map((m) => {
             const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
             const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
             return (
@@ -334,8 +358,14 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
 
   const initial = useMemo<PermState>(() => {
     const base: PermState = {};
-    for (const key of ALL_PAGE_KEYS) base[key] = { ...emptyPerm };
-    for (const p of existing ?? []) base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
+    // P-107 A: papel NUNCA carrega `integracao` — nem no estado local, nem numa linha
+    // pré-existente vinda do banco (defesa: o banco já ignora essa escrita em silêncio, mas
+    // uma linha legada não deveria nem aparecer marcada aqui).
+    for (const key of ALL_PAGE_KEYS_SEM_INTEGRACAO) base[key] = { ...emptyPerm };
+    for (const p of existing ?? []) {
+      if (p.pagina === "integracao" || p.pagina.startsWith("integracao:")) continue;
+      base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
+    }
     return base;
   }, [existing]);
 
@@ -360,7 +390,7 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   };
   const toggleAllInModule = (moduleKey: string, field: "pode_ver" | "pode_editar", v: boolean) => {
     setState((s) => {
-      const mod = PAGES_CATALOG.find((m) => m.module === moduleKey);
+      const mod = catalogoSemIntegracao.find((m) => m.module === moduleKey);
       if (!mod) return s;
       const next = { ...s };
       for (const p of mod.pages) {
@@ -379,7 +409,9 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
   const onSave = async () => {
     setSubmitting(true);
     try {
-      const perms = ALL_PAGE_KEYS
+      // P-107 A: papel nunca envia `integracao*` — o banco ignoraria mesmo assim, mas o
+      // front não deve nem tentar.
+      const perms = ALL_PAGE_KEYS_SEM_INTEGRACAO
         .map((k) => ({ pagina: k, ...state[k] }))
         .filter((p) => p.pode_ver || p.pode_editar);
       await callSalvar({
@@ -441,7 +473,7 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
           {isLoading && papel.id ? (
             <p className="text-sm text-muted-foreground">Carregando…</p>
           ) : (
-            PAGES_CATALOG.map((m) => {
+            catalogoSemIntegracao.map((m) => {
               const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
               const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
               return (

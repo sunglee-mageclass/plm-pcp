@@ -113,7 +113,12 @@ export function AppSidebar() {
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.gate ?? m.module))
     .filter((m) =>
-      isAdmin || isSuperAdmin || isTenantAdmin
+      // P-107 A: o módulo "integracao" NUNCA usa o bypass de admin — mesmo tenant_admin
+      // precisa da permissão explícita (canView já reflete a regra: só super admin passa
+      // direto). Os demais módulos seguem o bypass de sempre.
+      m.module === "integracao"
+        ? m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && pageInProfile(p, profile) && canView(p.key))
+        : isAdmin || isSuperAdmin || isTenantAdmin
         ? true
         // Espelha o filtro dos BLOCOS do hub: página real (não-soEdicao), gate de página
         // ligado, no perfil da loja — senão o link pousa num hub vazio (ex.: usuário só
@@ -126,7 +131,9 @@ export function AppSidebar() {
         // Gate de PÁGINA (ex.: produto_acabado dentro de criacao/entrada_saida): além do
         // gate do módulo (já filtrado acima), a própria página pode exigir outra flag.
         .filter((p) => !p.gate || isModuleEnabled(p.gate))
-        .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
+        // P-107 A: a key "integracao" nunca usa o bypass de admin — só canView (que já só
+        // libera super admin direto, ou usuário com a permissão explícita).
+        .filter((p) => PAGE_URLS[p.key] && (p.key === "integracao" ? canView(p.key) : isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: labelFor(p.key, p.label), url: PAGE_URLS[p.key] }));
       return {
         url: m.basePath,
