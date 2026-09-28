@@ -111,7 +111,12 @@ export function somaPecas(p: Pick<ProdutoDraft, "variantes">): number {
  *  como snapshot do dirty-guard, pra não disparar "não salvo" por causa de dado read-only que
  *  muda no refetch. nome/grupo_id/categoria_id/subcategoria1_id/subcategoria2_id entraram
  *  quando o card ganhou o bloco "Identidade" editável (ProdutoCard) — sem isto aqui, editar
- *  esses campos não acendia o UnsavedIndicator nem habilitava o botão Salvar. */
+ *  esses campos não acendia o UnsavedIndicator nem habilitava o botão Salvar.
+ *  `foto_url` (Fix round 2, N-4): faltava aqui — sem ele, `touched` (diff de `chaveDirty` vs a
+ *  base, usado por `resolverTravaAcabado`) NUNCA continha "foto_url", então uma foto trocada antes
+ *  do lock chegar era revertida em SILÊNCIO (sem o toast PT que o brief exige) — o usuário perdia
+ *  o upload sem nenhum aviso. (`ref` NÃO entra — é gerado pelo trigger `fn_produto_acabado_ref`,
+ *  nunca editável nesta tela — ver `ProdutoCard.tsx`, só exibido, nunca um `<Input>`.) */
 export function chaveDirty(p: ProdutoDraft) {
   return {
     id: p.id,
@@ -124,6 +129,7 @@ export function chaveDirty(p: ProdutoDraft) {
     representante_id: p.representante_id,
     ref_fornecedor: p.ref_fornecedor,
     composicao: p.composicao,
+    foto_url: p.foto_url,
     grade_proporcao: p.grade_proporcao,
     qtd_total: p.qtd_total,
     valor_unitario: p.valor_unitario,
@@ -252,16 +258,26 @@ export const CAMPOS_TRAVAVEIS_POR_COLUNA: Record<string, readonly CampoTravavel[
   fotos_modelo: ["foto_url"],
   preco_venda: ["preco_varejo_fixo", "markup_varejo"],
 };
-export type AvisoTrava = { campo: CampoTravavel; rotulo: string };
+export type AvisoTrava = { campo: CampoTravavel | "variantes"; rotulo: string };
 export type ResolucaoTravaProduto = {
   paraServidor: Partial<Record<CampoTravavel, unknown>>;
+  /** N-1 (Fix round 2) — espelha `resolverTravaImportado`: revert do array INTEIRO de variantes
+   *  quando o conjunto de cores divergiu do servidor e a trava (SEMPRE em `variantes`) está ativa. */
+  variantesParaServidor: VarianteDraft[] | null;
   avisos: AvisoTrava[];
 };
 const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
   nome: "Nome", ref: "REF", foto_url: "Foto", preco_varejo_fixo: "Valor varejo", markup_varejo: "Markup Varejo",
 };
+/** Conjunto DISTINCT de "cor_id|cor_apelido_id" ordenado — espelha `fn_integracao_trava_variantes`
+ *  (m4:253-318) o bastante pra decidir SE o conjunto mudou (mesma função de
+ *  `produto-importado/shared.ts`, duplicada aqui por PA/PI não compartilharem `VarianteDraft`). */
+function coresDistintasPA(variantes: readonly Pick<VarianteDraft, "cor_id" | "cor_apelido_id">[]): string[] {
+  return [...new Set(variantes.map((v) => `${v.cor_id ?? ""}|${v.cor_apelido_id ?? ""}`))].sort();
+}
 /** PURA — espelha `resolverTravaImportado` (produto-importado/shared.ts): reverte campos travados
- *  ao valor do servidor (incondicional) e devolve avisos PT só para os tocados que divergiam. */
+ *  ao valor do servidor (incondicional), reverte `variantes` INTEIRO quando as cores divergem com a
+ *  trava ativa (N-1, Fix round 2), e devolve avisos PT só para os tocados que divergiam. */
 export function resolverTravaAcabado(o: {
   enviado: ProdutoDraft;
   servidor: ProdutoDraft | null | undefined;
@@ -269,7 +285,7 @@ export function resolverTravaAcabado(o: {
   touched: ReadonlySet<string>;
 }): ResolucaoTravaProduto {
   const { enviado, servidor, travaAtual, touched } = o;
-  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, avisos: [] };
+  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, variantesParaServidor: null, avisos: [] };
   const paraServidor: Partial<Record<CampoTravavel, unknown>> = {};
   const avisos: AvisoTrava[] = [];
   const camposJaVistos = new Set<CampoTravavel>();
@@ -289,7 +305,16 @@ export function resolverTravaAcabado(o: {
       avisos.push({ campo, rotulo: ROTULO_CAMPO_TRAVADO[campo] });
     }
   }
-  return { paraServidor, avisos };
+  let variantesParaServidor: VarianteDraft[] | null = null;
+  if (travaAtual.has("variantes")) {
+    const coresEnviado = coresDistintasPA(enviado.variantes);
+    const coresServidor = coresDistintasPA(servidor.variantes);
+    if (JSON.stringify(coresEnviado) !== JSON.stringify(coresServidor)) {
+      variantesParaServidor = servidor.variantes;
+      if (touched.has("variantes")) avisos.push({ campo: "variantes", rotulo: "Cores" });
+    }
+  }
+  return { paraServidor, variantesParaServidor, avisos };
 }
 export function toastTravaAcabado(avisos: readonly AvisoTrava[]): string {
   const rotulos = avisos.map((a) => a.rotulo);
@@ -298,8 +323,12 @@ export function toastTravaAcabado(avisos: readonly AvisoTrava[]): string {
   return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
 }
 export function aplicarResolucaoTravaAcabado(draft: ProdutoDraft, resolucao: ResolucaoTravaProduto): ProdutoDraft {
-  if (Object.keys(resolucao.paraServidor).length === 0) return draft;
-  return { ...draft, ...resolucao.paraServidor } as ProdutoDraft;
+  if (Object.keys(resolucao.paraServidor).length === 0 && !resolucao.variantesParaServidor) return draft;
+  return {
+    ...draft,
+    ...resolucao.paraServidor,
+    ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}),
+  } as ProdutoDraft;
 }
 
 export function erroValidacao(mensagem: string): Error {
@@ -310,4 +339,25 @@ export function erroValidacao(mensagem: string): Error {
 
 export function fmtMoney(v: number | null | undefined): string {
   return brl(Number(v) || 0);
+}
+
+/** N-3 (Fix round 2, Integração) — PURA: qual `markup_varejo` o blur do Markup ATACADO deve
+ *  reenviar pra `salvar_markups_produto_acabado` (a RPC grava os 2 campos SEMPRE, sem "só toca
+ *  1" — `_salvar_markups_produto_acabado_core`). Sem varejo travado, o draft local manda (como
+ *  sempre). COM o varejo travado, o draft pode ter divergido do servidor desde a marcação (ex.:
+ *  um blur anterior que falhou) — reenviar o draft reescreveria o canal travado em SILÊNCIO (a
+ *  trigger de trava só checa `preco_varejo_fixo`, nunca `markup_varejo` — D12 deixa markup passar
+ *  sempre); manda o markup do SERVIDOR (`markupVarejoServidor`) nesse caso. `null`/`undefined` em
+ *  `markupVarejoServidor === undefined` (prop AUSENTE — ex.: uso legado do `ProdutoCard` sem o
+ *  prop novo) cai de volta no draft — melhor um valor potencialmente divergente do que travar a
+ *  UI numa ausência de dado. `null` é um valor REAL do servidor (canal usa preço fixo, sem
+ *  markup) — nesse caso manda `null`, nunca o draft (distinção `null` vs `undefined` proposital:
+ *  `??` sozinho trataria os dois igual e mandaria o draft errado quando o servidor tem `null`). */
+export function markupVarejoParaBlurAtacado(o: {
+  travaVarejo: boolean;
+  markupVarejoDraft: number | null;
+  markupVarejoServidor: number | null | undefined;
+}): number | null {
+  if (!o.travaVarejo) return o.markupVarejoDraft;
+  return o.markupVarejoServidor === undefined ? o.markupVarejoDraft : o.markupVarejoServidor;
 }

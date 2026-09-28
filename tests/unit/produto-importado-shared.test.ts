@@ -6,19 +6,56 @@
 // (via as funções puras que eles chamam), e o I-1 (trava nunca reenvia um campo editado antes do lock).
 // PURAS + 1 RENDER real (react-dom/client + happy-dom) provando que `colunasTravadas` desabilita os campos
 // certos na árvore DOM — mesma técnica de `tests/unit/integracao-trava-tela.test.ts` (InfoGeraisSecao).
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createElement, useMemo } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import * as queryModule from "@tanstack/react-query";
 import {
   emptyDraft, montarPayload, precosDoDraft, chaveDirty,
   resolverTravaImportado, aplicarResolucaoTrava, toastTravaImportado, acoplarParVarejo, acoplarParAtacado,
+  normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
   markupVarejoExibido, markupAtacadoExibido,
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
+import {
+  resolverTravaAcabado, aplicarResolucaoTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
+  type ProdutoDraft,
+} from "@/components/produto-acabado/shared";
 import { colunasTravadas, lerEstados } from "@/lib/integracao/trava";
 
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// N-5 (Fix round 2) — RENDER real que MONTA `ProdutoImportadoCard` de verdade (não um harness que
+// reimplementa a lógica de disabled — a crítica do re-review ao bloco RENDER do Fix round 1).
+// `ProdutoImportadoCard` puxa `useNavigate` (@tanstack/react-router, precisa de um router de
+// verdade), `useAuth` (precisa de um `AuthProvider`), `useMaoObraModelo`/`useSignedUrl` (TanStack
+// Query + Supabase) — mockadas aqui como infraestrutura (não são a lógica sob teste). O hook
+// `useIntegracaoEstado` TAMBÉM é mockado — controlado por `mockEstado.current` — porque o valor
+// real vem de uma RPC via rede (`supabase.rpc("integracao_estado_modelos")`); mockar aqui é
+// exatamente o padrão que o resto da suíte já usa pra RPC (`integracao-trava-tela.test.ts`, topo).
+// `colunasTravadas` (puro, de `@/lib/integracao/trava`) SEGUE REAL — é ele quem decide o Set
+// `travaIntegracao` que o card lê pra cada `disabled={...}`; a única coisa mockada é "qual é o
+// ESTADO do produto", não "o que a trava faz com esse estado". O card em si (JSX, `InfoHover`,
+// `disabled`) é 100% código de produção, sem substituto — é a lacuna que o re-review apontou.
+const mockEstado = vi.hoisted(() => ({ current: null as null | { estado: "integravel" | "integrado"; campos: string[]; marcadoEm: string | null; integradoEm: string | null } }));
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return { ...actual, useNavigate: () => () => {} };
+});
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => ({ canView: () => true, canEdit: () => true, user: { id: "u1" }, session: null, loading: false }),
+}));
+vi.mock("@/hooks/useSignedUrl", () => ({ useSignedUrl: () => null }));
+vi.mock("@/hooks/useMaoObraModelo", () => ({
+  useMaoObraModelo: () => ({ linhas: [], catsServico: [], setLinhas: () => {}, aprovar: { mutate: () => {}, isPending: false }, linhasPersistidas: [], dirty: false, total: 0, salvar: { mutate: () => {}, isPending: false } }),
+}));
+vi.mock("@/hooks/useIntegracaoEstado", () => ({ useIntegracaoEstado: () => mockEstado.current }));
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Import DEPOIS dos `vi.mock` acima (hoisted pelo Vitest de qualquer forma, mas mantém a ordem de
+// leitura clara) — o card de verdade, produção, sem substituto.
+const { ProdutoImportadoCard } = await import("@/components/produto-importado/ProdutoImportadoCard");
 
 function montar(el: ReturnType<typeof createElement>): { container: HTMLElement; unmount: () => void } {
   const container = document.createElement("div");
@@ -190,29 +227,55 @@ describe("resolverTravaImportado — I-1 (ruling da revisão): nunca reenviar um
 });
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
-// M-3 — acoplarParVarejo/acoplarParAtacado: par tratado como unidade no merge
+// M-3/N-2 — acoplarParVarejo/acoplarParAtacado: par tratado como unidade no merge, com meu/dele
+// construídos das fontes CORRETAS (N-2, Fix round 2 — regressão do Fix round 1: o acoplamento
+// original usava o valor JÁ ADOTADO pelo merge (do OUTRO usuário) como "meu", e o "dele" do OUTRO
+// campo do par como "dele" do campo espelhado — "usar o novo" apagava o valor salvo de quem não
+// tinha conflito nenhum. Ver `rr-m3b.ts`/harness do re-review.)
 // ────────────────────────────────────────────────────────────────────────────────────────────
-describe("acoplarParVarejo — M-3 (par fixo/markup como unidade no merge)", () => {
-  it("conflito só no preco_varejo_fixo: espelha o conflito no markup_varejo também", () => {
+describe("acoplarParVarejo — M-3/N-2 (par fixo/markup como unidade; meu/dele corretos)", () => {
+  it("conflito só no preco_varejo_fixo: espelha o conflito no markup_varejo — meu=MEU draft, dele=O QUE O SERVIDOR TEM nesse campo (N-2)", () => {
+    // A tinha (base) fixo=298/markup=null; A digita Valor 310 (toca só preco_varejo_fixo); B salvou Markup 2 (fresh).
+    const draft = { preco_varejo_fixo: 310, markup_varejo: null };
+    const fresh = { preco_varejo_fixo: null, markup_varejo: 2 };
     const r = acoplarParVarejo({
-      valor: { preco_varejo_fixo: 310, markup_varejo: 3 },
-      conflitos: [{ path: "preco_varejo_fixo", meu: 310, dele: 298 }],
+      valor: { preco_varejo_fixo: 310, markup_varejo: 2 } as any, // o que o mergeDraft cru já tinha adotado (markup do fresh, não tocado por A)
+      conflitos: [{ path: "preco_varejo_fixo", meu: 310, dele: null }],
+      draft, fresh,
     });
-    expect(r.conflitos.map((c) => c.path).sort()).toEqual(["markup_varejo", "preco_varejo_fixo"]);
+    const markC = r.conflitos.find((c) => c.path === "markup_varejo")!;
+    expect(markC).toBeDefined();
+    // N-2: meu = draft.markup_varejo (o que A tinha = null), dele = fresh.markup_varejo (o que B SALVOU = 2)
+    // — NUNCA {meu: 2 (o que já foi adotado), dele: null (o dele do OUTRO campo)}, o bug original.
+    expect(markC.meu).toBe(null);
+    expect(markC.dele).toBe(2);
+    // "usar o novo" nos 2 preserva o que B realmente salvou: null/2 — não null/null (perda de dado).
+    expect(r.conflitos.find((c) => c.path === "preco_varejo_fixo")!.dele).toBe(null);
   });
-  it("conflito só no markup_varejo: espelha no preco_varejo_fixo também", () => {
+  it("conflito só no markup_varejo: espelha no preco_varejo_fixo — meu/dele das fontes corretas (N-2)", () => {
+    // Espelha o cenário original do review: A digita Markup 3 (toca só markup_varejo); B salvou Valor 298.
+    const draft = { preco_varejo_fixo: null, markup_varejo: 3 };
+    const fresh = { preco_varejo_fixo: 298, markup_varejo: null };
     const r = acoplarParVarejo({
-      valor: { preco_varejo_fixo: null, markup_varejo: 5 },
-      conflitos: [{ path: "markup_varejo", meu: 5, dele: 2 }],
+      valor: { preco_varejo_fixo: 298, markup_varejo: 3 } as any,
+      conflitos: [{ path: "markup_varejo", meu: 3, dele: null }],
+      draft, fresh,
     });
-    expect(r.conflitos.some((c) => c.path === "preco_varejo_fixo")).toBe(true);
+    const fixoC = r.conflitos.find((c) => c.path === "preco_varejo_fixo")!;
+    expect(fixoC).toBeDefined();
+    // N-2 (o bug original dava meu:298/dele:null — o exato cenário do review): meu = draft.preco_varejo_fixo
+    // (o que A tinha = null), dele = fresh.preco_varejo_fixo (o que B SALVOU = 298).
+    expect(fixoC.meu).toBe(null);
+    expect(fixoC.dele).toBe(298);
+    // "meu" nos 2 = o que A tinha de verdade (null/3), não {298 (adotado), 3} — a UI mostra o draft de A.
+    expect(r.valor.preco_varejo_fixo).toBe(null);
   });
   it("sem conflito, os 2 setados (estado impossível no servidor): normaliza — fixo manda, markup vira null", () => {
-    const r = acoplarParVarejo({ valor: { preco_varejo_fixo: 298, markup_varejo: 3 }, conflitos: [] });
+    const r = acoplarParVarejo({ valor: { preco_varejo_fixo: 298, markup_varejo: 3 }, conflitos: [], draft: { preco_varejo_fixo: 298, markup_varejo: 3 }, fresh: { preco_varejo_fixo: 298, markup_varejo: 3 } });
     expect(r.valor).toEqual({ preco_varejo_fixo: 298, markup_varejo: null });
   });
   it("sem conflito, já correto (só 1 setado): não mexe", () => {
-    const r = acoplarParVarejo({ valor: { preco_varejo_fixo: 298, markup_varejo: null }, conflitos: [] });
+    const r = acoplarParVarejo({ valor: { preco_varejo_fixo: 298, markup_varejo: null }, conflitos: [], draft: { preco_varejo_fixo: 298, markup_varejo: null }, fresh: { preco_varejo_fixo: 298, markup_varejo: null } });
     expect(r.valor).toEqual({ preco_varejo_fixo: 298, markup_varejo: null });
   });
   it("conflito nos 2 já (mergeDraft já tratou ambos): não duplica entradas", () => {
@@ -222,12 +285,95 @@ describe("acoplarParVarejo — M-3 (par fixo/markup como unidade no merge)", () 
         { path: "preco_varejo_fixo", meu: 310, dele: 298 },
         { path: "markup_varejo", meu: 3, dele: 2 },
       ],
+      draft: { preco_varejo_fixo: 310, markup_varejo: 3 }, fresh: { preco_varejo_fixo: 298, markup_varejo: 2 },
     });
     expect(r.conflitos.length).toBe(2);
   });
-  it("acoplarParAtacado espelha a mesma regra pro par do atacado", () => {
-    const r = acoplarParAtacado({ valor: { preco_atacado_fixo: 100, markup_atacado: 2 }, conflitos: [] });
+  it("acoplarParAtacado espelha a mesma regra (normalização) pro par do atacado", () => {
+    const r = acoplarParAtacado({ valor: { preco_atacado_fixo: 100, markup_atacado: 2 }, conflitos: [], draft: { preco_atacado_fixo: 100, markup_atacado: 2 }, fresh: { preco_atacado_fixo: 100, markup_atacado: 2 } });
     expect(r.valor).toEqual({ preco_atacado_fixo: 100, markup_atacado: null });
+  });
+  it("acoplarParAtacado espelha meu/dele corretos (N-2) também no par atacado", () => {
+    const draft = { preco_atacado_fixo: null, markup_atacado: 3 };
+    const fresh = { preco_atacado_fixo: 150, markup_atacado: null };
+    const r = acoplarParAtacado({
+      valor: { preco_atacado_fixo: 150, markup_atacado: 3 } as any,
+      conflitos: [{ path: "markup_atacado", meu: 3, dele: null }],
+      draft, fresh,
+    });
+    const fixoC = r.conflitos.find((c) => c.path === "preco_atacado_fixo")!;
+    expect(fixoC.meu).toBe(null);
+    expect(fixoC.dele).toBe(150);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// M-3 (Fix round 2) — normalizarParVarejoAposResolucao/normalizarParAtacadoAposResolucao: depois
+// que o usuário resolve CADA campo do par (independentemente, "manter meu"/"usar o novo"), o par
+// tem que convergir com a regra "última edição manda" do servidor (J2 regra 1) — nunca ficar com
+// os 2 campos setados (o que o servidor NUNCA persiste sozinho).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("normalizarParVarejoAposResolucao — M-3 (regra 'última edição manda' pós-resolução)", () => {
+  it("review scenario: 'manter meu' nos 2 campos reconstitui {fixo:298, markup:3} — normaliza pro que o servidor faria (fixo manda)", () => {
+    const r = normalizarParVarejoAposResolucao({ preco_varejo_fixo: 298, markup_varejo: 3 });
+    expect(r).toEqual({ preco_varejo_fixo: 298, markup_varejo: null });
+  });
+  it("'usar o novo' nos 2 dá null/null (servidor tinha limpo ambos) — não mexe, já é um estado válido", () => {
+    const r = normalizarParVarejoAposResolucao({ preco_varejo_fixo: null, markup_varejo: null });
+    expect(r).toEqual({ preco_varejo_fixo: null, markup_varejo: null });
+  });
+  it("resolução mista (fixo=dele, markup=meu) que ainda dá os 2 setados: normaliza igual", () => {
+    const r = normalizarParVarejoAposResolucao({ preco_varejo_fixo: 298, markup_varejo: 3 });
+    expect(r.markup_varejo).toBeNull();
+    expect(r.preco_varejo_fixo).toBe(298);
+  });
+  it("já correto (só 1 setado): não mexe, preserva outros campos do objeto", () => {
+    const r = normalizarParVarejoAposResolucao({ preco_varejo_fixo: null, markup_varejo: 3, nome: "X" } as any);
+    expect(r).toEqual({ preco_varejo_fixo: null, markup_varejo: 3, nome: "X" });
+  });
+  it("normalizarParAtacadoAposResolucao espelha a mesma regra", () => {
+    const r = normalizarParAtacadoAposResolucao({ preco_atacado_fixo: 150, markup_atacado: 2 });
+    expect(r).toEqual({ preco_atacado_fixo: 150, markup_atacado: null });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// N-1 (Fix round 2) — resolverTravaImportado também cobre `variantes`: cor mudada com o lock
+// ativo NUNCA pode ir pro payload (o gatilho `fn_integracao_trava_variantes` 42501a o produto
+// INTEIRO); qtd/peso continuam livres (D11 — a trava só olha o CONJUNTO de cores).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("resolverTravaImportado — N-1 (variantes: cor trocada antes do lock nunca vai pro payload)", () => {
+  const V = [{ ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10, _touched: false }];
+  const servidorComVariante = base({ variantes: V });
+  it("cor trocada (azul→verde), lock ativo: reverte variantes INTEIRO ao do servidor + aviso 'Cores'", () => {
+    const enviado = base({ variantes: [{ ...V[0], cor_id: "verde" }] });
+    const touched = new Set(["variantes"]);
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched });
+    expect(r.variantesParaServidor).toEqual(V);
+    expect(r.avisos.some((a) => a.campo === "variantes")).toBe(true);
+    const revertido = aplicarResolucaoTrava(enviado, r);
+    expect(revertido.variantes).toEqual(V);
+  });
+  it("variante NOVA com cor nova (não tocou a existente, mas o CONJUNTO mudou): também reverte", () => {
+    const enviado = base({ variantes: [...V, { ordem: 2, cor_id: "rosa", cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }] });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes"]) });
+    expect(r.variantesParaServidor).toEqual(V);
+  });
+  it("SÓ qtd/peso mudou (mesmo conjunto de cores) — D11 livre: variantesParaServidor fica null (não reverte)", () => {
+    const enviado = base({ variantes: [{ ...V[0], qtd: 99, peso: 3 }] });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes"]) });
+    expect(r.variantesParaServidor).toBeNull();
+  });
+  it("cor trocada mas NÃO tocada nesta sessão: reverte sem aviso (mesma regra dos campos escalares)", () => {
+    const enviado = base({ variantes: [{ ...V[0], cor_id: "verde" }] });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched: new Set() });
+    expect(r.variantesParaServidor).toEqual(V);
+    expect(r.avisos.some((a) => a.campo === "variantes")).toBe(false);
+  });
+  it("sem trava: variantesParaServidor null mesmo com cor trocada", () => {
+    const enviado = base({ variantes: [{ ...V[0], cor_id: "verde" }] });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(), touched: new Set(["variantes"]) });
+    expect(r.variantesParaServidor).toBeNull();
   });
 });
 
@@ -299,5 +445,202 @@ describe("RENDER — trava aplicada na árvore DOM real (mesma expressão dos ca
     expect((container.querySelector('[data-testid="valor-varejo"]') as HTMLInputElement).disabled).toBe(true);
     act(() => { root.unmount(); });
     container.remove();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// N-5 (Fix round 2) — RENDER real MONTANDO `ProdutoImportadoCard` (a lacuna do re-review: o bloco
+// RENDER do Fix round 1 era um harness que reimplementava `disabled={...}`, não o card real).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+function draftPI(): ProdutoImportadoDraft {
+  return {
+    ...emptyDraft("c1", "s1"), id: "p1", rev: 1, nome: "Blusa", modelo_id: "m1", ref: "REF1",
+    valor_unitario_m1: 10, moeda_compra: "RMB", moeda_intermediaria: "USD", cotacao_ref: 5, cotacao_final: 5,
+    variantes: [{ ordem: 1, cor_id: "c-azul", cor_apelido_id: null, peso: 1, qtd: 10, _touched: false }],
+  };
+}
+function montarCard(props: Partial<Parameters<typeof ProdutoImportadoCard>[0]> = {}) {
+  // ProdutoImportadoCard usa `useMutation` (Fazer pedido) — precisa de um QueryClient real na
+  // árvore, mesmo sem nenhuma query disparar de fato (as demais dependências de rede já estão
+  // mockadas acima).
+  const qc = new queryModule.QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const el = createElement(queryModule.QueryClientProvider, { client: qc },
+    createElement(ProdutoImportadoCard, {
+      draft: draftPI(),
+      onChange: () => {},
+      open: true,
+      onToggleOpen: () => {},
+      grupos: [],
+      categorias: [],
+      subcats1: [],
+      subcats2: [],
+      cores: [{ id: "c-azul", nome: "Azul" }],
+      coresApelido: [],
+      empresas: [],
+      tamanhos: ["P", "M", "G"],
+      onExcluir: () => {},
+      ...props,
+    } as any),
+  );
+  return montar(el);
+}
+/** As seções do card são um Accordion Radix FECHADO por padrão (`secoesAbertas` nasce `[]`) —
+ *  `AccordionContent` só monta no DOM quando a seção abre (sem `forceMount`). Clica no
+ *  `AccordionTrigger` cujo texto bate com `textoParcial` (dentro de `act()`, real evento DOM —
+ *  não um patch de estado). */
+function abrirSecao(container: HTMLElement, textoParcial: string) {
+  const trigger = [...container.querySelectorAll('button[aria-expanded]')].find((b) => b.textContent?.includes(textoParcial));
+  if (!trigger) throw new Error(`Accordion trigger "${textoParcial}" não encontrado`);
+  act(() => { trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); });
+}
+describe("RENDER real — ProdutoImportadoCard MONTADO (N-5)", () => {
+  it("sem estado de integração (mock null): nenhum campo trancado desabilitado, sem SeloIntegracao", () => {
+    mockEstado.current = null;
+    const { container, unmount } = montarCard();
+    abrirSecao(container, "1 · Identificação");
+    abrirSecao(container, "3 · Variantes");
+    // REF, Nome e o botão "Adicionar variante" ficam habilitados sem lock algum.
+    const ref = container.querySelector('[data-colab-path="card:p1:ref"]') as HTMLInputElement | null;
+    expect(ref).not.toBeNull();
+    expect(ref!.disabled).toBe(false);
+    const addVarianteBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Adicionar variante"));
+    expect(addVarianteBtn?.hasAttribute("disabled")).toBe(false);
+    // Sem SeloIntegracao (o badge "Integrável/Integrado" não aparece).
+    expect(container.textContent).not.toContain("travado");
+    unmount();
+  });
+  it("estado integrável com preco_venda marcado: Valor varejo + Markup varejo desabilitados, Valor atacado LIVRE (D34/R8), SeloIntegracao presente", () => {
+    mockEstado.current = { estado: "integravel", campos: ["preco_venda"], marcadoEm: "2026-09-27T10:00:00Z", integradoEm: null };
+    const { container, unmount } = montarCard();
+    // O selo aparece (texto "travado" do SeloIntegracao/textoSelo) mesmo com a seção "7 · Valores" fechada.
+    expect(container.textContent).toContain("travado");
+    abrirSecao(container, "7 · Valores");
+    // data-colab-path identifica os 2 campos do canal varejo — ambos devem estar disabled.
+    const valorVarejo = container.querySelector('[data-colab-path="card:p1:preco-varejo-fixo"]') as HTMLInputElement | null;
+    const markupVarejo = container.querySelector('[data-colab-path="card:p1:markup-varejo"]') as HTMLInputElement | null;
+    expect(valorVarejo).not.toBeNull();
+    expect(markupVarejo).not.toBeNull();
+    expect(valorVarejo!.disabled).toBe(true);
+    expect(markupVarejo!.disabled).toBe(true);
+    // Atacado livre — D34/R8: preco_venda trava só o varejo.
+    const valorAtacado = container.querySelector('[data-colab-path="card:p1:preco-atacado-fixo"]') as HTMLInputElement | null;
+    const markupAtacado = container.querySelector('[data-colab-path="card:p1:markup-atacado"]') as HTMLInputElement | null;
+    expect(valorAtacado!.disabled).toBe(false);
+    expect(markupAtacado!.disabled).toBe(false);
+    unmount();
+  });
+  it("QUALQUER estado de integração (variantes SEMPRE travado): cor base/apelido e 'Adicionar variante' desabilitados + InfoHover 'Cores travadas...' presente", () => {
+    // "nome" marcado (não "preco_venda"/"variantes" — variantes trava SEMPRE, independente do que foi marcado).
+    mockEstado.current = { estado: "integravel", campos: ["nome"], marcadoEm: null, integradoEm: null };
+    const { container, unmount } = montarCard();
+    abrirSecao(container, "3 · Variantes");
+    const addVarianteBtn = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Adicionar variante"));
+    expect(addVarianteBtn?.hasAttribute("disabled")).toBe(true);
+    const corBase = container.querySelector('[data-colab-path="card:p1:var-cor:1"]') as HTMLButtonElement | null; // Radix Select trigger é um <button>
+    expect(corBase).not.toBeNull();
+    expect(corBase!.hasAttribute("disabled") || corBase!.getAttribute("aria-disabled") === "true" || corBase!.getAttribute("data-disabled") !== null).toBe(true);
+    // InfoHover presente (o botão "i", `aria-label` exato) — o TEXTO em si só monta no DOM quando o
+    // Tooltip abre (Radix portal, closed por padrão); o `aria-label` prova que É o InfoHover certo
+    // ("Por que as cores estão travadas"), sem depender de abrir o hover/toque.
+    const infoHoverBtn = container.querySelector('button[aria-label="Por que as cores estão travadas"]');
+    expect(infoHoverBtn).not.toBeNull();
+    unmount();
+  });
+  it("Nome trancado (coluna 'nome' marcada): input de Nome desabilitado", () => {
+    mockEstado.current = { estado: "integrado", campos: ["nome"], marcadoEm: null, integradoEm: "2026-09-27" };
+    const { container, unmount } = montarCard();
+    abrirSecao(container, "1 · Identificação");
+    const nomeInput = container.querySelector('[data-colab-path="card:p1:nome"]') as HTMLInputElement | null;
+    expect(nomeInput).not.toBeNull();
+    expect(nomeInput!.disabled).toBe(true);
+    unmount();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// N-5 (Fix round 2) — resolverTravaAcabado (PA): NENHUM teste existia pra esta função antes desta
+// rodada — espelha 1:1 os testes de `resolverTravaImportado` acima, incluindo N-1 (variantes).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+const basePA = (over: Partial<ProdutoDraft> = {}): ProdutoDraft => ({
+  id: "a1", rev: 2, nome: "Produto Y", ref: "REF-A", grupo_id: null, categoria_id: null,
+  subcategoria1_id: null, subcategoria2_id: null, colecao_id: "c", subcolecao: null, semana: null,
+  empresa_id: null, representante_id: null, ref_fornecedor: "", composicao: "",
+  grade_proporcao: {}, qtd_total: 10, valor_unitario: 5, desconto_pct: 0, insumos_total: 0,
+  markup_atacado: 2, markup_varejo: null, preco_atacado_fixo: null, preco_varejo_fixo: 298,
+  foto_url: "foto-a.jpg", modelo_id: "m1", mix_id: null,
+  variantes: [{ ordem: 1, cor_id: "c-azul", cor_apelido_id: null, peso: 1, qtd: 10 }],
+  modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null, modeloThumbFontes: [null, null, null],
+  oc: null,
+  ...over,
+});
+describe("resolverTravaAcabado — N-5 (PA, espelha resolverTravaImportado, sem teste antes)", () => {
+  const servidorPA = basePA();
+  it("sem lock: paraServidor/variantesParaServidor vazios/null", () => {
+    const r = resolverTravaAcabado({ enviado: basePA({ nome: "Editei" }), servidor: servidorPA, travaAtual: new Set(), touched: new Set(["nome"]) });
+    expect(r.paraServidor).toEqual({});
+    expect(r.variantesParaServidor).toBeNull();
+  });
+  it("nome travado e editado: reverte + 1 aviso 'Nome'", () => {
+    const enviado = basePA({ nome: "Editado" });
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["nome"]) });
+    expect(r.paraServidor.nome).toBe("Produto Y");
+    expect(r.avisos.some((a) => a.campo === "nome")).toBe(true);
+    expect(aplicarResolucaoTravaAcabado(enviado, r).nome).toBe("Produto Y");
+  });
+  it("N-4: foto_url trocada e travada — reverte COM aviso (chaveDirty PA agora inclui foto_url)", () => {
+    const enviado = basePA({ foto_url: "nova-foto.jpg" });
+    const touched = new Set(
+      Object.keys(chaveDirtyPA(enviado)).filter((k) => JSON.stringify((chaveDirtyPA(enviado) as any)[k]) !== JSON.stringify((chaveDirtyPA(servidorPA) as any)[k])),
+    );
+    expect(touched.has("foto_url")).toBe(true); // prova que N-4 (chaveDirty ganhou foto_url) está em vigor
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["fotos_modelo", "variantes"]), touched });
+    expect(r.paraServidor.foto_url).toBe("foto-a.jpg");
+    expect(r.avisos.some((a) => a.campo === "foto_url")).toBe(true);
+  });
+  it("preco_venda travado + markup varejo digitado (limparia o fixo): reverte o PAR inteiro", () => {
+    const enviado = basePA({ preco_varejo_fixo: null, markup_varejo: 3 });
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["preco_venda", "variantes"]), touched: new Set(["markup_varejo", "preco_varejo_fixo"]) });
+    expect(r.paraServidor).toMatchObject({ preco_varejo_fixo: 298, markup_varejo: null });
+  });
+  it("N-1: cor trocada com lock ativo (variantes SEMPRE travado) — reverte o array inteiro + aviso 'Cores'", () => {
+    const enviado = basePA({ variantes: [{ ordem: 1, cor_id: "c-verde", cor_apelido_id: null, peso: 1, qtd: 10 }] });
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes"]) });
+    expect(r.variantesParaServidor).toEqual(servidorPA.variantes);
+    expect(r.avisos.some((a) => a.campo === "variantes")).toBe(true);
+    expect(aplicarResolucaoTravaAcabado(enviado, r).variantes).toEqual(servidorPA.variantes);
+  });
+  it("N-1: só qtd/peso da variante mudou (D11 livre) — não reverte", () => {
+    const enviado = basePA({ variantes: [{ ordem: 1, cor_id: "c-azul", cor_apelido_id: null, peso: 5, qtd: 99 }] });
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes"]) });
+    expect(r.variantesParaServidor).toBeNull();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// N-3 (Fix round 2) — markupVarejoParaBlurAtacado (PA): o blur do Markup ATACADO reenvia o
+// markup_varejo do SERVIDOR (nunca o draft local, potencialmente divergente) quando o varejo
+// está travado — a RPC `salvar_markups_produto_acabado` grava os 2 campos sempre, e a trigger
+// de trava NUNCA checa `markup_varejo` (D12), então um valor divergente passa em silêncio.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("markupVarejoParaBlurAtacado — N-3 (nunca reenvia o draft do varejo travado)", () => {
+  it("sem trava: manda o markup do DRAFT (comportamento de sempre)", () => {
+    const r = markupVarejoParaBlurAtacado({ travaVarejo: false, markupVarejoDraft: 3, markupVarejoServidor: 2 });
+    expect(r).toBe(3);
+  });
+  it("com trava, draft DIVERGENTE do servidor: manda o do SERVIDOR (não o draft potencialmente stale)", () => {
+    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: 2 });
+    expect(r).toBe(2);
+  });
+  it("com trava, draft e servidor iguais: tanto faz, dá o mesmo valor (servidor)", () => {
+    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 2, markupVarejoServidor: 2 });
+    expect(r).toBe(2);
+  });
+  it("com trava, servidor null (canal usa preço fixo, sem markup): manda null — nunca o draft", () => {
+    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: null });
+    expect(r).toBeNull();
+  });
+  it("com trava, servidor undefined (prop ausente — uso legado do card sem o prop novo): cai no draft (retrocompatível)", () => {
+    const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: undefined });
+    expect(r).toBe(3);
   });
 });

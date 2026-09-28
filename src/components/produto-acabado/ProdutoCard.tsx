@@ -40,7 +40,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
-  variantesBatemComTotal, erroValidacao,
+  variantesBatemComTotal, erroValidacao, markupVarejoParaBlurAtacado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 
@@ -86,6 +86,7 @@ export function ProdutoCard({
   onExcluido,
   onLimpo,
   onAbrirPlanejamento,
+  markupVarejoServidor,
 }: {
   produto: ProdutoDraft;
   onChange: (next: ProdutoDraft) => void;
@@ -126,6 +127,12 @@ export function ProdutoCard({
    *  pra `/criacao/planejamento` — ausente (outros usos futuros do ProdutoCard) cai no navigate
    *  antigo como fallback. */
   onAbrirPlanejamento?: (modeloId: string) => void;
+  /** N-3 (Fix round 2, Integração) — `markup_varejo` da ÚLTIMA leitura confiável do servidor
+   *  (`baseServidorRef` do Sheet) — usado pelo blur do Markup ATACADO pra nunca reenviar um
+   *  `produto.markup_varejo` (draft local, pode estar divergido) quando o varejo está travado.
+   *  `null`/ausente (outros usos futuros do ProdutoCard) cai no `produto.markup_varejo` como
+   *  antes (comportamento intocado). */
+  markupVarejoServidor?: number | null;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -926,7 +933,22 @@ export function ProdutoCard({
                             onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_atacado_fixo: null })}
                             onBlur={(e) => {
                               const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
-                              if (mk !== (markupAtacadoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: produto.markup_varejo });
+                              // N-3 (Fix round 2): com o varejo TRAVADO, o blur do ATACADO reenviava
+                              // `produto.markup_varejo` (o draft local — pode ter divergido do servidor
+                              // desde a marcação, ex.: um blur anterior que falhou) — `_salvar_markups_
+                              // produto_acabado_core` grava `markup_varejo` incondicional e limpa o
+                              // `preco_varejo_fixo` (D12 deixa passar), apagando o preço fixo travado em
+                              // silêncio (a trigger de trava só checa `preco_varejo_fixo`, nunca
+                              // `markup_varejo`). Manda o markup varejo do SERVIDOR (`markupVarejoServidor`,
+                              // prop do Sheet via `baseServidorRef` — nunca o do draft) quando travado —
+                              // o atacado continua livre (D34), só o valor enviado pro OUTRO canal muda
+                              // de fonte.
+                              const markupVarejoParaEnviar = markupVarejoParaBlurAtacado({
+                                travaVarejo: travaIntegracao.has("preco_venda"),
+                                markupVarejoDraft: produto.markup_varejo,
+                                markupVarejoServidor,
+                              });
+                              if (mk !== (markupAtacadoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: mk, markupVarejo: markupVarejoParaEnviar });
                             }}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
@@ -945,6 +967,12 @@ export function ProdutoCard({
                             value={markupVarejoExib ?? 0}
                             onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null, preco_varejo_fixo: null })}
                             onBlur={(e) => {
+                              // N-3 (Fix round 2): com o varejo travado o campo já está `disabled` (não
+                              // dá pra digitar), mas um blur ainda poderia disparar se o campo tivesse
+                              // ficado focado ANTES do lock chegar (o disabled não força blur sozinho em
+                              // todo navegador) — pula a RPC inteira nesse caso, nunca reenvia o markup
+                              // varejo travado.
+                              if (travaIntegracao.has("preco_venda")) return;
                               const mk = Number(e.target.value) > 0 ? Number(e.target.value) : null;
                               if (mk !== (markupVarejoExib ?? null)) salvarMarkupMut.mutate({ markupAtacado: produto.markup_atacado, markupVarejo: mk });
                             }}

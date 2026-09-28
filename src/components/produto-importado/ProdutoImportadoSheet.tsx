@@ -29,7 +29,7 @@ import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
-  acoplarParVarejo, acoplarParAtacado,
+  acoplarParVarejo, acoplarParAtacado, normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
@@ -347,11 +347,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         ),
       );
       const m0 = mergeDraft({ base: base as any, draft: draft as any, fresh: fr as any, touched });
-      // M-3 (Fix round 1): o merge genérico trata preco_varejo_fixo/markup_varejo (e o par do
-      // atacado) como campos independentes — acopla os 2 pares AQUI, no MESMO ponto que decide o
-      // conjunto de conflitos deste produto (ver comentário completo em `acoplarParVarejo`, shared.ts).
-      const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos });
-      const mFinal = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos });
+      // M-3 (Fix round 1)/N-2 (Fix round 2): o merge genérico trata preco_varejo_fixo/markup_varejo (e
+      // o par do atacado) como campos independentes — acopla os 2 pares AQUI, no MESMO ponto que decide
+      // o conjunto de conflitos deste produto (ver comentário completo em `acoplarParVarejo`, shared.ts).
+      // N-2: passa `draft`/`fr` explícitos (não só `m0.valor` pós-merge) — o campo espelhado do par usa
+      // meu=draft[campo]/dele=fresh[campo], nunca o valor/campo do OUTRO lado do par.
+      const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos, draft: draft as any, fresh: fr as any });
+      const mFinal = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos, draft: draft as any, fresh: fr as any });
       const m = { ...m0, valor: mFinal.valor, conflitos: mFinal.conflitos };
       if (m.atualizados.length > 0) totalAtualizados++;
       if (m.conflitos.length > 0) novosConflitos[draft.id] = m.conflitos; // ausência = convergiu → poda
@@ -682,11 +684,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       ),
     );
     const m0 = mergeDraft({ base: base as any, draft: d as any, fresh: fresh as any, touched });
-    // M-3 (Fix round 1) — mesmo acoplamento do par preço-fixo/markup por canal do merge periódico
-    // (ver comentário completo lá) — a reconciliação do P0409 é outro ponto onde `mergeDraft` cru
-    // rodaria e poderia deixar o par dessincronizado.
-    const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos });
-    const m = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos });
+    // M-3 (Fix round 1)/N-2 (Fix round 2) — mesmo acoplamento do par preço-fixo/markup por canal do
+    // merge periódico (ver comentário completo lá) — a reconciliação do P0409 é outro ponto onde
+    // `mergeDraft` cru rodaria e poderia deixar o par dessincronizado ou usar os valores errados.
+    const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos, draft: d as any, fresh: fresh as any });
+    const m = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos, draft: d as any, fresh: fresh as any });
     const fundido: ProdutoImportadoDraft = { ...(m.valor as ProdutoImportadoDraft), rev: fresh.rev };
     baseServidorRef.current = { ...baseServidorRef.current, [d.id]: fresh };
     setDrafts((ds) => ds.map((x) => (x.id === d.id ? fundido : x)));
@@ -726,13 +728,18 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     );
     const resolucao = resolverTravaImportado({ enviado: d0, servidor: servidorAtual, travaAtual, touched: touchedAgora });
     const d = aplicarResolucaoTrava(d0, resolucao);
-    if (Object.keys(resolucao.paraServidor).length > 0) {
+    // N-1 (Fix round 2): `variantesParaServidor` é um patch SEPARADO (array, não escalar) — precisa
+    // entrar no mesmo revert do draft vivo, senão as cores do card continuam mostrando o que o
+    // usuário editou (e nunca foi enviado) mesmo depois do Salvar reverter no payload.
+    if (Object.keys(resolucao.paraServidor).length > 0 || resolucao.variantesParaServidor) {
       // Reverte o rascunho VIVO pro mesmo valor que vai no payload (nunca deixa a tela mostrando um
       // valor diferente do que foi (não) enviado) — o próximo merge/baseline também adota esse valor
       // (I-1: base do merge = SEMPRE o valor real do servidor pro campo travado, ver `marcarProdutoLimpo`
       // logo abaixo, que já usa `salvo` derivado de `d`).
       const idAlvo = d0.id!;
-      setDrafts((ds) => ds.map((x) => (x.id === idAlvo ? { ...x, ...resolucao.paraServidor } : x)) as ProdutoImportadoDraft[]);
+      setDrafts((ds) => ds.map((x) => (x.id === idAlvo
+        ? { ...x, ...resolucao.paraServidor, ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}) }
+        : x)) as ProdutoImportadoDraft[]);
       if (resolucao.avisos.length > 0) toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao.avisos)}`);
     }
     const { dados, variantes, etapas } = montarPayload(d);
@@ -929,6 +936,22 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                   } else {
                     patchDraft(produtoId, { [campo]: c.dele } as Partial<ProdutoImportadoDraft>);
                   }
+                }
+                // M-3 (Fix round 2, ruling do coordenador) — depois de QUALQUER escolha num campo do
+                // par (fixo/markup, varejo ou atacado), normaliza o par inteiro com a MESMA regra
+                // "última edição manda" do servidor (J2 regra 1: fixo presente ganha, markup→null) —
+                // "manter meu" nos dois lados do par pode reconstituir o estado {fixo, markup} ambos
+                // setados (o achado do review); sem isto o card nunca converge com o que o servidor
+                // vai persistir no próximo Salvar. `escolha === "meu"` não muda o draft (fica como
+                // está — mas ele pode JÁ estar com os 2 setados, ver acoplarParVarejo), então a
+                // normalização roda incondicionalmente, lendo o draft ATUAL do produto (já com o
+                // patch de "dele" aplicado acima, se foi o caso).
+                if (campo === "preco_varejo_fixo" || campo === "markup_varejo" || campo === "preco_atacado_fixo" || campo === "markup_atacado") {
+                  setDrafts((ds) => ds.map((d) => {
+                    if (d.id !== produtoId) return d;
+                    const varejoNorm = normalizarParVarejoAposResolucao(d);
+                    return normalizarParAtacadoAposResolucao(varejoNorm) as ProdutoImportadoDraft;
+                  }));
                 }
                 setConflitosPorProduto((prev) => {
                   const restantes = (prev[produtoId] ?? []).filter((x) => x.path !== campo);

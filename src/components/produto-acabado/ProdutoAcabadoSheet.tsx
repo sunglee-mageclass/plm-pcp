@@ -680,9 +680,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     );
     const resolucao = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual, touched: touchedAgora });
     const p = aplicarResolucaoTravaAcabado(p0, resolucao);
-    if (Object.keys(resolucao.paraServidor).length > 0) {
+    // N-1 (Fix round 2): `variantesParaServidor` é um patch SEPARADO (array) — precisa entrar no
+    // mesmo revert do draft vivo (espelha ProdutoImportadoSheet.tsx).
+    if (Object.keys(resolucao.paraServidor).length > 0 || resolucao.variantesParaServidor) {
       const idAlvo = p0.id;
-      setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo ? { ...x, ...resolucao.paraServidor } : x)) as ProdutoDraft[]) : ds));
+      setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo
+        ? { ...x, ...resolucao.paraServidor, ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}) }
+        : x)) as ProdutoDraft[]) : ds));
       if (resolucao.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao.avisos)}`);
     }
     const { data: novoId, error } = await supabase.rpc("salvar_produto_acabado" as any, {
@@ -848,6 +852,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             // enquanto ESTE produto (ou qualquer outro — mais simples/seguro que só o dele,
             // já que um save em lote pode disparar logo em seguida) tiver conflito pendente.
             conflitoPendente={temConflitoPendente}
+            // N-3 (Fix round 2, Integração): o blur do Markup atacado precisa reenviar o
+            // `markup_varejo` pra `salvar_markups_produto_acabado` (a RPC grava os 2 SEMPRE, sem
+            // "só toca 1"). Com o varejo TRAVADO, `produto.markup_varejo` (draft local) pode ter
+            // divergido do servidor desde a marcação — reenviar o draft reescreveria o canal
+            // travado em silêncio (a trigger só checa `preco_varejo_fixo`, nunca `markup_varejo`
+            // — D12). `baseServidorRef` é a última leitura confiável do servidor.
+            markupVarejoServidor={baseServidorRef.current[p.id]?.markup_varejo}
             onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
             onOcVinculada={(oc) => patchProduto(p.id, { oc })}
             onExcluido={() => removeProduto(p.id)}
