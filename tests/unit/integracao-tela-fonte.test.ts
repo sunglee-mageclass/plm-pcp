@@ -2595,14 +2595,62 @@ describe("LogAba — render (RPC args, key por tenant, '' transitório, erro nã
     await view.desmontar();
   });
 
-  it("'' transitório: mantém as linhas e a página da loja anterior (X → '' mesma loja, nada mudou)", async () => {
-    const view = await montarLog({ porTenant: { t1: async () => ({ data: pagina([linha()]), error: null }) } });
+  it("'' transitório: mantém as linhas E a página da loja anterior (X → '' mesma loja, nada mudou)", async () => {
+    // Fix round 2 (task-17-18-review.md "Re-review round 1" Minor 2): o título já prometia "mantém … a página",
+    // mas só a linha era testada — com `total:1` (1 página só) a paginação nem chega a renderizar. `total:120`
+    // (> 50/página) força o rodapé "Página N de M" a aparecer de verdade, e o teste avança pra página 2 ANTES do
+    // "" — a asserção de página sobrevivendo (não volta pra "Página 1 de 3") só faz sentido com >1 página real.
+    const dadosPag2 = pagina([linha({ id: "l2", quem: "Outra Pessoa" })], { pagina: 2, total: 120 });
+    const view = await montarLog({
+      porTenant: {
+        t1: async (args) => {
+          const p = (args as { _pagina: number })._pagina;
+          return { data: p === 2 ? dadosPag2 : pagina([linha()], { total: 120 }), error: null };
+        },
+      },
+    });
     await view.esperar();
     expect(view.container.textContent).toContain("Marina Alves");
+    expect(view.container.textContent).toContain("Página 1 de 3");
+    await view.clicarBotao("Próxima");
+    await view.esperar();
+    expect(view.container.textContent).toContain("Outra Pessoa");
+    expect(view.container.textContent).toContain("Página 2 de 3");
     await view.mudarTenant("");
     await view.esperar();
-    // A query desabilita (tenantId vazio), mas o placeholder mantém a última página conhecida na tela.
+    // A query desabilita (tenantId vazio), mas o placeholder mantém a última página CONHECIDA (2) e as linhas dela
+    // — nunca reseta pra "Página 1" nem perde a linha carregada.
+    expect(view.container.textContent).toContain("Outra Pessoa");
+    expect(view.container.textContent).toContain("Página 2 de 3");
+    await view.desmontar();
+  });
+
+  // Fix round 2 (task-17-18-review.md "Re-review round 1" Minor 2): o caso que o placeholder TENANT-SCOPED existe
+  // para resolver — trocar de loja de VERDADE (X → Y, ambas não-vazias) NUNCA deve mostrar as linhas de X sob a
+  // loja Y, nem enquanto a resposta de Y ainda não chegou. Com `keepPreviousData` puro (o código de ANTES do fix
+  // round 1) isso vazaria: o placeholder reaproveitaria qualquer resultado anterior, de QUALQUER tenant.
+  it("troca de loja de verdade (t1 → t2): as linhas de t1 NUNCA aparecem sob t2 (nem enquanto t2 ainda carrega)", async () => {
+    let liberarT2: () => void = () => {};
+    const respostaT2 = new Promise<{ data: unknown; error: unknown }>((r) => {
+      liberarT2 = () => r({ data: pagina([linha({ id: "l9", quem: "Pessoa da Loja 2" })]), error: null });
+    });
+    const view = await montarLog({
+      porTenant: {
+        t1: async () => ({ data: pagina([linha()]), error: null }),
+        t2: () => respostaT2,
+      },
+    });
+    await view.esperar();
     expect(view.container.textContent).toContain("Marina Alves");
+    await view.mudarTenant("t2");
+    // 1º commit sob t2: nada de t1 na tela, mesmo antes da resposta de t2 chegar.
+    expect(view.container.textContent).not.toContain("Marina Alves");
+    await view.esperar();
+    expect(view.container.textContent).not.toContain("Marina Alves"); // t2 ainda carregando: nada de t1
+    liberarT2();
+    await view.esperar();
+    expect(view.container.textContent).toContain("Pessoa da Loja 2");
+    expect(view.container.textContent).not.toContain("Marina Alves");
     await view.desmontar();
   });
 
