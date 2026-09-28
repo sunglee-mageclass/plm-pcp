@@ -6,7 +6,8 @@
 // `tenantId` = loja NOVA mas o rascunho de cada aba (`ed`/`rascunhos`) continua sendo o da loja
 // ANTIGA. Um Salvar nesse instante grava o rascunho da loja antiga NA loja nova (o rev muitas vezes
 // bate, porque toda loja que nunca salvou tem rev 0 — o P0409 não pega esse caso). Fix: TODO o
-// conteúdo da aba ativa (e a guarda `sujas`) é remontado por `key={tenantId}` — trocar de loja
+// conteúdo da aba ativa (e a guarda `sujas`) é remontado por `key` = loja ativa (desde o fix round 4,
+// a última loja NÃO vazia — ver N-1 abaixo) — trocar de loja
 // desmonta qualquer rascunho de qualquer aba, sem exceção (defesa em profundidade: `CamposAba`/
 // `ApiAba` TAMBÉM guardam `tenantId` no `Edicao` congelado e recusam salvar se ele mudou, ver os
 // próprios arquivos). Se havia algo sujo no momento da troca, mostra um toast em PT avisando que o
@@ -40,6 +41,9 @@ const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   log: AbaPendente,
 };
 
+/** Troca de loja DE VERDADE (anterior e nova não vazias e diferentes), com o que estava na tela logo antes dela. */
+type TrocaDeLoja = { para: string; dirty: boolean; chaveVisivel: boolean };
+
 export function IntegracaoPage() {
   const { isSuperAdmin, user } = useAuth();
   const tenantId = useActiveTenantId();
@@ -53,39 +57,50 @@ export function IntegracaoPage() {
   );
   // revisão T15 (n1, code-review "Re-check round 1"): canal PARALELO a `informarSujo` — só a aba "api" usa (ver
   // `ApiAba.tsx`), reportando se a chave nova está VISÍVEL (ainda não copiada) no momento da troca de loja.
-  const chaveVisivelRef = useRef(false);
-  const informarChaveVisivel = useCallback((v: boolean) => { chaveVisivelRef.current = v; }, []);
+  // Fix round 4 T15 (nit do "Re-check round 3"): virou ESTADO (era ref) — assim a troca de loja lê o valor no render
+  // sem ler/escrever ref durante o render.
+  const [chaveVisivel, setChaveVisivel] = useState(false);
+  const informarChaveVisivel = useCallback((v: boolean) => setChaveVisivel(v), []);
   const guarda = useMemo(() => ({ informarSujo, informarChaveVisivel }), [informarSujo, informarChaveVisivel]);
   const dirty = Object.values(sujas).some(Boolean);
-  // revisão T15 #1: `dirty` precisa ser lido no MOMENTO da troca de loja, não no próximo render —
-  // por isso um ref espelha o valor mais atual (o efeito abaixo dispara só quando `tenantId` muda,
-  // então ele não pode depender de `dirty` no array de deps sem também disparar a cada toggle).
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-  // Fix round 3 T15 (n1-R, code-review "Re-check round 2"): `chaveVisivelRef`/`dirtyRef` não podem ser lidos DENTRO
-  // do efeito `[tenantId]` — quando `tenantId` muda, o `key={tenantId}` abaixo desmonta a subárvore ANTIGA (cleanups
-  // incluídos) e monta a NOVA antes que o efeito do PAI rode; React roda os efeitos dos FILHOS (cleanup do velho +
-  // mount do novo) antes do efeito do PRÓPRIO pai, então por essa altura AMBOS os refs já foram sobrescritos pelo
-  // ciclo de vida da aba nova (que nasce com `chaveVisivel=false`/sem rascunho) — o toast específico nunca disparava
-  // no app real (só nos testes que não desmontavam a aba de verdade). Fix: captura os dois valores SINCRONAMENTE no
-  // CORPO do render (não num efeito) no exato instante em que `tenantId` muda de valor — nenhum efeito de filho roda
-  // entre um render e o próximo, então esta leitura sempre vê o estado "como estava antes da troca".
-  const tenantIdRef = useRef(tenantId);
-  const trocaPendenteRef = useRef<{ dirty: boolean; chaveVisivel: boolean } | null>(null);
-  if (tenantIdRef.current !== tenantId) {
-    trocaPendenteRef.current = { dirty: dirtyRef.current, chaveVisivel: chaveVisivelRef.current };
-    tenantIdRef.current = tenantId;
+  // Fix round 4 T15 (N-1, code-review "Re-check round 3"): `useActiveTenantId` devolve "" quando a releitura de
+  // `active-tenant-id` FALHA (ex.: refetch no `visibilitychange` com a rede ainda caída — o hook engole o erro e
+  // assenta ""). Com `key={tenantId}` isso remontava TODAS as abas (X → "" → X: rascunhos de Produtos, Campos,
+  // config da API e a chave nova visível perdidos) com um toast FALSO de "a loja mudou". "" não é loja: a página
+  // guarda a ÚLTIMA loja NÃO vazia (`lojaEstavel`) e só ela conta como "a loja desta tela" — no `key`, no
+  // `navPermitida` e na detecção de troca. Troca de loja = anterior E nova NÃO vazias e diferentes (X → "" → Y é
+  // troca X → Y; a entrada inicial "" → X não é troca, não avisa). Durante o "" as gravações já são recusadas
+  // (queries desabilitadas; `confirmarLojaAtiva("")` diverge do servidor), então manter o rascunho vivo é seguro.
+  //
+  // Fix round 4 T15 (nit do "Re-check round 3": escrita de ref durante o render): a loja anterior mora em ESTADO
+  // derivado — o padrão do React para "guardar informação de renders anteriores" (setState DURANTE o render, com
+  // condição que se desliga sozinha: depois do set, `tenantId === lojaEstavel`). O React descarta a saída deste
+  // render e re-renderiza na hora com o estado novo ANTES de qualquer filho renderizar ou qualquer efeito rodar —
+  // então `dirty`/`chaveVisivel` lidos aqui são os de ANTES da troca (o `key` ainda não desmontou nada; é o mesmo
+  // motivo do snapshot do fix round 3, n1-R). Num render descartado (modo concorrente) a atualização é descartada
+  // junto, sem sobrar nada num ref.
+  const [lojaEstavel, setLojaEstavel] = useState(tenantId);
+  const [trocaDeLoja, setTrocaDeLoja] = useState<TrocaDeLoja | null>(null);
+  if (tenantId && tenantId !== lojaEstavel) {
+    setLojaEstavel(tenantId);
+    if (lojaEstavel) {
+      setTrocaDeLoja({ para: tenantId, dirty, chaveVisivel });
+      // O remonte por `key={lojaEstavel}` abaixo já desmonta/recria cada aba (o rascunho local de cada uma some com
+      // ela); aqui zera o mapa de "sujo" desta página, para a guarda de navegação (`useUnsavedGuard`) não continuar
+      // bloqueando por um estado que já não existe mais.
+      setSujas({});
+      setChaveVisivel(false);
+    }
   }
   // Fix round 3 T15 (n2-R, code-review "Re-check round 2"): extraído pra função nomeada — chamado de DOIS lugares
-  // (`navPermitida`, abaixo, E o efeito `[tenantId]`) porque nenhum dos dois sozinho cobre todo caso real: uma
-  // troca de loja NA MESMA ABA em que `IntegracaoPage` continua montada dispara o efeito `[tenantId]` (o caminho
-  // antigo); mas se a navegação que SEGUE a troca (`navigate({to:"/home"})` do `TenantSwitcher`) DESMONTA
-  // `IntegracaoPage` antes de ele re-renderizar com o `tenantId` novo (ex.: a rota de destino não é mais
-  // `/integracao`), o efeito `[tenantId]` NUNCA chega a rodar — o toast de descarte nunca aparecia. `navPermitida`
-  // roda ANTES da navegação ser permitida (então antes de qualquer desmonte), então é o único lugar garantido de
-  // rodar nos DOIS casos. `avisadoRef` garante EXATAMENTE UM toast por troca de loja, não importa qual dos dois
-  // call sites chega primeiro (o `[tenantId]` efeito ainda roda quando a página NÃO desmonta — ex.: cancelar a
-  // navegação, ou uma troca que não passa pelo blocker de rota nenhuma).
+  // (`navPermitida`, abaixo, E o efeito da troca de loja) porque nenhum dos dois sozinho cobre todo caso real: uma
+  // troca de loja NA MESMA ABA em que `IntegracaoPage` continua montada dispara o efeito (o caminho antigo); mas se
+  // a navegação que SEGUE a troca (`navigate({to:"/home"})` do `TenantSwitcher`) DESMONTA `IntegracaoPage` antes de
+  // ele re-renderizar com o `tenantId` novo (ex.: a rota de destino não é mais `/integracao`), o efeito NUNCA chega
+  // a rodar — o toast de descarte nunca aparecia. `navPermitida` roda ANTES da navegação ser permitida (então antes
+  // de qualquer desmonte), então é o único lugar garantido de rodar nos DOIS casos. `avisadoRef` garante
+  // EXATAMENTE UM toast por troca de loja, não importa qual dos dois call sites chega primeiro (o efeito ainda roda
+  // quando a página NÃO desmonta — ex.: cancelar a navegação, ou uma troca que não passa pelo blocker de rota).
   const avisadoRef = useRef<string | null>(null);
   const avisarTrocaDeLoja = useCallback((novoTenantId: string, pendente: { dirty: boolean; chaveVisivel: boolean }) => {
     if (avisadoRef.current === novoTenantId) return;
@@ -104,18 +119,12 @@ export function IntegracaoPage() {
       toast.warning("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
     }
   }, []);
+  // Toast é efeito colateral: sai no commit, nunca no render. `trocaDeLoja` só muda de identidade numa troca de
+  // loja DE VERDADE (objeto novo a cada uma), então o efeito roda uma vez por troca (`avisadoRef` deduplica
+  // contra o aviso que o `navPermitida` já tenha dado).
   useEffect(() => {
-    const pendente = trocaPendenteRef.current;
-    if (!pendente) return;
-    trocaPendenteRef.current = null;
-    avisarTrocaDeLoja(tenantId, pendente);
-    // O remonte por `key={tenantId}` abaixo já desmonta/recria cada aba (limpando o rascunho local
-    // de cada uma via seus próprios efeitos de cleanup); aqui só falta zerar o mapa de "sujo" desta
-    // página, para a guarda de navegação (`useUnsavedGuard`) não continuar bloqueando por causa de
-    // um estado que já não existe mais.
-    setSujas({});
-    chaveVisivelRef.current = false;
-  }, [tenantId, avisarTrocaDeLoja]);
+    if (trocaDeLoja) avisarTrocaDeLoja(trocaDeLoja.para, trocaDeLoja);
+  }, [trocaDeLoja, avisarTrocaDeLoja]);
   // revisão T15 (n2, code-review "Re-check round 1"): sem isto, uma troca de loja com a aba suja mostrava OS DOIS
   // avisos ao mesmo tempo — o `useBlocker` (abaixo) intercepta o `navigate({to:"/home"})` que o `TenantSwitcher`
   // dispara logo após confirmar a troca no servidor, mas o `tenantId` (do `useActiveTenantId()`, via hook) que
@@ -126,26 +135,26 @@ export function IntegracaoPage() {
   // (`notifyManager` usa `setTimeout(0)`). Ou seja: quando o router chama `shouldBlockFn` (síncrono — não dá pra
   // `await` um `confirmarLojaAtiva` aqui dentro), o CACHE já tem o tenant novo, mesmo que o `tenantId` desta
   // render ainda seja o velho. `navPermitida` lê o cache DIRETO (`qc.getQueryData`, a MESMA key/formato de
-  // `useActiveTenantId`) — se já diverge do `tenantId` que esta render capturou, a troca já aconteceu de
-  // verdade e o remonte por `key={tenantId}` + o toast JÁ SÃO a confirmação de descarte; a navegação que segue
-  // nunca precisa perguntar de novo. Qualquer OUTRA navegação (Voltar, trocar de item de menu) não muda esse
-  // cache, então continua pedindo confirmação normalmente.
+  // `useActiveTenantId`) — se já diverge da loja que esta tela mostra, a troca já aconteceu de verdade e o remonte
+  // por `key` + o toast JÁ SÃO a confirmação de descarte; a navegação que segue nunca precisa perguntar de novo.
+  // Qualquer OUTRA navegação (Voltar, trocar de item de menu) não muda esse cache, então continua pedindo
+  // confirmação normalmente.
   // Fix round 3 T15 (n2-R, code-review "Re-check round 2"): quando `navPermitida` devolve `true` (a troca já
   // aconteceu de verdade), dispara o AVISO aqui mesmo — ANTES da navegação seguir, e portanto ANTES de qualquer
-  // desmonte que a navegação possa causar. `dirtyRef`/`chaveVisivelRef` ainda têm os valores "de antes da troca"
-  // neste ponto (nenhum efeito de filho rodou ainda — `navPermitida` é chamado de dentro do `shouldBlockFn`
-  // síncrono, fora do ciclo de commit do React). `avisarTrocaDeLoja` com `avisadoRef` garante que isto NUNCA
-  // duplica o aviso do efeito `[tenantId]` acima (o cenário mais comum — a página SEM desmontar — já teria
-  // dado o aviso ali; aqui cobre o cenário em que a página desmonta ANTES desse efeito rodar).
+  // desmonte que a navegação possa causar. `dirty`/`chaveVisivel` desta clausura são os do último render (os "de
+  // antes da troca" — a página ainda não re-renderizou com a loja nova).
+  // Fix round 4 T15 (N-1): compara com `lojaEstavel` (última loja NÃO vazia), nunca com o `tenantId` cru — com a
+  // página ainda em "" e o cache já de volta à MESMA loja, a comparação crua dava "trocou" (toast falso + navegação
+  // liberada sem o "Descartar alterações?", perdendo o rascunho). Cache vazio ou tela sem loja ainda = não é troca.
   const navPermitida = useCallback(() => {
     if (!user?.id) return false;
     const tenantEmCache = qc.getQueryData<string>(["active-tenant-id", user.id]);
-    const trocouDeVerdade = !!tenantEmCache && tenantEmCache !== tenantId;
+    const trocouDeVerdade = !!tenantEmCache && !!lojaEstavel && tenantEmCache !== lojaEstavel;
     if (trocouDeVerdade) {
-      avisarTrocaDeLoja(tenantEmCache, { dirty: dirtyRef.current, chaveVisivel: chaveVisivelRef.current });
+      avisarTrocaDeLoja(tenantEmCache, { dirty, chaveVisivel });
     }
     return trocouDeVerdade;
-  }, [qc, user?.id, tenantId, avisarTrocaDeLoja]);
+  }, [qc, user?.id, lojaEstavel, dirty, chaveVisivel, avisarTrocaDeLoja]);
   const { requestAction, confirm } = useUnsavedGuard({ dirty, blockNav: true, navPermitida });
   const atual = abas.includes(aba) ? aba : "produtos";
   return (
@@ -166,11 +175,12 @@ export function IntegracaoPage() {
             const C = CONTEUDO_ABA[a];
             return (
               <TabsContent key={a} value={a} className="mt-4">
-                {/* revisão T15 #1: `key={tenantId}` força o React a desmontar e recriar a aba
-                    inteira ao trocar de loja — nenhum rascunho (ed/rascunhos/estado local) de
-                    NENHUMA aba sobrevive à troca, mesmo se o super admin cancelar o "Descartar
-                    alterações?" da guarda de navegação. */}
-                <C key={tenantId} />
+                {/* revisão T15 #1: o `key` força o React a desmontar e recriar a aba inteira ao
+                    trocar de loja — nenhum rascunho (ed/rascunhos/estado local) de NENHUMA aba
+                    sobrevive à troca, mesmo se o super admin cancelar o "Descartar alterações?" da
+                    guarda de navegação. Fix round 4 (N-1): é a última loja NÃO vazia — um ""
+                    transitório (releitura que falhou) nunca remonta. */}
+                <C key={lojaEstavel} />
               </TabsContent>
             );
           })}

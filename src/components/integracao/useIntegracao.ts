@@ -57,6 +57,11 @@ export const chaveLog = (tenantId: string) => ["integracao-log", tenantId] as co
  *  precisar mostrar o mesmo texto (toast, banner) usa esta constante, nunca um literal duplicado. */
 export const TEXTO_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.";
 
+/** Fix round 4 T15 (code-review "Re-check round 3" m-R3): `confirmarLojaAtiva` sem sessão nenhuma (e sem erro) =
+ *  sessão expirada/encerrada, NUNCA "a loja mudou". Código próprio do cliente (`SESSAO_EXPIRADA`, mesmo padrão de
+ *  `LOJA_MUDOU`); `mensagemErro` devolve este texto como veio (já está em PT). */
+export const TEXTO_SESSAO_EXPIRADA = "Sua sessão expirou. Entre de novo.";
+
 /** Resultado de `confirmarLojaAtiva` (fix round 3 T15, code-review "Re-check round 2" m-R2): a loja confirmada
  *  (`tenantId`) e o nome dela (`nome`, via embed — a MESMA linha, sem 2ª chamada). `nome` pode vir `null` se a
  *  loja não tiver nome cadastrado (raro) — nunca lançado por isso. */
@@ -87,31 +92,37 @@ export type LojaAtiva = { tenantId: string; nome: string | null };
  *    a causa real (ex.: a internet caiu no meio do clique) atrás de uma mensagem que diz "a loja mudou", que é
  *    FALSO nesse caso — o usuário tentaria "recarregar a página" pra um problema que reload nenhum resolve
  *    (a rede continua caída). Fix: só a ausência CONFIRMADA de sessão (usuário deslogado de verdade, sem
- *    exception nenhuma) vira `LOJA_MUDOU`; qualquer `error`/exception de `getSession()` ou da query
+ *    exception nenhuma) virava `LOJA_MUDOU` — desde o fix round 4 (m-R3, abaixo) vira `SESSAO_EXPIRADA`; qualquer
+ *    `error`/exception de `getSession()` ou da query
  *    `users`/`tenants` é RELANÇADO como veio — `mensagemErro` traduz pelo `code`/mensagem reais (rede vira "Falha
  *    de conexão...", sessão expirada vira "Sua sessão expirou...", nunca "a loja mudou").
- *  - **m-R2** (performance + o mesmo m-R1 embutido): UMA ida ao servidor em vez de duas — `getSession()` (sem
- *    rede: lê o token já em memória/localStorage do client, decodifica o `sub` do JWT; **nunca** chama
- *    `getUser()`, que faz uma chamada de rede pra revalidar o token contra o Auth) dá o `uid` de graça, e
- *    `users.select("tenant_id, tenants(nome)")` (embed FK, mesma linha) traz tenant+nome numa query só. Devolve
- *    `LojaAtiva` — o nome CONFIRMADO fica disponível pro chamador sem uma 2ª leitura (`nomeLojaAtivaFresco`,
- *    aposentada — ver `NovaChaveDialog.tsx`).
- *    ⚠️ **`getSession()` sem rede é seguro AQUI, mas com uma ressalva**: uma sessão EXPIRADA ainda decodifica um
- *    `uid` válido do JWT local (o client não valida a expiração localmente antes de decodificar o `sub`) — mas
- *    isso NUNCA passa silenciosamente: a query `users.select(...)` que segue usa esse token pra autenticar a
- *    chamada, e o PostgREST rejeita um JWT expirado com 401 (`error` populado) — que este helper RELANÇA (m-R1,
- *    acima), nunca mascara como `LOJA_MUDOU`. E mesmo que a leitura aqui "passasse" por algum motivo, a RPC de
- *    escrita que vem LOGO DEPOIS (`supabase.rpc(...)`, no chamador) usa o MESMO token expirado e o servidor a
- *    recusa com 401 do mesmo jeito — `confirmarLojaAtiva` nunca é a ÚNICA linha de defesa contra sessão expirada,
- *    só uma checagem A MAIS antes da escrita. Testado: sessão ausente → `LOJA_MUDOU`; erro de rede/sessão em
- *    `users`/`tenants` → relançado verbatim (código/mensagem originais, nunca virou `LOJA_MUDOU`). */
+ *  - **m-R2** (performance + o mesmo m-R1 embutido): UMA ida ao servidor em vez de duas — `getSession()` (lê a
+ *    sessão guardada no client; **nunca** chama `getUser()`, que SEMPRE faz uma chamada de rede pra revalidar o
+ *    token contra o Auth) dá o `uid`, e `users.select("tenant_id, tenants(nome)")` (embed FK, mesma linha) traz
+ *    tenant+nome numa query só. Devolve `LojaAtiva` — o nome CONFIRMADO fica disponível pro chamador sem uma 2ª
+ *    leitura (`nomeLojaAtivaFresco`, aposentada — ver `NovaChaveDialog.tsx`).
+ *
+ *  Fix round 4 T15 (code-review "Re-check round 3"):
+ *  - **nit — comentário corrigido** (a v1 dizia que uma sessão EXPIRADA ainda devolvia um `uid` porque "o client
+ *    não valida a expiração" — FALSO): no auth-js 2.108.1, `getSession()` → `__loadSession` compara `expires_at`
+ *    com `EXPIRY_MARGIN_MS` e, se o token expirou (ou está pra expirar), faz o REFRESH (aí sim, com rede) antes de
+ *    devolver. Refresh que dá certo → sessão nova e válida (o fluxo segue normal); refresh que falha → `{ session:
+ *    null, error }`, que este helper RELANÇA (m-R1) — rede caída vira "Falha de conexão…", refresh token inválido
+ *    cai no texto em PT da tela; nunca `LOJA_MUDOU`. Só com token válido é que `getSession()` não faz rede.
+ *    E mesmo com um token velho, o PostgREST recusa o JWT expirado (`PGRST301` → "Sua sessão expirou…") na query
+ *    de `users` e na RPC de escrita que vem LOGO DEPOIS — `confirmarLojaAtiva` nunca é a ÚNICA defesa contra
+ *    sessão expirada, só uma checagem A MAIS antes da escrita.
+ *  - **m-R3**: sessão AUSENTE (`{ session: null, error: null }` — um refresh em segundo plano já falhou e o auth-js
+ *    removeu a sessão, ou o usuário saiu noutra aba) agora lança `SESSAO_EXPIRADA` ("Sua sessão expirou. Entre de
+ *    novo."), não `LOJA_MUDOU` (que mandava recarregar a página por um motivo falso). Nada é gravado nos dois casos.
+ *  Testado: sessão ausente → `SESSAO_EXPIRADA`; erro de rede/sessão em `getSession`/`users` → relançado verbatim;
+ *  loja divergente → `LOJA_MUDOU`. */
 export async function confirmarLojaAtiva(tenantIdEsperado: string): Promise<LojaAtiva> {
   const { data: sess, error: erroSessao } = await supabase.auth.getSession();
   if (erroSessao) throw erroSessao;
   const uid = sess.session?.user?.id;
-  // Ausência CONFIRMADA de sessão (deslogado de verdade, sem exception) — este SIM é um caso legítimo de
-  // "a loja mudou" (ou o usuário nem está mais autenticado); qualquer outra falha acima já foi RELANÇADA.
-  if (!uid) throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
+  // m-R3: ausência CONFIRMADA de sessão (sem exception) = sessão expirada/encerrada — nunca "a loja mudou".
+  if (!uid) throw Object.assign(new Error(TEXTO_SESSAO_EXPIRADA), { code: "SESSAO_EXPIRADA" });
   const { data, error } = await supabase
     .from("users")
     .select("tenant_id, tenants(nome)")

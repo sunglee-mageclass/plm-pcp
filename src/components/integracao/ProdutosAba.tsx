@@ -274,9 +274,15 @@ export function ProdutosAba() {
   // `tenantId` é a fonte de verdade de "qual loja" (a MESMA que toda queryKey desta tela já usa, P-57) — todo
   // estado por-produto reseta quando ele muda; filtros/situação/página (preferência de navegação, não dado de
   // produto) continuam como estavam.
+  // Fix round 4 T15 (N-1, code-review "Re-check round 3"): `useActiveTenantId` devolve "" quando a releitura de
+  // `active-tenant-id` FALHA (ex.: refetch no foco com a rede caída — o hook engole o erro e assenta ""). Isso NÃO
+  // é troca de loja: o ref guarda a última loja NÃO vazia e o "" é ignorado (a lista só fica sem dado até a próxima
+  // releitura; escrever com loja "" já é recusado por `confirmarLojaAtiva`). Sem isto, o rascunho de Produtos
+  // (inclusive as fotos) sumia num "" transitório mesmo com a página (`IntegracaoPage`) sem remontar.
+  // X → "" → X = nada zera; X → "" → Y = zera normalmente (a comparação é com X).
   const tenantIdRef = useRef(tenantId);
   useEffect(() => {
-    if (tenantIdRef.current === tenantId) return;
+    if (!tenantId || tenantIdRef.current === tenantId) return;
     tenantIdRef.current = tenantId;
     setRascunhos({});
     setSalvosAguardando({});

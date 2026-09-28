@@ -309,6 +309,92 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
     await view.desmontar();
   });
+
+  // Fix round 4 T15 (N-1, code-review "Re-check round 3"): `useActiveTenantId` devolve "" quando a releitura de
+  // `active-tenant-id` FALHA (ex.: refetch de `visibilitychange` com a rede ainda caída — o hook engole o erro e
+  // assenta ""). Antes do fix, o `key={tenantId}` ia X → "" e remontava TODAS as abas (rascunhos perdidos) com um
+  // toast FALSO de "a loja mudou". "" transitório não é troca de loja: nada remonta, nada avisa.
+  it("N-1: loja '' transitória (releitura falhou) NÃO remonta nem avisa — o rascunho continua e segue intacto quando a MESMA loja volta", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    expect(view.container.textContent).toContain("sujo:true");
+    tenantIdRef.current = "";
+    await view.rerender();
+    // Mesma instância da aba (o stub lê o tenant cru do hook — mostra "" —, mas o PRÓPRIO estado local sobreviveu).
+    expect(view.container.textContent).toContain("tenant:sujo:true");
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    // A guarda de navegação continua valendo durante o "" (o rascunho existe).
+    expect(view.shouldBlockAgora()).toBe(true);
+    tenantIdRef.current = "lojaA";
+    await view.rerender();
+    expect(view.container.textContent).toContain("tenant:lojaAsujo:true");
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    await view.desmontar();
+  });
+
+  it("N-1: sujo → '' → OUTRA loja: descarta (remonta) e avisa UMA vez só", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    tenantIdRef.current = "";
+    await view.rerender();
+    expect(view.container.textContent).toContain("sujo:true");
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.container.textContent).toContain("tenant:lojaBsujo:false");
+    expect(view.toastMocks.warning).toHaveBeenCalledTimes(1);
+    expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
+    await view.desmontar();
+  });
+
+  // N-1 (2º sintoma, no `navPermitida`): com a página ainda renderizada em "" e o cache JÁ de volta à MESMA loja
+  // (a releitura seguinte deu certo, a notificação ao React ainda não chegou), uma navegação nesse instante não
+  // pode ser tratada como "a loja mudou" — seria um toast falso E a navegação passaria sem o "Descartar
+  // alterações?", perdendo o rascunho. A comparação é com a última loja NÃO vazia, não com o "" do render.
+  it("N-1: com a página em '' e o cache de volta à MESMA loja, navPermitida não vê troca — sem toast e a navegação continua bloqueada", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    tenantIdRef.current = "";
+    await view.rerender();
+    view.qc.setQueryData(["active-tenant-id", "u1"], "lojaA");
+    expect(view.shouldBlockAgora()).toBe(true);
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    expect(view.container.textContent).toContain("sujo:true");
+    await view.desmontar();
+  });
+
+  // Lacuna 1 do "Re-check round 3" + N-1: o caminho COMBINADO — `navPermitida` avisa (cache já na loja nova) e
+  // DEPOIS a página, ainda montada, re-renderiza com a loja nova. Tem que continuar 1 toast só (`avisadoRef`).
+  // Passa por um "" transitório antes, que não pode contar como troca nem gastar o aviso.
+  it("N-1 + caminho combinado: '' transitório, depois navPermitida avisa e a página re-renderiza com a loja nova — 1 toast só", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    tenantIdRef.current = "";
+    await view.rerender();
+    expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    expect(view.container.textContent).toContain("sujo:true");
+    view.qc.setQueryData(["active-tenant-id", "u1"], "lojaB");
+    expect(view.shouldBlockAgora()).toBe(false);
+    expect(view.toastMocks.warning).toHaveBeenCalledTimes(1);
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.container.textContent).toContain("tenant:lojaBsujo:false");
+    expect(view.toastMocks.warning).toHaveBeenCalledTimes(1);
+    expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
+    await view.desmontar();
+  });
 });
 
 // Fix round 1 — I2 (task-11-review.md + task-11-code-review.md): checagem de fonte (em vez de renderHook, sem
@@ -578,15 +664,33 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     await view.desmontar();
   });
 
-  // revisão T15: ausência CONFIRMADA de sessão (sem exception nenhuma — o usuário está deslogado de verdade)
-  // continua sendo um caso legítimo de LOJA_MUDOU (não tem como distinguir "deslogado" de "trocou de loja" do
-  // lado do cliente, e as duas travam a escrita do mesmo jeito).
-  it("sem sessão nenhuma (deslogado de verdade, sem erro): continua virando LOJA_MUDOU", async () => {
+  // Fix round 4 T15 (m-R3, code-review "Re-check round 3"): sessão AUSENTE (`getSession()` sem sessão e sem erro —
+  // um refresh em segundo plano já falhou e o auth-js removeu a sessão, ou o usuário saiu noutra aba) é SESSÃO
+  // EXPIRADA, não "a loja mudou": a v1 mandava recarregar a página por um motivo falso. Nada é gravado nos dois
+  // casos; só a mensagem muda. A tela mostra o texto por `mensagemErro` (o mesmo caminho dos toasts reais).
+  it("m-R3: sem sessão nenhuma (sem erro) vira SESSÃO EXPIRADA — nunca LOJA_MUDOU; nada é gravado", async () => {
     const view = await montarSalvarSonda({ semSessao: true });
     await view.clicarSalvar();
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
-    expect(view.container.textContent).toContain("code:LOJA_MUDOU");
+    expect(view.fromSpy).not.toHaveBeenCalled(); // sem sessão, nem chega a ler `users`
+    expect(view.container.textContent).toContain("erro:Sua sessão expirou. Entre de novo.|code:SESSAO_EXPIRADA");
+    expect(view.container.textContent).not.toContain("A loja ativa mudou");
+    expect(view.container.textContent).not.toContain("code:LOJA_MUDOU");
     await view.desmontar();
+  });
+
+  it("m-R3: o erro de sessão ausente chega ao usuário, via mensagemErro, como o texto de sessão expirada", async () => {
+    vi.resetModules();
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: { auth: { getSession: async () => ({ data: { session: null }, error: null }) }, from: vi.fn() },
+    }));
+    const { confirmarLojaAtiva, TEXTO_SESSAO_EXPIRADA } = await import("@/components/integracao/useIntegracao");
+    const { mensagemErro } = await import("@/lib/erro-mensagem");
+    const erro = await confirmarLojaAtiva("t1").then(() => null, (e: unknown) => e);
+    expect(erro).toMatchObject({ code: "SESSAO_EXPIRADA", message: "Sua sessão expirou. Entre de novo." });
+    expect(TEXTO_SESSAO_EXPIRADA).toBe("Sua sessão expirou. Entre de novo.");
+    expect(mensagemErro(erro, "Não foi possível salvar.")).toBe("Sua sessão expirou. Entre de novo.");
+    vi.doUnmock("@/integrations/supabase/client");
   });
 
   // revisão T15 (m-R2, code-review "Re-check round 2"): UMA ida ao servidor — `getSession()` NUNCA faz rede
@@ -817,6 +921,14 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
       trocarTenant: (novoTenantId: string, novaListaRaw: { produtos: Record<string, unknown>[] } & Record<string, unknown>) => {
         tenantIdRef.current = novoTenantId;
         listaRef.current = lerLista(novaListaRaw);
+        dataUpdatedAtRef.current += 1;
+        rerenderTrigger();
+      },
+      // Fix round 4 T15 (N-1): a releitura de `active-tenant-id` FALHOU e o hook assentou "" — a query da lista fica
+      // desabilitada (sem dado) até a próxima releitura dar certo. Não é troca de loja.
+      tenantVazio: () => {
+        tenantIdRef.current = "";
+        listaRef.current = undefined;
         dataUpdatedAtRef.current += 1;
         rerenderTrigger();
       },
@@ -1468,6 +1580,50 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     // botão continuaria habilitado e um Salvar mandaria `modelo_id: "m1"` (da loja 1) contra a loja 2.
     const botaoSalvarDepois = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
     expect(botaoSalvarDepois()?.hasAttribute("disabled")).toBe(true);
+    await view.desmontar();
+  });
+
+  // Fix round 4 T15 (N-1, code-review "Re-check round 3"): o remonte por loja da PÁGINA ignora o "" transitório,
+  // mas `ProdutosAba` tem o PRÓPRIO reset por `tenantId` (m4, acima) — sem tratar o "" aqui também, uma releitura
+  // de `active-tenant-id` que falha (o hook assenta "") zerava os rascunhos de Produtos do mesmo jeito. Prova com o
+  // componente REAL: rascunho → loja "" → MESMA loja de volta → o rascunho continua lá e o Salvar segue habilitado.
+  it("N-1: loja '' transitória NÃO zera o staging — a mesma loja volta e o rascunho continua (Salvar habilitado)", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })]);
+    const view = await montarComMocks({ lista: listaLoja1 });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Editando Na Loja 1");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input()!.value).toBe("Editando Na Loja 1");
+    await act(async () => { view.tenantVazio(); });
+    await act(async () => { view.trocarTenant("t1", listaLoja1); });
+    expect(input()!.value).toBe("Editando Na Loja 1");
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false);
+    await view.desmontar();
+  });
+
+  // N-1, lado "troca de verdade": "" transitório no meio NÃO impede o reset quando a loja que volta é OUTRA.
+  it("N-1: sujo → '' → OUTRA loja ainda ZERA o staging (o \"\" não esconde a troca)", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })]);
+    const view = await montarComMocks({ lista: listaLoja1 });
+    const { act } = await import("react");
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label^="Nome —"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input()!, "Editando Na Loja 1");
+      input()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { view.tenantVazio(); });
+    const listaLoja2 = listaRaw([produtoRaw({ modelo_id: "m9", raw: { nome: "Produto Loja 2", ref: "REF0009", tamanho_tipo: "letra" } })]);
+    await act(async () => { view.trocarTenant("t2", listaLoja2); });
+    expect(input()!.value).toBe("Produto Loja 2");
+    expect(view.container.textContent).not.toContain("fora desta página");
+    const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
+    expect(botaoSalvar()?.hasAttribute("disabled")).toBe(true);
     await view.desmontar();
   });
 
