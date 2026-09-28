@@ -17,7 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { textoVoltar } from "@/lib/integracao/resumo";
-import { invalidarIntegracao } from "./useIntegracao";
+import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
 
 // Fix round 3 T13 (revisão T13 #17, task-13-code-review.md "Re-check round 2" m-R2): a ruling do controlador
 // ("invalidar e FECHAR o diálogo no P0409") não tinha sido implementada de verdade — o `onError` só invalidava e
@@ -37,6 +37,9 @@ export function VoltarDialog({ produtos, onFechar, onFeito }: {
   const ids = produtos.map((p) => p.id);
   const voltar = useMutation({
     mutationFn: async () => {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor antes de voltar —
+      // mesma defesa dos outros pontos de escrita da Integração (ver `useIntegracao.ts:confirmarLojaAtiva`).
+      await confirmarLojaAtiva(tenantId);
       const { data, error } = await supabase.rpc("integracao_voltar" as any, { _modelo_ids: ids });
       if (error) throw error;
       return Number((data as { voltaram?: number } | null)?.voltaram ?? 0);

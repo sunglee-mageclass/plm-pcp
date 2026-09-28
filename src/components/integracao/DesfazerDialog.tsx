@@ -26,7 +26,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { ProdutoLista } from "@/lib/integracao/produtos";
 import { MOTIVO_MIN, textoDesfazer } from "@/lib/integracao/resumo";
-import { invalidarIntegracao } from "./useIntegracao";
+import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
 
 export function DesfazerDialog({ produto, onFechar, onFeito }: { produto: ProdutoLista; onFechar: () => void; onFeito: () => void }) {
   const tenantId = useActiveTenantId();
@@ -34,6 +34,9 @@ export function DesfazerDialog({ produto, onFechar, onFeito }: { produto: Produt
   const [motivo, setMotivo] = useState("");
   const desfazer = useMutation({
     mutationFn: async () => {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor antes de
+      // desfazer — mesma defesa dos outros pontos de escrita da Integração (ver `useIntegracao.ts:confirmarLojaAtiva`).
+      await confirmarLojaAtiva(tenantId);
       const { error } = await supabase.rpc("integracao_desfazer" as any, { _modelo_id: produto.modeloId, _motivo: motivo.trim() });
       if (error) throw error;
     },

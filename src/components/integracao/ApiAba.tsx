@@ -20,7 +20,7 @@
 // - Os inputs travam durante `salvar.isPending`.
 // - Enquanto os valores locais voltam a bater com os do servidor, o rascunho fecha (`ed = null`) e a tela volta a
 //   espelhar o servidor ao vivo.
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, KeyRound, Save } from "lucide-react";
@@ -48,8 +48,8 @@ import {
   type ChaveConfigApi,
 } from "@/lib/integracao/campos";
 import { fmtDataHora } from "@/lib/integracao/produtos";
-import { useAbaSuja } from "./guard";
-import { chaveConfig, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
+import { GuardaIntegracaoContext, useAbaSuja } from "./guard";
+import { TEXTO_LOJA_MUDOU, chaveConfig, confirmarLojaAtiva, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
 import { NovaChaveDialog } from "./NovaChaveDialog";
 
 type Valores = Record<ChaveConfigApi, number>;
@@ -71,6 +71,11 @@ function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolea
   });
   const rev = useMutation({
     mutationFn: async (id: string) => {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor imediatamente
+      // antes de revogar — a defesa da fix round 1 (comparar `tenantId` do CACHE) não pega uma 2ª aba/janela que
+      // trocou de loja no servidor sem que ESTA aba jamais reobservasse a query (`focusManager` só escuta
+      // `visibilitychange`, não `focus`). Nada é enviado se divergir.
+      await confirmarLojaAtiva(tenantId);
       const { error } = await supabase.rpc("integracao_chave_revogar" as any, { _id: id });
       if (error) throw error;
     },
@@ -104,7 +109,9 @@ function Chaves({ onVisibilidadeChave }: { onVisibilidadeChave: (visivel: boolea
               {(q.data ?? []).map((k) => (
                 <tr key={k.id} className="border-t">
                   <td className="px-3 py-2">{k.nome}</td>
-                  <td className="px-3 py-2 font-mono text-xs">···· {k.final}</td>
+                  {/* revisão T15 (nit "consistência ····"): SEM espaço entre "····" e o final — mesmo formato de
+                      `rotuloChaveAcesso` (Acessos/Log), que já mostra `····a1b2`. */}
+                  <td className="px-3 py-2 font-mono text-xs">····{k.final}</td>
                   <td className="px-3 py-2">{k.criadaPor} — {fmtData(k.criadaEm, tz)}</td>
                   <td className="px-3 py-2">{k.ultimoUsoEm ? fmtDataHora(k.ultimoUsoEm, tz, true) : "Nunca usada"}</td>
                   <td className="px-3 py-2 text-right">
@@ -185,8 +192,14 @@ function Acessos() {
 /** Congela `vals`+`base`+`rev` no instante da 1ª edição — nunca lê `q.data.rev` de novo até o rascunho esvaziar
  *  (Salvar com sucesso ou os valores voltarem a bater com o servidor). MESMO padrão de `Edicao` em `CamposAba.tsx`.
  *  `tenantId` (revisão T15 #1, code-review I1, defesa em profundidade): mesma razão de `CamposAba.tsx` — a página
- *  já remonta por `key={tenantId}` ao trocar de loja, mas o mutationFn recusa salvar se o rascunho nasceu numa
- *  loja diferente da atual, cobrindo qualquer forma futura de a página NÃO remontar por engano. */
+ *  já remonta por `key={tenantId}` ao trocar de loja, e o mutationFn recusa salvar se o rascunho nasceu numa loja
+ *  diferente da CACHEADA atual. ⚠️ Fix round 2 (code-review "Re-check round 1" I1-R): esta checagem só compara
+ *  DOIS VALORES DO CLIENTE (o `tenantId` congelado vs o `tenantId` corrente do cache do TanStack Query) — ela NÃO
+ *  cobre "qualquer forma futura" de a loja mudar: uma 2ª aba/janela que troca a loja ativa no SERVIDOR nunca
+ *  reobserva a query `["active-tenant-id"]` desta aba sozinha (`focusManager` só reage a `visibilitychange`, não
+ *  a `focus`), então os dois valores comparados aqui continuam IGUAIS (igualmente desatualizados) mesmo com o
+ *  servidor já noutra loja. A defesa REAL contra esse caso é `confirmarLojaAtiva` (`useIntegracao.ts`), chamada
+ *  logo antes do `rpc` — relê `users.tenant_id` DIRETO do servidor, bypassando o cache. */
 type Edicao = { vals: Valores; base: Valores; rev: number; tenantId: string };
 
 const igual = (a: Valores, b: Valores): boolean => CHAVES_CONFIG_API.every((k) => a[k] === b[k]);
@@ -242,12 +255,16 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
   const salvar = useMutation({
     mutationFn: async () => {
       // ed sempre não-nulo aqui: o botão Salvar só habilita com `sujo` (que exige ed !== null).
-      // revisão T15 #1 (code-review I1, defesa em profundidade): recusa ANTES de qualquer chamada de rede se o
-      // rascunho nasceu numa loja diferente da atual — não deveria acontecer (a página remonta por
-      // `key={tenantId}`), mas aqui é a última linha de defesa.
+      // revisão T15 #1 (code-review I1, defesa em profundidade — CLIENTE vs CLIENTE, ver o comentário de `Edicao`
+      // acima): recusa ANTES de qualquer chamada de rede se o rascunho nasceu numa loja diferente da cacheada
+      // atual — não deveria acontecer (a página remonta por `key={tenantId}`), mas é a 1ª linha de defesa.
       if (ed!.tenantId !== tenantId) {
-        throw Object.assign(new Error("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança."), { code: "LOJA_MUDOU" });
+        throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
       }
+      // revisão T15 #I1-R (code-review "Re-check round 1"): a defesa acima não pega uma 2ª aba/janela que trocou
+      // de loja no SERVIDOR sem que esta aba jamais reobservasse — relê `users.tenant_id` DIRETO do servidor
+      // imediatamente antes do save (última linha de defesa real, do lado do cliente).
+      await confirmarLojaAtiva(tenantId);
       const { error } = await supabase.rpc("integracao_salvar_config_api" as any, { _valores: ed!.vals, _rev: ed!.rev });
       if (error) throw error;
     },
@@ -385,7 +402,14 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 {(alerta ?? []).map((k) => <p key={k}><strong>{CONFIG_API[k].rotuloCurto}:</strong> {textoForaRecomendado(k)}</p>)}
-                {vals && alertaPaginaPlanoGratuito(vals.max_por_pagina) && <p><strong>Plano gratuito:</strong> {TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>}
+                {/* revisão T15 (nit "Plano gratuito só se tocado"): `alerta` já vem filtrado só pelas chaves TOCADAS
+                    (`pedirSalvar`/`foraTocadas`) — checar `alerta?.includes("max_por_pagina")` em vez de
+                    `vals.max_por_pagina` cru evita mostrar este aviso extra quando o campo fora do recomendado é
+                    OUTRO (ex.: `limite_por_minuto`) e `max_por_pagina` só está alto porque a loja JÁ tinha um
+                    valor de propósito acima de 100 (ex.: plano pago) sem o usuário ter tocado nele agora. */}
+                {vals && alerta?.includes("max_por_pagina") && alertaPaginaPlanoGratuito(vals.max_por_pagina) && (
+                  <p><strong>Plano gratuito:</strong> {TEXTO_ALERTA_PAGINA_PLANO_GRATUITO}</p>
+                )}
                 <p>Salvar mesmo assim?</p>
               </div>
             </AlertDialogDescription>
@@ -429,6 +453,14 @@ export function ApiAba() {
   const [sujoConfig, setSujoConfig] = useState(false);
   const [chaveVisivel, setChaveVisivel] = useState(false);
   useAbaSuja("api", sujoConfig || chaveVisivel);
+  // revisão T15 (n1, code-review "Re-check round 1"): reporta `chaveVisivel` também pro canal PARALELO
+  // `informarChaveVisivel` — a página usa isso pra escolher o toast certo quando o remonte por `key={tenantId}`
+  // (troca de loja) destrói uma chave nova AINDA visível/não copiada (ver `IntegracaoPage.tsx`).
+  const guardaCtx = useContext(GuardaIntegracaoContext);
+  useEffect(() => {
+    guardaCtx?.informarChaveVisivel?.(chaveVisivel);
+  }, [guardaCtx, chaveVisivel]);
+  useEffect(() => () => guardaCtx?.informarChaveVisivel?.(false), [guardaCtx]);
   return (
     <div className="space-y-4">
       <p className="rounded-md bg-[var(--tone-info-bg)] p-3 text-sm text-[var(--tone-info-fg)]">{TEXTO_SO_SUPER}</p>

@@ -40,14 +40,18 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_FECHAR_SEM_COPIAR, TEXTO_NOVA_CHAVE_GUARDE } from "@/lib/integracao/api-tela";
-import { invalidarIntegracao } from "./useIntegracao";
+import { confirmarLojaAtiva, invalidarIntegracao, nomeLojaAtivaFresco } from "./useIntegracao";
 
 export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: () => void; onVisibilidadeChave?: (visivel: boolean) => void }) {
   const tenantId = useActiveTenantId();
-  const lojaNome = useTenantBranding().nome;
+  // revisão T15 #I1-R (code-review "Re-check round 1"): o rótulo do PASSO 1 (antes de criar) é só um HINT — segue
+  // usando o valor cacheado de `useTenantBranding` (nunca bloqueia nada). O nome que fica gravado em `criada`
+  // (passo 2, a chave já foi gerada) é o CONFIRMADO por `nomeLojaAtivaFresco` no instante do clique em "Criar" —
+  // esse sim é o que a tela mostra como "a loja desta chave", nunca o cacheado.
+  const lojaNomeHint = useTenantBranding().nome;
   const qc = useQueryClient();
   const [nome, setNome] = useState("");
-  const [criada, setCriada] = useState<{ nome: string; chave: string } | null>(null);
+  const [criada, setCriada] = useState<{ nome: string; chave: string; lojaNome: string | null } | null>(null);
   const [criando, setCriando] = useState(false);
   const [copiada, setCopiada] = useState(false);
   const [pedirConfirmacao, setPedirConfirmacao] = useState(false);
@@ -59,6 +63,12 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
   const criar = async () => {
     setCriando(true);
     try {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor imediatamente
+      // antes de criar — a defesa de `ApiAba`/`key={tenantId}` não pega uma 2ª aba/janela que trocou de loja no
+      // servidor sem que esta aba jamais reobservasse a query cacheada. Nada é enviado se divergir. O nome da
+      // loja mostrado no passo 2 (`nomeLojaAtivaFresco`) vem da MESMA leitura fresca — nunca do
+      // `useTenantBranding` cacheado.
+      const [, lojaNomeFresco] = await Promise.all([confirmarLojaAtiva(tenantId), nomeLojaAtivaFresco()]);
       const { data, error } = await supabase.rpc("integracao_chave_criar" as any, { _nome: nome.trim() });
       if (error) throw error;
       // m2 (code review): valida a resposta ANTES de aceitar — uma resposta sem `chave` (ou vazia) nunca deve
@@ -71,7 +81,7 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
         invalidarIntegracao(qc, tenantId);
         return;
       }
-      setCriada({ nome: typeof o.nome === "string" ? o.nome : nome.trim(), chave: o.chave });
+      setCriada({ nome: typeof o.nome === "string" ? o.nome : nome.trim(), chave: o.chave, lojaNome: lojaNomeFresco });
       void qc.invalidateQueries({ queryKey: ["integracao-chaves", tenantId] });
       invalidarIntegracao(qc, tenantId);
     } catch (e) {
@@ -126,7 +136,7 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
           {!criada ? (
             <>
               <DialogHeader>
-                <DialogTitle>Nova chave{lojaNome ? ` — loja ${lojaNome}` : ""}</DialogTitle>
+                <DialogTitle>Nova chave{lojaNomeHint ? ` — loja ${lojaNomeHint}` : ""}</DialogTitle>
                 <DialogDescription>Dê um nome que diga para que serve (ex.: ERP Principal).</DialogDescription>
               </DialogHeader>
               <div className="grid gap-1">
@@ -141,7 +151,10 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle>Chave "{criada.nome}" criada{lojaNome ? ` — loja ${lojaNome}` : ""}</DialogTitle>
+                {/* revisão T15 #I1-R: `criada.lojaNome` é o CONFIRMADO no servidor no instante do "Criar" (ver
+                    `criar()`) — nunca `lojaNomeHint` (cacheado, podia já estar desatualizado quando a chave foi
+                    de fato criada). */}
+                <DialogTitle>Chave "{criada.nome}" criada{criada.lojaNome ? ` — loja ${criada.lojaNome}` : ""}</DialogTitle>
                 {/* m3 (code review): o aviso de guardar a chave aparece SÓ na caixa âmbar abaixo — a descrição do
                     dialog não repete o mesmo texto. */}
               </DialogHeader>

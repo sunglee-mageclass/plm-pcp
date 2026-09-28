@@ -66,14 +66,30 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
   async function montar(opts: { tenantIdRef: { current: string } }) {
     vi.resetModules();
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => opts.tenantIdRef.current }));
-    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: true }) }));
+    // revisão T15 (n2, code-review "Re-check round 1"): `navPermitida` de `IntegracaoPage` agora lê
+    // `qc.getQueryData(["active-tenant-id", user.id])` diretamente — precisa de um `user.id` estável.
+    vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: true, user: { id: "u1" } }) }));
     const toastMocks = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
     vi.doMock("sonner", () => ({ toast: toastMocks }));
+    const blockerProceedSpy = vi.fn();
+    const blockerResetSpy = vi.fn();
+    // Fake `useBlocker` fiel ao suficiente pro que `useUnsavedGuard` usa dele: nunca fica "blocked" sozinho (o
+    // teste chama `shouldBlockFn` MANUALMENTE, ver abaixo) — só GUARDA a última função recebida, pra simular a
+    // corrida real: o router chama `shouldBlockFn` no INSTANTE do `navigate()` do TenantSwitcher, ANTES do React
+    // re-renderizar `IntegracaoPage` com o `tenantId` novo (o `refetchQueries` do TanStack Query só propaga pro
+    // React num tick seguinte — `notifyManager` agenda via `setTimeout(0)`). Capturar a função e chamá-la
+    // manualmente, ainda com o `tenantId`/`dirty` ANTIGOS na clausura, reproduz esse instante fielmente.
+    let shouldBlockCapturado: ((a: { next: { pathname: string } }) => boolean) | null = null;
+    const blockerImpl = (args: { shouldBlockFn?: (a: { next: { pathname: string } }) => boolean }) => {
+      shouldBlockCapturado = args.shouldBlockFn ?? null;
+      return { status: "idle" as const, proceed: blockerProceedSpy, reset: blockerResetSpy };
+    };
     vi.doMock("@tanstack/react-router", () => ({
-      useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
+      useBlocker: blockerImpl,
     }));
     const { createElement, useState } = await import("react");
     const { act } = await import("react");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const { useAbaSuja } = await import("@/components/integracao/guard");
     const { useActiveTenantId } = await import("@/hooks/useActiveTenantId");
     // Stub das 3 abas reais: cada uma só expõe um botão "sujar"/"limpar" que chama `useAbaSuja`, e mostra o
@@ -85,12 +101,41 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
       return createElement(
         "div", null,
         `tenant:${useActiveTenantId()}`,
+        // revisão T15 (n2, code-review "Re-check round 1" — "a prova não trava o `key`"): expõe o PRÓPRIO estado
+        // `sujo` no texto — sem isto, o teste só provava que o toast disparou (que também dispararia se `sujas`
+        // fosse zerado por FORA, sem nenhum remonte de verdade). Com `sujo:${sujo}` no DOM, sabotar o
+        // `key={tenantId}` de `IntegracaoPage.tsx` (removê-lo) faz esta MESMA instância de `ProdutosAbaStub`
+        // sobreviver à troca de tenant com seu PRÓPRIO estado local `sujo=true` intocado — o texto continuaria
+        // "sujo:true" mesmo depois da troca, e o teste vira RED (ver a sabotagem verificada no report).
+        `sujo:${sujo}`,
         createElement("button", { onClick: () => setSujo(true) }, "sujar-produtos"),
+      );
+    }
+    // revisão T15 (n1, code-review "Re-check round 1"): stub de `ApiAba` que só expõe o botão pra reportar uma
+    // chave VISÍVEL (via `informarChaveVisivel`, o canal PARALELO da guarda) — prova que `IntegracaoPage` escolhe
+    // o toast ESPECÍFICO (chave não copiada) em vez do genérico quando esse sinal está `true` no momento da troca.
+    const { useContext } = await import("react");
+    const { GuardaIntegracaoContext } = await import("@/components/integracao/guard");
+    function ApiAbaStub() {
+      const ctx = useContext(GuardaIntegracaoContext);
+      const [chaveVisivel, setChaveVisivel] = useState(false);
+      // Espelha o `ApiAba` real: `chaveVisivel` soma na guarda de "sujo" DA ABA (bloqueia navegação) e É reportado
+      // no canal paralelo `informarChaveVisivel` (o sinal que `IntegracaoPage` usa pra escolher o toast certo).
+      useAbaSuja("api", chaveVisivel);
+      return createElement(
+        "button",
+        {
+          onClick: () => {
+            setChaveVisivel(true);
+            ctx?.informarChaveVisivel?.(true);
+          },
+        },
+        "marcar-chave-visivel-api",
       );
     }
     vi.doMock("@/components/integracao/ProdutosAba", () => ({ ProdutosAba: ProdutosAbaStub }));
     vi.doMock("@/components/integracao/CamposAba", () => ({ CamposAba: () => null }));
-    vi.doMock("@/components/integracao/ApiAba", () => ({ ApiAba: () => null }));
+    vi.doMock("@/components/integracao/ApiAba", () => ({ ApiAba: ApiAbaStub }));
     const { createRoot } = await import("react-dom/client");
     const { SidebarProvider } = await import("@/components/ui/sidebar");
     const { IntegracaoPage } = await import("@/components/integracao/IntegracaoPage");
@@ -102,13 +147,17 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     vi.doUnmock("@/components/integracao/ProdutosAba");
     vi.doUnmock("@/components/integracao/CamposAba");
     vi.doUnmock("@/components/integracao/ApiAba");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    const arvore = () => createElement(SidebarProvider, null, createElement(IntegracaoPage));
+    const arvore = () => createElement(QueryClientProvider, { client: qc }, createElement(SidebarProvider, null, createElement(IntegracaoPage)));
     await act(async () => { root.render(arvore()); });
     return {
-      container, toastMocks,
+      container, toastMocks, blockerProceedSpy, blockerResetSpy, qc,
+      // Chama a função `shouldBlockFn` mais recente que o `useBlocker` recebeu (ver o comentário do `blockerImpl`
+      // acima) — simula o router checando "posso navegar?" no instante exato do clique/promise-chain.
+      shouldBlockAgora: (next: { pathname: string } = { pathname: "/home" }) => !!shouldBlockCapturado?.({ next }),
       rerender: () => act(async () => { root.render(arvore()); }),
       desmontar: () => act(async () => { root.unmount(); container.remove(); }),
     };
@@ -118,13 +167,22 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     const tenantIdRef = { current: "lojaA" };
     const view = await montar({ tenantIdRef });
     expect(view.container.textContent).toContain("tenant:lojaA");
+    expect(view.container.textContent).toContain("sujo:false");
     const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
     const { act } = await import("react");
     await act(async () => { botaoSujar().click(); });
+    expect(view.container.textContent).toContain("sujo:true");
     // Troca de loja (o TenantSwitcher já mudou no servidor — aqui só o tenantId ativo muda).
     tenantIdRef.current = "lojaB";
     await view.rerender();
     expect(view.container.textContent).toContain("tenant:lojaB");
+    // revisão T15 (n2, code-review "Re-check round 1"): a prova de que isto é um REMONTE de verdade (`key=
+    // {tenantId}`), não só um `informarSujo(false)` disparado de fora — a MESMA instância de `ProdutosAbaStub`
+    // teria mantido `sujo=true` no seu PRÓPRIO estado local se não tivesse sido desmontada/recriada. Sabotagem
+    // verificada (remover `key={tenantId}` de `IntegracaoPage.tsx`): esta asserção vira RED (o texto continua
+    // "sujo:true"), enquanto as duas de baixo (toast/tenant) continuavam GREEN sem o `key` — prova que elas
+    // sozinhas não travavam a regressão.
+    expect(view.container.textContent).toContain("sujo:false");
     // O toast de aviso apareceu — havia algo sujo no momento da troca.
     expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
     await view.desmontar();
@@ -136,6 +194,72 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     tenantIdRef.current = "lojaB";
     await view.rerender();
     expect(view.toastMocks.warning).not.toHaveBeenCalled();
+    await view.desmontar();
+  });
+
+  // revisão T15 (n1, code-review "Re-check round 1"): quando o motivo do "sujo" era ESPECIFICAMENTE uma chave nova
+  // ainda VISÍVEL (não copiada) na aba API, o toast tem que avisar que ela CONTINUA ATIVA (não foi perdida, só o
+  // texto claro nunca mais aparece) — texto diferente do genérico "alterações descartadas".
+  it("n1: chave nova visível (não copiada) na aba API — toast ESPECÍFICO ao trocar de loja (a chave continua ativa)", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const { act } = await import("react");
+    // O `TabsContent` do Radix só MONTA o conteúdo da aba ATIVA (sem `forceMount`) — a aba "API" começa
+    // desmontada (a página abre em "Produtos"). Clica na aba API primeiro pra montar o `ApiAbaStub`.
+    const abaApi = Array.from(view.container.querySelectorAll('button[role="tab"]')).find((b) => b.textContent === "API") as HTMLButtonElement;
+    await act(async () => {
+      abaApi.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    const botaoMarcar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "marcar-chave-visivel-api") as HTMLButtonElement | undefined;
+    expect(botaoMarcar()).toBeDefined();
+    await act(async () => { botaoMarcar()!.click(); });
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.toastMocks.warning).toHaveBeenCalledWith(
+      "A chave nova não foi copiada e a loja mudou — ela continua ATIVA; revogue-a na aba API da loja anterior se não for usá-la.",
+    );
+    // NUNCA o genérico junto (só UM toast — o específico).
+    expect(view.toastMocks.warning).not.toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
+    await view.desmontar();
+  });
+
+  // revisão T15 (n2, code-review "Re-check round 1"): antes, uma troca de loja com a aba suja podia mostrar OS
+  // DOIS avisos — o "Descartar alterações?" (via useBlocker, se uma navegação de rota estivesse em voo) E o toast
+  // do efeito de troca de tenant. Escolha do coordenador: UM caminho só — o remonte + toast já são a confirmação;
+  // `navPermitida` lê `qc.getQueryData(["active-tenant-id", uid])` DIRETO do cache (não do hook `tenantId`, que só
+  // se atualiza num tick seguinte) — se o cache já diverge do `tenantId` que esta render capturou, a troca já
+  // aconteceu de verdade e a navegação passa sem o AlertDialog.
+  it("n2: com o cache de active-tenant-id JÁ divergindo (simula o refetchQueries do TenantSwitcher, ANTES do tenant novo re-renderizar), o shouldBlockFn NÃO bloqueia", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    // Simula exatamente o instante em que o `TenantSwitcher` chama `navigate()`: o `await
+    // qc.refetchQueries({queryKey:["active-tenant-id"]})` dele JÁ escreveu "lojaB" no cache — mas o `tenantId`
+    // desta render de `IntegracaoPage` (via hook) ainda é "lojaA" (a notificação do TanStack Query aos observers
+    // só chega num tick seguinte). `shouldBlockAgora()` chama a MESMA `shouldBlockFn` capturada na última render,
+    // reproduzindo a corrida.
+    view.qc.setQueryData(["active-tenant-id", "u1"], "lojaB");
+    // Sem o fix, `navPermitida` sempre devolveria `false` aqui (nada divergia do que ele checava) e `shouldBlockFn`
+    // bloquearia — o AlertDialog "Descartar alterações?" apareceria por cima do toast que o efeito de troca de
+    // tenant mostra alguns instantes depois.
+    expect(view.shouldBlockAgora()).toBe(false);
+    await view.desmontar();
+  });
+
+  // Sabotagem-prova do n2: SEM o cache divergir (o comportamento de QUALQUER outra navegação — Voltar, trocar de
+  // item de menu, nada que mude `active-tenant-id`), a MESMA checagem CONTINUA bloqueando — prova que o teste
+  // acima de fato depende do fix (`navPermitida`), não é um falso-positivo que sempre passaria.
+  it("n2 (sabotagem-prova): SEM o cache divergir, o MESMO shouldBlockFn bloqueia normalmente (dirty=true)", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    // Nenhuma mudança no cache — uma navegação comum (Voltar, menu) continua bloqueada normalmente.
+    expect(view.shouldBlockAgora()).toBe(true);
     await view.desmontar();
   });
 });
@@ -286,6 +410,94 @@ describe("useIntegracao — usePreviasSkus memoiza previaDeErro (identidade est�
   });
 });
 
+// revisão T15 #I1-R (code-review "Re-check round 1"): `useSalvarIntegracao` (o REAL, não mockado — mesmo padrão
+// "Sonda" de `usePreviasSkus` acima) recusa o Salvar de Produtos quando `confirmarLojaAtiva` diz que a loja
+// mudou — prova que a RPC `integracao_salvar` NUNCA é chamada nesse caso.
+describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva reprova (I1-R)", () => {
+  async function montarSalvarSonda(opts: { confirmarLojaAtivaFalha: boolean }) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    // `confirmarLojaAtiva` (a função REAL, não mockada) relê `supabase.auth.getUser()` + `users.tenant_id` DIRETO
+    // — controla o resultado dela pelo MESMO client mockado que `useSalvarIntegracao` usa (não dá pra espionar a
+    // função em si: o `mutationFn` chama o binding local do módulo, que o live-binding do ESM não roteia através
+    // de `vi.spyOn(modulo, "confirmarLojaAtiva")` pra chamadas internas do MESMO módulo).
+    const rpcSpy = vi.fn(async () => ({ data: { salvos: 0, revs: {} }, error: null }));
+    const fromSpy = vi.fn((tabela: string) => {
+      if (tabela === "users") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { tenant_id: opts.confirmarLojaAtivaFalha ? "OUTRA_LOJA" : "t1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      throw new Error(`tabela não mockada: ${tabela}`);
+    });
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: {
+        rpc: rpcSpy,
+        auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
+        from: fromSpy,
+      },
+    }));
+    const { createElement, useState } = await import("react");
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { useSalvarIntegracao } = await import("@/components/integracao/useIntegracao");
+    function Sonda() {
+      const salvar = useSalvarIntegracao();
+      const [resultado, setResultado] = useState<{ ok: boolean; erro?: string } | null>(null);
+      return createElement(
+        "div", null,
+        createElement("button", {
+          onClick: () => {
+            salvar.mutate([], {
+              onSuccess: () => setResultado({ ok: true }),
+              onError: (e: unknown) => setResultado({ ok: false, erro: (e as Error).message }),
+            });
+          },
+        }, "salvar-produtos"),
+        resultado ? createElement("div", null, resultado.ok ? "sucesso" : `erro:${resultado.erro}`) : null,
+      );
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Sonda))); });
+    return {
+      container, rpcSpy, fromSpy,
+      clicarSalvar: () => act(async () => {
+        const btn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "salvar-produtos") as HTMLButtonElement;
+        btn.click();
+        await new Promise((r) => setTimeout(r, 10));
+      }),
+      desmontar: () => act(async () => { root.unmount(); container.remove(); }),
+    };
+  }
+
+  it("I1-R: confirmarLojaAtiva reprovando (servidor já noutra loja) bloqueia o Salvar de Produtos — integracao_salvar NUNCA é chamada", async () => {
+    const view = await montarSalvarSonda({ confirmarLojaAtivaFalha: true });
+    await view.clicarSalvar();
+    expect(view.fromSpy).toHaveBeenCalledWith("users"); // confirmarLojaAtiva de fato releu o servidor
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
+    expect(view.container.textContent).toContain("erro:A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    await view.desmontar();
+  });
+
+  it("confirmarLojaAtiva aprovando (loja não mudou) deixa o Salvar seguir normalmente", async () => {
+    const view = await montarSalvarSonda({ confirmarLojaAtivaFalha: false });
+    await view.clicarSalvar();
+    expect(view.fromSpy).toHaveBeenCalledWith("users");
+    // Com 0 rascunhos, `salvarIntegracao` nunca chega a chamar `integracao_salvar` (nada a salvar) — a prova aqui
+    // é que a mutation teve SUCESSO (não caiu no branch de erro do LOJA_MUDOU).
+    expect(view.container.textContent).toContain("sucesso");
+    await view.desmontar();
+  });
+});
+
 // Fix round 2 — Minor R2/R3 (task-11-review.md) / N3 (task-11-code-review.md): sem cópias locais de textos já
 // exportados, e o erro de resultado desconhecido preserva a causa original.
 describe("salvar-integracao — sem textos duplicados (N3); cause preservada (R3)", () => {
@@ -402,8 +614,15 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     // (só o toast/a contagem de chamada de RPC), então o texto "e invalida a lista" no título de um teste não
     // tinha nenhuma asserção correspondente. Exposto no retorno como `invalidarIntegracaoSpy`.
     const invalidarIntegracaoSpy = vi.fn();
+    // revisão T15 #I1-R (code-review "Re-check round 1"): `IntegrarDialog`/`VoltarDialog`/`DesfazerDialog`/
+    // `KeywordsDialog` importam `confirmarLojaAtiva` DIRETO deste módulo (mockado por inteiro aqui) — sem o
+    // export, a chamada real quebraria com "confirmarLojaAtiva is not a function". Resolve como se a loja NÃO
+    // tivesse mudado (não é o alvo desta suíte; os testes de `confirmarLojaAtiva` propriamente moram nos arquivos
+    // de cada aba, ver integracao-api-tela.test.ts/integracao-campos-config.test.ts).
+    const confirmarLojaAtivaSpy = vi.fn(async () => {});
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
+      confirmarLojaAtiva: confirmarLojaAtivaSpy,
       useIntegracaoLista: (_situacao: unknown, _filtros: unknown, pagina: number) => {
         paginasChamadas.push(pagina);
         return { data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current };
@@ -1708,6 +1927,10 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
       invalidarIntegracao: () => {},
+      // revisão T15 #I1-R (code-review "Re-check round 1"): `KeywordsDialog` importa `confirmarLojaAtiva` DIRETO
+      // deste módulo — sem o export, a chamada real quebraria. Resolve como se a loja NÃO tivesse mudado (não é o
+      // alvo desta suíte).
+      confirmarLojaAtiva: async () => {},
     }));
     vi.doMock("@tanstack/react-router", () => ({
       useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),

@@ -37,7 +37,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { chaveLista, invalidarIntegracao } from "./useIntegracao";
+import { chaveLista, confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
 import type { ListaIntegracao } from "@/lib/integracao/produtos";
 
 export const TEXTO_KEYWORDS_CONFLITO =
@@ -75,6 +75,11 @@ export function KeywordsDialog({ atual, onFechar, onSujoChange }: {
   const salvar = async () => {
     setSalvando(true);
     try {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor antes de salvar
+      // as Keywords — mesma defesa dos outros pontos de escrita da Integração (ver
+      // `useIntegracao.ts:confirmarLojaAtiva`). Nada é enviado se divergir (cai no `catch` abaixo, que já mostra o
+      // `mensagemErro` do erro — o código `LOJA_MUDOU` não é P0409, então segue pelo `else` genérico).
+      await confirmarLojaAtiva(tenantId);
       // `base` = o texto que ESTE diálogo carregou (não o `atual` da lista, que pode ter relido no meio) — R5.
       const { error } = await supabase.rpc("integracao_salvar" as any, { _itens: [], _keywords: { valor: texto, esperado: base } });
       if (error) throw error;

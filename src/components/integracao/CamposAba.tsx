@@ -55,13 +55,18 @@ import {
   diffCampos, mesmaSelecao, ordenarCampos, precisaAlertaLayout, rotuloNaLista, type CampoKey,
 } from "@/lib/integracao/campos";
 import { useAbaSuja } from "./guard";
-import { chaveConfig, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
+import { TEXTO_LOJA_MUDOU, chaveConfig, confirmarLojaAtiva, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
 
 /** Congela `sel`+`base`+`rev` no instante do 1º toggle (I2) — nunca lê `q.data.rev` de novo até o rascunho
  *  esvaziar (Salvar com sucesso ou "usar a da loja"). `tenantId` (revisão T15 #1, code-review I1, defesa em
  *  profundidade): a página já remonta a aba inteira com `key={tenantId}` ao trocar de loja (IntegracaoPage), mas
  *  o rascunho também carrega a loja em que nasceu — o mutationFn recusa salvar se ela não bater mais com a
- *  atual, cobrindo qualquer forma futura de a página NÃO remontar por engano. */
+ *  CACHEADA atual. ⚠️ Fix round 2 (code-review "Re-check round 1" I1-R): esta checagem só compara DOIS VALORES DO
+ *  CLIENTE — ela NÃO cobre "qualquer forma futura" de a loja mudar: uma 2ª aba/janela que troca a loja ativa no
+ *  SERVIDOR nunca reobserva a query `["active-tenant-id"]` desta aba sozinha (`focusManager` só reage a
+ *  `visibilitychange`, não a `focus`), então os dois valores comparados aqui continuam IGUAIS mesmo com o
+ *  servidor já noutra loja. A defesa REAL é `confirmarLojaAtiva` (`useIntegracao.ts`), chamada logo antes do
+ *  `rpc` — relê `users.tenant_id` DIRETO do servidor, bypassando o cache. */
 type Edicao = { sel: CampoKey[]; base: CampoKey[]; rev: number; tenantId: string };
 
 /** Rebaseia o diff do usuário (vs `base` velha) em cima da seleção FRESCA do servidor (I1): campos que o usuário
@@ -122,12 +127,16 @@ export function CamposAba() {
   const salvar = useMutation({
     mutationFn: async () => {
       // ed sempre não-nulo aqui: o botão Salvar só habilita com `sujo` (que exige ed !== null).
-      // revisão T15 #1 (code-review I1, defesa em profundidade): recusa ANTES de qualquer chamada de rede se o
-      // rascunho nasceu numa loja diferente da atual — não deveria acontecer (a página remonta por
-      // `key={tenantId}`), mas aqui é a última linha de defesa contra gravar o rascunho da loja errada.
+      // revisão T15 #1 (code-review I1, defesa em profundidade — CLIENTE vs CLIENTE, ver o comentário de `Edicao`
+      // acima): recusa ANTES de qualquer chamada de rede se o rascunho nasceu numa loja diferente da cacheada
+      // atual — não deveria acontecer (a página remonta por `key={tenantId}`), mas é a 1ª linha de defesa.
       if (ed!.tenantId !== tenantId) {
-        throw Object.assign(new Error("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança."), { code: "LOJA_MUDOU" });
+        throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
       }
+      // revisão T15 #I1-R (code-review "Re-check round 1"): a defesa acima não pega uma 2ª aba/janela que trocou
+      // de loja no SERVIDOR sem que esta aba jamais reobservasse — relê `users.tenant_id` DIRETO do servidor
+      // imediatamente antes do save (última linha de defesa real, do lado do cliente).
+      await confirmarLojaAtiva(tenantId);
       const { error } = await supabase.rpc("integracao_salvar_config" as any, { _campos: ed!.sel, _rev: ed!.rev });
       if (error) throw error;
     },

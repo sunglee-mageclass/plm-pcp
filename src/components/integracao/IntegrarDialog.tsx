@@ -25,7 +25,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { CAMPO_BY_KEY, TEXTO_ALERTA_INTEGRAR } from "@/lib/integracao/campos";
 import { celulaResumo, itensMarcar, lerResumo, type ResumoIntegrar } from "@/lib/integracao/resumo";
-import { invalidarIntegracao } from "./useIntegracao";
+import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
 
 export function IntegrarDialog({ ids, onFechar, onFeito }: { ids: string[]; onFechar: () => void; onFeito: () => void }) {
   const tenantId = useActiveTenantId();
@@ -44,6 +44,9 @@ export function IntegrarDialog({ ids, onFechar, onFeito }: { ids: string[]; onFe
   });
   const marcar = useMutation({
     mutationFn: async (itens: { modelo_id: string; assinatura: string }[]) => {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor antes de marcar —
+      // a mesma defesa dos outros pontos de escrita da Integração (ver `useIntegracao.ts:confirmarLojaAtiva`).
+      await confirmarLojaAtiva(tenantId);
       const { data, error } = await supabase.rpc("integracao_marcar" as any, { _itens: itens });
       if (error) throw error;
       return Number((data as { marcados?: number } | null)?.marcados ?? 0);

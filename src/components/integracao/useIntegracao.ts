@@ -53,6 +53,58 @@ export const chaveConfig = (tenantId: string) => ["integracao-config", tenantId]
 export const chaveEstado = (tenantId: string) => ["integracao-estado", tenantId] as const;
 export const chaveLog = (tenantId: string) => ["integracao-log", tenantId] as const;
 
+/** Mensagem do `LOJA_MUDOU` (fix round 2 T15, code-review "Re-check round 1" I1-R): ÚNICA — qualquer chamador que
+ *  precisar mostrar o mesmo texto (toast, banner) usa esta constante, nunca um literal duplicado. */
+export const TEXTO_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.";
+
+/** Fix round 2 T15 (code-review "Re-check round 1" I1-R): a defesa da fix round 1 (`Edicao.tenantId` congelado vs
+ *  `useActiveTenantId()` corrente, comparados no mutationFn) só compara dois valores do CLIENTE — o `tenantId`
+ *  corrente vem do CACHE do TanStack Query (`["active-tenant-id", uid]`), que só atualiza quando o próprio
+ *  `TenantSwitcher` roda `refetchQueries` (mesma aba) ou quando ALGO reativa a query (foco de janela — e
+ *  `focusManager` só escuta `visibilitychange`, não `focus`; uma 2ª janela/aba visível o tempo todo nunca
+ *  reobserva sozinha). Cenário real: o super admin troca de loja numa 2ª aba/janela — o SERVIDOR
+ *  (`public.users.tenant_id`) já mudou, mas o cache desta aba/janela continua com o tenant ANTIGO, e
+ *  `Edicao.tenantId === tenantId` bate (os dois são igualmente velhos) — a defesa da fix round 1 não pega esse
+ *  caso. Correção definitiva (comparar no SERVIDOR, dentro da mesma transação do save) fica pro backlog: a RPC
+ *  não tem um parâmetro `_tenant_esperado` e o SQL desta campanha está congelado (decisão do coordenador, fix
+ *  round 2). Este helper é a mitigação do lado do CLIENTE — relê `users.tenant_id` DIRETO do servidor (bypassa
+ *  QUALQUER cache do TanStack Query; é a MESMA tabela/coluna que `useActiveTenantId` usa, mas sem passar pelo
+ *  `queryClient`) imediatamente ANTES de cada gravação da Integração, e recusa com `LOJA_MUDOU` se divergir do
+ *  tenant que o rascunho/dialog carregava. Chamar em TODO ponto de escrita da Integração — key/revogar (Chaves),
+ *  config (Campos/API), Salvar de Produtos/Keywords, marcar/voltar/desfazer (estado) — IMEDIATAMENTE antes do
+ *  `supabase.rpc(...)`, nunca antes (uma corrida entre a checagem e o `rpc` de verdade não é eliminável 100% sem
+ *  mover a checagem pro servidor, mas reduz a janela de segundos/minutos de uma aba esquecida aberta pra
+ *  milissegundos). Nunca lança para o `uid`/`tenantIdEsperado` vazios (chamador nunca deveria chamar sem os dois). */
+export async function confirmarLojaAtiva(tenantIdEsperado: string): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
+  const { data, error } = await supabase.from("users").select("tenant_id").eq("id", uid).maybeSingle();
+  if (error) throw error;
+  const tenantAtual = data?.tenant_id ?? "";
+  if (tenantAtual !== tenantIdEsperado) {
+    throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
+  }
+}
+
+/** Fix round 2 T15 (code-review "Re-check round 1" I1-R, item "o nome mostrado no diálogo tem que vir da leitura
+ *  FRESCA"): `NovaChaveDialog` mostrava `useTenantBranding().nome` — uma query PRÓPRIA, cacheada por
+ *  `staleTime: 5min`, que pode estar tão desatualizada quanto o `tenantId` do `useActiveTenantId()`. Em vez de
+ *  reusar aquele hook, esta função relê tenant_id + nome DIRETO do servidor (a MESMA linha que
+ *  `confirmarLojaAtiva` valida) e devolve o nome já CONFIRMADO — chamada uma única vez, no clique de "Criar",
+ *  logo antes do `confirmarLojaAtiva`/`rpc`, e o nome retornado (nunca o do `useTenantBranding`) é o que fica na
+ *  tela da chave criada. */
+export async function nomeLojaAtivaFresco(): Promise<string | null> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) return null;
+  const { data: u } = await supabase.from("users").select("tenant_id").eq("id", uid).maybeSingle();
+  const tid = u?.tenant_id;
+  if (!tid) return null;
+  const { data: t } = await supabase.from("tenants").select("nome").eq("id", tid).maybeSingle();
+  return (t as { nome?: string | null } | null)?.nome ?? null;
+}
+
 export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina: number) {
   const tenantId = useActiveTenantId();
   const f = filtrosParaRpc(filtros);
@@ -323,7 +375,12 @@ export function useSalvarIntegracao() {
     // I2 (task-11-review.md + code-review.md): `mutationKey` própria, por tenant — `useIntegracaoAoVivo` consulta
     // `qc.isMutating` com esta MESMA key pra não relistar no meio do Salvar (ver o comentário lá).
     mutationKey: chaveMutationSalvar(tenantId),
-    mutationFn: (rascunhos: Rascunho[]): Promise<ResultadoSalvar> => salvarIntegracao(rascunhos, depsSupabase),
+    mutationFn: async (rascunhos: Rascunho[]): Promise<ResultadoSalvar> => {
+      // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor antes do Salvar
+      // de Produtos — mesma defesa dos outros pontos de escrita da Integração. Nada é enviado se divergir.
+      await confirmarLojaAtiva(tenantId);
+      return salvarIntegracao(rascunhos, depsSupabase);
+    },
     onSettled: (_d, _e, rascunhos) => invalidarIntegracao(qc, tenantId, rascunhos.map((r) => r.modeloId)),
   });
 }

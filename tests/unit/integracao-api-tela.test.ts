@@ -82,6 +82,10 @@ async function montar(opts: {
   // revisão T15 #1 (code-review I1): permite mudar o tenant ATIVO no meio do teste, sem desmontar — mesma razão
   // de `integracao-campos-config.test.ts`.
   tenantIdRef?: { current: string };
+  // revisão T15 #I1-R (code-review "Re-check round 1"): mocka o comportamento de `confirmarLojaAtiva`/
+  // `nomeLojaAtivaFresco` — por padrão resolvem como se a loja NÃO tivesse mudado (não afeta nenhum teste antigo).
+  confirmarLojaAtivaImpl?: () => Promise<void>;
+  nomeLojaAtivaFrescoImpl?: () => Promise<string | null>;
 } = {}) {
   vi.resetModules();
   const api = opts.api === undefined
@@ -107,9 +111,17 @@ async function montar(opts: {
   vi.doMock("sonner", () => ({ toast: toastMocks }));
   vi.doMock("@tanstack/react-router", () => ({ useRouter: () => ({ history: { back: () => {} } }) }));
   const invalidarIntegracaoSpy = vi.fn();
+  // revisão T15 #I1-R (code-review "Re-check round 1"): `confirmarLojaAtiva` mockável por teste — por padrão
+  // (`opts.confirmarLojaAtivaImpl` ausente) resolve sem lançar (mesmo comportamento de "loja não mudou"), pra não
+  // quebrar NENHUM teste pré-existente deste arquivo que não se importa com o caso `LOJA_MUDOU`.
+  const confirmarLojaAtivaSpy = vi.fn(opts.confirmarLojaAtivaImpl ?? (async () => {}));
+  const nomeLojaAtivaFrescoSpy = vi.fn(opts.nomeLojaAtivaFrescoImpl ?? (async () => "Loja Teste"));
   vi.doMock("@/components/integracao/useIntegracao", () => ({
     chaveConfig: (tenantId: string) => ["integracao-config", tenantId],
     invalidarIntegracao: invalidarIntegracaoSpy,
+    TEXTO_LOJA_MUDOU: "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.",
+    confirmarLojaAtiva: confirmarLojaAtivaSpy,
+    nomeLojaAtivaFresco: nomeLojaAtivaFrescoSpy,
     useIntegracaoConfig: () => {
       return useQuery({
         queryKey: ["integracao-config", "t1"],
@@ -153,6 +165,7 @@ async function montar(opts: {
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
   return {
     container, rpcSpy, toastMocks, invalidarIntegracaoSpy, informarSujoSpy, qc,
+    confirmarLojaAtivaSpy, nomeLojaAtivaFrescoSpy,
     rerender: () => act(async () => { root.render(arvore()); }),
     esperar: () => act(async () => { await new Promise((r) => setTimeout(r, 10)); }),
     desmontar: () => act(async () => { root.unmount(); container.remove(); }),
@@ -274,6 +287,77 @@ describe("ApiAba — Chaves (criar 1x, revogar)", () => {
     await view.desmontar();
   });
 
+  // revisão T15 (Minor, code-review "Re-check round 1" — stub de sucesso do execCommand): o teste acima só cobre
+  // o CAMINHO DE FALHA do fallback (happy-dom não implementa `execCommand` de verdade). Este stuba
+  // `document.execCommand` pra devolver `true` — prova o CAMINHO DE SUCESSO do fallback (m4): toast de sucesso, a
+  // chave marcada como copiada (fecha sem perguntar "você copiou?" de novo).
+  it("Copiar sem permissão de clipboard, com execCommand stubado com sucesso: toast de sucesso e fecha sem reperguntar", async () => {
+    const execCommandOriginal = document.execCommand;
+    document.execCommand = vi.fn(() => true) as unknown as typeof document.execCommand;
+    try {
+      const view = await montar({
+        comClipboard: false,
+        rpcImpl: async (nome) => {
+          if (nome === "integracao_config_ler") return { data: { campos: [], layout: [], rev: 1, api: null }, error: null };
+          if (nome === "integracao_chaves_listar") return { data: [], error: null };
+          if (nome === "integracao_chave_criar") return { data: { id: "k1", nome: "Y", chave: "wish_live_XYZ", final: "XYZ1" }, error: null };
+          return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+        },
+      });
+      await act(async () => { botaoDoc("Nova chave").click(); });
+      const inputNome = document.getElementById("integracao-nome-chave") as HTMLInputElement;
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setter.call(inputNome, "Y");
+        inputNome.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => { botaoDoc("Criar").click(); });
+      await view.esperar();
+      await act(async () => { botaoDoc("Copiar").click(); });
+      await view.esperar();
+      expect(document.execCommand).toHaveBeenCalledWith("copy");
+      expect(view.toastMocks.success).toHaveBeenCalledWith("Chave copiada.");
+      expect(view.toastMocks.error).not.toHaveBeenCalled();
+      // Copiada com sucesso — "Concluído" fecha DIRETO, sem reperguntar "você copiou?" (m3).
+      await act(async () => { botaoDoc("Concluído").click(); });
+      expect(document.body.textContent).not.toMatch(/Você copiou a chave\?/);
+      await view.desmontar();
+    } finally {
+      document.execCommand = execCommandOriginal;
+    }
+  });
+
+  // revisão T15 #I1-R (code-review "Re-check round 1"): confirma que a criação de chave também passa por
+  // `confirmarLojaAtiva` — a RPC de criação NUNCA é chamada se o servidor já está noutra loja.
+  it("I1-R: confirmarLojaAtiva recusa criar chave quando o servidor já está noutra loja (RPC nunca chamada)", async () => {
+    const view = await montar({
+      confirmarLojaAtivaImpl: async () => {
+        throw Object.assign(new Error("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar."), { code: "LOJA_MUDOU" });
+      },
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") return { data: { campos: [], layout: [], rev: 1, api: null }, error: null };
+        if (nome === "integracao_chaves_listar") return { data: [], error: null };
+        if (nome === "integracao_chave_criar") return { data: { id: "k1", nome: "Z", chave: "wish_live_NAO_DEVE_CRIAR", final: "0000" }, error: null };
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { botaoDoc("Nova chave").click(); });
+    const inputNome = document.getElementById("integracao-nome-chave") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputNome, "Z");
+      inputNome.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { botaoDoc("Criar").click(); });
+    await view.esperar();
+    expect(view.confirmarLojaAtivaSpy).toHaveBeenCalled();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_chave_criar")).toBe(false);
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    // A chave nunca chegou a aparecer na tela.
+    expect(document.getElementById("integracao-chave-gerada")).toBeNull();
+    await view.desmontar();
+  });
+
   // revisão T15 #2 (task review + code review I2): enquanto a chave criada está VISÍVEL na tela, a ABA conta
   // como suja — a guarda de navegação (Voltar/F5/troca de rota) tem que bloquear do MESMO jeito que bloqueia um
   // rascunho comum, porque fechar sem copiar perde o segredo pra sempre. Isso é agregado num ÚNICO
@@ -327,8 +411,9 @@ describe("ApiAba — Chaves (criar 1x, revogar)", () => {
         return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
       },
     });
-    // A chave nunca mostra o hash — só "···· abcd".
-    expect(view.container.textContent).toContain("···· abcd");
+    // A chave nunca mostra o hash — só "····abcd" (nit de consistência: SEM espaço, mesmo formato do
+    // Acessos/Log — `rotuloChaveAcesso`).
+    expect(view.container.textContent).toContain("····abcd");
     expect(view.container.textContent).not.toContain("NAO-PODE");
     await act(async () => { botaoDoc("Revogar").click(); });
     expect(document.body.textContent).toMatch(/Revogar chave "ERP Principal"\?/);
@@ -618,6 +703,47 @@ describe("ApiAba — Configurações da API (rev compartilhado com Campos)", () 
     await view.desmontar();
   });
 
+  // revisão T15 (nit residual das revisões anteriores — "refetch falha depois de um P0409" nunca tinha teste):
+  // o P0409 fecha a confirmação e tenta um `q.refetch()` pra confirmar o valor mais recente; se ESSE refetch
+  // falhar (rede), a seleção do usuário fica INTOCADA e um toast específico orienta a tentar salvar de novo — sem
+  // rebasear nada (não há valor fresco pra rebasear contra).
+  it("P0409 seguido de falha no refetch de confirmação: seleção do usuário intocada, toast de 'não foi possível confirmar'", async () => {
+    let leituras = 0;
+    const view = await montar({
+      rpcImpl: async (nome) => {
+        if (nome === "integracao_config_ler") {
+          leituras++;
+          if (leituras === 1) return { data: { campos: [], layout: [], rev: 1, api: { limite_por_minuto: 60, max_por_pagina: 50, validade_foto_dias: 7, bloqueio_tentativas: 10 } }, error: null };
+          // O refetch de confirmação (pós-P0409) falha (rede).
+          return { data: null, error: new Error("Falha de conexão") };
+        }
+        if (nome === "integracao_chaves_listar") return { data: [], error: null };
+        if (nome === "integracao_salvar_config_api") return { data: null, error: Object.assign(new Error("conflito_versao: x"), { code: "P0409" }) };
+        return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+      },
+    });
+    await act(async () => { clicarAba(view.container, "Configurações da API"); });
+    await view.esperar();
+    const inputLimite = document.getElementById("cfg-limite_por_minuto") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputLimite, "80");
+      inputLimite.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Salvar")) as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Salvar mesmo assim").click(); });
+    await view.esperar();
+    await view.esperar();
+    expect(view.toastMocks.error).toHaveBeenCalledWith("Não foi possível confirmar o valor mais recente (falha de conexão). Tente salvar de novo.");
+    // A seleção do usuário fica intocada — nenhum rebase, nenhum reset (nada fresco pra confiar).
+    expect((document.getElementById("cfg-limite_por_minuto") as HTMLInputElement).value).toContain("80");
+    // Sem banner de conflito (o refetch falhou antes de chegar lá) — Salvar segue habilitado pra tentar de novo.
+    expect(document.body.textContent).not.toMatch(/mantidas por cima da versão nova/);
+    expect(botaoSalvar().disabled).toBe(false);
+    await view.desmontar();
+  });
+
   // task review m4 (gap de teste, plan-mandated): "outros erros mantêm o formulário" — 42501/rede/P0001 NÃO
   // rebaseiam nem resetam o rascunho, ao contrário do P0409.
   it("outros erros (42501) mantêm o formulário intocado — sem rebase, sem reset, seleção do usuário fica", async () => {
@@ -671,7 +797,40 @@ describe("ApiAba — Configurações da API (rev compartilhado com Campos)", () 
     await act(async () => { botaoDoc("Salvar mesmo assim").click(); });
     await view.esperar();
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config_api")).toBe(false);
-    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança.");
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    await view.desmontar();
+  });
+
+  // revisão T15 #I1-R (code-review "Re-check round 1"): a defesa acima (`Edicao.tenantId` vs `tenantId` cacheado)
+  // só pega uma troca que ESTA aba já viu no cache. Uma 2ª aba/janela que trocou a loja no SERVIDOR sem que esta
+  // aba reobservasse a query (`tenantId` continua "t1" nos dois lados) precisa de `confirmarLojaAtiva` — a
+  // ÚLTIMA linha de defesa, que relê DIRETO do servidor imediatamente antes do `rpc`.
+  it("I1-R: confirmarLojaAtiva recusa salvar Configurações da API quando o servidor já está noutra loja (RPC nunca chamada)", async () => {
+    const view = await montar({
+      confirmarLojaAtivaImpl: async () => {
+        throw Object.assign(new Error("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar."), { code: "LOJA_MUDOU" });
+      },
+    });
+    await act(async () => { clicarAba(view.container, "Configurações da API"); });
+    await view.esperar();
+    const inputLimite = document.getElementById("cfg-limite_por_minuto") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputLimite, "60"); // dentro do recomendado — Salvar direto, sem o AlertDialog "Fora do recomendado"
+      inputLimite.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputLimite, "70");
+      inputLimite.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Salvar")) as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Salvar mesmo assim").click(); });
+    await view.esperar();
+    expect(view.confirmarLojaAtivaSpy).toHaveBeenCalled();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config_api")).toBe(false);
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
     await view.desmontar();
   });
 
@@ -756,6 +915,29 @@ describe("ApiAba — Configurações da API (rev compartilhado com Campos)", () 
     const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Salvar")) as HTMLButtonElement;
     await act(async () => { botaoSalvar().click(); });
     expect(document.body.textContent).toMatch(/Plano gratuito:/);
+    await view.desmontar();
+  });
+
+  // revisão T15 (nit "Plano gratuito só se tocado", code-review "Re-check round 1"): a loja já tinha
+  // `max_por_pagina=150` (>100) de PROPÓSITO (plano pago) — o usuário toca só "bloqueio_tentativas" (também fora
+  // do recomendado). O diálogo "Fora do recomendado" tem que citar SÓ o campo tocado, e a linha extra "Plano
+  // gratuito:" (que fala especificamente de `max_por_pagina`) não deve aparecer — sem isso, ela aparecia sempre
+  // que QUALQUER campo estivesse fora do recomendado E `max_por_pagina` já estivesse >100, mesmo intocado.
+  it("nit: 'Plano gratuito:' no diálogo só aparece se 'Máximo por página' foi TOCADO nesta edição", async () => {
+    const view = await montar({ api: { limite_por_minuto: 60, max_por_pagina: 150, validade_foto_dias: 7, bloqueio_tentativas: 10 } });
+    await act(async () => { clicarAba(view.container, "Configurações da API"); });
+    await view.esperar();
+    const inputBloqueio = document.getElementById("cfg-bloqueio_tentativas") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputBloqueio, "20"); // fora do recomendado (10) — É a chave TOCADA; max_por_pagina (150) fica intocado
+      inputBloqueio.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Salvar")) as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); });
+    expect(document.body.textContent).toMatch(/Fora do recomendado/);
+    expect(document.body.textContent).toMatch(/Bloqueio de IP/);
+    expect(document.body.textContent).not.toMatch(/Plano gratuito:/);
     await view.desmontar();
   });
 

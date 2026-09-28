@@ -88,6 +88,9 @@ describe("CamposAba — render", () => {
     // componente — simula o cenário em que a página NÃO remonta (o `key={tenantId}` de `IntegracaoPage`
     // normalmente cobre isso; este teste prova a defesa em profundidade DENTRO de `CamposAba` sozinha).
     tenantIdRef?: { current: string };
+    // revisão T15 #I1-R (code-review "Re-check round 1"): mocka o comportamento de `confirmarLojaAtiva` — por
+    // padrão resolve como se a loja NÃO tivesse mudado (não afeta nenhum teste antigo).
+    confirmarLojaAtivaImpl?: () => Promise<void>;
   } = {}) {
     vi.resetModules();
     const campos = opts.campos ?? CAMPOS_17;
@@ -102,9 +105,12 @@ describe("CamposAba — render", () => {
     vi.doMock("sonner", () => ({ toast: toastMocks }));
     vi.doMock("@tanstack/react-router", () => ({ useRouter: () => ({ history: { back: () => {} } }) }));
     const invalidarIntegracaoSpy = vi.fn();
+    const confirmarLojaAtivaSpy = vi.fn(opts.confirmarLojaAtivaImpl ?? (async () => {}));
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveConfig: (tenantId: string) => ["integracao-config", tenantId],
       invalidarIntegracao: invalidarIntegracaoSpy,
+      TEXTO_LOJA_MUDOU: "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.",
+      confirmarLojaAtiva: confirmarLojaAtivaSpy,
       useIntegracaoConfig: () => {
         return useQuery({
           queryKey: ["integracao-config", "t1"],
@@ -146,7 +152,7 @@ describe("CamposAba — render", () => {
     }
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
     return {
-      container, rpcSpy, toastMocks, invalidarIntegracaoSpy, informarSujoSpy, qc,
+      container, rpcSpy, toastMocks, invalidarIntegracaoSpy, informarSujoSpy, qc, confirmarLojaAtivaSpy,
       rerender: () => act(async () => { root.render(arvore()); }),
       esperar: () => act(async () => { await new Promise((r) => setTimeout(r, 10)); }),
       desmontar: () => act(async () => { root.unmount(); container.remove(); }),
@@ -748,7 +754,27 @@ describe("CamposAba — render", () => {
     await view.esperar();
     // A RPC de salvar NUNCA foi chamada — a recusa acontece ANTES de qualquer chamada de rede.
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config")).toBe(false);
-    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja mudou enquanto você editava. Recarregue a aba e refaça a mudança.");
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    await view.desmontar();
+  });
+
+  // revisão T15 #I1-R (code-review "Re-check round 1"): a defesa acima (`Edicao.tenantId` vs `tenantId` cacheado)
+  // só pega uma troca que ESTA aba já viu no cache — uma 2ª aba/janela que trocou a loja no SERVIDOR sem que esta
+  // aba reobservasse a query (`tenantId` continua "t1" nos dois lados) não é pega por ela. `confirmarLojaAtiva`
+  // relê DIRETO do servidor imediatamente antes do `rpc`, e é a ÚLTIMA linha de defesa real.
+  it("I1-R: confirmarLojaAtiva recusa salvar quando o servidor já está noutra loja (RPC nunca chamada)", async () => {
+    const view = await montar({
+      confirmarLojaAtivaImpl: async () => {
+        throw Object.assign(new Error("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar."), { code: "LOJA_MUDOU" });
+      },
+    });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); });
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    expect(view.confirmarLojaAtivaSpy).toHaveBeenCalled();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config")).toBe(false);
+    expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
     await view.desmontar();
   });
 });
