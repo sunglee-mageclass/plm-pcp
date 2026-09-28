@@ -11,7 +11,9 @@ import { somaCustosAdicionais } from "@/lib/custo";
 import { brl } from "@/lib/format";
 import { distribuiTotal, distribuiAncora, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
 import { gradeEfetivaPar } from "@/lib/casar-variantes-grade";
-import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle } from "lucide-react";
+import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle, ArrowRight } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ReadOnlyScope } from "@/components/RequirePermission";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -157,25 +159,48 @@ const ROTULO_CONFLITO_MODELO: Record<string, string> = {
   categoria_principal_id: "Categoria", subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2",
   colecao_id: "Coleção", subcolecao: "Subcoleção", mes_id: "Mês", ano_id: "Ano", semana: "Semana de lançamento",
 };
+// F5a — erro das guardas de só leitura (nunca deveria aparecer: a UI já esconde/desabilita tudo).
+const MSG_SOMENTE_LEITURA = "Somente leitura: edite este produto no Planejamento de Produto.";
+
 function rotuloConflitoModelo(path: string): string {
   if (path === "secao:bom") return "Tecidos & BOM";
   return ROTULO_CONFLITO_MODELO[path] ?? path;
 }
 
-export function ModeloDetailPanel({ modeloId, onClose, onSaved }: {
+export function ModeloDetailPanel({ modeloId, onClose, onSaved, somenteLeitura = false }: {
   modeloId: string | null;
   onClose: () => void;
   /** Chamado após um save bem-sucedido (Salvar OU Enviar à Explosão) — usado por quem monta
    * este painel INLINE por cima de outra tela (ex.: PlanejamentoDetail) pra invalidar queries
    * derivadas do mesmo modelo que o colab (canal Realtime de `modelos`) não cobre sozinho. */
   onSaved?: () => void;
+  /** F5a (P-104/P-110, 28/set): Sheet do Dev SÓ PARA LEITURA — toda edição mora no Sheet do
+   * Planejamento. Nada grava (nem o que hoje grava sozinho: Observações do bloco, Ajustes na
+   * Prova, anexos/fotos, aprovar MO); rodapé = Voltar · Imprimir · Ir para P. Produto. Leitura,
+   * presença do Realtime e o merge ao vivo continuam. `false` (padrão) = comportamento de hoje. */
+  somenteLeitura?: boolean;
 }) {
   const open = !!modeloId;
   // Guarda de "alterações não salvas": o PanelContent reporta se o rascunho/BOM tem
   // edições pendentes; fechar (X/ESC/fora/Fechar) com pendências pede confirmação.
   const [dirty, setDirty] = useState(false);
   const close = () => { setDirty(false); onClose(); };
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: close });
+  // Só leitura: nunca há pendência — a guarda nunca dispara (fecha direto).
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: somenteLeitura ? false : dirty, onClose: close });
+  if (somenteLeitura) {
+    // ReadOnlyScope(false): o fieldset do SheetContent NÃO herda a trava da PÁGINA (quem só vê o
+    // kanban do Dev tem a rota em modo leitura) — senão Voltar/Imprimir/Ir para P. Produto ficariam
+    // desabilitados. O só-leitura é aplicado pelo próprio painel (fieldsets + guardas nos handlers).
+    return (
+      <ReadOnlyScope value={false}>
+        <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+          <SheetContent size="editor" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
+            {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} somenteLeitura />}
+          </SheetContent>
+        </Sheet>
+      </ReadOnlyScope>
+    );
+  }
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent size="editor" className="flex flex-col p-0 gap-0 max-sm:[&>button]:hidden">
@@ -205,10 +230,17 @@ function SecBadge({ tone, title, children }: { tone: "ok" | "info" | "warn" | "m
   );
 }
 
-function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void; onSaved?: () => void }) {
+function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitura = false }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void; onSaved?: () => void; somenteLeitura?: boolean }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { canView, canEdit } = useAuth();
+  // F5a — só leitura: `ro(fn)` troca um handler de EDIÇÃO por no-op (com `somenteLeitura=false`
+  // devolve o PRÓPRIO `fn` — mesma referência, comportamento de hoje byte a byte). Os pontos que
+  // GRAVAM no banco têm, além disso, guarda explícita dentro da função (defesa em profundidade).
+  const ro = <F extends (...args: never[]) => unknown>(fn: F): F => (somenteLeitura ? ((() => {}) as unknown as F) : fn);
   const podeVerCustos = canView("criacao_desenvolvimento:custos");
+  // F5a: "Ir para P. Produto" só aparece p/ quem vê o Planejamento de Produto.
+  const podeVerPlanejamento = canView("criacao_planejamento");
   // MO por serviço (bidirecional c/ o Planejamento): permissão de aprovar/reprovar
   // POR LINHA (mesma permissão, mesma RPC `aprovar_servico_mo`).
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
@@ -714,6 +746,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   // Planejamento com `revRef`).
   const aprovarServicoMO = useMutation({
     mutationFn: async ({ linhaId, aprovado, motivo }: { linhaId: string; aprovado: boolean; motivo?: string }) => {
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA); // F5a: guarda de só leitura
       const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
         _modelo_id: modeloId, _linha_id: linhaId, _aprovado: aprovado, _motivo: motivo ?? null,
       });
@@ -1598,6 +1631,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   const canEnviarCad = podeEnviarEtapa && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
+  // F5a: os fieldsets das seções travam também no modo só leitura (com `somenteLeitura=false`,
+  // `travado === locked` — o de hoje).
+  const travado = locked || somenteLeitura;
 
   // ── Selos de completude por seção + numeração DINÂMICA do accordion ──────────────────
   const nTecidos = blocks.filter((b) => b.tipo === "tecido" && !!b.artigo_id).length;
@@ -1760,7 +1796,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
 
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
   // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).
-  const dirty = (guardReady && !locked && !!draft && changed) || (!locked && moDirty);
+  // F5a: só leitura nunca fica "sujo" (nada é editável) — a guarda de "não salvo" nunca dispara.
+  const dirty = !somenteLeitura && ((guardReady && !locked && !!draft && changed) || (!locked && moDirty));
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   // Colab (spec 2026-08-03, Task 1): canal por modelo — o registroId vai DENTRO do canal
@@ -1850,6 +1887,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
       // o closure do render ainda é ANTERIOR ao setDraft(md.valor) do merge do onError — ler
       // do ref garante que o payload leva os campos ADOTADOS do outro usuário (o closure cru
       // os reverteria em silêncio no banco). No fluxo normal, ref === draft do render.
+      // F5a: guarda de só leitura — nenhuma escrita (modelos/BOM/etiquetas/CAD/MO) sai daqui.
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA);
       const d = draftLiveRef.current ?? draft;
       if (!d) return;
       // Colab (Task 1): com conflitos pendentes na tela (escalares OU a seção "Tecidos &
@@ -2320,6 +2359,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   });
 
   const handleSave = () => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura
     if (savingRef.current || save.isPending) return;
     savingRef.current = true;
     save.mutate(undefined, { onSettled: () => { savingRef.current = false; } });
@@ -2377,6 +2417,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   };
 
   const onCopiar = (r: ResultadoCopia, origem?: ModeloParaCopia, sel?: Selecao) => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura (Importar grava Observações do bloco na hora)
     const aplicar = async () => {
       aplicarPatch(r.patch, r.campos);
       if (sel?.obsBloco && origem) {
@@ -2401,6 +2442,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
 
   const enviarCad = useMutation({
     mutationFn: async () => {
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA); // F5a: guarda de só leitura
       // Salva o BOM atual antes de copiar para o CAD (consumos/variantes corretos).
       await persistModelo();
       // Criação do CAD + cópia do BOM (tecidos/variantes/grade/aviamentos) agora é
@@ -2652,6 +2694,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   };
 
   const uploadFicha = async (file: File) => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura (nenhum upload de storage)
     setUploading(true);
     try {
       const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
@@ -2669,6 +2712,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   };
 
   const uploadDesenho = async (file: File) => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura (nenhum upload de storage)
     setUploading(true);
     try {
       const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
@@ -2686,6 +2730,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
   };
 
   const uploadCroqui = async (file: File) => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura (nenhum upload de storage)
     setUploading(true);
     try {
       const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
@@ -2728,8 +2773,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
             <VersaoBadge versao={(modelo as any)?.versao} />
           </SheetTitle>
           <div className="flex items-center gap-2 shrink-0">
+            {somenteLeitura && refVis && (draft.ref ?? "").trim() !== "" && (
+              <span className="font-mono text-xs text-muted-foreground" data-testid="dev-ro-ref">{fl("ref")} {draft.ref}</span>
+            )}
+            {somenteLeitura && statusCur && (
+              <StatusBadge tone="info" data-testid="dev-ro-etapa">
+                {statusRenderList.find((s) => s.value === statusCur)?.label ?? statusCur}
+              </StatusBadge>
+            )}
             <UnsavedIndicator show={dirty} className="shrink-0" />
-            {!locked && (
+            {!locked && !somenteLeitura && (
               <Button variant="outline" size="sm" className="shrink-0 max-sm:h-11 max-sm:w-11 max-sm:px-0" onClick={() => setImportOpen(true)}>
                 <Download className="h-4 w-4 sm:mr-2" /> <span className="max-sm:sr-only">Importar dados</span>
               </Button>
@@ -2755,8 +2808,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
         }}
         onBlurCapture={() => setCampoFocado(null)}
       >
-        {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban. */}
-        <fieldset disabled={locked} className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2">
+        {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban.
+            F5a: no só leitura some (a etapa aparece como selo no cabeçalho; mudar etapa = arraste do kanban). */}
+        {!somenteLeitura && (
+        <fieldset disabled={travado} className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status no fluxo</span>
           <Select
             value={statusCur}
@@ -2785,6 +2840,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
             </SelectContent>
           </Select>
         </fieldset>
+        )}
         <Accordion type="multiple" value={accOpen} onValueChange={setAccOpen}>
           <AccordionItem value="s1" data-acc="s1">
             <AccordionTrigger>
@@ -2796,10 +2852,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloInfoSection
                 draft={draft}
-                setDraft={setDraftTracked}
+                setDraft={ro(setDraftTracked)}
                 origem={modelo?.origem ?? null}
                 isRevenda={isComprado}
                 campoVisivel={campoVisivel}
@@ -2839,9 +2895,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              {somenteLeitura ? (
+                // F5a: fora do fieldset p/ as abas Abertos/Resolvidos seguirem clicáveis; a seção
+                // esconde a caixa de envio e Responder/Resolver/Excluir (e guarda as 3 RPCs).
+                <ModeloAjustesProvaSection modeloId={modeloId} somenteLeitura />
+              ) : (
+              <fieldset disabled={travado} className="contents">
               <ModeloAjustesProvaSection modeloId={modeloId} />
               </fieldset>
+              )}
             </AccordionContent>
           </AccordionItem>
           )}
@@ -2859,7 +2921,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloTecidosSection
                 modeloId={modeloId}
                 blocks={blocks}
@@ -2867,9 +2929,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                 artigosForro={artigosForro}
                 artigosEntretela={artigosEntretela}
                 grades={grades}
-                onChangeBlock={updateBlock}
-                onChangeVariante={updateBlockVariante}
-                onChangeOcLinks={updateBlockOcLinks}
+                onChangeBlock={ro(updateBlock)}
+                onChangeVariante={ro(updateBlockVariante)}
+                onChangeOcLinks={ro(updateBlockOcLinks)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
@@ -2891,7 +2953,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               {cadTecidosState.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">
                   Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção 3.
@@ -2899,10 +2961,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               ) : (
                 <CadTecidosSection
                   tecidos={cadTecidosState}
-                  updateTec={updateCadTec}
-                  updateVar={updateCadVar}
+                  updateTec={ro(updateCadTec)}
+                  updateVar={ro(updateCadVar)}
                   autoFolhas={autoFolhas}
-                  onToggleAutoFolhas={setAutoFolhas}
+                  onToggleAutoFolhas={ro(setAutoFolhas)}
                   hideSeparar
                 />
               )}
@@ -2922,13 +2984,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloAviamentosSection
                 rows={aviamentosState}
                 aviamentos={aviamentos}
-                onChangeRow={updateAviamento}
-                onAdd={addAviamento}
-                onRemove={removeAviamento}
+                onChangeRow={ro(updateAviamento)}
+                onAdd={ro(addAviamento)}
+                onRemove={ro(removeAviamento)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
@@ -2948,14 +3010,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloEtiquetasSection
                 rows={etiquetasState}
                 etiquetas={etiquetaOpts}
                 etiquetaMap={etiquetaMap}
-                onChangeRow={updateEtiqueta}
-                onAdd={addEtiqueta}
-                onRemove={removeEtiqueta}
+                onChangeRow={ro(updateEtiqueta)}
+                onAdd={ro(addEtiqueta)}
+                onRemove={ro(removeEtiqueta)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
@@ -2975,17 +3037,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloGradeSection
                 tamanhos={tamanhos}
                 proporcoes={draft.proporcoes ?? {}}
-                onChangeProporcao={updateProporcao}
+                onChangeProporcao={ro(updateProporcao)}
                 grades={grades}
-                onChangeGradeTotal={updateGradeTotal}
-                onChangeGradeCell={updateGradeCell}
+                onChangeGradeTotal={ro(updateGradeTotal)}
+                onChangeGradeCell={ro(updateGradeCell)}
                 tecido1Variantes={tecido1VariantesInfo}
                 gradeAuto={gradeAuto}
-                onToggleGradeAuto={toggleGradeAuto}
+                onToggleGradeAuto={ro(toggleGradeAuto)}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
@@ -3015,12 +3077,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents space-y-3">
+              <fieldset disabled={travado} className="contents space-y-3">
               {podeVerCustos && (
                 <ModeloCustosSection
                   totals={totals}
                   custosAdicionais={draft.custos_adicionais ?? []}
-                  onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
+                  onChangeCustos={ro((v) => setDraftTracked({ ...draft, custos_adicionais: v }))}
                   camposCopiados={camposCopiados}
                   onCampoEditado={onCampoEditado}
                 />
@@ -3035,10 +3097,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                     linhas={moLinhas}
                     categorias={catsServico}
                     podeVerCustos={podeVerCustos}
-                    podeAprovar={podeAprovarMaoObra}
-                    onChangeLinhas={(ls) => setMoLinhas(ls)}
-                    onAprovar={(linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true })}
-                    onReprovar={(linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo })}
+                    podeAprovar={podeAprovarMaoObra && !somenteLeitura}
+                    onChangeLinhas={ro((ls) => setMoLinhas(ls))}
+                    onAprovar={ro((linhaId) => aprovarServicoMO.mutate({ linhaId, aprovado: true }))}
+                    onReprovar={ro((linhaId, motivo) => aprovarServicoMO.mutate({ linhaId, aprovado: false, motivo }))}
                     pendingLinhaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.linhaId : undefined}
                     linhasPersistidas={moLinhasPersistidas}
                   />
@@ -3051,7 +3113,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
                   <ObsMaoObraField
                     label="Obs. Mão de Obra"
                     value={draft.observacoes_mao_obra ?? ""}
-                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
+                    onChange={ro((v) => setDraftTracked({ ...draft, observacoes_mao_obra: v }))}
                   />
                 </Card>
               )}
@@ -3073,24 +3135,25 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <fieldset disabled={locked} className="contents">
+              <fieldset disabled={travado} className="contents">
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
                 desenhoTecnicoUrl={draft.desenho_tecnico_url}
                 croquiUrl={draft.croqui_url}
                 uploading={uploading}
-                onUploadFicha={uploadFicha}
-                onUploadDesenho={uploadDesenho}
-                onUploadCroqui={uploadCroqui}
-                onRemoveFicha={() => setDraftTracked({ ...draft, ficha_medida_url: "" })}
-                onRemoveDesenho={() => setDraftTracked({ ...draft, desenho_tecnico_url: "" })}
-                onRemoveCroqui={() => setDraftTracked({ ...draft, croqui_url: "" })}
+                onUploadFicha={ro(uploadFicha)}
+                onUploadDesenho={ro(uploadDesenho)}
+                onUploadCroqui={ro(uploadCroqui)}
+                onRemoveFicha={ro(() => setDraftTracked({ ...draft, ficha_medida_url: "" }))}
+                onRemoveDesenho={ro(() => setDraftTracked({ ...draft, desenho_tecnico_url: "" }))}
+                onRemoveCroqui={ro(() => setDraftTracked({ ...draft, croqui_url: "" }))}
                 observacoesGerais={draft.observacoes_gerais}
-                onChangeObservacoes={(v) => setDraftTracked({ ...draft, observacoes_gerais: v })}
+                onChangeObservacoes={ro((v) => setDraftTracked({ ...draft, observacoes_gerais: v }))}
                 fotosModelo={draft.fotos_modelo ?? []}
                 fotosReferencia={draft.fotos_referencia ?? []}
-                onChangeFotosModelo={(p) => setDraftTracked({ ...draft, fotos_modelo: p })}
-                onChangeFotosReferencia={(p) => setDraftTracked({ ...draft, fotos_referencia: p })}
+                onChangeFotosModelo={ro((p) => setDraftTracked({ ...draft, fotos_modelo: p }))}
+                onChangeFotosReferencia={ro((p) => setDraftTracked({ ...draft, fotos_referencia: p }))}
+                somenteLeitura={somenteLeitura}
               />
               </fieldset>
             </AccordionContent>
@@ -3098,15 +3161,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
           )}
         </Accordion>
 
-        <fieldset disabled={locked} className="contents">
+        <fieldset disabled={travado} className="contents">
           <div className="mt-4">
-            <ModeloObservacoes modeloId={modeloId} />
+            {/* F5a: `readOnly` esconde Adicionar/Remover e trava o auto-save (onBlur) do bloco. */}
+            <ModeloObservacoes modeloId={modeloId} readOnly={somenteLeitura} />
           </div>
         </fieldset>
 
         {/* Pendências p/ enviar — VISÍVEL no mobile (no desktop ficam no rodapé). Cada uma
             é um link que abre a seção onde se resolve. */}
-        {podeEnviarEtapa && cadMissing.length > 0 && (
+        {!somenteLeitura && podeEnviarEtapa && cadMissing.length > 0 && (
           <p className="sm:hidden mt-4 text-xs text-amber-700 dark:text-amber-300">
             Para enviar, falta:{" "}
             {cadMissing.map((m, i) => (
@@ -3122,6 +3186,47 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
       {/* Ring de presença por campo AUTO-instrumentado (cobre todos os campos do sheet). */}
       <ColabPresenceOverlay presentes={presentes} scopeRef={colabScopeRef} />
 
+      {somenteLeitura ? (
+        // F5a (P-104/P-110): rodapé do só leitura = SÓ 3 botões — Voltar · Imprimir · Ir para P. Produto.
+        // Imprimir = a MESMA Ficha Técnica (PrintFicha/PrintArea), só no computador (P-36 B) e só após
+        // Enviar à Explosão (igual ao botão de hoje). "Ir para P. Produto" só p/ quem vê o Planejamento.
+        <div className="shrink-0 border-t bg-background p-3 flex flex-nowrap items-center gap-2" data-testid="dev-ro-rodape">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
+            <span className="max-sm:sr-only">Voltar</span>
+          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0 ml-auto max-sm:hidden">
+                  <Button
+                    variant="outline"
+                    disabled={!draft.enviado_cad}
+                    onClick={() => setPrintTecnicaToken((t) => t + 1)}
+                    aria-label="Imprimir"
+                  >
+                    <Printer className="h-4 w-4 mr-1" />
+                    Imprimir
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!draft.enviado_cad && (
+                <TooltipContent>Ficha Técnica disponível após Enviar à Explosão</TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+          {podeVerPlanejamento && (
+            <Button
+              onClick={() => navigate({ to: "/criacao/planejamento", search: { modelo: modeloId } })}
+              aria-label="Ir para P. Produto"
+              className="shrink-0 max-sm:ml-auto"
+            >
+              Ir para P. Produto
+              <ArrowRight className="h-4 w-4 ml-1" />
+            </Button>
+          )}
+        </div>
+      ) : (
       <div className="shrink-0 border-t bg-background p-3 flex flex-nowrap items-center gap-2">
         {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
         <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
@@ -3198,7 +3303,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
           </Button>
         )}
       </div>
+      )}
 
+      {!somenteLeitura && (<>
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -3257,6 +3364,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved }: { modeloId:
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </>)}
 
       {/* Ficha oculta — FichaTecnica já usa PrintArea (portal no body).
           Montar direto (SEM wrapper .print-area), igual à tela de CAD (producao.cad.index). */}

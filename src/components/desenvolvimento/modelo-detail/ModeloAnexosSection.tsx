@@ -28,6 +28,7 @@ export function ModeloAnexosSection({
   fotosReferencia,
   onChangeFotosModelo,
   onChangeFotosReferencia,
+  somenteLeitura = false,
 }: {
   fichaMedidaUrl: string | null | undefined;
   desenhoTecnicoUrl: string | null | undefined;
@@ -45,60 +46,68 @@ export function ModeloAnexosSection({
   fotosReferencia: string[];
   onChangeFotosModelo: (paths: string[]) => void;
   onChangeFotosReferencia: (paths: string[]) => void;
+  /** F5a (Sheet do Dev só leitura): sem "Enviar/Trocar/Adicionar" nem lixeira; zoom da miniatura segue. */
+  somenteLeitura?: boolean;
 }) {
   return (
     <div className="space-y-4">
       {/* Grid 2-col no desktop (menos rolagem num Sheet largo), empilha no mobile — a lente
           mobile alertou que o 4-col do mockup apertaria em 390px. */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <SingleFileField label="Foto do Croqui" path={croquiUrl ?? ""} uploading={uploading} onUpload={onUploadCroqui} onRemove={onRemoveCroqui} />
-        <SingleFileField label="Desenho Técnico" path={desenhoTecnicoUrl ?? ""} uploading={uploading} onUpload={onUploadDesenho} onRemove={onRemoveDesenho} />
+        <SingleFileField label="Foto do Croqui" path={croquiUrl ?? ""} uploading={uploading} onUpload={onUploadCroqui} onRemove={onRemoveCroqui} somenteLeitura={somenteLeitura} />
+        <SingleFileField label="Desenho Técnico" path={desenhoTecnicoUrl ?? ""} uploading={uploading} onUpload={onUploadDesenho} onRemove={onRemoveDesenho} somenteLeitura={somenteLeitura} />
         <PhotoList
           label="Foto do Modelo"
           paths={fotosModelo}
           prefix="fotos_modelo"
           onChange={onChangeFotosModelo}
+          somenteLeitura={somenteLeitura}
         />
         <PhotoList
           label="Foto de Referência"
           paths={fotosReferencia}
           prefix="fotos_referencia"
           onChange={onChangeFotosReferencia}
+          somenteLeitura={somenteLeitura}
         />
-        <SingleFileField label="Ficha de Medida" path={fichaMedidaUrl ?? ""} uploading={uploading} onUpload={onUploadFicha} onRemove={onRemoveFicha} />
+        <SingleFileField label="Ficha de Medida" path={fichaMedidaUrl ?? ""} uploading={uploading} onUpload={onUploadFicha} onRemove={onRemoveFicha} somenteLeitura={somenteLeitura} />
       </div>
       <Field label="Observações Gerais" full>
-        <Textarea rows={4} value={observacoesGerais} onChange={(e) => onChangeObservacoes(e.target.value)} />
+        <Textarea rows={4} value={observacoesGerais} onChange={(e) => onChangeObservacoes(e.target.value)} readOnly={somenteLeitura} disabled={somenteLeitura} />
       </Field>
     </div>
   );
 }
 
 /* Anexo único (imagem ou PDF) com miniatura + zoom ao clicar — Croqui / Desenho Técnico / Ficha. */
-function SingleFileField({ label, path, uploading, onUpload, onRemove }: {
-  label: string; path: string; uploading: boolean; onUpload: (f: File) => void; onRemove: () => void;
+function SingleFileField({ label, path, uploading, onUpload, onRemove, somenteLeitura = false }: {
+  label: string; path: string; uploading: boolean; onUpload: (f: File) => void; onRemove: () => void; somenteLeitura?: boolean;
 }) {
   return (
     <div className="grid gap-2">
       <Label>{label}</Label>
       <div className="flex flex-wrap items-center gap-2">
-        {path && <FileThumb path={path} onRemove={onRemove} />}
+        {path && <FileThumb path={path} onRemove={somenteLeitura ? undefined : onRemove} />}
+        {somenteLeitura && !path && <span className="text-sm text-muted-foreground">—</span>}
+        {!somenteLeitura && (
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {path ? "Trocar arquivo" : "Enviar arquivo"}
           <input type="file" accept={FILE_ACCEPT} className="hidden" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} />
         </label>
+        )}
       </div>
     </div>
   );
 }
 
 function PhotoList({
-  label, paths, prefix, onChange,
+  label, paths, prefix, onChange, somenteLeitura = false,
 }: {
-  label: string; paths: string[]; prefix: string; onChange: (paths: string[]) => void;
+  label: string; paths: string[]; prefix: string; onChange: (paths: string[]) => void; somenteLeitura?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const handleAdd = async (file: File) => {
+    if (somenteLeitura) return; // F5a: guarda de só leitura (nenhum upload de storage)
     setBusy(true);
     try {
       const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
@@ -116,8 +125,10 @@ function PhotoList({
       <Label>{label}</Label>
       <div className="flex flex-wrap items-center gap-2">
         {paths.map((p, i) => (
-          <FileThumb key={p} path={p} onRemove={() => onChange(paths.filter((_, j) => j !== i))} />
+          <FileThumb key={p} path={p} onRemove={somenteLeitura ? undefined : () => onChange(paths.filter((_, j) => j !== i))} />
         ))}
+        {somenteLeitura && paths.length === 0 && <span className="text-sm text-muted-foreground">—</span>}
+        {!somenteLeitura && (
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Adicionar
           <input
@@ -127,6 +138,7 @@ function PhotoList({
             onChange={(e) => e.target.files?.[0] && handleAdd(e.target.files[0])}
           />
         </label>
+        )}
       </div>
     </div>
   );

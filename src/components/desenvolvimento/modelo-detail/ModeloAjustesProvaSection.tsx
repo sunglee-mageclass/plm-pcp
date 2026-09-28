@@ -33,6 +33,8 @@ type ResolverMut = {
 
 type ComentProps = {
   c: Comentario;
+  /** F5a (Sheet do Dev só leitura): esconde Responder/Resolver/Excluir. */
+  somenteLeitura?: boolean;
   isReply?: boolean;
   resolved?: boolean;
   user: { id: string } | null;
@@ -46,7 +48,7 @@ type ComentProps = {
   excluirMut: { isPending: boolean; mutate: (id: string) => void };
 };
 
-function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut }: ComentProps) {
+function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut, somenteLeitura = false }: ComentProps) {
   return (
     <div className={(isReply ? "ml-6 border-l pl-3 " : "") + (resolved ? "opacity-60 " : "") + "py-1.5"}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -58,6 +60,7 @@ function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTex
         <span>{fmt(c.created_at)}</span>
       </div>
       <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
+      {!somenteLeitura && (
       <div className="mt-1 flex flex-wrap items-center gap-1">
         {!isReply && !resolved && (
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setReplyTo(c.id); setReplyTexto(""); }}>
@@ -99,7 +102,8 @@ function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTex
           </AlertDialog>
         )}
       </div>
-      {!isReply && replyTo === c.id && !resolved && (
+      )}
+      {!somenteLeitura && !isReply && replyTo === c.id && !resolved && (
         <div className="ml-6 mt-1.5 flex gap-2">
           <Textarea rows={2} value={replyTexto} onChange={(e) => setReplyTexto(e.target.value)} placeholder="Escreva a resposta…" className="text-sm" />
           <div className="flex flex-col gap-1">
@@ -114,6 +118,7 @@ function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTex
 
 type FioProps = {
   f: { top: Comentario; replies: Comentario[] };
+  somenteLeitura?: boolean;
   resolved?: boolean;
   user: { id: string } | null;
   fmt: (iso: string) => string;
@@ -126,11 +131,11 @@ type FioProps = {
   excluirMut: { isPending: boolean; mutate: (id: string) => void };
 };
 
-function Fio({ f, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut }: FioProps) {
+function Fio({ f, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut, somenteLeitura }: FioProps) {
   return (
     <div className="rounded-md border p-2">
-      <Coment c={f.top} resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} />
-      {f.replies.map((r) => <Coment key={r.id} c={r} isReply resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} />)}
+      <Coment c={f.top} resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} somenteLeitura={somenteLeitura} />
+      {f.replies.map((r) => <Coment key={r.id} c={r} isReply resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} somenteLeitura={somenteLeitura} />)}
     </div>
   );
 }
@@ -154,7 +159,10 @@ export function useProvaAbertosCount(modeloId: string): number {
   return data.filter((c) => c.parent_id === null && !c.resolvido).length;
 }
 
-export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
+/** F5a — mensagem da guarda de só leitura (a UI já esconde as ações; nunca deveria aparecer). */
+const MSG_SOMENTE_LEITURA = "Somente leitura: edite este produto no Planejamento de Produto.";
+
+export function ModeloAjustesProvaSection({ modeloId, somenteLeitura = false }: { modeloId: string; somenteLeitura?: boolean }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const tz = useStoreTimezone();
@@ -193,6 +201,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
 
   const comentarMut = useMutation({
     mutationFn: async ({ t, parent }: { t: string; parent: string | null }) => {
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA); // F5a: guarda de só leitura
       const { error } = await supabase.rpc("prova_comentar" as never, { _modelo_id: modeloId, _texto: t, _parent_id: parent } as never);
       if (error) throw error;
     },
@@ -201,6 +210,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
   });
   const resolverMut = useMutation({
     mutationFn: async ({ id, r }: { id: string; r: boolean }) => {
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA); // F5a: guarda de só leitura
       const { error } = await supabase.rpc("prova_resolver" as never, { _id: id, _resolvido: r } as never);
       if (error) throw error;
     },
@@ -209,6 +219,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
   });
   const excluirMut = useMutation({
     mutationFn: async (id: string) => {
+      if (somenteLeitura) throw new Error(MSG_SOMENTE_LEITURA); // F5a: guarda de só leitura
       const { error } = await supabase.rpc("prova_excluir" as never, { _id: id } as never);
       if (error) throw error;
     },
@@ -216,17 +227,19 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
     onError: (e: unknown) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  const sharedProps = { user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut };
+  const sharedProps = { user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut, somenteLeitura };
 
   return (
     <div className="space-y-3">
-      {/* Caixa de envio */}
+      {/* Caixa de envio (F5a: some no só leitura) */}
+      {!somenteLeitura && (
       <div className="flex gap-2">
         <Textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva um ajuste…" className="text-sm" />
         <Button onClick={() => comentarMut.mutate({ t: texto, parent: null })} disabled={!texto.trim() || comentarMut.isPending} className="self-start">
           <Send className="mr-1 h-4 w-4" /> Enviar
         </Button>
       </div>
+      )}
 
       <Tabs defaultValue="abertos">
         <TabsList>
@@ -236,7 +249,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
         <TabsContent value="abertos" className="space-y-2 pt-2">
           {abertos.map((f) => <Fio key={f.top.id} f={f} {...sharedProps} />)}
           {!isLoading && abertos.length === 0 && (
-            <p className="rounded-md border p-4 text-center text-sm text-muted-foreground">Nenhum ajuste ainda. Envie o primeiro comentário.</p>
+            <p className="rounded-md border p-4 text-center text-sm text-muted-foreground">{somenteLeitura ? "Nenhum ajuste aberto." : "Nenhum ajuste ainda. Envie o primeiro comentário."}</p>
           )}
         </TabsContent>
         <TabsContent value="resolvidos" className="space-y-2 pt-2">

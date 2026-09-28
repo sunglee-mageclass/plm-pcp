@@ -96,6 +96,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
 
   const addMut = useMutation({
     mutationFn: async () => {
+      if (readOnly) return; // guarda de só leitura (F5a): nenhum INSERT
       const ordem = (obs.reduce((m, o) => Math.max(m, o.ordem ?? 0), 0) || 0) + 1;
       const { error } = await supabase.from("modelo_observacoes" as any).insert({ modelo_id: modeloId, ordem, descricao: "", observacao: "" });
       if (error) throw error;
@@ -106,6 +107,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
 
   const updMut = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Obs> }) => {
+      if (readOnly) return; // guarda de só leitura (F5a): o auto-save do onBlur não grava
       const { error } = await supabase.from("modelo_observacoes" as any).update(patch).eq("id", id);
       if (error) throw error;
     },
@@ -114,6 +116,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
 
   const delMut = useMutation({
     mutationFn: async (id: string) => {
+      if (readOnly) return; // guarda de só leitura (F5a): nenhum DELETE
       const { error } = await supabase.from("modelo_observacoes" as any).delete().eq("id", id);
       if (error) throw error;
     },

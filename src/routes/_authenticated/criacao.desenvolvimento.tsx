@@ -41,10 +41,11 @@ import { useAgrupamentoState } from "@/hooks/useAgrupamentoState";
 
 import { RequirePermission } from "@/components/RequirePermission";
 
-// Dono 26/set (P-48 A): o Sheet antigo do Desenvolvimento (ModeloDetailPanel) fica OCULTO — o card do kanban abre o
-// Sheet do Planejamento (unificado). O código do Dev fica guardado para a aposentadoria (depois, em partes).
-// Reativar = SHEET_DEV_ATIVO = true.
-const SHEET_DEV_ATIVO = false;
+// F5a (dono 28/set, P-104 B ajustado + P-110 A): o card do kanban volta a abrir o Sheet ANTIGO do Desenvolvimento
+// (ModeloDetailPanel), mas SÓ PARA LEITURA — toda edição mora no Sheet do Planejamento de Produto, alcançado pelo botão
+// "Ir para P. Produto" do rodapé. (De 26/set a 28/set, P-48 A, o card abria direto o Sheet do Planejamento por cima do
+// kanban; esse caminho fica guardado atrás da chave.) Voltar ao de 26/set = SHEET_DEV_SOMENTE_LEITURA = false.
+const SHEET_DEV_SOMENTE_LEITURA = true;
 
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
   component: () => (
@@ -1171,15 +1172,10 @@ function DesenvolvimentoPage() {
         </Accordion>
       </div>
 
-      {SHEET_DEV_ATIVO ? (
-        <ModeloDetailPanel
-          modeloId={openId}
-          onClose={() => {
-            setOpenId(null);
-            // Chave ligada: o Sheet pode ter mudado campos que as condições leem — a dica do arraste precisa delas frescas.
-            if (kanbanAuto) qc.invalidateQueries({ queryKey: ["desenv-condicoes"] });
-          }}
-        />
+      {SHEET_DEV_SOMENTE_LEITURA ? (
+        // Só leitura: nada grava no Sheet, então fechar não precisa refazer o quadro. Arrastar e "Mover para…"
+        // continuam no QUADRO (a regra "só leitura" é do Sheet).
+        <ModeloDetailPanel modeloId={openId} somenteLeitura onClose={() => setOpenId(null)} />
       ) : (
         // P-48 A: o card abre o Sheet do Planejamento (unificado). Montado SÓ com openId — com modeloId null o
         // PlanejamentoDetail abre o Dialog de "Novo" (card novo), o que aqui seria errado.
