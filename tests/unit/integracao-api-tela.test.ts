@@ -121,6 +121,8 @@ async function montar(opts: {
     chaveConfig: (tenantId: string) => ["integracao-config", tenantId],
     invalidarIntegracao: invalidarIntegracaoSpy,
     TEXTO_LOJA_MUDOU: "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.",
+    // Fix round 4 T15 (follow-up do coordenador): recusa com a loja do cliente vazia ("" transitório).
+    TEXTO_LOJA_INDISPONIVEL: "Sem conexão com o servidor agora. Espere um instante e salve de novo.",
     confirmarLojaAtiva: confirmarLojaAtivaSpy,
     useIntegracaoConfig: () => {
       return useQuery({
@@ -798,6 +800,34 @@ describe("ApiAba — Configurações da API (rev compartilhado com Campos)", () 
     await view.esperar();
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config_api")).toBe(false);
     expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    await view.desmontar();
+  });
+
+  // Fix round 4 T15 (follow-up do coordenador, concern 3): mesma prova de `CamposAba` para a config da API — loja do
+  // cliente VAZIA ("" transitório) recusa com `LOJA_INDISPONIVEL`, nunca "Recarregue a página"; o rascunho fica.
+  it("loja '' transitória: Salvar Configurações recusa com 'Sem conexão…' (LOJA_INDISPONIVEL), nunca 'Recarregue a página'; RPC nunca chamada", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    await act(async () => { clicarAba(view.container, "Configurações da API"); });
+    await view.esperar();
+    const inputLimite = document.getElementById("cfg-limite_por_minuto") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(inputLimite, "70"); // fora do recomendado (60) — abre o AlertDialog antes de salvar de verdade
+      inputLimite.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    tenantIdRef.current = "";
+    await view.rerender();
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Salvar")) as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Salvar mesmo assim").click(); });
+    await view.esperar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config_api")).toBe(false);
+    expect(view.confirmarLojaAtivaSpy).not.toHaveBeenCalled();
+    expect(view.toastMocks.error).toHaveBeenCalledWith("Sem conexão com o servidor agora. Espere um instante e salve de novo.");
+    expect(view.toastMocks.error).not.toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    // O rascunho continua (o valor digitado segue no campo).
+    expect((document.getElementById("cfg-limite_por_minuto") as HTMLInputElement).value).toBe("70");
     await view.desmontar();
   });
 

@@ -9,6 +9,10 @@
 
 import { rotuloDoCampoTravado } from "@/lib/integracao/campos";
 
+/** Texto ÚNICO de sessão expirada no app (JWT expirado do PostgREST, padrão "jwt" em inglês e a sessão ausente
+ *  de `confirmarLojaAtiva` da Integração) — uma redação só para a mesma situação. */
+export const TEXTO_SESSAO_EXPIRADA = "Sua sessão expirou. Entre novamente.";
+
 // SQLSTATE / código PostgREST → mensagem amigável.
 const POR_CODIGO: Record<string, string> = {
   "23503": "Não é possível concluir: este registro está em uso por outros dados. Remova ou troque os vínculos antes.",
@@ -26,7 +30,7 @@ const POR_CODIGO: Record<string, string> = {
   "42501": "Você não tem permissão para esta ação.",
   P0409: "Outra pessoa salvou este registro agora há pouco. A tela foi atualizada — confira suas alterações e salve de novo.",
   P0001: "", // RAISE das nossas funções: já vem em PT, usa a própria mensagem.
-  PGRST301: "Sua sessão expirou. Entre novamente.",
+  PGRST301: TEXTO_SESSAO_EXPIRADA,
   PGRST116: "Registro não encontrado.",
 };
 
@@ -101,7 +105,7 @@ function traduzPadrao(msg: string): string | null {
   if (m.includes("permission denied") || m.includes("not authorized") || m.includes("insufficient privilege"))
     return POR_CODIGO["42501"];
   if (m.includes("jwt") || m.includes("not authenticated") || m.includes("invalid token") || m.includes("token is expired"))
-    return "Sua sessão expirou. Entre novamente.";
+    return TEXTO_SESSAO_EXPIRADA;
   if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("network request failed"))
     return "Falha de conexão. Verifique sua internet e tente novamente.";
   if (m.includes("invalid login credentials")) return "E-mail ou senha incorretos.";

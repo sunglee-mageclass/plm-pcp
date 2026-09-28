@@ -49,7 +49,14 @@ import {
 } from "@/lib/integracao/campos";
 import { fmtDataHora } from "@/lib/integracao/produtos";
 import { GuardaIntegracaoContext, useAbaSuja } from "./guard";
-import { TEXTO_LOJA_MUDOU, chaveConfig, confirmarLojaAtiva, invalidarIntegracao, useIntegracaoConfig } from "./useIntegracao";
+import {
+  TEXTO_LOJA_INDISPONIVEL,
+  TEXTO_LOJA_MUDOU,
+  chaveConfig,
+  confirmarLojaAtiva,
+  invalidarIntegracao,
+  useIntegracaoConfig,
+} from "./useIntegracao";
 import { NovaChaveDialog } from "./NovaChaveDialog";
 
 type Valores = Record<ChaveConfigApi, number>;
@@ -258,6 +265,12 @@ function Configuracoes({ ativo, onSujoChange }: { ativo: boolean; onSujoChange: 
       // revisão T15 #1 (code-review I1, defesa em profundidade — CLIENTE vs CLIENTE, ver o comentário de `Edicao`
       // acima): recusa ANTES de qualquer chamada de rede se o rascunho nasceu numa loja diferente da cacheada
       // atual — não deveria acontecer (a página remonta por `key={tenantId}`), mas é a 1ª linha de defesa.
+      // Fix round 4 T15 (follow-up do coordenador, concern 3): loja do cliente VAZIA ("" transitório — a releitura
+      // de `active-tenant-id` falhou) não é troca de loja: recusa com `LOJA_INDISPONIVEL`, nunca "Recarregue a
+      // página" (o rascunho sobrevive ao "" e um reload o jogaria fora). `LOJA_MUDOU` só com as DUAS lojas não vazias.
+      if (!tenantId) {
+        throw Object.assign(new Error(TEXTO_LOJA_INDISPONIVEL), { code: "LOJA_INDISPONIVEL" });
+      }
       if (ed!.tenantId !== tenantId) {
         throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
       }

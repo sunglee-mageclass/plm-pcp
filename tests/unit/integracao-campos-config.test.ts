@@ -110,6 +110,8 @@ describe("CamposAba — render", () => {
       chaveConfig: (tenantId: string) => ["integracao-config", tenantId],
       invalidarIntegracao: invalidarIntegracaoSpy,
       TEXTO_LOJA_MUDOU: "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.",
+      // Fix round 4 T15 (follow-up do coordenador): recusa com a loja do cliente vazia ("" transitório).
+      TEXTO_LOJA_INDISPONIVEL: "Sem conexão com o servidor agora. Espere um instante e salve de novo.",
       confirmarLojaAtiva: confirmarLojaAtivaSpy,
       useIntegracaoConfig: () => {
         return useQuery({
@@ -755,6 +757,28 @@ describe("CamposAba — render", () => {
     // A RPC de salvar NUNCA foi chamada — a recusa acontece ANTES de qualquer chamada de rede.
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config")).toBe(false);
     expect(view.toastMocks.error).toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    await view.desmontar();
+  });
+
+  // Fix round 4 T15 (follow-up do coordenador, concern 3): com a loja do cliente VAZIA ("" — a releitura de
+  // `active-tenant-id` falhou; a página não remonta mais nesse caso, N-1), a recusa não pode mandar recarregar a
+  // página (jogaria fora o rascunho que sobrevive ao ""): `LOJA_INDISPONIVEL`, antes de qualquer chamada de rede.
+  it("loja '' transitória: Salvar recusa com 'Sem conexão…' (LOJA_INDISPONIVEL), nunca 'Recarregue a página'; RPC nunca chamada", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ rev: 3, tenantIdRef });
+    await act(async () => { checkboxDe(view.container, "Foto do Modelo").click(); }); // rascunho nasce em lojaA
+    tenantIdRef.current = "";
+    await view.rerender();
+    await act(async () => { botaoSalvar().click(); });
+    await act(async () => { botaoDoc("Confirmar e salvar").click(); });
+    await view.esperar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar_config")).toBe(false);
+    expect(view.confirmarLojaAtivaSpy).not.toHaveBeenCalled();
+    expect(view.toastMocks.error).toHaveBeenCalledWith("Sem conexão com o servidor agora. Espere um instante e salve de novo.");
+    expect(view.toastMocks.error).not.toHaveBeenCalledWith("A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    // O rascunho continua (Foto do Modelo segue marcada, Salvar segue habilitado) — nada se perdeu.
+    expect(checkboxDe(view.container, "Foto do Modelo").getAttribute("data-state")).toBe("checked");
+    expect(botaoSalvar().disabled).toBe(false);
     await view.desmontar();
   });
 

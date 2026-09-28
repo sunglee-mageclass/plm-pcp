@@ -556,9 +556,13 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     erroSessao?: unknown;
     erroUsers?: unknown;
     semSessao?: boolean;
+    // Fix round 4 T15 (follow-up do coordenador): loja do CLIENTE vazia/desconhecida (releitura de
+    // `active-tenant-id` falhou e o hook assentou "").
+    tenantAtivo?: string;
   }) {
     vi.resetModules();
-    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    const tenantAtivo = opts.tenantAtivo ?? "t1";
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => tenantAtivo }));
     // `confirmarLojaAtiva` (a função REAL, não mockada) relê `supabase.auth.getSession()` + `users.tenant_id`
     // DIRETO — controla o resultado dela pelo MESMO client mockado que `useSalvarIntegracao` usa (não dá pra
     // espionar a função em si: o `mutationFn` chama o binding local do módulo, que o live-binding do ESM não
@@ -673,23 +677,62 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     await view.clicarSalvar();
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
     expect(view.fromSpy).not.toHaveBeenCalled(); // sem sessão, nem chega a ler `users`
-    expect(view.container.textContent).toContain("erro:Sua sessão expirou. Entre de novo.|code:SESSAO_EXPIRADA");
+    expect(view.container.textContent).toContain("erro:Sua sessão expirou. Entre novamente.|code:SESSAO_EXPIRADA");
     expect(view.container.textContent).not.toContain("A loja ativa mudou");
     expect(view.container.textContent).not.toContain("code:LOJA_MUDOU");
     await view.desmontar();
   });
 
-  it("m-R3: o erro de sessão ausente chega ao usuário, via mensagemErro, como o texto de sessão expirada", async () => {
+  // Follow-up do coordenador (fix round 4): o texto é o MESMO do resto do app — `erro-mensagem.ts` (PGRST301 / JWT
+  // expirado) e `confirmarLojaAtiva` usam a MESMA constante, nunca duas redações para a mesma situação.
+  it("m-R3: o erro de sessão ausente chega ao usuário, via mensagemErro, com o MESMO texto de sessão expirada do app", async () => {
     vi.resetModules();
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { auth: { getSession: async () => ({ data: { session: null }, error: null }) }, from: vi.fn() },
     }));
     const { confirmarLojaAtiva, TEXTO_SESSAO_EXPIRADA } = await import("@/components/integracao/useIntegracao");
-    const { mensagemErro } = await import("@/lib/erro-mensagem");
+    const erroMensagem = await import("@/lib/erro-mensagem");
     const erro = await confirmarLojaAtiva("t1").then(() => null, (e: unknown) => e);
-    expect(erro).toMatchObject({ code: "SESSAO_EXPIRADA", message: "Sua sessão expirou. Entre de novo." });
-    expect(TEXTO_SESSAO_EXPIRADA).toBe("Sua sessão expirou. Entre de novo.");
-    expect(mensagemErro(erro, "Não foi possível salvar.")).toBe("Sua sessão expirou. Entre de novo.");
+    expect(erro).toMatchObject({ code: "SESSAO_EXPIRADA", message: "Sua sessão expirou. Entre novamente." });
+    expect(TEXTO_SESSAO_EXPIRADA).toBe(erroMensagem.TEXTO_SESSAO_EXPIRADA);
+    expect(erroMensagem.mensagemErro(erro, "Não foi possível salvar.")).toBe("Sua sessão expirou. Entre novamente.");
+    // O MESMO texto que o app já mostra para um JWT expirado (código PostgREST e padrão em inglês).
+    expect(erroMensagem.mensagemErro({ code: "PGRST301", message: "JWT expired" })).toBe(TEXTO_SESSAO_EXPIRADA);
+    expect(erroMensagem.mensagemErro(new Error("JWT expired"))).toBe(TEXTO_SESSAO_EXPIRADA);
+    vi.doUnmock("@/integrations/supabase/client");
+  });
+
+  // Follow-up do coordenador (fix round 4, concern 3): com a loja do CLIENTE vazia/desconhecida ("" — a releitura
+  // de `active-tenant-id` falhou), a recusa NÃO pode dizer "Recarregue a página": recarregar jogaria fora o rascunho
+  // que agora sobrevive ao "" (N-1). Código próprio `LOJA_INDISPONIVEL`; `LOJA_MUDOU` fica só para troca de loja
+  // CONFIRMADA pelo servidor. Recusa sem rede nenhuma (nem sessão, nem `users`) e nada é gravado.
+  it("LOJA_INDISPONIVEL: loja do cliente vazia recusa o Salvar com 'Sem conexão…' — nunca 'Recarregue a página'", async () => {
+    const view = await montarSalvarSonda({ tenantAtivo: "" });
+    await view.clicarSalvar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
+    expect(view.getSessionSpy).not.toHaveBeenCalled();
+    expect(view.fromSpy).not.toHaveBeenCalled();
+    expect(view.container.textContent).toContain(
+      "erro:Sem conexão com o servidor agora. Espere um instante e salve de novo.|code:LOJA_INDISPONIVEL",
+    );
+    expect(view.container.textContent).not.toContain("Recarregue a página");
+    expect(view.container.textContent).not.toContain("code:LOJA_MUDOU");
+    await view.desmontar();
+  });
+
+  it("LOJA_INDISPONIVEL: confirmarLojaAtiva('') lança o código próprio e mensagemErro mostra o texto como veio", async () => {
+    vi.resetModules();
+    const getSession = vi.fn(async () => ({ data: { session: { user: { id: "u1" } } }, error: null }));
+    const from = vi.fn();
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: { auth: { getSession }, from } }));
+    const { confirmarLojaAtiva, TEXTO_LOJA_INDISPONIVEL } = await import("@/components/integracao/useIntegracao");
+    const { mensagemErro } = await import("@/lib/erro-mensagem");
+    const erro = await confirmarLojaAtiva("").then(() => null, (e: unknown) => e);
+    expect(erro).toMatchObject({ code: "LOJA_INDISPONIVEL", message: TEXTO_LOJA_INDISPONIVEL });
+    expect(TEXTO_LOJA_INDISPONIVEL).toBe("Sem conexão com o servidor agora. Espere um instante e salve de novo.");
+    expect(mensagemErro(erro, "Não foi possível salvar.")).toBe(TEXTO_LOJA_INDISPONIVEL);
+    expect(getSession).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
     vi.doUnmock("@/integrations/supabase/client");
   });
 

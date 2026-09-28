@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { mensagemErro } from "@/lib/erro-mensagem";
+import { TEXTO_SESSAO_EXPIRADA, mensagemErro } from "@/lib/erro-mensagem";
 import { BUCKET, uploadFile } from "@/components/planejamento/modelo-shared";
 import {
   chaveEntradaPrevia, entradaDaChave, lerPrevia,
@@ -59,8 +59,15 @@ export const TEXTO_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Re
 
 /** Fix round 4 T15 (code-review "Re-check round 3" m-R3): `confirmarLojaAtiva` sem sessão nenhuma (e sem erro) =
  *  sessão expirada/encerrada, NUNCA "a loja mudou". Código próprio do cliente (`SESSAO_EXPIRADA`, mesmo padrão de
- *  `LOJA_MUDOU`); `mensagemErro` devolve este texto como veio (já está em PT). */
-export const TEXTO_SESSAO_EXPIRADA = "Sua sessão expirou. Entre de novo.";
+ *  `LOJA_MUDOU`); o TEXTO é a constante única do app (`erro-mensagem.ts`, a mesma do JWT expirado) — reexportada
+ *  aqui para quem já importa os textos da Integração deste módulo. */
+export { TEXTO_SESSAO_EXPIRADA };
+
+/** Fix round 4 T15 (follow-up do coordenador, concern 3): recusa quando a loja do CLIENTE está vazia/desconhecida
+ *  ("" — a releitura de `active-tenant-id` falhou e o hook assentou ""). NUNCA manda recarregar a página: desde o
+ *  N-1 o rascunho sobrevive ao "" e um reload o jogaria fora. `LOJA_MUDOU` fica SÓ para troca de loja confirmada
+ *  (o servidor devolveu outra loja). `mensagemErro` devolve este texto como veio (já está em PT). */
+export const TEXTO_LOJA_INDISPONIVEL = "Sem conexão com o servidor agora. Espere um instante e salve de novo.";
 
 /** Resultado de `confirmarLojaAtiva` (fix round 3 T15, code-review "Re-check round 2" m-R2): a loja confirmada
  *  (`tenantId`) e o nome dela (`nome`, via embed — a MESMA linha, sem 2ª chamada). `nome` pode vir `null` se a
@@ -113,11 +120,17 @@ export type LojaAtiva = { tenantId: string; nome: string | null };
  *    de `users` e na RPC de escrita que vem LOGO DEPOIS — `confirmarLojaAtiva` nunca é a ÚNICA defesa contra
  *    sessão expirada, só uma checagem A MAIS antes da escrita.
  *  - **m-R3**: sessão AUSENTE (`{ session: null, error: null }` — um refresh em segundo plano já falhou e o auth-js
- *    removeu a sessão, ou o usuário saiu noutra aba) agora lança `SESSAO_EXPIRADA` ("Sua sessão expirou. Entre de
- *    novo."), não `LOJA_MUDOU` (que mandava recarregar a página por um motivo falso). Nada é gravado nos dois casos.
- *  Testado: sessão ausente → `SESSAO_EXPIRADA`; erro de rede/sessão em `getSession`/`users` → relançado verbatim;
- *  loja divergente → `LOJA_MUDOU`. */
+ *    removeu a sessão, ou o usuário saiu noutra aba) agora lança `SESSAO_EXPIRADA` (texto único do app, "Sua sessão
+ *    expirou. Entre novamente."), não `LOJA_MUDOU` (que mandava recarregar a página por um motivo falso). Nada é
+ *    gravado nos dois casos.
+ *  - **follow-up (concern 3)**: loja do CLIENTE vazia (`tenantIdEsperado === ""`) → `LOJA_INDISPONIVEL` ("Sem
+ *    conexão com o servidor agora…"), antes de qualquer rede — nunca "Recarregue a página".
+ *  Testado: loja do cliente vazia → `LOJA_INDISPONIVEL`; sessão ausente → `SESSAO_EXPIRADA`; erro de rede/sessão em
+ *  `getSession`/`users` → relançado verbatim; loja divergente confirmada pelo servidor → `LOJA_MUDOU`. */
 export async function confirmarLojaAtiva(tenantIdEsperado: string): Promise<LojaAtiva> {
+  // Follow-up do fix round 4: loja do cliente vazia/desconhecida — não há o que confirmar; recusa SEM rede e sem
+  // mandar recarregar (ver `TEXTO_LOJA_INDISPONIVEL`).
+  if (!tenantIdEsperado) throw Object.assign(new Error(TEXTO_LOJA_INDISPONIVEL), { code: "LOJA_INDISPONIVEL" });
   const { data: sess, error: erroSessao } = await supabase.auth.getSession();
   if (erroSessao) throw erroSessao;
   const uid = sess.session?.user?.id;
