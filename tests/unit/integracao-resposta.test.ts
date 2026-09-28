@@ -53,10 +53,13 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
     expect(montarResposta({ ...R, pagina: undefined }, { geradoEm: "g", foto: () => null }).pagina).toBeNull();
     expect(out.linhas[2]).toMatchObject({ loja_nome: "Loja X", valores: ["Blusa", null] });
   });
-  // m2 (revisão code review "fix round 1"): quando o retrato do produto não tinha a coluna Foto marcada (P-93 A —
-  // colunas de uma página são a união; produto fora da união manda null nessa posição, D6), o valor cru já chega
-  // `null` — `montarResposta` PRECISA preservar esse `null` em vez de chamar `o.foto([])` e fingir "lista vazia".
-  it("Foto null no retrato do produto (P-93 A, coluna fora da união) fica null, nunca vira lista vazia", () => {
+  // m2/m2-R (revisão code review "fix round 1"/"Re-review round 1"): quando o retrato do produto não tinha a
+  // coluna Foto marcada (P-93 A — colunas de uma página são a união; produto fora da união manda null nessa
+  // posição, D6), o valor cru já chega `null` em TODAS as linhas do produto (`_integracao_valores` aplica esse
+  // null a toda linha, m6:95, não só à do produto) — `montarResposta` PRECISA preservar esse `null` na linha do
+  // produto E na sublinha, consistente com o resto das colunas novas e com TEXTO_UNIAO_COLUNAS ("numa coluna
+  // nova, eles vêm com o valor vazio (null)"). Nunca finge "lista vazia" onde a coluna nem existia no retrato.
+  it("Foto null no retrato do produto (P-93 A, coluna fora da união) fica null na linha E na sublinha", () => {
     const semFoto: RespostaLer = {
       ...R,
       produtos: [
@@ -69,7 +72,7 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
     let chamouFoto = false;
     const out = montarResposta(semFoto, { geradoEm: "g", foto: () => { chamouFoto = true; return ["nunca"]; } });
     expect(out.linhas[0].valores[1]).toBeNull(); // produto: null preservado
-    expect(out.linhas[1].valores[1]).toEqual([]); // sublinha: sempre [] (nunca chega null de propósito)
+    expect(out.linhas[1].valores[1]).toBeNull(); // sublinha: null TAMBÉM preservado (m2-R)
     expect(chamouFoto).toBe(false); // `foto()` nem é chamada quando o valor cru já é null
   });
 });

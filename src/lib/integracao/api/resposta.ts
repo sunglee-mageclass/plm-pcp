@@ -4,10 +4,14 @@
 // resposta usou e o máximo da loja HOJE — a loja pode mudar o máximo sem aviso; o programa do dev segue o cursor. Usada pela rota (Tasks 19/20) e pelo "Ver resposta de exemplo" do Manual. A
 // coluna Foto (D5) chega do banco como LISTA de caminhos na linha do produto ([] nas sublinhas); quem chama decide o valor
 // (links assinados, link público de exemplo ou null).
-// Fix round 1 T16 (revisão m2): quando o retrato do produto NÃO tinha a coluna Foto marcada na época em que ficou
-// Integrável (P-93 A — colunas de uma página são a união; produto fora da união manda `null` nessa posição, D6), o
-// valor cru já chega `null` — `montarResposta` PRESERVA esse `null` em vez de rechamar `o.foto([])`, para não fingir
-// "lista vazia de fotos" onde a coluna nem existia no retrato daquele produto. Ver TEXTO_UNIAO_COLUNAS no Manual.
+// Fix round 1 T16 (revisão m2) + fix round 2 (m2-R): quando o retrato do produto NÃO tinha a coluna Foto marcada
+// na época em que ficou Integrável (P-93 A — colunas de uma página são a união; produto fora da união manda
+// `null` nessa posição, D6), o valor cru já chega `null` — `montarResposta` PRESERVA esse `null` em vez de
+// rechamar `o.foto([])`/`[]`, para não fingir "lista vazia de fotos" onde a coluna nem existia no retrato daquele
+// produto. m2-R: `_integracao_valores` aplica esse `null` a TODAS as linhas do produto (m6:95), não só à do
+// produto — a SUBLINHA (variante) também preserva `null`, consistente com o resto das colunas novas dela e com
+// TEXTO_UNIAO_COLUNAS ("numa coluna nova, eles vêm com o valor vazio (null)"). `[]` só quando o retrato TINHA a
+// coluna Foto mas o produto não tinha foto nenhuma (D5) — nesse caso o valor cru já vem `[]`, não `null`.
 export type StatusLer = "ok" | "parametro_invalido" | "chave_invalida" | "loja_inativa" | "ip_bloqueado" | "limite_excedido";
 export type ProdutoLer = {
   modelo_id: string; estado: string; assinatura: string | null; integrado_em: string | null;
@@ -51,7 +55,7 @@ export function montarResposta(r: RespostaLer, o: OpcoesMontar): RespostaApi {
       const valores = [...l.valores];
       if (idxFoto >= 0) {
         const bruto = l.valores[idxFoto];
-        valores[idxFoto] = l.tipo !== "produto" ? [] : bruto === null ? null : o.foto(caminhosFoto(l.valores, idxFoto));
+        valores[idxFoto] = bruto === null ? null : l.tipo === "produto" ? o.foto(caminhosFoto(l.valores, idxFoto)) : [];
       }
       linhas.push({
         tipo: l.tipo, produto_id: p.modelo_id, loja_id: loja.id, loja_nome: l.loja_nome ?? loja.nome, integrado_em: integradoEm, valores,

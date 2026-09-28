@@ -35,9 +35,9 @@ export const TEXTO_SEM_WEBHOOK =
 /** I5: loja_id/loja_nome em toda linha; uma chave pertence a UMA loja só. */
 export const TEXTO_UMA_LOJA_POR_CHAVE =
   "Toda linha traz loja_id e loja_nome (a EMPRESA dona do produto). Cada chave pertence a UMA loja só e só enxerga os produtos dessa loja; para outra loja, crie outra chave dentro dela.";
-/** m4: loja_nome é o retrato tirado ao marcar; pode divergir do nome ATUAL da loja (renomeada depois). */
+/** m4/m4-R: loja_nome é o retrato tirado ao marcar; pode divergir do loja.nome ATUAL no topo (renomeada depois). */
 export const TEXTO_LOJA_NOME_RETRATO =
-  "loja_nome de uma linha é o nome da loja no momento em que o produto foi marcado Integrável (um retrato); se a loja for renomeada depois, o loja_nome de topo (o nome ATUAL) pode ficar diferente do loja_nome de linhas antigas.";
+  "loja_nome de uma linha é o nome da loja no momento em que o produto foi marcado Integrável (um retrato); se a loja for renomeada depois, o loja.nome no topo da resposta (o nome ATUAL) pode ficar diferente do loja_nome de linhas antigas.";
 /** I6 (P-99 A): produto reprovado não é entregue enquanto reprovado. */
 export const TEXTO_REPROVADO_NAO_ENTREGA =
   "Produto Integrável que estiver reprovado (no Planejamento ou no Desenvolvimento) NÃO é entregue pela API enquanto estiver reprovado; quando deixar de ser reprovado, volta a ser levado normalmente. Um produto que já estava Integrado continua aparecendo quando você relê com incluir_integrados=1.";
@@ -144,7 +144,7 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "p", texto: TEXTO_PRECO_DIGITADO },
       { tipo: "exemplo" },
       { tipo: "codigo", titulo: "JSON de exemplo — modo NORMAL (dados reais da loja; só produtos JÁ INTEGRÁVEIS são levados)", codigo: JSON.stringify(respostaExemplo("normal", origem), null, 2) },
-      { tipo: "codigo", titulo: "JSON de exemplo — modo TESTE (produtos FICTÍCIOS, no MESMO FORMATO da loja, nunca dados reais)", codigo: JSON.stringify(respostaExemplo("teste", origem), null, 2) },
+      { tipo: "codigo", titulo: "JSON de exemplo — modo TESTE (resumido: 1 produto de exemplo; a chamada de verdade sempre traz 2 por página)", codigo: JSON.stringify(respostaExemplo("teste", origem), null, 2) },
       { tipo: "p", texto: 'Nunca dados reais no modo teste — nomes/REFs sempre "Exemplo"/"EXPL..." mesmo que sua loja tenha produtos de verdade. O link da foto também é de exemplo (público).' },
     ] },
     { id: "s6", titulo: "Códigos de resposta", blocos: [
