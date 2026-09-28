@@ -126,17 +126,27 @@ describe("useAuth.canView/canEdit — integracao só super admin direto (P-107 A
 //    key/módulo "integracao".
 // ─────────────────────────────────────────────────────────────────────────────
 describe("app-sidebar — item Integração não usa bypass de admin (P-107 A)", () => {
-  it("o filtro de página dentro do módulo não deixa isTenantAdmin/isAdmin pularem canView para a key 'integracao'", () => {
-    const s = ler("src/components/app-sidebar.tsx");
-    // A linha do filtro de subs não pode mais conceder bypass incondicional; precisa
-    // excluir explicitamente a página/módulo "integracao" do bypass de admin.
-    const filtroSubs = s.slice(s.indexOf(".filter((p) => PAGE_URLS[p.key]"), s.indexOf(".filter((p) => PAGE_URLS[p.key]") + 400);
-    expect(filtroSubs).toMatch(/p\.key === "integracao"/);
-  });
   it("o filtro de módulo visível não deixa isTenantAdmin/isAdmin mostrarem o módulo 'integracao' sem canView", () => {
     const s = ler("src/components/app-sidebar.tsx");
     const filtroModulo = s.slice(s.indexOf("const visibleMainItems"), s.indexOf("const visibleMainItems") + 700);
     expect(filtroModulo).toMatch(/m\.module === "integracao"/);
+  });
+  // L-1 (fix round 1): o filtro de SUB-página (dentro de um módulo já visível) nunca chega a rodar
+  // pra "integracao" porque `PAGE_URLS.integracao` não existe (ela é link direto, não um
+  // Collapsible) — `PAGE_URLS[p.key]` já corta antes do bypass importar. A proteção real é só o
+  // filtro de MÓDULO acima. Removido o ramo morto (achado L-1); este teste prova a premissa que o
+  // torna morto: se algum dia `PAGE_URLS.integracao` for adicionada, este teste falha e avisa que o
+  // filtro de sub-página passa a valer de verdade (precisando do mesmo tratamento sem-bypass).
+  it("PAGE_URLS não tem entrada para 'integracao' — é a premissa que torna o filtro de sub-página irrelevante para ela", () => {
+    const s = ler("src/lib/nav.ts");
+    expect(s).not.toMatch(/\bintegracao:\s*"/);
+  });
+  it("o filtro de sub-página não tem ramo morto (comentário explica a proteção real)", () => {
+    const s = ler("src/components/app-sidebar.tsx");
+    const i = s.indexOf(".filter((p) => PAGE_URLS[p.key]");
+    const filtroSubs = s.slice(i - 900, i + 100); // comentário fica ANTES da linha do filtro
+    expect(filtroSubs).toMatch(/L-1/);
+    expect(s.slice(i, i + 400)).not.toMatch(/p\.key === "integracao"/);
   });
 });
 
@@ -201,13 +211,13 @@ function tanstackReactStartStub() {
 // 4) PapelEditor — a linha "Integração" NUNCA aparece, e o payload nunca leva 'integracao'.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("PapelEditor — sem a linha Integração, payload nunca leva integracao", () => {
-  async function montarPapelEditor() {
+  async function montarPapelEditor(opts: { existing?: { pagina: string; pode_ver: boolean; pode_editar: boolean }[] } = {}) {
     vi.resetModules();
     const salvarSpy = vi.fn(async () => ({ id: "p1" }));
     vi.doMock("@tanstack/react-start", () => ({ ...tanstackReactStartStub(), useServerFn: () => salvarSpy }));
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
     vi.doMock("@/integrations/supabase/client", () => ({
-      supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }) }) },
+      supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: opts.existing ?? [], error: null }) }) }) },
     }));
     const { createElement } = await import("react");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -216,7 +226,7 @@ describe("PapelEditor — sem a linha Integração, payload nunca leva integraca
     const view = await montar(
       createElement(QueryClientProvider, { client: qc },
         createElement(PapelEditor, {
-          papel: { id: null, nome: "", descricao: null, tenant_id: "t1" },
+          papel: { id: "papel1", nome: "Existente", descricao: null, tenant_id: "t1" },
           onClose: () => {},
         }),
       ),
@@ -232,6 +242,25 @@ describe("PapelEditor — sem a linha Integração, payload nunca leva integraca
     expect(document.body.textContent).not.toContain("Integração");
     view.unmount();
   });
+
+  // M-1: clica em Salvar de verdade e confere o PAYLOAD (não só o texto na tela). `existing` traz
+  // uma linha `integracao` (cenário legado/defesa) — o payload de salvar_papel NUNCA pode levá-la.
+  it("M-1: Salvar com existing trazendo uma linha 'integracao' legada — o payload nunca leva integracao*", async () => {
+    const view = await montarPapelEditor({
+      existing: [
+        { pagina: "integracao", pode_ver: true, pode_editar: true },
+        { pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false },
+      ],
+    });
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(view.salvarSpy).toHaveBeenCalledTimes(1);
+    const payload = view.salvarSpy.mock.calls[0][0].data.perms as { pagina: string }[];
+    expect(payload.some((p) => p.pagina === "integracao" || p.pagina.startsWith("integracao:"))).toBe(false);
+    // O resto do papel grava normal (a linha não-integracao sobrevive no payload).
+    expect(payload.some((p) => p.pagina === "cadastro_tecidos")).toBe(true);
+    view.unmount();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,13 +268,28 @@ describe("PapelEditor — sem a linha Integração, payload nunca leva integraca
 //    admin da loja (mode="tenant") nunca leva integracao.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("PermissoesModal (usuário) — linha Integração só para super admin", () => {
-  async function montarPermissoesModal(mode: "tenant" | "super") {
+  async function montarPermissoesModal(opts: {
+    mode: "tenant" | "super";
+    role?: string;
+    existing?: { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
+  }) {
     vi.resetModules();
     vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
     vi.doMock("@/integrations/supabase/client", () => ({
-      supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }) }) },
+      supabase: { from: () => ({ select: () => ({ eq: async () => ({ data: opts.existing ?? [], error: null }) }) }) },
     }));
-    vi.doMock("@tanstack/react-start", () => tanstackReactStartStub());
+    const callTenantSpy = vi.fn(async () => undefined);
+    const callSuperSpy = vi.fn(async () => undefined);
+    vi.doMock("@tanstack/react-start", () => ({
+      ...tanstackReactStartStub(),
+      // `useServerFn(savePermissions)`/`useServerFn(savePermissionsAsSuperAdmin)` — distingue pela
+      // REFERÊNCIA da função recebida (import real dos módulos .functions.ts, que o stub de
+      // createServerFn devolve como a MESMA `chain` para os dois — precisa dos dois specific imports
+      // pra apontar cada spy pro `fn` certo).
+      useServerFn: (fn: unknown) => (fn === savePermissionsRef.current ? callTenantSpy : callSuperSpy),
+    }));
+    const tenantAdminFns = await import("@/lib/tenant-admin.functions");
+    const savePermissionsRef = { current: tenantAdminFns.savePermissions };
     const { createElement } = await import("react");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const { PermissoesModal } = await import("@/components/admin/PermissoesModal");
@@ -253,25 +297,178 @@ describe("PermissoesModal (usuário) — linha Integração só para super admin
     const view = await montar(
       createElement(QueryClientProvider, { client: qc },
         createElement(PermissoesModal, {
-          user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: "user", papel_id: null },
-          mode,
+          user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: opts.role ?? "user", papel_id: null },
+          mode: opts.mode,
           onClose: () => {},
         }),
       ),
     );
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
-    return view;
+    return { ...view, callTenantSpy, callSuperSpy };
   }
 
   it("mode=tenant (admin da loja editando): a linha Integração NÃO aparece", async () => {
-    const view = await montarPermissoesModal("tenant");
+    const view = await montarPermissoesModal({ mode: "tenant" });
     expect(document.body.textContent).not.toContain("Integração");
     view.unmount();
   });
 
   it("mode=super (super admin editando): a linha Integração aparece", async () => {
-    const view = await montarPermissoesModal("super");
+    const view = await montarPermissoesModal({ mode: "super" });
     expect(document.body.textContent).toContain("Integração");
+    view.unmount();
+  });
+
+  // M-1: Salvar de verdade (não só olhar o texto). `existing` traz uma linha `integracao` legada —
+  // no modo tenant, ela nunca deve entrar no payload de `savePermissions`, mesmo pré-existindo no banco.
+  it("M-1 mode=tenant: Salvar com existing trazendo integracao legada — payload nunca leva integracao*", async () => {
+    const view = await montarPermissoesModal({
+      mode: "tenant",
+      existing: [
+        { pagina: "integracao", pode_ver: true, pode_editar: true },
+        { pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false },
+      ],
+    });
+    const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+    await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(view.callTenantSpy).toHaveBeenCalledTimes(1);
+    const payload = view.callTenantSpy.mock.calls[0][0].data.perms as { pagina: string }[];
+    expect(payload.some((p) => p.pagina === "integracao" || p.pagina.startsWith("integracao:"))).toBe(false);
+    expect(payload.some((p) => p.pagina === "cadastro_tecidos")).toBe(true);
+    view.unmount();
+  });
+
+  // I-1: o super admin PRECISA conseguir conceder a Integração a um admin da loja (tenant_admin) —
+  // esse é o caso principal da P-107 A. Hoje a linha vem marcada/travada com a faixa "acesso total"
+  // (bug do achado I-1). Depois do fix: linha desmarcada, habilitada, e o Salvar funciona.
+  it("I-1: mode=super + alvo tenant_admin + existing=[] — a caixa da Integração vem DESMARCADA e HABILITADA", async () => {
+    const view = await montarPermissoesModal({ mode: "super", role: "tenant_admin", existing: [] });
+    try {
+      // Acha o checkbox "Leitor" da linha Integração: procuramos pelo texto da label e navegamos até o
+      // checkbox correspondente (mesma estrutura de grid da grade real).
+      const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração")?.closest("div.grid");
+      expect(linhaIntegracao, "linha Integração deveria existir no DOM").toBeTruthy();
+      const checkboxes = Array.from(linhaIntegracao!.querySelectorAll('button[role="checkbox"]'));
+      expect(checkboxes.length).toBe(2); // Leitor, Editor
+      for (const cb of checkboxes) {
+        expect(cb.getAttribute("aria-checked"), "deveria vir DESMARCADA (existing=[])").toBe("false");
+        expect(cb.hasAttribute("disabled"), "deveria vir HABILITADA para o super admin conceder").toBe(false);
+      }
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("I-1: mode=super + alvo tenant_admin — marcar Integração e Salvar manda a permissão no payload (callSuper)", async () => {
+    const view = await montarPermissoesModal({ mode: "super", role: "tenant_admin", existing: [] });
+    try {
+      const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração")?.closest("div.grid");
+      const checkboxes = Array.from(linhaIntegracao!.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
+      const [checkboxVer] = checkboxes;
+      await act(async () => { checkboxVer.click(); });
+      const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      expect(botaoSalvar().hasAttribute("disabled"), "Salvar precisa estar habilitado pro super admin conceder").toBe(false);
+      await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+      expect(view.callSuperSpy).toHaveBeenCalledTimes(1);
+      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean }[];
+      const linha = payload.find((p) => p.pagina === "integracao");
+      expect(linha, "a linha integracao precisa estar no payload").toBeTruthy();
+      expect(linha!.pode_ver).toBe(true);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("I-1: mode=tenant + alvo admin (admin da loja editando outro admin) — a linha Integração continua ESCONDIDA (só a faixa MENCIONA a Integração em texto)", async () => {
+    const view = await montarPermissoesModal({ mode: "tenant", role: "tenant_admin", existing: [] });
+    // A faixa âmbar de admin agora MENCIONA "Integração" em prosa (I-1, item 4 do achado) — a
+    // asserção real é que não existe uma LINHA/checkbox de Integração na grade (mesma checagem
+    // estrutural usada no teste "a caixa da Integração vem DESMARCADA" acima).
+    const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração");
+    expect(linhaIntegracao, "não deveria existir uma linha/checkbox própria da Integração").toBeUndefined();
+    view.unmount();
+  });
+
+  it("I-1: mode=super + alvo admin — as OUTRAS páginas continuam marcadas/travadas (só a Integração muda)", async () => {
+    const view = await montarPermissoesModal({ mode: "super", role: "tenant_admin", existing: [] });
+    try {
+      const linhaCadastro = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Tecidos")?.closest("div.grid");
+      expect(linhaCadastro, "linha de outra página deveria existir").toBeTruthy();
+      const checkboxes = Array.from(linhaCadastro!.querySelectorAll('button[role="checkbox"]'));
+      for (const cb of checkboxes) {
+        expect(cb.getAttribute("aria-checked"), "outras páginas seguem marcadas (bypass de admin)").toBe("true");
+        expect(cb.hasAttribute("disabled"), "outras páginas seguem travadas").toBe(true);
+      }
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M-1 (segunda parte): um teste que FALHARIA se o bypass de admin voltasse pra "integracao", usando
+// o AuthContext REAL (não um mock do próprio gate) — RequirePermission acima usa useAuth MOCKADO, o
+// que não pegaria uma regressão no próprio useAuth. Aqui reaproveitamos a sonda real de
+// AuthProvider (mesmo padrão do describe 1) e verificamos RequirePermission montado por cima dela.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("RequirePermission + AuthProvider REAL — bloqueia /integracao sem mockar o próprio gate", () => {
+  async function montarComAuthReal(opts: { roles: string[]; permissoes: { pagina: string; pode_ver: boolean; pode_editar: boolean }[] }) {
+    vi.resetModules();
+    // O describe "RequirePermission — bloqueia..." (acima) registrou `vi.doMock("@/hooks/useAuth", ...)`
+    // — isso persiste para o resto do ARQUIVO (não é escopado por describe/it), então precisamos
+    // desfazer aqui para importar o `AuthProvider`/`useAuth` DE VERDADE (mesmo padrão documentado em
+    // integracao-tela-fonte.test.ts sobre vi.doMock vazar entre describes).
+    vi.doUnmock("@/hooks/useAuth");
+    const authStateCb: { current: ((event: string, session: unknown) => void) | null } = { current: null };
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: {
+        auth: {
+          onAuthStateChange: (cb: (event: string, session: unknown) => void) => {
+            authStateCb.current = cb;
+            return { data: { subscription: { unsubscribe: () => {} } } };
+          },
+          getSession: async () => ({ data: { session: null } }),
+        },
+        from: (table: string) => {
+          if (table === "user_roles") {
+            return { select: () => ({ eq: async () => ({ data: opts.roles.map((role) => ({ role })) }) }) };
+          }
+          throw new Error(`tabela não mockada: ${table}`);
+        },
+        rpc: async (name: string) => {
+          if (name === "minhas_permissoes_efetivas") return { data: opts.permissoes };
+          throw new Error(`rpc não mockada: ${name}`);
+        },
+      },
+    }));
+    vi.doMock("@/lib/storage-tenant", () => ({ clearTenantPrefixCache: () => {} }));
+    vi.doMock("@/hooks/useTenantModules", () => ({
+      useTenantModules: () => ({ isStockOnly: false, firstActiveModulePath: "/home", isLoading: false }),
+    }));
+    const { createElement } = await import("react");
+    const { AuthProvider } = await import("@/hooks/useAuth");
+    const { RequirePermission } = await import("@/components/RequirePermission");
+    const view = await montar(
+      createElement(AuthProvider, null, createElement(RequirePermission, { page: "integracao" }, createElement("div", null, "CONTEUDO-INTEGRACAO"))),
+    );
+    // Dispara a sessão autenticada (simula login já feito) e aguarda o loadProfile.
+    await act(async () => {
+      authStateCb.current?.("SIGNED_IN", { user: { id: "u1" } });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    return view;
+  }
+
+  it("tenant_admin sem a permissão explícita: 'Acesso negado' de verdade (useAuth real, sem mock do gate)", async () => {
+    const view = await montarComAuthReal({ roles: ["tenant_admin"], permissoes: [] });
+    expect(view.container.textContent).toContain("Acesso negado");
+    expect(view.container.textContent).not.toContain("CONTEUDO-INTEGRACAO");
+    view.unmount();
+  });
+
+  it("tenant_admin COM a permissão explícita: conteúdo aparece (useAuth real)", async () => {
+    const view = await montarComAuthReal({ roles: ["tenant_admin"], permissoes: [{ pagina: "integracao", pode_ver: true, pode_editar: true }] });
+    expect(view.container.textContent).toContain("CONTEUDO-INTEGRACAO");
     view.unmount();
   });
 });

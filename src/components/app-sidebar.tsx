@@ -131,9 +131,16 @@ export function AppSidebar() {
         // Gate de PÁGINA (ex.: produto_acabado dentro de criacao/entrada_saida): além do
         // gate do módulo (já filtrado acima), a própria página pode exigir outra flag.
         .filter((p) => !p.gate || isModuleEnabled(p.gate))
-        // P-107 A: a key "integracao" nunca usa o bypass de admin — só canView (que já só
-        // libera super admin direto, ou usuário com a permissão explícita).
-        .filter((p) => PAGE_URLS[p.key] && (p.key === "integracao" ? canView(p.key) : isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
+        // L-1 (fix round 1): a key "integracao" NÃO tem entrada em PAGE_URLS (src/lib/nav.ts) de
+        // propósito — ela é um link direto no menu (sem sub-itens/hub), não um Collapsible com
+        // sub-página. Por isso `PAGE_URLS[p.key]` já é falsy pra ela e o bypass de admin abaixo
+        // nunca chega a valer — a proteção real da Integração mora no filtro de MÓDULO logo
+        // acima (`m.module === "integracao"`). Se algum dia `PAGE_URLS.integracao` for adicionada
+        // (virando um Collapsible com sub-item), este filtro passaria a valer de verdade — reveja
+        // então se a key "integracao" precisa do mesmo tratamento sem-bypass daqui, e se o
+        // `max-md:hidden` (hoje só no item link-direto, `item.url === "/integracao"` abaixo)
+        // também precisa migrar pro Collapsible.
+        .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: labelFor(p.key, p.label), url: PAGE_URLS[p.key] }));
       return {
         url: m.basePath,
