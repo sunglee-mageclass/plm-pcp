@@ -74,6 +74,7 @@ import { Route as AuthenticatedExpedicaoDirecionamentoIndexRouteImport } from '.
 import { Route as AuthenticatedExpedicaoCqIndexRouteImport } from './routes/_authenticated/expedicao.cq.index'
 import { Route as AuthenticatedEntradaSaidaExplosaoIndexRouteImport } from './routes/_authenticated/entrada-saida.explosao.index'
 import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
+import { Route as ApiIntegracaoV1ProdutosRouteImport } from './routes/api.integracao.v1.produtos'
 import { Route as AuthenticatedPcpServicosModeloIdRouteImport } from './routes/_authenticated/pcp.servicos.$modeloId'
 import { Route as AuthenticatedPcpOficinaModeloIdRouteImport } from './routes/_authenticated/pcp.oficina.$modeloId'
 import { Route as AuthenticatedExpedicaoDirecionamentoModeloIdRouteImport } from './routes/_authenticated/expedicao.direcionamento.$modeloId'
@@ -450,6 +451,11 @@ const AuthenticatedCadastroTecidosIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedCadastroTecidosRoute,
   } as any)
+const ApiIntegracaoV1ProdutosRoute = ApiIntegracaoV1ProdutosRouteImport.update({
+  id: '/api/integracao/v1/produtos',
+  path: '/api/integracao/v1/produtos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedPcpServicosModeloIdRoute =
   AuthenticatedPcpServicosModeloIdRouteImport.update({
     id: '/$modeloId',
@@ -545,6 +551,7 @@ export interface FileRoutesByFullPath {
   '/expedicao/direcionamento/$modeloId': typeof AuthenticatedExpedicaoDirecionamentoModeloIdRoute
   '/pcp/oficina/$modeloId': typeof AuthenticatedPcpOficinaModeloIdRoute
   '/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
+  '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
   '/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/expedicao/cq/': typeof AuthenticatedExpedicaoCqIndexRoute
@@ -604,6 +611,7 @@ export interface FileRoutesByTo {
   '/expedicao/direcionamento/$modeloId': typeof AuthenticatedExpedicaoDirecionamentoModeloIdRoute
   '/pcp/oficina/$modeloId': typeof AuthenticatedPcpOficinaModeloIdRoute
   '/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
+  '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
   '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/expedicao/cq': typeof AuthenticatedExpedicaoCqIndexRoute
@@ -677,6 +685,7 @@ export interface FileRoutesById {
   '/_authenticated/expedicao/direcionamento/$modeloId': typeof AuthenticatedExpedicaoDirecionamentoModeloIdRoute
   '/_authenticated/pcp/oficina/$modeloId': typeof AuthenticatedPcpOficinaModeloIdRoute
   '/_authenticated/pcp/servicos/$modeloId': typeof AuthenticatedPcpServicosModeloIdRoute
+  '/api/integracao/v1/produtos': typeof ApiIntegracaoV1ProdutosRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
   '/_authenticated/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/_authenticated/expedicao/cq/': typeof AuthenticatedExpedicaoCqIndexRoute
@@ -750,6 +759,7 @@ export interface FileRouteTypes {
     | '/expedicao/direcionamento/$modeloId'
     | '/pcp/oficina/$modeloId'
     | '/pcp/servicos/$modeloId'
+    | '/api/integracao/v1/produtos'
     | '/cadastro/tecidos/'
     | '/entrada-saida/explosao/'
     | '/expedicao/cq/'
@@ -809,6 +819,7 @@ export interface FileRouteTypes {
     | '/expedicao/direcionamento/$modeloId'
     | '/pcp/oficina/$modeloId'
     | '/pcp/servicos/$modeloId'
+    | '/api/integracao/v1/produtos'
     | '/cadastro/tecidos'
     | '/entrada-saida/explosao'
     | '/expedicao/cq'
@@ -881,6 +892,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expedicao/direcionamento/$modeloId'
     | '/_authenticated/pcp/oficina/$modeloId'
     | '/_authenticated/pcp/servicos/$modeloId'
+    | '/api/integracao/v1/produtos'
     | '/_authenticated/cadastro/tecidos/'
     | '/_authenticated/entrada-saida/explosao/'
     | '/_authenticated/expedicao/cq/'
@@ -894,6 +906,7 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  ApiIntegracaoV1ProdutosRoute: typeof ApiIntegracaoV1ProdutosRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1353,6 +1366,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCadastroTecidosIndexRouteImport
       parentRoute: typeof AuthenticatedCadastroTecidosRoute
     }
+    '/api/integracao/v1/produtos': {
+      id: '/api/integracao/v1/produtos'
+      path: '/api/integracao/v1/produtos'
+      fullPath: '/api/integracao/v1/produtos'
+      preLoaderRoute: typeof ApiIntegracaoV1ProdutosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/pcp/servicos/$modeloId': {
       id: '/_authenticated/pcp/servicos/$modeloId'
       path: '/$modeloId'
@@ -1698,6 +1718,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  ApiIntegracaoV1ProdutosRoute: ApiIntegracaoV1ProdutosRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

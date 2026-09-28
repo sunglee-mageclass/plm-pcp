@@ -4,9 +4,17 @@
   "compatibility_date": "2025-09-02",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
+  // Integração + API (R7/D23): TETO fixo por IP da rota /api/integracao/v1/produtos (proteção do Worker; o limite por
+  // CHAVE e o bloqueio por chave errada são do banco e configuráveis na tela). Não é herdado por env.staging.
+  "ratelimits": [
+    { "name": "INTEGRACAO_TETO_IP", "namespace_id": "7301", "simple": { "limit": 600, "period": 60 } }
+  ],
   "env": {
     "staging": {
-      "name": "sistrama-staging"
+      "name": "sistrama-staging",
+      "ratelimits": [
+        { "name": "INTEGRACAO_TETO_IP", "namespace_id": "7302", "simple": { "limit": 600, "period": 60 } }
+      ]
     }
   }
 }

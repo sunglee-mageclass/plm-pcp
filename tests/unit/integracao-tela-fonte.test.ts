@@ -2805,3 +2805,24 @@ describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não des
     await view.desmontar();
   });
 });
+
+describe("Integração — rota real da API (F3)", () => {
+  it("a rota só faz import DINÂMICO do servidor (o bundle do navegador não leva o service role — D30)", () => {
+    const r = ler("src/routes/api.integracao.v1.produtos.ts");
+    expect(r).toMatch(/createFileRoute\("\/api\/integracao\/v1\/produtos"\)/);
+    expect(r).toMatch(/await import\("@\/lib\/integracao\/api\/rota\.server"\)/);
+    expect(r).not.toMatch(/^import .*client\.server/m);
+  });
+  it("o servidor chama SÓ as 3 funções da rota e o storage de fotos", () => {
+    const s = ler("src/lib/integracao/api/rota.server.ts");
+    const rpcs = [...s.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
+    expect(rpcs).toEqual(["_integracao_confirmar", "_integracao_ler", "_integracao_limpar"]);
+    expect(s).toMatch(/storage\.from\("modelos"\)\.createSignedUrls/);
+    expect(s).not.toMatch(/console\.(log|error|warn)\(.*chave/i);
+  });
+  it("wrangler: teto por IP 600/60 s na produção e no staging (R7)", () => {
+    const w = ler("wrangler.jsonc");
+    expect(w.match(/"name": "INTEGRACAO_TETO_IP"/g)?.length).toBe(2);
+    expect(w.match(/"simple": \{ "limit": 600, "period": 60 \}/g)?.length).toBe(2);
+  });
+});
