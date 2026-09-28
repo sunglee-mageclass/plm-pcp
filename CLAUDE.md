@@ -655,7 +655,7 @@ e verifique** — o repo muda rápido.
     "Mover para…" do kanban — não são dois conceitos opostos, é o mesmo valor lido 2×.
 14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
     `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
-    admin da loja + permissão; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
+    super admin + quem ELE deu a permissão `integracao` no próprio usuário — admin da loja NÃO passa sozinho, P-107 A; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
     `GET /api/integracao/v1/produtos` (rota de servidor no Worker, `Authorization: Bearer`, 2 fases: `_integracao_ler` →
     links assinados das fotos → `_integracao_confirmar`; só as 3 `_integracao_*` da rota têm EXECUTE p/ `service_role`; teto
     por IP no binding `ratelimits` `INTEGRACAO_TETO_IP`; página padrão 50 produtos — P-89 A, faixa 1–500, acima de 100 só com
