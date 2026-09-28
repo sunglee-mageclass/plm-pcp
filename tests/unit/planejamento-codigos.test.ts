@@ -335,7 +335,7 @@ describe("Códigos no Sheet (fonte) — a REF saiu da seção 3 e mora na 4", ()
   });
   it("PlanejamentoDetail preserva o dev-oculto (P-53 A): SKU/Tamanho em editáveis só com podeEditarPlanejamento", () => {
     const s = fonte("src/components/planejamento/PlanejamentoDetail.tsx");
-    expect(s).toContain("podeEditarSkus={podeEditarPlanejamento}");
+    expect(s).toContain('podeEditarSkus={podeEditarPlanejamento && !travaIntegracao.has("sku")}'); // P-53 A + trava da Integração (F4)
   });
   it("usePlanejamentoSave: o onSaved é AGUARDADO (o Salvar fica 'salvando' até os SKUs terminarem)", () => {
     const s = fonte("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");

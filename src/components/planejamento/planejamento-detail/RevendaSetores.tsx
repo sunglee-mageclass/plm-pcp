@@ -16,12 +16,13 @@ import { type PrecoInfo } from "@/lib/preco";
 import { type Draft } from "@/components/planejamento/modelo-shared";
 import { Secao, CampoRO } from "@/components/planejamento/planejamento-detail/campos";
 import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { type RevendaPlanejamento } from "@/components/planejamento/planejamento-detail/useRevendaPlanejamento";
 import { type GradeComprado } from "@/components/planejamento/planejamento-detail/useGradeComprado";
 import type { ReactNode } from "react";
 
 /** Seção "Preço" do card REVENDA (ramo `isRevenda` do orquestrador). */
-export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior }: {
+export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObra, obsMaoObra, podeEditarPreco, planBloqueado, precoAnterior, onPrecoAnterior, travaVarejo = false, travaPrecoAnterior = false }: {
   rv: RevendaPlanejamento; custoReal: boolean; piRevenda: PrecoInfo; draft: Draft;
   /** F3.6 (Parte A, opção A do dono) — a MO do comprado entra NO bloco de preço (não é mais seção própria). */
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
@@ -33,6 +34,9 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
    *  são campos SÓ do Planejamento (nenhum Sheet do Dev antigo os tinha). Sem `podeEditarPlanejamento`, os
    *  4 inputs travam (o slot de M.O., abaixo, fica de fora — é compartilhado, trava própria no orquestrador). */
   planBloqueado: boolean;
+  /** Integração (F4, D34/R8) — "Preço de venda" marcado trava o VAREJO (Preço varejo + Markup varejo); "Preço anterior"
+   *  marcado trava o anterior. Preço atacado e Markup atacado ficam LIVRES (não vão na API). O banco recusa; aqui só desabilita. */
+  travaVarejo?: boolean; travaPrecoAnterior?: boolean;
 }) {
   const {
     produtoRevenda, produtoRevendaLoading,
@@ -66,7 +70,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           disabled={planBloqueado}
                           onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
+                          onBlur={() => { if (markupAtacadoInput !== markupAtacadoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: travaVarejo ? (produtoRevenda?.markup_varejo ?? null) : markupVarejoInput }); }}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -79,8 +83,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                           placeholder="2,50"
                           className="pr-6"
                           value={markupVarejoInput ?? 0}
-                          // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima.
-                          disabled={planBloqueado}
+                          // P-53 A (fix 1, I-1b): mesma trava do markup atacado acima + Integração (D34/R8).
+                          disabled={planBloqueado || travaVarejo}
                           onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                           onBlur={() => { if (markupVarejoInput !== markupVarejoBaseRef.current) salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput }); }}
@@ -90,7 +94,7 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                     </div>
                     {/* F3.6 (ruling 11, R17; M2 — revisão Opus fix1): Preço anterior em linha própria, na posição do
                         brief (Step 4.3) — logo ANTES do par atacado/varejo, DEPOIS dos Markups; acompanha o VAREJO. */}
-                    {podeEditarPreco ? (
+                    {podeEditarPreco && !travaPrecoAnterior ? (
                       <div className="grid gap-1 sm:col-span-2">
                         <div className="flex items-center gap-1.5">
                           <Label htmlFor="preco-anterior-revenda">Preço anterior</Label>
@@ -120,7 +124,15 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                       </div>
                     ) : (
                       <div className="sm:col-span-2 sm:max-w-xs">
-                        <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
+                        <div className="flex items-center gap-1.5">
+                          <CampoRO label="Preço anterior" value={(() => { const v = precoAnteriorExibido(precoAnterior, piRevenda.efetivo); return v != null ? brl(v) : "—"; })()} />
+                          {/* Ruling da revisão (Task 21): travado + automático — mesmo aviso de PrecoTabela.tsx. */}
+                          {travaPrecoAnterior && precoAnterior === null && (
+                            <InfoHover ariaLabel="Preço anterior travado pela Integração">
+                              <p>Automático: acompanha o Preço de venda, mesmo travado pela integração.</p>
+                            </InfoHover>
+                          )}
+                        </div>
                       </div>
                     )}
                     {/* Preços EDITÁVEIS = preço FIXO (set/2026, sem derivar do markup): o que se EXIBE
@@ -155,8 +167,8 @@ export function PrecoRevendaBloco({ rv, custoReal, piRevenda, draft, blocoMaoObr
                         fixedDecimals
                         value={precoVarejoDraft}
                         placeholder="0,00"
-                        // P-53 A (fix 1, I-1c): mesma trava do preço atacado acima.
-                        disabled={planBloqueado}
+                        // P-53 A (fix 1, I-1c): mesma trava do preço atacado acima + Integração (D34/R8).
+                        disabled={planBloqueado || travaVarejo}
                         onChange={(e) => setPrecoVarejoDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
                         onBlur={() => {

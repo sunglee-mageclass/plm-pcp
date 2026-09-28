@@ -34,6 +34,10 @@ import { ReadOnlyScope } from "@/components/RequirePermission";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
+import { InfoHover } from "@/components/shared/InfoHover";
+import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
+import { TEXTO_SKU_TRAVADO, TEXTO_TRAVA_SHEET, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
 import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { precoInfo, custoSimulado, moPorFaixa, statusMoFaixa, type CustoSimInput } from "@/lib/preco";
@@ -744,8 +748,12 @@ function PlanejamentoDetailConteudo({
   // Etapa do kanban (estado SALVO) + config da loja: coluna efetiva, gate do campo REF (refCampoVisivel, com
   // a posição DERIVADA quando a chave está ligada — decisão 10) e Reprovado (Motivo do Cancelamento).
   const kanbanCard = useFichaKanban({ modeloId, modeloData, enviada, lancado });
+  // Integração (F4, spec §6/§8): produto integrável/integrado = campos marcados travados. O BANCO recusa (gatilhos
+  // trg_zz_integracao_trava); a tela só espelha — selo no cabeçalho, campos desabilitados, Excluir travado.
+  const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null);
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
   // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
-  const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel;
+  const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel && !travaIntegracao.has("ref");
   // Comprado (revenda/importado) segue a config "Fluxo de Revenda" da loja (decisão F3 #8; paridade com
   // ModeloDetailPanel.tsx:1574). Interno vê tudo.
   const campoVisivelDev = (key: string) => !isComprado || revendaCampoVisivel(kanbanCard.revendaCfg, key);
@@ -753,7 +761,7 @@ function PlanejamentoDetailConteudo({
   const moverEtapa = useMoverEtapa(modeloId, tenantIdAtivo);
   // F3.6 — matriz de SKUs do card (RPC `skus_modelo`, F3.5a) + 1ª geração pós-Salvar (R12). SKU em PRÉVIA: a prévia usa a REF que
   // o Salvar vai gravar (a do rascunho só quando ela vai no payload — refEditavel) e o "Tamanho em" do rascunho (vai sempre).
-  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento, {
+  const skus = useSkusModelo(modeloId, isEdit && !!modeloId && podeVerPlanejamento, podeEditarPlanejamento && !travaIntegracao.has("sku"), {
     refPrevia: refParaPrevia({ refVaiNoSalvar: refEditavel, refRascunho: draft.ref, refSalva: (modeloData as any)?.ref ?? "" }),
     tamanhoTipo: draft.tamanho_tipo,
     aGravar: skusAGravar,
@@ -883,7 +891,7 @@ function PlanejamentoDetailConteudo({
   // (texto movido; os refs/estados abaixo continuam daqui e vão com os MESMOS nomes).
   const { save, handleSave, salvarAntes } = usePlanejamentoSave({
     modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, categorias,
-    refEditavel,
+    refEditavel, travaIntegracao,
     draft, setDraft, draftLiveRef,
     touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
     setEnviada, setLancado,
@@ -1423,6 +1431,12 @@ function PlanejamentoDetailConteudo({
               {isEdit && draft.ref && (
                 <span className="text-xs font-mono text-muted-foreground">REF {draft.ref}</span>
               )}
+              {isEdit && estadoIntegracao && (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <SeloIntegracao estado={estadoIntegracao} />
+                  <InfoHover ariaLabel="O que fica travado pela Integração">{TEXTO_TRAVA_SHEET}</InfoHover>
+                </div>
+              )}
               {isEdit && (
                 <EtapaHeader
                   selo={selo}
@@ -1523,7 +1537,7 @@ function PlanejamentoDetailConteudo({
         ) : (
         <fieldset disabled={salvandoNovo} aria-busy={salvandoNovo} className="space-y-6 min-w-0 border-0 p-0 m-0">
           {/* SETOR 1 — Informações Gerais do Produto */}
-          <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")}
+          <InfoGeraisSecao numero={numeros.info} selo={seloDe("info")} travaIntegracao={travaIntegracao}
             draft={draft} setDraftTracked={setDraftTracked}
             grupoSel={grupoSel} setGrupoSel={setGrupoSel}
             grupos={grupos} categorias={categorias} estilistas={estilistas}
@@ -1611,6 +1625,7 @@ function PlanejamentoDetailConteudo({
               "Tamanho em" + SKUs por variante × tamanho. Só no card existente. */}
           {vis.codigos && modeloId && (
             <Secao id="codigos" titulo="Códigos" numero={numeros.codigos} selo={seloDe("codigos")} defaultOpen={false}>
+              {travaIntegracao.has("sku") && <p className="text-xs text-muted-foreground">{TEXTO_SKU_TRAVADO}</p>}
               <CodigosSecao
                 draft={draft}
                 setDraftTracked={setDraftTracked}
@@ -1623,7 +1638,7 @@ function PlanejamentoDetailConteudo({
                 // R4 — grade/tecidos do rascunho ainda não salvos: a prévia usa a grade SALVA (só um aviso).
                 bomSujo={ficha.dirty || gradeRevendaDirty}
                 podeVerSkus={podeVerPlanejamento}
-                podeEditarSkus={podeEditarPlanejamento}
+                podeEditarSkus={podeEditarPlanejamento && !travaIntegracao.has("sku")}
               />
             </Secao>
           )}
@@ -1716,6 +1731,7 @@ function PlanejamentoDetailConteudo({
                 // Fix round 4 (item 2) — `veCustos` (união das 2 permissões, decisão F3 #2) no lugar de
                 // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
                 podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
+                travaPrecoVenda={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 planBloqueado={perm.planBloqueado}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).
@@ -1744,6 +1760,7 @@ function PlanejamentoDetailConteudo({
                 blocoMaoObra={moBlocoVisivel ? editorMaoObra : null} obsMaoObra={moBlocoVisivel ? obsMaoObra : null}
                 podeEditarPreco={podeEditarPreco}
                 planBloqueado={perm.planBloqueado}
+                travaVarejo={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
                 precoAnterior={draft.preco_anterior}
                 onPrecoAnterior={(v) => setDraftTracked((d) => ({ ...d, preco_anterior: v }))} />
             )}
@@ -1785,9 +1802,11 @@ function PlanejamentoDetailConteudo({
               />
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
-              <PhotoList label="Foto do Modelo" paths={draft.fotos_modelo}
-                onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_modelo" })}
-                onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_modelo: d.fotos_modelo.filter((_, j) => j !== i) }))} />
+              <fieldset disabled={travaIntegracao.has("fotos_modelo")} className="contents">
+                <PhotoList label="Foto do Modelo" paths={draft.fotos_modelo}
+                  onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_modelo" })}
+                  onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_modelo: d.fotos_modelo.filter((_, j) => j !== i) }))} />
+              </fieldset>
               <PhotoList label="Foto de Referência" paths={draft.fotos_referencia}
                 onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_referencia" })}
                 onRemove={(i) => setDraftTracked((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
@@ -1918,10 +1937,13 @@ function PlanejamentoDetailConteudo({
           </Button>
           {/* Excluir: logo ao lado do Voltar (só no modo edição). P-53 A: ação de ciclo do Planejamento. */}
           {isEdit && perm.podeAcoesPlanejamento && (
-            <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="destructive" disabled={!!estadoIntegracao} onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
               <Trash2 className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Excluir</span>
             </Button>
+          )}
+          {isEdit && perm.podeAcoesPlanejamento && estadoIntegracao && (
+            <InfoHover ariaLabel="Por que não exclui">{textoExcluirTravado(estadoIntegracao.estado)}</InfoHover>
           )}
           {/* "Para enviar, falta…" (Dev :3136-3147): cada item abre a seção onde se resolve. Trunca (1 linha). */}
           {mostraFaltas && (

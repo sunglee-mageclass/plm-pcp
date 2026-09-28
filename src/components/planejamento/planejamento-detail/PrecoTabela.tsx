@@ -21,6 +21,7 @@ import type { SeloCusto } from "@/components/planejamento/planejamento-detail/cu
 import type { CustoAdicional } from "@/components/desenvolvimento/modelo-detail/ModeloCustosSection";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 import { precoAnteriorExibido, precoAnteriorOuNull } from "@/components/planejamento/planejamento-detail/helpers";
+import { InfoHover } from "@/components/shared/InfoHover";
 
 /**
  * F3.2 (decisão F3 #2 + mockup Anotado, seção 10 — R9c do G-plano conjunto): os custos do BOM (previsto) são LINHAS
@@ -77,6 +78,8 @@ export function PrecoTabela(props: {
   // `podeVerCustos` do Planejamento OU `ficha.podeVerCustos` do Desenvolvimento, decisão F3 #2):
   // gate da Parte 3 (M.O. por faixa, abaixo). O nome da prop ficou o mesmo p/ não quebrar a interface.
   podeVerCustos: boolean; podeEditarCustos: boolean; podeEditarPreco: boolean; markupFaixaOn: boolean;
+  /** Integração (F4, D34) — SÓ o preço cujo campo está marcado trava (o banco recusa; aqui só desabilita). */
+  travaPrecoVenda?: boolean; travaPrecoAnterior?: boolean;
   /** P-53 A (fix 1, I-1a) — Consumo de tecido/Materiais (estimativa) gravam em `custo_simulado`, campo SÓ
    *  do Planejamento (`CAMPOS_SO_PLANEJAMENTO_DRAFT`). Sem `podeEditarPlanejamento`, os 2 inputs travam
    *  (o Salvar já apagava o campo do payload em silêncio antes desta trava de UI). */
@@ -87,6 +90,7 @@ export function PrecoTabela(props: {
   blocoMaoObra?: ReactNode; obsMaoObra?: ReactNode;
 }) {
   const { markupReal, precoSug, precoBase, precoDigitado, draftPrecoVenda, onPrecoVenda, podeEditarPreco,
+    travaPrecoVenda = false, travaPrecoAnterior = false,
     precoAnterior, onPrecoAnterior,
     seloCusto, custoBase, consumo, consumoRealBOM, precoTecidoM, tecidoEstimado, aviamento, maoObraDev,
     onConsumo, onAviamento, materiaisBase, custoPrevisto, custosBom, custosAdicionaisSoma = 0,
@@ -192,11 +196,18 @@ export function PrecoTabela(props: {
                 <StatusBadge tone={precoAnterior === null ? "neutral" : "info"} className="rounded-full px-2 py-0.5 normal-case tracking-normal">
                   {precoAnterior === null ? "automático" : "editado"}
                 </StatusBadge>
+                {/* Ruling da revisão (Task 21): travado + automático — o valor continua acompanhando o preço de
+                    venda mesmo com o campo travado pela Integração (usePlanejamentoSave.ts omite a coluna). */}
+                {travaPrecoAnterior && precoAnterior === null && (
+                  <InfoHover ariaLabel="Preço anterior travado pela Integração">
+                    <p>Automático: acompanha o Preço de venda, mesmo travado pela integração.</p>
+                  </InfoHover>
+                )}
               </span>
             </td>
             <td className="py-2 px-2 text-right text-muted-foreground">—</td>
             <td className="py-2 px-2 text-right">
-              {podeEditarPreco ? (
+              {podeEditarPreco && !travaPrecoAnterior ? (
                 <span className="ml-auto inline-flex items-center justify-end gap-1">
                   {/* M3 (fix1) — 44px no celular, como a lixeira "Remover custo" logo abaixo (mesmo arquivo). */}
                   <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground max-sm:h-11 max-sm:w-11" disabled={precoAnterior === null}
@@ -224,7 +235,7 @@ export function PrecoTabela(props: {
             <td className="py-2 pr-3"><b>Preço de venda</b></td>
             <td className="py-2 px-2 text-right tabular-nums">{mkFmt(markupReal)}</td>
             <td className="py-2 px-2 text-right">
-              {podeEditarPreco ? (
+              {podeEditarPreco && !travaPrecoVenda ? (
                 <MoneyInput
                   fixedDecimals
                   aria-label="Preço de venda"
@@ -238,7 +249,7 @@ export function PrecoTabela(props: {
                 <span className="tabular-nums">{draftPrecoVenda && draftPrecoVenda > 0 ? brl(draftPrecoVenda) : precoSug > 0 ? brl(precoSug) : "—"}</span>
               )}
             </td>
-            <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}{!podeEditarPreco ? " · sem permissão para editar" : ""}</td>
+            <td className="py-2 pl-2 text-xs text-muted-foreground">markup calculado: preço ÷ custo{precoSug > 0 ? ` · vazio usa o sugerido (${brl(precoSug)})` : ""}{!podeEditarPreco ? " · sem permissão para editar" : travaPrecoVenda ? " · travado pela Integração" : ""}</td>
           </tr>
           <tr className="border-t">
             <td className="py-2 pr-3">Consumo de tecido</td>

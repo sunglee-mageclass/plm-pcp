@@ -41,7 +41,7 @@ describe("Preço anterior (fonte)", () => {
     const linha = s.slice(iAnt, iVenda);
     expect(linha).toContain('data-colab-path="preco_anterior"');
     expect(linha).toContain("precoAnteriorExibido(precoAnterior, precoBase)");
-    expect(linha).toContain("podeEditarPreco ?");
+    expect(linha).toContain("podeEditarPreco && !travaPrecoAnterior ?");
     expect(linha).toContain('aria-label="Preço anterior: voltar ao automático"');
     expect(linha).toContain("acompanha o preço de venda até ser editado · ↺ volta ao automático");
     const iSelo = linha.indexOf('{precoAnterior === null ? "automático" : "editado"}');

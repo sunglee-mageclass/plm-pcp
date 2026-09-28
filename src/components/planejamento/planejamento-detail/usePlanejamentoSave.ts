@@ -26,6 +26,20 @@ import {
   retryBloqueadoPorEnvio, bomRecarregando, deveBarrarPorBomRecarregando,
 } from "@/components/planejamento/planejamento-detail/save-ficha";
 
+// Integração (F4, Task 21) — RULING carregado da revisão: colunas travadas pela Integração são OMITIDAS do
+// payload do UPDATE `modelos`, nunca só desabilitadas na tela. O Sheet canoniza valores no Salvar (NCM
+// formatado, `titulo_pagina` NULL-vs-calculado, escala numérica das medidas, REF) — reenviar uma coluna
+// travada pode divergir byte a byte do valor gravado, disparar 42501 no gatilho `trg_zz_integracao_trava`
+// (trava.ts espelha as MESMAS colunas do banco) e derrubar o save do card INTEIRO (as demais seções
+// gravariam por cima do UPDATE que falhou). PURA — testada em isolamento, sem mock de Supabase.
+export function omitirColunasTravadas(payload: Record<string, unknown>, travaIntegracao: ReadonlySet<string> | undefined): Record<string, unknown> {
+  if (!travaIntegracao || travaIntegracao.size === 0) return payload;
+  for (const k of Object.keys(payload)) {
+    if (travaIntegracao.has(k)) delete payload[k];
+  }
+  return payload;
+}
+
 export type UsePlanejamentoSaveArgs = {
   modeloId: string | null;
   isEdit: boolean;
@@ -42,6 +56,10 @@ export type UsePlanejamentoSaveArgs = {
   podeEditarPlanejamento: boolean;
   /** F3.6: o campo REF está editável na seção "Códigos" (saiu de "Desenvolvimento" na F3.6)? Só então a REF vai no payload. */
   refEditavel: boolean;
+  /** Integração (F4, Task 21) — colunas travadas pelo produto integrável/integrado (`colunasTravadas`, trava.ts):
+   *  OMITIDAS do payload do UPDATE (nunca reenviadas) — ver `omitirColunasTravadas` acima. `undefined`/vazio no
+   *  card NOVO (nunca travado ainda) e sempre que a RPC de estado não existir/não tiver carregado. */
+  travaIntegracao?: ReadonlySet<string>;
   categorias: CatOpt[];
   draft: Draft;
   setDraft: Dispatch<SetStateAction<Draft>>;
@@ -80,7 +98,7 @@ export type UsePlanejamentoSaveArgs = {
 };
 
 export function usePlanejamentoSave({
-  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, refEditavel, categorias,
+  modeloId, isEdit, isRevenda, paOn, piOn, podeEditarPreco, podeVerCustos, podeEditarDev, podeEditarPlanejamento, refEditavel, travaIntegracao, categorias,
   draft, setDraft, draftLiveRef,
   touchedRef, baseRef, revRef, retryRef, savingRef, conflitosRef, setConflitos, setUltimoMerge,
   setEnviada, setLancado,
@@ -380,6 +398,12 @@ export function usePlanejamentoSave({
           gradeRevendaRevRef.current = revParaHeader;
           gradeRevendaBaseRef.current = JSON.stringify(gradeRevenda);
         }
+        // Integração (F4, Task 21, RULING) — colunas travadas OMITIDAS do payload aqui, no ÚLTIMO instante
+        // antes do UPDATE (depois de TODAS as regras acima já terem montado/normalizado o payload inteiro):
+        // reenviar o valor canonizado do Sheet (NCM formatado, título NULL-vs-calculado, medidas, REF) pode
+        // divergir byte a byte do valor gravado e disparar 42501 no gatilho do banco, derrubando o save do
+        // card INTEIRO. Omitir (não apenas desabilitar o input) faz o UPDATE nem tentar tocar a coluna.
+        omitirColunasTravadas(payload, travaIntegracao);
         // Colab (Task 2) — contrato desta tela (spec 2026-08-03): UPDATE DIRETO com
         // `.eq("rev", revParaHeader)` — só casa a linha se ninguém salvou desde a última
         // carga; 0 linhas devolvidas = conflito (mesma UX do P0409 do piloto: merge síncrono +

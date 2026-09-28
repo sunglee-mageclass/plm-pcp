@@ -58,7 +58,7 @@ const comMedida = (d: Draft, k: ChaveMedida, v: number | null): Draft => {
 
 export function InfoGeraisSecao({
   draft, setDraftTracked, grupoSel, setGrupoSel, grupos, categorias, estilistas, sub1Opts, sub2Opts, fl, numero, selo, origemOpcoes,
-  nomeLoja, planBloqueado, compartilhadoBloqueado,
+  nomeLoja, planBloqueado, compartilhadoBloqueado, travaIntegracao,
 }: {
   draft: Draft;
   setDraftTracked: Dispatch<SetStateAction<Draft>>;
@@ -82,7 +82,10 @@ export function InfoGeraisSecao({
   planBloqueado: boolean;
   /** P-53 A — campos que os DOIS Sheets antigos editavam: Nome, Estilista, Grupo/Categoria/Subcategorias. */
   compartilhadoBloqueado: boolean;
+  /** Integração (F4) — colunas travadas pelo produto integrável/integrado (o banco recusa; aqui só desabilita). */
+  travaIntegracao?: ReadonlySet<string>;
 }) {
+  const trava = travaIntegracao ?? new Set<string>();
   const tituloCalculado = tituloPaginaCalculado(draft.nome, nomeLoja);
   const tituloAutomatico = draft.titulo_pagina === null;
   return (
@@ -134,7 +137,7 @@ export function InfoGeraisSecao({
                 repetição — badge ↻ vN; clamp mínimo 1, coluna NOT NULL). NCM = texto simples, sem tabela oficial nem sugestão
                 (ruling 3): só dígitos e pontos, até 10 — a vírgula do teclado decimal do iOS vira ponto (R30); vazio grava NULL. */}
             <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr] gap-3">
-              <fieldset disabled={compartilhadoBloqueado} className="contents">
+              <fieldset disabled={compartilhadoBloqueado || trava.has("nome")} className="contents">
                 <FieldText
                   label="Nome do Modelo"
                   value={draft.nome}
@@ -155,6 +158,7 @@ export function InfoGeraisSecao({
                     data-colab-path="versao"
                   />
                 </div>
+                <fieldset disabled={trava.has("ncm")} className="contents">
                 <div className="grid gap-1">
                   <Label htmlFor="ncm-produto">NCM do Produto</Label>
                   {/* P8 (fix1) — SEM `maxLength`: cortava o texto COLADO antes de `filtrarNcm` rodar (ex.: "NCM: 6204.43.00"
@@ -168,6 +172,7 @@ export function InfoGeraisSecao({
                     data-colab-path="ncm"
                   />
                 </div>
+                </fieldset>
               </fieldset>
             </div>
 
@@ -215,7 +220,7 @@ export function InfoGeraisSecao({
                 cada tecla no Nome; Nome vazio ⇒ vazio, nunca " | Loja" solto). Digitar algo DIFERENTE vira manual (R5); esvaziar
                 volta ao automático no blur (R6); ↺ grava NULL. O merge compara o campo como qualquer outro (ruling 9). */}
             {/* P-53 A: Título para a página é SÓ do Planejamento. */}
-            <fieldset disabled={planBloqueado} className="contents">
+            <fieldset disabled={planBloqueado || trava.has("titulo_pagina")} className="contents">
             <div className="grid gap-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="titulo-pagina">Título para a página</Label>
@@ -223,6 +228,14 @@ export function InfoGeraisSecao({
                 <InfoHover ariaLabel="Como funciona o Título para a página?">
                   <p>Acompanha o Nome do Modelo + o nome da loja enquanto ninguém editar. Editado à mão, fica fixo até clicar em ↺.</p>
                 </InfoHover>
+                {/* Ruling da revisão (Task 21): travado + automático — o "i" avisa que o valor automático continua
+                    acompanhando o Nome mesmo com o campo travado pela Integração (o Salvar OMITE a coluna quando
+                    travada; o servidor recusaria byte-a-byte se ela fosse reenviada — usePlanejamentoSave.ts). */}
+                {trava.has("titulo_pagina") && tituloAutomatico && (
+                  <InfoHover ariaLabel="Título travado pela Integração">
+                    <p>Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela integração.</p>
+                  </InfoHover>
+                )}
                 {tituloAutomatico && tituloCalculado !== "" && (
                   <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">automático</StatusBadge>
                 )}
@@ -261,7 +274,7 @@ export function InfoGeraisSecao({
                 20260930180000); o Salvar manda NULL quando vazio. Não vai para a Ficha Técnica (não pedido). */}
             {/* P-53 A (fix 1, m-4 RULING): Descrição do produto é SÓ do Planejamento — o Dev antigo NUNCA teve
                 esse campo (o brief da rodada 1 errou ao classificá-lo como compartilhado). */}
-            <fieldset disabled={planBloqueado} className="contents">
+            <fieldset disabled={planBloqueado || trava.has("descricao_produto")} className="contents">
             <div className="grid gap-1">
               <Label>Descrição do produto</Label>
               <Textarea
@@ -289,6 +302,7 @@ export function InfoGeraisSecao({
                     value={draft[m.key] ?? ""}
                     onChange={(e) => { const v = numeroDoInput(e.target.value); setDraftTracked((d) => comMedida(d, m.key, v)); }}
                     data-colab-path={m.key}
+                    disabled={trava.has(m.key)}
                   />
                 </div>
               ))}
