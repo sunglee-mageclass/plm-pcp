@@ -835,13 +835,23 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     // recusa qualquer RPC não esperada (erro claro em vez de um `undefined.data` silencioso caso um teste esqueça
     // de passar `rpcImpl`).
     rpcImpl?: (nome: string, args: unknown) => Promise<{ data: unknown; error: unknown }>;
+    // Fix round 4 T15 (N-1-R, code-review "Re-check round 4"): liga o `useIntegracaoLista` REAL (TanStack Query de
+    // verdade, com o `placeholderData` real) no lugar do mock estático — a RPC `integracao_listar` devolve a lista
+    // CRUA da loja ativa no instante da chamada (cada loja = uma função, pra o teste poder segurar a resposta).
+    listaPorTenant?: Record<string, () => Promise<unknown>>;
   }) {
     vi.resetModules();
     const { lerLista } = await import("@/lib/integracao/produtos");
     const salvarSpy = vi.fn(opts.salvarImpl ?? (async () => ({ salvos: 1, revs: {}, fotos: {}, skusOk: [], skusFalhas: [] })));
-    const rpcSpy = vi.fn(
-      opts.rpcImpl ?? (async (nome: string) => ({ data: null, error: new Error(`RPC não mockada no teste: ${nome}`) })),
-    );
+    const rpcSpy = vi.fn(async (nome: string, args: unknown) => {
+      if (opts.listaPorTenant && nome === "integracao_listar") {
+        const daLoja = opts.listaPorTenant[tenantIdRef.current];
+        if (!daLoja) return { data: null, error: new Error(`lista não mockada para a loja '${tenantIdRef.current}'`) };
+        return { data: await daLoja(), error: null };
+      }
+      if (opts.rpcImpl) return opts.rpcImpl(nome, args);
+      return { data: null, error: new Error(`RPC não mockada no teste: ${nome}`) };
+    });
     let pendingResolvers: Array<() => Promise<void>> = [];
     const mutationState = { isPending: false };
     vi.doMock("@tanstack/react-router", () => ({
@@ -881,11 +891,16 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
     // tivesse mudado (não é o alvo desta suíte; os testes de `confirmarLojaAtiva` propriamente moram nos arquivos
     // de cada aba, ver integracao-api-tela.test.ts/integracao-campos-config.test.ts).
     const confirmarLojaAtivaSpy = vi.fn(async () => {});
+    // N-1-R: com `listaPorTenant`, o hook da lista é o do módulo REAL (via `importOriginal`); o resto continua mock.
+    const listaReal = opts.listaPorTenant
+      ? (await vi.importActual<typeof import("@/components/integracao/useIntegracao")>("@/components/integracao/useIntegracao")).useIntegracaoLista
+      : null;
     vi.doMock("@/components/integracao/useIntegracao", () => ({
       chaveLista: (tenantId: string) => ["integracao-lista", tenantId],
       confirmarLojaAtiva: confirmarLojaAtivaSpy,
-      useIntegracaoLista: (_situacao: unknown, _filtros: unknown, pagina: number) => {
+      useIntegracaoLista: (situacao: Parameters<NonNullable<typeof listaReal>>[0], filtros: Parameters<NonNullable<typeof listaReal>>[1], pagina: number) => {
         paginasChamadas.push(pagina);
+        if (listaReal) return listaReal(situacao, filtros, pagina);
         return { data: listaRef.current, isError: false, error: null, refetch: () => {}, dataUpdatedAt: dataUpdatedAtRef.current };
       },
       useIntegracaoAoVivo: () => {},
@@ -975,6 +990,10 @@ describe("ProdutosAba — render (Save flip, merge 3-vias, mapeamento de erro)",
         dataUpdatedAtRef.current += 1;
         rerenderTrigger();
       },
+      // N-1-R (com `listaPorTenant`): muda SÓ a loja ativa e re-renderiza — a lista vem do hook REAL (query + cache
+      // + placeholder de verdade), nada é simulado aqui. `esperar` deixa as queries resolverem.
+      mudarTenant: (t: string) => { tenantIdRef.current = t; rerenderTrigger(); },
+      esperar: () => act(async () => { await new Promise((r) => setTimeout(r, 20)); }),
       salvarSpy,
       rpcSpy,
       invalidarIntegracaoSpy,
@@ -1667,6 +1686,64 @@ expect(botaoSalvar()?.hasAttribute("disabled")).toBe(false); // o SKU pendente s
     expect(view.container.textContent).not.toContain("fora desta página");
     const botaoSalvar = () => [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes("Salvar") && !b.textContent?.includes("Descartar"));
     expect(botaoSalvar()?.hasAttribute("disabled")).toBe(true);
+    await view.desmontar();
+  });
+
+  // Fix round 4 T15 (N-1-R, code-review "Re-check round 4"): `KeywordsDialog` é montado como `{keywordsAberto && lista
+  // && …}` — num "" transitório a lista ficava `undefined` (o placeholder recusava o dado da loja X por ser de outra
+  // chave), o diálogo DESMONTAVA e, quando X voltava, remontava com o valor da loja: o texto digitado sumia sem aviso.
+  // Com o `useIntegracaoLista` REAL (query + placeholder de verdade, não o mock estático).
+  it("N-1-R: Keywords aberto com texto digitado sobrevive a um '' transitório — a MESMA loja volta e o texto continua", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })],
+      { campos: ["nome", "preco_venda", "keywords"], keywords: "Moda" });
+    const view = await montarComMocks({ lista: listaLoja1, listaPorTenant: { t1: async () => listaLoja1 } });
+    const { act } = await import("react");
+    await view.esperar();
+    const botaoEditarKeywords = () => [...view.container.querySelectorAll("button")].find((b) => b.textContent === "editar");
+    await act(async () => { botaoEditarKeywords()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const textarea = () => document.getElementById("integracao-keywords") as HTMLTextAreaElement | null;
+    expect(textarea()!.value).toBe("Moda");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea()!, "Moda, Verão, digitado agora");
+      textarea()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(textarea()!.value).toBe("Moda, Verão, digitado agora");
+    // Releitura de `active-tenant-id` falhou → loja "" (a query da lista fica desabilitada).
+    await act(async () => { view.mudarTenant(""); });
+    await view.esperar();
+    expect(textarea()?.value).toBe("Moda, Verão, digitado agora"); // o diálogo NÃO desmontou
+    // A MESMA loja volta.
+    await act(async () => { view.mudarTenant("t1"); });
+    await view.esperar();
+    expect(textarea()?.value).toBe("Moda, Verão, digitado agora");
+    await view.desmontar();
+  });
+
+  // N-1-R, lado "troca de verdade": manter a lista anterior como placeholder durante o "" NUNCA pode vazar a lista da
+  // loja X para a loja Y (X → "" → Y). A resposta de Y fica SEGURA de propósito: enquanto ela não chega, a tela de Y
+  // não pode mostrar nenhuma linha de X. (Armadilha do query-core: com a MESMA referência de `placeholderData` entre
+  // renders, ele reaproveita o placeholder anterior sem chamar a função — por isso ela é inline.)
+  it("N-1-R: X → '' → Y nunca mostra as linhas de X sob a loja Y (nem enquanto a lista de Y ainda carrega)", async () => {
+    const listaLoja1 = listaRaw([produtoRaw({ modelo_id: "m1", raw: { nome: "Produto Loja 1", ref: "REF0001", tamanho_tipo: "letra" } })]);
+    const listaLoja2 = listaRaw([produtoRaw({ modelo_id: "m9", raw: { nome: "Produto Loja 2", ref: "REF0009", tamanho_tipo: "letra" } })]);
+    let liberarY: () => void = () => {};
+    const respostaY = new Promise<unknown>((r) => { liberarY = () => r(listaLoja2); });
+    const view = await montarComMocks({ lista: listaLoja1, listaPorTenant: { t1: async () => listaLoja1, t2: () => respostaY } });
+    const { act } = await import("react");
+    await view.esperar();
+    const nomes = () => [...view.container.querySelectorAll<HTMLInputElement>('input[aria-label^="Nome —"]')].map((i) => i.value);
+    expect(nomes()).toEqual(["Produto Loja 1"]);
+    await act(async () => { view.mudarTenant(""); });
+    await view.esperar();
+    expect(nomes()).toEqual(["Produto Loja 1"]); // durante o "" a lista de X continua na tela (mesma loja, nada mudou)
+    await act(async () => { view.mudarTenant("t2"); });
+    expect(nomes()).not.toContain("Produto Loja 1"); // 1º commit sob Y: nada de X
+    await view.esperar();
+    expect(nomes()).not.toContain("Produto Loja 1"); // Y ainda carregando: nada de X
+    await act(async () => { liberarY(); });
+    await view.esperar();
+    expect(nomes()).toEqual(["Produto Loja 2"]);
     await view.desmontar();
   });
 

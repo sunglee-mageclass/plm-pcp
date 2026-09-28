@@ -162,7 +162,15 @@ export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina:
     // ANTERIOR como placeholder até o fetch novo voltar) — a key já leva o tenant (lição P-57), mas o placeholder não
     // respeitava isso sozinho. Só reaproveita o dado anterior quando a query cujo dado será reaproveitado é DESTE
     // mesmo tenant (queryKey[1] é sempre o tenantId, ver chaveLista).
-    placeholderData: (prev, query) => (query?.queryKey[1] === tenantId ? prev : undefined),
+    // Fix round 4 T15 (N-1-R, code-review "Re-check round 4"): com a loja "" (a releitura de `active-tenant-id`
+    // falhou — não é troca de loja) mantém a lista ANTERIOR como placeholder. Sem isso a lista ficava `undefined` e
+    // o que depende dela desmontava — o `KeywordsDialog` (`{keywordsAberto && lista && …}`) perdia o texto digitado.
+    // X → "" → Y continua sem vazar: sob Y, a query anterior com dado é a de X (queryKey[1] = X ≠ Y) → `undefined`.
+    // Gravar com a loja "" segue recusado (`LOJA_INDISPONIVEL`). ⚠️ Esta função TEM de continuar INLINE (identidade
+    // nova a cada render), nunca memoizada/estável: o query-core (`queryObserver`, `createResult`) REAPROVEITA o
+    // placeholder anterior SEM chamar a função quando `options.placeholderData` é a MESMA referência do resultado
+    // anterior — com uma referência estável, a loja Y mostraria a lista de X até o fetch de Y voltar.
+    placeholderData: (prev, query) => (!tenantId || query?.queryKey[1] === tenantId ? prev : undefined),
     // Fix round 1 T13 (revisão T13 #11, code-review m5, limitação ACEITA): as tabelas de integração
     // (`integracao_produtos`/`integracao_linhas`) não têm policy Realtime — `useIntegracaoAoVivo` só escuta UPDATE
     // em `modelos`, e os 3 RPCs de estado (marcar/voltar/desfazer) NÃO tocam `modelos` (só travam com FOR NO KEY
