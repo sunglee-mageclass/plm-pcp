@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null }) {
+export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico, precoTravado = false, motivoPrecoTravado }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null; precoTravado?: boolean; motivoPrecoTravado?: string }) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -73,7 +73,7 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: 
         <RO label={Number(slot.markup_editado) > 0 ? "Markup (do modelo)" : "Markup (linha)"} value={pi.markupAplicado > 0 ? `${fmtNum(pi.markupAplicado)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
         <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
-          <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
+          <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" disabled={precoTravado} title={precoTravado ? motivoPrecoTravado : undefined} value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
       </div>
       {pi.markupAplicado <= 0 && (
         <div className="mt-1 text-[9px] text-muted-foreground">Sem markup na linha do modelo → preço sugerido indisponível; use o preço p/ venda.</div>

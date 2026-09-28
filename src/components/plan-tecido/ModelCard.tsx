@@ -33,6 +33,9 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { DistribuirPorLojaDialog } from "./DistribuirPorLojaDialog";
+import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
+import { TEXTO_PRECO_TRAVADO, colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   // numero = MAX(numero do mesmo tipo) + 1 — NUNCA por CONTAGEM. O material vindo do BOM (partição
@@ -247,6 +250,9 @@ export function ModelCard({
   const paginaSoLeitura = useReadOnly();
   const distSoLeitura = !!travado || paginaSoLeitura;
   const borderClass = open ? "border-primary" : "";
+  // Integração (F4): produto integrável/integrado — selo no card; "Limpar slot" (apaga nome/REF/preço) e o preço travados.
+  const estadoIntegracao = useIntegracaoEstado(slot.modelo_id);
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
   const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || !!travado || aplicandoGrade;
@@ -351,6 +357,7 @@ export function ModelCard({
                 {slot.ref}
               </div>
             )}
+            {estadoIntegracao && <SeloIntegracao estado={estadoIntegracao} />}
           </button>
           {/* Categoria — logo ABAIXO da REF (dono set/2026). Fora do <button> do toggle. Usa o Select
               ESTILIZADO do sistema (Radix), não o <select> nativo — dropdown consistente com o resto.
@@ -431,8 +438,9 @@ export function ModelCard({
                   </span>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" onClick={() => setConfirmLimpar(true)}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted">
+                  <button type="button" disabled={!!estadoIntegracao} onClick={() => setConfirmLimpar(true)}
+                    title={estadoIntegracao ? textoExcluirTravado(estadoIntegracao.estado).replace("Excluir", "Limpar") : undefined}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40">
                     <Eraser className="h-4 w-4 shrink-0" /> Limpar slot
                   </button>
                 </PopoverContent>
@@ -672,7 +680,8 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico}
+                    precoTravado={travaIntegracao.has("preco_venda")} motivoPrecoTravado={TEXTO_PRECO_TRAVADO} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

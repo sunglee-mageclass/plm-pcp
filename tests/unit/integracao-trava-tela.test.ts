@@ -9,6 +9,16 @@ import { omitirColunasTravadas, resolverColunasTravadas, toastDescartadasPelaInt
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 import { igual } from "@/lib/colab/merge";
+import type { PtSlot } from "@/lib/plan-tecido/types";
+
+// Task 24 — estado mockado p/ o RENDER de ModelCard/CustoSection (RPC de rede não roda em unit test; mesmo
+// padrão de produto-importado-shared.test.ts N-5). NÃO é um `vi.mock` estático no topo do arquivo — este
+// arquivo já tem um teste (Fix round 1 m2/M-1, abaixo) que precisa do módulo REAL de useIntegracaoEstado via
+// `vi.resetModules()`+`vi.doMock`+import dinâmico; um `vi.mock` estático de @/hooks/useIntegracaoEstado
+// intercepta TAMBÉM os imports dinâmicos (o registro de mock do Vitest não é escopado por describe), o que
+// quebrava aquele teste. Em vez disso, o describe "Task 24" (mais abaixo) faz seu PRÓPRIO
+// `vi.resetModules()`+`vi.doMock` local, isolado, igual ao padrão já usado no arquivo.
+const mockEstadoPlanTecido = { current: null as null | { estado: "integravel" | "integrado"; campos: string[]; marcadoEm: string | null; integradoEm: string | null } };
 
 // Fix round 1 (I1/I-1 das revisões) — mesmo padrão de tests/unit/integracao-celula.test.ts: sem isto, todo
 // `act()` sob React 19 dev loga "not configured to support act(...)" e esconde falhas reais no ruído.
@@ -1541,5 +1551,130 @@ describe("F4 — Produto Acabado e Importado", () => {
     expect(sh).toMatch(/preco_varejo_fixo: number \| null;/);
     expect(sh.slice(sh.indexOf("export function montarPayload"))).toMatch(/preco_varejo_fixo: draft\.preco_varejo_fixo \?\? null,/);
     expect(ler("src/components/produto-importado/ProdutoImportadoSheet.tsx")).toMatch(/preco_varejo_fixo: "Valor varejo"/);
+  });
+});
+
+describe("F4 — Plan. Tecido", () => {
+  it("card com selo; Limpar slot e preço travados no integrável/integrado", () => {
+    const s = ler("src/components/plan-tecido/ModelCard.tsx");
+    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(slot\.modelo_id\);/);
+    expect(s).toMatch(/<SeloIntegracao estado=\{estadoIntegracao\}/);
+    expect(s).toMatch(/precoTravado=\{travaIntegracao\.has\("preco_venda"\)\}/);
+    expect(s).toMatch(/disabled=\{!!estadoIntegracao\} onClick=\{\(\) => setConfirmLimpar\(true\)\}/);
+    expect(ler("src/components/plan-tecido/CustoSection.tsx")).toMatch(/disabled=\{precoTravado\}/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 24 — RENDER real (react-dom/client + happy-dom), não só regex-sobre-fonte (Lesson 4 do brief): monta
+// `CustoSection` (preço travado) e `ModelCard` (selo + "Limpar slot" travado) de PRODUÇÃO, sem substituto.
+// `useIntegracaoEstado` é mockado (mesmo padrão de produto-importado-shared.test.ts: RPC de rede não roda em
+// unit test) — `colunasTravadas` (puro) segue REAL, decidindo o `disabled` a partir do estado mockado.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Task 24 — RENDER real: CustoSection (preço travado)", () => {
+  function slotBase(): PtSlot {
+    return {
+      id: "s1", modelo_id: "m1", nome: "Blusa", ref: "REF1",
+      preco_venda: 199.9, custo_simulado: {}, materiais: [],
+    };
+  }
+  it("precoTravado=true: o NumberInput de 'Preço p/ venda' fica disabled, com o motivo no title", async () => {
+    const { CustoSection } = await import("@/components/plan-tecido/CustoSection");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = montar(createElement(QueryClientProvider, { client: qc },
+      createElement(CustoSection, {
+        slot: slotBase(), onChange: () => {}, precoTravado: true, motivoPrecoTravado: "Preço travado pela Integração (integrável ou integrado).",
+      })));
+    const inputs = [...view.container.querySelectorAll("input")];
+    const precoInput = inputs.find((i) => i.closest("div")?.previousElementSibling?.textContent === "Preço p/ venda")
+      ?? inputs[inputs.length - 1]; // último NumberInput da seção é o "Preço p/ venda"
+    expect(precoInput.disabled).toBe(true);
+    expect(precoInput.title).toBe("Preço travado pela Integração (integrável ou integrado).");
+    view.unmount();
+  });
+  it("precoTravado=false (default): o campo de preço fica LIVRE", async () => {
+    const { CustoSection } = await import("@/components/plan-tecido/CustoSection");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = montar(createElement(QueryClientProvider, { client: qc },
+      createElement(CustoSection, { slot: slotBase(), onChange: () => {} })));
+    const inputs = [...view.container.querySelectorAll("input")];
+    expect(inputs[inputs.length - 1].disabled).toBe(false);
+    view.unmount();
+  });
+});
+
+describe("Task 24 — RENDER real: ModelCard (selo + Limpar slot travado)", () => {
+  // `vi.resetModules()` + `vi.doMock` LOCAL (escopado a este describe, via import dinâmico DEPOIS do mock) —
+  // mesma técnica já usada pelo teste "Fix round 1 (m2/M-1)" acima, pra não interceptar o import dinâmico
+  // daquele outro teste (que precisa do módulo REAL de useIntegracaoEstado). `colunasTravadas` (puro) segue
+  // REAL — só "qual é o estado" é mockado.
+  function vagaSlot(): PtSlot {
+    return { id: "s1", slot_index: 0, modelo_id: null, nome: null, materiais: [] };
+  }
+  function slotComModelo(): PtSlot {
+    return { id: "s1", slot_index: 0, modelo_id: "m1", nome: "Blusa", materiais: [] };
+  }
+  async function montarModelCardComEstado(
+    estado: null | { estado: "integravel" | "integrado"; campos: string[]; marcadoEm: string | null; integradoEm: string | null },
+    slot: PtSlot,
+  ) {
+    vi.resetModules();
+    vi.doMock("@/hooks/useIntegracaoEstado", () => ({
+      useIntegracaoEstado: (modeloId: string | null | undefined) => (modeloId ? estado : null),
+      useIntegracaoEstados: () => ({}),
+    }));
+    // SeloIntegracao usa useStoreTimezone() (→ useActiveTenantId → useAuth, que exige AuthProvider) só p/
+    // formatar a data do selo — infra de sessão real é irrelevante pra este teste (o texto do selo já é
+    // coberto por integracao-celula.test.ts). Mock mínimo evita montar AuthProvider inteiro.
+    vi.doMock("@/hooks/useStoreTimezone", () => ({ useStoreTimezone: () => "America/Sao_Paulo" }));
+    const { ModelCard } = await import("@/components/plan-tecido/ModelCard");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const el = createElement(QueryClientProvider, { client: qc },
+      createElement(ModelCard, { slot, onChange: () => {} } as any));
+    return montar(el);
+  }
+  it("estado null: sem SeloIntegracao; 'Limpar slot' habilitado (slot é vaga, sem modelo_id)", async () => {
+    const { container, unmount } = await montarModelCardComEstado(null, vagaSlot());
+    expect(container.textContent).not.toContain("travado");
+    const maisAcoes = container.querySelector('[aria-label="Mais ações"]') as HTMLElement;
+    expect(maisAcoes).not.toBeNull();
+    act(() => { maisAcoes.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const limpar = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Limpar slot")) as HTMLButtonElement;
+    expect(limpar).toBeTruthy();
+    expect(limpar.disabled).toBe(false);
+    unmount();
+  });
+  it("estado integrável (slot COM modelo_id): SeloIntegracao aparece no card", async () => {
+    const estado = { estado: "integravel" as const, campos: ["preco_venda"], marcadoEm: "2026-09-27T10:00:00Z", integradoEm: null };
+    const { container, unmount } = await montarModelCardComEstado(estado, slotComModelo());
+    expect(container.textContent).toContain("travado");
+    unmount();
+  });
+  it("'Limpar slot' fica disabled quando o estado (mockado, ignorando o gate normal de modelo_id só pra isolar o wiring do disabled) é integrável/integrado — prova o wiring `disabled={!!estadoIntegracao}`", async () => {
+    vi.resetModules();
+    // Mock que IGNORA o modeloId (sempre retorna o estado) — isola o wiring `disabled={!!estadoIntegracao}`
+    // do gate real "só slot com modelo_id pode estar travado" (que a árvore de produção já garante: vaga
+    // nunca tem modelo_id, então nunca recebe estado — coberto pelo teste anterior).
+    vi.doMock("@/hooks/useIntegracaoEstado", () => ({
+      useIntegracaoEstado: () => ({ estado: "integrado", campos: [], marcadoEm: null, integradoEm: "2026-09-27" }),
+      useIntegracaoEstados: () => ({}),
+    }));
+    vi.doMock("@/hooks/useStoreTimezone", () => ({ useStoreTimezone: () => "America/Sao_Paulo" }));
+    const { ModelCard } = await import("@/components/plan-tecido/ModelCard");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const el = createElement(QueryClientProvider, { client: qc },
+      createElement(ModelCard, { slot: vagaSlot(), onChange: () => {} } as any));
+    const { container, unmount } = montar(el);
+    const maisAcoes = container.querySelector('[aria-label="Mais ações"]') as HTMLElement;
+    act(() => { maisAcoes.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const limpar = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Limpar slot")) as HTMLButtonElement;
+    expect(limpar).toBeTruthy();
+    expect(limpar.disabled).toBe(true);
+    expect(limpar.title).toBe("Limpar travado — produto integrado. Só o super admin desfaz a integração (aba Integração).");
+    unmount();
   });
 });
