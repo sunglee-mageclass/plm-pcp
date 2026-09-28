@@ -58,6 +58,9 @@ import { EtapaKanbanBadge, EtapaKanbanLegenda } from "@/components/shared/EtapaK
 import { useKanbanConfig } from "@/hooks/useKanbanConfig";
 import { etapaDoModelo, type EtapaSelo } from "@/lib/kanban-auto-ui";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
+import { TEXTO_PRECO_TRAVADO, colunasTravadas } from "@/lib/integracao/trava";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 // Detalhe do card + campos compartilhados extraídos (refactor 2026-08-25).
 import { PlanejamentoDetail, FieldText, FieldSelect } from "@/components/planejamento/PlanejamentoDetail";
@@ -295,6 +298,24 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
   });
+  // n2 (Integração, D14): importado — espelho de `salvarPrecoVarejoRevenda` (mesma RPC, gravador PRÓPRIO
+  // `salvar_precos_fixo_produto_importado`), pra o card do canvas parar de mandar o importado pro gravador da
+  // revenda (que dava "Aguarde o produto de revenda carregar" — o importado nunca tem linha em produtos_acabados).
+  const salvarPrecoVarejoImportado = useMutation({
+    mutationFn: async ({ produtoId, precoVarejo }: { produtoId: string; precoVarejo: number | null }) => {
+      const { error } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
+        _produto_id: produtoId, _tocar_atacado: false, _preco_atacado_fixo: null,
+        _tocar_varejo: true, _preco_varejo_fixo: precoVarejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "plan-custo-unit", "produtos-importados"]) {
+        void qc.invalidateQueries({ queryKey: [k] });
+      }
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
+  });
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const agrup = useAgrupamentoState("criacao-planejamento", ["tecido"]);
   const groupByCat = agrup.isOn("categoria");
@@ -429,6 +450,20 @@ function PlanejamentoPage() {
       return map;
     },
   });
+  // n2 (Integração, D14): o importado grava o preço pelo gravador PRÓPRIO — mapa modelo_id → produto importado (antes o card
+  // mandava o importado para o gravador da revenda e dava "Aguarde o produto de revenda carregar").
+  const { data: importadoMap = {} } = useQuery({
+    queryKey: ["plan-importado-produtos", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("produtos_importados" as any).select("id, modelo_id").in("modelo_id", modeloIdsAll);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const r of (data ?? []) as unknown as { id: string; modelo_id: string | null }[]) if (r.modelo_id) map[r.modelo_id] = r.id;
+      return map;
+    },
+  });
+  const estadosIntegracao = useIntegracaoEstados();
   // Estado da MO por serviço (badge do card) — derivado do resumo (`modelo_mo_resumo.estado`):
   // sem_servico | pendente | reprovada | aprovada. Substitui o antigo badge do flag
   // `custo_terceirizados_aprovado` (2 estados) por 4 estados. Sem custo exposto: só `estado`.
@@ -716,7 +751,17 @@ function PlanejamentoPage() {
         refModelo={(m as any).ref || (m as any).ref_auto || null}
         etapa={etapaDoModelo(m, kanbanCfg)}
         precoVenda={(m as any).preco_venda ?? null}
+        precoTravado={colunasTravadas(estadosIntegracao[m.id]).has("preco_venda") ? TEXTO_PRECO_TRAVADO : null}
         onPrecoVenda={(preco) => {
+          if (m.origem === "importado") {
+            // n2 (Integração, D14): importado grava pelo gravador PRÓPRIO — espelho do ramo revenda logo abaixo
+            // (antes caía no ramo genérico `ehOrigemComprada`, que só conhece `produtos_acabados`/revenda, e dava
+            // "Aguarde o produto de revenda carregar" pra um importado, que nunca tem linha lá).
+            const pid = (importadoMap as Record<string, string>)[m.id];
+            if (pid) salvarPrecoVarejoImportado.mutate({ produtoId: pid, precoVarejo: preco });
+            else toast.error("Aguarde o produto importado carregar (ou crie o cadastro no Produto Importado) e tente de novo.");
+            return;
+          }
           if (ehOrigemComprada(m.origem)) {
             // Revenda: grava o PREÇO DE VAREJO FIXO EXATO (set/2026 — antes convertia p/ markup e o
             // arredondamento fazia "298"→"297,84"). O servidor grava o preço fixo e recomputa; o
@@ -1251,8 +1296,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, precoTravado, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; precoTravado?: string | null; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1423,7 +1468,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                 <td className="w-[44%] text-muted-foreground whitespace-nowrap">Preço de venda</td>
                 <td className="w-[56%] text-right" onClick={(e) => e.stopPropagation()}>
                   {!podeVerCustos ? <span className="text-muted-foreground">—</span>
-                    : podeEditarPreco ? (
+                    : podeEditarPreco && !precoTravado ? (
                       // Revenda: o preço grava DIRETO no banco (recalcula o markup de varejo via RPC),
                       // então em vez do onBlur automático mostramos um ícone de CONFIRMAR — o usuário
                       // decide quando persistir (pedido do dono, set/2026). Manufaturado segue no blur.
@@ -1449,7 +1494,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
                           className="ml-auto h-7 w-full max-w-[7.5rem] text-right text-xs tabular-nums" />
                       )
                     ) : (
-                      <span className="font-medium tabular-nums">{precoVenda != null && precoVenda > 0 ? brl(precoVenda) : preco != null ? brl(preco) : "—"}</span>
+                      <span className="inline-flex items-center justify-end gap-1">
+                        <span className="font-medium tabular-nums">{precoVenda != null && precoVenda > 0 ? brl(precoVenda) : preco != null ? brl(preco) : "—"}</span>
+                        {precoTravado && <InfoHover ariaLabel="Preço travado">{precoTravado}</InfoHover>}
+                      </span>
                     )}
                 </td>
               </tr>

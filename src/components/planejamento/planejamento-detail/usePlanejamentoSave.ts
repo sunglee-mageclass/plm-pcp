@@ -405,7 +405,8 @@ export function usePlanejamentoSave({
       // DESATUALIZADOS em relação ao que o servidor recomputou depois — um Salvar disparado
       // por outro campo (ex.: nome) sobrescreveria silenciosamente o preço fresco com o valor
       // velho. MANUFATURADOS seguem mandando o valor digitado, como sempre.
-      if (isRevenda) {
+      // n1 (Integração, D14): o IMPORTADO também — o preço dele grava como preço FIXO, mais abaixo (depois do UPDATE).
+      if (ehOrigemComprada(d.origem)) {
         delete payload.preco_venda;
         delete payload.preco_atacado;
       } else {
@@ -769,6 +770,34 @@ export function usePlanejamentoSave({
           }
         } catch (autoErr) {
           console.error("Auto-criação do produto importado falhou — save do card mantido:", autoErr);
+        }
+      }
+      // n1 (Integração, D14): IMPORTADO — o preço digitado grava como preço FIXO pelo gravador salvar_precos_fixo_produto_importado
+      // (espelho do da revenda; "última edição manda"), nunca pelo UPDATE (o recálculo do servidor o sobrescreveria). Só quando
+      // o preço MUDOU vs a base do servidor e com a permissão de preço. Roda DEPOIS da auto-criação do Produto Importado (acima).
+      if (savedId && d.origem === "importado" && piOn && podeEditarPreco) {
+        const base = baseRef.current?.draft;
+        const precoOuNull = (v: unknown) => (numOr0(v) > 0 ? numOr0(v) : null);
+        const varejo = precoOuNull(d.preco_venda);
+        const atacado = precoOuNull(d.preco_atacado);
+        const tocarVarejo = varejo !== precoOuNull(base?.preco_venda);
+        const tocarAtacado = atacado !== precoOuNull(base?.preco_atacado);
+        if (tocarVarejo || tocarAtacado) {
+          const { data: piFixo, error: piFixoErr } = await supabase
+            .from("produtos_importados" as any)
+            .select("id")
+            .eq("modelo_id", savedId)
+            .maybeSingle();
+          if (piFixoErr) throw piFixoErr;
+          if (!piFixo) {
+            throw Object.assign(new Error("Crie o cadastro no Produto Importado antes de definir o preço."), { code: "P0001" });
+          }
+          const { error: fixoErr } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
+            _produto_id: (piFixo as unknown as { id: string }).id,
+            _tocar_atacado: tocarAtacado, _preco_atacado_fixo: atacado,
+            _tocar_varejo: tocarVarejo, _preco_varejo_fixo: varejo,
+          });
+          if (fixoErr) throw fixoErr;
         }
       }
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —

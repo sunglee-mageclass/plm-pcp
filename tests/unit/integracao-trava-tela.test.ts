@@ -724,3 +724,305 @@ describe("Fix round 3 (R-5) — RENDER real de usePlanejamentoSave: o restore da
     view.unmount();
   }, 10000);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 22 (n1/n2) — D14: o preço do IMPORTADO vira preço FIXO (espelho do da revenda). O UPDATE do Sheet não leva
+// mais preço de NENHUM comprado (revenda E importado); o importado grava pelo gravador
+// `salvar_precos_fixo_produto_importado` DEPOIS do UPDATE. O card do Plan. Produto passa a rotear o importado
+// para o MESMO gravador (antes caía no da revenda e dava "Aguarde o produto de revenda carregar").
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("n1/n2 — preço do importado = preço FIXO (D14)", () => {
+  it("n1: o UPDATE do Sheet não leva preço de comprado; o importado grava pelo gravador fixo", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/if \(ehOrigemComprada\(d\.origem\)\) \{\s*delete payload\.preco_venda;\s*delete payload\.preco_atacado;/);
+    expect(s).toMatch(/rpc\("salvar_precos_fixo_produto_importado" as any/);
+  });
+  it("n2: o card do Plan. Produto grava importado pelo gravador do importado e trava o preço integrado", () => {
+    const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+    expect(s).toMatch(/rpc\("salvar_precos_fixo_produto_importado" as any/);
+    expect(s).toMatch(/m\.origem === "importado"/);
+    expect(s).toMatch(/precoTravado=\{/);
+    expect(s).toMatch(/podeEditarPreco && !precoTravado \?/);
+  });
+});
+
+describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preço do importado pelo gravador fixo", () => {
+  // Harness idêntico ao de Fix round 3 (R-5) acima — reusa o mesmo padrão de montagem/mocks, trocando o cenário
+  // pra um card IMPORTADO com o preço EDITADO (varejo mudou vs a base do servidor).
+  async function montarHarnessImportado(opts: {
+    draftCru: Draft; baseDraft: Draft; piOn: boolean; podeEditarPreco: boolean;
+    produtoImportadoId: string | null;
+  }) {
+    const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    const bomInerte: any = {
+      estado: null, snapshot: "", gravar: false, sujoNaCaptura: false,
+      flags: { grade: false, consumo: false, aviamentos: false },
+      idsEtiquetasServidor: [], tecidosPlanejados: [], totais: null,
+      cad: { gravar: false }, gradesPayload: null, gradeExterna: null, gradeConflito: false, enviadoNaCaptura: false,
+    };
+    const fichaStub: any = {
+      podeGravarColunasDev: false, podeVerCustos: false,
+      conflitoBomRef: { current: false }, verificandoBomRef: { current: false }, colecoesTouchadasRef: { current: false },
+      setConflitoBom: () => {}, marcarSaveEmVoo: () => {}, bomMudouNoServidor: async () => false,
+      capturar: () => bomInerte, cadGravado: () => {}, aposSalvar: () => ({ bomMudouEmVoo: false, edicoesPerdidas: false }),
+      bomGravado: () => {}, invalidarBom: () => {}, bomPendenteDeGravar: () => false,
+      etapas: {},
+    };
+
+    const draftRef = { current: opts.draftCru };
+    const touchedRef = { current: new Set<string>(["preco_venda"]) };
+    const baseRef = { current: { draft: opts.baseDraft } };
+    const revRef = { current: 1 };
+    const retryRef = { current: false };
+    const savingRef = { current: false };
+    const conflitosRef = { current: [] as any[] };
+    const moLinhasRef = { current: [] as any[] };
+    const moBaseRef = { current: [] as any[] };
+    const gradeRevendaBaseRef = { current: "{}" };
+    const gradeRevendaRevRef = { current: null };
+
+    rpcSpy.mockClear();
+    const rpcCalls: { nome: string; args: any }[] = [];
+    rpcSpy.mockImplementation((nome: string, args: any) => {
+      rpcCalls.push({ nome, args });
+      return Promise.resolve({ data: null, error: null });
+    });
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    const fromSpy = vi.fn((tabela: string) => {
+      if (tabela === "modelos") {
+        return {
+          update: () => ({
+            eq: () => ({
+              eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
+            }),
+          }),
+          // `lerGradeServidorComprado` (comprado) faz select("rev, grades:modelo_grades(...)").eq("id",...).single() —
+          // rev tem que bater com o `revCongelado` (revRef.current = 1, o harness não avança) e `grades` precisa ser array.
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 1, grades: [] }, error: null }) }) }),
+        };
+      }
+      if (tabela === "produtos_importados") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({
+                data: opts.produtoImportadoId ? { id: opts.produtoImportadoId } : null, error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+    });
+    supabaseMod.supabase.from = fromSpy;
+
+    function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
+      const api = usePlanejamentoSave({
+        modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: opts.piOn,
+        podeEditarPreco: opts.podeEditarPreco, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        refEditavel: false, travaIntegracao: undefined, categorias: [],
+        draft: draftRef.current, setDraft: (fnOrValue: any) => {
+          draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
+        },
+        draftLiveRef: draftRef as any, touchedRef: touchedRef as any, baseRef: baseRef as any,
+        revRef: revRef as any, retryRef: retryRef as any, savingRef: savingRef as any,
+        conflitosRef: conflitosRef as any, setConflitos: () => {}, setUltimoMerge: () => {},
+        setEnviada: () => {}, setLancado: () => {},
+        moLinhasRef: moLinhasRef as any, moBaseRef: moBaseRef as any, setMoLinhasBase: () => {},
+        gradeRevenda: {}, setGradeRevenda: () => {}, gradeRevendaDirty: false,
+        gradeRevendaBaseRef: gradeRevendaBaseRef as any, gradeRevendaRevRef: gradeRevendaRevRef as any,
+        buildLinhasGradeRevenda: () => [], gradeCompradoPeloBom: false,
+        qc, onSaved: async () => {}, ficha: fichaStub, resetDraftBaseline: () => {},
+      });
+      onReady(api);
+      return null;
+    }
+    let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+    await act(async () => {
+      apiRef!.save.mutate();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    view.unmount();
+    return { rpcCalls };
+  }
+
+  it("(a) editar SÓ o varejo: chama o gravador fixo com _tocar_varejo=true e _tocar_atacado=false", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150 }; // varejo mudou, atacado igual
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+    });
+    const chamada = rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado");
+    expect(chamada).toBeDefined();
+    // _preco_atacado_fixo é IGNORADO pelo servidor quando _tocar_atacado=false (RPC: "case when
+    // _tocar_atacado then ... else preco_atacado_fixo end") — só os 3 campos do canal TOCADO importam.
+    expect(chamada!.args).toMatchObject({ _produto_id: "pi-1", _tocar_varejo: true, _preco_varejo_fixo: 150, _tocar_atacado: false });
+  });
+
+  it("(b) editar SÓ o atacado: chama o gravador fixo com _tocar_atacado=true e _tocar_varejo=false", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_atacado: 80 }; // atacado mudou, varejo igual
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+    });
+    const chamada = rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado");
+    expect(chamada).toBeDefined();
+    // _preco_varejo_fixo é IGNORADO pelo servidor quando _tocar_varejo=false (mesma regra do teste (a)).
+    expect(chamada!.args).toMatchObject({ _produto_id: "pi-1", _tocar_atacado: true, _preco_atacado_fixo: 80, _tocar_varejo: false });
+  });
+
+  it("(c) limpar o preço (varejo vira vazio/0): manda _tocar_varejo=true com _preco_varejo_fixo NULL (P-91 A)", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 0 }; // limpo
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+    });
+    const chamada = rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado");
+    expect(chamada).toBeDefined();
+    expect(chamada!.args).toMatchObject({ _tocar_varejo: true, _preco_varejo_fixo: null });
+  });
+
+  it("preço IGUAL ao da base do servidor: NÃO chama o gravador fixo (nada mudou)", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base }; // nada editado
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+    });
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+  });
+});
+
+describe("Task 22 — a revenda continua salvando o preço pelo gravador próprio (n1 não regride)", () => {
+  it("usePlanejamentoSave.ts: ehOrigemComprada(d.origem) cobre revenda E importado — o UPDATE não leva preço de NENHUM comprado", async () => {
+    const { ehOrigemComprada } = await import("@/lib/origem");
+    expect(ehOrigemComprada("revenda")).toBe(true);
+    expect(ehOrigemComprada("importado")).toBe(true);
+    expect(ehOrigemComprada("interno")).toBe(false);
+  });
+  it("RevendaSetores.tsx grava o preço da revenda NA HORA (fora do save.mutate do Sheet), pela RPC própria — nunca dependeu do UPDATE de modelos.preco_venda/atacado", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
+    // O onBlur do input de preço chama a mutation que grava salvar_precos_fixo_produto_acabado diretamente
+    // (não passa pelo usePlanejamentoSave/save.mutate) — a remoção de preco_venda/preco_atacado do payload do
+    // UPDATE (n1, ehOrigemComprada) não pode afetar esta gravação porque ela nunca dependeu do UPDATE.
+    expect(s).toMatch(/salvarPrecosFixoRevenda\.mutate\(\{ tocarAtacado: true,/);
+    expect(s).toMatch(/salvar_precos_fixo_produto_acabado/);
+  });
+  it("criacao.planejamento.tsx: o card de revenda continua roteado para salvarPrecoVarejoRevenda (salvar_precos_fixo_produto_acabado), não para o gravador do importado", () => {
+    const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+    // Ordem: 1) checa importado (novo, n2) -> 2) ehOrigemComprada (revenda, pré-existente, chama salvarPrecoVarejoRevenda).
+    const idxComprada = s.indexOf('if (ehOrigemComprada(m.origem)) {', s.indexOf('if (m.origem === "importado")'));
+    expect(idxComprada).toBeGreaterThan(-1);
+    const trechoRevenda = s.slice(idxComprada, idxComprada + 600);
+    expect(trechoRevenda).toMatch(/salvarPrecoVarejoRevenda\.mutate/);
+  });
+  it("usePlanejamentoSave real: card de REVENDA — o UPDATE não leva preco_venda/preco_atacado e o gravador do IMPORTADO nunca é chamado", async () => {
+    const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    const bomInerte: any = {
+      estado: null, snapshot: "", gravar: false, sujoNaCaptura: false,
+      flags: { grade: false, consumo: false, aviamentos: false },
+      idsEtiquetasServidor: [], tecidosPlanejados: [], totais: null,
+      cad: { gravar: false }, gradesPayload: null, gradeExterna: null, gradeConflito: false, enviadoNaCaptura: false,
+    };
+    const fichaStub: any = {
+      podeGravarColunasDev: false, podeVerCustos: false,
+      conflitoBomRef: { current: false }, verificandoBomRef: { current: false }, colecoesTouchadasRef: { current: false },
+      setConflitoBom: () => {}, marcarSaveEmVoo: () => {}, bomMudouNoServidor: async () => false,
+      capturar: () => bomInerte, cadGravado: () => {}, aposSalvar: () => ({ bomMudouEmVoo: false, edicoesPerdidas: false }),
+      bomGravado: () => {}, invalidarBom: () => {}, bomPendenteDeGravar: () => false,
+      etapas: {},
+    };
+    const draftCru: Draft = { ...emptyDraft(), origem: "revenda", preco_venda: 200, preco_atacado: 90 };
+    const draftRef = { current: draftCru };
+    const touchedRef = { current: new Set<string>(["nome"]) }; // save disparado por OUTRO campo, não pelo preço
+    const baseRef = { current: { draft: draftCru } };
+    const revRef = { current: 1 };
+    const retryRef = { current: false };
+    const savingRef = { current: false };
+    const conflitosRef = { current: [] as any[] };
+    const moLinhasRef = { current: [] as any[] };
+    const moBaseRef = { current: [] as any[] };
+    const gradeRevendaBaseRef = { current: "{}" };
+    const gradeRevendaRevRef = { current: null };
+
+    rpcSpy.mockClear();
+    const rpcCalls: { nome: string }[] = [];
+    rpcSpy.mockImplementation((nome: string) => { rpcCalls.push({ nome }); return Promise.resolve({ data: null, error: null }); });
+    let updPayloadCapturado: Record<string, unknown> | null = null;
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    const fromSpy = vi.fn((tabela: string) => {
+      if (tabela === "modelos") {
+        return {
+          update: (payload: Record<string, unknown>) => {
+            updPayloadCapturado = payload;
+            return { eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }) }) };
+          },
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 1, grades: [] }, error: null }) }) }),
+        };
+      }
+      return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) };
+    });
+    supabaseMod.supabase.from = fromSpy;
+
+    function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
+      const api = usePlanejamentoSave({
+        modeloId: "m1", isEdit: true, isRevenda: true, paOn: true, piOn: true,
+        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        refEditavel: false, travaIntegracao: undefined, categorias: [],
+        draft: draftRef.current, setDraft: (fnOrValue: any) => {
+          draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
+        },
+        draftLiveRef: draftRef as any, touchedRef: touchedRef as any, baseRef: baseRef as any,
+        revRef: revRef as any, retryRef: retryRef as any, savingRef: savingRef as any,
+        conflitosRef: conflitosRef as any, setConflitos: () => {}, setUltimoMerge: () => {},
+        setEnviada: () => {}, setLancado: () => {},
+        moLinhasRef: moLinhasRef as any, moBaseRef: moBaseRef as any, setMoLinhasBase: () => {},
+        gradeRevenda: {}, setGradeRevenda: () => {}, gradeRevendaDirty: false,
+        gradeRevendaBaseRef: gradeRevendaBaseRef as any, gradeRevendaRevRef: gradeRevendaRevRef as any,
+        buildLinhasGradeRevenda: () => [], gradeCompradoPeloBom: false,
+        qc, onSaved: async () => {}, ficha: fichaStub, resetDraftBaseline: () => {},
+      });
+      onReady(api);
+      return null;
+    }
+    let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+    await act(async () => {
+      apiRef!.save.mutate();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    view.unmount();
+
+    expect(updPayloadCapturado).not.toBeNull();
+    expect("preco_venda" in (updPayloadCapturado as Record<string, unknown>)).toBe(false);
+    expect("preco_atacado" in (updPayloadCapturado as Record<string, unknown>)).toBe(false);
+    // A revenda salva o preço por FORA deste save (RevendaSetores.tsx, on blur) — este save NUNCA deve
+    // chamar o gravador do IMPORTADO (o guard `d.origem === "importado"` do n1 barra isso por construção).
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+  }, 10000);
+});
+
+describe("Task 22 — comportamento real: n2 (criacao.planejamento.tsx) card roteia importado para o gravador do importado", () => {
+  it("o card lê 'produtos_importados' (mapa modelo_id -> produto) para rotear o preço do importado", () => {
+    const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+    // A query nova do mapa importado (n2) lê a tabela própria, distinta de produtos_acabados (revenda).
+    expect(s).toMatch(/from\("produtos_importados" as any\)[\s\S]{0,200}\.select\("id, modelo_id"\)/);
+    // O onPrecoVenda passa a checar `m.origem === "importado"` ANTES do ramo genérico ehOrigemComprada.
+    const idxImportado = s.indexOf('if (m.origem === "importado")');
+    const idxComprada = s.indexOf('if (ehOrigemComprada(m.origem)) {', idxImportado + 1);
+    expect(idxImportado).toBeGreaterThan(-1);
+    expect(idxComprada).toBeGreaterThan(idxImportado);
+  });
+});
