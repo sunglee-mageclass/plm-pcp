@@ -3,7 +3,10 @@
 import { CAMPO_BY_KEY, ordenarCampos, type CampoKey } from "@/lib/integracao/campos";
 
 export type EstadoModeloIntegracao = {
-  estado: "integravel" | "integrado"; campos: CampoKey[]; marcadoEm: string | null; integradoEm: string | null;
+  estado: "integravel" | "integrado";
+  campos: CampoKey[];
+  marcadoEm: string | null;
+  integradoEm: string | null;
 };
 const obj = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -15,8 +18,12 @@ export function lerEstados(raw: unknown): Record<string, EstadoModeloIntegracao>
     const o = obj(v);
     if (o.estado !== "integravel" && o.estado !== "integrado") continue;
     out[id] = {
-      estado: o.estado, campos: ordenarCampos(Array.isArray(o.campos) ? o.campos.filter((c): c is string => typeof c === "string") : []),
-      marcadoEm: txt(o.marcado_em), integradoEm: txt(o.integrado_em),
+      estado: o.estado,
+      campos: ordenarCampos(
+        Array.isArray(o.campos) ? o.campos.filter((c): c is string => typeof c === "string") : [],
+      ),
+      marcadoEm: txt(o.marcado_em),
+      integradoEm: txt(o.integrado_em),
     };
   }
   return out;
@@ -36,7 +43,11 @@ function fmtDia(iso: string | null, tz: string): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const p = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, day: "2-digit", month: "2-digit" }).formatToParts(d);
+  const p = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: tz,
+    day: "2-digit",
+    month: "2-digit",
+  }).formatToParts(d);
   return `${p.find((x) => x.type === "day")?.value ?? ""}/${p.find((x) => x.type === "month")?.value ?? ""}`;
 }
 // Fix round 1 (m4/M-4 das revisões) — data null (ou ilegível) NÃO vira "Integrado em — — travado" (dois traços feios,

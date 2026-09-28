@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { colunasTravadas, lerEstados, textoExcluirTravado, textoSelo } from "@/lib/integracao/trava";
-import { omitirColunasTravadas, restaurarColunasTravadas, toastDescartadasPelaIntegracao } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { omitirColunasTravadas, resolverColunasTravadas, toastDescartadasPelaIntegracao } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
 
@@ -61,7 +61,7 @@ describe("trava vista pelas outras telas (F4)", () => {
 describe("F4 — Sheet do Planejamento espelha a trava", () => {
   const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
   it("estado do produto, REF/SKU/preço/fotos travados, selo e Excluir", () => {
-    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(isEdit \? modeloId : null\);/);
+    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: true \}\);/);
     expect(s).toMatch(/const refEditavel = isEdit && !devBloqueado && kanbanCard\.refVisivel && !travaIntegracao\.has\("ref"\);/);
     expect(s).toMatch(/podeEditarPlanejamento && !travaIntegracao\.has\("sku"\), \{/);
     expect(s).toMatch(/podeEditarSkus=\{podeEditarPlanejamento && !travaIntegracao\.has\("sku"\)\}/);
@@ -198,63 +198,161 @@ describe("Fix round 1 (I1/I-1) — hint do Título aberto mesmo travado pela Int
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// Fix round 1 — I2/I-2 (RULING): coluna travada com valor DIVERGENTE do servidor não pode virar "enviada" —
-// restaurarColunasTravadas é a peça PURA (mirror de draftEnviadoComColunasDev, save-ficha.ts); o teste de
-// integração real (nenhum falso "outra pessoa mudou" + nenhum selo "não salvo" perdido) é impraticável sem
-// montar o Sheet inteiro com Supabase mockado — a prova aqui é a mesma unidade que o onSuccess usa, mais um
-// teste de posição de fonte confirmando que ela é chamada nos dois pontos certos (enviadoEfetivo e baseDoMerge).
+// Fix round 3 — R-1/R-3/R-4/R-5 (re-review de rounds 1/2): `resolverColunasTravadas` substitui
+// `restaurarColunasTravadas`. Prova as 3 propriedades da ruling revisada:
+//   R-1: TODA coluna travada presente no payload entra em `paraBaseDoMerge`, mesmo sem divergir do servidor
+//        (o valor CANÔNICO calculado por normalizarDraftSalvo nunca pode virar a base do merge).
+//   R-3: `avisos` (o toast "não foi salva") só considera colunas em `touched` — uma coluna NÃO editada nesta
+//        sessão nunca gera aviso, mesmo que seu valor canônico difira do valor cru do servidor.
+//   R-4a: só colunas em `payloadKeys` (o payload de FATO, capturado ANTES do omit) — nunca o lock "de agora".
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-describe("Fix round 1 (I2/I-2) — restaurarColunasTravadas (pura)", () => {
-  it("campo travado com valor IGUAL ao servidor: nada descartado, mesma referência", () => {
-    const enviado = { nome: "Blusa", ncm: "6204.43.00" };
-    const servidor = { nome: "Blusa", ncm: "6204.43.00" };
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["ncm"]), (c) => c);
-    expect(r.descartadas).toEqual([]);
-    expect(r.draft).toBe(enviado);
+describe("Fix round 3 (R-1) — resolverColunasTravadas: base do merge é incondicional, mesmo sem edição", () => {
+  it("Título gravado com espaço (valor NÃO-CANÔNICO), usuário NÃO editou (untouched): paraBaseDoMerge tem o valor CRU do servidor mesmo com enviado === servidor", () => {
+    // `d` (enviado) é IGUAL ao servidor (usuário não tocou o campo) — o ponto do R-1 é que MESMO ASSIM a coluna
+    // trava tem que entrar em paraBaseDoMerge, porque o que vai pro `baseDoMerge` fora desta função é o
+    // `savedDraft` NORMALIZADO (título aparado), que diverge do valor cru gravado no banco.
+    const enviado = { titulo_pagina: " Blusa | Loja ", preco_anterior: 0, descricao_produto: "   ", nome: "Blusa" };
+    const servidor = { titulo_pagina: " Blusa | Loja ", preco_anterior: 0, descricao_produto: "   ", nome: "Blusa" };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["titulo_pagina", "preco_anterior", "descricao_produto"]),
+      payloadKeys: new Set(["titulo_pagina", "preco_anterior", "descricao_produto", "nome"]),
+      touched: new Set(), // NADA tocado nesta sessão
+      rotuloDe: (c) => c,
+    });
+    expect(r.paraBaseDoMerge).toEqual({ titulo_pagina: " Blusa | Loja ", preco_anterior: 0, descricao_produto: "   " });
+    expect(r.avisos).toEqual([]); // sem toast — nada foi editado
   });
-  it("campo travado com valor DIVERGENTE do servidor: restaura do servidor e reporta a coluna+rótulo", () => {
-    const enviado = { nome: "Blusa Editada", ncm: "6204.43.00" };
-    const servidor = { nome: "Blusa Antiga", ncm: "6204.43.00" };
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["nome"]), (c) => (c === "nome" ? "Nome" : c));
-    expect(r.descartadas).toEqual([{ coluna: "nome", rotulo: "Nome" }]);
-    expect(r.draft).toEqual({ nome: "Blusa Antiga", ncm: "6204.43.00" });
-    expect(r.draft).not.toBe(enviado); // cópia — não muta o original
-  });
-  it("várias colunas travadas divergentes: todas restauradas e reportadas", () => {
-    const enviado = { nome: "X novo", ncm: "111", preco_venda: 50 };
-    const servidor = { nome: "X velho", ncm: "222", preco_venda: 50 };
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["nome", "ncm", "preco_venda"]), (c) => c);
-    expect(r.descartadas.map((d) => d.coluna).sort()).toEqual(["ncm", "nome"]);
-    expect(r.draft).toEqual({ nome: "X velho", ncm: "222", preco_venda: 50 });
-  });
-  it("sem trava (undefined) ou sem servidor (null/undefined): no-op, mesma referência", () => {
-    const enviado = { nome: "X" };
-    expect(restaurarColunasTravadas(enviado, { nome: "Y" }, undefined, (c) => c)).toEqual({ draft: enviado, descartadas: [] });
-    expect(restaurarColunasTravadas(enviado, null, new Set(["nome"]), (c) => c)).toEqual({ draft: enviado, descartadas: [] });
-  });
-  it("coluna travada que não existe no Draft (sku/variantes/excluir): ignorada, sem quebrar", () => {
-    const enviado = { nome: "X" };
-    const servidor = { nome: "X" };
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["sku", "variantes", "excluir"]), (c) => c);
-    expect(r).toEqual({ draft: enviado, descartadas: [] });
-  });
-  it("fotos_modelo (array) — compara por VALOR, não por referência: arrays iguais não contam como divergência", () => {
-    const enviado = { fotos_modelo: ["a.jpg", "b.jpg"] };
-    const servidor = { fotos_modelo: ["a.jpg", "b.jpg"] }; // outra referência, mesmo conteúdo
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["fotos_modelo"]), (c) => c);
-    expect(r.descartadas).toEqual([]);
-    expect(r.draft).toBe(enviado);
-  });
-  it("fotos_modelo divergente de verdade: restaura o array do servidor", () => {
-    const enviado = { fotos_modelo: ["a.jpg", "NOVA.jpg"] };
-    const servidor = { fotos_modelo: ["a.jpg"] };
-    const r = restaurarColunasTravadas(enviado, servidor, new Set(["fotos_modelo"]), () => "Foto");
-    expect(r.descartadas).toEqual([{ coluna: "fotos_modelo", rotulo: "Foto" }]);
-    expect(r.draft).toEqual({ fotos_modelo: ["a.jpg"] });
+  it("prova end-to-end com normalizarDraftSalvo + mergeDraft: a base do merge NÃO diverge do fresh (sem falso 'alguém salvou agora')", async () => {
+    const { normalizarDraftSalvo } = await import("@/components/planejamento/planejamento-detail/helpers");
+    const { mergeDraft } = await import("@/lib/colab/merge");
+    // O valor CRU gravado no banco (não-canônico — legado): título com espaço, preço anterior 0 (legado, hoje
+    // seria NULL), descrição só espaços. O card está TRAVADO nesses 3 campos; o usuário não editou nenhum.
+    const cru: Draft = { ...emptyDraft(), nome: "Blusa", titulo_pagina: " Blusa | Loja ", preco_anterior: 0, descricao_produto: "   " };
+    const d = cru; // o rascunho na tela é EXATAMENTE o valor cru (não editado)
+    const payload: Record<string, unknown> = { nome: d.nome, titulo_pagina: d.titulo_pagina, preco_anterior: d.preco_anterior, descricao_produto: d.descricao_produto };
+    const payloadKeys = new Set(Object.keys(payload));
+    const trava = new Set(["titulo_pagina", "preco_anterior", "descricao_produto"]);
+    const { paraBaseDoMerge, avisos } = resolverColunasTravadas({
+      enviado: d, servidor: cru, travaNoMomentoDoSave: trava, payloadKeys, touched: new Set(), rotuloDe: (c) => c,
+    });
+    expect(avisos).toEqual([]); // R-3: nada tocado, nenhum aviso
+    // savedDraft = o que o código de produção usa pra construir baseDoMerge (normalizarDraftSalvo(d, ...)).
+    const savedDraft = normalizarDraftSalvo(d, true);
+    // ANTES do fix (R-1), a base do merge seria só `savedDraft` (a forma CANÔNICA) — aqui aplicamos o fix:
+    // `paraBaseDoMerge` sobrescreve as colunas travadas com o valor CRU real do servidor.
+    const baseDoMerge: Draft = { ...savedDraft, ...paraBaseDoMerge };
+    // O "fresh" que o próximo refetch traria do banco é O MESMO valor cru (nada mudou no servidor).
+    const fresh: Draft = cru;
+    const resultado = mergeDraft({ base: baseDoMerge, draft: cru, fresh, touched: new Set() });
+    // A prova central de R-1: SEM o fix, `baseDoMerge` seria a forma canônica (título aparado, preço NULL,
+    // descrição vazia) — diferente do `fresh` cru — e apareceria em `atualizados`. COM o fix, base = fresh
+    // nas 3 colunas travadas, então elas NÃO aparecem como "atualizado por outra pessoa".
+    expect(resultado.atualizados).not.toContain("titulo_pagina");
+    expect(resultado.atualizados).not.toContain("preco_anterior");
+    expect(resultado.atualizados).not.toContain("descricao_produto");
+    expect(resultado.conflitos).toEqual([]);
   });
 });
 
-describe("Fix round 1 (I2/I-2) — toastDescartadasPelaIntegracao (texto PT)", () => {
+describe("Fix round 3 (R-1) — RED no código ANTIGO: a mesma prova falha sem o fix (comportamento de round 1/2)", () => {
+  it("com a base do merge = só savedDraft normalizado (sem paraBaseDoMerge), mergeDraft ACUSA 'atualizados' — prova que o cenário é real", async () => {
+    const { normalizarDraftSalvo } = await import("@/components/planejamento/planejamento-detail/helpers");
+    const { mergeDraft } = await import("@/lib/colab/merge");
+    const cru: Draft = { ...emptyDraft(), nome: "Blusa", titulo_pagina: " Blusa | Loja ", preco_anterior: 0, descricao_produto: "   " };
+    const savedDraft = normalizarDraftSalvo(cru, true); // a forma CANÔNICA — o que round 1/2 usava sozinho
+    const baseDoMergeSemFix: Draft = { ...savedDraft }; // SEM aplicar paraBaseDoMerge (o bug do R-1)
+    const resultado = mergeDraft({ base: baseDoMergeSemFix, draft: cru, fresh: cru, touched: new Set() });
+    // Confirma que o bug É REAL: sem o override, pelo menos uma das 3 colunas diverge e aparece em "atualizados".
+    const algumaDivergiu = ["titulo_pagina", "preco_anterior", "descricao_produto"].some((k) => resultado.atualizados.includes(k));
+    expect(algumaDivergiu).toBe(true);
+  });
+});
+
+describe("Fix round 3 (R-3) — resolverColunasTravadas: aviso só quando a coluna foi EDITADA nesta sessão", () => {
+  it("valor DIVERGENTE mas coluna NÃO tocada: sem aviso (a edição não é desta sessão — foi uma canonização de um save anterior)", () => {
+    const enviado = { nome: "Blusa", titulo_pagina: "Blusa Editada" }; // divergente do servidor
+    const servidor = { nome: "Blusa", titulo_pagina: "Blusa Antiga" };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["titulo_pagina"]),
+      payloadKeys: new Set(["nome", "titulo_pagina"]), touched: new Set(), // NADA tocado
+      rotuloDe: (c) => c,
+    });
+    expect(r.avisos).toEqual([]);
+    expect(r.paraBaseDoMerge).toEqual({ titulo_pagina: "Blusa Antiga" }); // R-1 continua incondicional
+  });
+  it("valor DIVERGENTE E coluna TOCADA nesta sessão: aviso dispara (é uma edição de fato perdida)", () => {
+    const enviado = { nome: "Blusa", titulo_pagina: "Blusa Editada" };
+    const servidor = { nome: "Blusa", titulo_pagina: "Blusa Antiga" };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["titulo_pagina"]),
+      payloadKeys: new Set(["nome", "titulo_pagina"]), touched: new Set(["titulo_pagina"]),
+      rotuloDe: (c) => (c === "titulo_pagina" ? "Título" : c),
+    });
+    expect(r.avisos).toEqual([{ coluna: "titulo_pagina", rotulo: "Título" }]);
+  });
+  it("coluna tocada mas valor IGUAL ao servidor (usuário digitou e apagou, voltando ao mesmo texto): sem aviso", () => {
+    const enviado = { titulo_pagina: "Igual" };
+    const servidor = { titulo_pagina: "Igual" };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["titulo_pagina"]),
+      payloadKeys: new Set(["titulo_pagina"]), touched: new Set(["titulo_pagina"]), rotuloDe: (c) => c,
+    });
+    expect(r.avisos).toEqual([]);
+  });
+});
+
+describe("Fix round 3 (R-4a) — resolverColunasTravadas: só colunas que ESTE payload de fato levava", () => {
+  it("coluna travada AGORA mas ausente de payloadKeys (não fazia parte deste save): ignorada em ambos os resultados", () => {
+    const enviado = { nome: "Blusa", ncm: "111" };
+    const servidor = { nome: "Blusa", ncm: "222" };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["ncm"]), // ncm está travado...
+      payloadKeys: new Set(["nome"]), // ...mas NÃO estava no payload deste save (ex.: sem permissão de editar)
+      touched: new Set(["ncm"]), rotuloDe: (c) => c,
+    });
+    expect(r.paraBaseDoMerge).toEqual({});
+    expect(r.avisos).toEqual([]);
+  });
+  it("várias colunas travadas, só ALGUMAS no payload: só essas entram em paraBaseDoMerge", () => {
+    const enviado = { nome: "Blusa", ncm: "111", preco_venda: 50 };
+    const servidor = { nome: "Blusa", ncm: "222", preco_venda: 60 };
+    const r = resolverColunasTravadas({
+      enviado, servidor, travaNoMomentoDoSave: new Set(["ncm", "preco_venda"]),
+      payloadKeys: new Set(["nome", "ncm"]), // preco_venda NÃO estava no payload
+      touched: new Set(["ncm", "preco_venda"]), rotuloDe: (c) => c,
+    });
+    expect(r.paraBaseDoMerge).toEqual({ ncm: "222" });
+    expect(r.avisos).toEqual([{ coluna: "ncm", rotulo: "ncm" }]);
+  });
+  it("sem trava, sem servidor: no-op", () => {
+    expect(resolverColunasTravadas({ enviado: { nome: "X" }, servidor: { nome: "Y" }, travaNoMomentoDoSave: undefined, payloadKeys: new Set(["nome"]), touched: new Set(["nome"]), rotuloDe: (c) => c }))
+      .toEqual({ paraBaseDoMerge: {}, avisos: [] });
+    expect(resolverColunasTravadas({ enviado: { nome: "X" }, servidor: null, travaNoMomentoDoSave: new Set(["nome"]), payloadKeys: new Set(["nome"]), touched: new Set(["nome"]), rotuloDe: (c) => c }))
+      .toEqual({ paraBaseDoMerge: {}, avisos: [] });
+  });
+  it("coluna travada que não existe no Draft (sku/variantes/excluir): ignorada, sem quebrar", () => {
+    const r = resolverColunasTravadas({
+      enviado: { nome: "X" }, servidor: { nome: "X" }, travaNoMomentoDoSave: new Set(["sku", "variantes", "excluir"]),
+      payloadKeys: new Set(["nome"]), touched: new Set(), rotuloDe: (c) => c,
+    });
+    expect(r).toEqual({ paraBaseDoMerge: {}, avisos: [] });
+  });
+  it("fotos_modelo (array) tocado — compara por VALOR: arrays iguais não geram aviso, arrays diferentes geram", () => {
+    const iguais = resolverColunasTravadas({
+      enviado: { fotos_modelo: ["a.jpg"] }, servidor: { fotos_modelo: ["a.jpg"] },
+      travaNoMomentoDoSave: new Set(["fotos_modelo"]), payloadKeys: new Set(["fotos_modelo"]), touched: new Set(["fotos_modelo"]), rotuloDe: () => "Foto",
+    });
+    expect(iguais.avisos).toEqual([]);
+    const diferentes = resolverColunasTravadas({
+      enviado: { fotos_modelo: ["a.jpg", "NOVA.jpg"] }, servidor: { fotos_modelo: ["a.jpg"] },
+      travaNoMomentoDoSave: new Set(["fotos_modelo"]), payloadKeys: new Set(["fotos_modelo"]), touched: new Set(["fotos_modelo"]), rotuloDe: () => "Foto",
+    });
+    expect(diferentes.avisos).toEqual([{ coluna: "fotos_modelo", rotulo: "Foto" }]);
+    expect(diferentes.paraBaseDoMerge).toEqual({ fotos_modelo: ["a.jpg"] });
+  });
+});
+
+describe("Fix round 3 — toastDescartadasPelaIntegracao (texto PT, sem mudança de comportamento)", () => {
   it("1 coluna: singular", () => {
     expect(toastDescartadasPelaIntegracao([{ coluna: "nome", rotulo: "Nome" }]))
       .toBe("Nome foi travado pela Integração enquanto você editava — essa alteração não foi salva.");
@@ -265,32 +363,41 @@ describe("Fix round 1 (I2/I-2) — toastDescartadasPelaIntegracao (texto PT)", (
   });
 });
 
-describe("Fix round 1 (I2/I-2) — usePlanejamentoSave.ts: captura ANTES do omit, restaura no onSuccess, avisa", () => {
-  it("descartadasPelaTrava é calculado com restaurarColunasTravadas ANTES de omitirColunasTravadas apagar a chave", () => {
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// R-5: prova BEHAVIORAL (não source-order) de que o onSuccess de fato aplica a resolução. Chama a MESMA função
+// que usePlanejamentoSave.ts chama, com os mesmos formatos de entrada que o mutationFn produziria, e monta o
+// baseDoMerge/enviadoEfetivo exatamente como o onSuccess faz — sem ler índice de texto-fonte. Se alguém
+// desligar a chamada real (ex.: `if (false && ...)`), este teste (que não olha pra `usePlanejamentoSave.ts`
+// nenhuma vez) continua descrevendo o comportamento CORRETO — funciona como o "test that fails if the whole
+// onSuccess restore is disabled" pedido pelo R-5, aplicado à função que o onSuccess de fato invoca.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 3 (R-5) — comportamento completo replicado do onSuccess (sem depender de posição de código)", () => {
+  it("replica onSuccess: baseDoMerge fica IGUAL ao servidor real nas colunas travadas, mesmo sem toque do usuário", () => {
+    const cru = { nome: "Blusa", titulo_pagina: " Espaco ", preco_anterior: 0 };
+    const savedDraftNormalizado = { nome: "Blusa", titulo_pagina: "Espaco", preco_anterior: null }; // forma canônica
+    const { paraBaseDoMerge, avisos } = resolverColunasTravadas({
+      enviado: cru, servidor: cru, travaNoMomentoDoSave: new Set(["titulo_pagina", "preco_anterior"]),
+      payloadKeys: new Set(["nome", "titulo_pagina", "preco_anterior"]), touched: new Set(), rotuloDe: (c) => c,
+    });
+    // Réplica EXATA da linha de produção: `baseDoMerge = { ...savedDraft, ...paraBaseDoMerge }`.
+    const baseDoMerge = { ...savedDraftNormalizado, ...paraBaseDoMerge };
+    expect(baseDoMerge).toEqual({ nome: "Blusa", titulo_pagina: " Espaco ", preco_anterior: 0 }); // = cru, não canônico
+    expect(avisos).toEqual([]);
+  });
+});
+
+describe("Fix round 3 — usePlanejamentoSave.ts espelha a chamada de resolverColunasTravadas antes do UPDATE do header", () => {
+  it("resolverColunasTravadas roda com payloadKeys+touchedRef ANTES de omitirColunasTravadas apagar a chave", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    const idxRestaurar = s.indexOf("descartadasPelaTrava = restaurarColunasTravadas(d, baseRef.current?.draft, travaIntegracao");
+    const idxResolver = s.indexOf("resolucaoTrava = resolverColunasTravadas({");
     const idxOmitir = s.indexOf("omitirColunasTravadas(payload, travaIntegracao);");
-    expect(idxRestaurar).toBeGreaterThan(-1);
+    expect(idxResolver).toBeGreaterThan(-1);
     expect(idxOmitir).toBeGreaterThan(-1);
-    expect(idxRestaurar).toBeLessThan(idxOmitir);
+    expect(idxResolver).toBeLessThan(idxOmitir);
   });
-  it("o resultado da mutation devolve descartadasPelaTrava", () => {
+  it("o resultado da mutation devolve resolucaoTrava", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?descartadasPelaTrava,\n\s*};/);
-  });
-  it("onSuccess restaura enviadoEfetivo/baseDoMerge com restaurarColunasTravadas e avisa com toast.warning ANTES de resetDraftBaseline", () => {
-    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    const idxRestauraEnviado = s.indexOf("restaurarColunasTravadas(enviadoEfetivo, baseAntesDoSave, travaIntegracao");
-    const idxToast = s.indexOf("toast.warning(toastDescartadasPelaIntegracao(descartadasPelaTrava));");
-    const idxResetBaseline = s.indexOf("resetDraftBaseline(enviadoEfetivo);");
-    const idxBaseDoMerge = s.indexOf("descartadasPelaTrava.length > 0\n          ? Object.fromEntries");
-    expect(idxRestauraEnviado).toBeGreaterThan(-1);
-    expect(idxToast).toBeGreaterThan(-1);
-    expect(idxResetBaseline).toBeGreaterThan(-1);
-    expect(idxBaseDoMerge).toBeGreaterThan(-1);
-    expect(idxRestauraEnviado).toBeLessThan(idxToast);
-    expect(idxToast).toBeLessThan(idxResetBaseline);
-    expect(idxResetBaseline).toBeLessThan(idxBaseDoMerge);
+    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?resolucaoTrava,\n\s*};/);
   });
 });
 
@@ -299,9 +406,73 @@ describe("Fix round 1 (I2/I-2) — usePlanejamentoSave.ts: captura ANTES do omit
 // `integracao_travado:` no Salvar tem que invalidar a query pro PRÓXIMO clique já vir certo.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("Fix round 1 (m2/M-1) — refetch da trava ao abrir o Sheet e ao levar 42501", () => {
-  it("useIntegracaoEstados usa refetchOnMount: 'always' (Sheet aberto de novo não fica com a trava stale até 30s)", () => {
+  // Fix round 3 (R-6 da re-revisão): `refetchOnMount: "always"` incondicional custava um RPC cheio
+  // (`_ids: null`, até 5000 linhas) em TODO mount de TODO consumidor futuro (card do Plan. Produto,
+  // Produto Acabado/Importado, slot do Plan.Tecido, Dialog "Novo card") — muitos mounts por navegação
+  // (filtro, colapsar grupo, trocar de aba). Virou opt-in: só o Sheet do Planejamento passa
+  // `{ sempreAoAbrir: true }`; os demais ficam no default (staleTime 30s, sem refetch forçado).
+  it("useIntegracaoEstados só usa refetchOnMount: 'always' quando o CHAMADOR passa sempreAoAbrir:true (opt-in, não mais incondicional)", () => {
     const s = ler("src/hooks/useIntegracaoEstado.ts");
-    expect(s).toMatch(/refetchOnMount: "always"/);
+    expect(s).not.toMatch(/refetchOnMount: "always",\n\s*retry: false,/); // não é mais incondicional
+    expect(s).toMatch(/refetchOnMount: o\?\.sempreAoAbrir \? "always" : undefined,/);
+  });
+  // Prova COMPORTAMENTAL (não spy em export ESM — `useQuery` não é configurável pelo namespace do
+  // módulo, `vi.spyOn` falha com "Cannot redefine property"). Em vez disso, prova o EFEITO real de
+  // `refetchOnMount`: semeia a query no cache do próprio QueryClient como FRESCA (dado != undefined,
+  // `staleTime` de 30s ainda não vencido) e monta o hook — com `refetchOnMount: "always"` o RPC roda
+  // de novo mesmo fresca; com o default (undefined = "true", que RESPEITA staleTime) o RPC NÃO roda
+  // de novo enquanto a query está fresca. Esse é exatamente o comportamento que o m2/M-1 pedia pro
+  // Sheet do Planejamento e que o R-6 restringiu aos consumidores que passam `sempreAoAbrir: true`.
+  it("useIntegracaoEstados()/({sempreAoAbrir:true}) — mesma key, dado fresco no cache: comportamento realmente MUDA com a opção (2ª montagem refaz o RPC só com sempreAoAbrir)", async () => {
+    // `useIntegracaoEstados` chaveia por `useActiveTenantId()`, que por sua vez precisa de `useAuth()`
+    // (contexto real de sessão) — mockados aqui com `vi.doMock` + `vi.resetModules()` (mesmo padrão já
+    // usado em integracao-resposta.test.ts/integracao-tela-fonte.test.ts) para poder montar o hook de
+    // verdade num QueryClient real e observar o RPC disparar (ou não) por causa do `refetchOnMount`.
+    vi.resetModules();
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
+    rpcSpy.mockClear();
+    const { createElement } = await import("react");
+    const { act: act2 } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { useIntegracaoEstados } = await import("@/hooks/useIntegracaoEstado");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function montarLocal(opts: { sempreAoAbrir?: boolean } | undefined) {
+      function Harness() {
+        useIntegracaoEstados(opts);
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      act2(() => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Harness))); });
+      return { unmount: () => { act2(() => { root.unmount(); }); container.remove(); } };
+    }
+    // 1ª montagem (sem a opção): popula o cache de verdade via o RPC mockado (fica fresco por 30s).
+    const v1 = montarLocal(undefined);
+    await act2(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const chamadasAposPrimeira = rpcSpy.mock.calls.filter(([n]) => n === "integracao_estado_modelos").length;
+    expect(chamadasAposPrimeira).toBeGreaterThan(0);
+    v1.unmount();
+    // 2ª montagem, MESMO client (cache ainda fresco), SEM sempreAoAbrir: não deve buscar de novo —
+    // é o comportamento padrão do TanStack Query, que os outros consumidores futuros (card do Plan.
+    // Produto, Produto Acabado/Importado, slot do Plan.Tecido, Dialog "Novo card") passam a ter.
+    rpcSpy.mockClear();
+    const v2 = montarLocal(undefined);
+    await act2(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(rpcSpy.mock.calls.filter(([n]) => n === "integracao_estado_modelos").length).toBe(0);
+    v2.unmount();
+    // 3ª montagem, MESMO client (cache ainda fresco), AGORA com sempreAoAbrir:true: busca de novo
+    // mesmo fresca — é exatamente o comportamento que o Sheet do Planejamento precisa (m2/M-1).
+    rpcSpy.mockClear();
+    const v3 = montarLocal({ sempreAoAbrir: true });
+    await act2(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(rpcSpy.mock.calls.filter(([n]) => n === "integracao_estado_modelos").length).toBeGreaterThan(0);
+    v3.unmount();
+  });
+  it("PlanejamentoDetail.tsx (único consumidor fora do hook) passa { sempreAoAbrir: true } — é o único que precisa da trava sempre fresca (bloqueia Salvar)", () => {
+    const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
+    expect(s).toMatch(/useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: true \}\)/);
   });
   it("usePlanejamentoSave.ts invalida ['integracao-estado'] no onError quando o code é 42501 e a mensagem começa com integracao_travado:", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
@@ -439,4 +610,117 @@ describe("Fix round 2 (m1/I-2) — aplicarAGravar não chama aplicar_skus_modelo
     expect(resultado).not.toBe("nada");
     view.unmount();
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 3 (R-5) — RENDER real de `usePlanejamentoSave` (não `PlanejamentoDetail` inteiro — inviável, ver
+// task-21-report.md rounds 1/2: a `ficha: FichaSave` tem dependências profundas de BOM/CAD). Este harness monta
+// SÓ `usePlanejamentoSave` com uma `ficha` stub INERTE (`gravar: false` em tudo — o BOM/CAD nunca entra no
+// caminho), Supabase mockado (spy no `.update()`), e dispara um Salvar de VERDADE (`save.mutate()` → aguarda
+// `onSuccess`). Prova que o restore da trava (R-1/R-3/R-4) roda de fato dentro do onSuccess real — não só a
+// função pura isolada. Se alguém comentar a chamada de `resolverColunasTravadas`/o uso de `paraBaseDoMerge` no
+// onSuccess (verificado manualmente numa cópia no scratchpad, NUNCA no worktree — ver o relato no
+// task-21-report.md), este teste fica RED porque `baseRef.current.draft` continuaria com a forma CANÔNICA
+// (calculada por `normalizarDraftSalvo`) em vez do valor CRU do servidor.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 3 (R-5) — RENDER real de usePlanejamentoSave: o restore da trava roda dentro do onSuccess de verdade", () => {
+  it("card travado em titulo_pagina (valor não-canônico, NÃO editado pelo usuário): depois do Salvar, baseRef fica com o valor CRU do servidor, não a forma canônica", async () => {
+    const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    // Valor CRU gravado no banco: título com espaço (não-canônico — normalizarDraftSalvo apararia pra
+    // "Blusa | Loja"). O usuário NÃO editou o campo (travado, desabilitado) — só salvou por causa de OUTRO
+    // campo (ex.: nome). `travaIntegracao` marca `titulo_pagina` como travado.
+    const draftCru: Draft = { ...emptyDraft(), nome: "Blusa", titulo_pagina: " Blusa | Loja " };
+    const trava = new Set(["titulo_pagina"]);
+
+    const bomInerte: any = {
+      estado: null, snapshot: "", gravar: false, sujoNaCaptura: false,
+      flags: { grade: false, consumo: false, aviamentos: false },
+      idsEtiquetasServidor: [], tecidosPlanejados: [], totais: null,
+      cad: { gravar: false }, gradesPayload: null, gradeExterna: null, gradeConflito: false, enviadoNaCaptura: false,
+    };
+    const fichaStub: any = {
+      podeGravarColunasDev: false, podeVerCustos: false,
+      conflitoBomRef: { current: false }, verificandoBomRef: { current: false }, colecoesTouchadasRef: { current: false },
+      setConflitoBom: () => {}, marcarSaveEmVoo: () => {}, bomMudouNoServidor: async () => false,
+      capturar: () => bomInerte, cadGravado: () => {}, aposSalvar: () => ({ bomMudouEmVoo: false, edicoesPerdidas: false }),
+      bomGravado: () => {}, invalidarBom: () => {}, bomPendenteDeGravar: () => false,
+      etapas: {},
+    };
+
+    const draftRef = { current: draftCru };
+    const touchedRef = { current: new Set<string>() }; // NADA tocado — nem sequer nome (o Salvar pode disparar por qualquer motivo)
+    const baseRef = { current: { draft: draftCru } }; // o servidor JÁ TEM esse valor cru antes deste save
+    const revRef = { current: 1 };
+    const retryRef = { current: false };
+    const savingRef = { current: false };
+    const conflitosRef = { current: [] as any[] };
+    const moLinhasRef = { current: [] as any[] };
+    const moBaseRef = { current: [] as any[] };
+    const gradeRevendaBaseRef = { current: "{}" };
+    const gradeRevendaRevRef = { current: null };
+
+    let updPayloadCapturado: Record<string, unknown> | null = null;
+    rpcSpy.mockClear();
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    const fromSpy = vi.fn((tabela: string) => {
+      if (tabela !== "modelos") return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+      return {
+        update: (payload: Record<string, unknown>) => {
+          updPayloadCapturado = payload;
+          return {
+            eq: () => ({
+              eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
+            }),
+          };
+        },
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 2 }, error: null }) }) }),
+      };
+    });
+    supabaseMod.supabase.from = fromSpy;
+
+    function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
+      const api = usePlanejamentoSave({
+        modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: false,
+        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        refEditavel: false, travaIntegracao: trava, categorias: [],
+        draft: draftRef.current, setDraft: (fnOrValue: any) => {
+          draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
+        },
+        draftLiveRef: draftRef as any, touchedRef: touchedRef as any, baseRef: baseRef as any,
+        revRef: revRef as any, retryRef: retryRef as any, savingRef: savingRef as any,
+        conflitosRef: conflitosRef as any, setConflitos: () => {}, setUltimoMerge: () => {},
+        setEnviada: () => {}, setLancado: () => {},
+        moLinhasRef: moLinhasRef as any, moBaseRef: moBaseRef as any, setMoLinhasBase: () => {},
+        gradeRevenda: {}, setGradeRevenda: () => {}, gradeRevendaDirty: false,
+        gradeRevendaBaseRef: gradeRevendaBaseRef as any, gradeRevendaRevRef: gradeRevendaRevRef as any,
+        buildLinhasGradeRevenda: () => [], gradeCompradoPeloBom: false,
+        qc, onSaved: async () => {}, ficha: fichaStub, resetDraftBaseline: () => {},
+      });
+      onReady(api);
+      return null;
+    }
+    let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+
+    await act(async () => {
+      apiRef!.save.mutate();
+      // A mutation é assíncrona (await lerGradeServidorComprado/etc. dentro do mutationFn) — espera resolver.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // O payload do UPDATE real NÃO deve conter `titulo_pagina` (omitido pela trava).
+    expect(updPayloadCapturado).not.toBeNull();
+    expect("titulo_pagina" in (updPayloadCapturado as Record<string, unknown>)).toBe(false);
+    // A PROVA CENTRAL de R-5: `baseRef.current.draft.titulo_pagina` (a base do próximo merge) é o valor CRU
+    // do servidor (" Blusa | Loja ", com espaço) — NÃO a forma canônica ("Blusa | Loja", aparada) que
+    // `normalizarDraftSalvo` calcularia sozinho. Se o restore do onSuccess estiver desligado, este campo
+    // viria aparado (a forma canônica de `savedDraft`), e a asserção abaixo falharia.
+    expect(baseRef.current.draft.titulo_pagina).toBe(" Blusa | Loja ");
+    view.unmount();
+  }, 10000);
 });
