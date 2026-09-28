@@ -2529,3 +2529,17 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
     await view.desmontar();
   });
 });
+
+describe("Integração — P-87: sem tela no celular", () => {
+  it("rota: tela estreita mostra só o aviso (a página nem monta)", () => {
+    const r = ler("src/routes/_authenticated/integracao.tsx");
+    expect(r).toMatch(/useIsMobile\(\)/);
+    expect(r).toMatch(/estreita \? <AvisoComputador \/> : <IntegracaoPage \/>/);
+    expect(ler("src/components/integracao/AvisoComputador.tsx")).toMatch(/A Integração é usada no computador/);
+  });
+  it("menu: o item Integração (loja e Admin Mestre) some em tela estreita", () => {
+    const s = ler("src/components/app-sidebar.tsx");
+    expect(s).toMatch(/item\.url === "\/integracao" \? "max-md:hidden"/);
+    expect(s).toMatch(/<SidebarMenuItem className="max-md:hidden">\s*<SidebarMenuButton asChild isActive=\{isActive\("\/integracao"\)\}/);
+  });
+});

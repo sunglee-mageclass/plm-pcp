@@ -165,7 +165,8 @@ export function AppSidebar() {
       // quando aberto, dot no canto quando recolhido.
       const otbDiv = item.url === "/otb" ? (countFor.otb_divergencia ?? 0) : 0;
       return (
-        <SidebarMenuItem key={item.url}>
+        // P-87: a Integração não tem tela no celular — o item some em tela estreita
+        <SidebarMenuItem key={item.url} className={item.url === "/integracao" ? "max-md:hidden" : undefined}>
           <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
             <Link to={item.url} className="relative">
               <item.icon className="h-4 w-4" />
@@ -319,7 +320,7 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
+                <SidebarMenuItem className="max-md:hidden">
                   <SidebarMenuButton asChild isActive={isActive("/integracao")} tooltip="Integração">
                     <Link to="/integracao">
                       <Plug className="h-4 w-4" />
