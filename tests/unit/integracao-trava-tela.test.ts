@@ -13,6 +13,18 @@ import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/I
 // `act()` sob React 19 dev loga "not configured to support act(...)" e esconde falhas reais no ruído.
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Fix round 2 (item 3/m1) — mock MÍNIMO do Supabase só para o teste de useSkusModelo mais abaixo: nenhum outro
+// teste deste arquivo faz I/O (são funções puras ou componentes sem Supabase), então este mock não afeta o resto.
+// `rpc` é um spy — a asserção central do teste é que "aplicar_skus_modelo" NUNCA é chamado quando travado.
+const rpcSpy = vi.hoisted(() => vi.fn((nome: string, _args: unknown) => {
+  if (nome === "skus_modelo" || nome === "skus_previa") {
+    return Promise.resolve({ data: { status: "ok", tamanho_tipo: "letra", linhas: [], faltas: [], avisos: [] }, error: null });
+  }
+  return Promise.resolve({ data: null, error: null });
+}));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy, from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }) } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+
 const ler = (p: string) => readFileSync(p, "utf8");
 
 /** Monta uma raiz react-dom/client num <div> anexado ao body (happy-dom). unmount() limpa. */
@@ -349,5 +361,82 @@ describe("Fix round 1 (m5/M-2) — capitalização e texto do SKU alinhado com P
   it("TEXTO_TRAVA_SHEET usa 'Integração' maiúsculo", () => {
     const t = ler("src/lib/integracao/trava.ts");
     expect(t).toMatch(/Campos marcados na Integração ficam travados\./);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 — item 3 (m1/I-2 das revisões): `aplicarAGravar` não podia rodar quando os SKUs estão travados
+// pela Integração — uma prévia "a gravar" pendente de ANTES do lock chegar continuava chamando
+// `aplicar_skus_modelo` em todo Salvar (e recebendo 42501 `integracao_travado: sku` pra sempre, sem forma de o
+// usuário limpar o estado preso — os controles de SKU já estão desabilitados). RENDER de verdade
+// (react-dom/client + happy-dom), montando o par real useSkusAGravar()+useSkusModelo() com `podeEditar=false`.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 2 (m1/I-2) — aplicarAGravar não chama aplicar_skus_modelo quando os SKUs estão travados", () => {
+  it("card travado (podeEditar=false) com uma prévia 'a gravar' pendente: aplicarAGravar NUNCA chama aplicar_skus_modelo e limpa o pendente", async () => {
+    rpcSpy.mockClear();
+    const { useSkusAGravar, useSkusModelo } = await import("@/components/planejamento/planejamento-detail/codigos/useSkusModelo");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    let apiRef: ReturnType<typeof useSkusModelo> | null = null;
+    let aGravarRef: ReturnType<typeof useSkusAGravar> | null = null;
+    function Harness() {
+      const aGravar = useSkusAGravar();
+      aGravarRef = aGravar;
+      const api = useSkusModelo("m1", true, false /* podeEditar=false — TRAVADO */, {
+        refPrevia: "REF0001", tamanhoTipo: "letra", aGravar,
+      });
+      apiRef = api;
+      return null;
+    }
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness)));
+
+    // Simula uma prévia "a gravar" que já estava pendente (pedido de Regerar) — ficou pendente ANTES do lock
+    // chegar, exatamente o cenário m1/I-2 descreve. `pedirRegerar` marca `regerar: true` (nadaAGravar vira false).
+    act(() => { aGravarRef!.pedirRegerar(); });
+    expect(aGravarRef!.atual().regerar).toBe(true); // confirma que HÁ algo pendente antes de chamar aplicarAGravar
+
+    let resultado: "nada" | "ok" | "falhou" | null = null;
+    await act(async () => { resultado = await apiRef!.aplicarAGravar(); });
+
+    expect(resultado).toBe("nada");
+    // A prova central: aplicar_skus_modelo NUNCA foi chamado (nem skus_modelo/skus_previa — que rodam em
+    // background pelas queries — contam como esta RPC específica).
+    expect(rpcSpy.mock.calls.some(([nome]) => nome === "aplicar_skus_modelo")).toBe(false);
+    // O estado pendente foi limpo (como um Salvar bem-sucedido faria) — não fica preso pra sempre.
+    expect(aGravarRef!.atual().regerar).toBe(false);
+
+    view.unmount();
+  });
+
+  it("card LIVRE (podeEditar=true) com a MESMA prévia pendente: aplicarAGravar segue tentando (não é 'nada' por falta de dado — 'falhou' pela prévia ainda não calculada, nunca 'nada')", async () => {
+    rpcSpy.mockClear();
+    const { useSkusAGravar, useSkusModelo } = await import("@/components/planejamento/planejamento-detail/codigos/useSkusModelo");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    let apiRef: ReturnType<typeof useSkusModelo> | null = null;
+    let aGravarRef: ReturnType<typeof useSkusAGravar> | null = null;
+    function Harness() {
+      const aGravar = useSkusAGravar();
+      aGravarRef = aGravar;
+      const api = useSkusModelo("m1", true, true /* podeEditar=true — LIVRE */, {
+        refPrevia: "REF0001", tamanhoTipo: "letra", aGravar,
+      });
+      apiRef = api;
+      return null;
+    }
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness)));
+    act(() => { aGravarRef!.pedirRegerar(); });
+
+    let resultado: "nada" | "ok" | "falhou" | null = null;
+    await act(async () => { resultado = await apiRef!.aplicarAGravar(); });
+
+    // Sem o gate de I-2, o card LIVRE nunca retorna "nada" aqui (há algo a gravar) — prova que a diferença de
+    // comportamento entre travado/livre é EXATAMENTE o gate `podeEditar`, não algum outro efeito colateral do
+    // mock. A prévia real não teve tempo de chegar (sem esperar o debounce/refetch), então cai no ramo
+    // "calculando" ('falhou'), nunca em "nada".
+    expect(resultado).not.toBe("nada");
+    view.unmount();
   });
 });

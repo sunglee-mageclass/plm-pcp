@@ -113,6 +113,15 @@ export function useSkusModelo(
   const aplicarAGravar = async (): Promise<"nada" | "ok" | "falhou"> => {
     const s = o.aGravar.atual();
     if (nadaAGravar(s) || !modeloId) return "nada";
+    // Fix round 2 (m1/I-2 das revisões) — SKUs travados pela Integração: uma prévia "a gravar" que ficou
+    // pendente ANTES do lock chegar não pode mais tentar `aplicar_skus_modelo` (o gatilho recusa com 42501
+    // `integracao_travado: sku` em TODO Salvar, e a prévia fica presa pra sempre — os controles de SKU já
+    // estão desabilitados, então o usuário não consegue nem descartar). Mesmo gate que `gerarSeFaltar` já usa
+    // (`podeEditar`); limpa o estado pendente (como um Salvar bem-sucedido faria) em vez de deixá-lo empacado.
+    if (!podeEditar) {
+      o.aGravar.limparSe(s);
+      return "nada";
+    }
     const d = previaRef.current;
     // I1 (T5, revisão Opus) — `buscandoRef`/`isFetching` SAIU da condição: todo Salvar faz UPDATE em `modelos`, cujo eco
     // Realtime invalida `plan-skus-previa` e refaz a prévia da MESMA entrada — se esse refetch estiver em voo bem no
