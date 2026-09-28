@@ -282,3 +282,14 @@ describe("ExemploDialog — isolado (foto=null de propósito, N12)", () => {
     await act(async () => { root.unmount(); container.remove(); });
   });
 });
+
+describe("Manual — endereço (dono 28/set: nunca localhost; domínio novo acompanha sozinho)", () => {
+  it("localhost/127.0.0.1 → endereço público; site publicado → o próprio endereço; inválido → público", async () => {
+    const { enderecoDoManual, ENDERECO_PUBLICO_API } = await import("@/components/integracao/ManualAba");
+    expect(enderecoDoManual("http://localhost:5173")).toBe(ENDERECO_PUBLICO_API);
+    expect(enderecoDoManual("http://127.0.0.1:5188")).toBe(ENDERECO_PUBLICO_API);
+    expect(enderecoDoManual("https://sistrama.sung-lee.workers.dev")).toBe("https://sistrama.sung-lee.workers.dev");
+    expect(enderecoDoManual("https://app.wish360.com.br")).toBe("https://app.wish360.com.br");
+    expect(enderecoDoManual("")).toBe(ENDERECO_PUBLICO_API);
+  });
+});

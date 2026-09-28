@@ -56,8 +56,24 @@ function Blocos({ blocos, onExemplo }: { blocos: Bloco[]; onExemplo: () => void 
   );
 }
 
+// Dono (28/set): no site publicado o Manual usa o PRÓPRIO endereço do site (se o domínio mudar, acompanha sozinho); só
+// quando aberto no Mac (localhost/127.0.0.1 — :5173/:5188) cai no endereço público, porque o ERP nunca chama o Mac.
+export const ENDERECO_PUBLICO_API = "https://sistrama.sung-lee.workers.dev";
+export function enderecoDoManual(origem: string): string {
+  try {
+    const h = new URL(origem).hostname;
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]") return ENDERECO_PUBLICO_API;
+    return origem;
+  } catch {
+    return ENDERECO_PUBLICO_API;
+  }
+}
+
 export function ManualAba() {
-  const secoes: SecaoManual[] = useMemo(() => montarManual(typeof window === "undefined" ? "" : window.location.origin), []);
+  const secoes: SecaoManual[] = useMemo(
+    () => montarManual(enderecoDoManual(typeof window === "undefined" ? "" : window.location.origin)),
+    [],
+  );
   const [exemplo, setExemplo] = useState(false);
   return (
     <div className="space-y-4">
