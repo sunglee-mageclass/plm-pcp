@@ -251,4 +251,35 @@ describe("F5a — somenteLeitura=false (padrão) segue IGUAL a hoje", () => {
     expect(campos().some((el) => !desabilitado(el))).toBe(true);
     expect(Array.from(document.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).toContain("Adicionar");
   });
+
+  // M2 da revisão (28/set): o teste acima só prova o RETRATO do rodapé/campos, não que o
+  // caminho editável ainda GRAVA. Uma regressão que deixasse `persistModelo`/`ModeloObservacoes`
+  // no-op com `somenteLeitura=false` passaria pelo teste de cima sem ser percebida.
+  it("Observações do bloco: o auto-save do onBlur grava modelo_observacoes.update (somenteLeitura=false)", async () => {
+    seed({ enviadoCad: false });
+    await abrir({});
+    await abrirTodasSecoes();
+    const campoDescricao = document.querySelector<HTMLInputElement>('input[placeholder="Descrição"]');
+    expect(campoDescricao, "campo Descrição da Observação do bloco não encontrado").not.toBeNull();
+    expect(desabilitado(campoDescricao!)).toBe(false);
+    await digitar(campoDescricao!, "Lavagem a seco");
+    await act(async () => {
+      campoDescricao!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      campoDescricao!.dispatchEvent(new FocusEvent("blur"));
+    });
+    await esperar(50);
+    expect(escritas().some((c) => c.op === "update" && c.tabela === "modelo_observacoes")).toBe(true);
+  });
+
+  it("Salvar: habilitado e dispara modelos.update + rpc:salvar_modelo_bom (somenteLeitura=false)", async () => {
+    seed({ enviadoCad: false });
+    await abrir({});
+    const salvar = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.textContent ?? "").trim() === "Salvar")!;
+    expect(salvar, "botão Salvar não encontrado").toBeTruthy();
+    expect(salvar.disabled).toBe(false);
+    await clicar(salvar);
+    await esperar(100);
+    expect(escritas().some((c) => c.op === "update" && c.tabela === "modelos")).toBe(true);
+    expect(escritas().some((c) => c.op === "rpc" && c.tabela === "rpc:salvar_modelo_bom")).toBe(true);
+  });
 });

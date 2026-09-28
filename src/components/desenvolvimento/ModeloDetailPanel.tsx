@@ -1820,6 +1820,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange, onSaved, somenteLeitur
       // que não reseta — ver gates de isFetching no efeito de semeadura do CAD).
       qc.invalidateQueries({ queryKey: ["dev-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["dev-cad-tecidos"] });
+      // F5a/M3 (review): em somenteLeitura não há rascunho local a proteger, então o
+      // re-seed do CAD é sempre seguro — sem isto a seção "4. CAD" só atualizava quando o
+      // merge do draft escalar mudava algo (fora do modo só leitura, cadSeeded só reseta
+      // ali); um save de outro usuário que mexe SÓ no CAD (Explosão/PCP) nunca reabaixava
+      // `cadSeeded`, então a seção ficava com o valor antigo até o Sheet ser reaberto.
+      if (somenteLeitura) setCadSeeded(false);
     },
     campoFocado,
   });
