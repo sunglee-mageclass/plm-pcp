@@ -35,9 +35,11 @@ import { MoneyInput } from "@/components/shared/MoneyInput";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { InfoHover } from "@/components/shared/InfoHover";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
   custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
+  markupVarejoExibido, markupAtacadoExibido,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 
@@ -203,15 +205,20 @@ export function ProdutoImportadoCard({
   // banco (`_imp_recomputar_precos_modelo` soma a MO em v_custo). Os previews de preço e o caminho
   // inverso usam ESTA base (não só o landed), senão o preview divergiria do que o servidor persiste.
   const baseImp = resultado.unitarioBrl + (mo.total || 0);
-  const precos = useMemo(() => {
-    const c = cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
-    // D14/R1: o preço FIXO manda ("última edição manda" — mesma regra do servidor e do precosDoDraft).
-    return { ...c, atacado: draft.preco_atacado_fixo ?? c.atacado, varejo: draft.preco_varejo_fixo ?? c.varejo };
-  }, [baseImp, draft.markup_atacado, draft.markup_varejo, draft.preco_atacado_fixo, draft.preco_varejo_fixo]);
   // Integração (F4): REF, Nome, Foto e o VAREJO (valor + markup) travam quando o campo está marcado; atacado LIVRE (D34/R8).
   // O banco recusa (§8); a tela só espelha.
   const estadoIntegracao = useIntegracaoEstado(draft.modelo_id);
   const travaIntegracao = colunasTravadas(estadoIntegracao);
+  const precos = useMemo(() => {
+    const c = cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
+    // D14/R1: o preço FIXO manda ("última edição manda" — mesma regra do servidor e do precosDoDraft).
+    // M-1 (Fix round 1): com o varejo TRAVADO, a tela mostra o preço CONGELADO (`modeloPrecoVenda`,
+    // o que a API de fato lê — B1 freeze), não um preço derivado ao vivo do custo/markup (que pode
+    // ter mudado desde a marcação — o disabled do campo já impede editar, mas o VALOR exibido sem
+    // isto mentiria sobre o que está integrado).
+    const varejo = travaIntegracao.has("preco_venda") ? (draft.modeloPrecoVenda ?? c.varejo) : (draft.preco_varejo_fixo ?? c.varejo);
+    return { ...c, atacado: draft.preco_atacado_fixo ?? c.atacado, varejo };
+  }, [baseImp, draft.markup_atacado, draft.markup_varejo, draft.preco_atacado_fixo, draft.preco_varejo_fixo, draft.modeloPrecoVenda, travaIntegracao]);
   const valorProdutoM2 = useMemo(() => m1ParaM2(draft.valor_unitario_m1, draft.cotacao_ref), [draft.valor_unitario_m1, draft.cotacao_ref]);
   const valorTranspM2 = (Number(draft.peso_kg) || 0) * (Number(draft.transporte_m2) || 0);
   const moedaM2 = draft.moeda_intermediaria; // null = cadeia direta (mostra na moeda de compra)
@@ -577,8 +584,19 @@ export function ProdutoImportadoCard({
                     <span className="text-xs text-muted-foreground">distribuída por peso nas variantes abaixo</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <Label className="text-sm">Cor, peso e quantidade</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
+                    <div className="flex items-center gap-1">
+                      <Label className="text-sm">Cor, peso e quantidade</Label>
+                      {/* Integração (F4) — Fix round 1 (I-3): "variantes" trava SEMPRE (SEMPRE_TRAVADO em
+                          trava.ts) — o gatilho fn_integracao_trava_variantes compara o conjunto DISTINCT de
+                          cores contra o congelado na marcação; mudar/add/remover cor derruba com 42501 o Salvar do
+                          produto INTEIRO. Qtd/peso ficam livres (D11: a trava só olha o conjunto de cores). */}
+                      {travaIntegracao.has("variantes") && (
+                        <InfoHover ariaLabel="Por que as cores estão travadas">
+                          Cores travadas pela Integração — só o super admin desfaz.
+                        </InfoHover>
+                      )}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" disabled={travaIntegracao.has("variantes")} onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
                   </div>
                   {draft.variantes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Nenhuma variante ainda.</p>
@@ -590,11 +608,11 @@ export function ProdutoImportadoCard({
                         return (
                           <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                             <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground max-md:hidden">{v.ordem}</span>
-                            <Select value={v.cor_id ?? ""} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
+                            <Select value={v.cor_id ?? ""} disabled={travaIntegracao.has("variantes")} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
                               <SelectTrigger className="w-36 max-md:w-full" data-colab-path={cp(`var-cor:${v.ordem}`)}><SelectValue placeholder="Cor base" /></SelectTrigger>
                               <SelectContent>{cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                             </Select>
-                            <Select value={v.cor_apelido_id ?? ""} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
+                            <Select value={v.cor_apelido_id ?? ""} disabled={travaIntegracao.has("variantes")} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
                               <SelectTrigger className="w-36 max-md:w-full" data-colab-path={cp(`var-apelido:${v.ordem}`)}><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
@@ -617,7 +635,7 @@ export function ProdutoImportadoCard({
                               <div className="text-[11px] tabular-nums text-muted-foreground">
                                 {fmtMoeda(consumo, draft.moeda_compra)} · <b className="text-foreground">{fmtMoeda(total, draft.moeda_compra)}</b>
                               </div>
-                              <Button type="button" size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
+                              <Button type="button" size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={travaIntegracao.has("variantes")} onClick={() => removeVariante(v.ordem)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
@@ -811,7 +829,9 @@ export function ProdutoImportadoCard({
                           placeholder="2,50"
                           data-colab-path={cp("markup-atacado")}
                           className="pr-6"
-                          value={draft.markup_atacado ?? 0}
+                          // M-4 (Fix round 1): mostra o markup GRAVADO ou, com preço fixo, o DERIVADO (preço÷base) —
+                          // espelha `markupVarejoExib` do Produto Acabado ("digitar preço preenche o markup").
+                          value={markupAtacadoExibido(draft, baseImp) ?? 0}
                           // D14/R1: markup digitado LIMPA o preço fixo do canal ("última edição manda") — grava no Salvar.
                           onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_atacado: Number(e.target.value), preco_atacado_fixo: null } : { markup_atacado: null })}
                         />
@@ -826,7 +846,7 @@ export function ProdutoImportadoCard({
                           placeholder="2,50"
                           data-colab-path={cp("markup-varejo")}
                           className="pr-6"
-                          value={draft.markup_varejo ?? 0}
+                          value={markupVarejoExibido(draft, baseImp) ?? 0}
                           disabled={travaIntegracao.has("preco_venda")}
                           onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_varejo: Number(e.target.value), preco_varejo_fixo: null } : { markup_varejo: null })}
                         />

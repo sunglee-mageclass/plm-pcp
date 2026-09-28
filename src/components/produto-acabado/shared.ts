@@ -242,6 +242,66 @@ export function variantesBatemComTotal(p: Pick<ProdutoDraft, "variantes" | "qtd_
  * a mensagem que o usuário precisa pra corrigir. `erroValidacao` marca o erro com
  * `code: "P0001"` pra usar o MESMO atalho confiável do servidor, sem depender da heurística.
  */
+// ── Integração F4 — Fix round 1 (I-1/I-2/M-1/M-3/M-4) — espelha 1:1 o mesmo bloco de
+// `produto-importado/shared.ts` (mesmo par preco_varejo_fixo/markup_varejo, mesma trigger
+// `fn_integracao_trava_espelho`, mesmas colunas nome/ref/foto_url). Ver o comentário completo lá.
+export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo";
+export const CAMPOS_TRAVAVEIS_POR_COLUNA: Record<string, readonly CampoTravavel[]> = {
+  nome: ["nome"],
+  ref: ["ref"],
+  fotos_modelo: ["foto_url"],
+  preco_venda: ["preco_varejo_fixo", "markup_varejo"],
+};
+export type AvisoTrava = { campo: CampoTravavel; rotulo: string };
+export type ResolucaoTravaProduto = {
+  paraServidor: Partial<Record<CampoTravavel, unknown>>;
+  avisos: AvisoTrava[];
+};
+const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
+  nome: "Nome", ref: "REF", foto_url: "Foto", preco_varejo_fixo: "Valor varejo", markup_varejo: "Markup Varejo",
+};
+/** PURA — espelha `resolverTravaImportado` (produto-importado/shared.ts): reverte campos travados
+ *  ao valor do servidor (incondicional) e devolve avisos PT só para os tocados que divergiam. */
+export function resolverTravaAcabado(o: {
+  enviado: ProdutoDraft;
+  servidor: ProdutoDraft | null | undefined;
+  travaAtual: ReadonlySet<string> | null | undefined;
+  touched: ReadonlySet<string>;
+}): ResolucaoTravaProduto {
+  const { enviado, servidor, travaAtual, touched } = o;
+  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, avisos: [] };
+  const paraServidor: Partial<Record<CampoTravavel, unknown>> = {};
+  const avisos: AvisoTrava[] = [];
+  const camposJaVistos = new Set<CampoTravavel>();
+  for (const coluna of travaAtual) {
+    const campos = CAMPOS_TRAVAVEIS_POR_COLUNA[coluna];
+    if (!campos) continue;
+    for (const campo of campos) {
+      if (camposJaVistos.has(campo)) continue;
+      camposJaVistos.add(campo);
+      const valorServidor = (servidor as any)[campo];
+      paraServidor[campo] = valorServidor;
+      const camposDoPar = coluna === "preco_venda" ? (["preco_varejo_fixo", "markup_varejo"] as const) : ([campo] as const);
+      const tocadoNoSentidoDoPar = camposDoPar.some((c) => touched.has(c));
+      if (!tocadoNoSentidoDoPar) continue;
+      const valorEnviado = (enviado as any)[campo];
+      if (valorEnviado === valorServidor) continue;
+      avisos.push({ campo, rotulo: ROTULO_CAMPO_TRAVADO[campo] });
+    }
+  }
+  return { paraServidor, avisos };
+}
+export function toastTravaAcabado(avisos: readonly AvisoTrava[]): string {
+  const rotulos = avisos.map((a) => a.rotulo);
+  const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
+  const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
+  return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
+}
+export function aplicarResolucaoTravaAcabado(draft: ProdutoDraft, resolucao: ResolucaoTravaProduto): ProdutoDraft {
+  if (Object.keys(resolucao.paraServidor).length === 0) return draft;
+  return { ...draft, ...resolucao.paraServidor } as ProdutoDraft;
+}
+
 export function erroValidacao(mensagem: string): Error {
   const erro = new Error(mensagem) as Error & { code: string };
   erro.code = "P0001";

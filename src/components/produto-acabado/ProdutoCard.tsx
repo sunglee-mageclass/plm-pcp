@@ -31,6 +31,7 @@ import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
 import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { InfoHover } from "@/components/shared/InfoHover";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
@@ -134,6 +135,12 @@ export function ProdutoCard({
   const podeVerCustosMO = canView("criacao_planejamento:custos") || canView("criacao_planejamento");
   const podeAprovarMO = canEdit("producao_servico_aprovacao");
   const mo = useMaoObraModelo(produto.modelo_id, podeVerCustosMO);
+  // Integração (F4): produto integrável/integrado — Nome, Foto e o VAREJO (preço + markup) travam quando o campo está marcado,
+  // e o Excluir some (o banco recusa: trg_zz_integracao_trava em produtos_acabados; a tela só espelha). Atacado fica livre
+  // (D34/R8). Sem card no Planejamento = sem trava. Movido pra CIMA (Fix round 1, M-1) — `precoVarejoLive`/`pillVarejo`
+  // (abaixo) precisam saber se o varejo está travado ANTES de decidir a fonte do preço mostrado.
+  const estadoIntegracao = useIntegracaoEstado(produto.modelo_id);
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [confirmLimpar, setConfirmLimpar] = useState(false);
   const [vincularOpen, setVincularOpen] = useState(false);
@@ -208,7 +215,13 @@ export function ProdutoCard({
   // manda; senão deriva do markup (base × markup). Markup EXIBIDO = markup gravado OU, quando há preço
   // fixo, o derivado (preço ÷ base) — assim digitar preço "preenche" o markup em vez de deixá-lo vazio.
   const precoAtacadoLive = produto.preco_atacado_fixo ?? precoAtacado(base, produto.markup_atacado) ?? produto.modeloPrecoAtacado;
-  const precoVarejoLive = produto.preco_varejo_fixo ?? precoVarejo(base, produto.markup_varejo) ?? produto.modeloPrecoVenda;
+  // M-1 (Fix round 1, Integração): com o varejo TRAVADO, mostra o preço CONGELADO (`modeloPrecoVenda`, o
+  // que a API de fato lê — B1 freeze), NUNCA um preço derivado ao vivo do custo/markup — o disabled do
+  // campo (abaixo) já impede editar, mas o VALOR teria mentido sobre o que está de fato integrado se
+  // continuasse derivando (custo/insumos/MO podem mudar depois da marcação, mesmo com o produto travado).
+  const precoVarejoLive = travaIntegracao.has("preco_venda")
+    ? (produto.modeloPrecoVenda ?? produto.preco_varejo_fixo ?? precoVarejo(base, produto.markup_varejo))
+    : (produto.preco_varejo_fixo ?? precoVarejo(base, produto.markup_varejo) ?? produto.modeloPrecoVenda);
   const markupAtacadoExib = produto.markup_atacado ?? (produto.preco_atacado_fixo != null ? markupDePreco(base, produto.preco_atacado_fixo) : null);
   const markupVarejoExib = produto.markup_varejo ?? (produto.preco_varejo_fixo != null ? markupDePreco(base, produto.preco_varejo_fixo) : null);
   const pillAtacado = precoAtacadoLive;
@@ -452,11 +465,6 @@ export function ProdutoCard({
   // no servidor (`_salvar_produto_acabado_core`, migration 20260812130000) — isto é só o
   // affordance visual, redundante de propósito (mesmo padrão do bloco "1 · Compra", `temOc`).
   const identidadeTravada = temOc;
-  // Integração (F4): produto integrável/integrado — Nome, Foto e o VAREJO (preço + markup) travam quando o campo está marcado,
-  // e o Excluir some (o banco recusa: trg_zz_integracao_trava em produtos_acabados; a tela só espelha). Atacado fica livre
-  // (D34/R8). Sem card no Planejamento = sem trava.
-  const estadoIntegracao = useIntegracaoEstado(produto.modelo_id);
-  const travaIntegracao = colunasTravadas(estadoIntegracao);
 
   return (
     <div id={`produto-card-${produto.id}`} className="relative scroll-mt-3 rounded-lg border bg-card">
@@ -811,10 +819,21 @@ export function ProdutoCard({
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-sm">Variantes (cor)</Label>
+                      <div className="flex items-center gap-1">
+                        <Label className="text-sm">Variantes (cor)</Label>
+                        {/* Integração (F4) — Fix round 1 (I-3): "variantes" trava SEMPRE (SEMPRE_TRAVADO em
+                            trava.ts) — o gatilho fn_integracao_trava_variantes compara o conjunto DISTINCT de
+                            cores contra o congelado na marcação; mudar/add/remover cor derruba com 42501 o Salvar do
+                            produto INTEIRO. Qtd/peso ficam livres (D11: a trava só olha o conjunto de cores). */}
+                        {travaIntegracao.has("variantes") && (
+                          <InfoHover ariaLabel="Por que as cores estão travadas">
+                            Cores travadas pela Integração — só o super admin desfaz.
+                          </InfoHover>
+                        )}
+                      </div>
                       <div className="flex gap-2">
                         <Button type="button" variant="outline" size="sm" onClick={redistribuir}><RefreshCw className="mr-1 h-3.5 w-3.5" /> Redistribuir por peso</Button>
-                        <Button type="button" variant="outline" size="sm" onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
+                        <Button type="button" variant="outline" size="sm" disabled={travaIntegracao.has("variantes")} onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
                       </div>
                     </div>
                     {/* Review R1: agora que a Qtd total pode deixar de bater com a soma das
@@ -832,11 +851,11 @@ export function ProdutoCard({
                         {produto.variantes.map((v) => (
                           <div key={v.ordem} className="flex flex-wrap items-center gap-2 rounded-md border p-2 max-md:flex-col max-md:items-start">
                             <span className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground max-md:hidden">{v.ordem}</span>
-                            <Select value={v.cor_id ?? ""} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
+                            <Select value={v.cor_id ?? ""} disabled={travaIntegracao.has("variantes")} onValueChange={(cid) => setVariante(v.ordem, { cor_id: cid || null, cor_apelido_id: null })}>
                               <SelectTrigger data-colab-path={`card:${produto.id}:var-cor:${v.ordem}`} className="w-40 max-md:w-full"><SelectValue placeholder="Cor base" /></SelectTrigger>
                               <SelectContent>{cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
                             </Select>
-                            <Select value={v.cor_apelido_id ?? ""} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
+                            <Select value={v.cor_apelido_id ?? ""} disabled={travaIntegracao.has("variantes")} onValueChange={(aid) => setVariante(v.ordem, { cor_apelido_id: aid || null })}>
                               <SelectTrigger data-colab-path={`card:${produto.id}:var-apelido:${v.ordem}`} className="w-40 max-md:w-full"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
@@ -850,7 +869,7 @@ export function ProdutoCard({
                                 <span className="text-xs text-muted-foreground">qtd</span>
                                 <NumberInput data-colab-path={`card:${produto.id}:var-qtd:${v.ordem}`} integer className="h-8 w-20 text-center" value={v.qtd} onChange={(e) => setVariante(v.ordem, { qtd: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
                               </div>
-                              <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => removeVariante(v.ordem)}>
+                              <Button type="button" size="iconSm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" disabled={travaIntegracao.has("variantes")} onClick={() => removeVariante(v.ordem)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>

@@ -28,10 +28,13 @@ import { RecolherMenu } from "@/components/plan-tecido/RecolherMenu";
 import { ReplicarAcabadoDialog } from "./ReplicarAcabadoDialog";
 import {
   chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
+  resolverTravaAcabado, toastTravaAcabado, aplicarResolucaoTravaAcabado,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
+import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
+import { colunasTravadas } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -213,6 +216,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // Card → "Abrir card no Plan. Produto" abre o `PlanejamentoDetail` INLINE (por cima deste
   // Sheet) em vez de navegar — ele monta seu PRÓPRIO Sheet/guarda de unsaved (não duplicar aqui).
   const [planModeloId, setPlanModeloId] = useState<string | null>(null);
+  // Integração (F4) — Fix round 1 (I-1): mapa de estado por modelo_id, mesma fonte do card
+  // (`ProdutoCard`, hook singular) — aqui usado no `salvarUmProduto` pra resolver a trava de
+  // CADA produto no momento do save (ver comentário completo em `produto-importado/shared.ts`,
+  // `resolverTravaImportado` — este espelha `resolverTravaAcabado`).
+  const estadosIntegracao = useIntegracaoEstados();
   const agrup = useAgrupamentoState("produto-acabado", ["categoria"]);
   const agrupar: AgruparEstado = { grupo: agrup.isOn("grupo"), categoria: agrup.isOn("categoria") };
   const setAgrupar = (patch: Partial<AgruparEstado>) => {
@@ -652,11 +660,30 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // `montarDadosProduto`) — bloqueia com mensagem clara em vez de mandar o servidor rejeitar.
   // Colab (Fase 3): manda `_rev_base: p.rev` — a RPC dá P0409 se outra pessoa salvou ESTE
   // produto desde que eu o carreguei; reconciliado por `reconciliarProdutoP0409` (acima).
-  const salvarUmProduto = async (p: ProdutoDraft) => {
-    if (!variantesBatemComTotal(p)) {
+  const salvarUmProduto = async (p0: ProdutoDraft) => {
+    if (!variantesBatemComTotal(p0)) {
       throw erroValidacao(
-        `A soma das variantes (${somaPecas(p)}) precisa bater com a Qtd total (${p.qtd_total}) de "${p.nome}" — use "Redistribuir por peso" ou corrija manualmente.`,
+        `A soma das variantes (${somaPecas(p0)}) precisa bater com a Qtd total (${p0.qtd_total}) de "${p0.nome}" — use "Redistribuir por peso" ou corrija manualmente.`,
       );
+    }
+    // Integração (F4) — Fix round 1 (I-1/M-3, ruling da revisão) — espelha `salvarUmProduto` do
+    // Importado (`ProdutoImportadoSheet.tsx`, mesmo comentário completo lá): NUNCA reenviar um
+    // campo travado (nome/ref/foto/preço-varejo+markup-varejo) como o usuário o deixou — reverte
+    // ao valor do servidor ANTES de montar o payload, avisando em PT só se foi editado nesta
+    // sessão e de fato divergia.
+    const travaAtual = p0.modelo_id ? colunasTravadas(estadosIntegracao[p0.modelo_id] ?? null) : new Set<string>();
+    const servidorAtual = baseServidorRef.current[p0.id];
+    const touchedAgora = new Set(
+      (Object.keys(chaveDirty(p0)) as (keyof ReturnType<typeof chaveDirty>)[]).filter(
+        (k) => servidorAtual && JSON.stringify((chaveDirty(p0) as any)[k]) !== JSON.stringify((chaveDirty(servidorAtual) as any)[k]),
+      ),
+    );
+    const resolucao = resolverTravaAcabado({ enviado: p0, servidor: servidorAtual, travaAtual, touched: touchedAgora });
+    const p = aplicarResolucaoTravaAcabado(p0, resolucao);
+    if (Object.keys(resolucao.paraServidor).length > 0) {
+      const idAlvo = p0.id;
+      setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo ? { ...x, ...resolucao.paraServidor } : x)) as ProdutoDraft[]) : ds));
+      if (resolucao.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao.avisos)}`);
     }
     const { data: novoId, error } = await supabase.rpc("salvar_produto_acabado" as any, {
       _id: p.id,

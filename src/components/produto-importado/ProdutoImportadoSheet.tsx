@@ -27,7 +27,13 @@ import { ResumoImportadoPanel } from "./ResumoImportadoPanel";
 import { NovoProdutoImportadoDialog } from "./NovoProdutoImportadoDialog";
 import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
-import { chaveDirty, emptyDraft, montarPayload, validarDraft, type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft } from "./shared";
+import {
+  chaveDirty, emptyDraft, montarPayload, validarDraft, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
+  acoplarParVarejo, acoplarParAtacado,
+  type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
+} from "./shared";
+import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
+import { colunasTravadas } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -99,6 +105,8 @@ type ProdutoImportadoRow = {
   markup_varejo: number | null;
   preco_atacado_fixo?: number | string | null;
   preco_varejo_fixo?: number | string | null;
+  /** M-1 (Integração, Fix round 1) — embed `modelo:modelo_id(preco_venda)` (SELECT acima). */
+  modelo?: { preco_venda: number | string | null } | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
   etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
 };
@@ -147,6 +155,7 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     markup_varejo: r.markup_varejo,
     preco_atacado_fixo: r.preco_atacado_fixo != null ? Number(r.preco_atacado_fixo) : null,
     preco_varejo_fixo: r.preco_varejo_fixo != null ? Number(r.preco_varejo_fixo) : null,
+    modeloPrecoVenda: r.modelo?.preco_venda != null ? Number(r.modelo.preco_venda) : null,
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     etapas: etapas.length > 0 ? etapas : base.etapas,
   };
@@ -231,6 +240,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] }),
     campoFocado: campoFocadoCanvas,
   });
+  // Integração (F4) — Fix round 1 (I-1): UMA consulta por loja (mesma de useIntegracaoEstado, staleTime
+  // 30s), indexada por modelo_id — usada pra resolver a trava DE CADA produto no momento do save (abaixo,
+  // `salvarUmProduto`), nunca no render (a tela já usa isto no CARD, `ProdutoImportadoCard`, via o hook
+  // singular — aqui é o mapa inteiro porque o Sheet salva N produtos de uma vez).
+  const estadosIntegracao = useIntegracaoEstados();
   const agrup = useAgrupamentoState("produto-importado", ["categoria"]);
   const agrupar: AgruparEstado = { grupo: agrup.isOn("grupo"), categoria: agrup.isOn("categoria") };
   const setAgrupar = (patch: Partial<AgruparEstado>) => {
@@ -275,7 +289,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     queryFn: async () => {
       const { data, error } = await supabase
         .from("produtos_importados" as any)
-        .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
+        .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
         .eq("colecao_id", colecaoId);
       if (error) throw error;
       return (data ?? []) as unknown as ProdutoImportadoRow[];
@@ -332,7 +346,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
           (k) => JSON.stringify((chaveDirty(draft) as any)[k]) !== JSON.stringify((chaveDirty(base) as any)[k]),
         ),
       );
-      const m = mergeDraft({ base: base as any, draft: draft as any, fresh: fr as any, touched });
+      const m0 = mergeDraft({ base: base as any, draft: draft as any, fresh: fr as any, touched });
+      // M-3 (Fix round 1): o merge genérico trata preco_varejo_fixo/markup_varejo (e o par do
+      // atacado) como campos independentes — acopla os 2 pares AQUI, no MESMO ponto que decide o
+      // conjunto de conflitos deste produto (ver comentário completo em `acoplarParVarejo`, shared.ts).
+      const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos });
+      const mFinal = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos });
+      const m = { ...m0, valor: mFinal.valor, conflitos: mFinal.conflitos };
       if (m.atualizados.length > 0) totalAtualizados++;
       if (m.conflitos.length > 0) novosConflitos[draft.id] = m.conflitos; // ausência = convergiu → poda
       // rev nunca é "tocado" (não está em chaveDirty) — sempre adota o do fresh.
@@ -476,7 +496,16 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         const { error: fixoErr } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
           _produto_id: d.id, _tocar_atacado: true, _preco_atacado_fixo: null, _tocar_varejo: true, _preco_varejo_fixo: null,
         });
-        if (fixoErr) throw fixoErr;
+        if (fixoErr) {
+          // Fix round 1 (M-2, ruling da revisão): a 1ª RPC (`limpar_produto_importado`) JÁ COMITOU —
+          // o banco está limpo e o `rev` já bumpou. Se pararmos aqui, o rascunho/rev locais ficam
+          // desatualizados e o PRÓXIMO Salvar deste produto compara `_rev_base` contra um valor velho
+          // → P0409 FALSO (não é conflito de outra pessoa, é o meu próprio "Limpar" que o UPDATE local
+          // não viu). Marca o erro com um id de resync — o `onError` abaixo refaz a leitura E o rev
+          // ANTES de mostrar o toast, então o card nunca fica "meio limpo" sem eco na tela.
+          (fixoErr as any).idParaResync = d.id;
+          throw fixoErr;
+        }
       }
       return d;
     },
@@ -508,7 +537,34 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       }
       toast.success("Card limpo.");
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao limpar.")),
+    onError: async (e: any) => {
+      const idParaResync = e?.idParaResync as string | undefined;
+      if (idParaResync) {
+        // M-2: `limpar_produto_importado` já comitou (o card está limpo no banco) — resincroniza o
+        // rascunho local, `rev` E `baseServidorRef` a partir do servidor (mesmo SELECT+embed da tela)
+        // ANTES de avisar, pra o próximo Salvar não bater P0409 contra um rev velho nem a tela ficar
+        // "meio limpa" sem eco. Mensagem específica (não a genérica "Falha ao limpar" — o card FOI
+        // limpo, só o preço fixo não).
+        try {
+          const { data } = await supabase
+            .from("produtos_importados" as any)
+            .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
+            .eq("id", idParaResync)
+            .maybeSingle();
+          if (data) {
+            const fresh = draftDeRow(data as unknown as ProdutoImportadoRow);
+            baseServidorRef.current = { ...baseServidorRef.current, [idParaResync]: fresh };
+            marcarProdutoLimpo(fresh);
+            setDrafts((ds) => ds.map((x) => (x.id === idParaResync ? fresh : x)));
+          }
+        } catch {
+          // resync melhor-esforço — se falhar também, o próximo merge/refetch geral ainda corrige.
+        }
+        toast.error("Card limpo, mas o preço fixo não foi apagado — tente de novo.");
+        return;
+      }
+      toast.error(mensagemErro(e, "Falha ao limpar."));
+    },
   });
   const limparDraft = (d: ProdutoImportadoDraft) => limparMut.mutate(d);
   // Um card aberto por vez (feedback do dono: cards abertos ficavam gigantes empilhados). Abrir
@@ -614,7 +670,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     if (!d.id) return;
     const { data, error } = await supabase
       .from("produtos_importados" as any)
-      .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*)")
+      .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
       .eq("id", d.id)
       .maybeSingle();
     if (error || !data) return; // produto sumiu (excluído por outra aba) — o merge do refetch geral cuida do aviso
@@ -625,7 +681,12 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         (k) => JSON.stringify((chaveDirty(d) as any)[k]) !== JSON.stringify((chaveDirty(base) as any)[k]),
       ),
     );
-    const m = mergeDraft({ base: base as any, draft: d as any, fresh: fresh as any, touched });
+    const m0 = mergeDraft({ base: base as any, draft: d as any, fresh: fresh as any, touched });
+    // M-3 (Fix round 1) — mesmo acoplamento do par preço-fixo/markup por canal do merge periódico
+    // (ver comentário completo lá) — a reconciliação do P0409 é outro ponto onde `mergeDraft` cru
+    // rodaria e poderia deixar o par dessincronizado.
+    const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos });
+    const m = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos });
     const fundido: ProdutoImportadoDraft = { ...(m.valor as ProdutoImportadoDraft), rev: fresh.rev };
     baseServidorRef.current = { ...baseServidorRef.current, [d.id]: fresh };
     setDrafts((ds) => ds.map((x) => (x.id === d.id ? fundido : x)));
@@ -643,10 +704,37 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
   // cada card (persiste a Compra ANTES de gerar a OC). Colab (Fase 3): manda `_rev_base: d.rev`
   // (null p/ rascunho local, sem base a checar) — a RPC dá P0409 se outra pessoa salvou ESTE
   // produto desde que eu o carreguei; reconciliado por `reconciliarProdutoP0409` (acima).
-  const salvarUmProduto = async (d: ProdutoImportadoDraft): Promise<string> => {
-    const erro = validarDraft(d);
+  const salvarUmProduto = async (d0: ProdutoImportadoDraft): Promise<string> => {
+    const erro = validarDraft(d0);
     if (erro) throw erroValidacao(erro);
-    const isLocal = !d.id || d.id.startsWith("novo-");
+    const isLocal = !d0.id || d0.id.startsWith("novo-");
+    // Integração (F4) — Fix round 1 (I-1/M-3, ruling da revisão): NUNCA reenviar um campo travado
+    // como o usuário o deixou. `travaAtual` é o lock LIDO AGORA (o mesmo `estadosIntegracao` do
+    // render, pode ter mudado desde que o card carregou); `servidor` é a última leitura confiável
+    // (`baseServidorRef`, seedada no load/merge/save anterior); `touched` é o diff local vs essa
+    // MESMA base — os únicos campos que "esta sessão editou". `resolverTravaImportado` devolve o
+    // patch que reverte CADA campo travado ao valor do servidor (o par preço-fixo/markup do varejo
+    // sempre junto, M-3) e os avisos PT (só os tocados que de fato divergiam). Sem isto, um nome/ref/
+    // foto/preço editado ANTES do lock chegar derruba com 42501 o save do produto INTEIRO (nome/ref/foto) ou
+    // reescreve silenciosamente o preço fixo travado (markup varejo digitado: D12 deixa passar).
+    const travaAtual = !isLocal && d0.modelo_id ? colunasTravadas(estadosIntegracao[d0.modelo_id] ?? null) : new Set<string>();
+    const servidorAtual = d0.id ? baseServidorRef.current[d0.id] : undefined;
+    const touchedAgora = new Set(
+      (Object.keys(chaveDirty(d0)) as (keyof ReturnType<typeof chaveDirty>)[]).filter(
+        (k) => servidorAtual && JSON.stringify((chaveDirty(d0) as any)[k]) !== JSON.stringify((chaveDirty(servidorAtual) as any)[k]),
+      ),
+    );
+    const resolucao = resolverTravaImportado({ enviado: d0, servidor: servidorAtual, travaAtual, touched: touchedAgora });
+    const d = aplicarResolucaoTrava(d0, resolucao);
+    if (Object.keys(resolucao.paraServidor).length > 0) {
+      // Reverte o rascunho VIVO pro mesmo valor que vai no payload (nunca deixa a tela mostrando um
+      // valor diferente do que foi (não) enviado) — o próximo merge/baseline também adota esse valor
+      // (I-1: base do merge = SEMPRE o valor real do servidor pro campo travado, ver `marcarProdutoLimpo`
+      // logo abaixo, que já usa `salvo` derivado de `d`).
+      const idAlvo = d0.id!;
+      setDrafts((ds) => ds.map((x) => (x.id === idAlvo ? { ...x, ...resolucao.paraServidor } : x)) as ProdutoImportadoDraft[]);
+      if (resolucao.avisos.length > 0) toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao.avisos)}`);
+    }
     const { dados, variantes, etapas } = montarPayload(d);
     const { data, error } = await supabase.rpc("salvar_produto_importado" as any, {
       _id: isLocal ? null : d.id,

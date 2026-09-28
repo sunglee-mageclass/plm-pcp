@@ -7,6 +7,7 @@
 // NADA de aritmética própria neste arquivo além de "moldar" o draft pros helpers de
 // `moeda.ts` — a conta em si (custo landed, rateio por peso, cadeia de markup) mora lá.
 import { ratearPorPeso, custoLanded, cadeiaMarkup, type EntradaLanded, type EtapaPagamento, type ResultadoLanded } from "@/lib/moeda";
+import type { Conflito } from "@/lib/colab/merge";
 
 export type VarianteImportadoDraft = {
   ordem: number;
@@ -85,6 +86,12 @@ export type ProdutoImportadoDraft = {
    *  (montarPayload) e grava no SALVAR da tela, na transação do _rev_base — nada grava antes do Salvar. */
   preco_atacado_fixo: number | null;
   preco_varejo_fixo: number | null;
+  /** M-1 (Integração, Fix round 1) — `modelos.preco_venda` do espelho, READ-ONLY (embed).
+   *  Quando o varejo está travado, é o valor CONGELADO que a API de fato lê (B1 freeze) — a tela
+   *  mostra ELE em vez de um preço vivo derivado do custo (que pode ter mudado com o produto
+   *  travado). `null` = sem espelho ainda (produto não materializado). NUNCA entra em `chaveDirty`
+   *  (read-only, embed) nem no payload de `montarPayload`. */
+  modeloPrecoVenda: number | null;
   variantes: VarianteImportadoDraft[];
   etapas: EtapaImportadoDraft[];
 };
@@ -129,6 +136,7 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     markup_varejo: null,
     preco_atacado_fixo: null,
     preco_varejo_fixo: null,
+    modeloPrecoVenda: null,
     variantes: [{ ordem: 1, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }],
     etapas: [
       { ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 30, data_vencimento: null, cotacao: 0 },
@@ -327,4 +335,168 @@ export function validarParaPedido(draft: ProdutoImportadoDraft): string | null {
   if (base) return base;
   if (!(Number(draft.qtd_total) > 0)) return "Qtd total precisa ser maior que zero.";
   return null;
+}
+
+// ── Integração F4 — Fix round 1 (I-1/I-2/M-1/M-3/M-4) ────────────────────────────────────────
+// Ruling da revisão: o payload NUNCA pode reenviar um campo travado editado antes do lock chegar —
+// isso 42501 o save do produto INTEIRO (nome/ref/foto) OU, pior, passa silenciosamente e reescreve o
+// preço fixo travado (markup varejo digitado antes do lock: D12 no banco deixa "limpar o fixo" passar
+// mesmo travado). Mirror do `omitirColunasTravadas`/`resolverColunasTravadas` do Sheet do Planejamento
+// (usePlanejamentoSave.ts) — aqui os campos são os do DRAFT do Importado, não os de `modelos`: nome,
+// ref, foto_url e o PAR {preco_varejo_fixo, markup_varejo} (D34/R8 — trava é só o varejo; atacado livre).
+
+/** Colunas do draft do Importado que o gatilho `fn_integracao_trava_espelho` de fato guarda —
+ *  espelha 1:1 as colunas checadas em `produtos_importados` (nome/ref/foto_url) + o PAR do
+ *  preço varejo (preco_varejo_fixo/markup_varejo, D34: SÓ varejo — atacado nunca trava). */
+export type CampoTravavel = "nome" | "ref" | "foto_url" | "preco_varejo_fixo" | "markup_varejo";
+/** Mapa "coluna travada pela Integração" (`travaIntegracao.has(...)`, `src/lib/integracao/trava.ts`,
+ *  chaves de `modelos`) → campo(s) do DRAFT deste produto que ela cobre. `preco_venda` cobre os 2
+ *  campos do par (M-3: tratados como uma unidade — nunca só um dos dois). */
+export const CAMPOS_TRAVAVEIS_POR_COLUNA: Record<string, readonly CampoTravavel[]> = {
+  nome: ["nome"],
+  ref: ["ref"],
+  fotos_modelo: ["foto_url"],
+  preco_venda: ["preco_varejo_fixo", "markup_varejo"],
+};
+
+export type AvisoTrava = { campo: CampoTravavel; rotulo: string };
+export type ResolucaoTravaProduto = {
+  /** Patch com o valor do SERVIDOR para cada campo travado presente no draft — aplicado
+   *  INCONDICIONALMENTE (revert do draft vivo + base do próximo merge/baseline), mesmo quando o
+   *  valor enviado já batia com o servidor (evita "não salvo" fantasma no próximo refetch). */
+  paraServidor: Partial<Record<CampoTravavel, unknown>>;
+  /** Só os campos EDITADOS nesta sessão (via `touched`) cujo valor divergia do servidor — vira o
+   *  toast PT "essa alteração não foi salva" (uma coluna canonizada mas não tocada não avisa). */
+  avisos: AvisoTrava[];
+};
+const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
+  nome: "Nome", ref: "REF", foto_url: "Foto", preco_varejo_fixo: "Valor varejo", markup_varejo: "Markup Varejo",
+};
+/** PURA — dado o draft que SERIA enviado, o draft do servidor (última leitura confiável,
+ *  `baseServidorRef`), o lock ATUAL (`travaIntegracao`, `Set` de colunas de `modelos`/trava.ts) e o
+ *  conjunto de campos TOCADOS nesta sessão (diff de `chaveDirty` vs a base), devolve: (a) o patch que
+ *  reverte cada campo travado ao valor do servidor — SEMPRE os 2 do par junto (M-3: preço fixo e
+ *  markup do varejo são uma unidade; travar um implica reverter os dois, nunca só um) — e (b) os
+ *  avisos PT (só os campos tocados cujo valor enviado divergia do servidor). Nunca lê/grava nada —
+ *  quem chama aplica o patch no payload/draft/baseline. */
+export function resolverTravaImportado(o: {
+  enviado: ProdutoImportadoDraft;
+  servidor: ProdutoImportadoDraft | null | undefined;
+  travaAtual: ReadonlySet<string> | null | undefined;
+  touched: ReadonlySet<string>;
+}): ResolucaoTravaProduto {
+  const { enviado, servidor, travaAtual, touched } = o;
+  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, avisos: [] };
+  const paraServidor: Partial<Record<CampoTravavel, unknown>> = {};
+  const avisos: AvisoTrava[] = [];
+  const camposJaVistos = new Set<CampoTravavel>();
+  for (const coluna of travaAtual) {
+    const campos = CAMPOS_TRAVAVEIS_POR_COLUNA[coluna];
+    if (!campos) continue; // coluna travada que este draft nem tem (ex.: tamanho_tipo/sku/variantes — outra classe)
+    for (const campo of campos) {
+      if (camposJaVistos.has(campo)) continue; // 2 colunas do lock nunca mapeiam pro mesmo campo aqui, mas defensivo
+      camposJaVistos.add(campo);
+      const valorServidor = servidor[campo];
+      paraServidor[campo] = valorServidor; // M-3/I-1: sempre reverte, incondicional — vira a base do merge
+      // M-3: o PAR do preço varejo entra como aviso se QUALQUER um dos dois foi tocado (não só o
+      // que mudou) — "digitou markup, o preço tinha sido o tocado antes" ainda é uma edição perdida
+      // do canal varejo como um todo.
+      const camposDoPar = coluna === "preco_venda" ? (["preco_varejo_fixo", "markup_varejo"] as const) : ([campo] as const);
+      const tocadoNoSentidoDoPar = camposDoPar.some((c) => touched.has(c));
+      if (!tocadoNoSentidoDoPar) continue;
+      const valorEnviado = enviado[campo];
+      if (valorEnviado === valorServidor) continue;
+      avisos.push({ campo, rotulo: ROTULO_CAMPO_TRAVADO[campo] });
+    }
+  }
+  return { paraServidor, avisos };
+}
+/** PT — "Nome foi travado…"/"Valor varejo e Markup Varejo foram travados…" — espelha
+ *  `toastDescartadasPelaIntegracao` (usePlanejamentoSave.ts), mesma gramática. */
+export function toastTravaImportado(avisos: readonly AvisoTrava[]): string {
+  const rotulos = avisos.map((a) => a.rotulo);
+  const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
+  const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
+  return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
+}
+/** Aplica `resolverTravaImportado` a um draft — devolve o draft JÁ revertido para os campos
+ *  travados (nunca muta `draft`). Usado pelo `salvarUmProduto` ANTES de `montarPayload`, e pelo
+ *  Sheet pra reverter o rascunho vivo/baseline com o MESMO patch (M-3/I-1: um único ponto de
+ *  verdade — o payload e a tela nunca podem divergir sobre "o que o servidor realmente tem"). */
+export function aplicarResolucaoTrava(draft: ProdutoImportadoDraft, resolucao: ResolucaoTravaProduto): ProdutoImportadoDraft {
+  if (Object.keys(resolucao.paraServidor).length === 0) return draft;
+  return { ...draft, ...resolucao.paraServidor } as ProdutoImportadoDraft;
+}
+
+/** M-4 — markup varejo EXIBIDO: o gravado (`draft.markup_varejo`) OU, quando há preço fixo, o
+ *  DERIVADO (preço ÷ base) — espelha `markupVarejoExib` do Produto Acabado (`ProdutoCard.tsx`),
+ *  "digitar o preço preenche o markup em vez de deixá-lo vazio". `baseImp <= 0` não deriva (sem
+ *  base não dá pra calcular markup). */
+export function markupVarejoExibido(draft: Pick<ProdutoImportadoDraft, "markup_varejo" | "preco_varejo_fixo">, baseImp: number): number | null {
+  if (draft.markup_varejo != null) return draft.markup_varejo;
+  if (draft.preco_varejo_fixo != null && baseImp > 0) return draft.preco_varejo_fixo / baseImp;
+  return null;
+}
+/** Espelho para o atacado (mesma fórmula; D34 nunca trava, mas M-4 pede paridade visual com o
+ *  varejo — os dois campos devem se comportar igual quando o usuário digita o preço). */
+export function markupAtacadoExibido(draft: Pick<ProdutoImportadoDraft, "markup_atacado" | "preco_atacado_fixo">, baseImp: number): number | null {
+  if (draft.markup_atacado != null) return draft.markup_atacado;
+  if (draft.preco_atacado_fixo != null && baseImp > 0) return draft.preco_atacado_fixo / baseImp;
+  return null;
+}
+
+// M-3 (Fix round 1, ruling da revisão) — o merge 3-vias genérico (`mergeDraft`, `@/lib/colab/merge`)
+// trata `preco_varejo_fixo`/`markup_varejo` como 2 campos INDEPENDENTES. Mas o servidor (J2, a mesma
+// regra 4-casos que `montarPayload`/`precosDoDraft` espelham) trata o par como UMA unidade: definir um
+// zera o outro. Cenário do achado: A edita markup varejo (toca só `markup_varejo`); B salva um preço
+// varejo fixo; o merge adota o `preco_varejo_fixo` de B silenciosamente (não tocado por A) e ACUSA
+// conflito só em `markup_varejo`; A resolve "manter meu" e o draft fica com OS DOIS setados (preço 298
+// E markup 3) — um estado que o `_salvar_produto_importado_core` NUNCA produz sozinho (regra 4: fixo
+// presente ganha, markup vira null). No próximo Salvar o servidor aplica a regra, o markup some, e como
+// a baseline local tinha guardado "markup 3" (o que foi ENVIADO), ela nunca mais bate com o servidor —
+// "não salvo" para sempre. Fix: depois do `mergeDraft` normal, uma passada de ACOPLAMENTO — qualquer
+// conflito em preco_varejo_fixo OU markup_varejo vira conflito nos DOIS (o usuário decide o CANAL
+// inteiro, "manter meu" ou "usar o novo" nunca deixa a dupla inconsistente); e quando NENHUM dos dois
+// conflita mas o valor final ainda tem os dois setados (ex.: o "meu" tinha os dois desde antes — draft
+// legado), NORMALIZA como o servidor faria (fixo manda, markup→null) — nunca deixa a dupla junta.
+export type ParVarejo = { preco_varejo_fixo: number | null; markup_varejo: number | null };
+export function acoplarParVarejo<T extends ParVarejo>(o: { valor: T; conflitos: Conflito[] }): { valor: T; conflitos: Conflito[] } {
+  const temConflitoFixo = o.conflitos.some((c) => c.path === "preco_varejo_fixo");
+  const temConflitoMarkup = o.conflitos.some((c) => c.path === "markup_varejo");
+  let conflitos = o.conflitos;
+  if (temConflitoFixo !== temConflitoMarkup) {
+    // Só um dos dois conflitou — espelha o MESMO conflito no outro campo do par (o valor "dele" do
+    // campo espelhado é o que o próprio merge já adotou, já que não havia conflito nele).
+    const origem = o.conflitos.find((c) => c.path === (temConflitoFixo ? "preco_varejo_fixo" : "markup_varejo"))!;
+    const campoEspelhado = temConflitoFixo ? "markup_varejo" : "preco_varejo_fixo";
+    conflitos = [...o.conflitos, { path: campoEspelhado, meu: (o.valor as any)[campoEspelhado], dele: origem.dele }];
+  }
+  let valor = o.valor;
+  const aindaConflitando = conflitos.some((c) => c.path === "preco_varejo_fixo" || c.path === "markup_varejo");
+  if (!aindaConflitando && valor.preco_varejo_fixo != null && valor.markup_varejo != null) {
+    // Draft convergiu SEM conflito mas ainda tem os 2 setados (legado/canonização) — normaliza como
+    // o servidor faria (regra 1 do J2: fixo presente ganha, markup vira null) pra nunca mostrar um
+    // estado impossível de bater com o que `_salvar_produto_importado_core` vai persistir.
+    valor = { ...valor, markup_varejo: null };
+  }
+  return { valor, conflitos };
+}
+/** Mesmo acoplamento para o par do atacado (paridade — D34 nunca trava o atacado, mas o par ainda é
+ *  uma unidade do lado do servidor/merge, mesma regra J2). */
+export type ParAtacado = { preco_atacado_fixo: number | null; markup_atacado: number | null };
+export function acoplarParAtacado<T extends ParAtacado>(o: { valor: T; conflitos: Conflito[] }): { valor: T; conflitos: Conflito[] } {
+  const temConflitoFixo = o.conflitos.some((c) => c.path === "preco_atacado_fixo");
+  const temConflitoMarkup = o.conflitos.some((c) => c.path === "markup_atacado");
+  let conflitos = o.conflitos;
+  if (temConflitoFixo !== temConflitoMarkup) {
+    const origem = o.conflitos.find((c) => c.path === (temConflitoFixo ? "preco_atacado_fixo" : "markup_atacado"))!;
+    const campoEspelhado = temConflitoFixo ? "markup_atacado" : "preco_atacado_fixo";
+    conflitos = [...o.conflitos, { path: campoEspelhado, meu: (o.valor as any)[campoEspelhado], dele: origem.dele }];
+  }
+  let valor = o.valor;
+  const aindaConflitando = conflitos.some((c) => c.path === "preco_atacado_fixo" || c.path === "markup_atacado");
+  if (!aindaConflitando && valor.preco_atacado_fixo != null && valor.markup_atacado != null) {
+    valor = { ...valor, markup_atacado: null };
+  }
+  return { valor, conflitos };
 }
