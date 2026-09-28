@@ -13,6 +13,11 @@ export function useIntegracaoEstados(): Record<string, EstadoModeloIntegracao> {
     queryKey: ["integracao-estado", tenantId],
     enabled: !!tenantId,
     staleTime: 30_000,
+    // Fix round 1 (m2/M-1 das revisões) — a trava pode ficar até 30s velha quando o Sheet abre (outro usuário
+    // marcou o produto há pouco): "always" refaz a busca a CADA montagem do consumidor (o Sheet do Planejamento
+    // remonta por card aberto), sem esperar o staleTime vencer. O cache/staleTime entre telas que já estão
+    // montadas ao mesmo tempo continua compartilhado (mesma queryKey) — só a MONTAGEM força um refetch.
+    refetchOnMount: "always",
     retry: false,
     queryFn: async () => {
       const { data: d, error } = await supabase.rpc("integracao_estado_modelos" as any, { _ids: null });

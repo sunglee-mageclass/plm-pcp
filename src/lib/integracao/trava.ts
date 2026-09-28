@@ -32,15 +32,19 @@ export function colunasTravadas(e: EstadoModeloIntegracao | null | undefined): R
   }
   return s;
 }
-function fmtDia(iso: string | null, tz: string): string {
-  if (!iso) return "—";
+function fmtDia(iso: string | null, tz: string): string | null {
+  if (!iso) return null;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return null;
   const p = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, day: "2-digit", month: "2-digit" }).formatToParts(d);
   return `${p.find((x) => x.type === "day")?.value ?? ""}/${p.find((x) => x.type === "month")?.value ?? ""}`;
 }
+// Fix round 1 (m4/M-4 das revisões) — data null (ou ilegível) NÃO vira "Integrado em — — travado" (dois traços feios,
+// parecendo erro): omite o "em <dia>" inteiro e mostra só "Integrado — travado"/"Integrável — travado".
 export function textoSelo(e: EstadoModeloIntegracao, tz: string): string {
-  return e.estado === "integrado" ? `Integrado em ${fmtDia(e.integradoEm, tz)} — travado` : `Integrável em ${fmtDia(e.marcadoEm, tz)} — travado`;
+  const rotulo = e.estado === "integrado" ? "Integrado" : "Integrável";
+  const dia = fmtDia(e.estado === "integrado" ? e.integradoEm : e.marcadoEm, tz);
+  return dia ? `${rotulo} em ${dia} — travado` : `${rotulo} — travado`;
 }
 export function textoExcluirTravado(estado: EstadoModeloIntegracao["estado"]): string {
   return estado === "integrado"
@@ -48,6 +52,11 @@ export function textoExcluirTravado(estado: EstadoModeloIntegracao["estado"]): s
     : "Excluir travado — produto integrável. Volte para não integrável (aba Integração) antes de excluir.";
 }
 export const TEXTO_TRAVA_SHEET =
-  "Campos marcados na integração ficam travados. BOM, CAD, grade de produção, custos e PCP continuam editáveis normalmente.";
-export const TEXTO_SKU_TRAVADO = 'SKUs, cores, tamanhos e o "Tamanho em" travados pela Integração (integrável ou integrado).';
+  "Campos marcados na Integração ficam travados. BOM, CAD, grade de produção, custos e PCP continuam editáveis normalmente.";
+// Fix round 1 (m5/M-2 das revisões) — texto ALINHADO com a decisão do dono (P-73): o BOM (cores/tamanhos do Tecido 1,
+// grade) continua LIVRE para o INTERNO — só SKUs e "Tamanho em" travam de verdade (a trava de "cores"/"variantes" no
+// banco é do ESPELHO comprado, não do BOM). O texto anterior prometia cor/tamanho travados, o que nunca foi verdade
+// para o manufaturado — cor/tamanho novo no BOM fica sem SKU até o super admin desfazer a integração.
+export const TEXTO_SKU_TRAVADO =
+  'SKUs e "Tamanho em" travados pela Integração — mudar cores ou tamanhos no BOM não cria SKU novo até o super admin desfazer.';
 export const TEXTO_PRECO_TRAVADO = "Preço travado pela Integração (integrável ou integrado).";

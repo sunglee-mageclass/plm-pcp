@@ -219,8 +219,11 @@ export function InfoGeraisSecao({
             {/* L4 (ruling 1): Título para a página. NULL = AUTOMÁTICO (Nome em iniciais maiúsculas + " | " + loja, ao vivo a
                 cada tecla no Nome; Nome vazio ⇒ vazio, nunca " | Loja" solto). Digitar algo DIFERENTE vira manual (R5); esvaziar
                 volta ao automático no blur (R6); ↺ grava NULL. O merge compara o campo como qualquer outro (ruling 9). */}
-            {/* P-53 A: Título para a página é SÓ do Planejamento. */}
-            <fieldset disabled={planBloqueado || trava.has("titulo_pagina")} className="contents">
+            {/* P-53 A: Título para a página é SÓ do Planejamento.
+                Fix round 1 (I1/I-1 das revisões): a linha do rótulo (Label + os DOIS InfoHover + o badge "automático")
+                fica FORA do fieldset travado — um <button> dentro de <fieldset disabled> fica de fato desabilitado
+                (sem foco, sem click), então o hover/toque/teclado do InfoHover nunca abriria enquanto travado. SÓ o
+                Input e o botão ↺ (que precisam mesmo travar) ficam dentro do fieldset. */}
             <div className="grid gap-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="titulo-pagina">Título para a página</Label>
@@ -233,13 +236,14 @@ export function InfoGeraisSecao({
                     travada; o servidor recusaria byte-a-byte se ela fosse reenviada — usePlanejamentoSave.ts). */}
                 {trava.has("titulo_pagina") && tituloAutomatico && (
                   <InfoHover ariaLabel="Título travado pela Integração">
-                    <p>Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela integração.</p>
+                    <p>Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela Integração.</p>
                   </InfoHover>
                 )}
                 {tituloAutomatico && tituloCalculado !== "" && (
                   <StatusBadge tone="neutral" className="rounded-full px-2 py-0.5 normal-case tracking-normal">automático</StatusBadge>
                 )}
               </div>
+              <fieldset disabled={planBloqueado || trava.has("titulo_pagina")} className="contents">
               <div className="flex items-center gap-2">
                 <Input
                   id="titulo-pagina"
@@ -266,8 +270,8 @@ export function InfoGeraisSecao({
                   <span className="max-sm:sr-only">automático</span>
                 </Button>
               </div>
+              </fieldset>
             </div>
-            </fieldset>
 
             {/* Campo NOVO "Descrição do produto" (dono, 22/set): texto longo, largura total, ÚLTIMO campo da
                 seção 1 — no Sheet e no Dialog de card novo. Coluna `modelos.descricao_produto` (migration

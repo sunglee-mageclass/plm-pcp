@@ -200,7 +200,7 @@ export function PrecoTabela(props: {
                     venda mesmo com o campo travado pela Integração (usePlanejamentoSave.ts omite a coluna). */}
                 {travaPrecoAnterior && precoAnterior === null && (
                   <InfoHover ariaLabel="Preço anterior travado pela Integração">
-                    <p>Automático: acompanha o Preço de venda, mesmo travado pela integração.</p>
+                    <p>Automático: acompanha o Preço de venda, mesmo travado pela Integração.</p>
                   </InfoHover>
                 )}
               </span>

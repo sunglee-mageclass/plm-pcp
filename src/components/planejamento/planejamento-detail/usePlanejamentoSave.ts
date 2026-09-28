@@ -16,6 +16,7 @@ import { numOr0, draftFromModeloRow, type CatOpt, type Draft } from "@/component
 import { ehOrigemComprada } from "@/lib/origem";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
+import { rotuloDaColuna } from "@/lib/integracao/campos";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -38,6 +39,44 @@ export function omitirColunasTravadas(payload: Record<string, unknown>, travaInt
     if (travaIntegracao.has(k)) delete payload[k];
   }
   return payload;
+}
+
+// Fix round 1 (I2/I-2 das revisões) — RULING: uma coluna travada omitida do payload não pode virar "enviada" no
+// baseline. Cenário (ambas as revisões): o usuário edita um campo, a trava chega NO MEIO (foco/refetch de
+// `["integracao-estado"]`), o campo trava mas ainda mostra o valor digitado, o Salvar OMITE a coluna (acima) e
+// mostra "Modelo salvo" — sem este fix, `resetDraftBaseline`/`baseDoMerge` adotariam o valor digitado (nunca
+// enviado ao servidor) como "salvo": o selo "não salvo" apaga, `touched` limpa, e o PRÓXIMO refetch (o eco do
+// PRÓPRIO save ou um real de outra pessoa) mostra o valor VELHO do servidor como se "alguém tivesse mudado" —
+// a edição perdida é atribuída à pessoa errada. Mesma classe de bug que `draftEnviadoComColunasDev`
+// (save-ficha.ts) já resolve para as colunas do Dev omitidas por falta de permissão — aqui a fonte da
+// verdade é igual: o valor que o SERVIDOR realmente tem (`servidor`, lido de `baseRef.current.draft` ANTES
+// deste save), nunca o que ficou só no rascunho local. PURA — sem I/O, sem toast (quem chama decide avisar).
+export type ColunaDescartada = { coluna: string; rotulo: string };
+export function restaurarColunasTravadas<T extends Record<string, unknown>>(
+  enviado: T, servidor: T | null | undefined, travaIntegracao: ReadonlySet<string> | undefined, rotuloDe: (coluna: string) => string,
+): { draft: T; descartadas: ColunaDescartada[] } {
+  if (!travaIntegracao || travaIntegracao.size === 0 || !servidor) return { draft: enviado, descartadas: [] };
+  const descartadas: ColunaDescartada[] = [];
+  let out = enviado;
+  for (const coluna of travaIntegracao) {
+    if (!(coluna in enviado) || !(coluna in servidor)) continue; // sku/variantes/excluir: não são campos do Draft
+    const valorEnviado = enviado[coluna];
+    const valorServidor = servidor[coluna];
+    if (valorEnviado === valorServidor) continue;
+    if (Array.isArray(valorEnviado) && Array.isArray(valorServidor) && valorEnviado.length === valorServidor.length
+        && valorEnviado.every((v, i) => v === valorServidor[i])) continue; // fotos_modelo: array — compara por valor
+    descartadas.push({ coluna, rotulo: rotuloDe(coluna) });
+    if (out === enviado) out = { ...enviado };
+    (out as Record<string, unknown>)[coluna] = valorServidor;
+  }
+  return { draft: out, descartadas };
+}
+/** PT — "Nome foi travado…"/"Nome e NCM foram travados…" (junta os rótulos quando são vários). */
+export function toastDescartadasPelaIntegracao(descartadas: readonly ColunaDescartada[]): string {
+  const rotulos = descartadas.map((d) => d.rotulo);
+  const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
+  const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
+  return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
 }
 
 export type UsePlanejamentoSaveArgs = {
@@ -140,6 +179,10 @@ export function usePlanejamentoSave({
   } | null>(null);
   const save = useMutation({
     mutationFn: async () => {
+      // Fix round 1 (I2/I-2) — colunas travadas cujo valor no rascunho DIVERGIA do servidor no instante do
+      // omit (a edição seria perdida silenciosamente); populado logo antes de `omitirColunasTravadas`, devolvido
+      // no resultado e usado no onSuccess pra restaurar o baseline (nunca "enviado") + avisar em PT.
+      let descartadasPelaTrava: ColunaDescartada[] = [];
       // Fix round 1 (I1) — zera a captura anterior LOGO NO INÍCIO de todo ciclo (1ª tentativa OU retry, que
       // reentra aqui do zero): sem isto, um erro lançado ANTES da captura síncrona abaixo (onde `enviadoRef.current`
       // é atribuído pela 1ª vez neste ciclo, logo depois de montar `payload`/`temCamposDevNoPayloadNaCaptura`)
@@ -403,6 +446,11 @@ export function usePlanejamentoSave({
         // reenviar o valor canonizado do Sheet (NCM formatado, título NULL-vs-calculado, medidas, REF) pode
         // divergir byte a byte do valor gravado e disparar 42501 no gatilho do banco, derrubando o save do
         // card INTEIRO. Omitir (não apenas desabilitar o input) faz o UPDATE nem tentar tocar a coluna.
+        // Fix round 1 (I2/I-2) — ANTES de omitir, compara `d` (o rascunho que ia mandar) contra o valor que o
+        // SERVIDOR tem agora mesmo (`baseRef.current.draft`, lido ANTES deste save): se um campo travado
+        // DIVERGE, a edição vai ser perdida — captura em `descartadasPelaTrava` (usado no onSuccess pra
+        // restaurar o baseline e avisar em PT) ANTES de `omitirColunasTravadas` apagar a chave do payload.
+        descartadasPelaTrava = restaurarColunasTravadas(d, baseRef.current?.draft, travaIntegracao, rotuloDaColuna as (c: string) => string).descartadas;
         omitirColunasTravadas(payload, travaIntegracao);
         // Colab (Task 2) — contrato desta tela (spec 2026-08-03): UPDATE DIRETO com
         // `.eq("rev", revParaHeader)` — só casa a linha se ninguém salvou desde a última
@@ -682,6 +730,7 @@ export function usePlanejamentoSave({
         // "alguém salvou agora".
         autoProduto, savedDraft: normalizarDraftSalvo(d, podeEditarPreco), savedId, etapasMarcadas,
         consumoOuAviamento: bom.gravar && (bom.flags.consumo || bom.flags.aviamentos),
+        descartadasPelaTrava,
       };
     },
     onSuccess: async (result) => {
@@ -763,6 +812,27 @@ export function usePlanejamentoSave({
       if (baseRef.current && enviadoRef.current) {
         enviadoEfetivo = draftEnviadoComColunasDev(enviadoEfetivo, baseRef.current.draft, enviadoRef.current.podeGravarColunasDevNaCaptura);
       }
+      // Fix round 1 (I2/I-2, RULING) — colunas travadas pela Integração cujo rascunho DIVERGIA do servidor no
+      // instante do omit (`descartadasPelaTrava`, capturado no mutationFn ANTES de `omitirColunasTravadas`
+      // apagar a chave do payload): a edição NUNCA chegou ao banco, então não pode virar "enviada" no baseline
+      // nem entrar na base do merge (mesma classe de bug que `draftEnviadoComColunasDev` já resolve, 2 linhas
+      // acima, para as colunas do Dev omitidas por falta de permissão). `baseAntesDoSave` é o valor do SERVIDOR
+      // lido ANTES deste save (`baseRef.current.draft`, ainda não sobrescrito) — a mesma fonte que o
+      // `mutationFn` usou pra detectar a divergência, então restaurar por ela é sempre consistente.
+      const baseAntesDoSave = baseRef.current?.draft;
+      const descartadasPelaTrava = result?.descartadasPelaTrava ?? [];
+      if (descartadasPelaTrava.length > 0 && baseAntesDoSave) {
+        const restauradoEnviado = restaurarColunasTravadas(enviadoEfetivo, baseAntesDoSave, travaIntegracao, rotuloDaColuna as (c: string) => string);
+        enviadoEfetivo = restauradoEnviado.draft;
+        // O eco no draft VIVO também precisa voltar ao valor do servidor — senão o campo (agora travado e
+        // desabilitado) continuaria mostrando na tela o valor que o usuário digitou e que nunca foi salvo.
+        const restauradoVivo = restaurarColunasTravadas(draftLiveRef.current, baseAntesDoSave, travaIntegracao, rotuloDaColuna as (c: string) => string);
+        if (restauradoVivo.descartadas.length > 0) {
+          draftLiveRef.current = restauradoVivo.draft;
+          setDraft((dPrev) => ({ ...dPrev, ...restauradoVivo.draft }));
+        }
+        toast.warning(toastDescartadasPelaIntegracao(descartadasPelaTrava));
+      }
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
       // (`enviadoEfetivo` — o `d` CRU congelado no mutationFn, com `tecidos_planejados` corrigido pelo fix
       // I1 acima); campo editado durante o voo SEGUE tocado e o selo segue aceso até o próximo Salvar (o
@@ -780,11 +850,18 @@ export function usePlanejamentoSave({
       // seguinte via Realtime mostraria o eco do PRÓPRIO Salvar como "alguém salvou agora" nesses 2
       // campos. `tecidos_planejados`/colunas do Dev do `enviadoEfetivo` entram por cima (mesma correção
       // dos fixes acima), já que `savedDraft` sozinho não passa por elas.
+      // Fix round 1 (I2/I-2) — as colunas restauradas (acima) também entram por cima: `savedDraft` é o `d`
+      // CRU normalizado (ainda carrega o valor descartado, nunca enviado ao servidor); a base do merge tem
+      // que refletir o valor REAL do banco, senão o próximo refetch acusaria "alguém mudou" no campo que
+      // na verdade nunca saiu da tela do próprio usuário.
       const baseDoMerge: Draft = {
         ...savedDraft,
         tecidos_planejados: enviadoEfetivo.tecidos_planejados,
         proporcoes: enviadoEfetivo.proporcoes,
         custos_adicionais: enviadoEfetivo.custos_adicionais,
+        ...(descartadasPelaTrava.length > 0
+          ? Object.fromEntries(descartadasPelaTrava.map((d) => [d.coluna, (enviadoEfetivo as Record<string, unknown>)[d.coluna]]))
+          : {}),
       };
       baseRef.current = { draft: baseDoMerge };
       // Fix T10 I1 — o draft VIVO também adota a lista derivada do BOM, SEM marcar como tocado: senão o
@@ -857,6 +934,17 @@ export function usePlanejamentoSave({
       if (!isEdit && result?.savedId) onCreated?.(result.savedId);
     },
     onError: async (e: any) => {
+      // Fix round 1 (m2/M-1 das revisões) — 42501 `integracao_travado:` significa que o estado local de
+      // `["integracao-estado", tenantId]` estava desatualizado (stale até 30s, ou o produto foi marcado DEPOIS
+      // que esta tela abriu — refetchOnMount cobre a abertura, não o meio da sessão): invalida a query pra o
+      // PRÓXIMO clique em Salvar já vir com a trava certa e omitir a coluna, em vez de repetir o mesmo 42501.
+      {
+        const codigo = String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
+        const mensagem = String(e?.message ?? e?.error?.message ?? "");
+        if (codigo === "42501" && mensagem.startsWith("integracao_travado:")) {
+          qc.invalidateQueries({ queryKey: ["integracao-estado"] });
+        }
+      }
       // F3.1 — card NOVO já INSERIDO que falhou numa gravação seguinte (tecidos/grade/MO): mostra o erro, atualiza
       // a lista e abre o Sheet do card criado — o usuário confere e salva de lá (UPDATE). Nunca um 2º INSERT.
       if (!isEdit && criadoIdRef.current) {

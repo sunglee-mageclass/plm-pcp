@@ -1,9 +1,28 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { colunasTravadas, lerEstados, textoExcluirTravado, textoSelo } from "@/lib/integracao/trava";
-import { omitirColunasTravadas } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { omitirColunasTravadas, restaurarColunasTravadas, toastDescartadasPelaIntegracao } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
+import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
+import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
+
+// Fix round 1 (I1/I-1 das revisões) — mesmo padrão de tests/unit/integracao-celula.test.ts: sem isto, todo
+// `act()` sob React 19 dev loga "not configured to support act(...)" e esconde falhas reais no ruído.
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ler = (p: string) => readFileSync(p, "utf8");
+
+/** Monta uma raiz react-dom/client num <div> anexado ao body (happy-dom). unmount() limpa. */
+function montar(el: ReturnType<typeof createElement>): { container: HTMLElement; unmount: () => void } {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root: Root = createRoot(container);
+  act(() => { root.render(el); });
+  return { container, unmount: () => { act(() => { root.unmount(); }); container.remove(); } };
+}
 
 describe("trava vista pelas outras telas (F4)", () => {
   const est = lerEstados({
@@ -113,5 +132,222 @@ describe("usePlanejamentoSave.ts espelha a chamada de omitirColunasTravadas ante
     expect(idxUpdate).toBeGreaterThan(-1);
     expect(idxOmitir).toBeGreaterThan(idxAplicarColunas);
     expect(idxOmitir).toBeLessThan(idxUpdate);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — I1/I-1 (revisão + code-review): o hint "Título travado pela Integração" (e o hint pré-existente
+// "Como funciona o Título…") ficavam DENTRO do <fieldset disabled> travado por Integração — um <button> dentro de
+// <fieldset disabled> fica de fato desabilitado (sem foco, sem click), então o hover/toque/teclado nunca abre.
+// RENDER de verdade (react-dom/client + happy-dom), não regex-sobre-fonte — a fonte pode "parecer" certa e ainda
+// assim produzir um botão desabilitado se o fieldset errado envolver a linha errada.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+function infoGeraisProps(overrides: Partial<Draft> = {}, travaIntegracao?: ReadonlySet<string>) {
+  const draft: Draft = { ...emptyDraft(), nome: "Blusa Teste", ...overrides };
+  return {
+    draft, setDraftTracked: () => {}, grupoSel: null, setGrupoSel: () => {},
+    grupos: [], categorias: [], estilistas: [], sub1Opts: [], sub2Opts: [],
+    fl: ((k: string) => k) as any, origemOpcoes: [{ value: "interno" as const, label: "Interno", disabled: false, motivo: null }],
+    nomeLoja: "Minha Loja", planBloqueado: false, compartilhadoBloqueado: false, travaIntegracao,
+  };
+}
+
+describe("Fix round 1 (I1/I-1) — hint do Título aberto mesmo travado pela Integração", () => {
+  it("Título travado + automático: o botão do hint NÃO está dentro de nenhum <fieldset disabled> (abre de verdade); o Input ESTÁ (trava de verdade)", () => {
+    const view = montar(createElement(InfoGeraisSecao, infoGeraisProps({ titulo_pagina: null }, new Set(["titulo_pagina"]))));
+    const botaoHint = view.container.querySelector('[aria-label="Título travado pela Integração"]') as HTMLButtonElement | null;
+    expect(botaoHint, "hint do título travado deveria estar no DOM").not.toBeNull();
+    // Prova estrutural real (happy-dom NÃO propaga fieldset[disabled] pro `.disabled` dos descendentes — mesma
+    // limitação já documentada nos testes de fonte deste repo, ex. planejamento-secao-espacamento.test.ts): a
+    // prova válida é a POSIÇÃO no DOM — nenhum <fieldset disabled> ancestral do botão do hint.
+    const fieldsetDoHint = botaoHint!.closest("fieldset[disabled]");
+    expect(fieldsetDoHint, "o hint não pode estar dentro de um <fieldset disabled>").toBeNull();
+    act(() => { botaoHint!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(document.body.textContent).toContain("Automático: acompanha o Nome do produto (e o nome da loja), mesmo travado pela Integração.");
+    // O Input (e SÓ ele) continua dentro de um <fieldset disabled> — a trava de verdade não sumiu.
+    const input = view.container.querySelector("#titulo-pagina") as HTMLInputElement;
+    expect(input.closest("fieldset[disabled]"), "o Input tem que continuar travado pelo fieldset").not.toBeNull();
+    view.unmount();
+  });
+  it("o hint pré-existente 'Como funciona o Título' também continua fora do fieldset travado (regressão que a I1 apontou)", () => {
+    const view = montar(createElement(InfoGeraisSecao, infoGeraisProps({ titulo_pagina: null }, new Set(["titulo_pagina"]))));
+    const botaoComoFunciona = view.container.querySelector('[aria-label="Como funciona o Título para a página?"]') as HTMLButtonElement | null;
+    expect(botaoComoFunciona).not.toBeNull();
+    expect(botaoComoFunciona!.closest("fieldset[disabled]")).toBeNull();
+    view.unmount();
+  });
+  it("sem trava: nenhum fieldset disabled ao redor do Input, hint de trava ausente (comportamento de antes preservado)", () => {
+    const view = montar(createElement(InfoGeraisSecao, infoGeraisProps({ titulo_pagina: null }, undefined)));
+    expect(view.container.querySelector('[aria-label="Título travado pela Integração"]')).toBeNull();
+    const input = view.container.querySelector("#titulo-pagina") as HTMLInputElement;
+    expect(input.closest("fieldset[disabled]")).toBeNull();
+    view.unmount();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — I2/I-2 (RULING): coluna travada com valor DIVERGENTE do servidor não pode virar "enviada" —
+// restaurarColunasTravadas é a peça PURA (mirror de draftEnviadoComColunasDev, save-ficha.ts); o teste de
+// integração real (nenhum falso "outra pessoa mudou" + nenhum selo "não salvo" perdido) é impraticável sem
+// montar o Sheet inteiro com Supabase mockado — a prova aqui é a mesma unidade que o onSuccess usa, mais um
+// teste de posição de fonte confirmando que ela é chamada nos dois pontos certos (enviadoEfetivo e baseDoMerge).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 1 (I2/I-2) — restaurarColunasTravadas (pura)", () => {
+  it("campo travado com valor IGUAL ao servidor: nada descartado, mesma referência", () => {
+    const enviado = { nome: "Blusa", ncm: "6204.43.00" };
+    const servidor = { nome: "Blusa", ncm: "6204.43.00" };
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["ncm"]), (c) => c);
+    expect(r.descartadas).toEqual([]);
+    expect(r.draft).toBe(enviado);
+  });
+  it("campo travado com valor DIVERGENTE do servidor: restaura do servidor e reporta a coluna+rótulo", () => {
+    const enviado = { nome: "Blusa Editada", ncm: "6204.43.00" };
+    const servidor = { nome: "Blusa Antiga", ncm: "6204.43.00" };
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["nome"]), (c) => (c === "nome" ? "Nome" : c));
+    expect(r.descartadas).toEqual([{ coluna: "nome", rotulo: "Nome" }]);
+    expect(r.draft).toEqual({ nome: "Blusa Antiga", ncm: "6204.43.00" });
+    expect(r.draft).not.toBe(enviado); // cópia — não muta o original
+  });
+  it("várias colunas travadas divergentes: todas restauradas e reportadas", () => {
+    const enviado = { nome: "X novo", ncm: "111", preco_venda: 50 };
+    const servidor = { nome: "X velho", ncm: "222", preco_venda: 50 };
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["nome", "ncm", "preco_venda"]), (c) => c);
+    expect(r.descartadas.map((d) => d.coluna).sort()).toEqual(["ncm", "nome"]);
+    expect(r.draft).toEqual({ nome: "X velho", ncm: "222", preco_venda: 50 });
+  });
+  it("sem trava (undefined) ou sem servidor (null/undefined): no-op, mesma referência", () => {
+    const enviado = { nome: "X" };
+    expect(restaurarColunasTravadas(enviado, { nome: "Y" }, undefined, (c) => c)).toEqual({ draft: enviado, descartadas: [] });
+    expect(restaurarColunasTravadas(enviado, null, new Set(["nome"]), (c) => c)).toEqual({ draft: enviado, descartadas: [] });
+  });
+  it("coluna travada que não existe no Draft (sku/variantes/excluir): ignorada, sem quebrar", () => {
+    const enviado = { nome: "X" };
+    const servidor = { nome: "X" };
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["sku", "variantes", "excluir"]), (c) => c);
+    expect(r).toEqual({ draft: enviado, descartadas: [] });
+  });
+  it("fotos_modelo (array) — compara por VALOR, não por referência: arrays iguais não contam como divergência", () => {
+    const enviado = { fotos_modelo: ["a.jpg", "b.jpg"] };
+    const servidor = { fotos_modelo: ["a.jpg", "b.jpg"] }; // outra referência, mesmo conteúdo
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["fotos_modelo"]), (c) => c);
+    expect(r.descartadas).toEqual([]);
+    expect(r.draft).toBe(enviado);
+  });
+  it("fotos_modelo divergente de verdade: restaura o array do servidor", () => {
+    const enviado = { fotos_modelo: ["a.jpg", "NOVA.jpg"] };
+    const servidor = { fotos_modelo: ["a.jpg"] };
+    const r = restaurarColunasTravadas(enviado, servidor, new Set(["fotos_modelo"]), () => "Foto");
+    expect(r.descartadas).toEqual([{ coluna: "fotos_modelo", rotulo: "Foto" }]);
+    expect(r.draft).toEqual({ fotos_modelo: ["a.jpg"] });
+  });
+});
+
+describe("Fix round 1 (I2/I-2) — toastDescartadasPelaIntegracao (texto PT)", () => {
+  it("1 coluna: singular", () => {
+    expect(toastDescartadasPelaIntegracao([{ coluna: "nome", rotulo: "Nome" }]))
+      .toBe("Nome foi travado pela Integração enquanto você editava — essa alteração não foi salva.");
+  });
+  it("2+ colunas: plural, junta com 'e'", () => {
+    expect(toastDescartadasPelaIntegracao([{ coluna: "nome", rotulo: "Nome" }, { coluna: "ncm", rotulo: "NCM" }]))
+      .toBe("Nome e NCM foram travados pela Integração enquanto você editava — essa alteração não foi salva.");
+  });
+});
+
+describe("Fix round 1 (I2/I-2) — usePlanejamentoSave.ts: captura ANTES do omit, restaura no onSuccess, avisa", () => {
+  it("descartadasPelaTrava é calculado com restaurarColunasTravadas ANTES de omitirColunasTravadas apagar a chave", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    const idxRestaurar = s.indexOf("descartadasPelaTrava = restaurarColunasTravadas(d, baseRef.current?.draft, travaIntegracao");
+    const idxOmitir = s.indexOf("omitirColunasTravadas(payload, travaIntegracao);");
+    expect(idxRestaurar).toBeGreaterThan(-1);
+    expect(idxOmitir).toBeGreaterThan(-1);
+    expect(idxRestaurar).toBeLessThan(idxOmitir);
+  });
+  it("o resultado da mutation devolve descartadasPelaTrava", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?descartadasPelaTrava,\n\s*};/);
+  });
+  it("onSuccess restaura enviadoEfetivo/baseDoMerge com restaurarColunasTravadas e avisa com toast.warning ANTES de resetDraftBaseline", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    const idxRestauraEnviado = s.indexOf("restaurarColunasTravadas(enviadoEfetivo, baseAntesDoSave, travaIntegracao");
+    const idxToast = s.indexOf("toast.warning(toastDescartadasPelaIntegracao(descartadasPelaTrava));");
+    const idxResetBaseline = s.indexOf("resetDraftBaseline(enviadoEfetivo);");
+    const idxBaseDoMerge = s.indexOf("descartadasPelaTrava.length > 0\n          ? Object.fromEntries");
+    expect(idxRestauraEnviado).toBeGreaterThan(-1);
+    expect(idxToast).toBeGreaterThan(-1);
+    expect(idxResetBaseline).toBeGreaterThan(-1);
+    expect(idxBaseDoMerge).toBeGreaterThan(-1);
+    expect(idxRestauraEnviado).toBeLessThan(idxToast);
+    expect(idxToast).toBeLessThan(idxResetBaseline);
+    expect(idxResetBaseline).toBeLessThan(idxBaseDoMerge);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — m2/M-1 (revisões): a trava não pode ficar até 30s velha quando o Sheet abre; e um 42501
+// `integracao_travado:` no Salvar tem que invalidar a query pro PRÓXIMO clique já vir certo.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 1 (m2/M-1) — refetch da trava ao abrir o Sheet e ao levar 42501", () => {
+  it("useIntegracaoEstados usa refetchOnMount: 'always' (Sheet aberto de novo não fica com a trava stale até 30s)", () => {
+    const s = ler("src/hooks/useIntegracaoEstado.ts");
+    expect(s).toMatch(/refetchOnMount: "always"/);
+  });
+  it("usePlanejamentoSave.ts invalida ['integracao-estado'] no onError quando o code é 42501 e a mensagem começa com integracao_travado:", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/codigo === "42501" && mensagem\.startsWith\("integracao_travado:"\)/);
+    expect(s).toMatch(/qc\.invalidateQueries\(\{ queryKey: \["integracao-estado"\] \}\);/);
+    // A checagem tem que estar DENTRO do onError (antes do primeiro uso do onError, não em outro handler).
+    const idxOnError = s.indexOf("onError: async (e: any) => {");
+    const idxInvalidar = s.indexOf('qc.invalidateQueries({ queryKey: ["integracao-estado"] });');
+    expect(idxOnError).toBeGreaterThan(-1);
+    expect(idxInvalidar).toBeGreaterThan(idxOnError);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — m4/M-4 (revisões): data null não pode virar "Integrado em — — travado" (dois traços).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 1 (m4/M-4) — textoSelo com data null", () => {
+  it("integrado com integrado_em null: 'Integrado — travado' (sem 'em' nem traço solto)", () => {
+    const est = lerEstados({ m1: { estado: "integrado", campos: [], marcado_em: "2026-09-01T00:00:00Z", integrado_em: null } });
+    expect(textoSelo(est.m1, "America/Sao_Paulo")).toBe("Integrado — travado");
+  });
+  it("integrável com marcado_em null: 'Integrável — travado'", () => {
+    const est = lerEstados({ m1: { estado: "integravel", campos: [], marcado_em: null, integrado_em: null } });
+    expect(textoSelo(est.m1, "America/Sao_Paulo")).toBe("Integrável — travado");
+  });
+  it("data ILEGÍVEL (string inválida) tratada como null — mesmo texto sem 'em'", () => {
+    const est = lerEstados({ m1: { estado: "integrado", campos: [], marcado_em: null, integrado_em: "não-é-uma-data" } });
+    expect(textoSelo(est.m1, "America/Sao_Paulo")).toBe("Integrado — travado");
+  });
+  it("data válida: comportamento de antes preservado ('Integrado em dd/mm — travado')", () => {
+    const est = lerEstados({ m1: { estado: "integrado", campos: [], marcado_em: null, integrado_em: "2026-09-26T13:00:00Z" } });
+    expect(textoSelo(est.m1, "America/Sao_Paulo")).toBe("Integrado em 26/09 — travado");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — m5/M-2 (revisões): capitalização de "Integração" nos 3 hints + o texto do SKU alinhado com
+// P-73 (o dono: SKUs e "Tamanho em" travam; cor/tamanho novo no BOM do INTERNO fica sem SKU até desfazer —
+// o BOM em si (cores/grade) segue LIVRE, a trava de "cores"/"variantes" no banco é do espelho comprado).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 1 (m5/M-2) — capitalização e texto do SKU alinhado com P-73", () => {
+  it("os 3 hints usam 'Integração' maiúsculo, nunca 'integração' minúsculo", () => {
+    const info = ler("src/components/planejamento/planejamento-detail/InfoGeraisSecao.tsx");
+    const preco = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
+    const revenda = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
+    expect(info).toMatch(/mesmo travado pela Integração\./);
+    expect(preco).toMatch(/mesmo travado pela Integração\./);
+    expect(revenda).toMatch(/mesmo travado pela Integração\./);
+    expect(info).not.toMatch(/mesmo travado pela integração\./);
+    expect(preco).not.toMatch(/mesmo travado pela integração\./);
+    expect(revenda).not.toMatch(/mesmo travado pela integração\./);
+  });
+  it("TEXTO_SKU_TRAVADO segue P-73: só SKUs e 'Tamanho em' travam; cor/tamanho no BOM fica sem SKU até desfazer", () => {
+    const t = ler("src/lib/integracao/trava.ts");
+    expect(t).toContain('export const TEXTO_SKU_TRAVADO =\n  \'SKUs e "Tamanho em" travados pela Integração — mudar cores ou tamanhos no BOM não cria SKU novo até o super admin desfazer.\';');
+  });
+  it("TEXTO_TRAVA_SHEET usa 'Integração' maiúsculo", () => {
+    const t = ler("src/lib/integracao/trava.ts");
+    expect(t).toMatch(/Campos marcados na Integração ficam travados\./);
   });
 });
