@@ -32,7 +32,9 @@ import { varianteLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { MOEDAS, cadeiaMarkup, fmtMoeda, m1ParaM2, simboloMoeda } from "@/lib/moeda";
 import { MoneyInput } from "@/components/shared/MoneyInput";
-import { markupDePreco } from "@/lib/preco-revenda";
+import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
+import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
 import type { Opt, CatOpt, SubOpt, CorApelidoOpt } from "@/components/produto-acabado/shared";
 import {
   custoDoDraft, qtdTotalDeVariantes, recalcVariantesPorPeso, somaPercentualPorBase, validarParaPedido,
@@ -201,10 +203,15 @@ export function ProdutoImportadoCard({
   // banco (`_imp_recomputar_precos_modelo` soma a MO em v_custo). Os previews de preço e o caminho
   // inverso usam ESTA base (não só o landed), senão o preview divergiria do que o servidor persiste.
   const baseImp = resultado.unitarioBrl + (mo.total || 0);
-  const precos = useMemo(
-    () => cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0),
-    [baseImp, draft.markup_atacado, draft.markup_varejo],
-  );
+  const precos = useMemo(() => {
+    const c = cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
+    // D14/R1: o preço FIXO manda ("última edição manda" — mesma regra do servidor e do precosDoDraft).
+    return { ...c, atacado: draft.preco_atacado_fixo ?? c.atacado, varejo: draft.preco_varejo_fixo ?? c.varejo };
+  }, [baseImp, draft.markup_atacado, draft.markup_varejo, draft.preco_atacado_fixo, draft.preco_varejo_fixo]);
+  // Integração (F4): REF, Nome, Foto e o VAREJO (valor + markup) travam quando o campo está marcado; atacado LIVRE (D34/R8).
+  // O banco recusa (§8); a tela só espelha.
+  const estadoIntegracao = useIntegracaoEstado(draft.modelo_id);
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
   const valorProdutoM2 = useMemo(() => m1ParaM2(draft.valor_unitario_m1, draft.cotacao_ref), [draft.valor_unitario_m1, draft.cotacao_ref]);
   const valorTranspM2 = (Number(draft.peso_kg) || 0) * (Number(draft.transporte_m2) || 0);
   const moedaM2 = draft.moeda_intermediaria; // null = cadeia direta (mostra na moeda de compra)
@@ -369,6 +376,7 @@ export function ProdutoImportadoCard({
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{draft.nome || "Sem nome"}</div>
+          {estadoIntegracao && <SeloIntegracao estado={estadoIntegracao} className="mt-1" />}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
             <span className="tabular-nums">{draft.ref ?? "REF —"}</span>
             <span>{empresaNome || "sem fornecedor"}</span>
@@ -408,7 +416,9 @@ export function ProdutoImportadoCard({
               <button
                 type="button"
                 onClick={() => setConfirmExcluir(true)}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                disabled={!!estadoIntegracao}
+                title={estadoIntegracao ? textoExcluirTravado(estadoIntegracao.estado) : undefined}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 className="h-4 w-4 shrink-0" /> Excluir produto
               </button>
@@ -446,15 +456,15 @@ export function ProdutoImportadoCard({
                           ) : (
                             <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted text-muted-foreground"><ImagePlus className="h-4 w-4" /></div>
                           )}
-                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto || travaIntegracao.has("fotos_modelo")} onClick={() => fileInputRef.current?.click()}>
                             {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Trocar
                           </Button>
-                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground hover:text-destructive" title="Remover foto" onClick={() => onChange({ foto_url: null })}>
+                          <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground hover:text-destructive" title="Remover foto" disabled={travaIntegracao.has("fotos_modelo")} onClick={() => onChange({ foto_url: null })}>
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
                       ) : (
-                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto || travaIntegracao.has("fotos_modelo")} onClick={() => fileInputRef.current?.click()}>
                           {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Anexar
                         </Button>
                       )}
@@ -464,6 +474,7 @@ export function ProdutoImportadoCard({
                       <Input
                         className="flex-1"
                         data-colab-path={cp("ref")}
+                        disabled={travaIntegracao.has("ref")}
                         value={draft.ref ?? ""}
                         placeholder="Gerada ao salvar (ou digite manual)"
                         title="Deixe em branco para a REF automática ao salvar, ou digite uma REF manual."
@@ -472,7 +483,7 @@ export function ProdutoImportadoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Nome</Label>
-                      <Input className="flex-1" data-colab-path={cp("nome")} value={draft.nome} onChange={(e) => onChange({ nome: e.target.value })} />
+                      <Input className="flex-1" data-colab-path={cp("nome")} disabled={travaIntegracao.has("nome")} value={draft.nome} onChange={(e) => onChange({ nome: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[130px] shrink-0 text-sm">Fornecedor</Label>
@@ -801,7 +812,8 @@ export function ProdutoImportadoCard({
                           data-colab-path={cp("markup-atacado")}
                           className="pr-6"
                           value={draft.markup_atacado ?? 0}
-                          onChange={(e) => onChange({ markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                          // D14/R1: markup digitado LIMPA o preço fixo do canal ("última edição manda") — grava no Salvar.
+                          onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_atacado: Number(e.target.value), preco_atacado_fixo: null } : { markup_atacado: null })}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -815,7 +827,8 @@ export function ProdutoImportadoCard({
                           data-colab-path={cp("markup-varejo")}
                           className="pr-6"
                           value={draft.markup_varejo ?? 0}
-                          onChange={(e) => onChange({ markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                          disabled={travaIntegracao.has("preco_venda")}
+                          onChange={(e) => onChange(Number(e.target.value) > 0 ? { markup_varejo: Number(e.target.value), preco_varejo_fixo: null } : { markup_varejo: null })}
                         />
                         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                       </div>
@@ -824,20 +837,22 @@ export function ProdutoImportadoCard({
                   <InfoStrip itens={[
                     { label: "Valor final (BRL)", valor: fmtMoeda(resultado.unitarioBrl, "BRL"), hi: true },
                   ]} />
-                  {/* Preços EDITÁVEIS (caminho inverso): digitar o preço devolve o markup
-                      (markup = preço ÷ custo landed). Atacado e varejo independentes. O banco só
-                      persiste markup (preço é derivado); grava o markup no draft. base=0 → não grava. */}
+                  {/* Preços EDITÁVEIS = preço FIXO exato (D14/R1, espelho da revenda — fim do "298 → 297,84"): digitar vira
+                      rascunho do fixo do canal e LIMPA o markup dele; grava no SALVAR da tela (salvar_produto_importado, na
+                      transação do _rev_base). Vazio (e markup vazio) = nada muda no banco; para voltar ao markup, digite o
+                      markup. Funciona com base 0. */}
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[120px] shrink-0 text-sm">Valor atacado</Label>
                       <MoneyInput
                         className="flex-1"
+                        fixedDecimals
+                        data-colab-path={cp("preco-atacado-fixo")}
                         value={precos.atacado > 0 ? precos.atacado : ""}
                         placeholder="0,00"
-                        disabled={baseImp <= 0}
                         onChange={(e) => {
-                          const mk = markupDePreco(baseImp, Number(e.target.value) || 0);
-                          if (mk != null) onChange({ markup_atacado: mk });
+                          const n = Number(e.target.value) || 0;
+                          onChange(n > 0 ? { preco_atacado_fixo: n, markup_atacado: null } : { preco_atacado_fixo: null });
                         }}
                       />
                     </div>
@@ -845,12 +860,14 @@ export function ProdutoImportadoCard({
                       <Label className="w-[120px] shrink-0 text-sm">Valor varejo</Label>
                       <MoneyInput
                         className="flex-1"
+                        fixedDecimals
+                        data-colab-path={cp("preco-varejo-fixo")}
                         value={precos.varejo > 0 ? precos.varejo : ""}
                         placeholder="0,00"
-                        disabled={baseImp <= 0}
+                        disabled={travaIntegracao.has("preco_venda")}
                         onChange={(e) => {
-                          const mk = markupDePreco(baseImp, Number(e.target.value) || 0);
-                          if (mk != null) onChange({ markup_varejo: mk });
+                          const n = Number(e.target.value) || 0;
+                          onChange(n > 0 ? { preco_varejo_fixo: n, markup_varejo: null } : { preco_varejo_fixo: null });
                         }}
                       />
                     </div>

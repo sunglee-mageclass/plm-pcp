@@ -81,6 +81,10 @@ export type ProdutoImportadoDraft = {
   cotacao_final: number;
   markup_atacado: number | null;
   markup_varejo: number | null;
+  /** D14/R1 (Integração): preço FIXO exato por canal (null = deriva do markup). VAI no payload do salvar_produto_importado
+   *  (montarPayload) e grava no SALVAR da tela, na transação do _rev_base — nada grava antes do Salvar. */
+  preco_atacado_fixo: number | null;
+  preco_varejo_fixo: number | null;
   variantes: VarianteImportadoDraft[];
   etapas: EtapaImportadoDraft[];
 };
@@ -123,6 +127,8 @@ export function emptyDraft(colecaoId: string | null, subcolecao: string | null):
     cotacao_final: 0,
     markup_atacado: null,
     markup_varejo: null,
+    preco_atacado_fixo: null,
+    preco_varejo_fixo: null,
     variantes: [{ ordem: 1, cor_id: null, cor_apelido_id: null, peso: 1, qtd: 0, _touched: false }],
     etapas: [
       { ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 30, data_vencimento: null, cotacao: 0 },
@@ -168,6 +174,8 @@ export function chaveDirty(d: ProdutoImportadoDraft) {
     cotacao_final: d.cotacao_final,
     markup_atacado: d.markup_atacado,
     markup_varejo: d.markup_varejo,
+    preco_atacado_fixo: d.preco_atacado_fixo,
+    preco_varejo_fixo: d.preco_varejo_fixo,
     variantes: d.variantes,
     etapas: d.etapas,
   };
@@ -214,7 +222,9 @@ export function custoDoDraft(draft: ProdutoImportadoDraft): ResultadoLanded {
  *  `custoDoDraft` — mesma fonte única `cadeiaMarkup` do moeda.ts. */
 export function precosDoDraft(draft: ProdutoImportadoDraft, resultado?: ResultadoLanded): { atacado: number; varejo: number } {
   const unitarioBrl = (resultado ?? custoDoDraft(draft)).unitarioBrl;
-  return cadeiaMarkup(unitarioBrl, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
+  const c = cadeiaMarkup(unitarioBrl, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
+  // D14: o preço FIXO manda ("última edição manda" — mesma regra do servidor).
+  return { atacado: draft.preco_atacado_fixo ?? c.atacado, varejo: draft.preco_varejo_fixo ?? c.varejo };
 }
 
 /** Σ% por base (mercadoria/frete) das etapas de pagamento. */
@@ -282,6 +292,10 @@ export function montarPayload(draft: ProdutoImportadoDraft): {
     cotacao_final: draft.cotacao_final,
     markup_atacado: draft.markup_atacado || null,
     markup_varejo: draft.markup_varejo || null,
+    // D14/R1 (Integração): preço FIXO exato por canal — o _salvar_produto_importado_core grava NESTA transação (a do _rev_base):
+    // fixo zera o markup do canal; sem fixo, markup não-nulo limpa o fixo; sem os dois, o fixo fica.
+    preco_atacado_fixo: draft.preco_atacado_fixo ?? null,
+    preco_varejo_fixo: draft.preco_varejo_fixo ?? null,
   };
   const variantes = draft.variantes.map(({ ordem, cor_id, cor_apelido_id, peso, qtd }) => ({ ordem, cor_id, cor_apelido_id, peso, qtd }));
   const etapas = draft.etapas.map(({ ordem, rotulo, base, percentual, data_vencimento, cotacao }) => ({ ordem, rotulo, base, percentual, data_vencimento, cotacao }));

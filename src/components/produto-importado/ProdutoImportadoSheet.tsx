@@ -97,6 +97,8 @@ type ProdutoImportadoRow = {
   cotacao_final: number | null;
   markup_atacado: number | null;
   markup_varejo: number | null;
+  preco_atacado_fixo?: number | string | null;
+  preco_varejo_fixo?: number | string | null;
   variantes: (VarianteImportadoDraft & { ordem: number })[] | null;
   etapas: (EtapaImportadoDraft & { ordem: number })[] | null;
 };
@@ -143,6 +145,8 @@ function draftDeRow(r: ProdutoImportadoRow): ProdutoImportadoDraft {
     cotacao_final: Number(r.cotacao_final) || 0,
     markup_atacado: r.markup_atacado,
     markup_varejo: r.markup_varejo,
+    preco_atacado_fixo: r.preco_atacado_fixo != null ? Number(r.preco_atacado_fixo) : null,
+    preco_varejo_fixo: r.preco_varejo_fixo != null ? Number(r.preco_varejo_fixo) : null,
     variantes: variantes.length > 0 ? variantes.map((v) => ({ ...v, _touched: false })) : base.variantes,
     etapas: etapas.length > 0 ? etapas : base.etapas,
   };
@@ -165,6 +169,7 @@ const ROTULO_CAMPO_PI: Record<string, string> = {
   valor_unitario_m1: "Valor unitário (M1)", cotacao_ref: "Cotação de referência",
   peso_kg: "Peso (kg)", transporte_m2: "Transporte (M2)", desconto_pct: "Desconto (%)",
   cotacao_final: "Cotação final", markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo",
+  preco_atacado_fixo: "Valor atacado", preco_varejo_fixo: "Valor varejo",
   variantes: "Variantes", etapas: "Etapas de pagamento",
 };
 
@@ -467,6 +472,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       if (d.id && !d.id.startsWith("novo-")) {
         const { error } = await supabase.rpc("limpar_produto_importado" as any, { _produto_id: d.id });
         if (error) throw error;
+        // D35: "Limpar card" (ação confirmada, imediata) também tira o preço FIXO dos 2 canais — senão ele sobreviveria.
+        const { error: fixoErr } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
+          _produto_id: d.id, _tocar_atacado: true, _preco_atacado_fixo: null, _tocar_varejo: true, _preco_varejo_fixo: null,
+        });
+        if (fixoErr) throw fixoErr;
       }
       return d;
     },

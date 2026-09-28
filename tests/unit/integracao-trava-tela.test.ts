@@ -1518,3 +1518,28 @@ describe("Fix round 2 — N-2: falha na releitura pós-RPC não diz que o preço
     expect(s).toMatch(/O preço foi salvo, mas não consegui reler o valor — recarregue para conferir\./);
   });
 });
+
+describe("F4 — Produto Acabado e Importado", () => {
+  it("PA: selo + Nome/Foto/Excluir travados; do preço, SÓ o varejo (preço + markup) — atacado livre (D34/R8)", () => {
+    const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
+    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(produto\.modelo_id\);/);
+    expect(s).toMatch(/disabled=\{identidadeTravada \|\| travaIntegracao\.has\("nome"\)\}/);
+    expect(s).toMatch(/disabled=\{enviandoFoto \|\| travaIntegracao\.has\("fotos_modelo"\)\}/);
+    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
+    expect(s).toMatch(/data-colab-path=\{`card:\$\{produto\.id\}:markup-var`\}\n\s+disabled=\{travaIntegracao\.has\("preco_venda"\)\}/);
+    expect(s).toMatch(/<SeloIntegracao estado=\{estadoIntegracao\}/);
+  });
+  it("PI: Valor atacado/varejo = rascunho do preço FIXO, gravado no SALVAR (D14/R1); trava só o varejo marcado (R8)", () => {
+    const s = ler("src/components/produto-importado/ProdutoImportadoCard.tsx");
+    expect(s).not.toMatch(/salvar_precos_fixo_produto_importado/); // nada grava no blur
+    expect(s).toMatch(/data-colab-path=\{cp\("preco-varejo-fixo"\)\}/);
+    expect(s).toMatch(/onChange\(n > 0 \? \{ preco_varejo_fixo: n, markup_varejo: null \} : \{ preco_varejo_fixo: null \}\)/);
+    expect(s).toMatch(/\{ markup_varejo: Number\(e\.target\.value\), preco_varejo_fixo: null \}/);
+    expect(s.match(/disabled=\{travaIntegracao\.has\("preco_venda"\)\}/g)?.length).toBe(2); // Markup varejo + Valor varejo
+    expect(s).toMatch(/disabled=\{travaIntegracao\.has\("ref"\)\}/);
+    const sh = ler("src/components/produto-importado/shared.ts");
+    expect(sh).toMatch(/preco_varejo_fixo: number \| null;/);
+    expect(sh.slice(sh.indexOf("export function montarPayload"))).toMatch(/preco_varejo_fixo: draft\.preco_varejo_fixo \?\? null,/);
+    expect(ler("src/components/produto-importado/ProdutoImportadoSheet.tsx")).toMatch(/preco_varejo_fixo: "Valor varejo"/);
+  });
+});

@@ -28,6 +28,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
+import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
+import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
+import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
@@ -449,6 +452,11 @@ export function ProdutoCard({
   // no servidor (`_salvar_produto_acabado_core`, migration 20260812130000) — isto é só o
   // affordance visual, redundante de propósito (mesmo padrão do bloco "1 · Compra", `temOc`).
   const identidadeTravada = temOc;
+  // Integração (F4): produto integrável/integrado — Nome, Foto e o VAREJO (preço + markup) travam quando o campo está marcado,
+  // e o Excluir some (o banco recusa: trg_zz_integracao_trava em produtos_acabados; a tela só espelha). Atacado fica livre
+  // (D34/R8). Sem card no Planejamento = sem trava.
+  const estadoIntegracao = useIntegracaoEstado(produto.modelo_id);
+  const travaIntegracao = colunasTravadas(estadoIntegracao);
 
   return (
     <div id={`produto-card-${produto.id}`} className="relative scroll-mt-3 rounded-lg border bg-card">
@@ -477,6 +485,7 @@ export function ProdutoCard({
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{produto.nome}</div>
+          {estadoIntegracao && <SeloIntegracao estado={estadoIntegracao} className="mt-1" />}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
             <span className="tabular-nums">{produto.ref ?? "REF —"}</span>
             <span>{empresaNome || "sem fornecedor"}</span>
@@ -554,7 +563,9 @@ export function ProdutoCard({
             <button
               type="button"
               onClick={() => setConfirmExcluir(true)}
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10"
+              disabled={!!estadoIntegracao}
+              title={estadoIntegracao ? textoExcluirTravado(estadoIntegracao.estado) : undefined}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 className="h-4 w-4 shrink-0" /> Excluir produto
             </button>
@@ -609,22 +620,22 @@ export function ProdutoCard({
                           ) : (
                             <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted text-muted-foreground"><ImagePlus className="h-4 w-4" /></div>
                           )}
-                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                          <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto || travaIntegracao.has("fotos_modelo")} onClick={() => fileInputRef.current?.click()}>
                             {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Trocar
                           </Button>
-                          <Button type="button" variant="ghost" size="iconSm" title="Remover foto" onClick={() => onChange({ ...produto, foto_url: null })}>
+                          <Button type="button" variant="ghost" size="iconSm" title="Remover foto" disabled={travaIntegracao.has("fotos_modelo")} onClick={() => onChange({ ...produto, foto_url: null })}>
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
                       ) : (
-                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto} onClick={() => fileInputRef.current?.click()}>
+                        <Button type="button" variant="outline" size="sm" className="gap-1" disabled={enviandoFoto || travaIntegracao.has("fotos_modelo")} onClick={() => fileInputRef.current?.click()}>
                           {enviandoFoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />} Anexar
                         </Button>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Nome</Label>
-                      <Input data-colab-path={`card:${produto.id}:nome`} className="flex-1" disabled={identidadeTravada} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
+                      <Input data-colab-path={`card:${produto.id}:nome`} className="flex-1" disabled={identidadeTravada || travaIntegracao.has("nome")} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Grupo</Label>
@@ -908,6 +919,7 @@ export function ProdutoCard({
                         <div className="relative">
                           <NumberInput
                             data-colab-path={`card:${produto.id}:markup-var`}
+                            disabled={travaIntegracao.has("preco_venda")}
                             blankZero
                             placeholder="2,50"
                             className="pr-6"
@@ -946,6 +958,7 @@ export function ProdutoCard({
                             fixedDecimals
                             value={precoVarejoLive ?? ""}
                             placeholder="0,00"
+                            disabled={travaIntegracao.has("preco_venda")}
                             onChange={(e) => onChange({ ...produto, preco_varejo_fixo: Number(e.target.value) > 0 ? Number(e.target.value) : null, markup_varejo: null })}
                             onBlur={(e) => {
                               const novo = Number(e.target.value) > 0 ? Number(e.target.value) : null;
