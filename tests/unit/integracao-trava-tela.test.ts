@@ -8,6 +8,7 @@ import { colunasTravadas, lerEstados, textoExcluirTravado, textoSelo } from "@/l
 import { omitirColunasTravadas, resolverColunasTravadas, toastDescartadasPelaIntegracao } from "@/components/planejamento/planejamento-detail/usePlanejamentoSave";
 import { emptyDraft, type Draft } from "@/components/planejamento/modelo-shared";
 import { InfoGeraisSecao } from "@/components/planejamento/planejamento-detail/InfoGeraisSecao";
+import { igual } from "@/lib/colab/merge";
 
 // Fix round 1 (I1/I-1 das revisões) — mesmo padrão de tests/unit/integracao-celula.test.ts: sem isto, todo
 // `act()` sob React 19 dev loga "not configured to support act(...)" e esconde falhas reais no ruído.
@@ -23,7 +24,10 @@ const rpcSpy = vi.hoisted(() => vi.fn((nome: string, _args: unknown) => {
   return Promise.resolve({ data: null, error: null });
 }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy, from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }) } }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+// Fix round 2 (N-3, task-22-rereview.md) — `vi.hoisted` p/ os testes conseguirem inspecionar/limpar as chamadas
+// (ex.: contar `toast.warning` em 2 saves seguidos) — antes o mock não tinha referência exportada.
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 const ler = (p: string) => readFileSync(p, "utf8");
 
@@ -891,6 +895,111 @@ async function montarHarnessImportado(opts: {
   // Fix round 1 (M-1) — alias mais legível pro teste de read-back (mesma função; só o nome conta a intenção).
   const montarHarnessImportadoComReadBack = montarHarnessImportado;
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 (N-3, task-22-rereview.md) — harness de SAVES SEQUENCIAIS com estado PERSISTENTE entre chamadas
+// (draft vivo, touchedRef e uma baseline REAL, gravada por `resetDraftBaseline` — não mais um no-op). Isto é o
+// que faltava pros testes I-1/I-2 provarem "não fica preso em saves seguintes"/"fica sujo"/"avisa 1x": sem
+// baseline real, `dirty` nunca pôde ser observado (a review N-3 apontou exatamente essa lacuna). Modelado no
+// harness de verificação da re-review (scratchpad/t22rr/tests/unit/zz-rereview.test.ts) — não copiado
+// verbatim: reconstruído contra ESTE arquivo de teste (mesmos stubs/convenções de `montarHarnessImportado`
+// acima), com o dirty-check via `igual` (o mesmo predicado que `useDirtySnapshot` usa em produção).
+type EstadoSequencial = { draft: { current: Draft }; touched: { current: Set<string> }; base: { current: { draft: Draft } }; baseline: { current: Draft | null } };
+function estadoInicial(draftCru: Draft, baseDraft: Draft, touched: ReadonlySet<string>): EstadoSequencial {
+  return {
+    draft: { current: draftCru },
+    touched: { current: new Set(touched) },
+    base: { current: { draft: baseDraft } },
+    baseline: { current: baseDraft },
+  };
+}
+const estaSujo = (st: EstadoSequencial): boolean => !igual(st.draft.current, st.baseline.current);
+async function salvarSequencial(st: EstadoSequencial, opts: {
+  piOn: boolean; podeEditarPreco: boolean; produtoImportadoId: string | null;
+  travaIntegracao?: ReadonlySet<string>; precoServidorPosRpc?: { preco_venda: number | null; preco_atacado: number | null } | null;
+  /** Fix round 2 (N-1, cenário "digitou durante o save"): chamado no INSTANTE em que a RPC de preço fixo
+   *  dispara (depois de `d`/`draftCruEnviado` já terem sido congelados pelo mutationFn) — usado pra simular
+   *  uma edição em voo mutando `st.draft.current` só DEPOIS que o valor enviado já foi capturado. */
+  aoChamarRpcPreco?: () => void;
+}) {
+  const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const bomInerte: any = {
+    estado: null, snapshot: "", gravar: false, sujoNaCaptura: false,
+    flags: { grade: false, consumo: false, aviamentos: false },
+    idsEtiquetasServidor: [], tecidosPlanejados: [], totais: null,
+    cad: { gravar: false }, gradesPayload: null, gradeExterna: null, gradeConflito: false, enviadoNaCaptura: false,
+  };
+  const fichaStub: any = {
+    podeGravarColunasDev: false, podeVerCustos: false,
+    conflitoBomRef: { current: false }, verificandoBomRef: { current: false }, colecoesTouchadasRef: { current: false },
+    setConflitoBom: () => {}, marcarSaveEmVoo: () => {}, bomMudouNoServidor: async () => false,
+    capturar: () => bomInerte, cadGravado: () => {}, aposSalvar: () => ({ bomMudouEmVoo: false, edicoesPerdidas: false }),
+    bomGravado: () => {}, invalidarBom: () => {}, bomPendenteDeGravar: () => false,
+    etapas: {},
+  };
+  rpcSpy.mockClear();
+  const rpcCalls: { nome: string; args: any }[] = [];
+  rpcSpy.mockImplementation((nome: string, args: any) => {
+    rpcCalls.push({ nome, args });
+    if (nome === "salvar_precos_fixo_produto_importado") opts.aoChamarRpcPreco?.();
+    return Promise.resolve({ data: null, error: null });
+  });
+  const supabaseMod: any = await import("@/integrations/supabase/client");
+  const fromSpy = vi.fn((tabela: string) => {
+    if (tabela === "modelos") {
+      return {
+        update: () => ({ eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }) }) }),
+        select: (cols: string) => ({
+          eq: () => ({
+            single: () => cols.includes("grades")
+              ? Promise.resolve({ data: { rev: 1, grades: [] }, error: null })
+              : Promise.resolve({ data: opts.precoServidorPosRpc ?? { preco_venda: null, preco_atacado: null }, error: null }),
+          }),
+        }),
+      };
+    }
+    if (tabela === "produtos_importados") {
+      return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: opts.produtoImportadoId ? { id: opts.produtoImportadoId } : null, error: null }) }) }) };
+    }
+    return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+  });
+  supabaseMod.supabase.from = fromSpy;
+
+  let erro: any = null;
+  let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
+  function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
+    const api = usePlanejamentoSave({
+      modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: opts.piOn,
+      podeEditarPreco: opts.podeEditarPreco, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+      refEditavel: false, travaIntegracao: opts.travaIntegracao, categorias: [],
+      draft: st.draft.current,
+      setDraft: (fnOrValue: any) => { st.draft.current = typeof fnOrValue === "function" ? fnOrValue(st.draft.current) : fnOrValue; },
+      draftLiveRef: st.draft as any, touchedRef: st.touched as any, baseRef: st.base as any,
+      revRef: { current: 1 } as any, retryRef: { current: false } as any, savingRef: { current: false } as any,
+      conflitosRef: { current: [] } as any, setConflitos: () => {}, setUltimoMerge: () => {},
+      setEnviada: () => {}, setLancado: () => {},
+      moLinhasRef: { current: [] } as any, moBaseRef: { current: [] } as any, setMoLinhasBase: () => {},
+      gradeRevenda: {}, setGradeRevenda: () => {}, gradeRevendaDirty: false,
+      gradeRevendaBaseRef: { current: "{}" } as any, gradeRevendaRevRef: { current: null } as any,
+      buildLinhasGradeRevenda: () => [], gradeCompradoPeloBom: false,
+      qc, onSaved: async () => {}, ficha: fichaStub,
+      // A DIFERENÇA-CHAVE deste harness (N-3): `resetDraftBaseline` REALMENTE grava a baseline (o no-op do
+      // harness antigo é exatamente por que N-1 não foi pego antes — nenhum teste conseguia observar "dirty").
+      resetDraftBaseline: (next?: Draft) => { st.baseline.current = next ?? null; },
+    });
+    onReady(api);
+    return null;
+  }
+  const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+  await act(async () => {
+    apiRef!.save.mutate(undefined, { onError: (e: any) => { erro = e; } });
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+  view.unmount();
+  return { rpcCalls: rpcCalls.filter((c) => c.nome === "salvar_precos_fixo_produto_importado"), erro };
+}
+
 describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preço do importado pelo gravador fixo", () => {
   // Harness idêntico ao de Fix round 3 (R-5) acima — reusa o mesmo padrão de montagem/mocks, trocando o cenário
   // pra um card IMPORTADO com o preço EDITADO (varejo mudou vs a base do servidor).
@@ -1074,21 +1183,34 @@ describe("Task 22 — comportamento real: n2 (criacao.planejamento.tsx) card rot
 // `travaIntegracao`/`touched`/`baseMudaDuranteAwait`/`capturarUpdatePayload`).
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("Fix round 1 — I-1: preço travado a meio da edição não quebra o save nem trava o card", () => {
+  // Fix round 2 (N-3) — reescrito com o harness SEQUENCIAL (estado persistente + baseline REAL): a versão
+  // antiga só olhava `resultado.resolucaoTrava`, nunca o draft vivo, `touched`, a contagem de toasts nem um
+  // 2º Salvar — exatamente a lacuna que a review apontou (e por que N-1 não tinha sido pego antes: sem
+  // baseline real, "dirty" nunca era observável). Agora prova TUDO que o título promete, em 1 sessão de 2 saves.
   it("varejo travado + editado: NÃO chama a RPC pro canal travado, restaura o draft, avisa 1x e não fica preso em saves seguintes", async () => {
+    toastMock.warning.mockClear();
     const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
-    const draft: Draft = { ...base, preco_venda: 150 }; // usuário editou ANTES da trava chegar
+    const st = estadoInicial({ ...base, preco_venda: 150 }, base, new Set(["preco_venda"])); // usuário editou ANTES da trava chegar
     const trava = new Set(["preco_venda"]);
-    const { rpcCalls, resultado } = await montarHarnessImportado({
-      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
-      travaIntegracao: trava, touched: new Set(["preco_venda"]),
-    });
-    // A RPC não pode ser chamada pro canal travado (o gatilho fn_integracao_trava_espelho recusaria com 42501
-    // DEPOIS do header já ter comitado — o card ficaria "meio salvo").
-    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
-    // O mecanismo do Task 21 (resolverColunasTravadas) restaura preco_venda pro valor do SERVIDOR na base do
-    // merge e avisa (mesmo padrão de qualquer outra coluna travada).
-    expect(resultado?.resolucaoTrava?.paraBaseDoMerge?.preco_venda).toBe(100);
-    expect(resultado?.resolucaoTrava?.avisos?.some((a: any) => a.coluna === "preco_venda")).toBe(true);
+
+    const r1 = await salvarSequencial(st, { piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1", travaIntegracao: trava, precoServidorPosRpc: { preco_venda: 100, preco_atacado: 50 } });
+    // 1º Salvar: nenhuma RPC pro canal travado (o gatilho recusaria com 42501 DEPOIS do header já ter
+    // comitado); o draft VIVO volta pro valor do servidor (100); a base do merge também; a chave sai de
+    // `touched` (não fica "presa"); o card fica LIMPO (não dirty); exatamente 1 aviso.
+    expect(r1.rpcCalls).toHaveLength(0);
+    expect(st.draft.current.preco_venda).toBe(100);
+    expect(st.base.current.draft.preco_venda).toBe(100);
+    expect(st.touched.current.has("preco_venda")).toBe(false);
+    expect(estaSujo(st)).toBe(false);
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+    expect(String(toastMock.warning.mock.calls[0][0])).toContain("Preço de venda foi travado");
+
+    // 2º Salvar (nada de novo editado, a trava continua): não fica preso — 0 chamadas de novo, segue limpo,
+    // e o toast NÃO repete (não é um "erro" recorrente, foi resolvido no 1º save).
+    const r2 = await salvarSequencial(st, { piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1", travaIntegracao: trava, precoServidorPosRpc: { preco_venda: 100, preco_atacado: 50 } });
+    expect(r2.rpcCalls).toHaveLength(0);
+    expect(estaSujo(st)).toBe(false);
+    expect(toastMock.warning).toHaveBeenCalledTimes(1); // não repetiu
   });
   it("varejo travado SEM edição do usuário (só outro campo mudou): nenhum aviso (não houve alteração perdida) e ainda assim nenhuma chamada à RPC", async () => {
     const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
@@ -1160,11 +1282,12 @@ describe("Fix round 1 — M-1: o preço lido de volta do servidor vira a base do
     // servidor), não `null`/0 (o que foi enviado) — senão o próximo refetch veria fresh=200 ≠ base=null e
     // acusaria "alguém mudou o preço" por engano (o falso banner que o review pediu pra cobrir).
     expect(baseRefFinal.preco_venda).toBe(200);
-    // O draft VIVO fica como o usuário digitou (0/limpo) — o valor local AINDA diverge do real (200), então
-    // `touchedRef` continua marcando o campo (mesmo padrão de `tecidos_planejados`: só sincroniza em silêncio
-    // quando o campo já bate). O que o M-1 evita é o FALSO BANNER na base, não trocar o valor na tela embaixo
-    // do usuário sem aviso.
-    expect(draftLiveFinal.preco_venda).toBe(0);
+    // Fix round 2 (N-1) — ninguém digitou nada DURANTE o save (o draft vivo neste harness nunca se afasta do
+    // que foi enviado): P-91 A diz que limpar = "volta a calcular", então o draft VIVO agora ADOTA o valor
+    // real do servidor (200) — não fica preso em 0/null pra sempre (era exatamente o bug que N-1 reportou:
+    // card permanentemente sujo, reenviando "limpar" a cada Salvar). Ver describe "Fix round 2 — N-1" abaixo
+    // para o caso "digitou durante o save" (aí sim o valor do usuário tem prioridade e fica marcado).
+    expect(draftLiveFinal.preco_venda).toBe(200);
     expect(resultado?.precosServidorPosRpc).toEqual({ preco_venda: 200, preco_atacado: 50 });
   });
   it("preço IGUAL ao enviado (sem divergência do recompute): o draft vivo sincroniza em silêncio com o valor do servidor", async () => {
@@ -1242,5 +1365,156 @@ describe("Fix round 1 — M-6: correção da leitura do report sobre onde a trav
     // A trigger cobre AS DUAS espelhos (revenda e importado) — mesma função, mesmo comportamento.
     expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.produtos_acabados\s*\n\s*FOR EACH ROW EXECUTE FUNCTION public\.fn_integracao_trava_espelho\(\);/);
     expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.produtos_importados\s*\n\s*FOR EACH ROW EXECUTE FUNCTION public\.fn_integracao_trava_espelho\(\);/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 (task-22-rereview.md) — N-1 (Important), N-2 (Minor). N-3 (harness) já foi tratado acima:
+// `montarHarnessImportado` ganhou `capturarUpdatePayload` (M-4, round 1), e o describe "Fix round 1 — I-1"
+// logo acima foi reescrito com o harness SEQUENCIAL (`estadoInicial`/`salvarSequencial`/`estaSujo`) que tem
+// baseline REAL (não mais um no-op) — é o que faltava pros testes I-1 provarem dirty/toast-count/2º save.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 2 — N-1: limpar o preço do importado 'volta a calcular' (P-91 A) — sem card permanentemente sujo", () => {
+  it("(a) limpar com markup presente: após o 1º Salvar o draft mostra o valor do servidor (200) e NÃO fica sujo; um 2º Salvar não manda RPC de preço", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    // Ninguém digita nada DURANTE o save (o draft vivo é o mesmo valor limpo que foi enviado) — cenário do
+    // usuário que clicou "limpar" e então Salvar, sem tocar em mais nada.
+    const st = estadoInicial({ ...base, preco_venda: null as any }, base, new Set(["preco_venda"]));
+
+    const r1 = await salvarSequencial(st, { piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1", precoServidorPosRpc: { preco_venda: 200, preco_atacado: 50 } });
+    expect(r1.rpcCalls).toHaveLength(1);
+    expect(r1.rpcCalls[0].args).toMatchObject({ _tocar_varejo: true, _preco_varejo_fixo: null });
+    // A prova central de N-1: o draft mostra o valor CALCULADO (200), a base bate, a chave NÃO fica em
+    // `touched`, e o card não é mais "dirty" — em vez de ficar preso em branco pra sempre.
+    expect(st.draft.current.preco_venda).toBe(200);
+    expect(st.base.current.draft.preco_venda).toBe(200);
+    expect(st.touched.current.has("preco_venda")).toBe(false);
+    expect(estaSujo(st)).toBe(false);
+
+    // 2º Salvar: nada mudou (nem o preço, nem qualquer outro campo) — a comparação `d.preco_venda(200) ===
+    // precoBaseCongelado.venda(200)` dá `tocarVarejo=false`, então a RPC de preço NÃO roda de novo. Sem o
+    // fix, isto entraria num loop: `tocarVarejo` sempre `true` porque o draft ficava preso em `null`.
+    const r2 = await salvarSequencial(st, { piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1", precoServidorPosRpc: { preco_venda: 200, preco_atacado: 50 } });
+    expect(r2.rpcCalls).toHaveLength(0);
+    expect(estaSujo(st)).toBe(false);
+  });
+
+  it("(b) o usuário digita um valor NOVO durante o save (o draft vivo diverge do que foi enviado): a edição em voo tem prioridade e o campo fica marcado", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const st = estadoInicial({ ...base, preco_venda: null as any }, base, new Set(["preco_venda"]));
+    // Simula a digitação em voo via o hook `aoChamarRpcPreco` (chamado no instante em que a RPC de preço
+    // fixo dispara — DEPOIS de `d`/`draftCruEnviado` já terem sido congelados pelo mutationFn, ANTES do
+    // `onSuccess` rodar): o usuário digita 77 no campo, o draft vivo passa a DIVERGIR do que foi enviado (null).
+    const r1 = await salvarSequencial(st, {
+      piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      precoServidorPosRpc: { preco_venda: 200, preco_atacado: 50 },
+      aoChamarRpcPreco: () => { st.draft.current = { ...st.draft.current, preco_venda: 77 }; },
+    });
+    void r1;
+    // A adoção compara `draftLiveRef.current` (77, editado DURANTE o save) contra `draftCruEnviado` (null, o
+    // que foi de fato enviado) — são DIFERENTES, então a edição em voo GANHA: o draft continua com o 77
+    // digitado (nunca sobrescrito pelo 200 do servidor em silêncio) e a chave permanece marcada — o usuário
+    // ainda não salvou o 77, então o card segue "não salvo" honestamente.
+    expect(st.draft.current.preco_venda).toBe(77);
+    expect(st.touched.current.has("preco_venda")).toBe(true);
+    expect(estaSujo(st)).toBe(true);
+  });
+
+  it("(c) os casos de trava do I-1 continuam intactos com o fix do N-1", async () => {
+    toastMock.warning.mockClear();
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const st = estadoInicial({ ...base, preco_venda: 150 }, base, new Set(["preco_venda"]));
+    const trava = new Set(["preco_venda"]);
+    // Travado: nenhuma RPC (nem a de preço fixo, então `precosServidorPosRpc` nunca é setado) — o N-1 não
+    // interfere no caminho do I-1 (a adoção só roda quando `result.precosServidorPosRpc` existe).
+    const r1 = await salvarSequencial(st, { piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1", travaIntegracao: trava });
+    expect(r1.rpcCalls).toHaveLength(0);
+    expect(st.draft.current.preco_venda).toBe(100); // restaurado pelo mecanismo do Task 21, como sempre
+    expect(estaSujo(st)).toBe(false);
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Fix round 2 — N-2: falha na releitura pós-RPC não diz que o preço não foi salvo", () => {
+  it("a RPC de preço tem sucesso, mas a releitura falha: etapaFalha própria e mensagem honesta (o preço FOI salvo)", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150 };
+    const draftRef = { current: draft };
+    const touchedRef = { current: new Set<string>(["preco_venda"]) };
+    const baseRef = { current: { draft: base } };
+    const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const bomInerte: any = {
+      estado: null, snapshot: "", gravar: false, sujoNaCaptura: false,
+      flags: { grade: false, consumo: false, aviamentos: false },
+      idsEtiquetasServidor: [], tecidosPlanejados: [], totais: null,
+      cad: { gravar: false }, gradesPayload: null, gradeExterna: null, gradeConflito: false, enviadoNaCaptura: false,
+    };
+    const fichaStub: any = {
+      podeGravarColunasDev: false, podeVerCustos: false,
+      conflitoBomRef: { current: false }, verificandoBomRef: { current: false }, colecoesTouchadasRef: { current: false },
+      setConflitoBom: () => {}, marcarSaveEmVoo: () => {}, bomMudouNoServidor: async () => false,
+      capturar: () => bomInerte, cadGravado: () => {}, aposSalvar: () => ({ bomMudouEmVoo: false, edicoesPerdidas: false }),
+      bomGravado: () => {}, invalidarBom: () => {}, bomPendenteDeGravar: () => false,
+      etapas: {},
+    };
+    rpcSpy.mockClear();
+    rpcSpy.mockImplementation(() => Promise.resolve({ data: null, error: null })); // salvar_precos_fixo_... TEM sucesso
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    supabaseMod.supabase.from = (tabela: string) => {
+      if (tabela === "modelos") {
+        return {
+          update: () => ({ eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }) }) }),
+          select: (cols: string) => ({
+            eq: () => ({
+              single: () => cols.includes("grades")
+                ? Promise.resolve({ data: { rev: 1, grades: [] }, error: null })
+                // A releitura pós-RPC (M-1) FALHA — mesmo que a RPC em si tenha tido sucesso acima.
+                : Promise.resolve({ data: null, error: { message: "network error" } }),
+            }),
+          }),
+        };
+      }
+      if (tabela === "produtos_importados") {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: "pi-1" }, error: null }) }) }) };
+      }
+      return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+    };
+    let erro: any = null;
+    let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
+    function Harness({ onReady }: { onReady: (api: ReturnType<typeof usePlanejamentoSave>) => void }) {
+      const api = usePlanejamentoSave({
+        modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: true,
+        podeEditarPreco: true, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
+        refEditavel: false, travaIntegracao: undefined, categorias: [],
+        draft: draftRef.current, setDraft: (f: any) => { draftRef.current = typeof f === "function" ? f(draftRef.current) : f; },
+        draftLiveRef: draftRef as any, touchedRef: touchedRef as any, baseRef: baseRef as any,
+        revRef: { current: 1 } as any, retryRef: { current: false } as any, savingRef: { current: false } as any,
+        conflitosRef: { current: [] } as any, setConflitos: () => {}, setUltimoMerge: () => {},
+        setEnviada: () => {}, setLancado: () => {},
+        moLinhasRef: { current: [] } as any, moBaseRef: { current: [] } as any, setMoLinhasBase: () => {},
+        gradeRevenda: {}, setGradeRevenda: () => {}, gradeRevendaDirty: false,
+        gradeRevendaBaseRef: { current: "{}" } as any, gradeRevendaRevRef: { current: null } as any,
+        buildLinhasGradeRevenda: () => [], gradeCompradoPeloBom: false,
+        qc, onSaved: async () => {}, ficha: fichaStub, resetDraftBaseline: () => {},
+      });
+      onReady(api);
+      return null;
+    }
+    const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+    await act(async () => {
+      apiRef!.save.mutate(undefined, { onError: (e: any) => { erro = e; } });
+      for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    });
+    view.unmount();
+    // A RPC de preço fixo TEVE sucesso (não é `etapaFalha==="preco"`) — só a releitura falhou.
+    expect(erro?.etapaFalha).toBe("preco-leitura");
+  });
+  it("usePlanejamentoSave.ts: a releitura tem try/catch PRÓPRIO (não herda etapaFalha='preco' da RPC) e o onError mostra a mensagem exata", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/\(eLeitura as any\)\.etapaFalha = "preco-leitura";/);
+    expect(s).toMatch(/if \(e\?\.etapaFalha === "preco-leitura"\) \{/);
+    expect(s).toMatch(/O preço foi salvo, mas não consegui reler o valor — recarregue para conferir\./);
   });
 });

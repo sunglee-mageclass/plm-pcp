@@ -842,13 +842,27 @@ export function usePlanejamentoSave({
               _tocar_varejo: tocarVarejo, _preco_varejo_fixo: varejo,
             });
             if (fixoErr) throw fixoErr;
-            // Fix round 1 (M-1) — o recompute do servidor (`_imp_recomputar_precos_modelo`) pode devolver um preço
-            // DIFERENTE do que foi enviado: limpar um canal (`_preco_*_fixo: null`) faz o servidor recair no
-            // markup (ex.: volta a 200 em vez de ficar NULL) — `savedDraft.preco_venda` sozinho (= o `null` enviado)
-            // divergiria do `fresh` no próximo refetch e acusaria "alguém mudou" por engano. Lê de volta os 2
-            // campos DO MESMO `modelos` que o header UPDATE tocou (fonte única, mesma linha) e devolve no resultado
-            // pra `onSuccess` usar como base/baseline REAL — cobre também qualquer outra divergência do recompute
-            // (arredondamento, markup do atacado etc.), não só o caso de limpar.
+          } catch (ePreco) {
+            // Fix round 1 (M-3) — etapa própria: o resto do card (header/BOM/MO) já comitou quando este passo
+            // roda (é o ÚLTIMO antes do `return`) — sem isto o erro caía no ramo genérico do onError e o usuário
+            // não sabia que só o PREÇO ficou de fora. Mesmo padrão de `etapaFalha === "cad"` (onError, mais abaixo).
+            (ePreco as any).etapaFalha = "preco";
+            throw ePreco;
+          }
+          // Fix round 1 (M-1) — o recompute do servidor (`_imp_recomputar_precos_modelo`) pode devolver um preço
+          // DIFERENTE do que foi enviado: limpar um canal (`_preco_*_fixo: null`) faz o servidor recair no
+          // markup (ex.: volta a 200 em vez de ficar NULL) — `savedDraft.preco_venda` sozinho (= o `null` enviado)
+          // divergiria do `fresh` no próximo refetch e acusaria "alguém mudou" por engano. Lê de volta os 2
+          // campos DO MESMO `modelos` que o header UPDATE tocou (fonte única, mesma linha) e devolve no resultado
+          // pra `onSuccess` usar como base/baseline REAL — cobre também qualquer outra divergência do recompute
+          // (arredondamento, markup do atacado etc.), não só o caso de limpar.
+          // Fix round 2 (N-2, task-22-rereview.md) — try/catch PRÓPRIO, separado do try da RPC acima: a RPC já
+          // teve sucesso quando chegamos aqui (o preço FOI salvo), então uma falha só na RELEITURA não pode
+          // usar o `etapaFalha="preco"` (mensagem "o preço NÃO foi salvo" seria FALSA). `etapaFalha` própria
+          // ("preco-leitura") com mensagem honesta; `precosServidorPosRpc` fica `null` — o onSuccess simplesmente
+          // não tem o valor real pra essa rodada (mesmo comportamento do round 1 antes do M-1 existir), e o
+          // próximo Salvar (mesmo sem toque) volta a comparar contra a base antiga — não perfeito, mas não mente.
+          try {
             const { data: precoRow, error: precoRowErr } = await (supabase.from("modelos") as any)
               .select("preco_venda, preco_atacado").eq("id", savedId).single();
             if (precoRowErr) throw precoRowErr;
@@ -856,12 +870,9 @@ export function usePlanejamentoSave({
               preco_venda: (precoRow as any)?.preco_venda ?? null,
               preco_atacado: (precoRow as any)?.preco_atacado ?? null,
             };
-          } catch (ePreco) {
-            // Fix round 1 (M-3) — etapa própria: o resto do card (header/BOM/MO) já comitou quando este passo
-            // roda (é o ÚLTIMO antes do `return`) — sem isto o erro caía no ramo genérico do onError e o usuário
-            // não sabia que só o PREÇO ficou de fora. Mesmo padrão de `etapaFalha === "cad"` (onError, mais abaixo).
-            (ePreco as any).etapaFalha = "preco";
-            throw ePreco;
+          } catch (eLeitura) {
+            (eLeitura as any).etapaFalha = "preco-leitura";
+            throw eLeitura;
           }
         }
       }
@@ -1001,6 +1012,35 @@ export function usePlanejamentoSave({
       if (result?.precosServidorPosRpc) {
         enviadoEfetivo = { ...enviadoEfetivo, ...result.precosServidorPosRpc };
       }
+      // Fix round 2 (N-1, task-22-rereview.md) — RULING (regra do dono P-91 A: limpar o preço do importado
+      // significa "volta a calcular", não "fica em branco pra sempre"). O round 1 corrigiu a BASE do merge
+      // (acima) mas deixava o CARD permanentemente sujo quando o servidor recalcula um valor diferente do que
+      // foi enviado (limpar → cai pro markup): `tocadosAposSalvar` (abaixo) compara o draft VIVO (ainda com o
+      // `null` digitado) contra `enviadoEfetivo` (agora 200, o real) e ficam DIFERENTES, então a coluna nunca
+      // sai de `touched` — o selo "não salvo" trava pra sempre e o PRÓXIMO Salvar reenvia o `null` de novo
+      // (loop de "limpar" infinito; risco extra: sobrescreve o preço fixo de outra pessoa se ela mexeu nesse
+      // meio-tempo — mesma classe de stale overwrite que M-2 fechou).
+      // FIX: decide a adoção contra o que foi de fato ENVIADO (`draftCruEnviado`, o `d` cru deste save), não
+      // contra o valor do servidor. Se o draft VIVO ainda é IGUAL ao que foi enviado (ninguém digitou nada
+      // durante o `await` da RPC/read-back), não houve edição nova — adota o valor REAL do servidor no draft
+      // vivo ANTES de `tocadosAposSalvar` rodar, então a chave nunca entra em `touched` e o card fecha "limpo"
+      // (sem selo, sem RPC no próximo Salvar). Se o usuário DIGITOU algo novo nesse meio-tempo (vivo ≠
+      // enviado), a edição em voo tem prioridade — não mexe, `tocadosAposSalvar` mantém tocado normalmente
+      // (mesma prioridade que todo o resto do arquivo já dá a edições em voo, ex. `tecidos_planejados`).
+      // `precoOuNull` (não `!==` cru) porque `0` e `null` são equivalentes aqui (campo "vazio" pro usuário).
+      if (result?.precosServidorPosRpc) {
+        const precoOuNull = (v: unknown) => (numOr0(v) > 0 ? numOr0(v) : null);
+        const adocaoPrecoServidor: Record<string, unknown> = {};
+        for (const k of ["preco_venda", "preco_atacado"] as const) {
+          if (precoOuNull((draftLiveRef.current as any)[k]) === precoOuNull((draftCruEnviado as any)[k])) {
+            adocaoPrecoServidor[k] = (enviadoEfetivo as any)[k];
+          }
+        }
+        if (Object.keys(adocaoPrecoServidor).length > 0) {
+          draftLiveRef.current = { ...draftLiveRef.current, ...adocaoPrecoServidor };
+          setDraft((dPrev) => ({ ...dPrev, ...adocaoPrecoServidor }));
+        }
+      }
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
       // (`enviadoEfetivo` — o `d` CRU congelado no mutationFn, com `tecidos_planejados` corrigido pelo fix
       // I1 acima); campo editado durante o voo SEGUE tocado e o selo segue aceso até o próximo Salvar (o
@@ -1045,23 +1085,11 @@ export function usePlanejamentoSave({
         setDraft((d) => (d.tecidos_planejados === enviadoEfetivo.tecidos_planejados ? d : { ...d, tecidos_planejados: enviadoEfetivo.tecidos_planejados }));
         draftLiveRef.current = { ...draftLiveRef.current, tecidos_planejados: enviadoEfetivo.tecidos_planejados };
       }
-      // Fix round 1 (M-1) — MESMO padrão do bloco `tecidos_planejados` acima: o draft VIVO só adota o valor
-      // REAL do servidor (`result.precosServidorPosRpc`, já dobrado em `enviadoEfetivo`/na base do merge acima)
-      // quando `tocadosAposSalvar` (já rodou, linha ~1019) decidiu que o campo NÃO diverge mais — ou seja, o
-      // valor local já bate com o que foi ENVIADO. Se o servidor recomputou um valor DIFERENTE do enviado
-      // (limpar caiu de volta pro markup), o campo CONTINUA touched de propósito (o usuário vê a divergência,
-      // não um valor trocado embaixo dele em silêncio) — só o "não salvo"/base do merge (acima) já refletem o
-      // real, prevenindo o falso banner no PRÓXIMO refetch (o objetivo do M-1).
-      if (result?.precosServidorPosRpc) {
-        if (enviadoEfetivo.preco_venda !== savedDraft.preco_venda && !touchedRef.current.has("preco_venda")) {
-          setDraft((d) => (d.preco_venda === enviadoEfetivo.preco_venda ? d : { ...d, preco_venda: enviadoEfetivo.preco_venda }));
-          draftLiveRef.current = { ...draftLiveRef.current, preco_venda: enviadoEfetivo.preco_venda };
-        }
-        if (enviadoEfetivo.preco_atacado !== savedDraft.preco_atacado && !touchedRef.current.has("preco_atacado")) {
-          setDraft((d) => (d.preco_atacado === enviadoEfetivo.preco_atacado ? d : { ...d, preco_atacado: enviadoEfetivo.preco_atacado }));
-          draftLiveRef.current = { ...draftLiveRef.current, preco_atacado: enviadoEfetivo.preco_atacado };
-        }
-      }
+      // Fix round 2 (N-1) — o bloco que existia aqui (adoção do preço servidor DEPOIS de `tocadosAposSalvar`,
+      // só quando o campo já não estava mais touched) ficou REDUNDANTE: a adoção agora acontece ANTES de
+      // `tocadosAposSalvar` (bloco acima, decidido contra `draftCruEnviado`) — quando não houve edição em voo,
+      // a chave já nem chega a entrar em `touched`. Removido para não duplicar a lógica com 2 critérios
+      // ligeiramente diferentes (o velho comparava contra `savedDraft`, o novo contra `draftCruEnviado`).
       if (enviadoRef.current?.bom) {
         const { edicoesPerdidas } = fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
         // Fix pós-T9 (item 1) — a ficha (Tecidos/Aviamentos/Insumos/Grade/CAD) estava tocada mas este Salvar não
@@ -1335,6 +1363,14 @@ export function usePlanejamentoSave({
       if (e?.etapaFalha === "preco") {
         const detalhe = mensagemErro(e, "erro desconhecido");
         toast.error(`O card foi salvo, mas o preço NÃO — salve de novo antes de fechar. (${detalhe})`);
+        return;
+      }
+      // Fix round 2 (N-2) — a RPC de preço fixo JÁ teve sucesso quando este erro acontece (só a RELEITURA
+      // pós-RPC falhou) — mensagem distinta de `etapaFalha==="preco"` pra não dizer que o preço não foi salvo
+      // quando ele FOI. `mensagemErro` some pra propósito: o texto é fixo, sem detalhe técnico (a falha é
+      // sempre transitória — rede/timeout na releitura — e o próximo Salvar resolve sozinho, mesmo sem toque).
+      if (e?.etapaFalha === "preco-leitura") {
+        toast.error("O preço foi salvo, mas não consegui reler o valor — recarregue para conferir.");
         return;
       }
       toast.error(mensagemErro(e, "Erro"));
