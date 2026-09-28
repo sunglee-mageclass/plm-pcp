@@ -30,6 +30,7 @@ import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
   acoplarParVarejo, acoplarParAtacado, normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
+  parDoCampo, devePodeNormalizarPar,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
@@ -730,7 +731,9 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     const d = aplicarResolucaoTrava(d0, resolucao);
     // N-1 (Fix round 2): `variantesParaServidor` é um patch SEPARADO (array, não escalar) — precisa
     // entrar no mesmo revert do draft vivo, senão as cores do card continuam mostrando o que o
-    // usuário editou (e nunca foi enviado) mesmo depois do Salvar reverter no payload.
+    // usuário editou (e nunca foi enviado) mesmo depois do Salvar reverter no payload. R2-2 (Fix
+    // round 3): `qtdTotalParaServidor` idem — reverte junto pra não deixar o total exibido
+    // desalinhado da soma das variantes revertidas.
     if (Object.keys(resolucao.paraServidor).length > 0 || resolucao.variantesParaServidor) {
       // Reverte o rascunho VIVO pro mesmo valor que vai no payload (nunca deixa a tela mostrando um
       // valor diferente do que foi (não) enviado) — o próximo merge/baseline também adota esse valor
@@ -738,7 +741,11 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       // logo abaixo, que já usa `salvo` derivado de `d`).
       const idAlvo = d0.id!;
       setDrafts((ds) => ds.map((x) => (x.id === idAlvo
-        ? { ...x, ...resolucao.paraServidor, ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}) }
+        ? {
+            ...x, ...resolucao.paraServidor,
+            ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}),
+            ...(resolucao.qtdTotalParaServidor != null ? { qtd_total: resolucao.qtdTotalParaServidor } : {}),
+          }
         : x)) as ProdutoImportadoDraft[]);
       if (resolucao.avisos.length > 0) toast.warning(`"${d0.nome}": ${toastTravaImportado(resolucao.avisos)}`);
     }
@@ -937,16 +944,27 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
                     patchDraft(produtoId, { [campo]: c.dele } as Partial<ProdutoImportadoDraft>);
                   }
                 }
-                // M-3 (Fix round 2, ruling do coordenador) — depois de QUALQUER escolha num campo do
-                // par (fixo/markup, varejo ou atacado), normaliza o par inteiro com a MESMA regra
-                // "última edição manda" do servidor (J2 regra 1: fixo presente ganha, markup→null) —
-                // "manter meu" nos dois lados do par pode reconstituir o estado {fixo, markup} ambos
-                // setados (o achado do review); sem isto o card nunca converge com o que o servidor
-                // vai persistir no próximo Salvar. `escolha === "meu"` não muda o draft (fica como
-                // está — mas ele pode JÁ estar com os 2 setados, ver acoplarParVarejo), então a
-                // normalização roda incondicionalmente, lendo o draft ATUAL do produto (já com o
-                // patch de "dele" aplicado acima, se foi o caso).
-                if (campo === "preco_varejo_fixo" || campo === "markup_varejo" || campo === "preco_atacado_fixo" || campo === "markup_atacado") {
+                // M-3 (Fix round 2) — depois de uma escolha num campo do par (fixo/markup, varejo ou
+                // atacado), normaliza o par inteiro com a MESMA regra "última edição manda" do
+                // servidor (J2 regra 1: fixo presente ganha, markup→null) — "manter meu"/"usar o
+                // novo" pode reconstituir o estado {fixo, markup} ambos setados (o achado do review);
+                // sem isto o card nunca converge com o que o servidor vai persistir no próximo Salvar.
+                //
+                // Fix round 3 (R2-1, ruling do coordenador) — REGRESSÃO do fix acima: normalizar
+                // INCONDICIONALMENTE a cada clique apagava a escolha de B antes do OUTRO campo do
+                // par ser resolvido. Cenário (S4 do re-review): o banner lista o markup PRIMEIRO; A
+                // clica "usar o novo" nele (draft vira {fixo: 310 (meu, intocado), markup: 3 (dele,
+                // de B)}); a normalização rodava NA HORA e já apagava o markup de B (fixo manda,
+                // markup→null) — quando A resolve o campo fixo em seguida, o markup de B já tinha
+                // sumido. Fix: só normaliza quando NENHUM dos 2 campos do par continua pendente na
+                // lista de conflitos DESTE produto (`devePodeNormalizarPar`, lendo os `restantes`
+                // PÓS esta resolução) — enquanto o outro campo do par ainda espera clique, aplica só
+                // a escolha deste campo (o `patchDraft`/no-op acima) e não mexe no resto do par.
+                // `parDoCampo`/`devePodeNormalizarPar` são puros (`shared.ts`) — testados por
+                // replay de cliques com o `mergeDraft` real (ver testes N-2/R2-1).
+                const parDoCanal = parDoCampo(campo);
+                const restantesAposEsta = (conflitosPorProduto[produtoId] ?? []).filter((x) => x.path !== campo);
+                if (parDoCanal && devePodeNormalizarPar(parDoCanal, restantesAposEsta)) {
                   setDrafts((ds) => ds.map((d) => {
                     if (d.id !== produtoId) return d;
                     const varejoNorm = normalizarParVarejoAposResolucao(d);

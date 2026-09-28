@@ -264,6 +264,10 @@ export type ResolucaoTravaProduto = {
   /** N-1 (Fix round 2) — espelha `resolverTravaImportado`: revert do array INTEIRO de variantes
    *  quando o conjunto de cores divergiu do servidor e a trava (SEMPRE em `variantes`) está ativa. */
   variantesParaServidor: VarianteDraft[] | null;
+  /** R2-2 (Fix round 3, ruling do coordenador) — reverte `qtd_total` JUNTO com `variantes` — sem
+   *  isto o PA batia num `P0001 soma variantes difere total` no servidor no próximo Salvar (achado
+   *  do re-review: `qtd_total` local ficava desalinhado das variantes revertidas). */
+  qtdTotalParaServidor: number | null;
   avisos: AvisoTrava[];
 };
 const ROTULO_CAMPO_TRAVADO: Record<CampoTravavel, string> = {
@@ -285,7 +289,7 @@ export function resolverTravaAcabado(o: {
   touched: ReadonlySet<string>;
 }): ResolucaoTravaProduto {
   const { enviado, servidor, travaAtual, touched } = o;
-  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, variantesParaServidor: null, avisos: [] };
+  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, variantesParaServidor: null, qtdTotalParaServidor: null, avisos: [] };
   const paraServidor: Partial<Record<CampoTravavel, unknown>> = {};
   const avisos: AvisoTrava[] = [];
   const camposJaVistos = new Set<CampoTravavel>();
@@ -305,18 +309,30 @@ export function resolverTravaAcabado(o: {
       avisos.push({ campo, rotulo: ROTULO_CAMPO_TRAVADO[campo] });
     }
   }
+  // R2-2 (Fix round 3) — reverte `qtd_total` JUNTO (mesmo `if`) — ver comentário completo no espelho
+  // PI (`resolverTravaImportado`, produto-importado/shared.ts). Aviso muda de texto ("Cores e
+  // quantidades...") quando isto acontece.
   let variantesParaServidor: VarianteDraft[] | null = null;
+  let qtdTotalParaServidor: number | null = null;
   if (travaAtual.has("variantes")) {
     const coresEnviado = coresDistintasPA(enviado.variantes);
     const coresServidor = coresDistintasPA(servidor.variantes);
     if (JSON.stringify(coresEnviado) !== JSON.stringify(coresServidor)) {
       variantesParaServidor = servidor.variantes;
-      if (touched.has("variantes")) avisos.push({ campo: "variantes", rotulo: "Cores" });
+      qtdTotalParaServidor = servidor.qtd_total;
+      if (touched.has("variantes") || touched.has("qtd_total")) {
+        avisos.push({ campo: "variantes", rotulo: "Cores e quantidades das variantes" });
+      }
     }
   }
-  return { paraServidor, variantesParaServidor, avisos };
+  return { paraServidor, variantesParaServidor, qtdTotalParaServidor, avisos };
 }
+/** R2-2 (Fix round 3): "Cores e quantidades das variantes" pede o texto exato do ruling ("foram
+ *  travadas") — tratado à parte, mesma razão do espelho PI (`toastTravaImportado`). */
 export function toastTravaAcabado(avisos: readonly AvisoTrava[]): string {
+  if (avisos.length === 1 && avisos[0].campo === "variantes") {
+    return "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.";
+  }
   const rotulos = avisos.map((a) => a.rotulo);
   const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
   const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
@@ -328,6 +344,7 @@ export function aplicarResolucaoTravaAcabado(draft: ProdutoDraft, resolucao: Res
     ...draft,
     ...resolucao.paraServidor,
     ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}),
+    ...(resolucao.qtdTotalParaServidor != null ? { qtd_total: resolucao.qtdTotalParaServidor } : {}),
   } as ProdutoDraft;
 }
 

@@ -156,6 +156,7 @@ const ROTULO_CAMPO_PA: Record<string, string> = {
   ref_fornecedor: "Ref. Fornecedor", composicao: "Composição", grade_proporcao: "Proporção da grade",
   qtd_total: "Quantidade total", valor_unitario: "Valor unitário", desconto_pct: "Desconto (%)",
   markup_atacado: "Markup Atacado", markup_varejo: "Markup Varejo", variantes: "Variantes",
+  foto_url: "Foto",
 };
 
 /**
@@ -682,10 +683,17 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     const p = aplicarResolucaoTravaAcabado(p0, resolucao);
     // N-1 (Fix round 2): `variantesParaServidor` é um patch SEPARADO (array) — precisa entrar no
     // mesmo revert do draft vivo (espelha ProdutoImportadoSheet.tsx).
+    // R2-2 (Fix round 3): quando as cores mudaram e `variantes` é revertido pro valor do servidor,
+    // `qtd_total` tem que ser revertido junto (senão a soma na tela diverge do que o servidor vai
+    // persistir e a próxima gravação dispara P0001 "soma variantes N difere total M").
     if (Object.keys(resolucao.paraServidor).length > 0 || resolucao.variantesParaServidor) {
       const idAlvo = p0.id;
       setDrafts((ds) => (ds ? (ds.map((x) => (x.id === idAlvo
-        ? { ...x, ...resolucao.paraServidor, ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}) }
+        ? {
+            ...x, ...resolucao.paraServidor,
+            ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}),
+            ...(resolucao.qtdTotalParaServidor != null ? { qtd_total: resolucao.qtdTotalParaServidor } : {}),
+          }
         : x)) as ProdutoDraft[]) : ds));
       if (resolucao.avisos.length > 0) toast.warning(`"${p0.nome}": ${toastTravaAcabado(resolucao.avisos)}`);
     }

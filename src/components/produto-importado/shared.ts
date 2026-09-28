@@ -375,6 +375,13 @@ export type ResolucaoTravaProduto = {
    *  (só as cores) ainda arriscaria fikar com uma `ordem` órfã; o array completo do servidor é o
    *  único estado GARANTIDO de bater com `variantes_chaves` travado. */
   variantesParaServidor: VarianteImportadoDraft[] | null;
+  /** R2-2 (Fix round 3, ruling do coordenador) — junto do revert de `variantes`, reverte
+   *  `qtd_total` ao valor do SERVIDOR também — sem isto a soma das variantes revertidas podia
+   *  divergir de `qtd_total` (o draft mantinha o total editado enquanto as variantes voltavam pro
+   *  servidor), gerando um estado LOCALMENTE inconsistente (e, no PA, um `P0001 soma variantes
+   *  difere total` no servidor — achado do re-review). `null` quando `variantesParaServidor` é
+   *  `null` (nada revertido). */
+  qtdTotalParaServidor: number | null;
   /** Só os campos EDITADOS nesta sessão (via `touched`) cujo valor divergia do servidor — vira o
    *  toast PT "essa alteração não foi salva" (uma coluna canonizada mas não tocada não avisa). */
   avisos: AvisoTrava[];
@@ -405,7 +412,7 @@ export function resolverTravaImportado(o: {
   touched: ReadonlySet<string>;
 }): ResolucaoTravaProduto {
   const { enviado, servidor, travaAtual, touched } = o;
-  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, variantesParaServidor: null, avisos: [] };
+  if (!travaAtual || travaAtual.size === 0 || !servidor) return { paraServidor: {}, variantesParaServidor: null, qtdTotalParaServidor: null, avisos: [] };
   const paraServidor: Partial<Record<CampoTravavel, unknown>> = {};
   const avisos: AvisoTrava[] = [];
   const camposJaVistos = new Set<CampoTravavel>();
@@ -432,20 +439,36 @@ export function resolverTravaImportado(o: {
   // é verdade sempre que há QUALQUER lock. Compara o CONJUNTO de cores (não célula a célula — D11: qtd/
   // peso ficam livres) contra o servidor; se divergiu, reverte o array INTEIRO (única forma de garantir
   // que o conjunto bate com `variantes_chaves` travado) e avisa só se `variantes` foi tocado.
+  // R2-2 (Fix round 3) — reverte `qtd_total` JUNTO (mesmo `if`), pro total continuar consistente com a
+  // soma das variantes revertidas — sem isto o PA batia num `P0001 soma variantes difere total` no
+  // servidor no próximo Salvar (achado do re-review, `qtd_total` local ficava desalinhado do array
+  // revertido). Aviso PT muda de texto quando isto acontece ("Cores e quantidades..."), pra não
+  // implicar que só as cores foram descartadas.
   let variantesParaServidor: VarianteImportadoDraft[] | null = null;
+  let qtdTotalParaServidor: number | null = null;
   if (travaAtual.has("variantes")) {
     const coresEnviado = coresDistintas(enviado.variantes);
     const coresServidor = coresDistintas(servidor.variantes);
     if (JSON.stringify(coresEnviado) !== JSON.stringify(coresServidor)) {
       variantesParaServidor = servidor.variantes;
-      if (touched.has("variantes")) avisos.push({ campo: "variantes", rotulo: "Cores" });
+      qtdTotalParaServidor = servidor.qtd_total;
+      if (touched.has("variantes") || touched.has("qtd_total")) {
+        avisos.push({ campo: "variantes", rotulo: "Cores e quantidades das variantes" });
+      }
     }
   }
-  return { paraServidor, variantesParaServidor, avisos };
+  return { paraServidor, variantesParaServidor, qtdTotalParaServidor, avisos };
 }
-/** PT — "Nome foi travado…"/"Valor varejo e Markup Varejo foram travados…" — espelha
- *  `toastDescartadasPelaIntegracao` (usePlanejamentoSave.ts), mesma gramática. */
+/** PT — "Nome foi travado…"/"Valor varejo e Markup Varejo foram travados…"/"Cores e quantidades das
+ *  variantes foram travadas…" — espelha `toastDescartadasPelaIntegracao` (usePlanejamentoSave.ts),
+ *  mesma gramática. R2-2 (Fix round 3): o rótulo "Cores e quantidades das variantes" já vem no PLURAL
+ *  do `resolverTravaImportado`/`resolverTravaAcabado` acima — combinado sozinho ele fica
+ *  "Cores e quantidades das variantes foi travado" com a gramática padrão (`rotulos.length<=1` singular),
+ *  então esse caso pede o texto exato do ruling ("foram travadas") — tratado à parte aqui. */
 export function toastTravaImportado(avisos: readonly AvisoTrava[]): string {
+  if (avisos.length === 1 && avisos[0].campo === "variantes") {
+    return "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.";
+  }
   const rotulos = avisos.map((a) => a.rotulo);
   const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
   const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
@@ -461,6 +484,7 @@ export function aplicarResolucaoTrava(draft: ProdutoImportadoDraft, resolucao: R
     ...draft,
     ...resolucao.paraServidor,
     ...(resolucao.variantesParaServidor ? { variantes: resolucao.variantesParaServidor } : {}),
+    ...(resolucao.qtdTotalParaServidor != null ? { qtd_total: resolucao.qtdTotalParaServidor } : {}),
   } as ProdutoImportadoDraft;
 }
 
@@ -573,4 +597,28 @@ export function normalizarParVarejoAposResolucao<T extends ParVarejo>(valor: T):
 export function normalizarParAtacadoAposResolucao<T extends ParAtacado>(valor: T): T {
   if (valor.preco_atacado_fixo != null && valor.markup_atacado != null) return { ...valor, markup_atacado: null };
   return valor;
+}
+
+// Fix round 3 (R2-1, ruling do coordenador) — REGRESSÃO do fix acima: `onResolver` normalizava o par
+// INCONDICIONALMENTE a cada clique, mesmo com o OUTRO campo do mesmo par ainda pendente no banner.
+// Cenário (S4 do re-review 2, harness `rr2-harness.ts`): base markup 2.5; A digita fixo 310 (toca só
+// preco_atacado_fixo); B salva markup 3. O merge lista o conflito do MARKUP primeiro (não tocado por A,
+// mas o campo espelhado pelo acoplamento). A clica "usar o novo" no markup PRIMEIRO — o draft vira
+// {fixo: 310 (intocado, ainda "meu"), markup: 3 (de B, "usar o novo")} — e a normalização incondicional
+// já rodava AQUI, apagando o markup de B (fixo manda) ANTES do campo fixo ser resolvido. Quando A resolve
+// o fixo em seguida, o markup de B já tinha sumido — o EXATO cenário que N-2 (fix round 2) corrigiu nos
+// valores `meu`/`dele`, reintroduzido pela normalização precoce.
+/** PURA — dado os campos do par (`["preco_x_fixo","markup_x"]`) e a lista de conflitos RESTANTES deste
+ *  produto DEPOIS desta resolução (ou seja, já sem o campo que acabou de ser clicado), devolve se é
+ *  seguro normalizar o par agora: só quando NENHUM dos 2 campos do par continua pendente na lista. */
+export function devePodeNormalizarPar(camposDoPar: readonly string[], conflitosRestantes: readonly Conflito[]): boolean {
+  return !conflitosRestantes.some((c) => camposDoPar.includes(c.path));
+}
+/** Campos do par (varejo/atacado) que `campo` pertence — `null` se `campo` não é um dos 4 campos de
+ *  preço/markup (ex.: nome/ref/foto/variantes, que não têm par). Usado por `onResolver` (Sheet) e pelo
+ *  replay de teste pra decidir SE/QUAL normalização rodar após um clique. */
+export function parDoCampo(campo: string): readonly ["preco_varejo_fixo", "markup_varejo"] | readonly ["preco_atacado_fixo", "markup_atacado"] | null {
+  if (campo === "preco_varejo_fixo" || campo === "markup_varejo") return ["preco_varejo_fixo", "markup_varejo"] as const;
+  if (campo === "preco_atacado_fixo" || campo === "markup_atacado") return ["preco_atacado_fixo", "markup_atacado"] as const;
+  return null;
 }

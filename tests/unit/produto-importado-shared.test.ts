@@ -15,14 +15,15 @@ import {
   emptyDraft, montarPayload, precosDoDraft, chaveDirty,
   resolverTravaImportado, aplicarResolucaoTrava, toastTravaImportado, acoplarParVarejo, acoplarParAtacado,
   normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
-  markupVarejoExibido, markupAtacadoExibido,
+  markupVarejoExibido, markupAtacadoExibido, parDoCampo, devePodeNormalizarPar,
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
 import {
-  resolverTravaAcabado, aplicarResolucaoTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
+  resolverTravaAcabado, aplicarResolucaoTravaAcabado, toastTravaAcabado, chaveDirty as chaveDirtyPA, markupVarejoParaBlurAtacado,
   type ProdutoDraft,
 } from "@/components/produto-acabado/shared";
 import { colunasTravadas, lerEstados } from "@/lib/integracao/trava";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // N-5 (Fix round 2) — RENDER real que MONTA `ProdutoImportadoCard` de verdade (não um harness que
@@ -642,5 +643,227 @@ describe("markupVarejoParaBlurAtacado — N-3 (nunca reenvia o draft do varejo t
   it("com trava, servidor undefined (prop ausente — uso legado do card sem o prop novo): cai no draft (retrocompatível)", () => {
     const r = markupVarejoParaBlurAtacado({ travaVarejo: true, markupVarejoDraft: 3, markupVarejoServidor: undefined });
     expect(r).toBe(3);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// R2-1 (Fix round 3, re-review 2) — REPLAY clique-a-clique do `onResolver` real do
+// `ProdutoImportadoSheet.tsx` (linhas ~937-979), usando o `mergeDraft` REAL (não um mock do
+// merge) pra gerar os conflitos, e as funções puras REAIS (`parDoCampo`, `devePodeNormalizarPar`,
+// `normalizarParVarejoAposResolucao`/`normalizarParAtacadoAposResolucao`) — a regressão que o
+// re-review pegou (S2/S4): normalizar o par fixo/markup IMEDIATAMENTE a cada clique apaga a
+// escolha de B (o outro lado do par) antes do usuário clicar no segundo campo do par. A correção:
+// só normaliza quando NENHUM dos 2 campos do par continua pendente na lista de conflitos.
+//
+// `replay` abaixo reproduz FIELMENTE a sequência do handler de produção: pra cada clique,
+// (1) aplica a escolha no campo (equivalente ao `patchDraft`), (2) calcula `parDoCampo` +
+// `restantesAposEsta`, (3) SÓ normaliza (os 2 canais, como o handler real faz incondicionalmente
+// via `normalizarParAtacadoAposResolucao(normalizarParVarejoAposResolucao(d))`) quando
+// `devePodeNormalizarPar` diz que pode, (4) remove o conflito resolvido da lista pendente.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("onResolver (replay real) — R2-1: normaliza o par SÓ depois que os 2 campos foram resolvidos", () => {
+  type Par = { fixo: "preco_varejo_fixo" | "preco_atacado_fixo"; markup: "markup_varejo" | "markup_atacado" };
+  const PARES: Record<"varejo" | "atacado", Par> = {
+    varejo: { fixo: "preco_varejo_fixo", markup: "markup_varejo" },
+    atacado: { fixo: "preco_atacado_fixo", markup: "markup_atacado" },
+  };
+
+  // Reproduz o handler `onResolver` de produção, clique a clique, sobre um draft simplificado
+  // { [fixoKey]: number|null, [markupKey]: number|null }. `escolhas` é a sequência de cliques
+  // (na ORDEM em que o usuário clica), cada um { campo, escolha }.
+  function replay(o: {
+    draftInicial: Record<string, number | null>;
+    conflitosIniciais: Conflito[]; // já no formato { path: campo, meu, dele } — como o mergeDraft devolveu
+    escolhas: { campo: string; escolha: "meu" | "dele" }[];
+  }) {
+    let d = { ...o.draftInicial };
+    let pendentes = [...o.conflitosIniciais];
+    for (const { campo, escolha } of o.escolhas) {
+      const c = pendentes.find((x) => x.path === campo);
+      if (c && escolha === "dele") d = { ...d, [campo]: c.dele as number | null };
+      // "meu": no-op no draft (já é o que estava lá — mesma semântica do handler real, que só
+      // faz `patchDraft` no ramo "dele").
+      const parDoCanal = parDoCampo(campo);
+      const restantesAposEsta = pendentes.filter((x) => x.path !== campo);
+      if (parDoCanal && devePodeNormalizarPar(parDoCanal, restantesAposEsta)) {
+        const varejoNorm = normalizarParVarejoAposResolucao(d as any);
+        d = normalizarParAtacadoAposResolucao(varejoNorm as any) as any;
+      }
+      pendentes = restantesAposEsta;
+    }
+    return d;
+  }
+
+  // Monta os conflitos do jeito que o card de produção realmente monta: `mergeDraft` REAL sobre
+  // os campos tocados + `acoplarParVarejo`/`acoplarParAtacado` REAL pra espelhar o outro lado do
+  // par (a mesma pipeline de `ProdutoImportadoSheet.tsx`, só sem o React em volta). Digitar um
+  // Valor (fixo) limpa o Markup LOCALMENTE no card (mutuamente exclusivo na UI) — então os 2
+  // campos do par entram em `chaveDirty`/`touched` juntos, não só o campo literalmente digitado
+  // (confirmado batendo com o texto exato do re-review: "mergeDraft raises the markup conflict"
+  // pro cenário S4, onde A digitou no FIXO).
+  function conflitosReais(o: { canal: "varejo" | "atacado"; base: Record<string, number | null>; draft: Record<string, number | null>; fresh: Record<string, number | null> }) {
+    const { fixo, markup } = PARES[o.canal];
+    const m = mergeDraft({ base: o.base, draft: o.draft, fresh: o.fresh, touched: new Set([fixo, markup]) });
+    const acoplar = o.canal === "varejo" ? acoplarParVarejo : acoplarParAtacado;
+    const r = acoplar({ valor: o.draft as any, conflitos: m.conflitos, draft: o.draft as any, fresh: o.fresh as any });
+    return r.conflitos;
+  }
+
+  // S2 do re-review: base fixo=298/markup=null; A digita Valor (fixo) 310 (toca só o fixo);
+  // B salva Markup 2 nesse meio-tempo. B salvar Markup passa pela regra J2 do servidor (fixo
+  // presente sempre ganha) — como B setou markup, o servidor ZERA o fixo dele: `fresh` fica
+  // {fixo: null, markup: 2}, nunca os 2 juntos (a regra frozen do `_salvar_produto_importado_core`,
+  // ver M-3 na doc da revisão — "the server always persists either (fixo, null) or (null, markup)").
+  function cenarioS2(canal: "varejo" | "atacado") {
+    const { fixo, markup } = PARES[canal];
+    const base = { [fixo]: 298, [markup]: null };
+    const draft = { [fixo]: 310, [markup]: null }; // A digitou no fixo (markup local já era null)
+    const fresh = { [fixo]: null, [markup]: 2 };   // B salvou markup=2 → servidor zera o fixo (J2)
+    return { base, draft, fresh, conflitos: conflitosReais({ canal, base, draft, fresh }), fixo, markup };
+  }
+  // S4 do re-review: base markup=2.5/fixo=null; A digita Valor (fixo) 310 (toca só o fixo, o que
+  // LIMPARIA o markup no draft cru); B salva Markup 3. O banner lista o conflito espelhado
+  // (markup) ANTES do tocado (fixo) na ordem em que `acoplarPar*` os monta — é o cenário que
+  // expôs a regressão: clicar nele primeiro não pode apagar o 3 de B antes do fixo ser resolvido.
+  function cenarioS4(canal: "varejo" | "atacado") {
+    const { fixo, markup } = PARES[canal];
+    const base = { [fixo]: null, [markup]: 2.5 };
+    const draft = { [fixo]: 310, [markup]: null }; // A digitou no fixo (limpa markup local)
+    const fresh = { [fixo]: null, [markup]: 3 };   // B salvou markup=3
+    return { base, draft, fresh, conflitos: conflitosReais({ canal, base, draft, fresh }), fixo, markup };
+  }
+
+  const CENARIOS = { S2: cenarioS2, S4: cenarioS4 } as const;
+  const CANAIS = ["varejo", "atacado"] as const;
+  const ORDENS: Record<string, "fixoPrimeiro" | "markupPrimeiro"> = { fixoPrimeiro: "fixoPrimeiro", markupPrimeiro: "markupPrimeiro" };
+
+  for (const nomeCenario of Object.keys(CENARIOS) as (keyof typeof CENARIOS)[]) {
+    for (const canal of CANAIS) {
+      for (const ordem of Object.keys(ORDENS) as (keyof typeof ORDENS)[]) {
+        it(`${nomeCenario}/${canal}/${ordem}: "usar o novo" nos 2 preserva o valor salvo por B e o par final bate com o servidor`, () => {
+          const cen = CENARIOS[nomeCenario](canal);
+          // Confirma que a pipeline REAL (mergeDraft + acoplarPar*) de fato produziu os 2
+          // conflitos do par (o tocado + o espelhado) — sem isso o teste não estaria exercitando
+          // o cenário que o re-review descreveu.
+          expect(cen.conflitos.some((c) => c.path === cen.fixo)).toBe(true);
+          expect(cen.conflitos.some((c) => c.path === cen.markup)).toBe(true);
+
+          const escolhas = ordem === "fixoPrimeiro"
+            ? [{ campo: cen.fixo, escolha: "dele" as const }, { campo: cen.markup, escolha: "dele" as const }]
+            : [{ campo: cen.markup, escolha: "dele" as const }, { campo: cen.fixo, escolha: "dele" as const }];
+          const final = replay({ draftInicial: { ...cen.draft }, conflitosIniciais: cen.conflitos, escolhas });
+
+          // O valor de B (o que o servidor realmente vai persistir) NUNCA pode ser apagado antes
+          // do 2º clique — e o par final tem que bater com o que o servidor tem em `fresh`
+          // (fixo manda / markup null — regra J2, já refletida no `fresh` de cada cenário).
+          expect(final).toEqual({ [cen.fixo]: cen.fresh[cen.fixo], [cen.markup]: cen.fresh[cen.markup] });
+        });
+      }
+    }
+  }
+
+  it("enquanto o outro campo do par ainda está pendente, NÃO normaliza (prova direta do estado intermediário — S4 markup primeiro)", () => {
+    const cen = cenarioS4("varejo");
+    // só o clique no markup (1º da ordem markupPrimeiro) — o fixo continua pendente.
+    const parcial = replay({ draftInicial: { ...cen.draft }, conflitosIniciais: cen.conflitos, escolhas: [{ campo: cen.markup, escolha: "dele" }] });
+    // o markup de B (3) tem que estar presente — a normalização NÃO pode ter rodado ainda e
+    // apagado pra null antes do fixo ser resolvido (o bug exato do R2-1).
+    expect(parcial[cen.markup]).toBe(3);
+    expect(parcial[cen.fixo]).toBe(310); // fixo de A ainda intocado (clique não chegou nele)
+  });
+
+  it("devePodeNormalizarPar: true só quando NENHUM campo do par está nos conflitos restantes", () => {
+    const par = ["preco_varejo_fixo", "markup_varejo"] as const;
+    expect(devePodeNormalizarPar(par, [{ path: "markup_varejo", meu: 1, dele: 2 }])).toBe(false);
+    expect(devePodeNormalizarPar(par, [{ path: "preco_varejo_fixo", meu: 1, dele: 2 }])).toBe(false);
+    expect(devePodeNormalizarPar(par, [{ path: "nome", meu: "a", dele: "b" }])).toBe(true);
+    expect(devePodeNormalizarPar(par, [])).toBe(true);
+  });
+
+  it("parDoCampo: mapeia os 4 campos de preço/markup pro par certo; null pros demais (nome/ref/foto/variantes)", () => {
+    expect(parDoCampo("preco_varejo_fixo")).toEqual(["preco_varejo_fixo", "markup_varejo"]);
+    expect(parDoCampo("markup_varejo")).toEqual(["preco_varejo_fixo", "markup_varejo"]);
+    expect(parDoCampo("preco_atacado_fixo")).toEqual(["preco_atacado_fixo", "markup_atacado"]);
+    expect(parDoCampo("markup_atacado")).toEqual(["preco_atacado_fixo", "markup_atacado"]);
+    expect(parDoCampo("nome")).toBeNull();
+    expect(parDoCampo("variantes")).toBeNull();
+    expect(parDoCampo("foto_url")).toBeNull();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// R2-2 (Fix round 3, re-review 2, ruling) — quando o resolver reverte `variantes` (cores
+// mudaram com o lock ativo), `qtd_total` tem que reverter JUNTO pro valor do servidor — senão a
+// soma que a tela mostra diverge do array de variantes revertido e o próximo Salvar dispara
+// P0001 "soma variantes N difere total M" no servidor (achado do harness rr2, 2 cenários).
+// O toast, nesse caso específico (só o aviso de variantes), ganha o texto EXATO pedido.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("resolverTravaImportado/resolverTravaAcabado — R2-2: qtd_total revertido junto com variantes", () => {
+  const V = [{ ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10, _touched: false }];
+  const servidorComVariante = base({ variantes: V, qtd_total: 10 });
+
+  it("PI: cor trocada + qtd_total divergente, lock ativo — reverte variantes E qtd_total pro valor do servidor", () => {
+    const enviado = base({ variantes: [{ ...V[0], cor_id: "verde" }], qtd_total: 25 });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes", "qtd_total"]) });
+    expect(r.variantesParaServidor).toEqual(V);
+    expect(r.qtdTotalParaServidor).toBe(10);
+    const revertido = aplicarResolucaoTrava(enviado, r);
+    expect(revertido.variantes).toEqual(V);
+    expect(revertido.qtd_total).toBe(10);
+  });
+
+  it("PI: sem trava de variantes ativa — qtdTotalParaServidor fica null (não mexe)", () => {
+    const enviado = base({ variantes: V, qtd_total: 99 });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome"]), touched: new Set(["qtd_total"]) });
+    expect(r.qtdTotalParaServidor).toBeNull();
+  });
+
+  it("PI: toast com o texto EXATO pedido quando o único aviso é de variantes", () => {
+    const enviado = base({ variantes: [{ ...V[0], cor_id: "verde" }], qtd_total: 25 });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["variantes"]), touched: new Set(["variantes"]) });
+    expect(toastTravaImportado(r.avisos)).toBe(
+      "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.",
+    );
+  });
+
+  it("PA: mesma regra — reverte variantes E qtd_total, mesmo texto de toast exato", () => {
+    const servidorPA = basePA({ variantes: [{ ordem: 1, cor_id: "c-azul", cor_apelido_id: null, peso: 1, qtd: 10 }], qtd_total: 10 });
+    const enviado = basePA({ variantes: [{ ordem: 1, cor_id: "c-verde", cor_apelido_id: null, peso: 1, qtd: 10 }], qtd_total: 40 });
+    const r = resolverTravaAcabado({ enviado, servidor: servidorPA, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["variantes", "qtd_total"]) });
+    expect(r.variantesParaServidor).toEqual(servidorPA.variantes);
+    expect(r.qtdTotalParaServidor).toBe(10);
+    const revertido = aplicarResolucaoTravaAcabado(enviado, r);
+    expect(revertido.qtd_total).toBe(10);
+    expect(toastTravaAcabado(r.avisos)).toBe(
+      "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.",
+    );
+  });
+
+  it("toast com MAIS de um aviso (variantes + outro campo) NÃO usa o texto especial de variantes-só", () => {
+    const enviado = base({ nome: "Editei", variantes: [{ ...V[0], cor_id: "verde" }], qtd_total: 25 });
+    const r = resolverTravaImportado({ enviado, servidor: servidorComVariante, travaAtual: new Set(["nome", "variantes"]), touched: new Set(["nome", "variantes"]) });
+    const txt = toastTravaImportado(r.avisos);
+    expect(txt).not.toBe("Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.");
+    expect(txt).toContain("Nome");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// R2-4 (Fix round 3, re-review 2) — `ROTULO_CAMPO_PA` (ProdutoAcabadoSheet.tsx) ficou sem o
+// rótulo de `foto_url` (o banner de colab mostraria a chave crua "foto_url" em vez de "Foto").
+// Teste indireto: como `ROTULO_CAMPO_PA` não é exportado (é um const de módulo interno do
+// Sheet), a prova é via `resolverTravaAcabado`/N-4 (foto_url participa do dirty/trava — já
+// confirmado acima) + leitura estática do arquivo confirmando a entrada — mesma técnica que a
+// suíte já usa pra outras constantes de UI não-exportadas (ver `integracao-trava-tela.test.ts`).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("ROTULO_CAMPO_PA — R2-4: foto_url tem rótulo 'Foto' (não aparece como chave crua no banner)", () => {
+  it("ProdutoAcabadoSheet.tsx: ROTULO_CAMPO_PA inclui foto_url: \"Foto\"", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const caminho = path.resolve(process.cwd(), "src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+    const src = fs.readFileSync(caminho, "utf8");
+    const inicio = src.indexOf("const ROTULO_CAMPO_PA");
+    const bloco = src.slice(inicio, src.indexOf("};", inicio));
+    expect(bloco).toMatch(/foto_url:\s*"Foto"/);
   });
 });
