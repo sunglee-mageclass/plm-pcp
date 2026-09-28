@@ -7,6 +7,7 @@
 // PURAS + 1 RENDER real (react-dom/client + happy-dom) provando que `colunasTravadas` desabilita os campos
 // certos na árvore DOM — mesma técnica de `tests/unit/integracao-trava-tela.test.ts` (InfoGeraisSecao).
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { createElement, useMemo } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -1076,4 +1077,242 @@ describe("toastTravaImportado/toastTravaAcabado — R3-4: lista de 2+ campos", (
       expect(toast([V])).toBe("Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.");
     });
   }
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// BUG-1 (pré-existente, colab Fase 3 commit 7e81b58b) — QA task-25: depois do PRÓPRIO Salvar, a
+// tela Produto Importado mostrava "Alguém salvou agora — 1 campo(s) atualizado(s)" e nunca
+// voltava a "Salvo" (Salvar ficava habilitado pra sempre). Causa: `_salvar_produto_importado_core`
+// APAGA e REINSERE `produto_importado_variantes`/`produto_importado_etapas` a cada save — os
+// `id`s de linha SEMPRE mudam mesmo quando o conteúdo é idêntico. `chaveDirty` (shared.ts) inclui
+// `variantes`/`etapas` como ARRAY (valor). Antes do fix, o SELECT da tela trazia `id` nesses
+// embeds (`(*)`) — o pós-save (`salvo = {...d, id, rev}`) guardava os ids VELHOS como
+// baseline/base do merge; o refetch seguinte trazia os ids NOVOS; o merge via "mudou no
+// servidor" e acusava "outra pessoa salvou" no PRÓPRIO save do usuário, com o baseline nunca
+// convergindo (dirty preso). Fix: o SELECT da tela (`SELECT_PRODUTO_IMPORTADO`,
+// `ProdutoImportadoSheet.tsx`) não traz mais `id`/`tenant_id`/`produto_importado_id`/
+// `created_at` nesses embeds — mesmo padrão já usado por `produto-acabado/ProdutoAcabadoSheet.tsx`
+// (`SELECT_PRODUTO`), que por isso nunca teve este bug (prova no bloco seguinte).
+//
+// Harness BEHAVIORAL de save SEQUENCIAL: reproduz o pipeline real da tela — `chaveDirty` real,
+// `mergeDraft` real (`@/lib/colab/merge`), `acoplarParVarejo`/`acoplarParAtacado` reais — sem
+// reimplementar a lógica de merge. `variantesDoSelect`/`etapasDoSelect` simulam o shape que CADA
+// SELECT devolve: com `id` (comportamento ANTES do fix) ou sem `id` (comportamento ATUAL,
+// `SELECT_PRODUTO_IMPORTADO`).
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("BUG-1 — Produto Importado: save próprio não pode acender 'outra pessoa salvou'", () => {
+  type LinhaVariante = { id?: string; ordem: number; cor_id: string | null; cor_apelido_id: string | null; peso: number; qtd: number };
+  type LinhaEtapa = { id?: string; ordem: number; rotulo: string; base: "mercadoria" | "frete"; percentual: number; data_vencimento: string | null; cotacao: number };
+
+  /** Simula o `_salvar_produto_importado_core`: DELETE+INSERT — o CONTEÚDO é preservado mas o
+   *  `id` de cada linha é SEMPRE novo (gen_random_uuid a cada save), mesmo sem nenhuma edição. */
+  let seq = 0;
+  function reinserirComNovosIds<T extends { id?: string }>(linhas: T[]): T[] {
+    return linhas.map((l) => ({ ...l, id: `id-${++seq}` }));
+  }
+
+  /** Constrói o draft "como a tela vê" a partir de uma linha simulada do servidor —
+   *  `comId` replica o SELECT ANTIGO (bug); `false` replica `SELECT_PRODUTO_IMPORTADO` (fix). */
+  function draftDoServidor(o: {
+    id: string; rev: number; nome: string; variantesRow: LinhaVariante[]; etapasRow: LinhaEtapa[]; comId: boolean;
+  }): ProdutoImportadoDraft {
+    const despir = (v: LinhaVariante | LinhaEtapa) => (o.comId ? v : (({ id, ...rest }) => rest)(v));
+    return {
+      ...base({ id: o.id, rev: o.rev, nome: o.nome }),
+      variantes: o.variantesRow.map(despir) as unknown as ProdutoImportadoDraft["variantes"],
+      etapas: o.etapasRow.map(despir) as unknown as ProdutoImportadoDraft["etapas"],
+    };
+  }
+
+  /** Um "merge tick" — espelha o `useEffect` de `ProdutoImportadoSheet.tsx` (linhas ~329-368)
+   *  para UM produto: touched = diff(chaveDirty(draft) vs chaveDirty(base)); mergeDraft real +
+   *  acoplamento dos pares de preço; devolve o próximo draft + conflitos + se algo foi
+   *  "atualizado" (dispara o toast/banner "Alguém salvou agora — N campo(s) atualizado(s)"). */
+  function mergeTick(o: { base: ProdutoImportadoDraft; draft: ProdutoImportadoDraft; fresh: ProdutoImportadoDraft }) {
+    const touched = new Set(
+      (Object.keys(chaveDirty(o.draft)) as (keyof ReturnType<typeof chaveDirty>)[]).filter(
+        (k) => JSON.stringify((chaveDirty(o.draft) as any)[k]) !== JSON.stringify((chaveDirty(o.base) as any)[k]),
+      ),
+    );
+    const m0 = mergeDraft({ base: o.base as any, draft: o.draft as any, fresh: o.fresh as any, touched });
+    const mVarejo = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos, draft: o.draft as any, fresh: o.fresh as any });
+    const mFinal = acoplarParAtacado({ valor: mVarejo.valor, conflitos: mVarejo.conflitos, draft: o.draft as any, fresh: o.fresh as any });
+    const proximoDraft: ProdutoImportadoDraft = { ...(mFinal.valor as ProdutoImportadoDraft), rev: o.fresh.rev };
+    return { draft: proximoDraft, conflitos: mFinal.conflitos, atualizados: m0.atualizados };
+  }
+
+  /** Roda a sequência COMPLETA "carrega → salva → servidor reinsere ids → refetch/merge" pra UM
+   *  produto, com o SELECT indicado (`comId`), e devolve o estado final (draft/baseline/conflitos/
+   *  atualizados) — espelha byte a byte `salvarUmProduto` + o `useEffect` de merge da tela. */
+  function cicloDeSaveProprio(comId: boolean) {
+    const v0: LinhaVariante[] = [{ id: "v-orig", ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }];
+    const e0: LinhaEtapa[] = [{ id: "e-orig", ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 100, data_vencimento: null, cotacao: 5 }];
+
+    // 1) Carrega — `carregado=false`: seed direto, sem merge (linhas 316-321 da tela).
+    const fresh0 = draftDoServidor({ id: "p1", rev: 1, nome: "Blusa Importada", variantesRow: v0, etapasRow: e0, comId });
+    let baseServidor = fresh0; // baseServidorRef.current["p1"]
+    let baseline = JSON.stringify(chaveDirty(fresh0));
+    let draft = fresh0;
+
+    // 2) Usuário edita um campo QUALQUER que não seja variantes/etapas (ex.: nome) — dirty real.
+    draft = { ...draft, nome: "Blusa Importada (revisada)" };
+
+    // 3) Salva (`salvarUmProduto`): a RPC roda `_salvar_produto_importado_core` (DELETE+INSERT —
+    //    ids SEMPRE novos, mesmo conteúdo) — o servidor confirma; a tela NÃO re-lê variantes/etapas
+    //    no `onSuccess`, só builda `salvo = {...d, id, rev: revNovo}` com o QUE FOI ENVIADO
+    //    (`d.variantes`/`d.etapas`, ids ainda "antigos" do ponto de vista do que o banco tem agora).
+    const revNovo = 2;
+    const salvo: ProdutoImportadoDraft = { ...draft, rev: revNovo };
+    baseServidor = salvo; // baseServidorRef.current["p1"] = salvo (linha 775)
+    baseline = JSON.stringify(chaveDirty(salvo)); // marcarProdutoLimpo(salvo) (linha 785)
+    draft = salvo;
+
+    // 4) Servidor: neste instante as tabelas-filhas JÁ foram apagadas+reinseridas (ids novos).
+    const v1 = reinserirComNovosIds(v0.map(({ id, ...rest }) => rest));
+    const e1 = reinserirComNovosIds(e0.map(({ id, ...rest }) => rest));
+
+    // 5) `qc.invalidateQueries` dispara o refetch geral — a query volta com os ids NOVOS.
+    const fresh1 = draftDoServidor({ id: "p1", rev: revNovo, nome: draft.nome, variantesRow: v1, etapasRow: e1, comId });
+
+    // 6) `useEffect` de merge roda (a tela já estava `carregado=true`): base=baseServidor (ids
+    //    velhos, do passo 3), draft=draft (idem), fresh=fresh1 (ids novos).
+    const tick = mergeTick({ base: baseServidor, draft, fresh: fresh1 });
+
+    const dirtyDepois = JSON.stringify(chaveDirty(tick.draft)) !== baseline;
+    return { tick, baseline, draftFinal: tick.draft };
+  }
+
+  it("ANTES do fix (SELECT com id nos embeds): o save do PRÓPRIO usuário dispara 'atualizados' (banner falso) e fica dirty pra sempre", () => {
+    const { tick, baseline, draftFinal } = cicloDeSaveProprio(/* comId */ true);
+    // O bug: variantes/etapas aparecem como "atualizados" (banner "Alguém salvou agora...") mesmo
+    // sem qualquer segunda pessoa ter mexido — só os ids mudaram por causa do DELETE+INSERT.
+    expect(tick.atualizados).toEqual(expect.arrayContaining(["variantes", "etapas"]));
+    expect(tick.conflitos).toEqual([]); // não é um conflito (nada tocado) — é a falsa "atualização"
+    // E o baseline (guardado com os ids VELHOS no passo 3) nunca bate com o draft final (ids
+    // NOVOS, adotados do fresh no merge) — dirty preso, Salvar continua habilitado.
+    expect(JSON.stringify(chaveDirty(draftFinal))).not.toBe(baseline);
+  });
+
+  it("DEPOIS do fix (SELECT_PRODUTO_IMPORTADO, sem id nos embeds): o próprio save NÃO dispara 'atualizados' e o baseline CONVERGE (sem banner, sem dirty)", () => {
+    const { tick, baseline, draftFinal } = cicloDeSaveProprio(/* comId */ false);
+    // Sem `id` no shape comparado, variantes/etapas têm o MESMO conteúdo em base/draft/fresh —
+    // `igual()` os trata como iguais, `mergeDraft` não marca "atualizado" nenhum.
+    expect(tick.atualizados).toEqual([]);
+    expect(tick.conflitos).toEqual([]);
+    expect(JSON.stringify(chaveDirty(draftFinal))).toBe(baseline); // baseline convergiu — "Salvo", sem banner.
+  });
+
+  it("uma 2ª chamada de Salvar depois do próprio save (fix) não manda NADA novo — o payload é idêntico ao já persistido", () => {
+    const { draftFinal } = cicloDeSaveProprio(false);
+    const { dados, variantes, etapas } = montarPayload(draftFinal);
+    // O payload do 2º save é exatamente o conteúdo já no servidor (nome revisado, 1 variante/etapa
+    // com o MESMO conteúdo) — nada "a mais" por causa de um id fantasma.
+    expect(dados.nome).toBe("Blusa Importada (revisada)");
+    expect(variantes).toEqual([{ ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }]);
+    expect(etapas).toEqual([{ ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 100, data_vencimento: null, cotacao: 5 }]);
+  });
+
+  it("CONCORRÊNCIA real preservada (fix): outro usuário muda a COR de uma variante entre o load e o refetch — o merge ainda acusa (conteúdo divergente, não só id)", () => {
+    const v0: LinhaVariante[] = [{ id: "v1", ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }];
+    const e0: LinhaEtapa[] = [{ id: "e1", ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 100, data_vencimento: null, cotacao: 5 }];
+    const fresh0 = draftDoServidor({ id: "p2", rev: 1, nome: "Vestido", variantesRow: v0, etapasRow: e0, comId: false });
+    const baseServidor = fresh0;
+    const draft = fresh0; // eu não editei nada — só estou com o card aberto
+
+    // Outra pessoa salva: muda a cor da variante (conteúdo real, não só o id) — servidor reinsere
+    // com id novo E cor nova.
+    const v1: LinhaVariante[] = [{ id: "v-novo-de-outro-user", ordem: 1, cor_id: "verde", cor_apelido_id: null, peso: 1, qtd: 10 }];
+    const fresh1 = draftDoServidor({ id: "p2", rev: 2, nome: "Vestido", variantesRow: v1, etapasRow: e0, comId: false });
+
+    const tick = mergeTick({ base: baseServidor, draft, fresh: fresh1 });
+    // Não tocado por mim (touched vazio) → adota o fresh SEM conflito, mas ainda marca "atualizado"
+    // de verdade (mudança real de conteúdo, não ruído de id) — o comportamento correto do merge.
+    expect(tick.atualizados).toContain("variantes");
+    expect(tick.conflitos).toEqual([]);
+    expect(tick.draft.variantes[0].cor_id).toBe("verde"); // adotou a mudança real do outro usuário
+  });
+
+  it("CONCORRÊNCIA real com conflito (fix): EU editei a cor da variante E outra pessoa também mudou — vira conflito de verdade (banner de resolução), não silenciosamente ignorado", () => {
+    const v0: LinhaVariante[] = [{ id: "v1", ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }];
+    const e0: LinhaEtapa[] = [{ id: "e1", ordem: 1, rotulo: "Sinal", base: "mercadoria", percentual: 100, data_vencimento: null, cotacao: 5 }];
+    const fresh0 = draftDoServidor({ id: "p3", rev: 1, nome: "Casaco", variantesRow: v0, etapasRow: e0, comId: false });
+    const baseServidor = fresh0;
+    // Eu edito a cor pra "rosa" (toco `variantes`).
+    const draft: ProdutoImportadoDraft = { ...fresh0, variantes: [{ ordem: 1, cor_id: "rosa", cor_apelido_id: null, peso: 1, qtd: 10 }] as any };
+
+    // Outra pessoa salva simultaneamente com uma cor DIFERENTE da minha E da original.
+    const v1: LinhaVariante[] = [{ id: "v-de-outro-user", ordem: 1, cor_id: "verde", cor_apelido_id: null, peso: 1, qtd: 10 }];
+    const fresh1 = draftDoServidor({ id: "p3", rev: 2, nome: "Casaco", variantesRow: v1, etapasRow: e0, comId: false });
+
+    const tick = mergeTick({ base: baseServidor, draft, fresh: fresh1 });
+    // Eu toquei E o servidor mudou pra algo DIFERENTE do que eu enviaria → CONFLITO real, banner
+    // de resolução aparece (não é a falsa "atualização" do BUG-1, é uma divergência genuína).
+    expect(tick.conflitos.some((c) => c.path === "variantes")).toBe(true);
+    // Meu valor é preservado até eu resolver (o ColabBanner mostra "manter meu"/"usar o novo").
+    expect((tick.draft.variantes[0] as any).cor_id).toBe("rosa");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// BUG-1 — Produto Acabado: MESMO padrão de save (DELETE+INSERT em `produto_acabado_variantes`,
+// `_salvar_produto_acabado_core`, migration `20260918140000`) — mas o PA NUNCA teve o bug porque
+// `VarianteDraft` (produto-acabado/shared.ts) não tem campo `id`, e o SELECT da tela
+// (`ProdutoAcabadoSheet.tsx`, `SELECT_PRODUTO`) já buscava só
+// `(ordem, cor_id, cor_apelido_id, peso, qtd)` — sem `id` — desde sempre. Prova: `chaveDirtyPA`
+// comparando duas listas de variantes com o MESMO conteúdo mas ids diferentes nunca entraria em
+// jogo porque o shape nem carrega `id` — a prova aqui é estrutural (o TYPE não tem `id`), não
+// comportamental por RPC (fora do escopo deste arquivo puro), mas o mesmo harness de merge acima
+// mostra que, SEM `id` no shape, save próprio nunca "atualiza" variantes por ruído de id.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("BUG-1 — Produto Acabado NÃO tem o bug (variantes sem id por construção)", () => {
+  it("VarianteDraft (produto-acabado/shared.ts) não declara `id` — impossível comparar por id que não existe no shape", () => {
+    const v: import("@/components/produto-acabado/shared").VarianteDraft = { ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 };
+    expect("id" in v).toBe(false);
+  });
+
+  it("harness de save sequencial (mesmo mergeDraft real): variantes SEM id, reinseridas com 'id' de banco simulado por fora do shape, nunca disparam 'atualizado' no próprio save", () => {
+    // Espelha o cenário BUG-1, mas com o shape do PA (sem id) — o "banco" pode reinserir com
+    // qualquer id por baixo, a TELA nunca vê essa coluna, então o merge nunca a compara.
+    type VPA = { ordem: number; cor_id: string | null; cor_apelido_id: string | null; peso: number; qtd: number };
+    const baseServidor: { variantes: VPA[] } = { variantes: [{ ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }] };
+    const draft = baseServidor; // nada editado
+    // "banco" reinsere (id novo, invisível pro front) — conteúdo idêntico.
+    const fresh: { variantes: VPA[] } = { variantes: [{ ordem: 1, cor_id: "azul", cor_apelido_id: null, peso: 1, qtd: 10 }] };
+    const touched = new Set<string>();
+    const m = mergeDraft({ base: baseServidor as any, draft: draft as any, fresh: fresh as any, touched });
+    expect(m.atualizados).toEqual([]);
+    expect(m.conflitos).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// BUG-1 — guarda de REGRESSÃO ligada ao SOURCE real: `ProdutoImportadoSheet.tsx` não pode voltar
+// a selecionar `id` nos embeds `produto_importado_variantes`/`produto_importado_etapas` — é
+// EXATAMENTE essa mudança (remover `id` do SELECT) que fecha o BUG-1. Lê o arquivo fonte (mesma
+// técnica de `tests/unit/integracao-trava-tela.test.ts`, `readFileSync` + regex sobre o texto) —
+// prova que a constante `SELECT_PRODUTO_IMPORTADO` (usada nos 3 pontos que leem a linha completa)
+// nunca mais usa `produto_importado_variantes(*)`/`produto_importado_etapas(*)` (que trariam
+// `id`), e que ela lista exatamente os campos de conteúdo esperados. Roda ANTES do fix, este
+// teste falha (`toBe(-1)` vira `toBeGreaterThanOrEqual(0)`) contra o texto antigo — prova RED→GREEN
+// sem precisar reverter o arquivo de produção.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("BUG-1 — guarda de regressão no SOURCE (ProdutoImportadoSheet.tsx nunca mais seleciona id em variantes/etapas)", () => {
+  const src = readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+
+  it("SELECT_PRODUTO_IMPORTADO não usa embed `(*)` — nunca mais traz `id`/`tenant_id`/`produto_importado_id`/`created_at` do banco", () => {
+    expect(src).not.toContain("produto_importado_variantes(*)");
+    expect(src).not.toContain("produto_importado_etapas(*)");
+  });
+
+  it("SELECT_PRODUTO_IMPORTADO traz exatamente os campos de conteúdo (ordem, cor_id, cor_apelido_id, peso, qtd / ordem, rotulo, base, percentual, data_vencimento, cotacao)", () => {
+    expect(src).toContain("variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd)");
+    expect(src).toContain("etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao)");
+  });
+
+  it("os 3 pontos de leitura da linha completa (lista/resync do Limpar/reconciliação P0409) usam a MESMA constante — sem select-literal duplicado que possa divergir", () => {
+    const usos = [...src.matchAll(/\.select\(SELECT_PRODUTO_IMPORTADO\)/g)].length;
+    expect(usos).toBe(3);
+    // Nenhum select-literal (com embed completo) sobrevive fora da constante.
+    expect(src).not.toMatch(/\.select\("\*, modelo_id, variantes:produto_importado_variantes/);
+  });
 });

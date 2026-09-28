@@ -38,6 +38,24 @@ import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trav
 
 type SubRow = { id: string; nome: string; ordem: number };
 
+// BUG-1 fix (colab Fase 3, achado QA task-25): `_salvar_produto_importado_core` APAGA e
+// REINSERE `produto_importado_variantes`/`produto_importado_etapas` a cada save (estado
+// completo — ver comentário na migration) — os `id`s de linha SEMPRE mudam, mesmo quando o
+// CONTEÚDO é idêntico. `chaveDirty`/o merge colaborativo (`shared.ts`) comparam
+// `variantes`/`etapas` como VALOR (array inteiro) — se o `select` trouxer `id` (via `(*)`), o
+// pós-save (`salvarUmProduto`) e o refetch seguinte comparariam ids DIFERENTES para o MESMO
+// conteúdo e o merge acusaria "outra pessoa mudou" no próprio save do usuário (banner +
+// "alterações não salvas" perpétuos, nunca "Salvo"). Fix: o SELECT só traz os campos que o
+// DRAFT de fato usa (nunca `id`/`tenant_id`/`produto_importado_id`/`created_at`) — mesmo
+// padrão já usado por `produto-acabado/ProdutoAcabadoSheet.tsx` (`SELECT_PRODUTO`, variantes
+// SEM `id`), que por isso NUNCA teve este bug. Usado nos 3 pontos que leem a linha completa
+// (query da lista, resync do Limpar, reconciliação de P0409) — não duplicar a string.
+const SELECT_PRODUTO_IMPORTADO =
+  "*, modelo_id, " +
+  "variantes:produto_importado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd), " +
+  "etapas:produto_importado_etapas(ordem, rotulo, base, percentual, data_vencimento, cotacao), " +
+  "modelo:modelo_id(preco_venda)";
+
 // Agrupamento das lanes do canvas — MESMO padrão combinável do Produto Acabado
 // (`ProdutoAcabadoSheet.tsx`): "Grupo" e "Categoria" marcáveis juntos → lane por Grupo com
 // sub-seções por Categoria dentro (aninhado, "Sem categoria" sempre por último); só um dos
@@ -290,7 +308,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     queryFn: async () => {
       const { data, error } = await supabase
         .from("produtos_importados" as any)
-        .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
+        .select(SELECT_PRODUTO_IMPORTADO)
         .eq("colecao_id", colecaoId);
       if (error) throw error;
       return (data ?? []) as unknown as ProdutoImportadoRow[];
@@ -551,7 +569,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
         try {
           const { data } = await supabase
             .from("produtos_importados" as any)
-            .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
+            .select(SELECT_PRODUTO_IMPORTADO)
             .eq("id", idParaResync)
             .maybeSingle();
           if (data) {
@@ -673,7 +691,7 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
     if (!d.id) return;
     const { data, error } = await supabase
       .from("produtos_importados" as any)
-      .select("*, modelo_id, variantes:produto_importado_variantes(*), etapas:produto_importado_etapas(*), modelo:modelo_id(preco_venda)")
+      .select(SELECT_PRODUTO_IMPORTADO)
       .eq("id", d.id)
       .maybeSingle();
     if (error || !data) return; // produto sumiu (excluído por outra aba) — o merge do refetch geral cuida do aviso
