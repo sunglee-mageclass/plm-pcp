@@ -28,7 +28,6 @@ import { Route as AuthenticatedPcpIndexRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedOtbIndexRouteImport } from './routes/_authenticated/otb.index'
 import { Route as AuthenticatedExpedicaoIndexRouteImport } from './routes/_authenticated/expedicao.index'
 import { Route as AuthenticatedEntradaSaidaIndexRouteImport } from './routes/_authenticated/entrada-saida.index'
-import { Route as AuthenticatedDistribuicaoIndexRouteImport } from './routes/_authenticated/distribuicao.index'
 import { Route as AuthenticatedCriacaoIndexRouteImport } from './routes/_authenticated/criacao.index'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
@@ -178,12 +177,6 @@ const AuthenticatedEntradaSaidaIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedEntradaSaidaRoute,
-  } as any)
-const AuthenticatedDistribuicaoIndexRoute =
-  AuthenticatedDistribuicaoIndexRouteImport.update({
-    id: '/distribuicao/',
-    path: '/distribuicao/',
-    getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedCriacaoIndexRoute =
   AuthenticatedCriacaoIndexRouteImport.update({
@@ -541,7 +534,6 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/criacao/': typeof AuthenticatedCriacaoIndexRoute
-  '/distribuicao/': typeof AuthenticatedDistribuicaoIndexRoute
   '/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
   '/expedicao/': typeof AuthenticatedExpedicaoIndexRoute
   '/otb/': typeof AuthenticatedOtbIndexRoute
@@ -601,7 +593,6 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
   '/criacao': typeof AuthenticatedCriacaoIndexRoute
-  '/distribuicao': typeof AuthenticatedDistribuicaoIndexRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaIndexRoute
   '/expedicao': typeof AuthenticatedExpedicaoIndexRoute
   '/otb': typeof AuthenticatedOtbIndexRoute
@@ -675,7 +666,6 @@ export interface FileRoutesById {
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/_authenticated/criacao/': typeof AuthenticatedCriacaoIndexRoute
-  '/_authenticated/distribuicao/': typeof AuthenticatedDistribuicaoIndexRoute
   '/_authenticated/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
   '/_authenticated/expedicao/': typeof AuthenticatedExpedicaoIndexRoute
   '/_authenticated/otb/': typeof AuthenticatedOtbIndexRoute
@@ -749,7 +739,6 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/cadastro/'
     | '/criacao/'
-    | '/distribuicao/'
     | '/entrada-saida/'
     | '/expedicao/'
     | '/otb/'
@@ -809,7 +798,6 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cadastro'
     | '/criacao'
-    | '/distribuicao'
     | '/entrada-saida'
     | '/expedicao'
     | '/otb'
@@ -882,7 +870,6 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
     | '/_authenticated/criacao/'
-    | '/_authenticated/distribuicao/'
     | '/_authenticated/entrada-saida/'
     | '/_authenticated/expedicao/'
     | '/_authenticated/otb/'
@@ -1043,13 +1030,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/entrada-saida/'
       preLoaderRoute: typeof AuthenticatedEntradaSaidaIndexRouteImport
       parentRoute: typeof AuthenticatedEntradaSaidaRoute
-    }
-    '/_authenticated/distribuicao/': {
-      id: '/_authenticated/distribuicao/'
-      path: '/distribuicao'
-      fullPath: '/distribuicao/'
-      preLoaderRoute: typeof AuthenticatedDistribuicaoIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/criacao/': {
       id: '/_authenticated/criacao/'
@@ -1689,7 +1669,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedIntegracaoRoute: typeof AuthenticatedIntegracaoRoute
   AuthenticatedPcpRoute: typeof AuthenticatedPcpRouteWithChildren
-  AuthenticatedDistribuicaoIndexRoute: typeof AuthenticatedDistribuicaoIndexRoute
   AuthenticatedOtbIndexRoute: typeof AuthenticatedOtbIndexRoute
 }
 
@@ -1705,7 +1684,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedIntegracaoRoute: AuthenticatedIntegracaoRoute,
   AuthenticatedPcpRoute: AuthenticatedPcpRouteWithChildren,
-  AuthenticatedDistribuicaoIndexRoute: AuthenticatedDistribuicaoIndexRoute,
   AuthenticatedOtbIndexRoute: AuthenticatedOtbIndexRoute,
 }
 
