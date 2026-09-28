@@ -2706,25 +2706,41 @@ describe("Integração — P-87: sem tela no celular", () => {
   });
 });
 
-// Fix round 1 (Important 3 + Minor 3): render de VERDADE de `PaginaIntegracao` — tela estreita mostra só o aviso e
-// NUNCA chama nenhuma RPC `integracao_*` nem monta `IntegracaoPage`; tela larga monta a página normalmente; um
-// estreitamento DEPOIS de já montada em tela larga NÃO desmonta (preserva rascunhos) — só soma um aviso pequeno.
+// Fix round 2 (task-17-18-review.md "Re-review round 1" Important 1): a suíte do fix round 1 usava
+// `useActiveTenantId: () => ""` — com o tenant vazio, TODA query de `IntegracaoPage`/`ProdutosAba` fica
+// `enabled:false`, então `expect(rpcSpy).not.toHaveBeenCalled()` passaria MESMO que a página tivesse montado de
+// verdade (a asserção era vácua). Fix: tenant REAL (`"t1"`) — se `ProdutosAba` chegasse a montar, ela chamaria
+// `integracao_listar` de verdade (o stub abaixo simula isso disparando o MESMO `rpcSpy` que o teste espia). E o
+// stub ganha um contador de montagem (`useEffect` que incrementa uma vez por instância) — a prova de "não montou"
+// deixa de depender só do texto na tela (frágil a um `<>{estreita && <Aviso/>}<Pagina/></>` que manteria o texto
+// certo mas montaria as duas árvores) e passa a contar quantas vezes o componente real do React foi instanciado.
 describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não desmonta)", () => {
   async function montarPagina(opts: { mobileInicial: boolean }) {
     vi.resetModules();
     const mobileRef = { current: opts.mobileInicial };
+    const montagens = { current: 0 };
     vi.doMock("@/components/RequirePermission", () => ({
       RequirePermission: ({ children }: { children: unknown }) => children,
     }));
-    const rpcSpy = vi.fn(async () => ({ data: null, error: new Error("RPC não mockada neste teste") }));
+    // Fix round 2: RPC que RESPONDE (não um erro genérico) — se `ProdutosAba` (ou qualquer query de
+    // `IntegracaoPage`) chegar a montar de verdade com um tenant não-vazio, ela dispara uma chamada de verdade
+    // contra este spy; o teste da tela estreita afirma ZERO chamadas.
+    const rpcSpy = vi.fn(async () => ({ data: { pagina: 1, por_pagina: 50, total: 0, produtos: [] }, error: null }));
     vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
-    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "" })); // nunca habilita nenhuma query real
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" })); // tenant REAL — ver comentário acima
     vi.doMock("@/hooks/useAuth", () => ({ useAuth: () => ({ isSuperAdmin: false, user: { id: "u1" } }) }));
     // `IntegracaoPage` monta só a aba ATIVA por padrão (Radix `TabsContent` sem `forceMount`) — a aba default é
-    // "produtos"; um stub leve basta pra este teste (que só prova mount/no-mount e ausência de RPC, não o
-    // comportamento interno de `ProdutosAba`, já coberto pela suíte própria dela).
+    // "produtos". O stub soma 2 provas: (1) o contador `montagens` (via `useEffect`, 1x por instância — nunca
+    // reseta e nunca conta 2x pra mesma instância viva); (2) chama `supabase.rpc("integracao_listar", ...)` no
+    // mount, pra ligar a asserção "ProdutosAba nunca montou" à MESMA `rpcSpy` que "nenhuma RPC integracao_*" usa.
     vi.doMock("@/components/integracao/ProdutosAba", () => ({
-      ProdutosAba: () => "ProdutosAba-stub",
+      ProdutosAba: () => {
+        useEffect(() => {
+          montagens.current += 1;
+          void supabase.rpc("integracao_listar", { _situacao: "nao_integrados", _filtros: {}, _pagina: 1 });
+        }, []);
+        return "ProdutosAba-stub";
+      },
     }));
     vi.doMock("@tanstack/react-router", () => ({
       useBlocker: () => ({ status: "idle", proceed() {}, reset() {} }),
@@ -2733,10 +2749,11 @@ describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não des
       // explodir; nada deste teste usa o `Route` resultante (importa `PaginaIntegracao` direto).
       createFileRoute: () => (opts: unknown) => opts,
     }));
-    const { createElement } = await import("react");
+    const { createElement, useEffect } = await import("react");
     const { act } = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { supabase } = await import("@/integrations/supabase/client");
     // `useIsMobile` mockado como uma função de VERDADE (não reativa por si só, igual ao resto desta suíte —
     // ver `tenantIdRef`/`mudarTenant` em outros harnesses do arquivo): o teste força um re-render manual depois de
     // mudar `mobileRef.current`, o que basta para provar a decisão travada no PRIMEIRO valor (`useState` real dentro
@@ -2750,7 +2767,7 @@ describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não des
     const arvore = () => createElement(QueryClientProvider, { client: qc }, createElement(PaginaIntegracao));
     await act(async () => { root.render(arvore()); });
     return {
-      container, rpcSpy,
+      container, rpcSpy, montagens,
       mudarMobile: (v: boolean) => act(async () => {
         mobileRef.current = v;
         root.render(arvore());
@@ -2759,32 +2776,32 @@ describe("PaginaIntegracao — render (P-87: narrow-first-mount, resize não des
     };
   }
 
-  it("tela estreita no 1º mount: mostra só o aviso e NUNCA chama nenhuma RPC integracao_*", async () => {
+  it("tela estreita no 1º mount: mostra só o aviso, o stub de Produtos NUNCA monta e nenhuma RPC dispara", async () => {
     const view = await montarPagina({ mobileInicial: true });
     expect(view.container.textContent).toContain("A Integração é usada no computador");
+    expect(view.container.textContent).not.toContain("ProdutosAba-stub");
+    expect(view.montagens.current).toBe(0);
     expect(view.rpcSpy).not.toHaveBeenCalled();
     await view.desmontar();
   });
 
-  it("tela larga no 1º mount: a IntegracaoPage monta (o aviso não aparece)", async () => {
+  it("tela larga no 1º mount: o stub de Produtos monta 1x (a IntegracaoPage está viva)", async () => {
     const view = await montarPagina({ mobileInicial: false });
     expect(view.container.textContent).not.toContain("A Integração é usada no computador");
-    // IntegracaoPage monta de verdade — o breadcrumb "Integração" é dela.
-    expect(view.container.textContent).toContain("Integração");
+    expect(view.container.textContent).toContain("ProdutosAba-stub");
+    expect(view.montagens.current).toBe(1);
     await view.desmontar();
   });
 
-  it("resize para estreita DEPOIS de montada em tela larga: NÃO desmonta — só soma um aviso pequeno", async () => {
+  it("resize para estreita DEPOIS de montada em tela larga: continua montado 1x (nenhum remonte)", async () => {
     const view = await montarPagina({ mobileInicial: false });
-    expect(view.container.textContent).not.toContain("A Integração é usada no computador");
-    const chamadasAntes = view.rpcSpy.mock.calls.length;
+    expect(view.montagens.current).toBe(1);
     await view.mudarMobile(true);
-    // A IntegracaoPage continua montada (não é substituída pelo AvisoComputador de tela cheia).
+    // Fix round 2 (Minor 1): sem o strip de texto novo — a página fica montada silenciosamente. A prova real é o
+    // contador de montagem continuar em 1 (nenhum desmonte + remonte do stub) e o aviso de tela cheia não aparecer.
     expect(view.container.textContent).not.toContain("A Integração é usada no computador");
-    expect(view.container.textContent).toContain("Tela estreita");
-    expect(view.container.textContent).toContain("Integração"); // o breadcrumb da IntegracaoPage ainda está lá
-    // Nenhuma RPC nova disparou só por causa do resize (a página não remontou).
-    expect(view.rpcSpy.mock.calls.length).toBe(chamadasAntes);
+    expect(view.container.textContent).toContain("ProdutosAba-stub");
+    expect(view.montagens.current).toBe(1); // NÃO virou 2 — não houve unmount+remount
     await view.desmontar();
   });
 });
