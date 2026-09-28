@@ -408,15 +408,23 @@ export const depsSupabase: DepsSalvar = {
 /** Tudo que mostra dado do produto relê (mão dupla: card, Dev, PA/PI, selos).
  *  Fix round 1 (M4, code-review.md): `produtos-importados` entra ao lado de `produtos-acabados` — o Salvar também
  *  muda o preço fixo do importado (`salvar_precos_fixo_produto_importado`) e o nome/REF do espelho via gatilho
- *  (`fn_modelo_espelho_nome_ref`), então uma tela de Produto Importado montada também precisa reler. */
+ *  (`fn_modelo_espelho_nome_ref`), então uma tela de Produto Importado montada também precisa reler.
+ *  m3 (final-review) — faltavam 3 caches que mostram o MESMO nome/preço do produto: `plan-tecido-*` (os slots
+ *  do Plan. Tecido, prefixo — mesmo predicado que `invalidarPlanTecido` já usa em `criacao.planejamento.tsx`),
+ *  `plan-revenda-markups`/`plan-importado-produtos` (o card do Plan. Produto lê estes p/ mostrar o markup/preço
+ *  fixo de revenda/importado — keys reais, `["plan-revenda-markups", modeloIdsAll]`/`["plan-importado-produtos",
+ *  modeloIdsAll]`, casadas por prefixo do 1º elemento) e `pa-produto-modelo` (o bloco de revenda do Sheet do
+ *  Planejamento, key `["pa-produto-modelo", modeloId]` — POR id, não em bulk; entra no loop de `ids` abaixo). */
 export function invalidarIntegracao(qc: QueryClient, tenantId: string, ids: string[] = []): void {
   for (const k of [chaveLista(tenantId), chaveEstado(tenantId), chaveLog(tenantId)]) void qc.invalidateQueries({ queryKey: k });
-  for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "produtos-acabados", "produtos-importados", "plan-custo-unit"]) {
+  for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "produtos-acabados", "produtos-importados", "plan-custo-unit", "plan-revenda-markups", "plan-importado-produtos"]) {
     void qc.invalidateQueries({ queryKey: [k] });
   }
+  void qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
   for (const id of ids) {
     void qc.invalidateQueries({ queryKey: ["modelo", id] });
     void qc.invalidateQueries({ queryKey: ["plan-skus", id] });
+    void qc.invalidateQueries({ queryKey: ["pa-produto-modelo", id] });
     // M2: a key da prévia agora leva o tenant (["integracao-sku-previa", tenantId, modeloId, chave]) — invalida pelo
     // prefixo (tenant + modeloId), que casa com QUALQUER chave/entrada daquele produto.
     void qc.invalidateQueries({ queryKey: ["integracao-sku-previa", tenantId, id] });

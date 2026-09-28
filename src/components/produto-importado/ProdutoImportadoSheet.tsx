@@ -34,7 +34,7 @@ import {
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas } from "@/lib/integracao/trava";
+import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -822,7 +822,13 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
       }
       qc.invalidateQueries({ queryKey: ["produtos-importados", colecaoId] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Falha ao salvar")),
+    onError: (e: any) => {
+      // m1 (final-review) — espelha o guard de `ProdutoAcabadoSheet.tsx`/`usePlanejamentoSave.ts`: um
+      // 42501 `integracao_travado:*` invalida `["integracao-estado", tenantId]` pra o PRÓXIMO Salvar
+      // já vir com a trava certa.
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Falha ao salvar"));
+    },
   });
   const salvar = () => salvarMut.mutate();
 

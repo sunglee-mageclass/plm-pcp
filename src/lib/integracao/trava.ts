@@ -1,5 +1,8 @@
 // Integração — a TRAVA vista pelas outras telas (F4, spec §6/§8). Estado + campos marcados no retrato → colunas travadas do
-// produto. Quem garante é o BANCO (gatilhos trg_zz_integracao_trava*); aqui só o espelho da tela (selo + disabled). PURO.
+// produto. Quem garante é o BANCO (gatilhos trg_zz_integracao_trava*); aqui só o espelho da tela (selo + disabled). PURO,
+// exceto `invalidarEstadoSeTravado` (m1, final-review) — helper de efeito colateral pequeno o bastante para não merecer
+// arquivo próprio; todo o resto do módulo segue puro.
+import type { QueryClient } from "@tanstack/react-query";
 import { CAMPO_BY_KEY, ordenarCampos, type CampoKey } from "@/lib/integracao/campos";
 
 export type EstadoModeloIntegracao = {
@@ -71,3 +74,21 @@ export const TEXTO_TRAVA_SHEET =
 export const TEXTO_SKU_TRAVADO =
   'SKUs e "Tamanho em" travados pela Integração — mudar cores ou tamanhos no BOM não cria SKU novo até o super admin desfazer.';
 export const TEXTO_PRECO_TRAVADO = "Preço travado pela Integração (integrável ou integrado).";
+
+/** m1 (final-review): quando o Salvar falha com 42501 `integracao_travado:*`, o estado local de
+ *  `["integracao-estado", tenantId]` estava desatualizado (stale até 30s, ou o produto foi marcado
+ *  DEPOIS que a tela abriu). Sem invalidar, o PRÓXIMO Salvar repete o mesmo erro (a trava só é
+ *  omitida do payload quando a query estiver fresca). Mirror do guard que já existe em
+ *  `usePlanejamentoSave.ts` `onError` — este helper deixa PA/PI/Plan.Produto chamarem a MESMA lógica
+ *  em vez de reescrevê-la em cada tela (m1 achou 3 lugares sem o guard).
+ *  Sem `tenantId` no filtro (igual ao guard original): invalida QUALQUER `["integracao-estado", *]`
+ *  em cache — mais simples e seguro (mesmo o produto sendo de outra loja num cenário exótico, o
+ *  refetch é barato e não há efeito colateral de dado). */
+export function invalidarEstadoSeTravado(qc: QueryClient, e: unknown): void {
+  const err = e as { code?: unknown; message?: unknown; error?: { code?: unknown; message?: unknown }; cause?: { code?: unknown } } | null | undefined;
+  const codigo = String(err?.code ?? err?.error?.code ?? err?.cause?.code ?? "");
+  const mensagem = String(err?.message ?? err?.error?.message ?? "");
+  if (codigo === "42501" && mensagem.startsWith("integracao_travado:")) {
+    void qc.invalidateQueries({ queryKey: ["integracao-estado"] });
+  }
+}

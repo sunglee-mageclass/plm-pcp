@@ -17,6 +17,7 @@ import { ehOrigemComprada } from "@/lib/origem";
 import { lerGradeServidorComprado } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { limparCustoSim, aplicarRegrasCamposDev, aplicarRegrasCamposPlanejamento, textoOuNull, draftParaSalvar, normalizarDraftSalvo, CAMPOS_DEV_DRAFT, camposNovosParaPayload, aplicarPrecoAnterior } from "@/components/planejamento/planejamento-detail/helpers";
 import { rotuloDaColuna } from "@/lib/integracao/campos";
+import { invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { STAGE_LABEL } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { gravarTecidosIniciais, invalidarAposGravarCad, persistirBom, persistirCad } from "@/components/planejamento/planejamento-detail/ficha/persistir-bom";
 import { chavesBomServidor } from "@/components/planejamento/planejamento-detail/ficha/useFichaDados";
@@ -1154,13 +1155,9 @@ export function usePlanejamentoSave({
       // `["integracao-estado", tenantId]` estava desatualizado (stale até 30s, ou o produto foi marcado DEPOIS
       // que esta tela abriu — refetchOnMount cobre a abertura, não o meio da sessão): invalida a query pra o
       // PRÓXIMO clique em Salvar já vir com a trava certa e omitir a coluna, em vez de repetir o mesmo 42501.
-      {
-        const codigo = String(e?.code ?? e?.error?.code ?? e?.cause?.code ?? "");
-        const mensagem = String(e?.message ?? e?.error?.message ?? "");
-        if (codigo === "42501" && mensagem.startsWith("integracao_travado:")) {
-          qc.invalidateQueries({ queryKey: ["integracao-estado"] });
-        }
-      }
+      // m1 (final-review) — virou o helper compartilhado `invalidarEstadoSeTravado` (trava.ts), reusado por
+      // PA/PI/Plan.Produto (o code-review achou 3 telas sem este guard).
+      invalidarEstadoSeTravado(qc, e);
       // F3.1 — card NOVO já INSERIDO que falhou numa gravação seguinte (tecidos/grade/MO): mostra o erro, atualiza
       // a lista e abre o Sheet do card criado — o usuário confere e salva de lá (UPDATE). Nunca um 2º INSERT.
       if (!isEdit && criadoIdRef.current) {

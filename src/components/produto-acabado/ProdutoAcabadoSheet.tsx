@@ -34,7 +34,7 @@ import {
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas } from "@/lib/integracao/trava";
+import { colunasTravadas, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 
 type SubRow = { id: string; nome: string; ordem: number };
 
@@ -766,7 +766,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
       qc.invalidateQueries({ queryKey: ["plan-revenda-markups"] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
+    onError: (e: any) => {
+      // m1 (final-review) — 42501 `integracao_travado:*` (produto marcado DEPOIS que o card abriu, ou
+      // o estado local ainda não refetchou) refeta `["integracao-estado", tenantId]` pra o PRÓXIMO
+      // Salvar já vir com a trava certa em vez de repetir o mesmo erro (mirror do onError de
+      // `usePlanejamentoSave.ts`).
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Erro ao salvar."));
+    },
   });
 
   const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };

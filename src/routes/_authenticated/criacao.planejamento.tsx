@@ -59,7 +59,7 @@ import { useKanbanConfig } from "@/hooks/useKanbanConfig";
 import { etapaDoModelo, type EtapaSelo } from "@/lib/kanban-auto-ui";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
-import { TEXTO_PRECO_TRAVADO, colunasTravadas } from "@/lib/integracao/trava";
+import { TEXTO_PRECO_TRAVADO, colunasTravadas, invalidarEstadoSeTravado, textoExcluirTravado } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 // Detalhe do card + campos compartilhados extraídos (refactor 2026-08-25).
@@ -194,14 +194,25 @@ function PlanejamentoPage() {
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
   const bulkDel = useMutation({
     mutationFn: async () => {
-      const ids = [...selected];
-      if (!ids.length) return 0;
+      const idsSelecionados = [...selected];
+      if (!idsSelecionados.length) return { excluidos: 0, travados: 0 };
+      // m2 (final-review) — antes o `.delete().in("id", ids)` incluía os travados: o banco (`fn_integracao_
+      // trava_modelos_del`) recusa a linha DELETE inteira quando 1 dos ids está travado (RLS/trigger operam
+      // por STATEMENT), então o lote inteiro falhava em silêncio pro usuário (só o toast genérico de erro).
+      // Filtra os travados ANTES do delete — os demais excluem normalmente; o toast final soma quantos
+      // ficaram de fora.
+      const ids = idsSelecionados.filter((id) => !estadosIntegracao[id]);
+      const travados = idsSelecionados.length - ids.length;
+      if (!ids.length) return { excluidos: 0, travados };
       const { error } = await supabase.from("modelos").delete().in("id", ids);
       if (error) throw error;
-      return ids.length;
+      return { excluidos: ids.length, travados };
     },
-    onSuccess: (n) => {
-      toast.success(`${n} card(s) excluído(s)`);
+    onSuccess: ({ excluidos, travados }) => {
+      if (excluidos > 0) toast.success(`${excluidos} card(s) excluído(s)`);
+      if (travados > 0) {
+        toast.warning(`${travados} produto(s) integrável/integrado não foram excluídos (travados pela Integração).`);
+      }
       clearSel(); setConfirmBulkDel(false);
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
@@ -296,7 +307,12 @@ function PlanejamentoPage() {
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       void v;
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
+    onError: (e: any) => {
+      // m1 (final-review) — 42501 `integracao_travado:preco_venda` refeta `["integracao-estado", tenantId]`
+      // pra o PRÓXIMO Salvar já vir com `precoTravado` certo (mirror de `usePlanejamentoSave.ts` onError).
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda."));
+    },
   });
   // n2 (Integração, D14): importado — espelho de `salvarPrecoVarejoRevenda` (mesma RPC, gravador PRÓPRIO
   // `salvar_precos_fixo_produto_importado`), pra o card do canvas parar de mandar o importado pro gravador da
@@ -314,7 +330,10 @@ function PlanejamentoPage() {
         void qc.invalidateQueries({ queryKey: [k] });
       }
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda.")),
+    onError: (e: any) => {
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Não foi possível salvar o preço de venda."));
+    },
   });
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const agrup = useAgrupamentoState("criacao-planejamento", ["tecido"]);
@@ -752,6 +771,9 @@ function PlanejamentoPage() {
         etapa={etapaDoModelo(m, kanbanCfg)}
         precoVenda={(m as any).preco_venda ?? null}
         precoTravado={colunasTravadas(estadosIntegracao[m.id]).has("preco_venda") ? TEXTO_PRECO_TRAVADO : null}
+        // m2 (final-review) — a lista tinha `precoTravado` (T22) mas não travava o Excluir; mirror do
+        // que PA/PI/Plan.Tecido já fazem: `disabled` + tooltip com `textoExcluirTravado`.
+        excluirTravado={estadosIntegracao[m.id] ? textoExcluirTravado(estadosIntegracao[m.id].estado) : null}
         onPrecoVenda={(preco) => {
           if (m.origem === "importado") {
             // n2 (Integração, D14): importado grava pelo gravador PRÓPRIO — espelho do ramo revenda logo abaixo
@@ -1296,8 +1318,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, precoTravado, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; precoTravado?: string | null; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingLinhaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, refModelo, etapa, precoVenda, onPrecoVenda, precoTravado, excluirTravado, pecasEst, pecasReal, onOpen, onAbrir, onExcluir, compact, selectionActive, selecionado }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; colecaoNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (linhaId: string) => void; onReprovarMO: (linhaId: string, motivo: string) => void; pendingLinhaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; refModelo: string | null; etapa: EtapaSelo; precoVenda: number | null; onPrecoVenda: (preco: number | null) => void; precoTravado?: string | null; excluirTravado?: string | null; pecasEst: number | null; pecasReal: number | null; onOpen: () => void; onAbrir: () => void; onExcluir: () => void; compact?: boolean; selectionActive?: boolean; selecionado?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1398,8 +1420,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
                 <PopoverClose asChild>
-                  <button type="button" onClick={onExcluir}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10">
+                  <button type="button" onClick={onExcluir} disabled={!!excluirTravado} title={excluirTravado ?? undefined}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40">
                     <Trash2 className="h-4 w-4" /> Excluir
                   </button>
                 </PopoverClose>
@@ -1447,8 +1469,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, colecaoNo
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1" onClick={(e) => e.stopPropagation()}>
                 <PopoverClose asChild>
-                  <button type="button" onClick={onExcluir}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10">
+                  <button type="button" onClick={onExcluir} disabled={!!excluirTravado} title={excluirTravado ?? undefined}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40">
                     <Trash2 className="h-4 w-4" /> Excluir
                   </button>
                 </PopoverClose>

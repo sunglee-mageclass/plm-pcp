@@ -208,7 +208,11 @@ export function ProdutoImportadoCard({
   // Integração (F4): REF, Nome, Foto e o VAREJO (valor + markup) travam quando o campo está marcado; atacado LIVRE (D34/R8).
   // O banco recusa (§8); a tela só espelha.
   const estadoIntegracao = useIntegracaoEstado(draft.modelo_id);
-  const travaIntegracao = colunasTravadas(estadoIntegracao);
+  // m6 (final-review): `colunasTravadas` devolve um Set NOVO a cada chamada — sem memo, o
+  // `precos` useMemo abaixo (que lista `travaIntegracao` nas deps) recomputa em TODO render,
+  // não só quando o estado de integração muda. `estadoIntegracao` já é estável entre renders
+  // (mesma referência do cache do TanStack Query até o próximo refetch).
+  const travaIntegracao = useMemo(() => colunasTravadas(estadoIntegracao), [estadoIntegracao]);
   const precos = useMemo(() => {
     const c = cadeiaMarkup(baseImp, draft.markup_atacado ?? 0, draft.markup_varejo ?? 0);
     // D14/R1: o preço FIXO manda ("última edição manda" — mesma regra do servidor e do precosDoDraft).

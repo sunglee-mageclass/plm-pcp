@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { createElement } from "react";
+import { createElement, useMemo } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { colunasTravadas, lerEstados, textoExcluirTravado, textoSelo } from "@/lib/integracao/trava";
@@ -491,15 +491,15 @@ describe("Fix round 1 (m2/M-1) — refetch da trava ao abrir o Sheet e ao levar 
     const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
     expect(s).toMatch(/useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: isEdit \}\)/);
   });
-  it("usePlanejamentoSave.ts invalida ['integracao-estado'] no onError quando o code é 42501 e a mensagem começa com integracao_travado:", () => {
+  it("usePlanejamentoSave.ts chama invalidarEstadoSeTravado(qc, e) dentro do onError (m1, final-review — virou o helper compartilhado de trava.ts)", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    expect(s).toMatch(/codigo === "42501" && mensagem\.startsWith\("integracao_travado:"\)/);
-    expect(s).toMatch(/qc\.invalidateQueries\(\{ queryKey: \["integracao-estado"\] \}\);/);
-    // A checagem tem que estar DENTRO do onError (antes do primeiro uso do onError, não em outro handler).
+    expect(s).toMatch(/import \{ invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
+    expect(s).toMatch(/invalidarEstadoSeTravado\(qc, e\);/);
+    // A chamada tem que estar DENTRO do onError (não em outro handler).
     const idxOnError = s.indexOf("onError: async (e: any) => {");
-    const idxInvalidar = s.indexOf('qc.invalidateQueries({ queryKey: ["integracao-estado"] });');
+    const idxChamada = s.indexOf("invalidarEstadoSeTravado(qc, e);");
     expect(idxOnError).toBeGreaterThan(-1);
-    expect(idxInvalidar).toBeGreaterThan(idxOnError);
+    expect(idxChamada).toBeGreaterThan(idxOnError);
   });
 });
 
@@ -1676,5 +1676,215 @@ describe("Task 24 — RENDER real: ModelCard (selo + Limpar slot travado)", () =
     expect(limpar.disabled).toBe(true);
     expect(limpar.title).toBe("Limpar travado — produto integrado. Só o super admin desfaz a integração (aba Integração).");
     unmount();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Final-review m1 — invalidarEstadoSeTravado (trava.ts): helper compartilhado que os 4 pontos sem o guard (PA
+// Sheet, PI Sheet, ProdutoCard preço/markup, criacao.planejamento.tsx preço varejo revenda/importado) agora
+// chamam no onError. Teste PURO/comportamental da função em si (não regex de fonte) + os pontos de wiring.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Final-review m1 — invalidarEstadoSeTravado (trava.ts)", () => {
+  it("42501 com mensagem 'integracao_travado:*' invalida ['integracao-estado'] (prefixo, sem tenantId)", async () => {
+    const { invalidarEstadoSeTravado } = await import("@/lib/integracao/trava");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    invalidarEstadoSeTravado(qc, { code: "42501", message: "integracao_travado: preco_venda" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["integracao-estado"] });
+  });
+  it("lê o code/message também de e.error.* e e.cause.* (formatos que o Supabase JS às vezes usa)", async () => {
+    const { invalidarEstadoSeTravado } = await import("@/lib/integracao/trava");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc1 = new QueryClient();
+    const spy1 = vi.spyOn(qc1, "invalidateQueries");
+    invalidarEstadoSeTravado(qc1, { error: { code: "42501", message: "integracao_travado: nome" } });
+    expect(spy1).toHaveBeenCalledWith({ queryKey: ["integracao-estado"] });
+    const qc2 = new QueryClient();
+    const spy2 = vi.spyOn(qc2, "invalidateQueries");
+    invalidarEstadoSeTravado(qc2, { cause: { code: "42501" }, message: "integracao_travado: sku" });
+    expect(spy2).toHaveBeenCalledWith({ queryKey: ["integracao-estado"] });
+  });
+  it("NÃO invalida em outros erros (código diferente, mensagem diferente, erro nulo/undefined)", async () => {
+    const { invalidarEstadoSeTravado } = await import("@/lib/integracao/trava");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    invalidarEstadoSeTravado(qc, { code: "23503", message: "outra coisa" });
+    invalidarEstadoSeTravado(qc, { code: "42501", message: "você não tem permissão" }); // 42501 genérico, sem o prefixo
+    invalidarEstadoSeTravado(qc, null);
+    invalidarEstadoSeTravado(qc, undefined);
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it("ProdutoAcabadoSheet.tsx importa e chama invalidarEstadoSeTravado(qc, e) dentro do onError do salvarMut", () => {
+    const s = ler("src/components/produto-acabado/ProdutoAcabadoSheet.tsx");
+    expect(s).toMatch(/import \{ colunasTravadas, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
+    const idxSalvarMut = s.indexOf("const salvarMut = useMutation({");
+    const idxChamada = s.indexOf("invalidarEstadoSeTravado(qc, e);");
+    expect(idxSalvarMut).toBeGreaterThan(-1);
+    expect(idxChamada).toBeGreaterThan(idxSalvarMut);
+  });
+  it("ProdutoImportadoSheet.tsx importa e chama invalidarEstadoSeTravado(qc, e) dentro do onError do salvarMut", () => {
+    const s = ler("src/components/produto-importado/ProdutoImportadoSheet.tsx");
+    expect(s).toMatch(/import \{ colunasTravadas, invalidarEstadoSeTravado \} from "@\/lib\/integracao\/trava";/);
+    const idxSalvarMut = s.indexOf("const salvarMut = useMutation({");
+    const idxChamada = s.indexOf("invalidarEstadoSeTravado(qc, e);");
+    expect(idxSalvarMut).toBeGreaterThan(-1);
+    expect(idxChamada).toBeGreaterThan(idxSalvarMut);
+  });
+  it("ProdutoCard.tsx (produto-acabado) chama invalidarEstadoSeTravado nos onError de salvarPrecoFixoMut E salvarMarkupMut", () => {
+    const s = ler("src/components/produto-acabado/ProdutoCard.tsx");
+    const ocorrencias = s.match(/invalidarEstadoSeTravado\(qc, e\);/g) ?? [];
+    expect(ocorrencias.length).toBe(2);
+  });
+  it("criacao.planejamento.tsx chama invalidarEstadoSeTravado nos onError de salvarPrecoVarejoRevenda E salvarPrecoVarejoImportado", () => {
+    const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+    const idxRevenda = s.indexOf("const salvarPrecoVarejoRevenda = useMutation({");
+    const idxImportado = s.indexOf("const salvarPrecoVarejoImportado = useMutation({");
+    expect(idxRevenda).toBeGreaterThan(-1);
+    expect(idxImportado).toBeGreaterThan(idxRevenda);
+    const blocoRevenda = s.slice(idxRevenda, idxImportado);
+    expect(blocoRevenda).toMatch(/invalidarEstadoSeTravado\(qc, e\);/);
+    const idxFimImportado = s.indexOf("// Default: agrupa por Tecido");
+    const blocoImportado = s.slice(idxImportado, idxFimImportado > -1 ? idxFimImportado : undefined);
+    expect(blocoImportado).toMatch(/invalidarEstadoSeTravado\(qc, e\);/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Final-review m2 — Excluir (Plan. Produto): (a) o Excluir POR CARD (Popover ⋯) tem que ficar `disabled` +
+// `title` com textoExcluirTravado quando o produto está integrável/integrado (T22 só tinha travado o preço,
+// não o Excluir). (b) a exclusão em massa pula os travados e devolve quantos ficaram de fora, com o toast PT
+// exato pedido pela revisão.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Final-review m2 — Excluir travado no card da lista + bulk delete pula travados", () => {
+  const s = ler("src/routes/_authenticated/criacao.planejamento.tsx");
+  it("ModeloCard recebe/usa excluirTravado (disabled + title) nos DOIS botões Excluir (compacto e completo)", () => {
+    const ocorrencias = s.match(/onClick=\{onExcluir\} disabled=\{!!excluirTravado\} title=\{excluirTravado \?\? undefined\}/g) ?? [];
+    expect(ocorrencias.length).toBe(2);
+  });
+  it("a prop excluirTravado é calculada com textoExcluirTravado(estadosIntegracao[m.id].estado)", () => {
+    expect(s).toMatch(/excluirTravado=\{estadosIntegracao\[m\.id\] \? textoExcluirTravado\(estadosIntegracao\[m\.id\]\.estado\) : null\}/);
+  });
+  it("bulkDel filtra os ids travados ANTES do .delete(), e o toast nomeia quantos foram pulados (texto PT exato)", () => {
+    expect(s).toMatch(/const ids = idsSelecionados\.filter\(\(id\) => !estadosIntegracao\[id\]\);/);
+    expect(s).toMatch(/const travados = idsSelecionados\.length - ids\.length;/);
+    expect(s).toContain('toast.warning(`${travados} produto(s) integrável/integrado não foram excluídos (travados pela Integração).`);');
+  });
+  it("prova PURA do texto exato do toast (mesma interpolação que o código de produção usa)", () => {
+    const travados = 2;
+    const texto = `${travados} produto(s) integrável/integrado não foram excluídos (travados pela Integração).`;
+    expect(texto).toBe("2 produto(s) integrável/integrado não foram excluídos (travados pela Integração).");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Final-review m3 — invalidarIntegracao (useIntegracao.ts) precisa invalidar TAMBÉM as caches que mostram o
+// mesmo nome/preço do produto em OUTRAS telas: plan-tecido-* (prefixo), plan-revenda-markups,
+// plan-importado-produtos (as 2 keyeadas por [key, modeloIdsAll] no Plan. Produto) e pa-produto-modelo
+// (keyeada POR id — [key, modeloId] — no bloco de revenda do Sheet do Planejamento).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Final-review m3 — invalidarIntegracao invalida os caches que faltavam", () => {
+  it("invalida plan-revenda-markups, plan-importado-produtos e QUALQUER key que comece com plan-tecido (prefixo)", async () => {
+    const { invalidarIntegracao } = await import("@/components/integracao/useIntegracao");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    // Semeia queries reais no cache (invalidateQueries com predicate só enxerga o que está no cache) — mais
+    // forte que inspecionar as CHAMADAS de invalidateQueries: prova que o predicate de fato CASA essas keys.
+    for (const k of [
+      ["plan-tecido-linhas-markup"],
+      ["plan-tecido-modelos", "col1"],
+      ["plan-tecido-previa", "col1"],
+      ["plan-revenda-markups", ["m1", "m2"]],
+      ["plan-importado-produtos", ["m1", "m2"]],
+      ["algo-nao-relacionado"],
+    ]) {
+      qc.setQueryData(k, { fake: true });
+    }
+    invalidarIntegracao(qc, "t1", []);
+    const estados = qc.getQueryCache().getAll().map((q) => ({ key: q.queryKey, stale: q.isStale() }));
+    const staleDe = (prefixo: unknown) => estados.find((e) => JSON.stringify(e.key) === JSON.stringify(prefixo))?.stale;
+    expect(staleDe(["plan-tecido-linhas-markup"])).toBe(true);
+    expect(staleDe(["plan-tecido-modelos", "col1"])).toBe(true);
+    expect(staleDe(["plan-tecido-previa", "col1"])).toBe(true);
+    expect(staleDe(["plan-revenda-markups", ["m1", "m2"]])).toBe(true);
+    expect(staleDe(["plan-importado-produtos", ["m1", "m2"]])).toBe(true);
+    expect(staleDe(["algo-nao-relacionado"])).toBe(false); // prova que o predicate NÃO é global — só o prefixo certo
+  });
+  it("com ids: invalida pa-produto-modelo POR id (não em bulk — a key real é [key, modeloId])", async () => {
+    const { invalidarIntegracao } = await import("@/components/integracao/useIntegracao");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    qc.setQueryData(["pa-produto-modelo", "m1"], { fake: true });
+    qc.setQueryData(["pa-produto-modelo", "m2"], { fake: true }); // outro produto — não deveria ser tocado
+    invalidarIntegracao(qc, "t1", ["m1"]);
+    const estados = qc.getQueryCache().getAll();
+    const m1 = estados.find((q) => JSON.stringify(q.queryKey) === JSON.stringify(["pa-produto-modelo", "m1"]));
+    const m2 = estados.find((q) => JSON.stringify(q.queryKey) === JSON.stringify(["pa-produto-modelo", "m2"]));
+    expect(m1?.isStale()).toBe(true);
+    expect(m2?.isStale()).toBe(false);
+  });
+  it("as keys de base (modelos-planejamento/produtos-acabados/etc — comportamento pré-existente) continuam invalidadas", async () => {
+    const { invalidarIntegracao } = await import("@/components/integracao/useIntegracao");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "produtos-acabados", "produtos-importados", "plan-custo-unit"]) {
+      qc.setQueryData([k], { fake: true });
+    }
+    invalidarIntegracao(qc, "t1", []);
+    for (const k of ["modelos-planejamento", "modelos-desenvolvimento", "produtos-acabados", "produtos-importados", "plan-custo-unit"]) {
+      const q = qc.getQueryCache().find({ queryKey: [k] });
+      expect(q?.isStale(), k).toBe(true);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Final-review m6 (1º nit) — ProdutoImportadoCard.tsx:221: `travaIntegracao` era um Set NOVO a cada render
+// (colunasTravadas sem memo), então o `precos` useMemo (que lista `travaIntegracao` nas deps) recomputava em
+// TODO render, não só quando o estado de integração mudava de verdade. Prova COMPORTAMENTAL: memoiza um valor
+// externo (getSnapshot-like) que só muda quando estadoIntegracao muda, via useMemo real + contagem de chamadas.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Final-review m6 — ProdutoImportadoCard memoiza travaIntegracao (não recomputa em todo render)", () => {
+  it("o código usa useMemo(() => colunasTravadas(estadoIntegracao), [estadoIntegracao]) — não uma chamada direta nas deps", () => {
+    const s = ler("src/components/produto-importado/ProdutoImportadoCard.tsx");
+    expect(s).toMatch(/const travaIntegracao = useMemo\(\(\) => colunasTravadas\(estadoIntegracao\), \[estadoIntegracao\]\);/);
+    // Confirma que NÃO voltou a ser a chamada direta (regressão do bug original)
+    expect(s).not.toMatch(/const travaIntegracao = colunasTravadas\(estadoIntegracao\);/);
+  });
+  it("prova comportamental de React puro: useMemo com [estadoIntegracao] só recalcula quando a REFERÊNCIA de estadoIntegracao muda — um componente que chama colunasTravadas(estado) DIRETO (sem memo) recalcula em TODO re-render, mesmo com o mesmo estado", () => {
+    let chamadasSemMemo = 0;
+    let chamadasComMemo = 0;
+    const estadoEstavel = { estado: "integravel" as const, campos: ["nome"], marcadoEm: null, integradoEm: null };
+    function SemMemo({ n }: { n: number }) {
+      chamadasSemMemo++;
+      const t = colunasTravadas(estadoEstavel); // chamada DIRETA — recomputa sempre
+      return createElement("span", null, `${t.size}-${n}`);
+    }
+    function ComMemo({ n }: { n: number }) {
+      // useMemo REAL do React (mesmo import do topo do arquivo) — a prova central: com deps estáveis
+      // ([estadoEstavel], mesma referência entre os 2 renders), a fábrica só roda 1 vez.
+      const t = useMemo(() => { chamadasComMemo++; return colunasTravadas(estadoEstavel); }, [estadoEstavel]);
+      return createElement("span", null, `${t.size}-${n}`);
+    }
+    // MESMA raiz reusada para os 2 renders (root.render de novo, NÃO um 2º createRoot no mesmo container —
+    // createRoot duas vezes no mesmo nó é o erro que o React acusa: "container already passed to createRoot").
+    const container1 = document.createElement("div");
+    document.body.appendChild(container1);
+    const root1 = createRoot(container1);
+    act(() => { root1.render(createElement(SemMemo, { n: 1 })); });
+    act(() => { root1.render(createElement(SemMemo, { n: 2 })); });
+    expect(chamadasSemMemo).toBeGreaterThanOrEqual(2); // recomputou nos 2 renders — confirma que SEM memo, recomputa sempre
+    act(() => { root1.unmount(); });
+    container1.remove();
+
+    const container2 = document.createElement("div");
+    document.body.appendChild(container2);
+    const root2 = createRoot(container2);
+    act(() => { root2.render(createElement(ComMemo, { n: 1 })); });
+    act(() => { root2.render(createElement(ComMemo, { n: 2 })); });
+    expect(chamadasComMemo).toBe(1); // com useMemo + deps estáveis, só computou 1 vez mesmo em 2 renders
+    act(() => { root2.unmount(); });
+    container2.remove();
   });
 });

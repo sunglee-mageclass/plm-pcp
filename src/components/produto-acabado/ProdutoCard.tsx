@@ -30,7 +30,7 @@ import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { precoAtacado, precoVarejo, markupDePreco } from "@/lib/preco-revenda";
 import { SeloIntegracao } from "@/components/integracao/SeloIntegracao";
 import { useIntegracaoEstado } from "@/hooks/useIntegracaoEstado";
-import { colunasTravadas, textoExcluirTravado } from "@/lib/integracao/trava";
+import { colunasTravadas, textoExcluirTravado, invalidarEstadoSeTravado } from "@/lib/integracao/trava";
 import { InfoHover } from "@/components/shared/InfoHover";
 import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -293,7 +293,13 @@ export function ProdutoCard({
       if (error) throw error;
     },
     onSuccess: invalidarPrecoRevenda,
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o preço.")),
+    onError: (e: any) => {
+      // m1 (final-review) — o preço/markup de revenda salva DIRETO (fora do lote de `salvar_produto_acabado`);
+      // um 42501 `integracao_travado:preco_venda`/`markup_varejo` aqui precisa do mesmo guard: refeta
+      // `["integracao-estado", tenantId]` pra o PRÓXIMO blur já vir com a trava certa.
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Erro ao salvar o preço."));
+    },
   });
   const salvarMarkupMut = useMutation({
     mutationFn: async (p: { markupAtacado: number | null; markupVarejo: number | null }) => {
@@ -303,7 +309,10 @@ export function ProdutoCard({
       if (error) throw error;
     },
     onSuccess: invalidarPrecoRevenda,
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o markup.")),
+    onError: (e: any) => {
+      invalidarEstadoSeTravado(qc, e);
+      toast.error(mensagemErro(e, "Erro ao salvar o markup."));
+    },
   });
 
   const excluirMut = useMutation({
