@@ -15,7 +15,7 @@ import {
   emptyDraft, montarPayload, precosDoDraft, chaveDirty,
   resolverTravaImportado, aplicarResolucaoTrava, toastTravaImportado, acoplarParVarejo, acoplarParAtacado,
   normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
-  markupVarejoExibido, markupAtacadoExibido, parDoCampo, devePodeNormalizarPar,
+  markupVarejoExibido, markupAtacadoExibido, parDoCampo, devePodeNormalizarPar, aplicarResolucaoConflito,
   type ProdutoImportadoDraft,
 } from "@/components/produto-importado/shared";
 import {
@@ -213,12 +213,12 @@ describe("resolverTravaImportado — I-1 (ruling da revisão): nunca reenviar um
     });
     expect(r.avisos).toEqual([]);
   });
-  it("2+ campos travados (nome + preco_venda), avisos combinam em 1 toast PT com 'e'", () => {
+  it("2+ campos travados (nome + preco_venda), avisos combinam em 1 toast PT (\"Estes campos…: Nome e Valor varejo.\")", () => {
     const enviado = base({ nome: "X", preco_varejo_fixo: 999, markup_varejo: null });
     const r = resolverTravaImportado({ enviado, servidor, travaAtual: new Set(["nome", "preco_venda"]), touched: new Set(["nome", "preco_varejo_fixo"]) });
     const msg = toastTravaImportado(r.avisos);
-    expect(msg).toContain(" e ");
-    expect(msg.endsWith("essa alteração não foi salva.")).toBe(true);
+    // Fix round 4 (R3-4) — 2+ avisos: formato "Estes campos foram travados…: <lista com vírgulas e 1 'e'>."
+    expect(msg).toBe("Estes campos foram travados pela Integração enquanto você editava — essas alterações não foram salvas: Nome e Valor varejo.");
   });
   it("aplicarResolucaoTrava com paraServidor vazio devolve a MESMA referência (nada revertido)", () => {
     const enviado = base();
@@ -655,11 +655,10 @@ describe("markupVarejoParaBlurAtacado — N-3 (nunca reenvia o draft do varejo t
 // escolha de B (o outro lado do par) antes do usuário clicar no segundo campo do par. A correção:
 // só normaliza quando NENHUM dos 2 campos do par continua pendente na lista de conflitos.
 //
-// `replay` abaixo reproduz FIELMENTE a sequência do handler de produção: pra cada clique,
-// (1) aplica a escolha no campo (equivalente ao `patchDraft`), (2) calcula `parDoCampo` +
-// `restantesAposEsta`, (3) SÓ normaliza (os 2 canais, como o handler real faz incondicionalmente
-// via `normalizarParAtacadoAposResolucao(normalizarParVarejoAposResolucao(d))`) quando
-// `devePodeNormalizarPar` diz que pode, (4) remove o conflito resolvido da lista pendente.
+// Fix round 4 (R3-3): `replay` abaixo chama, a cada clique, `aplicarResolucaoConflito` — a MESMA
+// função que o `onResolver` do Sheet chama (aplica a escolha; quando o par do campo fica 100%
+// resolvido, normaliza SÓ esse par — R3-1). Os casos com os 2 canais em conflito ao mesmo tempo
+// estão no bloco "aplicarResolucaoConflito — R3-1/R3-3" no fim do arquivo.
 // ────────────────────────────────────────────────────────────────────────────────────────────
 describe("onResolver (replay real) — R2-1: normaliza o par SÓ depois que os 2 campos foram resolvidos", () => {
   type Par = { fixo: "preco_varejo_fixo" | "preco_atacado_fixo"; markup: "markup_varejo" | "markup_atacado" };
@@ -676,20 +675,14 @@ describe("onResolver (replay real) — R2-1: normaliza o par SÓ depois que os 2
     conflitosIniciais: Conflito[]; // já no formato { path: campo, meu, dele } — como o mergeDraft devolveu
     escolhas: { campo: string; escolha: "meu" | "dele" }[];
   }) {
-    let d = { ...o.draftInicial };
-    let pendentes = [...o.conflitosIniciais];
+    // Fix round 4 (R3-3) — o replay NÃO é mais uma cópia à mão do handler: cada clique chama
+    // `aplicarResolucaoConflito`, a MESMA função que o `onResolver` do Sheet chama.
+    let d: Record<string, number | null> = { ...o.draftInicial };
+    let pendentes: Conflito[] = [...o.conflitosIniciais];
     for (const { campo, escolha } of o.escolhas) {
-      const c = pendentes.find((x) => x.path === campo);
-      if (c && escolha === "dele") d = { ...d, [campo]: c.dele as number | null };
-      // "meu": no-op no draft (já é o que estava lá — mesma semântica do handler real, que só
-      // faz `patchDraft` no ramo "dele").
-      const parDoCanal = parDoCampo(campo);
-      const restantesAposEsta = pendentes.filter((x) => x.path !== campo);
-      if (parDoCanal && devePodeNormalizarPar(parDoCanal, restantesAposEsta)) {
-        const varejoNorm = normalizarParVarejoAposResolucao(d as any);
-        d = normalizarParAtacadoAposResolucao(varejoNorm as any) as any;
-      }
-      pendentes = restantesAposEsta;
+      const r = aplicarResolucaoConflito(d as any, pendentes, campo, escolha);
+      d = r.draft as any;
+      pendentes = r.restantes;
     }
     return d;
   }
@@ -866,4 +859,221 @@ describe("ROTULO_CAMPO_PA — R2-4: foto_url tem rótulo 'Foto' (não aparece co
     const bloco = src.slice(inicio, src.indexOf("};", inicio));
     expect(bloco).toMatch(/foto_url:\s*"Foto"/);
   });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 4 (re-review 3) — R3-1 + R3-3: clique-a-clique pela função REAL do `onResolver`
+// (`aplicarResolucaoConflito`, chamada pelo Sheet), com os conflitos gerados pela MESMA pipeline
+// do Sheet (`ProdutoImportadoSheet.tsx`, merge da sub-coleção): `touched` = chaves de `chaveDirty`
+// que A mudou vs a base; `mergeDraft` REAL; `acoplarParVarejo` + `acoplarParAtacado` REAIS.
+// Critérios, pra cada combinação:
+//  (a) o valor salvo por B nunca é apagado: todo campo em que A escolheu "usar o novo" termina com
+//      o valor de B — a ÚNICA exceção é a regra do servidor quando A escolheu "manter meu" num fixo
+//      não-nulo (fixo manda → markup null, por escolha do próprio A);
+//  (b) o par final do draft == o que o servidor persiste ao Salvar (`servidorPI`, espelho de
+//      `20261007140000_integracao_5_salvar.sql:386-435`, "última edição manda");
+//  (c) nenhum par fica com fixo E markup setados; nenhum conflito fica pendente;
+//  (d) nos cenários de 1 canal, o outro canal fica intocado.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("aplicarResolucaoConflito — R3-1/R3-3: clique-a-clique pela função real do onResolver", () => {
+  type Canal = "varejo" | "atacado";
+  const K = { varejo: { f: "preco_varejo_fixo", m: "markup_varejo" }, atacado: { f: "preco_atacado_fixo", m: "markup_atacado" } } as const;
+  type P4 = { vf: number | null; vm: number | null; af: number | null; am: number | null };
+  const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const P = (d: any): P4 => ({ vf: d.preco_varejo_fixo ?? null, vm: d.markup_varejo ?? null, af: d.preco_atacado_fixo ?? null, am: d.markup_atacado ?? null });
+  // Espelho do UPDATE final de `_salvar_produto_importado_core` (x = linha já com os markups do _dados).
+  function servidorPI(old: P4, dados: Record<string, unknown>): P4 {
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(dados, k);
+    const x = { ...old, am: num(dados.markup_atacado), vm: num(dados.markup_varejo) };
+    const af = has("preco_atacado_fixo") ? num(dados.preco_atacado_fixo) : num(dados.markup_atacado) != null ? null : x.af;
+    const am = has("preco_atacado_fixo") && num(dados.preco_atacado_fixo) != null ? null
+      : has("preco_atacado_fixo") ? (num(dados.markup_atacado) ?? x.am)
+      : num(dados.markup_atacado) != null ? num(dados.markup_atacado) : x.am;
+    const vf = has("preco_varejo_fixo") ? num(dados.preco_varejo_fixo) : num(dados.markup_varejo) != null ? null : x.vf;
+    const vm = has("preco_varejo_fixo") && num(dados.preco_varejo_fixo) != null ? null
+      : has("preco_varejo_fixo") ? (num(dados.markup_varejo) ?? x.vm)
+      : num(dados.markup_varejo) != null ? num(dados.markup_varejo) : x.vm;
+    return { af, am, vf, vm };
+  }
+  // A pipeline de merge do Sheet (touched a partir de chaveDirty, como o efeito de merge faz).
+  function mergeComoOSheet(b: ProdutoImportadoDraft, a: ProdutoImportadoDraft, f: ProdutoImportadoDraft) {
+    const ca = chaveDirty(a) as Record<string, unknown>, cb = chaveDirty(b) as Record<string, unknown>;
+    const touched = new Set(Object.keys(ca).filter((k) => JSON.stringify(ca[k]) !== JSON.stringify(cb[k])));
+    const m0 = mergeDraft({ base: b as any, draft: a as any, fresh: f as any, touched });
+    const mV = acoplarParVarejo({ valor: m0.valor as any, conflitos: m0.conflitos, draft: a, fresh: f });
+    const mA = acoplarParAtacado({ valor: mV.valor, conflitos: mV.conflitos, draft: a, fresh: f });
+    return { valor: { ...(mA.valor as ProdutoImportadoDraft), rev: f.rev }, conflitos: mA.conflitos };
+  }
+  // Clica, na ordem dada, pela função REAL (é o que o `onResolver` do Sheet faz a cada clique).
+  function clicar(valor: ProdutoImportadoDraft, conflitos: Conflito[], cliques: [string, "meu" | "dele"][]) {
+    let d: ProdutoImportadoDraft | null = valor;
+    let pend = conflitos;
+    for (const [campo, esc] of cliques) {
+      const r = aplicarResolucaoConflito(d as ProdutoImportadoDraft, pend, campo, esc);
+      d = r.draft; pend = r.restantes;
+    }
+    return { d: d as ProdutoImportadoDraft, pend };
+  }
+  // Valor esperado de UM par dadas as escolhas (lidas do próprio conflito: "meu"/"dele"), já com a
+  // regra do servidor aplicada (fixo presente manda → markup null).
+  function esperadoDoPar(conflitos: Conflito[], valor: any, canal: Canal, esc: Record<string, "meu" | "dele">) {
+    const { f, m } = K[canal];
+    const pega = (campo: string) => {
+      const c = conflitos.find((x) => x.path === campo);
+      if (!c) return valor[campo] ?? null;
+      return ((esc[campo] === "dele" ? c.dele : c.meu) ?? null) as number | null;
+    };
+    const fixo = pega(f);
+    const markup = fixo != null ? null : pega(m);
+    return { fixo, markup };
+  }
+  function permutacoes<T>(xs: T[]): T[][] {
+    return xs.length <= 1 ? [xs] : xs.flatMap((x, i) => permutacoes([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]));
+  }
+  const B0 = base({ modelo_id: null, preco_varejo_fixo: null, markup_varejo: null, preco_atacado_fixo: null, markup_atacado: null, variantes: [] });
+  const mk = (p: Partial<P4>, rev = 3) => ({
+    ...B0, rev,
+    preco_varejo_fixo: p.vf ?? null, markup_varejo: p.vm ?? null, preco_atacado_fixo: p.af ?? null, markup_atacado: p.am ?? null,
+  }) as ProdutoImportadoDraft;
+  const doCanal = (canal: Canal, par: [number | null, number | null]): Partial<P4> =>
+    canal === "varejo" ? { vf: par[0], vm: par[1] } : { af: par[0], am: par[1] };
+
+  // ---- 1 canal: 6 cenários × 2 canais × 4 combinações de escolha × 2 ordens de clique = 96 ----
+  const CENARIOS: [string, [number | null, number | null], [number | null, number | null], [number | null, number | null]][] = [
+    ["S1 base m2.5; A m3; B f298", [null, 2.5], [null, 3], [298, null]],
+    ["S2 base f298; A f310; B m2", [298, null], [310, null], [null, 2]],
+    ["S3 base f298; A m3; B f305", [298, null], [null, 3], [305, null]],
+    ["S4 base m2.5; A f310; B m3", [null, 2.5], [310, null], [null, 3]],
+    ["S5 base f298; A f310; B f320", [298, null], [310, null], [320, null]],
+    ["S6 base m2.5; A m3; B m4", [null, 2.5], [null, 3], [null, 4]],
+  ];
+  for (const canal of ["varejo", "atacado"] as const) {
+    for (const [nome, pb, pa, pf] of CENARIOS) {
+      it(`1 canal [${canal}] ${nome}: 4 combinações × 2 ordens — B preservado, par == servidor, outro canal intocado`, () => {
+        const { f, m } = K[canal];
+        const outro = K[canal === "varejo" ? "atacado" : "varejo"];
+        const b = mk(doCanal(canal, pb)), a = mk(doCanal(canal, pa)), fr = mk(doCanal(canal, pf), 4);
+        const { valor, conflitos } = mergeComoOSheet(b, a, fr);
+        expect(conflitos.map((c) => c.path).sort()).toEqual([f, m].sort()); // os 2 campos do par no banner
+        for (const escF of ["meu", "dele"] as const) for (const escM of ["meu", "dele"] as const) {
+          for (const ordem of [[f, m], [m, f]]) {
+            const esc = { [f]: escF, [m]: escM };
+            const { d, pend } = clicar(valor, conflitos, ordem.map((c) => [c, esc[c]] as [string, "meu" | "dele"]));
+            const ctx = `${escF}/${escM} ordem ${ordem.join(">")}`;
+            const esp = esperadoDoPar(conflitos, valor, canal, esc);
+            expect({ ctx, fixo: (d as any)[f] ?? null, markup: (d as any)[m] ?? null }).toEqual({ ctx, ...esp });
+            expect({ ctx, par: P(d) }).toEqual({ ctx, par: servidorPI(P(fr), montarPayload(d).dados as any) });
+            expect(pend).toEqual([]);
+            expect({ ctx, f: (d as any)[outro.f] ?? null, m: (d as any)[outro.m] ?? null })
+              .toEqual({ ctx, f: (fr as any)[outro.f] ?? null, m: (fr as any)[outro.m] ?? null });
+          }
+        }
+      });
+    }
+  }
+
+  // ---- 2 canais em conflito no MESMO produto: todas as 24 ordens de clique por caso ----
+  const CRUZADOS: [string, Partial<P4>, Partial<P4>, Partial<P4>][] = [
+    ["S4 varejo + S4 atacado", { vm: 2.5, am: 2.5 }, { vf: 310, af: 310 }, { vm: 3, am: 3 }],
+    ["S2 varejo + S2 atacado", { vf: 298, af: 298 }, { vf: 310, af: 310 }, { vm: 2, am: 2 }],
+    ["S4 varejo + S2 atacado", { vm: 2.5, af: 298 }, { vf: 310, af: 310 }, { vm: 3, am: 2 }],
+  ];
+  for (const [nome, pb, pa, pf] of CRUZADOS) {
+    it(`2 canais ${nome}: "usar o novo" em tudo, 24 ordens — nenhum valor salvo por B é apagado`, () => {
+      const b = mk(pb), a = mk(pa), fr = mk(pf, 4);
+      const { valor, conflitos } = mergeComoOSheet(b, a, fr);
+      expect(conflitos).toHaveLength(4);
+      const ordens = permutacoes(conflitos.map((c) => c.path));
+      expect(ordens).toHaveLength(24);
+      for (const ordem of ordens) {
+        const { d, pend } = clicar(valor, conflitos, ordem.map((c) => [c, "dele"] as [string, "dele"]));
+        const ctx = ordem.join(" > ");
+        expect({ ctx, par: P(d) }).toEqual({ ctx, par: P(fr) }); // o que B salvou, intacto
+        expect({ ctx, par: P(d) }).toEqual({ ctx, par: servidorPI(P(fr), montarPayload(d).dados as any) });
+        expect(pend).toEqual([]);
+      }
+    });
+    it(`2 canais ${nome}: 16 combinações de escolha × 24 ordens — cada par == escolha + regra do servidor`, () => {
+      const b = mk(pb), a = mk(pa), fr = mk(pf, 4);
+      const { valor, conflitos } = mergeComoOSheet(b, a, fr);
+      const campos = conflitos.map((c) => c.path);
+      for (let mask = 0; mask < 16; mask++) {
+        const esc = Object.fromEntries(campos.map((c, i) => [c, (mask >> i) & 1 ? "dele" : "meu"])) as Record<string, "meu" | "dele">;
+        const espV = esperadoDoPar(conflitos, valor, "varejo", esc);
+        const espA = esperadoDoPar(conflitos, valor, "atacado", esc);
+        for (const ordem of permutacoes(campos)) {
+          const { d, pend } = clicar(valor, conflitos, ordem.map((c) => [c, esc[c]] as [string, "meu" | "dele"]));
+          const ctx = `${JSON.stringify(esc)} ordem ${ordem.join(">")}`;
+          expect({ ctx, par: P(d) }).toEqual({ ctx, par: { vf: espV.fixo, vm: espV.markup, af: espA.fixo, am: espA.markup } });
+          expect({ ctx, par: P(d) }).toEqual({ ctx, par: servidorPI(P(fr), montarPayload(d).dados as any) });
+          expect(pend).toEqual([]);
+        }
+      }
+    });
+  }
+
+  it("R3-1 trace exato (S4v+S4a, ordem top-down do banner): fechar o varejo NÃO normaliza o atacado meio-resolvido", () => {
+    const b = mk({ vm: 2.5, am: 2.5 }), a = mk({ vf: 310, af: 310 }), fr = mk({ vm: 3, am: 3 }, 4);
+    const { valor, conflitos } = mergeComoOSheet(b, a, fr);
+    // A ordem do banner (top-down) que o re-review 3 mostrou falhando no round 3.
+    expect(conflitos.map((c) => c.path)).toEqual(["markup_atacado", "markup_varejo", "preco_varejo_fixo", "preco_atacado_fixo"]);
+    // 3 primeiros cliques "usar o novo": o 3º FECHA o par do varejo; o atacado fica com o fixo pendente.
+    const meio = clicar(valor, conflitos, [["markup_atacado", "dele"], ["markup_varejo", "dele"], ["preco_varejo_fixo", "dele"]]);
+    expect(meio.pend.map((c) => c.path)).toEqual(["preco_atacado_fixo"]);
+    expect(P(meio.d)).toEqual({ vf: null, vm: 3, af: 310, am: 3 }); // varejo = B; atacado: markup 3 de B NÃO foi apagado
+    const fim = clicar(meio.d, meio.pend, [["preco_atacado_fixo", "dele"]]);
+    expect(P(fim.d)).toEqual({ vf: null, vm: 3, af: null, am: 3 });
+  });
+
+  it("__produto__ + 'usar o novo' remove o produto (draft null); 'manter meu' mantém; campo sem par não normaliza nada", () => {
+    const d = mk({ vf: 310, vm: 2 }); // estado fora da regra de propósito: prova que campo sem par não normaliza
+    const cs: Conflito[] = [{ path: "__produto__", meu: "suas edições", dele: null }];
+    expect(aplicarResolucaoConflito(d, cs, "__produto__", "dele")).toEqual({ draft: null, restantes: [] });
+    expect(aplicarResolucaoConflito(d, cs, "__produto__", "meu")).toEqual({ draft: d, restantes: [] });
+    const cn: Conflito[] = [{ path: "nome", meu: "A", dele: "B" }];
+    const r = aplicarResolucaoConflito(d, cn, "nome", "dele");
+    expect(r.draft?.nome).toBe("B");
+    expect(P(r.draft)).toEqual(P(d));
+  });
+
+  it("ProdutoImportadoSheet.tsx: o onResolver chama aplicarResolucaoConflito (o caminho de produção é o testado)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("src/components/produto-importado/ProdutoImportadoSheet.tsx", "utf8");
+    const ini = src.indexOf("onResolver={(path, escolha) => {");
+    expect(ini).toBeGreaterThan(0);
+    const corpo = src.slice(ini, src.indexOf("rotulo={(path) =>", ini));
+    expect(corpo).toContain("aplicarResolucaoConflito(d, conflitosDoProduto, campo, escolha)");
+    expect(corpo).not.toMatch(/normalizarPar(Varejo|Atacado)AposResolucao/); // nenhuma lógica de par duplicada no Sheet
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 4 (R3-4) — toast com 2+ avisos: vírgulas e UM "e" final, concordância pra qualquer
+// mistura ("Estes campos foram travados…: <lista>."). Textos de 1 campo inalterados.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+describe("toastTravaImportado/toastTravaAcabado — R3-4: lista de 2+ campos", () => {
+  const V = { campo: "variantes" as const, rotulo: "Cores e quantidades das variantes" };
+  const N = { campo: "nome" as const, rotulo: "Nome" };
+  const VV = { campo: "preco_varejo_fixo" as const, rotulo: "Valor varejo" };
+  const MV = { campo: "markup_varejo" as const, rotulo: "Markup Varejo" };
+  const PRE = "Estes campos foram travados pela Integração enquanto você editava — essas alterações não foram salvas: ";
+  for (const [nome, toast] of [["PI", toastTravaImportado], ["PA", toastTravaAcabado]] as const) {
+    it(`${nome}: Nome + variantes → "Nome, cores e quantidades das variantes." (sem 'e' duplo)`, () => {
+      expect(toast([N, V])).toBe(`${PRE}Nome, cores e quantidades das variantes.`);
+    });
+    it(`${nome}: 3 campos + variantes → vírgulas e o único 'e' é o do rótulo de variantes`, () => {
+      expect(toast([N, VV, MV, V])).toBe(`${PRE}Nome, Valor varejo, Markup Varejo, cores e quantidades das variantes.`);
+    });
+    it(`${nome}: variantes fora de ordem vai pro fim da lista`, () => {
+      expect(toast([V, N])).toBe(`${PRE}Nome, cores e quantidades das variantes.`);
+    });
+    it(`${nome}: 2 e 3 campos sem variantes → vírgulas + 1 'e' final`, () => {
+      expect(toast([VV, MV])).toBe(`${PRE}Valor varejo e Markup Varejo.`);
+      expect(toast([N, VV, MV])).toBe(`${PRE}Nome, Valor varejo e Markup Varejo.`);
+    });
+    it(`${nome}: textos de 1 campo inalterados`, () => {
+      expect(toast([N])).toBe("Nome foi travado pela Integração enquanto você editava — essa alteração não foi salva.");
+      expect(toast([V])).toBe("Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.");
+    });
+  }
 });

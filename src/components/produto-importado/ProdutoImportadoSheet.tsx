@@ -29,8 +29,8 @@ import { EditarMixDialog } from "@/components/plan-tecido/EditarMixDialog";
 import { ReplicarImportadoDialog } from "./ReplicarImportadoDialog";
 import {
   chaveDirty, emptyDraft, montarPayload, validarDraft, resolverTravaImportado, toastTravaImportado, aplicarResolucaoTrava,
-  acoplarParVarejo, acoplarParAtacado, normalizarParVarejoAposResolucao, normalizarParAtacadoAposResolucao,
-  parDoCampo, devePodeNormalizarPar,
+  acoplarParVarejo, acoplarParAtacado,
+  aplicarResolucaoConflito,
   type ProdutoImportadoDraft, type VarianteImportadoDraft, type EtapaImportadoDraft,
 } from "./shared";
 import { useIntegracaoEstados } from "@/hooks/useIntegracaoEstado";
@@ -936,41 +936,19 @@ export function ProdutoImportadoSheet({ colecaoId, subInicial = null, onSubChang
               conflitos={Object.entries(conflitosPorProduto).flatMap(([produtoId, cs]) => cs.map((c) => ({ ...c, path: `${produtoId}::${c.path}` })))}
               onResolver={(path, escolha) => {
                 const [produtoId, campo] = path.split("::");
-                const c = conflitosPorProduto[produtoId]?.find((x) => x.path === campo);
-                if (c && escolha === "dele") {
-                  if (campo === "__produto__") {
-                    setDrafts((ds) => ds.filter((d) => d.id !== produtoId)); // servidor não tem mais esse produto — aceita a exclusão
-                  } else {
-                    patchDraft(produtoId, { [campo]: c.dele } as Partial<ProdutoImportadoDraft>);
-                  }
-                }
-                // M-3 (Fix round 2) — depois de uma escolha num campo do par (fixo/markup, varejo ou
-                // atacado), normaliza o par inteiro com a MESMA regra "última edição manda" do
-                // servidor (J2 regra 1: fixo presente ganha, markup→null) — "manter meu"/"usar o
-                // novo" pode reconstituir o estado {fixo, markup} ambos setados (o achado do review);
-                // sem isto o card nunca converge com o que o servidor vai persistir no próximo Salvar.
-                //
-                // Fix round 3 (R2-1, ruling do coordenador) — REGRESSÃO do fix acima: normalizar
-                // INCONDICIONALMENTE a cada clique apagava a escolha de B antes do OUTRO campo do
-                // par ser resolvido. Cenário (S4 do re-review): o banner lista o markup PRIMEIRO; A
-                // clica "usar o novo" nele (draft vira {fixo: 310 (meu, intocado), markup: 3 (dele,
-                // de B)}); a normalização rodava NA HORA e já apagava o markup de B (fixo manda,
-                // markup→null) — quando A resolve o campo fixo em seguida, o markup de B já tinha
-                // sumido. Fix: só normaliza quando NENHUM dos 2 campos do par continua pendente na
-                // lista de conflitos DESTE produto (`devePodeNormalizarPar`, lendo os `restantes`
-                // PÓS esta resolução) — enquanto o outro campo do par ainda espera clique, aplica só
-                // a escolha deste campo (o `patchDraft`/no-op acima) e não mexe no resto do par.
-                // `parDoCampo`/`devePodeNormalizarPar` são puros (`shared.ts`) — testados por
-                // replay de cliques com o `mergeDraft` real (ver testes N-2/R2-1).
-                const parDoCanal = parDoCampo(campo);
-                const restantesAposEsta = (conflitosPorProduto[produtoId] ?? []).filter((x) => x.path !== campo);
-                if (parDoCanal && devePodeNormalizarPar(parDoCanal, restantesAposEsta)) {
-                  setDrafts((ds) => ds.map((d) => {
-                    if (d.id !== produtoId) return d;
-                    const varejoNorm = normalizarParVarejoAposResolucao(d);
-                    return normalizarParAtacadoAposResolucao(varejoNorm) as ProdutoImportadoDraft;
-                  }));
-                }
+                // Fix round 4 (R3-3) — a lógica do clique mora em `aplicarResolucaoConflito` (PURA,
+                // `shared.ts`): aplica a escolha, e SÓ quando o par fixo/markup DESTE campo ficou 100%
+                // resolvido normaliza ESSE par ("última edição manda" do servidor). Histórico:
+                // M-3 (round 2) normalizava a cada clique; R2-1 (round 3) passou a esperar os 2 campos
+                // do par; R3-1 (round 4) normaliza só o par fechado — o round 3 normalizava os 2 canais
+                // juntos e, com conflito em varejo E atacado, apagava o markup salvo por B no canal
+                // ainda meio-resolvido. O teste clique-a-clique chama ESTA mesma função.
+                const conflitosDoProduto = conflitosPorProduto[produtoId] ?? [];
+                setDrafts((ds) => ds.flatMap((d) => {
+                  if (d.id !== produtoId) return [d];
+                  const r = aplicarResolucaoConflito(d, conflitosDoProduto, campo, escolha);
+                  return r.draft ? [r.draft] : [];
+                }));
                 setConflitosPorProduto((prev) => {
                   const restantes = (prev[produtoId] ?? []).filter((x) => x.path !== campo);
                   const next = { ...prev, [produtoId]: restantes };

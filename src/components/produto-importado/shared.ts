@@ -459,6 +459,18 @@ export function resolverTravaImportado(o: {
   }
   return { paraServidor, variantesParaServidor, qtdTotalParaServidor, avisos };
 }
+/** Fix round 4 (R3-4) — lista de 2+ campos travados pro toast: vírgulas e UM "e" final. O aviso de
+ *  variantes ("cores e quantidades das variantes") já traz o próprio "e", então vai por ÚLTIMO, em
+ *  minúscula, e é juntado só com vírgula — "Nome, cores e quantidades das variantes" (antes saía
+ *  "Nome e Cores e quantidades das variantes foram travados…": "e" duplo e concordância errada).
+ *  Sem variantes: "Nome, Valor varejo e Markup Varejo". O toast de 2+ usa o formato "Estes campos
+ *  foram travados…: <lista>." — concorda com qualquer mistura de campos. */
+export function listaCamposTravadosImportado(avisos: readonly AvisoTrava[]): string {
+  const outros = avisos.filter((a) => a.campo !== "variantes").map((a) => a.rotulo);
+  const temVariantes = avisos.some((a) => a.campo === "variantes");
+  if (temVariantes) return [...outros, "cores e quantidades das variantes"].join(", ");
+  return outros.length <= 1 ? (outros[0] ?? "") : `${outros.slice(0, -1).join(", ")} e ${outros[outros.length - 1]}`;
+}
 /** PT — "Nome foi travado…"/"Valor varejo e Markup Varejo foram travados…"/"Cores e quantidades das
  *  variantes foram travadas…" — espelha `toastDescartadasPelaIntegracao` (usePlanejamentoSave.ts),
  *  mesma gramática. R2-2 (Fix round 3): o rótulo "Cores e quantidades das variantes" já vem no PLURAL
@@ -469,10 +481,8 @@ export function toastTravaImportado(avisos: readonly AvisoTrava[]): string {
   if (avisos.length === 1 && avisos[0].campo === "variantes") {
     return "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.";
   }
-  const rotulos = avisos.map((a) => a.rotulo);
-  const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
-  const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
-  return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
+  if (avisos.length <= 1) return `${avisos[0]?.rotulo ?? ""} foi travado pela Integração enquanto você editava — essa alteração não foi salva.`;
+  return `Estes campos foram travados pela Integração enquanto você editava — essas alterações não foram salvas: ${listaCamposTravadosImportado(avisos)}.`;
 }
 /** Aplica `resolverTravaImportado` a um draft — devolve o draft JÁ revertido para os campos
  *  travados (nunca muta `draft`). Usado pelo `salvarUmProduto` ANTES de `montarPayload`, e pelo
@@ -621,4 +631,36 @@ export function parDoCampo(campo: string): readonly ["preco_varejo_fixo", "marku
   if (campo === "preco_varejo_fixo" || campo === "markup_varejo") return ["preco_varejo_fixo", "markup_varejo"] as const;
   if (campo === "preco_atacado_fixo" || campo === "markup_atacado") return ["preco_atacado_fixo", "markup_atacado"] as const;
   return null;
+}
+
+// Fix round 4 (R3-1 + R3-3, re-review 3) — a lógica de um clique no banner de conflitos saiu do
+// `onResolver` do Sheet pra cá, PURA, pra que o teste clique-a-clique exercite EXATAMENTE o código de
+// produção (antes o teste reproduzia uma cópia à mão do handler e não via regressão no Sheet).
+// R3-1: quando o par do campo clicado fica 100% resolvido, normaliza SÓ ESSE par (varejo OU atacado).
+// O round 3 normalizava os 2 canais juntos — com conflito nos 2 canais do mesmo produto, fechar o par
+// do varejo normalizava o atacado ainda meio-resolvido (ex.: {fixo 310 meu, markup 3 de B}) e apagava o
+// markup salvo por B antes do usuário clicar no fixo do atacado (mesmo mecanismo do R2-1, no outro canal).
+/** PURA — aplica 1 clique do banner ("manter meu"/"usar o novo") no draft de UM produto.
+ *  - `conflitos`: a lista de conflitos pendentes DESTE produto ANTES do clique (paths = nome do campo).
+ *  - `campo`: o campo clicado (o `path` sem o prefixo `${produtoId}::`).
+ *  Devolve o draft novo (`null` = o produto sai da tela: "usar o novo" num `__produto__`, excluído no
+ *  servidor) e os conflitos restantes. "manter meu" não mexe no valor do campo (o draft já tem o "meu").
+ *  Depois da escolha, se o campo é de um par fixo/markup e NENHUM dos 2 campos DESSE par continua
+ *  pendente, normaliza SÓ esse par com a regra do servidor ("última edição manda": fixo presente
+ *  ganha, markup→null). O par do outro canal nunca é tocado aqui — ele normaliza no próprio clique. */
+export function aplicarResolucaoConflito<T extends ParVarejo & ParAtacado>(
+  draft: T, conflitos: readonly Conflito[], campo: string, escolha: "meu" | "dele",
+): { draft: T | null; restantes: Conflito[] } {
+  const restantes = conflitos.filter((x) => x.path !== campo);
+  const c = conflitos.find((x) => x.path === campo);
+  let d: T = draft;
+  if (c && escolha === "dele") {
+    if (campo === "__produto__") return { draft: null, restantes }; // servidor não tem mais esse produto — aceita a exclusão
+    d = { ...d, [campo]: c.dele } as T;
+  }
+  const par = parDoCampo(campo);
+  if (par && devePodeNormalizarPar(par, restantes)) {
+    d = par[0] === "preco_varejo_fixo" ? normalizarParVarejoAposResolucao(d) : normalizarParAtacadoAposResolucao(d);
+  }
+  return { draft: d, restantes };
 }

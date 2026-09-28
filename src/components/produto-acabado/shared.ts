@@ -327,16 +327,26 @@ export function resolverTravaAcabado(o: {
   }
   return { paraServidor, variantesParaServidor, qtdTotalParaServidor, avisos };
 }
+/** Fix round 4 (R3-4) — lista de 2+ campos travados pro toast: vírgulas e UM "e" final. O aviso de
+ *  variantes ("cores e quantidades das variantes") já traz o próprio "e", então vai por ÚLTIMO, em
+ *  minúscula, e é juntado só com vírgula — "Nome, cores e quantidades das variantes" (antes saía
+ *  "Nome e Cores e quantidades das variantes foram travados…": "e" duplo e concordância errada).
+ *  Sem variantes: "Nome, Valor varejo e Markup Varejo". O toast de 2+ usa o formato "Estes campos
+ *  foram travados…: <lista>." — concorda com qualquer mistura de campos. */
+export function listaCamposTravadosAcabado(avisos: readonly AvisoTrava[]): string {
+  const outros = avisos.filter((a) => a.campo !== "variantes").map((a) => a.rotulo);
+  const temVariantes = avisos.some((a) => a.campo === "variantes");
+  if (temVariantes) return [...outros, "cores e quantidades das variantes"].join(", ");
+  return outros.length <= 1 ? (outros[0] ?? "") : `${outros.slice(0, -1).join(", ")} e ${outros[outros.length - 1]}`;
+}
 /** R2-2 (Fix round 3): "Cores e quantidades das variantes" pede o texto exato do ruling ("foram
  *  travadas") — tratado à parte, mesma razão do espelho PI (`toastTravaImportado`). */
 export function toastTravaAcabado(avisos: readonly AvisoTrava[]): string {
   if (avisos.length === 1 && avisos[0].campo === "variantes") {
     return "Cores e quantidades das variantes foram travadas pela Integração enquanto você editava — essa alteração não foi salva.";
   }
-  const rotulos = avisos.map((a) => a.rotulo);
-  const lista = rotulos.length <= 1 ? (rotulos[0] ?? "") : `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
-  const verbo = rotulos.length <= 1 ? "foi travado" : "foram travados";
-  return `${lista} ${verbo} pela Integração enquanto você editava — essa alteração não foi salva.`;
+  if (avisos.length <= 1) return `${avisos[0]?.rotulo ?? ""} foi travado pela Integração enquanto você editava — essa alteração não foi salva.`;
+  return `Estes campos foram travados pela Integração enquanto você editava — essas alterações não foram salvas: ${listaCamposTravadosAcabado(avisos)}.`;
 }
 export function aplicarResolucaoTravaAcabado(draft: ProdutoDraft, resolucao: ResolucaoTravaProduto): ProdutoDraft {
   if (Object.keys(resolucao.paraServidor).length === 0 && !resolucao.variantesParaServidor) return draft;
