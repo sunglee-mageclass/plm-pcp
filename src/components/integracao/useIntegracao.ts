@@ -57,6 +57,11 @@ export const chaveLog = (tenantId: string) => ["integracao-log", tenantId] as co
  *  precisar mostrar o mesmo texto (toast, banner) usa esta constante, nunca um literal duplicado. */
 export const TEXTO_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.";
 
+/** Resultado de `confirmarLojaAtiva` (fix round 3 T15, code-review "Re-check round 2" m-R2): a loja confirmada
+ *  (`tenantId`) e o nome dela (`nome`, via embed — a MESMA linha, sem 2ª chamada). `nome` pode vir `null` se a
+ *  loja não tiver nome cadastrado (raro) — nunca lançado por isso. */
+export type LojaAtiva = { tenantId: string; nome: string | null };
+
 /** Fix round 2 T15 (code-review "Re-check round 1" I1-R): a defesa da fix round 1 (`Edicao.tenantId` congelado vs
  *  `useActiveTenantId()` corrente, comparados no mutationFn) só compara dois valores do CLIENTE — o `tenantId`
  *  corrente vem do CACHE do TanStack Query (`["active-tenant-id", uid]`), que só atualiza quando o próprio
@@ -74,35 +79,53 @@ export const TEXTO_LOJA_MUDOU = "A loja ativa mudou (em outra aba ou janela). Re
  *  config (Campos/API), Salvar de Produtos/Keywords, marcar/voltar/desfazer (estado) — IMEDIATAMENTE antes do
  *  `supabase.rpc(...)`, nunca antes (uma corrida entre a checagem e o `rpc` de verdade não é eliminável 100% sem
  *  mover a checagem pro servidor, mas reduz a janela de segundos/minutos de uma aba esquecida aberta pra
- *  milissegundos). Nunca lança para o `uid`/`tenantIdEsperado` vazios (chamador nunca deveria chamar sem os dois). */
-export async function confirmarLojaAtiva(tenantIdEsperado: string): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
+ *  milissegundos).
+ *
+ *  Fix round 3 T15 (code-review "Re-check round 2"):
+ *  - **m-R1** (Important): a v1 (fix round 2) transformava QUALQUER falha em obter o usuário — inclusive um
+ *    `getUser()` que rejeita por erro de REDE, não só "sessão realmente ausente" — em `LOJA_MUDOU`. Isso escondia
+ *    a causa real (ex.: a internet caiu no meio do clique) atrás de uma mensagem que diz "a loja mudou", que é
+ *    FALSO nesse caso — o usuário tentaria "recarregar a página" pra um problema que reload nenhum resolve
+ *    (a rede continua caída). Fix: só a ausência CONFIRMADA de sessão (usuário deslogado de verdade, sem
+ *    exception nenhuma) vira `LOJA_MUDOU`; qualquer `error`/exception de `getSession()` ou da query
+ *    `users`/`tenants` é RELANÇADO como veio — `mensagemErro` traduz pelo `code`/mensagem reais (rede vira "Falha
+ *    de conexão...", sessão expirada vira "Sua sessão expirou...", nunca "a loja mudou").
+ *  - **m-R2** (performance + o mesmo m-R1 embutido): UMA ida ao servidor em vez de duas — `getSession()` (sem
+ *    rede: lê o token já em memória/localStorage do client, decodifica o `sub` do JWT; **nunca** chama
+ *    `getUser()`, que faz uma chamada de rede pra revalidar o token contra o Auth) dá o `uid` de graça, e
+ *    `users.select("tenant_id, tenants(nome)")` (embed FK, mesma linha) traz tenant+nome numa query só. Devolve
+ *    `LojaAtiva` — o nome CONFIRMADO fica disponível pro chamador sem uma 2ª leitura (`nomeLojaAtivaFresco`,
+ *    aposentada — ver `NovaChaveDialog.tsx`).
+ *    ⚠️ **`getSession()` sem rede é seguro AQUI, mas com uma ressalva**: uma sessão EXPIRADA ainda decodifica um
+ *    `uid` válido do JWT local (o client não valida a expiração localmente antes de decodificar o `sub`) — mas
+ *    isso NUNCA passa silenciosamente: a query `users.select(...)` que segue usa esse token pra autenticar a
+ *    chamada, e o PostgREST rejeita um JWT expirado com 401 (`error` populado) — que este helper RELANÇA (m-R1,
+ *    acima), nunca mascara como `LOJA_MUDOU`. E mesmo que a leitura aqui "passasse" por algum motivo, a RPC de
+ *    escrita que vem LOGO DEPOIS (`supabase.rpc(...)`, no chamador) usa o MESMO token expirado e o servidor a
+ *    recusa com 401 do mesmo jeito — `confirmarLojaAtiva` nunca é a ÚNICA linha de defesa contra sessão expirada,
+ *    só uma checagem A MAIS antes da escrita. Testado: sessão ausente → `LOJA_MUDOU`; erro de rede/sessão em
+ *    `users`/`tenants` → relançado verbatim (código/mensagem originais, nunca virou `LOJA_MUDOU`). */
+export async function confirmarLojaAtiva(tenantIdEsperado: string): Promise<LojaAtiva> {
+  const { data: sess, error: erroSessao } = await supabase.auth.getSession();
+  if (erroSessao) throw erroSessao;
+  const uid = sess.session?.user?.id;
+  // Ausência CONFIRMADA de sessão (deslogado de verdade, sem exception) — este SIM é um caso legítimo de
+  // "a loja mudou" (ou o usuário nem está mais autenticado); qualquer outra falha acima já foi RELANÇADA.
   if (!uid) throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
-  const { data, error } = await supabase.from("users").select("tenant_id").eq("id", uid).maybeSingle();
+  const { data, error } = await supabase
+    .from("users")
+    .select("tenant_id, tenants(nome)")
+    .eq("id", uid)
+    .maybeSingle();
+  // m-R1: erro de rede/RLS/sessão expirada na query em si — RELANÇA verbatim, nunca vira LOJA_MUDOU.
   if (error) throw error;
-  const tenantAtual = data?.tenant_id ?? "";
+  const linha = data as { tenant_id: string | null; tenants: { nome: string | null } | null } | null;
+  const tenantAtual = linha?.tenant_id ?? "";
+  const nome = linha?.tenants?.nome ?? null;
   if (tenantAtual !== tenantIdEsperado) {
     throw Object.assign(new Error(TEXTO_LOJA_MUDOU), { code: "LOJA_MUDOU" });
   }
-}
-
-/** Fix round 2 T15 (code-review "Re-check round 1" I1-R, item "o nome mostrado no diálogo tem que vir da leitura
- *  FRESCA"): `NovaChaveDialog` mostrava `useTenantBranding().nome` — uma query PRÓPRIA, cacheada por
- *  `staleTime: 5min`, que pode estar tão desatualizada quanto o `tenantId` do `useActiveTenantId()`. Em vez de
- *  reusar aquele hook, esta função relê tenant_id + nome DIRETO do servidor (a MESMA linha que
- *  `confirmarLojaAtiva` valida) e devolve o nome já CONFIRMADO — chamada uma única vez, no clique de "Criar",
- *  logo antes do `confirmarLojaAtiva`/`rpc`, e o nome retornado (nunca o do `useTenantBranding`) é o que fica na
- *  tela da chave criada. */
-export async function nomeLojaAtivaFresco(): Promise<string | null> {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) return null;
-  const { data: u } = await supabase.from("users").select("tenant_id").eq("id", uid).maybeSingle();
-  const tid = u?.tenant_id;
-  if (!tid) return null;
-  const { data: t } = await supabase.from("tenants").select("nome").eq("id", tid).maybeSingle();
-  return (t as { nome?: string | null } | null)?.nome ?? null;
+  return { tenantId: tenantAtual, nome };
 }
 
 export function useIntegracaoLista(situacao: Situacao, filtros: Filtros, pagina: number) {

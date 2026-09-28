@@ -456,11 +456,15 @@ export function ApiAba() {
   // revisão T15 (n1, code-review "Re-check round 1"): reporta `chaveVisivel` também pro canal PARALELO
   // `informarChaveVisivel` — a página usa isso pra escolher o toast certo quando o remonte por `key={tenantId}`
   // (troca de loja) destrói uma chave nova AINDA visível/não copiada (ver `IntegracaoPage.tsx`).
+  // Fix round 3 T15 (n1-R, code-review "Re-check round 2"): SEM cleanup de desmonte aqui — `IntegracaoPage.tsx`
+  // já reseta o próprio ref DEPOIS de ler o valor, no efeito de troca de tenant. Um cleanup que escrevesse
+  // `informarChaveVisivel(false)` no desmonte (que o `key={tenantId}` dispara ANTES do efeito `[tenantId]` do
+  // pai rodar) zerava o sinal um instante antes do pai conseguir ler "havia uma chave visível" — o toast
+  // específico nunca disparava no app real.
   const guardaCtx = useContext(GuardaIntegracaoContext);
   useEffect(() => {
     guardaCtx?.informarChaveVisivel?.(chaveVisivel);
   }, [guardaCtx, chaveVisivel]);
-  useEffect(() => () => guardaCtx?.informarChaveVisivel?.(false), [guardaCtx]);
   return (
     <div className="space-y-4">
       <p className="rounded-md bg-[var(--tone-info-bg)] p-3 text-sm text-[var(--tone-info-fg)]">{TEXTO_SO_SUPER}</p>

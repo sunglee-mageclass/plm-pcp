@@ -114,7 +114,7 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     // revisão T15 (n1, code-review "Re-check round 1"): stub de `ApiAba` que só expõe o botão pra reportar uma
     // chave VISÍVEL (via `informarChaveVisivel`, o canal PARALELO da guarda) — prova que `IntegracaoPage` escolhe
     // o toast ESPECÍFICO (chave não copiada) em vez do genérico quando esse sinal está `true` no momento da troca.
-    const { useContext } = await import("react");
+    const { useContext, useEffect } = await import("react");
     const { GuardaIntegracaoContext } = await import("@/components/integracao/guard");
     function ApiAbaStub() {
       const ctx = useContext(GuardaIntegracaoContext);
@@ -122,6 +122,13 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
       // Espelha o `ApiAba` real: `chaveVisivel` soma na guarda de "sujo" DA ABA (bloqueia navegação) e É reportado
       // no canal paralelo `informarChaveVisivel` (o sinal que `IntegracaoPage` usa pra escolher o toast certo).
       useAbaSuja("api", chaveVisivel);
+      // revisão T15 (n1-R, code-review "Re-check round 2"): espelha a MESMA armadilha que a v1 real de `ApiAba.tsx`
+      // tinha — um cleanup de DESMONTE que chama `informarChaveVisivel(false)`. No `key={tenantId}` remount, React
+      // desmonta esta subárvore (cleanups incluídos) ANTES do efeito `[tenantId]` do PAI rodar — sem o fix, este
+      // cleanup zera `chaveVisivelRef.current` um instante ANTES do pai ler "havia uma chave visível", e o toast
+      // específico nunca dispara. Sem esta linha, o stub nunca reproduziria o bug (só o "informarChaveVisivel(true)"
+      // no clique, nunca o "false" do desmonte) e o teste "n1" ficaria verde mesmo com a v1 real quebrada.
+      useEffect(() => () => ctx?.informarChaveVisivel?.(false), [ctx]);
       return createElement(
         "button",
         {
@@ -260,6 +267,46 @@ describe("IntegracaoPage — trocar de loja remonta a aba (key={tenantId}) e avi
     await act(async () => { botaoSujar().click(); });
     // Nenhuma mudança no cache — uma navegação comum (Voltar, menu) continua bloqueada normalmente.
     expect(view.shouldBlockAgora()).toBe(true);
+    await view.desmontar();
+  });
+
+  // revisão T15 (n2-R, code-review "Re-check round 2"): numa troca de loja NA MESMA ABA, a navegação que segue
+  // (`navigate({to:"/home"})` do TenantSwitcher) pode DESMONTAR `IntegracaoPage` antes que o efeito `[tenantId]`
+  // rode (ex.: a rota de destino não é mais `/integracao`) — o toast de descarte, que antes só disparava DAQUELE
+  // efeito, nunca aparecia nesse caso. Fix: `navPermitida` também dispara o aviso, no MESMO instante em que
+  // detecta que a troca já aconteceu de verdade — ANTES de qualquer desmonte que a navegação possa causar.
+  it("n2-R: o toast de descarte dispara a partir de navPermitida, mesmo se a página desmontar ANTES do efeito [tenantId] rodar", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    // Simula o cache já divergindo (o `refetchQueries` do TenantSwitcher já rodou) — `shouldBlockAgora()` chama
+    // `navPermitida`, que detecta a troca e (com o fix) já dispara o toast aqui mesmo, síncrono, ANTES de
+    // qualquer `rerender()`/efeito rodar.
+    view.qc.setQueryData(["active-tenant-id", "u1"], "lojaB");
+    expect(view.shouldBlockAgora()).toBe(false);
+    // Desmonta DIRETO — nunca chama `view.rerender()` com o tenantId novo, simulando a navegação tirando
+    // `IntegracaoPage` da árvore antes do efeito `[tenantId]` ter qualquer chance de rodar.
+    expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
+    expect(view.toastMocks.warning).toHaveBeenCalledTimes(1);
+    await view.desmontar();
+  });
+
+  // revisão T15 (n2-R): garante EXATAMENTE UM toast quando a página NÃO desmonta (o caminho mais comum — só a
+  // troca de tenant, sem navegação de rota bloqueada) — `navPermitida` nunca roda nesse cenário (não há
+  // `shouldBlockFn` sendo chamado), então só o efeito `[tenantId]` dispara; o `avisadoRef` não deveria fazer
+  // diferença aqui, mas prova que a mudança não introduziu um SEGUNDO toast por outro caminho.
+  it("n2-R: continua exatamente UM toast quando a página NÃO desmonta (troca de tenant sem bloquear navegação)", async () => {
+    const tenantIdRef = { current: "lojaA" };
+    const view = await montar({ tenantIdRef });
+    const botaoSujar = () => Array.from(view.container.querySelectorAll("button")).find((b) => b.textContent === "sujar-produtos") as HTMLButtonElement;
+    const { act } = await import("react");
+    await act(async () => { botaoSujar().click(); });
+    tenantIdRef.current = "lojaB";
+    await view.rerender();
+    expect(view.toastMocks.warning).toHaveBeenCalledTimes(1);
+    expect(view.toastMocks.warning).toHaveBeenCalledWith("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
     await view.desmontar();
   });
 });
@@ -414,20 +461,37 @@ describe("useIntegracao — usePreviasSkus memoiza previaDeErro (identidade est�
 // "Sonda" de `usePreviasSkus` acima) recusa o Salvar de Produtos quando `confirmarLojaAtiva` diz que a loja
 // mudou — prova que a RPC `integracao_salvar` NUNCA é chamada nesse caso.
 describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva reprova (I1-R)", () => {
-  async function montarSalvarSonda(opts: { confirmarLojaAtivaFalha: boolean }) {
+  // Fix round 3 T15 (m-R2, code-review "Re-check round 2"): `confirmarLojaAtiva` mudou de `getUser()` (chamada de
+  // REDE pra revalidar o token) para `getSession()` (sem rede — lê o token já em memória/localStorage) + UMA
+  // query só (`users.select("tenant_id, tenants(nome)")`, embed FK) — era `getUser()` + 1 query. `erroUsers`/
+  // `erroSessao` permitem simular m-R1 (erro de rede/sessão RELANÇADO, nunca virando LOJA_MUDOU).
+  async function montarSalvarSonda(opts: {
+    confirmarLojaAtivaFalha?: boolean;
+    erroSessao?: unknown;
+    erroUsers?: unknown;
+    semSessao?: boolean;
+  }) {
     vi.resetModules();
     vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => "t1" }));
-    // `confirmarLojaAtiva` (a função REAL, não mockada) relê `supabase.auth.getUser()` + `users.tenant_id` DIRETO
-    // — controla o resultado dela pelo MESMO client mockado que `useSalvarIntegracao` usa (não dá pra espionar a
-    // função em si: o `mutationFn` chama o binding local do módulo, que o live-binding do ESM não roteia através
-    // de `vi.spyOn(modulo, "confirmarLojaAtiva")` pra chamadas internas do MESMO módulo).
+    // `confirmarLojaAtiva` (a função REAL, não mockada) relê `supabase.auth.getSession()` + `users.tenant_id`
+    // DIRETO — controla o resultado dela pelo MESMO client mockado que `useSalvarIntegracao` usa (não dá pra
+    // espionar a função em si: o `mutationFn` chama o binding local do módulo, que o live-binding do ESM não
+    // roteia através de `vi.spyOn(modulo, "confirmarLojaAtiva")` pra chamadas internas do MESMO módulo).
     const rpcSpy = vi.fn(async () => ({ data: { salvos: 0, revs: {} }, error: null }));
+    const getSessionSpy = vi.fn(async () => {
+      if (opts.erroSessao) return { data: { session: null }, error: opts.erroSessao };
+      if (opts.semSessao) return { data: { session: null }, error: null };
+      return { data: { session: { user: { id: "u1" } } }, error: null };
+    });
     const fromSpy = vi.fn((tabela: string) => {
       if (tabela === "users") {
         return {
           select: () => ({
             eq: () => ({
-              maybeSingle: async () => ({ data: { tenant_id: opts.confirmarLojaAtivaFalha ? "OUTRA_LOJA" : "t1" }, error: null }),
+              maybeSingle: async () => {
+                if (opts.erroUsers) return { data: null, error: opts.erroUsers };
+                return { data: { tenant_id: opts.confirmarLojaAtivaFalha ? "OUTRA_LOJA" : "t1", tenants: { nome: "Loja Teste" } }, error: null };
+              },
             }),
           }),
         };
@@ -437,7 +501,7 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: {
         rpc: rpcSpy,
-        auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
+        auth: { getSession: getSessionSpy },
         from: fromSpy,
       },
     }));
@@ -448,18 +512,18 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     const { useSalvarIntegracao } = await import("@/components/integracao/useIntegracao");
     function Sonda() {
       const salvar = useSalvarIntegracao();
-      const [resultado, setResultado] = useState<{ ok: boolean; erro?: string } | null>(null);
+      const [resultado, setResultado] = useState<{ ok: boolean; erro?: string; code?: string } | null>(null);
       return createElement(
         "div", null,
         createElement("button", {
           onClick: () => {
             salvar.mutate([], {
               onSuccess: () => setResultado({ ok: true }),
-              onError: (e: unknown) => setResultado({ ok: false, erro: (e as Error).message }),
+              onError: (e: unknown) => setResultado({ ok: false, erro: (e as Error).message, code: (e as { code?: string })?.code }),
             });
           },
         }, "salvar-produtos"),
-        resultado ? createElement("div", null, resultado.ok ? "sucesso" : `erro:${resultado.erro}`) : null,
+        resultado ? createElement("div", null, resultado.ok ? "sucesso" : `erro:${resultado.erro}|code:${resultado.code ?? ""}`) : null,
       );
     }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -468,7 +532,7 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     const root = createRoot(container);
     await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(Sonda))); });
     return {
-      container, rpcSpy, fromSpy,
+      container, rpcSpy, fromSpy, getSessionSpy,
       clicarSalvar: () => act(async () => {
         const btn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "salvar-produtos") as HTMLButtonElement;
         btn.click();
@@ -483,7 +547,57 @@ describe("useIntegracao — useSalvarIntegracao recusa quando confirmarLojaAtiva
     await view.clicarSalvar();
     expect(view.fromSpy).toHaveBeenCalledWith("users"); // confirmarLojaAtiva de fato releu o servidor
     expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
-    expect(view.container.textContent).toContain("erro:A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.");
+    expect(view.container.textContent).toContain("erro:A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.|code:LOJA_MUDOU");
+    await view.desmontar();
+  });
+
+  // revisão T15 (m-R1, code-review "Re-check round 2"): um erro de REDE/sessão na query em si (não "sem sessão
+  // nenhuma", mas uma falha ao TENTAR ler) tem que RELANÇAR verbatim — nunca virar LOJA_MUDOU, que esconderia a
+  // causa real atrás de uma mensagem falsa ("a loja mudou" quando na verdade a rede caiu).
+  it("m-R1: erro de rede/sessão na query users é RELANÇADO verbatim — nunca vira LOJA_MUDOU", async () => {
+    const erroDeRede = Object.assign(new Error("Failed to fetch"), { code: "" });
+    const view = await montarSalvarSonda({ erroUsers: erroDeRede });
+    await view.clicarSalvar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
+    // `mensagemErro` traduz "Failed to fetch" pra "Falha de conexão..." (traduzPadrao) — nunca a mensagem de
+    // LOJA_MUDOU, e o `code` nunca é "LOJA_MUDOU".
+    expect(view.container.textContent).not.toContain("A loja ativa mudou");
+    expect(view.container.textContent).not.toContain("code:LOJA_MUDOU");
+    await view.desmontar();
+  });
+
+  // revisão T15 (m-R1): idem para um erro na PRÓPRIA leitura de sessão (`getSession()` — não deveria fazer
+  // chamada de rede de verdade, mas o client pode devolver um erro mesmo assim, ex.: storage corrompido).
+  it("m-R1: erro em getSession() é RELANÇADO verbatim — nunca vira LOJA_MUDOU", async () => {
+    const erroSessao = Object.assign(new Error("storage indisponível"), { code: "" });
+    const view = await montarSalvarSonda({ erroSessao });
+    await view.clicarSalvar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
+    expect(view.container.textContent).not.toContain("A loja ativa mudou");
+    expect(view.container.textContent).not.toContain("code:LOJA_MUDOU");
+    await view.desmontar();
+  });
+
+  // revisão T15: ausência CONFIRMADA de sessão (sem exception nenhuma — o usuário está deslogado de verdade)
+  // continua sendo um caso legítimo de LOJA_MUDOU (não tem como distinguir "deslogado" de "trocou de loja" do
+  // lado do cliente, e as duas travam a escrita do mesmo jeito).
+  it("sem sessão nenhuma (deslogado de verdade, sem erro): continua virando LOJA_MUDOU", async () => {
+    const view = await montarSalvarSonda({ semSessao: true });
+    await view.clicarSalvar();
+    expect(view.rpcSpy.mock.calls.some((c) => c[0] === "integracao_salvar")).toBe(false);
+    expect(view.container.textContent).toContain("code:LOJA_MUDOU");
+    await view.desmontar();
+  });
+
+  // revisão T15 (m-R2, code-review "Re-check round 2"): UMA ida ao servidor — `getSession()` NUNCA faz rede
+  // (só lê o token local), e só HÁ UMA chamada de `from("users")` (nunca uma 2ª pra "tenants" — o nome vem por
+  // EMBED na mesma query, não por uma leitura separada como a v1/fix round 2 fazia com `nomeLojaAtivaFresco`).
+  it("m-R2: confirmarLojaAtiva faz UMA única ida ao servidor (1 chamada a from('users'), nenhuma a from('tenants'))", async () => {
+    const view = await montarSalvarSonda({ confirmarLojaAtivaFalha: false });
+    await view.clicarSalvar();
+    expect(view.fromSpy).toHaveBeenCalledTimes(1);
+    expect(view.fromSpy).toHaveBeenCalledWith("users");
+    expect(view.fromSpy.mock.calls.some((c) => c[0] === "tenants")).toBe(false);
     await view.desmontar();
   });
 

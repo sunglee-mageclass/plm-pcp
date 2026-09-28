@@ -52,8 +52,7 @@ export function IntegracaoPage() {
     [],
   );
   // revisão T15 (n1, code-review "Re-check round 1"): canal PARALELO a `informarSujo` — só a aba "api" usa (ver
-  // `ApiAba.tsx`), reportando se a chave nova está VISÍVEL (ainda não copiada) no momento da troca de loja. Vira
-  // um `ref` (não precisa de re-render próprio; só é lido dentro do efeito de troca de loja abaixo).
+  // `ApiAba.tsx`), reportando se a chave nova está VISÍVEL (ainda não copiada) no momento da troca de loja.
   const chaveVisivelRef = useRef(false);
   const informarChaveVisivel = useCallback((v: boolean) => { chaveVisivelRef.current = v; }, []);
   const guarda = useMemo(() => ({ informarSujo, informarChaveVisivel }), [informarSujo, informarChaveVisivel]);
@@ -63,31 +62,60 @@ export function IntegracaoPage() {
   // então ele não pode depender de `dirty` no array de deps sem também disparar a cada toggle).
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // Fix round 3 T15 (n1-R, code-review "Re-check round 2"): `chaveVisivelRef`/`dirtyRef` não podem ser lidos DENTRO
+  // do efeito `[tenantId]` — quando `tenantId` muda, o `key={tenantId}` abaixo desmonta a subárvore ANTIGA (cleanups
+  // incluídos) e monta a NOVA antes que o efeito do PAI rode; React roda os efeitos dos FILHOS (cleanup do velho +
+  // mount do novo) antes do efeito do PRÓPRIO pai, então por essa altura AMBOS os refs já foram sobrescritos pelo
+  // ciclo de vida da aba nova (que nasce com `chaveVisivel=false`/sem rascunho) — o toast específico nunca disparava
+  // no app real (só nos testes que não desmontavam a aba de verdade). Fix: captura os dois valores SINCRONAMENTE no
+  // CORPO do render (não num efeito) no exato instante em que `tenantId` muda de valor — nenhum efeito de filho roda
+  // entre um render e o próximo, então esta leitura sempre vê o estado "como estava antes da troca".
   const tenantIdRef = useRef(tenantId);
-  useEffect(() => {
-    if (tenantIdRef.current === tenantId) return;
+  const trocaPendenteRef = useRef<{ dirty: boolean; chaveVisivel: boolean } | null>(null);
+  if (tenantIdRef.current !== tenantId) {
+    trocaPendenteRef.current = { dirty: dirtyRef.current, chaveVisivel: chaveVisivelRef.current };
     tenantIdRef.current = tenantId;
-    if (dirtyRef.current) {
-      // revisão T15 (n1, code-review "Re-check round 1"): se o motivo específico de "sujo" era uma chave nova
-      // AINDA VISÍVEL (não copiada) na aba API, o toast genérico "alterações descartadas" é enganoso — a chave
-      // NÃO se perdeu (ela foi gravada no servidor no "Criar", só o valor em texto claro é que nunca mais aparece
-      // de novo nesta tela); ela continua ATIVA na loja anterior até alguém revogá-la. Mensagem específica nesse
-      // caso, genérica em qualquer outro.
-      if (chaveVisivelRef.current) {
-        toast.warning(
-          "A chave nova não foi copiada e a loja mudou — ela continua ATIVA; revogue-a na aba API da loja anterior se não for usá-la.",
-        );
-      } else {
-        toast.warning("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
-      }
+  }
+  // Fix round 3 T15 (n2-R, code-review "Re-check round 2"): extraído pra função nomeada — chamado de DOIS lugares
+  // (`navPermitida`, abaixo, E o efeito `[tenantId]`) porque nenhum dos dois sozinho cobre todo caso real: uma
+  // troca de loja NA MESMA ABA em que `IntegracaoPage` continua montada dispara o efeito `[tenantId]` (o caminho
+  // antigo); mas se a navegação que SEGUE a troca (`navigate({to:"/home"})` do `TenantSwitcher`) DESMONTA
+  // `IntegracaoPage` antes de ele re-renderizar com o `tenantId` novo (ex.: a rota de destino não é mais
+  // `/integracao`), o efeito `[tenantId]` NUNCA chega a rodar — o toast de descarte nunca aparecia. `navPermitida`
+  // roda ANTES da navegação ser permitida (então antes de qualquer desmonte), então é o único lugar garantido de
+  // rodar nos DOIS casos. `avisadoRef` garante EXATAMENTE UM toast por troca de loja, não importa qual dos dois
+  // call sites chega primeiro (o `[tenantId]` efeito ainda roda quando a página NÃO desmonta — ex.: cancelar a
+  // navegação, ou uma troca que não passa pelo blocker de rota nenhuma).
+  const avisadoRef = useRef<string | null>(null);
+  const avisarTrocaDeLoja = useCallback((novoTenantId: string, pendente: { dirty: boolean; chaveVisivel: boolean }) => {
+    if (avisadoRef.current === novoTenantId) return;
+    avisadoRef.current = novoTenantId;
+    if (!pendente.dirty) return;
+    // revisão T15 (n1, code-review "Re-check round 1"): se o motivo específico de "sujo" era uma chave nova
+    // AINDA VISÍVEL (não copiada) na aba API, o toast genérico "alterações descartadas" é enganoso — a chave
+    // NÃO se perdeu (ela foi gravada no servidor no "Criar", só o valor em texto claro é que nunca mais aparece
+    // de novo nesta tela); ela continua ATIVA na loja anterior até alguém revogá-la. Mensagem específica nesse
+    // caso, genérica em qualquer outro.
+    if (pendente.chaveVisivel) {
+      toast.warning(
+        "A chave nova não foi copiada e a loja mudou — ela continua ATIVA; revogue-a na aba API da loja anterior se não for usá-la.",
+      );
+    } else {
+      toast.warning("A loja mudou — as alterações não salvas da loja anterior foram descartadas.");
     }
+  }, []);
+  useEffect(() => {
+    const pendente = trocaPendenteRef.current;
+    if (!pendente) return;
+    trocaPendenteRef.current = null;
+    avisarTrocaDeLoja(tenantId, pendente);
     // O remonte por `key={tenantId}` abaixo já desmonta/recria cada aba (limpando o rascunho local
     // de cada uma via seus próprios efeitos de cleanup); aqui só falta zerar o mapa de "sujo" desta
     // página, para a guarda de navegação (`useUnsavedGuard`) não continuar bloqueando por causa de
     // um estado que já não existe mais.
     setSujas({});
     chaveVisivelRef.current = false;
-  }, [tenantId]);
+  }, [tenantId, avisarTrocaDeLoja]);
   // revisão T15 (n2, code-review "Re-check round 1"): sem isto, uma troca de loja com a aba suja mostrava OS DOIS
   // avisos ao mesmo tempo — o `useBlocker` (abaixo) intercepta o `navigate({to:"/home"})` que o `TenantSwitcher`
   // dispara logo após confirmar a troca no servidor, mas o `tenantId` (do `useActiveTenantId()`, via hook) que
@@ -99,14 +127,25 @@ export function IntegracaoPage() {
   // `await` um `confirmarLojaAtiva` aqui dentro), o CACHE já tem o tenant novo, mesmo que o `tenantId` desta
   // render ainda seja o velho. `navPermitida` lê o cache DIRETO (`qc.getQueryData`, a MESMA key/formato de
   // `useActiveTenantId`) — se já diverge do `tenantId` que esta render capturou, a troca já aconteceu de
-  // verdade e o remonte por `key={tenantId}` + o toast do efeito acima JÁ SÃO a confirmação de descarte; a
-  // navegação que segue nunca precisa perguntar de novo. Qualquer OUTRA navegação (Voltar, trocar de item de
-  // menu) não muda esse cache, então continua pedindo confirmação normalmente.
+  // verdade e o remonte por `key={tenantId}` + o toast JÁ SÃO a confirmação de descarte; a navegação que segue
+  // nunca precisa perguntar de novo. Qualquer OUTRA navegação (Voltar, trocar de item de menu) não muda esse
+  // cache, então continua pedindo confirmação normalmente.
+  // Fix round 3 T15 (n2-R, code-review "Re-check round 2"): quando `navPermitida` devolve `true` (a troca já
+  // aconteceu de verdade), dispara o AVISO aqui mesmo — ANTES da navegação seguir, e portanto ANTES de qualquer
+  // desmonte que a navegação possa causar. `dirtyRef`/`chaveVisivelRef` ainda têm os valores "de antes da troca"
+  // neste ponto (nenhum efeito de filho rodou ainda — `navPermitida` é chamado de dentro do `shouldBlockFn`
+  // síncrono, fora do ciclo de commit do React). `avisarTrocaDeLoja` com `avisadoRef` garante que isto NUNCA
+  // duplica o aviso do efeito `[tenantId]` acima (o cenário mais comum — a página SEM desmontar — já teria
+  // dado o aviso ali; aqui cobre o cenário em que a página desmonta ANTES desse efeito rodar).
   const navPermitida = useCallback(() => {
     if (!user?.id) return false;
     const tenantEmCache = qc.getQueryData<string>(["active-tenant-id", user.id]);
-    return !!tenantEmCache && tenantEmCache !== tenantId;
-  }, [qc, user?.id, tenantId]);
+    const trocouDeVerdade = !!tenantEmCache && tenantEmCache !== tenantId;
+    if (trocouDeVerdade) {
+      avisarTrocaDeLoja(tenantEmCache, { dirty: dirtyRef.current, chaveVisivel: chaveVisivelRef.current });
+    }
+    return trocouDeVerdade;
+  }, [qc, user?.id, tenantId, avisarTrocaDeLoja]);
   const { requestAction, confirm } = useUnsavedGuard({ dirty, blockNav: true, navPermitida });
   const atual = abas.includes(aba) ? aba : "produtos";
   return (

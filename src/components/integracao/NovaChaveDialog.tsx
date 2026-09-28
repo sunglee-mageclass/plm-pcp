@@ -40,14 +40,18 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { TEXTO_FECHAR_SEM_COPIAR, TEXTO_NOVA_CHAVE_GUARDE } from "@/lib/integracao/api-tela";
-import { confirmarLojaAtiva, invalidarIntegracao, nomeLojaAtivaFresco } from "./useIntegracao";
+import { confirmarLojaAtiva, invalidarIntegracao } from "./useIntegracao";
 
 export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: () => void; onVisibilidadeChave?: (visivel: boolean) => void }) {
   const tenantId = useActiveTenantId();
   // revisão T15 #I1-R (code-review "Re-check round 1"): o rótulo do PASSO 1 (antes de criar) é só um HINT — segue
   // usando o valor cacheado de `useTenantBranding` (nunca bloqueia nada). O nome que fica gravado em `criada`
-  // (passo 2, a chave já foi gerada) é o CONFIRMADO por `nomeLojaAtivaFresco` no instante do clique em "Criar" —
+  // (passo 2, a chave já foi gerada) é o CONFIRMADO por `confirmarLojaAtiva` no instante do clique em "Criar" —
   // esse sim é o que a tela mostra como "a loja desta chave", nunca o cacheado.
+  // Fix round 3 T15 (m-R2, code-review "Re-check round 2"): `nomeLojaAtivaFresco` foi APOSENTADA — o nome vem
+  // agora do MESMO retorno de `confirmarLojaAtiva` (`LojaAtiva.nome`, lido via embed `tenants(nome)` na MESMA
+  // query de `users`), uma leitura a menos (era `Promise.all([confirmarLojaAtiva(...), nomeLojaAtivaFresco()])` —
+  // 2 idas ao servidor — vira 1 chamada só).
   const lojaNomeHint = useTenantBranding().nome;
   const qc = useQueryClient();
   const [nome, setNome] = useState("");
@@ -66,9 +70,8 @@ export function NovaChaveDialog({ onFechar, onVisibilidadeChave }: { onFechar: (
       // revisão T15 #I1-R (code-review "Re-check round 1"): relê a loja ativa DIRETO do servidor imediatamente
       // antes de criar — a defesa de `ApiAba`/`key={tenantId}` não pega uma 2ª aba/janela que trocou de loja no
       // servidor sem que esta aba jamais reobservasse a query cacheada. Nada é enviado se divergir. O nome da
-      // loja mostrado no passo 2 (`nomeLojaAtivaFresco`) vem da MESMA leitura fresca — nunca do
-      // `useTenantBranding` cacheado.
-      const [, lojaNomeFresco] = await Promise.all([confirmarLojaAtiva(tenantId), nomeLojaAtivaFresco()]);
+      // loja mostrado no passo 2 vem do MESMO retorno (m-R2) — nunca do `useTenantBranding` cacheado.
+      const { nome: lojaNomeFresco } = await confirmarLojaAtiva(tenantId);
       const { data, error } = await supabase.rpc("integracao_chave_criar" as any, { _nome: nome.trim() });
       if (error) throw error;
       // m2 (code review): valida a resposta ANTES de aceitar — uma resposta sem `chave` (ou vazia) nunca deve

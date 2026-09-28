@@ -82,10 +82,11 @@ async function montar(opts: {
   // revisão T15 #1 (code-review I1): permite mudar o tenant ATIVO no meio do teste, sem desmontar — mesma razão
   // de `integracao-campos-config.test.ts`.
   tenantIdRef?: { current: string };
-  // revisão T15 #I1-R (code-review "Re-check round 1"): mocka o comportamento de `confirmarLojaAtiva`/
-  // `nomeLojaAtivaFresco` — por padrão resolvem como se a loja NÃO tivesse mudado (não afeta nenhum teste antigo).
-  confirmarLojaAtivaImpl?: () => Promise<void>;
-  nomeLojaAtivaFrescoImpl?: () => Promise<string | null>;
+  // revisão T15 #I1-R (code-review "Re-check round 1"): mocka o comportamento de `confirmarLojaAtiva` — por
+  // padrão resolve como se a loja NÃO tivesse mudado (não afeta nenhum teste antigo). Fix round 3 (m-R2,
+  // code-review "Re-check round 2"): `confirmarLojaAtiva` devolve `{tenantId, nome}` (era `void`) — o nome vem
+  // dessa MESMA leitura agora, `nomeLojaAtivaFresco` foi APOSENTADA (aposentado o mock também).
+  confirmarLojaAtivaImpl?: () => Promise<{ tenantId: string; nome: string | null }>;
 } = {}) {
   vi.resetModules();
   const api = opts.api === undefined
@@ -113,15 +114,14 @@ async function montar(opts: {
   const invalidarIntegracaoSpy = vi.fn();
   // revisão T15 #I1-R (code-review "Re-check round 1"): `confirmarLojaAtiva` mockável por teste — por padrão
   // (`opts.confirmarLojaAtivaImpl` ausente) resolve sem lançar (mesmo comportamento de "loja não mudou"), pra não
-  // quebrar NENHUM teste pré-existente deste arquivo que não se importa com o caso `LOJA_MUDOU`.
-  const confirmarLojaAtivaSpy = vi.fn(opts.confirmarLojaAtivaImpl ?? (async () => {}));
-  const nomeLojaAtivaFrescoSpy = vi.fn(opts.nomeLojaAtivaFrescoImpl ?? (async () => "Loja Teste"));
+  // quebrar NENHUM teste pré-existente deste arquivo que não se importa com o caso `LOJA_MUDOU`. Fix round 3
+  // (m-R2): devolve `{tenantId, nome}` — o mesmo shape do helper real (`LojaAtiva`).
+  const confirmarLojaAtivaSpy = vi.fn(opts.confirmarLojaAtivaImpl ?? (async () => ({ tenantId: tRef.current, nome: "Loja Teste" })));
   vi.doMock("@/components/integracao/useIntegracao", () => ({
     chaveConfig: (tenantId: string) => ["integracao-config", tenantId],
     invalidarIntegracao: invalidarIntegracaoSpy,
     TEXTO_LOJA_MUDOU: "A loja ativa mudou (em outra aba ou janela). Recarregue a página antes de salvar.",
     confirmarLojaAtiva: confirmarLojaAtivaSpy,
-    nomeLojaAtivaFresco: nomeLojaAtivaFrescoSpy,
     useIntegracaoConfig: () => {
       return useQuery({
         queryKey: ["integracao-config", "t1"],
@@ -165,7 +165,7 @@ async function montar(opts: {
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
   return {
     container, rpcSpy, toastMocks, invalidarIntegracaoSpy, informarSujoSpy, qc,
-    confirmarLojaAtivaSpy, nomeLojaAtivaFrescoSpy,
+    confirmarLojaAtivaSpy,
     rerender: () => act(async () => { root.render(arvore()); }),
     esperar: () => act(async () => { await new Promise((r) => setTimeout(r, 10)); }),
     desmontar: () => act(async () => { root.unmount(); container.remove(); }),
