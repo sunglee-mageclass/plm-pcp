@@ -28,6 +28,7 @@ import { GuardaIntegracaoContext } from "./guard";
 import { ProdutosAba } from "./ProdutosAba";
 import { CamposAba } from "./CamposAba";
 import { ApiAba } from "./ApiAba";
+import { ManualAba } from "./ManualAba";
 
 function AbaPendente() {
   return <EmptyState icon={Construction} title="Em construção" description="Esta aba chega nas próximas tasks do plano da Integração." />;
@@ -37,7 +38,7 @@ const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   produtos: ProdutosAba,
   campos: CamposAba,
   api: ApiAba,
-  manual: AbaPendente,
+  manual: ManualAba,
   log: AbaPendente,
 };
 
