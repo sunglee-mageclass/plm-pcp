@@ -17,20 +17,19 @@ const OK: RespostaLer = {
   ],
 };
 function deps(o: Partial<DepsRota> = {}) {
-  const log: string[] = [];
   const d: DepsRota = {
     hashChave: vi.fn(async (c: string) => `h(${c.length})`),
     ler: vi.fn(async () => OK),
     assinarFotos: vi.fn(async (c: string[]) => new Map(c.map((p) => [p, p.endsWith("sumiu.jpg") ? null : `https://s/${p}?t=1`]))),
     confirmar: vi.fn(async () => ({ status: "ok", confirmados: [{ modelo_id: "m1", integrado_em: "2026-09-26T17:35:00.000Z" }] })),
-    limpar: vi.fn(async () => { log.push("limpar"); }),
+    limpar: vi.fn(async () => {}),
     depois: vi.fn((p: Promise<unknown>) => { void p; }),
     tetoIp: vi.fn(async () => true),
     agora: () => new Date("2026-09-26T20:48:00.000Z"),
     origem: "https://site",
     ...o,
   };
-  return { d, log };
+  return { d };
 }
 const req = (q = "", auth: string | null = `Bearer ${CHAVE}`, headers: Record<string, string> = {}) =>
   new Request(`https://site/api/integracao/v1/produtos${q}`, { headers: { ...(auth ? { authorization: auth } : {}), "cf-connecting-ip": "203.0.113.5", ...headers } });
@@ -64,6 +63,21 @@ describe("parâmetros", () => {
     // dentro do range de dígitos mas acima do "razoável" ainda é aceito localmente (o banco aplica least());
     // só o formato é validado aqui.
     expect(lerParametros(new URL("https://s/x?limite=999"))).toEqual({ modo: "normal", incluir: false, limite: 999, cursor: null });
+  });
+  it("m6 gap: cursor com mais de 200 caracteres => 400", () => {
+    const cursorGigante = "a".repeat(201);
+    expect(lerParametros(new URL(`https://s/x?cursor=${cursorGigante}`))).toBeNull();
+    // exatamente 200 (limite) ainda é válido
+    const cursorNoLimite = "a".repeat(200);
+    expect(lerParametros(new URL(`https://s/x?cursor=${cursorNoLimite}`))).toEqual(
+      { modo: "normal", incluir: false, limite: null, cursor: cursorNoLimite });
+  });
+  it("m6 gap: incluir_integrados=true|false são ACEITOS pela regra atual do parser (não é 400)", () => {
+    // A regra atual de lerParametros aceita literalmente "0"/"1"/"false"/"true"; só "true" vira incluir=true.
+    expect(lerParametros(new URL("https://s/x?incluir_integrados=true"))).toEqual(
+      { modo: "normal", incluir: true, limite: null, cursor: null });
+    expect(lerParametros(new URL("https://s/x?incluir_integrados=false"))).toEqual(
+      { modo: "normal", incluir: false, limite: null, cursor: null });
   });
 });
 
@@ -153,6 +167,15 @@ describe("rota — códigos HTTP e corpo mínimo ASCII", () => {
     expect(await corpo(r)).toEqual({ erro: "erro_interno" });
     expect(d.confirmar).not.toHaveBeenCalled();
   });
+  it("N4: direção perigosa do m9 -- pediu modo=teste, banco responde normal => 500, confirmar NUNCA chamado, sem linhas", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ ...OK, modo: "normal" }) as RespostaLer) });
+    const r = await tratarRequisicao(req("?modo=teste"), d);
+    expect(r.status).toBe(500);
+    const j = await corpo(r);
+    expect(j).toEqual({ erro: "erro_interno" });
+    expect(j.linhas).toBeUndefined();
+    expect(d.confirmar).not.toHaveBeenCalled();
+  });
   it("m10/M9: headers de segurança sempre presentes; WWW-Authenticate só no 401", async () => {
     const { d } = deps();
     const ok = await tratarRequisicao(req(), d);
@@ -178,6 +201,31 @@ describe("rota — I1/m1: guarda de caminho de foto (fail closed, sem travessia)
     expect(j.linhas[0].valores[1]).toEqual([null, null, null]);
     expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
   });
+  it("N3: tenant_id ausente/inválido -- caminho LITERAL que o código antigo (startsWith cru) TERIA assinado", async () => {
+    // N3: fixture discriminante -- com tenant_id ausente, o prefixo antigo virava "undefined/" (via template
+    // string) e "undefined/x.jpg".startsWith("undefined/") é true; com tenant_id="nao-uuid" (formato inválido,
+    // não-uuid), "nao-uuid/x.jpg".startsWith("nao-uuid/") também é true. Os dois caminhos abaixo são literais
+    // que o código ANTIGO assinava; o novo (fail-closed por uuid) tem que descartar os dois.
+    const semTenant: RespostaLer = { ...OK, tenant_id: undefined, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", ["undefined/x.jpg"]] }] },
+    ] };
+    const { d: d1 } = deps({ ler: vi.fn(async () => semTenant) });
+    const r1 = await tratarRequisicao(req(), d1);
+    expect(r1.status).toBe(200);
+    expect(d1.assinarFotos).not.toHaveBeenCalled();
+    expect(vi.mocked(d1.assinarFotos).mock.calls).toEqual([]);
+
+    const tenantInvalido: RespostaLer = { ...OK, tenant_id: "nao-uuid", produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", ["nao-uuid/x.jpg"]] }] },
+    ] };
+    const { d: d2 } = deps({ ler: vi.fn(async () => tenantInvalido) });
+    const r2 = await tratarRequisicao(req(), d2);
+    expect(r2.status).toBe(200);
+    expect(d2.assinarFotos).not.toHaveBeenCalled();
+    expect(vi.mocked(d2.assinarFotos).mock.calls).toEqual([]);
+  });
   it("travessia (../), barra dupla e barra invertida são rejeitadas mesmo com o prefixo certo", async () => {
     const comTravessia: RespostaLer = { ...OK, produtos: [
       { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
@@ -197,6 +245,20 @@ describe("rota — I1/m1: guarda de caminho de foto (fail closed, sem travessia)
     expect(j.linhas[0].valores[1]).toEqual([null, null, null, `https://s/${T}/fotos_modelo/ok.jpg?t=1`]);
     expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
   });
+  it("N6: caractere DEL (\\u007f) no caminho também é rejeitado", async () => {
+    const comDel: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", [
+          `${T}/fotos_modelo/a\u007fb.jpg`,
+          `${T}/fotos_modelo/ok.jpg`,
+        ]] }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => comDel) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    expect(vi.mocked(d.assinarFotos).mock.calls[0][0]).toEqual([`${T}/fotos_modelo/ok.jpg`]);
+    expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 1 });
+  });
 });
 
 describe("rota — I2/M3: limpeza isolada da resposta", () => {
@@ -207,10 +269,26 @@ describe("rota — I2/M3: limpeza isolada da resposta", () => {
     const j = await corpo(r);
     expect(j.linhas.length).toBeGreaterThan(0);
   });
-  it("limpar rejeita: a resposta ainda é 200 (a rejeição não vira unhandled)", async () => {
-    const { d } = deps({ limpar: vi.fn(async () => { throw new Error("boom async"); }) });
-    const r = await tratarRequisicao(req(), d);
-    expect(r.status).toBe(200);
+  it("N2: limpar rejeita (função PLAIN, não vi.fn) -- 200 E nenhum unhandledRejection escapa", async () => {
+    // vi.fn() por si só já anexa um .then/.catch interno para rastrear settledResults, o que faz a promise
+    // rejeitada parecer "tratada" mesmo sem nenhuma proteção no código sob teste (falso positivo). Uma função
+    // PLAIN não tem esse efeito colateral -- só ela prova de verdade que o handler intercepta a rejeição.
+    let capturada: unknown = null;
+    const onUnhandled = (reason: unknown) => { capturada = reason; };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const limparPlano = () => Promise.reject(new Error("boom async plain"));
+      const { d } = deps({ limpar: limparPlano });
+      const r = await tratarRequisicao(req(), d);
+      expect(r.status).toBe(200);
+      // dá tempo para qualquer unhandledRejection pendente disparar: um microtask (a própria rejeição)
+      // seguido de uma volta de macrotask (é quando o Node/V8 relata unhandledRejection).
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(capturada).toBeNull();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
   it("limpar nunca resolve: o handler ainda retorna (não trava esperando)", async () => {
     const { d } = deps({ limpar: vi.fn(() => pendente()) });
@@ -252,6 +330,37 @@ describe("rota — m2 (ruling): confirmar com status diferente de ok/chave_inval
     const { d } = deps({ confirmar: vi.fn(async () => ({ status: "limite_excedido", confirmados: [] })) });
     const r = await tratarRequisicao(req(), d);
     expect(r.status).toBe(500);
+  });
+});
+
+describe("rota — M3: formato de linhas/valores fora do contrato falha fechado", () => {
+  it("produtos[].linhas não é array => 500 erro_interno (não itera silenciosamente uma string)", async () => {
+    const linhasString: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: "nao-e-array" as any },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => linhasString) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+    expect(d.confirmar).not.toHaveBeenCalled();
+  });
+  it("linhas[].valores não é array => 500 erro_interno", async () => {
+    const valoresString: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: "nao-e-array" as any }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => valoresString) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+    expect(d.confirmar).not.toHaveBeenCalled();
+  });
+  it("produtos não é array => 500 erro_interno", async () => {
+    const produtosString: RespostaLer = { ...OK, produtos: "nao-e-array" as any };
+    const { d } = deps({ ler: vi.fn(async () => produtosString) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
   });
 });
 
@@ -320,17 +429,20 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(vi.mocked(d.ler).mock.calls[0][0].hash).toBe(`h(${CHAVE.length})`);
     expect(JSON.stringify(vi.mocked(d.ler).mock.calls)).not.toContain(CHAVE);
   });
-  it("m7: fotos_descartadas e fotos_ausentes contam sobre o MESMO conjunto (caminhos únicos)", async () => {
-    // 'a.jpg' duplicado (2x na mesma linha) + 'sumiu.jpg' ausente: unicos = {a.jpg, sumiu.jpg} = 2 caminhos válidos únicos
+  it("m7/N5: fotos_descartadas e fotos_ausentes contam sobre o MESMO conjunto (caminhos únicos válidos + inválidos)", async () => {
+    // 'a.jpg' duplicado (2x, válido) + 'sumiu.jpg' ausente (válido, único) + caminho de OUTRA loja duplicado 2x
+    // (inválido). Antes do fix, `descartadas` contava OCORRÊNCIA bruta (2 para o path de outra loja repetido);
+    // agora conta por CAMINHO ÚNICO -- o mesmo path de outra loja repetido 2x só descarta 1.
     const comDuplicata: RespostaLer = { ...OK, produtos: [
       { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
         { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", [
-          `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/sumiu.jpg`, `outra-loja/x.jpg`,
+          `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/sumiu.jpg`,
+          `outra-loja/x.jpg`, `outra-loja/x.jpg`,
         ]] }] },
     ] };
     const { d } = deps({ ler: vi.fn(async () => comDuplicata) });
     await tratarRequisicao(req(), d);
-    // 1 caminho de outra loja descartado; sumiu.jpg é único e ausente
+    // 1 caminho ÚNICO de outra loja descartado (não 2, mesmo repetido 2x); sumiu.jpg é único e ausente
     expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 1, fotos_ausentes: 1 });
   });
   it("sem coluna Foto (idxFoto < 0): não assina nada, confirma normalmente", async () => {

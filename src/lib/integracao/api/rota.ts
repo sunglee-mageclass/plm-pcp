@@ -49,12 +49,13 @@ function httpDe(status: string): { codigo: number; erro: string } {
   return { codigo: 500, erro: "erro_interno" };
 }
 // I1/m1: só assina/entrega foto sob o prefixo CANÔNICO da própria loja — sem barra vazia, "." ou ".." em qualquer
-// segmento, sem "\", "%" ou caracteres de controle. tenant_id ausente/fora do formato uuid falha fechado (nada passa).
+// segmento, sem "\", "%" ou caracteres de controle (C0 e DEL/\u007f -- N6). tenant_id ausente/fora do formato uuid
+// falha fechado (nada passa).
 function daLoja(caminho: string, tenantId: string | null | undefined): boolean {
   if (typeof tenantId !== "string" || !UUID.test(tenantId)) return false;
   const prefixo = `${tenantId}/`;
   if (!caminho.startsWith(prefixo)) return false;
-  if (/[\\%\u0000-\u001f]/.test(caminho)) return false;
+  if (/[\\%\u0000-\u001f\u007f]/.test(caminho)) return false;
   return caminho.slice(prefixo.length).split("/").every((s) => s !== "" && s !== "." && s !== "..");
 }
 // I2/M3: agenda a limpeza SEM nunca deixar uma exceção (síncrona ou assíncrona) tocar a resposta já decidida.
@@ -63,6 +64,20 @@ function agendarLimpeza(deps: DepsRota, tenantId: string | null): void {
     deps.depois(Promise.resolve().then(() => deps.limpar(tenantId)).catch(() => undefined));
   } catch {
     // ignorado de propósito: limpeza nunca pode afetar a resposta (nem via depois, nem via limpar).
+  }
+}
+// M3 (fix round 2): `_integracao_ler` tem contrato de retornar `produtos[].linhas[]` e `linhas[].valores[]` como
+// ARRAYS de verdade; um valor fora do formato (ex.: `linhas` como STRING) não dá erro ao iterar com `for...of`
+// (uma string É iterável — percorre caractere a caractere sem lançar), então sem esta checagem o handler
+// produziria um corpo corrompido em vez de falhar fechado. Falha aqui SEMPRE cai no catch-all (500 erro_interno)
+// — nunca tenta "consertar" ou seguir com um formato inesperado.
+function validarFormato(r: RespostaLer): void {
+  if (r.produtos !== undefined && !Array.isArray(r.produtos)) throw new Error("formato invalido: produtos");
+  for (const pr of r.produtos ?? []) {
+    if (!Array.isArray(pr.linhas)) throw new Error("formato invalido: linhas");
+    for (const l of pr.linhas) {
+      if (!Array.isArray(l.valores)) throw new Error("formato invalido: valores");
+    }
   }
 }
 
@@ -85,6 +100,8 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
     // m9: o banco tem que devolver o MESMO modo pedido — um drift de contrato nunca deve rodar a fase 2 (confirmar,
     // que integra produtos de verdade) por engano numa chamada modo=teste, nem vice-versa.
     if (r.modo !== p.modo) throw new Error("modo divergente");
+    // M3: formato de produtos/linhas/valores fora do contrato falha fechado (500) antes de qualquer iteração.
+    validarFormato(r);
     const geradoEm = deps.agora().toISOString();
     if (r.modo === "teste") {
       const corpo = montarResposta(r, { geradoEm, foto: (c) => c.map(() => `${deps.origem}${CAMINHO_FOTO_EXEMPLO}`) });
@@ -93,23 +110,23 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
     }
     // Fase 1½ — fotos: só caminhos CANÔNICOS da PRÓPRIA loja (inv. #2); o resto é descartado e contado (fail closed).
     const idxFoto = (r.chaves_colunas ?? []).indexOf("foto");
-    let descartadas = 0;
-    const validos: string[] = [];
+    const validosBrutos: string[] = [];
+    const invalidosBrutos: string[] = [];
     if (idxFoto >= 0) {
       for (const pr of r.produtos ?? []) {
         for (const l of pr.linhas) {
           if (l.tipo !== "produto") continue;
           for (const c of caminhosFoto(l.valores, idxFoto)) {
-            if (daLoja(c, r.tenant_id)) validos.push(c);
-            else descartadas += 1;
+            (daLoja(c, r.tenant_id) ? validosBrutos : invalidosBrutos).push(c);
           }
         }
       }
     }
-    const unicos = [...new Set(validos)];
+    // m7/N5 (fix round 2): descartadas e ausentes contam sobre o MESMO conjunto -- caminhos ÚNICOS, não ocorrência
+    // bruta. Um caminho inválido repetido (ex.: mesma foto de outra loja citada 2x) só descarta 1 vez.
+    const unicos = [...new Set(validosBrutos)];
+    const descartadas = new Set(invalidosBrutos).size;
     const links = unicos.length > 0 ? await deps.assinarFotos(unicos, (r.validade_foto_dias ?? 7) * 86400) : new Map<string, string | null>();
-    // m7: descartadas e ausentes contam sobre o MESMO conjunto (caminhos únicos válidos) — não mistura ocorrência bruta
-    // com contagem deduplicada.
     const ausentes = unicos.filter((c) => !links.get(c)).length;
     // Fase 2 — confirmar: marca integrado SÓ o que ainda está integrável com a MESMA assinatura.
     const conf = await deps.confirmar(r.chave_id ?? "", r.acesso_id ?? "", {
