@@ -2530,6 +2530,115 @@ describe("KeywordsDialog — P0409 nunca apaga o texto digitado nem trava num la
   });
 });
 
+// Fix round 1 (task-17-18-review.md, Important 1 e 2): render de VERDADE de `LogAba` — RPC args, key com o
+// tenant, "" transitório mantendo linhas+página, banner de erro SEM esconder o dado já carregado, e o aviso de
+// não-super. Harness mais leve que o de `ProdutosAba` (LogAba não passa pelo `useIntegracao.ts` mockado por
+// inteiro — só `useActiveTenantId`/`useStoreTimezone`/o client do Supabase precisam de mock).
+describe("LogAba — render (RPC args, key por tenant, '' transitório, erro não esconde dado)", () => {
+  const linha = (o: Record<string, unknown> = {}) => ({
+    id: "l1", acao: "editar", quem: "Marina Alves", quando: "2026-09-26T18:10:00Z",
+    modelo_id: "m1", modelo_nome: "Calça Duna", detalhe: { campos: { nome: { antes: "A", depois: "B" } } },
+    ...o,
+  });
+  const pagina = (linhas: Record<string, unknown>[], o: Record<string, unknown> = {}) => ({
+    pagina: 1, por_pagina: 50, total: linhas.length, super: true, linhas, ...o,
+  });
+
+  async function montarLog(opts: { porTenant?: Record<string, (args: unknown) => Promise<{ data: unknown; error: unknown }>> } = {}) {
+    vi.resetModules();
+    // Outra suíte deste arquivo (`ProdutosAba`) deixa `@/components/integracao/useIntegracao` mockado por inteiro
+    // via `vi.doMock` — `vi.doMock` registra pro ARQUIVO, não por teste; `vi.resetModules()` sozinho não desfaz o
+    // registro. `LogAba` usa `chaveLog` (função pura) do módulo REAL — sem desfazer o mock daria "No 'chaveLog'
+    // export" (o mock de ProdutosAba não exporta essa função).
+    vi.doUnmock("@/components/integracao/useIntegracao");
+    const tenantIdRef = { current: "t1" };
+    vi.doMock("@/hooks/useActiveTenantId", () => ({ useActiveTenantId: () => tenantIdRef.current }));
+    vi.doMock("@/hooks/useStoreTimezone", () => ({ useStoreTimezone: () => "America/Sao_Paulo" }));
+    vi.doMock("@tanstack/react-router", () => ({
+      Link: ({ children, className }: { children: unknown; className?: string }) => h("a", { className }, children),
+    }));
+    const rpcSpy = vi.fn(async (nome: string, args: unknown) => {
+      const impl = opts.porTenant?.[tenantIdRef.current];
+      if (impl) return impl(args);
+      return { data: null, error: new Error(`RPC não mockada: ${nome}`) };
+    });
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: rpcSpy } }));
+    const { createElement } = await import("react");
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { LogAba } = await import("@/components/integracao/LogAba");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(QueryClientProvider, { client: qc }, createElement(LogAba))); });
+    return {
+      container, rpcSpy, qc,
+      mudarTenant: (t: string) => act(async () => { tenantIdRef.current = t; root.render(createElement(QueryClientProvider, { client: qc }, createElement(LogAba))); }),
+      clicarBotao: (texto: string) => act(async () => {
+        const b = [...container.querySelectorAll("button")].find((x) => x.textContent === texto);
+        b!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }),
+      esperar: () => act(async () => { await new Promise((r) => setTimeout(r, 20)); }),
+      linhasNaTela: () => [...container.querySelectorAll("tbody tr")].filter((tr) => !tr.textContent?.includes("Nada registrado")),
+      desmontar: () => act(async () => { root.unmount(); container.remove(); }),
+    };
+  }
+
+  it("chama integracao_log_listar com {_pagina} e a queryKey leva o tenant", async () => {
+    const view = await montarLog({ porTenant: { t1: async () => ({ data: pagina([linha()]), error: null }) } });
+    await view.esperar();
+    expect(view.rpcSpy).toHaveBeenCalledWith("integracao_log_listar", { _pagina: 1 });
+    expect(view.qc.getQueryData(["integracao-log", "t1", 1])).toBeTruthy();
+    expect(view.container.textContent).toContain("Marina Alves");
+    await view.desmontar();
+  });
+
+  it("'' transitório: mantém as linhas e a página da loja anterior (X → '' mesma loja, nada mudou)", async () => {
+    const view = await montarLog({ porTenant: { t1: async () => ({ data: pagina([linha()]), error: null }) } });
+    await view.esperar();
+    expect(view.container.textContent).toContain("Marina Alves");
+    await view.mudarTenant("");
+    await view.esperar();
+    // A query desabilita (tenantId vazio), mas o placeholder mantém a última página conhecida na tela.
+    expect(view.container.textContent).toContain("Marina Alves");
+    await view.desmontar();
+  });
+
+  it("erro de carga: banner 'Tentar de novo' aparece SEM esconder as linhas já carregadas", async () => {
+    let falhar = false;
+    const view = await montarLog({
+      porTenant: {
+        t1: async () => (falhar ? { data: null, error: new Error("Falha de conexão") } : { data: pagina([linha()]), error: null }),
+      },
+    });
+    await view.esperar();
+    expect(view.container.textContent).toContain("Marina Alves");
+    falhar = true;
+    // Força um refetch que falha via invalidação direta do cache.
+    await view.qc.invalidateQueries({ queryKey: ["integracao-log", "t1", 1] });
+    await view.esperar();
+    expect(view.container.textContent).toContain("Marina Alves"); // a linha continua na tela
+    expect(view.container.textContent).toContain("Tentar de novo"); // o banner de erro apareceu
+    await view.desmontar();
+  });
+
+  it("aviso de não-super some quando super:true", async () => {
+    const view = await montarLog({ porTenant: { t1: async () => ({ data: pagina([linha()], { super: true }), error: null }) } });
+    await view.esperar();
+    expect(view.container.textContent).not.toContain("Você vê só as ações de PRODUTO");
+    await view.desmontar();
+  });
+
+  it("aviso de não-super aparece quando super:false", async () => {
+    const view = await montarLog({ porTenant: { t1: async () => ({ data: pagina([linha()], { super: false }), error: null }) } });
+    await view.esperar();
+    expect(view.container.textContent).toContain("Você vê só as ações de PRODUTO");
+    await view.desmontar();
+  });
+});
+
 describe("Integração — P-87: sem tela no celular", () => {
   it("rota: tela estreita mostra só o aviso (a página nem monta)", () => {
     const r = ler("src/routes/_authenticated/integracao.tsx");
