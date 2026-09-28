@@ -360,12 +360,14 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
+        {/* Re-review round 2 (L): usuário com papel — Salvar também espera o papel carregar (`papelRows`); salvar antes
+            gravaria o delta contra um papel "vazio" e perderia o que o papel concedia (mesma classe do P-57). */}
         {/* M-1 (fix round 2): `isLoading`/`existing === undefined` cobre a mesma classe do P-57
             ("salvar rápido" antes da hidratação) — sem o gate, um clique durante "Carregando…"
             manda o payload do ramo admin SEM a linha de Integração (o `state`/`existing` ainda
             não chegaram), revogando a permissão que o admin já tinha e reescrevendo as outras
             linhas. Vale pros dois modos, não só pro ramo admin. */}
-        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isLoading || existing === undefined || (isAdminRole && !viewerESuperAdmin)}>{submitting ? "Salvando…" : "Salvar"}</Button>
+        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isLoading || existing === undefined || (!!user.papel_id && !isAdminRole && papelRows === undefined) || (isAdminRole && !viewerESuperAdmin)}>{submitting ? "Salvando…" : "Salvar"}</Button>
       </div>
     </SheetContent>
     </Sheet>

@@ -473,6 +473,46 @@ describe("PermissoesModal (usuário) — linha Integração só para super admin
     }
   });
 
+  // Re-review round 2 (L, controlador): usuário COM papel — Salvar espera o papel carregar. `existing` resolve na hora
+  // (vazio), `papel_permissoes` nunca resolve: o Salvar tem de continuar desabilitado (salvar antes gravaria o delta
+  // contra um papel "vazio" e perderia o que o papel concedia — classe P-57).
+  it("usuário com papel: Salvar DESABILITADO enquanto o papel ainda carrega", async () => {
+    vi.resetModules();
+    vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: {
+        from: (t: string) => ({
+          select: () => ({
+            eq: () => (t === "papel_permissoes" ? new Promise(() => {}) : Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      },
+    }));
+    vi.doMock("@tanstack/react-start", () => tanstackReactStartStub());
+    const { createElement } = await import("react");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { PermissoesModal } = await import("@/components/admin/PermissoesModal");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = await montar(
+      createElement(QueryClientProvider, { client: qc },
+        createElement(PermissoesModal, {
+          user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: "user", papel_id: "p1" },
+          mode: "tenant",
+          onClose: () => {},
+        }),
+      ),
+    );
+    try {
+      await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+      const botaoSalvar = Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      expect(botaoSalvar, "o botão Salvar existe").toBeTruthy();
+      expect(botaoSalvar.hasAttribute("disabled"), "Salvar não pode habilitar antes do papel carregar").toBe(true);
+    } finally {
+      view.unmount();
+      vi.doUnmock("@/integrations/supabase/client");
+    }
+  });
+
   // Fix round 2 (M-2e): regressão — usuário COMUM (não-admin) no modo super, e admin no modo
   // tenant, continuam com o MESMO payload de antes desta correção (snapshot de um caso cada).
   it("M-2e regressão: mode=super + usuário COMUM — payload continua íntegro (snapshot)", async () => {
