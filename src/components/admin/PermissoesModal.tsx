@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { PAGES_CATALOG, ALL_PAGE_KEYS } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, ALL_PAGE_KEYS, DASHBOARD_DADOS_ABAS, DASHBOARD_DADOS_INFO, type ModuleDef, type PageDef } from "@/lib/permissions-catalog";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
 import { salvarPapel } from "@/lib/papeis.functions";
@@ -18,6 +18,7 @@ import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { InfoHover } from "@/components/shared/InfoHover";
 
 type PermState = Record<string, { pode_ver: boolean; pode_editar: boolean }>;
 
@@ -43,6 +44,19 @@ const paginasSemIntegracao = (keys: readonly string[]) => keys.filter((k) => k !
 // `useEffect(() => setState(initial), [initial])`.
 const ALL_PAGE_KEYS_SEM_INTEGRACAO = paginasSemIntegracao(ALL_PAGE_KEYS);
 const ehChaveIntegracao = (key: string) => key === "integracao" || key.startsWith("integracao:");
+
+// F5c (P-112 A, 28/set) — Dashboard: as chaves de DADOS (`DASHBOARD_DADOS_ABAS`, em
+// permissions-catalog.ts) aparecem AGRUPADAS sob uma sub-legenda, depois das 5 abas normais do
+// módulo — display only, mesma ordem/keys do catálogo preservada dentro de cada grupo (o payload
+// de Salvar/"marcar todos" continua lendo `m.pages` na ordem original do catálogo, nunca desta
+// função). `splitDashboardPages` devolve as duas listas; para qualquer outro módulo, `dados` vem
+// vazia e `abas` é `m.pages` inteira (sem efeito visual).
+function splitDashboardPages(m: ModuleDef): { abas: PageDef[]; dados: PageDef[] } {
+  if (m.module !== "dashboard") return { abas: m.pages, dados: [] };
+  const abas = m.pages.filter((p) => !(p.key in DASHBOARD_DADOS_ABAS));
+  const dados = m.pages.filter((p) => p.key in DASHBOARD_DADOS_ABAS);
+  return { abas, dados };
+}
 
 export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const qc = useQueryClient();
@@ -269,6 +283,60 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
           catalogo.map((m) => {
             const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
             const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
+            const { abas, dados } = splitDashboardPages(m);
+            const renderPagina = (p: (typeof m.pages)[number]) => (
+              <Fragment key={p.key}>
+                <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                  <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
+                  <div className="flex justify-center">
+                    {p.soEdicao ? (
+                      <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
+                    ) : (
+                    <Checkbox
+                      id={`${p.key}-ver`}
+                      disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                      className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
+                      checked={state[p.key]?.pode_ver ?? false}
+                      onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
+                    />
+                    )}
+                  </div>
+                  <div className="flex justify-center">
+                    <Checkbox
+                      disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                      className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
+                      checked={state[p.key]?.pode_editar ?? false}
+                      onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
+                    />
+                  </div>
+                </div>
+                {/* Seções da tela (sub-permissões): indentadas sob a página. Nenhuma seção hoje
+                    pertence ao módulo Integração — ehChaveIntegracao(s.key) é defensivo (mesma
+                    regra da página-mãe, caso uma seção `integracao:*` apareça no futuro). */}
+                {p.sections?.map((s) => (
+                  <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
+                    <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                    <div className="flex justify-center">
+                      <Checkbox
+                        id={`${s.key}-ver`}
+                        disabled={isAdminRole && !ehChaveIntegracao(s.key)}
+                        className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
+                        checked={state[s.key]?.pode_ver ?? false}
+                        onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
+                      />
+                    </div>
+                    <div className="flex justify-center">
+                      <Checkbox
+                        disabled={isAdminRole && !ehChaveIntegracao(s.key)}
+                        className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
+                        checked={state[s.key]?.pode_editar ?? false}
+                        onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </Fragment>
+            );
             return (
               <div key={m.module}>
                 <h3 className="text-sm font-semibold mb-2">{m.label}</h3>
@@ -294,59 +362,49 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                       <span>Editor</span>
                     </div>
                   </div>
-                  {m.pages.map((p) => (
-                    <Fragment key={p.key}>
-                      <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
-                        <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
-                        <div className="flex justify-center">
-                          {p.soEdicao ? (
-                            <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
-                          ) : (
-                          <Checkbox
-                            id={`${p.key}-ver`}
-                            disabled={isAdminRole && !ehChaveIntegracao(p.key)}
-                            className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
-                            checked={state[p.key]?.pode_ver ?? false}
-                            onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
-                          />
-                          )}
-                        </div>
-                        <div className="flex justify-center">
-                          <Checkbox
-                            disabled={isAdminRole && !ehChaveIntegracao(p.key)}
-                            className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
-                            checked={state[p.key]?.pode_editar ?? false}
-                            onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
-                          />
-                        </div>
-                      </div>
-                      {/* Seções da tela (sub-permissões): indentadas sob a página. Nenhuma seção hoje
-                          pertence ao módulo Integração — ehChaveIntegracao(s.key) é defensivo (mesma
-                          regra da página-mãe, caso uma seção `integracao:*` apareça no futuro). */}
-                      {p.sections?.map((s) => (
-                        <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
-                          <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                  {abas.map(renderPagina)}
+                  {dados.length > 0 && (
+                    <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/30">
+                      <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                        Dados por aba
+                        <InfoHover ariaLabel="O que são as permissões de Dados por aba">{DASHBOARD_DADOS_INFO}</InfoHover>
+                      </span>
+                    </div>
+                  )}
+                  {dados.map((p) => {
+                    const abasQueAlimenta = DASHBOARD_DADOS_ABAS[p.key] ?? [];
+                    return (
+                      <Fragment key={p.key}>
+                        <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                          <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">
+                            <span className="pl-3">↳ {p.label}</span>
+                            {abasQueAlimenta.length > 0 && (
+                              <span className="block pl-3 text-xs text-muted-foreground">
+                                alimenta: {abasQueAlimenta.join(", ")}
+                              </span>
+                            )}
+                          </Label>
                           <div className="flex justify-center">
                             <Checkbox
-                              id={`${s.key}-ver`}
-                              disabled={isAdminRole && !ehChaveIntegracao(s.key)}
-                              className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_ver") ? "opacity-40" : undefined}
-                              checked={state[s.key]?.pode_ver ?? false}
-                              onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
+                              id={`${p.key}-ver`}
+                              disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                              className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_ver") ? "opacity-40" : undefined}
+                              checked={state[p.key]?.pode_ver ?? false}
+                              onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
                             />
                           </div>
                           <div className="flex justify-center">
                             <Checkbox
-                              disabled={isAdminRole && !ehChaveIntegracao(s.key)}
-                              className={temPapel && !isAdminRole && herdadaDoPapel(s.key, "pode_editar") ? "opacity-40" : undefined}
-                              checked={state[s.key]?.pode_editar ?? false}
-                              onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
+                              disabled={isAdminRole && !ehChaveIntegracao(p.key)}
+                              className={temPapel && !isAdminRole && herdadaDoPapel(p.key, "pode_editar") ? "opacity-40" : undefined}
+                              checked={state[p.key]?.pode_editar ?? false}
+                              onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
                             />
                           </div>
                         </div>
-                      ))}
-                    </Fragment>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -521,6 +579,35 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
             catalogoSemIntegracao.map((m) => {
               const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
               const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
+              const { abas, dados } = splitDashboardPages(m);
+              const renderPagina = (p: (typeof m.pages)[number]) => (
+                <Fragment key={p.key}>
+                  <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                    <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
+                    <div className="flex justify-center">
+                      {p.soEdicao ? (
+                        <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
+                      ) : (
+                        <Checkbox id={`papel-${p.key}-ver`} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
+                      )}
+                    </div>
+                    <div className="flex justify-center">
+                      <Checkbox checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
+                    </div>
+                  </div>
+                  {p.sections?.map((s) => (
+                    <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
+                      <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                      <div className="flex justify-center">
+                        <Checkbox id={`papel-${s.key}-ver`} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
+                      </div>
+                      <div className="flex justify-center">
+                        <Checkbox checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
+                      </div>
+                    </div>
+                  ))}
+                </Fragment>
+              );
               return (
                 <div key={m.module}>
                   <h3 className="text-sm font-semibold mb-2">{m.label}</h3>
@@ -536,34 +623,38 @@ export function PapelEditor({ papel, onClose, onSaved }: PapelEditorProps) {
                         <span>Editor</span>
                       </div>
                     </div>
-                    {m.pages.map((p) => (
-                      <Fragment key={p.key}>
-                        <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
-                          <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
-                          <div className="flex justify-center">
-                            {p.soEdicao ? (
-                              <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
-                            ) : (
+                    {abas.map(renderPagina)}
+                    {dados.length > 0 && (
+                      <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/30">
+                        <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                          Dados por aba
+                          <InfoHover ariaLabel="O que são as permissões de Dados por aba">{DASHBOARD_DADOS_INFO}</InfoHover>
+                        </span>
+                      </div>
+                    )}
+                    {dados.map((p) => {
+                      const abasQueAlimenta = DASHBOARD_DADOS_ABAS[p.key] ?? [];
+                      return (
+                        <Fragment key={p.key}>
+                          <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                            <Label htmlFor={`papel-${p.key}-ver`} className="text-sm font-normal cursor-pointer">
+                              <span className="pl-3">↳ {p.label}</span>
+                              {abasQueAlimenta.length > 0 && (
+                                <span className="block pl-3 text-xs text-muted-foreground">
+                                  alimenta: {abasQueAlimenta.join(", ")}
+                                </span>
+                              )}
+                            </Label>
+                            <div className="flex justify-center">
                               <Checkbox id={`papel-${p.key}-ver`} checked={state[p.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)} />
-                            )}
-                          </div>
-                          <div className="flex justify-center">
-                            <Checkbox checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
-                          </div>
-                        </div>
-                        {p.sections?.map((s) => (
-                          <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
-                            <Label htmlFor={`papel-${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
-                            <div className="flex justify-center">
-                              <Checkbox id={`papel-${s.key}-ver`} checked={state[s.key]?.pode_ver ?? false} onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)} />
                             </div>
                             <div className="flex justify-center">
-                              <Checkbox checked={state[s.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)} />
+                              <Checkbox checked={state[p.key]?.pode_editar ?? false} onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)} />
                             </div>
                           </div>
-                        ))}
-                      </Fragment>
-                    ))}
+                        </Fragment>
+                      );
+                    })}
                   </div>
                 </div>
               );
