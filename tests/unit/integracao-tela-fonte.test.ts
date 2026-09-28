@@ -2826,3 +2826,59 @@ describe("Integração — rota real da API (F3)", () => {
     expect(w.match(/"simple": \{ "limit": 600, "period": 60 \}/g)?.length).toBe(2);
   });
 });
+
+describe("Integração — fix round 1 (CR-I1, Opus-I1, M2, Opus-M4)", () => {
+  it("CR-I1a: a rota declara HEAD (405) e ANY (405), e nenhum dos dois importa rota.server", () => {
+    const r = ler("src/routes/api.integracao.v1.produtos.ts");
+    expect(r).toMatch(/HEAD:\s*\(/);
+    expect(r).toMatch(/ANY:\s*\(/);
+    // Isola só o objeto `handlers: { ... }` (linhas de código, não o comentário de cabeçalho do arquivo) e
+    // confere que "rota.server" só aparece dentro do bloco do GET.
+    const handlers = r.slice(r.indexOf("handlers: {"));
+    const semGet = handlers.replace(/GET:\s*async[\s\S]*?\},\n/, "");
+    expect(semGet).not.toMatch(/rota\.server/);
+  });
+  it("M2: todo uso de supabaseAdmin em rota.server.ts é só as 3 RPCs + createSignedUrls do bucket 'modelos'", () => {
+    const s = ler("src/lib/integracao/api/rota.server.ts");
+    const usos = [...s.matchAll(/supabaseAdmin\.(?:rpc\("[a-z_]+"|storage\.from\("[^"]*"\)\.createSignedUrls\()/g)].map((m) => m[0]);
+    expect(usos.length).toBe(4); // 3 rpc(...) + 1 storage.from(...).createSignedUrls(
+    for (const u of usos) {
+      expect(u).toMatch(/^supabaseAdmin\.(rpc\("_integracao_(ler|confirmar|limpar)"|storage\.from\("modelos"\)\.createSignedUrls\()/);
+    }
+    expect(s).not.toMatch(/supabaseAdmin\.from\(/);
+    expect(s).not.toMatch(/supabaseAdmin\.auth/);
+  });
+  it("M2: nenhum console.* em rota.server.ts nem na rota", () => {
+    expect(ler("src/lib/integracao/api/rota.server.ts")).not.toMatch(/console\./);
+    expect(ler("src/routes/api.integracao.v1.produtos.ts")).not.toMatch(/console\./);
+  });
+  it("M2: nenhum arquivo em src/ importa rota.server estaticamente (só import dinâmico)", () => {
+    const { execSync } = require("node:child_process") as typeof import("node:child_process");
+    const saida = execSync(
+      String.raw`grep -rn "rota\.server" src --include="*.ts" --include="*.tsx" | grep -v "await import"`,
+      { encoding: "utf8" },
+    ).toString();
+    // toda linha que sobrar tem que ser o próprio arquivo rota.server.ts (comentário de cabeçalho) ou
+    // uma linha de import DINÂMICO já filtrada acima — nenhuma linha de `import ... from ".../rota.server"` estático.
+    for (const linha of saida.split("\n").filter(Boolean)) {
+      expect(linha).not.toMatch(/^\s*src\/.*:\s*import\s.*rota\.server/);
+    }
+  });
+  it("Opus-I1: runtimeWorkers usa import literal de 'cloudflare:workers' (sem @vite-ignore nem variável)", () => {
+    const s = ler("src/lib/integracao/api/rota.server.ts");
+    expect(s).toMatch(/await import\("cloudflare:workers"\)/);
+    // a pragma /* @vite-ignore */ só faz sentido colada num `import(...)` — confere que nenhuma linha de
+    // código (excluindo comentários `//`) contém a pragma, em vez de proibir a MENÇÃO em prosa/comentário.
+    const linhasDeCodigo = s.split("\n").filter((l) => !l.trim().startsWith("//"));
+    expect(linhasDeCodigo.join("\n")).not.toMatch(/@vite-ignore/);
+  });
+  it("Opus-I1: se o import falhar, tetoIp/depois falham FECHADO (throw), não retornam null silenciosamente", () => {
+    const s = ler("src/lib/integracao/api/rota.server.ts");
+    // runtimeWorkers deve propagar (throw) em vez de "catch { return null }"
+    expect(s).not.toMatch(/catch\s*\{\s*return null/);
+  });
+  it("Opus-M4 / manual: linha 405 na tabela de códigos de resposta", () => {
+    const s = ler("src/components/integracao/manual-conteudo.ts");
+    expect(s).toMatch(/\["405", "M[ée]todo n[ãa]o permitido/);
+  });
+});

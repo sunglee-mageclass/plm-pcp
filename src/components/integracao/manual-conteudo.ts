@@ -153,6 +153,7 @@ export function montarManual(origem: string): SecaoManual[] {
         ["400", "Parâmetro inválido — confira modo, incluir_integrados, limite e cursor (ou cursor do outro modo: um cursor de modo=teste usado em modo=normal, e vice-versa, também dá 400). Qualquer parâmetro fora desses quatro (ou repetido) também dá 400."],
         ["401", "Chave errada ou revogada — confira a chave; se foi revogada, peça uma nova ao super admin."],
         ["403", "Loja inativa — fale com o super admin."],
+        ["405", "Método não permitido — a API só aceita GET."],
         ["429", "Limite excedido (ou IP bloqueado por chaves erradas) — espere o tempo indicado em Retry-After e tente de novo."],
         ["500", "Erro do site — tente de novo; se repetir, avise o suporte."],
       ] },

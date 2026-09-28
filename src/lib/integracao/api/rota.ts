@@ -35,6 +35,7 @@ export function respostaErro(status: number, erro: string, retryAfter?: number |
   const h: Record<string, string> = { ...CABECALHOS_JSON };
   if (status === 429) h["retry-after"] = String(clampRetry(retryAfter ?? null));
   if (status === 401) h["www-authenticate"] = "Bearer";
+  if (status === 405) h.allow = "GET";
   return new Response(JSON.stringify({ erro }), { status, headers: h });
 }
 function clampRetry(x: number | null): number {
@@ -47,6 +48,28 @@ const HTTP: Record<string, number> = {
 function httpDe(status: string): { codigo: number; erro: string } {
   if (Object.hasOwn(HTTP, status)) return { codigo: HTTP[status], erro: status };
   return { codigo: 500, erro: "erro_interno" };
+}
+// M3 (ruling): a chave de bucket do TETO POR IP (rate-limit binding do Workers, não o limite por CHAVE do banco —
+// esse continua recebendo o IP INTEIRO). Um /64 é a menor faixa que um provedor tipicamente delega a UM cliente;
+// sem isso, um cliente com um /64 poderia rotacionar o sufixo e ganhar um bucket 600/60s novo por endereço.
+// IPv4 e o literal "desconhecido" voltam inalterados (não têm essa granularidade de prefixo).
+export function chaveTetoIp(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const hextetos = expandirIPv6(ip);
+  return `${hextetos.slice(0, 4).join(":")}::/64`;
+}
+// Expande a compressão "::" de um IPv6 para 8 hextetos de 4 dígitos hex minúsculos (sem normalizar zeros à
+// esquerda além disso — só precisamos dos 4 primeiros para o /64). Entrada fora do formato (não deveria
+// acontecer: só chega aqui um endereço já validado pelo runtime) devolve os hextetos que conseguir separar.
+function expandirIPv6(ip: string): string[] {
+  const semZona = ip.split("%")[0] ?? ip;
+  const partes = semZona.split("::");
+  const norm = (s: string) => (s === "" ? [] : s.split(":").map((h) => h.toLowerCase()));
+  const esquerda = norm(partes[0] ?? "");
+  const direita = partes.length > 1 ? norm(partes[1] ?? "") : [];
+  if (partes.length === 1) return esquerda;
+  const faltam = Math.max(0, 8 - esquerda.length - direita.length);
+  return [...esquerda, ...Array(faltam).fill("0"), ...direita];
 }
 // I1/m1: só assina/entrega foto sob o prefixo CANÔNICO da própria loja — sem barra vazia, "." ou ".." em qualquer
 // segmento, sem "\", "%" ou caracteres de controle (C0 e DEL/\u007f -- N6). tenant_id ausente/fora do formato uuid
@@ -83,6 +106,10 @@ function validarFormato(r: RespostaLer): void {
 
 export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Response> {
   try {
+    // CR-I1 (fix round 1): método diferente de GET vira 405 ANTES de qualquer hash/dep — a rota já bloqueia
+    // HEAD/ANY, mas esta é a defesa em profundidade do handler PURO (qualquer chamador futuro, inclusive de
+    // teste, também não roda a fase 2/confirmar por engano num método que não seja GET).
+    if (req.method !== "GET") return respostaErro(405, "metodo_invalido");
     // m4 (ruling): só cf-connecting-ip (edge do Workers sempre define). Nunca X-Forwarded-For (controlável pelo cliente
     // fora do Workers) — vazio ou ausente cai em "desconhecido", nunca em bucket compartilhado por string vazia.
     const ip = (req.headers.get("cf-connecting-ip") ?? "").trim().slice(0, 64) || "desconhecido";

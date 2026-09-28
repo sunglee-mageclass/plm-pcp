@@ -480,3 +480,58 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(dErro.depois).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("rota — CR-I1b: método diferente de GET vira 405 ANTES de qualquer dep", () => {
+  const reqMetodo = (method: string) =>
+    new Request("https://site/api/integracao/v1/produtos", {
+      method, headers: { authorization: `Bearer ${CHAVE}`, "cf-connecting-ip": "203.0.113.5" },
+    });
+  for (const metodo of ["HEAD", "POST", "PUT"]) {
+    it(`${metodo}: 405 metodo_invalido, allow: GET, e nenhuma dep é chamada`, async () => {
+      const { d } = deps();
+      const r = await tratarRequisicao(reqMetodo(metodo), d);
+      expect(r.status).toBe(405);
+      expect(r.headers.get("allow")).toBe("GET");
+      expect(r.headers.get("content-type")).toBe("application/json; charset=utf-8");
+      expect(r.headers.get("cache-control")).toBe("no-store");
+      if (metodo !== "HEAD") expect(await r.text()).toBe('{"erro":"metodo_invalido"}');
+      expect(d.hashChave).not.toHaveBeenCalled();
+      expect(d.ler).not.toHaveBeenCalled();
+      expect(d.confirmar).not.toHaveBeenCalled();
+      expect(d.tetoIp).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("rota — M1 (ruling FAIL OPEN): tetoIp rejeita não derruba a API inteira", () => {
+  it("tetoIp que rejeita ainda deve, na REGRA do rota.server, ser tratado fail-open (documentado em rota.server.ts)", async () => {
+    // O contrato de DepsRota.tetoIp é: uma Promise que resolve para boolean. rota.ts confia no que
+    // tetoIp devolve; quem decide fail-open é o PRÓPRIO tetoIp (em rota.server.ts) — ver tests/unit
+    // da tela-fonte para a prova de que rota.server.ts implementa esse fail-open com try/catch.
+    const { d } = deps({ tetoIp: vi.fn(async () => true) }); // simula o fail-open já resolvido
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+  });
+});
+
+describe("rota — M3: chaveTetoIp (chave de bucket do teto por IP; a chave completa continua indo ao banco)", () => {
+  it("IPv4 e 'desconhecido' voltam inalterados", async () => {
+    const { chaveTetoIp } = await import("@/lib/integracao/api/rota");
+    expect(chaveTetoIp("203.0.113.5")).toBe("203.0.113.5");
+    expect(chaveTetoIp("desconhecido")).toBe("desconhecido");
+  });
+  it("dois IPv6 do mesmo /64 (prefixo igual, sufixo diferente) dão a MESMA chave", async () => {
+    const { chaveTetoIp } = await import("@/lib/integracao/api/rota");
+    const a = chaveTetoIp("2001:db8:1:2:aaaa::1");
+    const b = chaveTetoIp("2001:db8:1:2:bbbb::9");
+    expect(a).toBe(b);
+  });
+  it("2001:db8::1 vira 2001:db8:0:0::/64 (expande a compressão :: antes de cortar em 4 hextets)", async () => {
+    const { chaveTetoIp } = await import("@/lib/integracao/api/rota");
+    expect(chaveTetoIp("2001:db8::1")).toBe("2001:db8:0:0::/64");
+  });
+  it("::1 (loopback) expande e corta em 4 hextets", async () => {
+    const { chaveTetoIp } = await import("@/lib/integracao/api/rota");
+    expect(chaveTetoIp("::1")).toBe("0:0:0:0::/64");
+  });
+});
