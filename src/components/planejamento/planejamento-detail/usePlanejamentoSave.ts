@@ -859,9 +859,8 @@ export function usePlanejamentoSave({
           // Fix round 2 (N-2, task-22-rereview.md) — try/catch PRÓPRIO, separado do try da RPC acima: a RPC já
           // teve sucesso quando chegamos aqui (o preço FOI salvo), então uma falha só na RELEITURA não pode
           // usar o `etapaFalha="preco"` (mensagem "o preço NÃO foi salvo" seria FALSA). `etapaFalha` própria
-          // ("preco-leitura") com mensagem honesta; `precosServidorPosRpc` fica `null` — o onSuccess simplesmente
-          // não tem o valor real pra essa rodada (mesmo comportamento do round 1 antes do M-1 existir), e o
-          // próximo Salvar (mesmo sem toque) volta a comparar contra a base antiga — não perfeito, mas não mente.
+          // ("preco-leitura") com mensagem honesta. A falha da releitura LANÇA: o onSuccess não roda nesta rodada
+          // (o toast "recarregue para conferir" orienta o usuário) — não perfeito, mas não mente.
           try {
             const { data: precoRow, error: precoRowErr } = await (supabase.from("modelos") as any)
               .select("preco_venda, preco_atacado").eq("id", savedId).single();
@@ -1006,9 +1005,9 @@ export function usePlanejamentoSave({
       // `preco_atacado` depois do recompute do servidor, lidos de volta na MESMA linha logo após a RPC. Entra
       // por cima de `enviadoEfetivo` ANTES do `resetDraftBaseline`/`tocadosAposSalvar` abaixo — essa é a
       // baseline REAL do "não salvo" (sem isto, limpar um preço que cai de volta pro markup deixaria o campo
-      // "sujo" pra sempre, porque o servidor nunca bateria com o `null` enviado). O draft VIVO só é
-      // sincronizado com o valor real MAIS ABAIXO (mesmo padrão de `tecidos_planejados`), depois que
-      // `tocadosAposSalvar` já decidiu se o campo CONTINUA divergindo do que o servidor de fato tem.
+      // "sujo" pra sempre, porque o servidor nunca bateria com o `null` enviado). Fix round 2 (N-1): se o valor
+      // na tela ainda é o ENVIADO (ninguém digitou durante o save), o draft VIVO adota o valor do servidor ANTES
+      // de `tocadosAposSalvar` (P-91 A: apagar = volta ao cálculo); se digitaram no meio, o valor digitado fica marcado.
       if (result?.precosServidorPosRpc) {
         enviadoEfetivo = { ...enviadoEfetivo, ...result.precosServidorPosRpc };
       }
