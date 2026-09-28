@@ -6,7 +6,11 @@
 // NOT count" para componente com hooks/estado).
 import { describe, it, expect, vi } from "vitest";
 import { CAMINHO_FOTO_EXEMPLO, montarResposta, type RespostaLer } from "@/lib/integracao/api/resposta";
-import { CHAVE_FICTICIA, TEXTO_PAGINA_PODE_MUDAR, montarManual, respostaExemplo } from "@/components/integracao/manual-conteudo";
+import {
+  CHAVE_FICTICIA, TEXTO_PAGINA_PODE_MUDAR, montarManual, respostaExemplo,
+  TEXTO_IDENTIFICACAO, TEXTO_UNIAO_COLUNAS, TEXTO_ENTREGUE_UMA_VEZ, TEXTO_SEM_WEBHOOK, TEXTO_UMA_LOJA_POR_CHAVE,
+  TEXTO_REPROVADO_NAO_ENTREGA, TEXTO_PRECO_DIGITADO, TEXTO_LIMITE_POR_CHAVE,
+} from "@/components/integracao/manual-conteudo";
 
 // n6 (mesma razão de integracao-celula.test.ts/integracao-api-tela.test.ts): silencia o aviso de act() do React
 // 19 dev.
@@ -49,6 +53,25 @@ describe("montarResposta — formato público (spec §7, D5)", () => {
     expect(montarResposta({ ...R, pagina: undefined }, { geradoEm: "g", foto: () => null }).pagina).toBeNull();
     expect(out.linhas[2]).toMatchObject({ loja_nome: "Loja X", valores: ["Blusa", null] });
   });
+  // m2 (revisão code review "fix round 1"): quando o retrato do produto não tinha a coluna Foto marcada (P-93 A —
+  // colunas de uma página são a união; produto fora da união manda null nessa posição, D6), o valor cru já chega
+  // `null` — `montarResposta` PRECISA preservar esse `null` em vez de chamar `o.foto([])` e fingir "lista vazia".
+  it("Foto null no retrato do produto (P-93 A, coluna fora da união) fica null, nunca vira lista vazia", () => {
+    const semFoto: RespostaLer = {
+      ...R,
+      produtos: [
+        { modelo_id: "m3", estado: "integravel", assinatura: "c", integrado_em: null, linhas: [
+          { tipo: "produto", loja_nome: "Loja X", valores: ["Calça", null] },
+          { tipo: "variante", loja_nome: "Loja X", valores: ["Calça P", null] },
+        ] },
+      ],
+    };
+    let chamouFoto = false;
+    const out = montarResposta(semFoto, { geradoEm: "g", foto: () => { chamouFoto = true; return ["nunca"]; } });
+    expect(out.linhas[0].valores[1]).toBeNull(); // produto: null preservado
+    expect(out.linhas[1].valores[1]).toEqual([]); // sublinha: sempre [] (nunca chega null de propósito)
+    expect(chamouFoto).toBe(false); // `foto()` nem é chamada quando o valor cru já é null
+  });
 });
 
 describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () => {
@@ -65,6 +88,22 @@ describe("Manual da API (P-81 A) — 9 tópicos e exemplos no formato real", () 
     expect(JSON.stringify(m[4])).toContain("pagina.maximo");
     expect(cmds).toContain(`Bearer ${CHAVE_FICTICIA}`);
     expect(cmds).toContain("modo=teste");
+  });
+  // Fix round 1 T16 (revisão I1–I8, code review "task-16-review.md"): as decisões do dono que o dispatch exige
+  // (carry.md:42-45 "T16 (Manual)" + progress.md:171) precisam estar no texto de VERDADE que a tela mostra — um
+  // teste por item, cada um checando a frase-chave da constante exportada dentro do JSON do manual inteiro. Sem
+  // isso, uma edição futura pode apagar a frase em silêncio e nenhum teste percebe.
+  it("I1–I8: cada decisão do dono aparece no texto do Manual (uma vez sumida, o teste falha)", () => {
+    const m = montarManual("https://site");
+    const tudo = JSON.stringify(m);
+    expect(tudo, "I1 produto_id/SKU/nunca por nome/réplicas").toContain(TEXTO_IDENTIFICACAO);
+    expect(tudo, "I2 P-93 A: união de colunas, campo fora do retrato = null").toContain(TEXTO_UNIAO_COLUNAS);
+    expect(tudo, "I3 produto é entregue uma vez").toContain(TEXTO_ENTREGUE_UMA_VEZ);
+    expect(tudo, "I4 pull-only, sem webhook").toContain(TEXTO_SEM_WEBHOOK);
+    expect(tudo, "I5 loja_id/loja_nome em toda linha, uma chave = uma loja").toContain(TEXTO_UMA_LOJA_POR_CHAVE);
+    expect(tudo, "I6 P-99 A: reprovado não entrega enquanto reprovado").toContain(TEXTO_REPROVADO_NAO_ENTREGA);
+    expect(tudo, "I7 P-100 A: só o preço digitado conta").toContain(TEXTO_PRECO_DIGITADO);
+    expect(tudo, "I8 limite por chave por minuto, teste conta").toContain(TEXTO_LIMITE_POR_CHAVE);
   });
   it("exemplo TESTE: produtos fictícios, 18 colunas, foto pública de exemplo, cursor da 2ª página", () => {
     const t = respostaExemplo("teste", "https://site");
@@ -233,6 +272,10 @@ describe("ExemploDialog — isolado (foto=null de propósito, N12)", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
     expect(document.body.textContent).not.toContain("Montando…");
     expect(document.body.querySelector("pre")).toBeNull();
+    // m3 (revisão code review "fix round 1"): a mensagem de erro TEM que aparecer na tela — não basta ausência de
+    // "Montando…"/`pre`; sem isso o teste passaria mesmo com a tela em branco (nem erro, nem dado, nem loading).
+    expect(document.body.textContent).toContain("Você não tem permissão para esta ação.");
+    expect(document.body.querySelector(".text-destructive")).not.toBeNull();
     await act(async () => { root.unmount(); container.remove(); });
   });
 });

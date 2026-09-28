@@ -17,6 +17,39 @@ export const CHAVE_FICTICIA = "wish_live_EXEMPLO1234567890";
 /** P-89 A (dono 27/set): "isso pode mudar depois … como fazer no manual/guia?" — vai em Parâmetros, Boas práticas e FAQ. */
 export const TEXTO_PAGINA_PODE_MUDAR =
   "O número de produtos por página pode mudar (é uma configuração da loja). Seu programa nunca deve contar com um tamanho fixo de página: siga o proximo_cursor até ele vir vazio e, se quiser, leia pagina.maximo para pedir páginas maiores.";
+// Fix round 1 T16 (revisão I1–I8): decisões do dono que faltavam no Manual (carry.md:42-45 "T16 (Manual)" +
+// dispatch progress.md:171). Cada uma tem teste em integracao-resposta.test.ts checando a frase-chave dentro de
+// montarManual — para não sumir em silêncio numa próxima edição.
+/** I1: identificação de produto/variante — NUNCA por nome/título; a mesma REF/SKU pode repetir em 2 réplicas. */
+export const TEXTO_IDENTIFICACAO =
+  "Identifique o PRODUTO pelo produto_id (código fixo, nunca muda) e a VARIANTE pelo SKU (coluna REF / SKU) dentro desse produto — nunca pelo nome ou pelo título. A mesma REF/SKU pode aparecer em dois produtos diferentes (réplicas, por desenho): a chave de ligação é sempre produto_id + SKU. Por isso, mantenha a coluna REF / SKU marcada em Campos da API.";
+/** I2 (P-93 A): colunas de uma página são a UNIÃO dos retratos; campo fora do retrato de um produto vem null. */
+export const TEXTO_UNIAO_COLUNAS =
+  "Se a loja mudar os Campos da API, os produtos que ficaram Integráveis ANTES da mudança continuam com os campos daquela época: numa coluna nova, eles vêm com o valor vazio (null). As colunas de uma página são a união dos campos dos produtos dela — leia as colunas de CADA resposta, nunca conte com uma lista fixa.";
+/** I3: cada produto é entregue UMA vez. */
+export const TEXTO_ENTREGUE_UMA_VEZ =
+  "Cada produto é entregue UMA vez: quando a API confirma a entrega, ele vira Integrado e não vem mais nas consultas normais (só relendo com incluir_integrados=1). Depois de integrado, a REF/SKU e os demais campos enviados ficam travados — só o super admin pode desfazer a integração.";
+/** I4: modelo PULL — o ERP busca, o sistema nunca envia sozinho (sem webhook). */
+export const TEXTO_SEM_WEBHOOK =
+  "Quem busca é o seu programa: o sistema NUNCA envia nada sozinho (não há webhook nem aviso automático). Para pegar produtos novos, o ERP consulta a API de tempos em tempos, respeitando o limite de consultas por minuto.";
+/** I5: loja_id/loja_nome em toda linha; uma chave pertence a UMA loja só. */
+export const TEXTO_UMA_LOJA_POR_CHAVE =
+  "Toda linha traz loja_id e loja_nome (a EMPRESA dona do produto). Cada chave pertence a UMA loja só e só enxerga os produtos dessa loja; para outra loja, crie outra chave dentro dela.";
+/** m4: loja_nome é o retrato tirado ao marcar; pode divergir do nome ATUAL da loja (renomeada depois). */
+export const TEXTO_LOJA_NOME_RETRATO =
+  "loja_nome de uma linha é o nome da loja no momento em que o produto foi marcado Integrável (um retrato); se a loja for renomeada depois, o loja_nome de topo (o nome ATUAL) pode ficar diferente do loja_nome de linhas antigas.";
+/** I6 (P-99 A): produto reprovado não é entregue enquanto reprovado. */
+export const TEXTO_REPROVADO_NAO_ENTREGA =
+  "Produto Integrável que estiver reprovado (no Planejamento ou no Desenvolvimento) NÃO é entregue pela API enquanto estiver reprovado; quando deixar de ser reprovado, volta a ser levado normalmente. Um produto que já estava Integrado continua aparecendo quando você relê com incluir_integrados=1.";
+/** I7 (P-100 A): só o preço DIGITADO conta, nunca o sugerido. */
+export const TEXTO_PRECO_DIGITADO =
+  "O Preço de venda enviado é SEMPRE o preço digitado no produto — o preço sugerido pelo sistema não conta. Com a coluna Preço de venda marcada, produto sem preço de venda digitado não fica Integrável.";
+/** I8: limite por chave por minuto (padrão 60); modo teste também conta. */
+export const TEXTO_LIMITE_POR_CHAVE =
+  "Cada chave pode fazer até N consultas por minuto (configuração da loja; padrão 60) — o modo teste também conta. Passou disso: 429; espere o tempo indicado em Retry-After. Chave errada: depois de N tentativas erradas em 10 minutos vindas do mesmo IP (padrão 10), esse IP fica bloqueado para chaves erradas (429) — a chave certa continua funcionando.";
+/** m1: modo teste ignora `limite` — é sempre 2 produtos por página, 2 páginas (D22). */
+export const TEXTO_TESTE_IGNORA_LIMITE =
+  "No modo teste o limite é ignorado: sempre 2 produtos por página, em 2 páginas (4 produtos de exemplo).";
 
 const CHAVES = CAMPOS.map((c) => c.key);
 const linhaDe = (tipo: "produto" | "variante", v: Record<string, unknown>) => ({ tipo, valores: CHAVES.map((k) => (k in v ? v[k] : null)) });
@@ -59,6 +92,9 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "p", texto: "A Integração organiza os produtos da loja para serem LIDOS por um programa externo (ERP ou e-commerce) através de uma API própria do sistema. Em 3 passos:" },
       { tipo: "passos", itens: ["Integrável — produto completo, marcado à mão.", "A API leva — o dev consulta com a chave.", "Integrado — travado; só o super admin desfaz."] },
       { tipo: "p", texto: 'O que foi levado fica travado no banco (nome, preço, SKU, fotos…). Um erro depois de enviado é responsabilidade de quem confirmou — não existe "corrigir depois" pelo sistema.' },
+      { tipo: "p", texto: TEXTO_ENTREGUE_UMA_VEZ },
+      { tipo: "p", texto: TEXTO_SEM_WEBHOOK },
+      { tipo: "p", texto: TEXTO_REPROVADO_NAO_ENTREGA },
     ] },
     { id: "s2", titulo: "Passo a passo para integrar", blocos: [
       { tipo: "passos", itens: [
@@ -74,7 +110,7 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "codigo", titulo: "Terminal (curl)", codigo: `# Consulta normal\ncurl "${url}?limite=50" \\\n  ${h}` },
       { tipo: "codigo", titulo: "JavaScript", codigo: `// Consulta normal\nconst r = await fetch(\n  "${url}?limite=50",\n  { headers: { Authorization: "Bearer ${CHAVE_FICTICIA}" } }\n);\nconst dados = await r.json();` },
       { tipo: "codigo", titulo: "Python", codigo: `import requests\nr = requests.get(\n    "${url}",\n    params={"limite": 50},\n    headers={"Authorization": "Bearer ${CHAVE_FICTICIA}"},\n)\ndados = r.json()` },
-      { tipo: "codigo", titulo: "Modo teste — produtos de EXEMPLO (fictícios) no formato real; nada vira integrado", codigo: `curl "${url}?modo=teste&limite=20" \\\n  ${h}` },
+      { tipo: "codigo", titulo: "Modo teste — produtos de EXEMPLO (fictícios) no formato real; nada vira integrado (limite é ignorado — ver abaixo)", codigo: `curl "${url}?modo=teste" \\\n  ${h}` },
       { tipo: "codigo", titulo: "Próxima página (cursor)", codigo: `curl "${url}?limite=50&cursor=<proximo_cursor da resposta anterior>" \\\n  ${h}` },
       { tipo: "codigo", titulo: "Reler produtos já integrados (ex.: a resposta anterior se perdeu)", codigo: `curl "${url}?incluir_integrados=1&limite=50" \\\n  ${h}` },
     ] },
@@ -82,26 +118,30 @@ export function montarManual(origem: string): SecaoManual[] {
       { tipo: "tabela", cabecalho: ["Parâmetro", "O que faz", "Padrão", "Exemplo"], linhas: [
         ["modo", "normal ou teste — teste devolve produtos de EXEMPLO fictícios no formato real, nunca dados reais; nada vira integrado", "normal", "modo=teste"],
         ["incluir_integrados", "0 = só integráveis; 1 = inclui os já integrados também", "0", "incluir_integrados=1"],
-        ["limite", "nº de produtos por página, até o máximo configurado da loja (hoje, padrão 50); sem limite = o máximo; um produto nunca é partido entre páginas", "o máximo da loja", "limite=50"],
+        ["limite", "nº de produtos por página, até o máximo configurado da loja (hoje, padrão 50); sem limite = o máximo; um produto nunca é partido entre páginas; IGNORADO em modo=teste (sempre 2)", "o máximo da loja", "limite=50"],
         ["cursor", "devolvido em proximo_cursor da resposta anterior — envie de volta para pedir a próxima página", "vazio (1ª página)", "cursor=…"],
       ] },
       { tipo: "p", texto: TEXTO_PAGINA_PODE_MUDAR },
+      { tipo: "p", texto: TEXTO_TESTE_IGNORA_LIMITE },
     ] },
     { id: "s5", titulo: "A resposta explicada", blocos: [
       { tipo: "tabela", cabecalho: ["Campo", "O que é"], linhas: [
         ["versao", "versão do formato da resposta"],
         ["modo", '"normal" ou "teste" (espelha o parâmetro pedido)'],
         ["loja", "{id, nome} — a EMPRESA (não as lojas do Direcionamento)"],
-        ["colunas", 'nomes de TODAS as colunas marcadas em "Campos da API", na mesma ordem de valores'],
+        ["colunas", "nomes das colunas DESTA página, na mesma ordem de valores — a união dos campos que os produtos da página levaram (cada produto leva os campos que estavam marcados quando ficou Integrável)"],
         ["gerado_em", "data/hora em que esta resposta foi gerada"],
         ["pagina", "{limite, maximo} — limite = quantos produtos por página ESTA resposta usou; maximo = o máximo que a loja permite HOJE (pode mudar). Para páginas maiores, peça limite até pagina.maximo"],
         ["linhas[].tipo", '"produto" (a linha do produto) ou "variante" (uma linha cor × tamanho)'],
-        ["produto_id", "id do produto (o mesmo em todas as sublinhas dele)"],
-        ["loja_id / loja_nome", "a EMPRESA (não as lojas do Direcionamento)"],
+        ["produto_id", "id FIXO do produto (nunca muda; o mesmo em todas as sublinhas dele) — é a chave de ligação com o seu sistema"],
+        ["loja_id / loja_nome", "a EMPRESA (não as lojas do Direcionamento) — toda linha traz os dois; loja_nome de uma linha é o retrato de quando o produto foi marcado (pode divergir do nome atual, se a loja for renomeada depois)"],
         ["integrado_em", "data/hora em que a API confirmou a entrega (vazio em modo teste — nada é integrado nesse modo)"],
-        ["valores", 'na ordem de "colunas"; a coluna Foto traz a LISTA de links (Foto 1..N) na linha do produto — os links expiram'],
+        ["valores", 'na ordem de "colunas"; a coluna Foto traz a LISTA de links (Foto 1..N) na linha do produto — os links expiram; Preço de venda é sempre o preço DIGITADO, nunca o sugerido'],
         ["proximo_cursor", "passe em cursor na próxima chamada; vazio = não há mais páginas"],
       ] },
+      { tipo: "p", texto: TEXTO_UNIAO_COLUNAS },
+      { tipo: "p", texto: TEXTO_LOJA_NOME_RETRATO },
+      { tipo: "p", texto: TEXTO_PRECO_DIGITADO },
       { tipo: "exemplo" },
       { tipo: "codigo", titulo: "JSON de exemplo — modo NORMAL (dados reais da loja; só produtos JÁ INTEGRÁVEIS são levados)", codigo: JSON.stringify(respostaExemplo("normal", origem), null, 2) },
       { tipo: "codigo", titulo: "JSON de exemplo — modo TESTE (produtos FICTÍCIOS, no MESMO FORMATO da loja, nunca dados reais)", codigo: JSON.stringify(respostaExemplo("teste", origem), null, 2) },
@@ -110,17 +150,18 @@ export function montarManual(origem: string): SecaoManual[] {
     { id: "s6", titulo: "Códigos de resposta", blocos: [
       { tipo: "tabela", cabecalho: ["Código", "O que fazer"], linhas: [
         ["200", "Ok — a resposta veio normal, use os dados."],
-        ["400", "Parâmetro inválido — confira modo, incluir_integrados, limite e cursor."],
+        ["400", "Parâmetro inválido — confira modo, incluir_integrados, limite e cursor (ou cursor do outro modo: um cursor de modo=teste usado em modo=normal, e vice-versa, também dá 400)."],
         ["401", "Chave errada ou revogada — confira a chave; se foi revogada, peça uma nova ao super admin."],
         ["403", "Loja inativa — fale com o super admin."],
         ["429", "Limite excedido (ou IP bloqueado por chaves erradas) — espere o tempo indicado em Retry-After e tente de novo."],
         ["500", "Erro do site — tente de novo; se repetir, avise o suporte."],
       ] },
+      { tipo: "p", texto: TEXTO_LIMITE_POR_CHAVE },
     ] },
     { id: "s7", titulo: "Boas práticas", blocos: [
       { tipo: "lista", itens: [
         TEXTO_PAGINA_PODE_MUDAR,
-        "Guarde o produto_id no seu sistema — é a chave de ligação entre os dois lados.",
+        TEXTO_IDENTIFICACAO,
         "Se a resposta se perder no meio do caminho, releia com incluir_integrados=1.",
         "Nunca coloque a chave no código do site/app (client-side) — ela é para o servidor do ERP, nunca aparece no navegador.",
         "As fotos expiram em N dias (configuração da loja; padrão 7) — baixe/guarde a foto no seu lado, não dependa do link para sempre.",
@@ -133,8 +174,10 @@ export function montarManual(origem: string): SecaoManual[] {
         { p: "Perdi a resposta de uma consulta — e agora?", r: "Releia com incluir_integrados=1: os produtos já confirmados aparecem de novo, sem duplicar nada no banco." },
         { p: "Quantos produtos vêm por página?", r: 'Até o "Máximo de produtos por página" configurado da loja (hoje, padrão 50). A própria resposta diz: pagina.limite (usado nesta resposta) e pagina.maximo (o máximo de hoje). Um produto nunca é dividido entre duas páginas.' },
         { p: "O tamanho da página pode mudar?", r: TEXTO_PAGINA_PODE_MUDAR },
+        { p: "As colunas são sempre as mesmas em toda resposta?", r: TEXTO_UNIAO_COLUNAS },
         { p: "O que acontece se eu errar a chave várias vezes?", r: "Depois de N tentativas erradas em 10 minutos (configurável), chaves erradas vindas desse IP ficam bloqueadas por um tempo — a chave certa continua funcionando." },
-        { p: "Posso ter mais de uma chave?", r: "Sim — crie uma por integração/ambiente (ex.: uma para o ERP, outra para testes) e revogue a que não usa mais." },
+        { p: "Quantas consultas por minuto uma chave pode fazer?", r: TEXTO_LIMITE_POR_CHAVE },
+        { p: "Posso ter mais de uma chave?", r: `Sim — crie uma por integração/ambiente (ex.: uma para o ERP, outra para testes) e revogue a que não usa mais. ${TEXTO_UMA_LOJA_POR_CHAVE}` },
       ] },
     ] },
     { id: "s9", titulo: "Checklist antes de ligar de verdade", blocos: [
