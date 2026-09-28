@@ -6,15 +6,17 @@
 --   • _integracao_pode(_editar) = is_super_admin() OR a linha `integracao` em _perm_efetiva(auth.uid()) (sem bypass de admin).
 --   • As 3 funções desta frente que usavam user_can_view/edit('integracao') (_integracao_exige, _integracao_gates,
 --     integracao_listar) mudam SÓ essas expressões (o resto é o texto de antes byte a byte; o inverso devolve o antes).
---   • trg_integracao_perm_user (BEFORE INSERT/UPDATE/DELETE em user_permissions): linha `integracao%` escrita por quem NÃO é
+--   • Chave de página da Integração = `integracao` ou `integracao:<algo>` (fix round 1, A-M1: NÃO um LIKE 'integracao%', que
+--     pegaria uma página futura como `integracao_marketplace`/`integracaoXYZ`). Mesma regra do front (useAuth).
+--   • trg_integracao_perm_user (BEFORE INSERT/UPDATE/DELETE em user_permissions): linha da Integração escrita por quem NÃO é
 --     super admin é IGNORADA em silêncio (RETURN NULL) — o DELETE+INSERT do set_user_permissions de um admin da loja não
 --     apaga a permissão dada pelo super admin nem consegue concedê-la; o resto das permissões grava normal. Exceção no
 --     DELETE: passa quando o usuário da linha já não existe em public.users (cascata de excluir usuário).
---   • trg_integracao_perm_papel (BEFORE INSERT/UPDATE em papel_permissoes): papel NUNCA carrega `integracao%` (nem pelo
+--   • trg_integracao_perm_papel (BEFORE INSERT/UPDATE em papel_permissoes): papel NUNCA carrega a Integração (nem pelo
 --     super admin) — o papel é gerido pelo admin da loja e repassaria a permissão.
 --   • reset_loja/_wipe_tenant_core rodam com session_replication_role = replica: estes gatilhos (ENABLE padrão, 'O') não
 --     disparam lá — o wipe continua apagando tudo da loja.
---   • Limpeza: as linhas `integracao%` de papel_permissoes são APAGADAS (RAISE NOTICE com a contagem; o inverso NÃO as
+--   • Limpeza: as linhas da Integração de papel_permissoes são APAGADAS (RAISE NOTICE com a contagem; o inverso NÃO as
 --     devolve — só o pg_dump feito antes da ida).
 -- Contagens: +3 funções | +2 gatilhos; 3 funções desta frente redefinidas. ACL (#9): as 3 novas com REVOKE ALL de
 -- PUBLIC/anon/authenticated. Idempotente (guarda aceita o texto de antes OU o de depois; CREATE OR REPLACE).
@@ -280,7 +282,7 @@ END
 $function$
 ;
 
--- user_permissions: SÓ o super admin grava/altera/apaga linha `integracao%`; para qualquer outro chamador a escrita
+-- user_permissions: SÓ o super admin grava/altera/apaga linha `integracao`/`integracao:*`; para qualquer outro chamador a escrita
 -- dessa linha é IGNORADA (RETURN NULL), sem erro — o resto do comando segue. DELETE de linha cujo usuário já não existe
 -- em public.users (cascata users → user_permissions ao excluir o usuário) passa sempre.
 CREATE OR REPLACE FUNCTION public.fn_integracao_perm_user()
@@ -291,13 +293,14 @@ CREATE OR REPLACE FUNCTION public.fn_integracao_perm_user()
 AS $function$
 BEGIN
   IF TG_OP = 'DELETE' THEN
-    IF OLD.pagina LIKE 'integracao%' AND NOT public.is_super_admin()
+    IF (OLD.pagina = 'integracao' OR OLD.pagina LIKE 'integracao:%') AND NOT public.is_super_admin()
        AND EXISTS (SELECT 1 FROM public.users u WHERE u.id = OLD.user_id) THEN
       RETURN NULL;
     END IF;
     RETURN OLD;
   END IF;
-  IF (NEW.pagina LIKE 'integracao%' OR (TG_OP = 'UPDATE' AND OLD.pagina LIKE 'integracao%'))
+  IF (NEW.pagina = 'integracao' OR NEW.pagina LIKE 'integracao:%'
+      OR (TG_OP = 'UPDATE' AND (OLD.pagina = 'integracao' OR OLD.pagina LIKE 'integracao:%')))
      AND NOT public.is_super_admin() THEN
     RETURN NULL;
   END IF;
@@ -305,14 +308,15 @@ BEGIN
 END
 $function$;
 
--- papel_permissoes: o papel NUNCA carrega `integracao%` (nem gravado pelo super admin).
+-- papel_permissoes: o papel NUNCA carrega `integracao`/`integracao:*` (nem gravado pelo super admin).
 CREATE OR REPLACE FUNCTION public.fn_integracao_perm_papel()
  RETURNS trigger
  LANGUAGE plpgsql
  SET search_path TO 'public'
 AS $function$
 BEGIN
-  IF NEW.pagina LIKE 'integracao%' OR (TG_OP = 'UPDATE' AND OLD.pagina LIKE 'integracao%') THEN
+  IF NEW.pagina = 'integracao' OR NEW.pagina LIKE 'integracao:%'
+     OR (TG_OP = 'UPDATE' AND (OLD.pagina = 'integracao' OR OLD.pagina LIKE 'integracao:%')) THEN
     RETURN NULL;
   END IF;
   RETURN NEW;
@@ -333,9 +337,9 @@ DO $limpeza$
 DECLARE
   n integer;
 BEGIN
-  DELETE FROM public.papel_permissoes WHERE pagina LIKE 'integracao%';
+  DELETE FROM public.papel_permissoes WHERE pagina = 'integracao' OR pagina LIKE 'integracao:%';
   GET DIAGNOSTICS n = ROW_COUNT;
-  RAISE NOTICE 'integracao_7: % linha(s) integracao%% apagada(s) de papel_permissoes', n;
+  RAISE NOTICE 'integracao_7: % linha(s) integracao/integracao:* apagada(s) de papel_permissoes', n;
 END
 $limpeza$;
 
@@ -373,7 +377,7 @@ BEGIN
   IF n <> 2 THEN
     RAISE EXCEPTION 'integracao_7: esperado 2 gatilhos de permissao (ENABLE padrao), achei %', n USING ERRCODE = 'P0001';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.papel_permissoes WHERE pagina LIKE 'integracao%') THEN
+  IF EXISTS (SELECT 1 FROM public.papel_permissoes WHERE pagina = 'integracao' OR pagina LIKE 'integracao:%') THEN
     RAISE EXCEPTION 'integracao_7: sobrou linha integracao em papel_permissoes' USING ERRCODE = 'P0001';
   END IF;
 END

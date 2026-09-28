@@ -1,6 +1,6 @@
 -- Inverso de 20261008100000_integracao_7_permissao_super.sql — MONTADO por .superpowers/integracao/mig/gera-sql-d7.sh (as 3
 -- funções voltam ao texto de antes, antes-d7/ — nunca editar à mão). Tira os 2 gatilhos de permissão e as 3 funções novas.
--- NÃO devolve as linhas `integracao%` que a ida apagou de papel_permissoes (só o pg_dump feito antes da ida). Linhas
+-- NÃO devolve as linhas `integracao`/`integracao:*` que a ida apagou de papel_permissoes (só o pg_dump feito antes da ida). Linhas
 -- `integracao` de user_permissions ficam como estão (voltam a valer pela regra antiga: admin da loja passa sozinho).
 -- DROP TRIGGER pede AccessExclusive em user_permissions/papel_permissoes por um instante.
 SET client_encoding = 'UTF8';

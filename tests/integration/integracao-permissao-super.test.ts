@@ -243,6 +243,37 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
     });
   });
 
+  it("A-M1: só 'integracao' e 'integracao:*' são da Integração — 'integracaoXYZ'/'integracao_marketplace' NÃO são interceptadas", async () => {
+    await withTx(async (c) => {
+      await preparaD7(c);
+      await criaUsuario(c, TA, { tenantAdmin: true });
+      await criaUsuario(c, X);
+      await como(c, TA);
+      for (const pagina of ["integracaoXYZ", "integracao_marketplace", "integracao:produtos", "integracao"]) {
+        await c.query(
+          `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1, $2, $3, true, true)`,
+          [X, T, pagina]);
+      }
+      // as 2 de fora do padrão entram (admin da loja); as 2 da Integração são ignoradas
+      expect(await permsDe(c, X)).toEqual({ integracaoXYZ: [true, true], integracao_marketplace: [true, true] });
+      // e o admin da loja apaga/muda as de fora do padrão normalmente
+      const upd = await c.query(`UPDATE public.user_permissions SET pode_editar = false WHERE user_id = $1 AND pagina = 'integracaoXYZ'`, [X]);
+      const del = await c.query(`DELETE FROM public.user_permissions WHERE user_id = $1 AND pagina = 'integracao_marketplace'`, [X]);
+      expect([upd.rowCount, del.rowCount]).toEqual([1, 1]);
+      // papel: 'integracaoXYZ' grava; 'integracao' e 'integracao:produtos' não
+      const p = (await um<{ id: string }>(c, `SELECT public.salvar_papel(NULL, $1, 'Papel D7 XYZ', NULL, $2::jsonb) AS id`, [T, JSON.stringify([
+        { pagina: "integracaoXYZ", pode_ver: true, pode_editar: false },
+        { pagina: "integracao", pode_ver: true, pode_editar: true },
+        { pagina: "integracao:produtos", pode_ver: true, pode_editar: true },
+      ])])).id;
+      expect((await c.query(`SELECT pagina FROM public.papel_permissoes WHERE papel_id = $1 ORDER BY 1`, [p])).rows.map((x) => x.pagina))
+        .toEqual(["integracaoXYZ"]);
+      // e 'integracaoXYZ' não abre a Integração
+      await como(c, X);
+      expect((await um<{ p: boolean }>(c, `SELECT public._integracao_pode(false) AS p`)).p).toBe(false);
+    });
+  });
+
   it("excluir um usuário que tem integracao funciona (deleteUser/deleteStoreUser: DELETE explícito + cascata; e a cascata de auth.users)", async () => {
     await withTx(async (c) => {
       await preparaD7(c);
@@ -336,7 +367,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
     });
   });
 
-  it.skipIf(!MIG_TXN)("limpeza: linha integracao% de papel_permissoes existente ANTES do delta é apagada pela ida", async () => {
+  it.skipIf(!MIG_TXN)("limpeza: linhas integracao/integracao:* de papel_permissoes existentes ANTES do delta são apagadas pela ida (integracaoXYZ fica)", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
       await c.query("SET LOCAL statement_timeout = '120s'");
@@ -344,12 +375,13 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — delta 7: permissão só pelo s
       await comoUsuario(c, U);
       const p = (await um<{ id: string }>(c,
         `SELECT public.salvar_papel(NULL, $1, 'Papel D7 antigo', NULL, $2::jsonb) AS id`,
-        [T, JSON.stringify([{ pagina: "integracao", pode_ver: true, pode_editar: true }, { pagina: "criacao_planejamento", pode_ver: true, pode_editar: false }])])).id;
-      expect((await c.query(`SELECT pagina FROM public.papel_permissoes WHERE papel_id = $1 ORDER BY 1`, [p])).rows.map((x) => x.pagina))
-        .toEqual(["criacao_planejamento", "integracao"]);
+        [T, JSON.stringify([{ pagina: "integracao", pode_ver: true, pode_editar: true }, { pagina: "integracao:produtos", pode_ver: true, pode_editar: false },
+          { pagina: "integracaoXYZ", pode_ver: true, pode_editar: false }, { pagina: "criacao_planejamento", pode_ver: true, pode_editar: false }])])).id;
+      expect((await c.query(`SELECT pagina FROM public.papel_permissoes WHERE papel_id = $1 ORDER BY pagina COLLATE "C"`, [p])).rows.map((x) => x.pagina))
+        .toEqual(["criacao_planejamento", "integracao", "integracao:produtos", "integracaoXYZ"]);
       await aplica(c, MIG_D7);
-      expect((await c.query(`SELECT pagina FROM public.papel_permissoes WHERE papel_id = $1 ORDER BY 1`, [p])).rows.map((x) => x.pagina))
-        .toEqual(["criacao_planejamento"]);
+      expect((await c.query(`SELECT pagina FROM public.papel_permissoes WHERE papel_id = $1 ORDER BY pagina COLLATE "C"`, [p])).rows.map((x) => x.pagina))
+        .toEqual(["criacao_planejamento", "integracaoXYZ"]);
     });
   });
 
