@@ -653,6 +653,35 @@ e verifique** — o repo muda rápido.
     **nomes DIFERENTES em dois blocos do mesmo componente** (`PlanejamentoDetail.tsx`) só para
     não colidir: `origemComprado` no bloco da grade/BOM do comprado, `origemSalva` no bloco
     "Mover para…" do kanban — não são dois conceitos opostos, é o mesmo valor lido 2×.
+14. **Integração + API por loja (set/2026, spec `docs/superpowers/specs/2026-09-26-tela-integracao-api-design.md`)** — tela
+    `/integracao` (permissão `integracao`; `ModuleDef` próprio fora dos interruptores de Gerenciar Lojas; abas Produtos/Log p/
+    admin da loja + permissão; Campos da API/API/Manual SÓ super admin, que também tem o item no Admin Mestre) e a API
+    `GET /api/integracao/v1/produtos` (rota de servidor no Worker, `Authorization: Bearer`, 2 fases: `_integracao_ler` →
+    links assinados das fotos → `_integracao_confirmar`; só as 3 `_integracao_*` da rota têm EXECUTE p/ `service_role`; teto
+    por IP no binding `ratelimits` `INTEGRACAO_TETO_IP`; página padrão 50 produtos — P-89 A, faixa 1–500, acima de 100 só com
+    Workers Paid; a resposta traz `pagina: {limite, maximo}`). Estados `nao_integravel → integravel` (marcar, com a assinatura
+    HMAC do retrato do resumo) `→ integrado` (a API confirmou a entrega) `→ nao_integravel` (voltar SÓ de integrável;
+    desfazer SÓ super admin, com motivo). **Trava no BANCO** (`trg_zz_integracao_trava*`, últimos na ordem alfabética; CONSTRAINT
+    TRIGGER adiado nas variantes do espelho): produto integrável/integrado não muda os campos marcados + SEMPRE `tamanho_tipo`,
+    SKUs, o conjunto de cores do espelho e a exclusão — recusa `42501 integracao_travado: <campo>` (ASCII, traduzida em
+    `erro-mensagem.ts`). As telas só ESPELHAM, SÓ nos campos marcados (selo "Integrável/Integrado em dd/mm — travado" +
+    disabled — Sheet do Planejamento, card do Plan. Produto, Produto Acabado/Importado, Plan. Tecido; preço: o VAREJO trava,
+    o atacado fica livre; o Sheet do Dev NÃO muda, recebe a recusa). Celular: a tela Integração NÃO existe (P-87 — aviso
+    "A Integração é usada no computador"; item escondido no menu); os selos das outras telas valem.
+    **Mão dupla:** a aba Produtos edita as MESMAS colunas do card (staging + `integracao_salvar` com `rev`/P0409 + merge 3-vias);
+    nome/REF sincronizam `modelos ↔ produtos_*` por gatilho (renomear no Sheet um comprado com OC renomeia também na tela
+    PA/PI; P-88 A — a REF do espelho só chega ao card ANTES do envio à Explosão). **Preço do importado = preço FIXO**: na tela
+    Importado grava no SALVAR (`_salvar_produto_importado_core` aceita `preco_*_fixo`, na transação do `_rev_base`); Sheet,
+    card do Plan. Produto e `integracao_salvar` usam `salvar_precos_fixo_produto_importado` (espelho do da revenda); editar o
+    markup limpa o fixo. 7 tabelas `integracao_*` com RLS SEM policy + `REVOKE ALL` (só RPC DEFINER lê). `reset_loja` apaga a integração
+    da loja (o segredo HMAC é global). Volta de emergência: `.superpowers/integracao/mig/volta-producao.sh` (APAGA config, chaves,
+    acessos, log e espelho).
+    **Pós-plano (28/set):** qualquer método ≠ GET na API → `405 {"erro":"metodo_invalido"}` + `allow: GET` (HEAD rodaria a
+    confirmação); parâmetro desconhecido/repetido → 400; banco no ar em produção desde 28/set 10h12 (backfill J1 = 53 PA da Ave
+    Rara, P-103 A). Salvar de tela com campo travado: o campo é OMITIDO do payload (ou vai o valor do servidor), o rascunho volta
+    ao valor do servidor e o toast só aparece se a pessoa mexeu (`src/lib/integracao/trava.ts`); a base do merge usa o valor do
+    servidor p/ não dar "outra pessoa mudou" falso.
+
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
