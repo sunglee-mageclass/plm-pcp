@@ -1737,6 +1737,11 @@ function PlanejamentoDetailConteudo({
                 // `podeVerCustos` sozinho: a Parte 3 (M.O. por faixa) da tabela é gated por esta prop.
                 podeVerCustos={veCustos} podeEditarCustos={podeEditarCustos} podeEditarPreco={podeEditarPreco} markupFaixaOn={markupFaixaOn}
                 travaPrecoVenda={travaIntegracao.has("preco_venda")} travaPrecoAnterior={travaIntegracao.has("preco_anterior")}
+                // Fix round 1 (I-2, review Task 22) — sem `piOn`, o gravador de preço fixo do importado
+                // (usePlanejamentoSave.ts, n1) nunca roda: editar aqui seria descartado em silêncio. `!isComprado`
+                // já garante que `draft.origem` só pode ser "importado" (não "revenda", que usa o outro ramo/
+                // `PrecoRevendaBloco` — `!isRevenda` acima) ou "interno" (para quem `piOn` é irrelevante).
+                precoImportadoOff={draft.origem === "importado" && !piOn}
                 planBloqueado={perm.planBloqueado}
                 // F3.2 — decisão F3 #2 + mockup (R9c): custos do BOM como LINHAS desta tabela, p/ quem vê custos no
                 // Planejamento OU no Desenvolvimento; custos adicionais editáveis só sem trava (`ficha.podeEditar`).

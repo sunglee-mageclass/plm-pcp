@@ -76,7 +76,9 @@ describe("F4 — Sheet do Planejamento espelha a trava", () => {
     expect(s).toMatch(/travaVarejo=\{travaIntegracao\.has\("preco_venda"\)\} travaPrecoAnterior=\{travaIntegracao\.has\("preco_anterior"\)\}/);
     const t = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
     expect(t).toMatch(/\{podeEditarPreco && !travaPrecoAnterior \? \(/);
-    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda \? \(/);
+    // Fix round 1 (I-2, review Task 22) — o guard ganhou um 3º motivo (`precoImportadoOff`, módulo Produto
+    // Importado desligado) ao lado da trava da Integração — ver describe "Fix round 1 — I-2" mais abaixo.
+    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
     const r = ler("src/components/planejamento/planejamento-detail/RevendaSetores.tsx");
     expect(r.match(/disabled=\{planBloqueado \|\| travaVarejo\}/g)?.length).toBe(2); // Markup varejo + Preço varejo
     expect(r.match(/disabled=\{planBloqueado\}\n/g)?.length).toBe(2); // Markup atacado + Preço atacado: LIVRES
@@ -397,7 +399,8 @@ describe("Fix round 3 — usePlanejamentoSave.ts espelha a chamada de resolverCo
   });
   it("o resultado da mutation devolve resolucaoTrava", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
-    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?resolucaoTrava,\n\s*};/);
+    // Fix round 1 (M-1) — ganhou `precosServidorPosRpc` ao lado (ver describe "Fix round 1 — M-1" mais abaixo).
+    expect(s).toMatch(/consumoOuAviamento: bom\.gravar[\s\S]*?resolucaoTrava, precosServidorPosRpc,\n\s*};/);
   });
 });
 
@@ -746,12 +749,23 @@ describe("n1/n2 — preço do importado = preço FIXO (D14)", () => {
   });
 });
 
-describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preço do importado pelo gravador fixo", () => {
-  // Harness idêntico ao de Fix round 3 (R-5) acima — reusa o mesmo padrão de montagem/mocks, trocando o cenário
-  // pra um card IMPORTADO com o preço EDITADO (varejo mudou vs a base do servidor).
-  async function montarHarnessImportado(opts: {
+// Harness de módulo (Fix round 1) — reusado por vários describes abaixo (Task 22 original + Fix round 1
+// I-1/I-2/M-1/M-2/M-3/M-5), por isso vive FORA de qualquer describe.
+async function montarHarnessImportado(opts: {
     draftCru: Draft; baseDraft: Draft; piOn: boolean; podeEditarPreco: boolean;
     produtoImportadoId: string | null;
+    /** Fix round 1 (I-1): colunas travadas pela Integração no momento deste save. */
+    travaIntegracao?: ReadonlySet<string>;
+    /** Fix round 1 (I-1/R-3): colunas EDITADAS nesta sessão (default: preco_venda, como antes). */
+    touched?: ReadonlySet<string>;
+    /** Fix round 1 (M-1): o servidor devolve estes preços após a RPC fixa (default = null/null — um teste que
+     *  queira provar o read-back passa os valores REAIS que o mock deve devolver). */
+    precoServidorPosRpc?: { preco_venda: number | null; preco_atacado: number | null } | null;
+    /** Fix round 1 (M-2): o `baseRef` muda DURANTE o await (corrida com outro usuário) — simulado avançando
+     *  `baseRef.current` no meio do mock do RPC de leitura da grade (`lerGradeServidorComprado`). */
+    baseMudaDuranteAwait?: Draft | null;
+    /** Fix round 1 (M-4): captura o payload do UPDATE de `modelos` (para provar que ele não leva preço). */
+    capturarUpdatePayload?: { current: Record<string, unknown> | null };
   }) {
     const { usePlanejamentoSave } = await import("@/components/planejamento/planejamento-detail/usePlanejamentoSave");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -773,7 +787,7 @@ describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preç
     };
 
     const draftRef = { current: opts.draftCru };
-    const touchedRef = { current: new Set<string>(["preco_venda"]) };
+    const touchedRef = { current: opts.touched ?? new Set<string>(["preco_venda"]) };
     const baseRef = { current: { draft: opts.baseDraft } };
     const revRef = { current: 1 };
     const retryRef = { current: false };
@@ -783,6 +797,7 @@ describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preç
     const moBaseRef = { current: [] as any[] };
     const gradeRevendaBaseRef = { current: "{}" };
     const gradeRevendaRevRef = { current: null };
+    let resultado: any = null;
 
     rpcSpy.mockClear();
     const rpcCalls: { nome: string; args: any }[] = [];
@@ -794,14 +809,33 @@ describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preç
     const fromSpy = vi.fn((tabela: string) => {
       if (tabela === "modelos") {
         return {
-          update: () => ({
+          update: (payload: Record<string, unknown>) => {
+            if (opts.capturarUpdatePayload) opts.capturarUpdatePayload.current = payload;
+            return {
+              eq: () => ({
+                eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
+              }),
+            };
+          },
+          // `.select(...)` é usado em 2 pontos: `lerGradeServidorComprado` (comprado) lê "rev, grades:..." — rev
+          // tem que bater com o `revCongelado` (revRef.current = 1, o harness não avança) e `grades` array; n1
+          // (M-1) lê "preco_venda, preco_atacado" de volta DEPOIS da RPC. Distingue pela string da coluna.
+          select: (cols: string) => ({
             eq: () => ({
-              eq: () => ({ select: () => Promise.resolve({ data: [{ id: "m1" }], error: null }) }),
+              single: () => {
+                if (cols.includes("grades")) {
+                  // Fix round 1 (M-2) — se o teste simula uma corrida, o `baseRef` avança AQUI (o único await
+                  // síncrono antes do UPDATE do header, mesmo ponto real onde a corrida do review acontece).
+                  if (opts.baseMudaDuranteAwait) baseRef.current = { draft: opts.baseMudaDuranteAwait };
+                  return Promise.resolve({ data: { rev: 1, grades: [] }, error: null });
+                }
+                // Fix round 1 (M-1) — read-back pós-RPC.
+                return Promise.resolve({
+                  data: opts.precoServidorPosRpc ?? { preco_venda: null, preco_atacado: null }, error: null,
+                });
+              },
             }),
           }),
-          // `lerGradeServidorComprado` (comprado) faz select("rev, grades:modelo_grades(...)").eq("id",...).single() —
-          // rev tem que bater com o `revCongelado` (revRef.current = 1, o harness não avança) e `grades` precisa ser array.
-          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rev: 1, grades: [] }, error: null }) }) }),
         };
       }
       if (tabela === "produtos_importados") {
@@ -823,7 +857,7 @@ describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preç
       const api = usePlanejamentoSave({
         modeloId: "m1", isEdit: true, isRevenda: false, paOn: false, piOn: opts.piOn,
         podeEditarPreco: opts.podeEditarPreco, podeVerCustos: false, podeEditarDev: false, podeEditarPlanejamento: true,
-        refEditavel: false, travaIntegracao: undefined, categorias: [],
+        refEditavel: false, travaIntegracao: opts.travaIntegracao, categorias: [],
         draft: draftRef.current, setDraft: (fnOrValue: any) => {
           draftRef.current = typeof fnOrValue === "function" ? fnOrValue(draftRef.current) : fnOrValue;
         },
@@ -842,16 +876,24 @@ describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preç
     }
     let apiRef: ReturnType<typeof usePlanejamentoSave> | null = null;
     const view = montar(createElement(QueryClientProvider, { client: qc }, createElement(Harness, { onReady: (api) => { apiRef = api; } })));
+    let erro: any = null;
     await act(async () => {
-      apiRef!.save.mutate();
+      apiRef!.save.mutate(undefined, { onSuccess: (r: any) => { resultado = r; }, onError: (e: any) => { erro = e; } });
+      await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
     });
     view.unmount();
-    return { rpcCalls };
+    return { rpcCalls, resultado, erro, baseRefFinal: baseRef.current?.draft, draftLiveFinal: draftRef.current };
   }
+  // Fix round 1 (M-1) — alias mais legível pro teste de read-back (mesma função; só o nome conta a intenção).
+  const montarHarnessImportadoComReadBack = montarHarnessImportado;
+
+describe("Task 22 — comportamento real: n1 (usePlanejamentoSave) grava o preço do importado pelo gravador fixo", () => {
+  // Harness idêntico ao de Fix round 3 (R-5) acima — reusa o mesmo padrão de montagem/mocks, trocando o cenário
+  // pra um card IMPORTADO com o preço EDITADO (varejo mudou vs a base do servidor).
 
   it("(a) editar SÓ o varejo: chama o gravador fixo com _tocar_varejo=true e _tocar_atacado=false", async () => {
     const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
@@ -1024,5 +1066,181 @@ describe("Task 22 — comportamento real: n2 (criacao.planejamento.tsx) card rot
     const idxComprada = s.indexOf('if (ehOrigemComprada(m.origem)) {', idxImportado + 1);
     expect(idxImportado).toBeGreaterThan(-1);
     expect(idxComprada).toBeGreaterThan(idxImportado);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 (task-22-review.md) — I-1/I-2/M-1..M-5. Reusa `montarHarnessImportado` (agora aceita
+// `travaIntegracao`/`touched`/`baseMudaDuranteAwait`/`capturarUpdatePayload`).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Fix round 1 — I-1: preço travado a meio da edição não quebra o save nem trava o card", () => {
+  it("varejo travado + editado: NÃO chama a RPC pro canal travado, restaura o draft, avisa 1x e não fica preso em saves seguintes", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150 }; // usuário editou ANTES da trava chegar
+    const trava = new Set(["preco_venda"]);
+    const { rpcCalls, resultado } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      travaIntegracao: trava, touched: new Set(["preco_venda"]),
+    });
+    // A RPC não pode ser chamada pro canal travado (o gatilho fn_integracao_trava_espelho recusaria com 42501
+    // DEPOIS do header já ter comitado — o card ficaria "meio salvo").
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+    // O mecanismo do Task 21 (resolverColunasTravadas) restaura preco_venda pro valor do SERVIDOR na base do
+    // merge e avisa (mesmo padrão de qualquer outra coluna travada).
+    expect(resultado?.resolucaoTrava?.paraBaseDoMerge?.preco_venda).toBe(100);
+    expect(resultado?.resolucaoTrava?.avisos?.some((a: any) => a.coluna === "preco_venda")).toBe(true);
+  });
+  it("varejo travado SEM edição do usuário (só outro campo mudou): nenhum aviso (não houve alteração perdida) e ainda assim nenhuma chamada à RPC", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base }; // preço intocado — o Salvar disparou por outro motivo
+    const trava = new Set(["preco_venda"]);
+    const { rpcCalls, resultado } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      travaIntegracao: trava, touched: new Set(["nome"]), // NADA em preco_venda
+    });
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+    expect(resultado?.resolucaoTrava?.avisos ?? []).toEqual([]);
+  });
+  it("atacado editado com varejo travado: a RPC roda só pro atacado (canal não travado)", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150, preco_atacado: 80 };
+    const trava = new Set(["preco_venda"]);
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      travaIntegracao: trava, touched: new Set(["preco_venda", "preco_atacado"]),
+    });
+    const chamada = rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado");
+    expect(chamada).toBeDefined();
+    expect(chamada!.args).toMatchObject({ _tocar_varejo: false, _tocar_atacado: true, _preco_atacado_fixo: 80 });
+  });
+  it("usePlanejamentoSave.ts: payloadKeysAntes ganha preco_venda/preco_atacado do importado (fonte do fix)", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/if \(d\.origem === "importado" && podeEditarPreco\) \{ payloadKeysAntes\.add\("preco_venda"\); payloadKeysAntes\.add\("preco_atacado"\); \}/);
+    // n1 usa o MESMO travaIntegracao pra pular a RPC no canal travado.
+    expect(s).toMatch(/const travaVarejo = !!travaIntegracao\?\.has\("preco_venda"\);/);
+    expect(s).toMatch(/const tocarVarejo = !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\);/);
+  });
+});
+
+describe("Fix round 1 — I-2: preço do importado vira só-leitura sem o módulo produto_importado", () => {
+  it("piOn=false: o input fica desabilitado (podeEditarPreco && !precoImportadoOff) e a RPC nunca é chamada mesmo se o draft divergir da base", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    // Mesmo simulando um draft "editado" (valor stale de antes do módulo desligar), n1 exige `piOn` — sem ele
+    // nem entra no bloco. A trava de UI (PrecoTabela) é o que impede a edição NOVA acontecer na prática.
+    const draft: Draft = { ...base, preco_venda: 150 };
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: false, podeEditarPreco: true, produtoImportadoId: "pi-1",
+    });
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+  });
+  it("PrecoTabela.tsx: precoImportadoOff soma ao guard de edição e mostra o InfoHover com o texto exato", () => {
+    const t = ler("src/components/planejamento/planejamento-detail/PrecoTabela.tsx");
+    expect(t).toMatch(/\{podeEditarPreco && !travaPrecoVenda && !precoImportadoOff \? \(/);
+    expect(t).toMatch(/Módulo Produto Importado desligado nesta loja — o preço do importado fica só leitura\./);
+  });
+  it("PlanejamentoDetail.tsx: precoImportadoOff é draft.origem===\"importado\" && !piOn", () => {
+    const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
+    expect(s).toMatch(/precoImportadoOff=\{draft\.origem === "importado" && !piOn\}/);
+  });
+});
+
+describe("Fix round 1 — M-1: o preço lido de volta do servidor vira a base do merge (cobre a divergência do recompute)", () => {
+  it("limpar o varejo (cai pro markup, servidor devolve valor DIFERENTE de null): a base do merge/baseline usa o valor REAL do servidor, não o null enviado", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 0 }; // limpo — vira null no payload da RPC
+    // Mock: depois da RPC, o SELECT de volta em `modelos` devolve 200 (markup recomputou), não null.
+    const supabaseMod: any = await import("@/integrations/supabase/client");
+    const { rpcCalls, resultado, baseRefFinal, draftLiveFinal } = await montarHarnessImportadoComReadBack({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      precoServidorPosRpc: { preco_venda: 200, preco_atacado: 50 },
+    });
+    void supabaseMod;
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeDefined();
+    // A prova central (M-1): a base do PRÓXIMO merge (baseRef.current.draft) tem que ser 200 (o REAL do
+    // servidor), não `null`/0 (o que foi enviado) — senão o próximo refetch veria fresh=200 ≠ base=null e
+    // acusaria "alguém mudou o preço" por engano (o falso banner que o review pediu pra cobrir).
+    expect(baseRefFinal.preco_venda).toBe(200);
+    // O draft VIVO fica como o usuário digitou (0/limpo) — o valor local AINDA diverge do real (200), então
+    // `touchedRef` continua marcando o campo (mesmo padrão de `tecidos_planejados`: só sincroniza em silêncio
+    // quando o campo já bate). O que o M-1 evita é o FALSO BANNER na base, não trocar o valor na tela embaixo
+    // do usuário sem aviso.
+    expect(draftLiveFinal.preco_venda).toBe(0);
+    expect(resultado?.precosServidorPosRpc).toEqual({ preco_venda: 200, preco_atacado: 50 });
+  });
+  it("preço IGUAL ao enviado (sem divergência do recompute): o draft vivo sincroniza em silêncio com o valor do servidor", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150 };
+    const { draftLiveFinal, baseRefFinal } = await montarHarnessImportadoComReadBack({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      precoServidorPosRpc: { preco_venda: 150, preco_atacado: 50 }, // igual ao enviado — sem divergência
+    });
+    expect(baseRefFinal.preco_venda).toBe(150);
+    expect(draftLiveFinal.preco_venda).toBe(150);
+  });
+  it("usePlanejamentoSave.ts: lê preco_venda/preco_atacado de volta de `modelos` depois da RPC e devolve no resultado", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/\.select\("preco_venda, preco_atacado"\)\.eq\("id", savedId\)\.single\(\)/);
+    expect(s).toMatch(/precosServidorPosRpc = \{/);
+    // onSuccess dobra por cima do enviadoEfetivo/baseDoMerge.
+    expect(s).toMatch(/if \(result\?\.precosServidorPosRpc\) \{/);
+    expect(s).toMatch(/\.\.\.\(result\?\.precosServidorPosRpc \?\? \{\}\),/);
+  });
+});
+
+describe("Fix round 1 — M-2: o preço-base congela junto com `d`/revCongelado (sem corrida com o merge do colab)", () => {
+  it("a base do servidor muda DURANTE o await da grade: n1 compara contra a base CONGELADA (do início do save), não a nova", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base }; // usuário NÃO editou nada
+    // Simula: enquanto o await de `lerGradeServidorComprado` roda, outra pessoa fixou o varejo em 300 (Realtime
+    // avançou baseRef.current). Sem M-2, n1 compararia d.preco_venda(100) contra a NOVA base(300) e reenviaria
+    // 100 como fixo, sobrescrevendo a edição alheia.
+    const baseMudada: Draft = { ...base, preco_venda: 300 };
+    const { rpcCalls } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: "pi-1",
+      touched: new Set(), baseMudaDuranteAwait: baseMudada,
+    });
+    // Com a base CONGELADA (100, do início), d.preco_venda(100) === base congelada(100) ⇒ tocarVarejo=false ⇒
+    // a RPC NUNCA roda (a edição alheia de 300 não é pisada).
+    expect(rpcCalls.find((c) => c.nome === "salvar_precos_fixo_produto_importado")).toBeUndefined();
+  });
+  it("usePlanejamentoSave.ts: precoBaseCongelado é lido no MESMO ponto síncrono que revCongelado (antes de qualquer await)", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/const revCongelado = revRef\.current;[\s\S]{0,1400}const precoBaseCongelado = \{ venda: baseRef\.current\?\.draft\.preco_venda, atacado: baseRef\.current\?\.draft\.preco_atacado \};/);
+    expect(s).toMatch(/tocarVarejo = !travaVarejo && varejo !== precoOuNull\(precoBaseCongelado\.venda\)/);
+    expect(s).toMatch(/tocarAtacado = atacado !== precoOuNull\(precoBaseCongelado\.atacado\)/);
+  });
+});
+
+describe("Fix round 1 — M-3: falha do preço fixo (depois do header já ter comitado) tem etapaFalha própria", () => {
+  it("a RPC falha: o toast diz que o card foi salvo mas o preço não, não o fallback genérico 'Erro'", async () => {
+    const base: Draft = { ...emptyDraft(), origem: "importado", preco_venda: 100, preco_atacado: 50 };
+    const draft: Draft = { ...base, preco_venda: 150 };
+    const { erro } = await montarHarnessImportado({
+      draftCru: draft, baseDraft: base, piOn: true, podeEditarPreco: true, produtoImportadoId: null, // sem produto → RAISE P0001
+    });
+    expect(erro?.etapaFalha).toBe("preco");
+  });
+  it("usePlanejamentoSave.ts: onError trata etapaFalha==='preco' com mensagem própria antes do fallback genérico", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/if \(e\?\.etapaFalha === "preco"\) \{/);
+    expect(s).toMatch(/O card foi salvo, mas o preço NÃO — salve de novo antes de fechar\./);
+  });
+});
+
+describe("Fix round 1 — M-5: invalida plan-importado-produtos no onSuccess do Sheet", () => {
+  it("usePlanejamentoSave.ts: invalida ['plan-importado-produtos'] quando savedDraft.origem === 'importado'", () => {
+    const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");
+    expect(s).toMatch(/savedDraft\.origem === "importado"\) \{[\s\S]{0,1600}qc\.invalidateQueries\(\{ queryKey: \["plan-importado-produtos"\] \}\);/);
+  });
+});
+
+describe("Fix round 1 — M-6: correção da leitura do report sobre onde a trava é aplicada", () => {
+  it("fn_integracao_trava_espelho (não só o recompute B1) recusa um preço fixo NOVO enquanto o produto está travado", () => {
+    const sql = ler("supabase/migrations/20261007130000_integracao_4_trava.sql");
+    expect(sql).toMatch(/fn_integracao_trava_espelho/);
+    expect(sql).toMatch(/NEW\.preco_varejo_fixo IS NOT NULL[\s\S]{0,80}RAISE EXCEPTION 'integracao_travado: preco_venda' USING ERRCODE = '42501';/);
+    // A trigger cobre AS DUAS espelhos (revenda e importado) — mesma função, mesmo comportamento.
+    expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.produtos_acabados\s*\n\s*FOR EACH ROW EXECUTE FUNCTION public\.fn_integracao_trava_espelho\(\);/);
+    expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.produtos_importados\s*\n\s*FOR EACH ROW EXECUTE FUNCTION public\.fn_integracao_trava_espelho\(\);/);
   });
 });

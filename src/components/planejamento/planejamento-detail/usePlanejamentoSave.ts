@@ -234,6 +234,11 @@ export function usePlanejamentoSave({
       // no resultado da mutation e usados no onSuccess. `travaCapturada`/`payloadKeysCapturadas` (R-4a) são o
       // SET de trava e as chaves do payload NO INSTANTE deste save — nunca um lock mais novo lido depois.
       let resolucaoTrava: ResolucaoTrava = { paraBaseDoMerge: {}, avisos: [] };
+      // Fix round 1 (M-1) — populado pelo n1 (mais abaixo) só quando a RPC de preço fixo do IMPORTADO roda com
+      // sucesso: os valores REAIS que `modelos.preco_venda`/`preco_atacado` ficaram após o recompute do servidor
+      // (pode divergir do enviado — ver comentário em n1). `onSuccess` usa isto como base/baseline REAL desses
+      // 2 campos em vez do `savedDraft` (que só ecoa o que foi TENTADO gravar).
+      let precosServidorPosRpc: { preco_venda: number | null; preco_atacado: number | null } | null = null;
       // Fix round 1 (I1) — zera a captura anterior LOGO NO INÍCIO de todo ciclo (1ª tentativa OU retry, que
       // reentra aqui do zero): sem isto, um erro lançado ANTES da captura síncrona abaixo (onde `enviadoRef.current`
       // é atribuído pela 1ª vez neste ciclo, logo depois de montar `payload`/`temCamposDevNoPayloadNaCaptura`)
@@ -312,6 +317,16 @@ export function usePlanejamentoSave({
       // idêntico ao de antes. O retry (onError) continua funcionando: ele avança `revRef`/`draftLiveRef` e só
       // então chama `save.mutate` de novo, que reentra no `mutationFn` e congela um `revCongelado` NOVO.
       const revCongelado = revRef.current;
+      // Fix round 1 (M-2, review Task 22) — o preço-base do importado (n1, mais abaixo) tem que ser congelado
+      // no MESMO ponto síncrono que `d`/`revCongelado`, pela MESMA razão do C1 acima: entre este ponto e o `await
+      // lerGradeServidorComprado`/RPCs de auto-criação, o efeito de merge do colab em `PlanejamentoDetail.tsx`
+      // pode avançar `baseRef.current` (ex.: outra pessoa fixou um preço novo pela tela do Produto Importado,
+      // chegou por Realtime). Sem congelar aqui, n1 compararia `d.preco_venda` contra uma base MAIS NOVA lida
+      // DEPOIS do await e poderia (a) reenviar como fixo um valor que na verdade não mudou (falso `tocarVarejo`),
+      // sobrescrevendo a edição alheia, ou (b) deixar de detectar uma edição real do usuário. `precoBaseCongelado`
+      // é lido AQUI, antes de qualquer `await` neste ciclo (1ª tentativa OU retry, que reentra no mutationFn do
+      // zero e recongela um novo).
+      const precoBaseCongelado = { venda: baseRef.current?.draft.preco_venda, atacado: baseRef.current?.draft.preco_atacado };
       // Fix round 1 (I1) — os 3 campos do Item C (fix round 3/4) são SÍNCRONOS (não dependem de `bom`/
       // `gradeServidor`) e passam a ser capturados AQUI, ANTES do `await lerGradeServidorComprado` abaixo —
       // não mais só depois dele. `enviadoRef.current` já fica com uma captura VÁLIDA (mesmo com `bom`/
@@ -504,6 +519,20 @@ export function usePlanejamentoSave({
         // e o resultado tem `paraBaseDoMerge` com TODA coluna travada presente no payload (R-1 — incondicional,
         // não só as que divergiram do servidor).
         const payloadKeysAntes = new Set(Object.keys(payload));
+        // Fix round 1 (I-1, review Task 22) — `preco_venda`/`preco_atacado` do IMPORTADO são removidos do
+        // payload (n1, acima) ANTES deste ponto, então nunca entrariam em `payloadKeysAntes` e o mecanismo do
+        // Task 21 (restore/toast/base do merge) nunca os veria — uma trava que chega NO MEIO da edição faria
+        // n1 (mais abaixo) tentar gravar um preço novo pela RPC fixa, que o gatilho `fn_integracao_trava_espelho`
+        // recusaria com 42501 DEPOIS do header já ter COMITADO (card "meio salvo": o resto do card grava, o
+        // preço não, sem aviso PT nem reversão do rascunho — e todo Salvar seguinte repete o erro, porque
+        // `d.preco_venda` nunca volta a bater com a base). Contar estas 2 colunas como "estariam no payload" aqui
+        // (só quando `podeEditarPreco` — sem a permissão, `preco_venda`/`preco_atacado` já não vêm do usuário de
+        // qualquer forma) faz `resolverColunasTravadas` tratá-las como QUALQUER outra coluna travada: restaura o
+        // valor do servidor no draft vivo e na base do merge (R-1), avisa em PT só se `touched` (R-3), e — o que
+        // importa aqui — o n1 abaixo passa a SABER que o varejo está travado e pula a chamada da RPC pra esse
+        // canal (não é o `omitirColunasTravadas` que impede a RPC — ele só afeta o UPDATE de `modelos` — quem
+        // barra a RPC é a checagem explícita em n1, usando o MESMO `travaIntegracao` lido aqui).
+        if (d.origem === "importado" && podeEditarPreco) { payloadKeysAntes.add("preco_venda"); payloadKeysAntes.add("preco_atacado"); }
         resolucaoTrava = resolverColunasTravadas({
           enviado: d, servidor: baseRef.current?.draft, travaNoMomentoDoSave: travaIntegracao,
           payloadKeys: payloadKeysAntes, touched: touchedRef.current, rotuloDe: rotuloDaColuna as (c: string) => string,
@@ -775,29 +804,65 @@ export function usePlanejamentoSave({
       // n1 (Integração, D14): IMPORTADO — o preço digitado grava como preço FIXO pelo gravador salvar_precos_fixo_produto_importado
       // (espelho do da revenda; "última edição manda"), nunca pelo UPDATE (o recálculo do servidor o sobrescreveria). Só quando
       // o preço MUDOU vs a base do servidor e com a permissão de preço. Roda DEPOIS da auto-criação do Produto Importado (acima).
+      // Fix round 1 (M-2) — compara contra `precoBaseCongelado` (lido no MESMO ponto síncrono que `d`/`revCongelado`,
+      // ANTES de qualquer await deste ciclo), não `baseRef.current?.draft` lido agora — o merge do colab pode ter
+      // avançado `baseRef` durante os awaits acima (grade/auto-criação), e comparar contra uma base mais nova
+      // reenviaria como "fixo" um valor que na verdade não mudou, sobrescrevendo uma edição alheia (achado do review).
+      // Fix round 1 (I-1) — `travaVarejo` = a coluna "preco_venda" está travada pela Integração NESTE save
+      // (mesmo `travaIntegracao` que `resolverColunasTravadas`, acima, já usou pra restaurar/avisar/rebasear o
+      // draft) — quando travada, `tocarVarejo` fica SEMPRE false: a RPC nunca tenta gravar um preço novo nesse
+      // canal (o gatilho `fn_integracao_trava_espelho` recusaria com 42501 DEPOIS do header já ter comitado —
+      // ver o comentário em `payloadKeysAntes` acima). Não há trava de atacado hoje (só "preco_venda"/varejo é
+      // marcável na Integração — `CAMPO_BY_KEY` em campos.ts; ver M-6 no report) — nada a pular nesse canal.
+      // Fix round 1 (I-2) — sem `piOn`, o preço do importado passa a ficar READ-ONLY no Sheet (PlanejamentoDetail.tsx,
+      // `precoImportadoOff`), então `d.preco_venda`/`preco_atacado` NUNCA divergem da base aqui (o usuário não
+      // conseguiu editar) — o `if (savedId && ...)` abaixo continua exigindo `piOn` só por clareza/defesa (o preço
+      // não pode ter mudado sem `piOn`, mas não custa manter o gate explícito).
       if (savedId && d.origem === "importado" && piOn && podeEditarPreco) {
-        const base = baseRef.current?.draft;
         const precoOuNull = (v: unknown) => (numOr0(v) > 0 ? numOr0(v) : null);
         const varejo = precoOuNull(d.preco_venda);
         const atacado = precoOuNull(d.preco_atacado);
-        const tocarVarejo = varejo !== precoOuNull(base?.preco_venda);
-        const tocarAtacado = atacado !== precoOuNull(base?.preco_atacado);
+        const travaVarejo = !!travaIntegracao?.has("preco_venda");
+        const tocarVarejo = !travaVarejo && varejo !== precoOuNull(precoBaseCongelado.venda);
+        const tocarAtacado = atacado !== precoOuNull(precoBaseCongelado.atacado);
         if (tocarVarejo || tocarAtacado) {
-          const { data: piFixo, error: piFixoErr } = await supabase
-            .from("produtos_importados" as any)
-            .select("id")
-            .eq("modelo_id", savedId)
-            .maybeSingle();
-          if (piFixoErr) throw piFixoErr;
-          if (!piFixo) {
-            throw Object.assign(new Error("Crie o cadastro no Produto Importado antes de definir o preço."), { code: "P0001" });
+          try {
+            const { data: piFixo, error: piFixoErr } = await supabase
+              .from("produtos_importados" as any)
+              .select("id")
+              .eq("modelo_id", savedId)
+              .maybeSingle();
+            if (piFixoErr) throw piFixoErr;
+            if (!piFixo) {
+              throw Object.assign(new Error("Crie o cadastro no Produto Importado antes de definir o preço."), { code: "P0001" });
+            }
+            const { error: fixoErr } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
+              _produto_id: (piFixo as unknown as { id: string }).id,
+              _tocar_atacado: tocarAtacado, _preco_atacado_fixo: atacado,
+              _tocar_varejo: tocarVarejo, _preco_varejo_fixo: varejo,
+            });
+            if (fixoErr) throw fixoErr;
+            // Fix round 1 (M-1) — o recompute do servidor (`_imp_recomputar_precos_modelo`) pode devolver um preço
+            // DIFERENTE do que foi enviado: limpar um canal (`_preco_*_fixo: null`) faz o servidor recair no
+            // markup (ex.: volta a 200 em vez de ficar NULL) — `savedDraft.preco_venda` sozinho (= o `null` enviado)
+            // divergiria do `fresh` no próximo refetch e acusaria "alguém mudou" por engano. Lê de volta os 2
+            // campos DO MESMO `modelos` que o header UPDATE tocou (fonte única, mesma linha) e devolve no resultado
+            // pra `onSuccess` usar como base/baseline REAL — cobre também qualquer outra divergência do recompute
+            // (arredondamento, markup do atacado etc.), não só o caso de limpar.
+            const { data: precoRow, error: precoRowErr } = await (supabase.from("modelos") as any)
+              .select("preco_venda, preco_atacado").eq("id", savedId).single();
+            if (precoRowErr) throw precoRowErr;
+            precosServidorPosRpc = {
+              preco_venda: (precoRow as any)?.preco_venda ?? null,
+              preco_atacado: (precoRow as any)?.preco_atacado ?? null,
+            };
+          } catch (ePreco) {
+            // Fix round 1 (M-3) — etapa própria: o resto do card (header/BOM/MO) já comitou quando este passo
+            // roda (é o ÚLTIMO antes do `return`) — sem isto o erro caía no ramo genérico do onError e o usuário
+            // não sabia que só o PREÇO ficou de fora. Mesmo padrão de `etapaFalha === "cad"` (onError, mais abaixo).
+            (ePreco as any).etapaFalha = "preco";
+            throw ePreco;
           }
-          const { error: fixoErr } = await supabase.rpc("salvar_precos_fixo_produto_importado" as any, {
-            _produto_id: (piFixo as unknown as { id: string }).id,
-            _tocar_atacado: tocarAtacado, _preco_atacado_fixo: atacado,
-            _tocar_varejo: tocarVarejo, _preco_varejo_fixo: varejo,
-          });
-          if (fixoErr) throw fixoErr;
         }
       }
       // `savedDraft` (bug-fix): devolve o MESMO `d` que foi de fato enviado ao servidor —
@@ -815,7 +880,7 @@ export function usePlanejamentoSave({
         // "alguém salvou agora".
         autoProduto, savedDraft: normalizarDraftSalvo(d, podeEditarPreco), savedId, etapasMarcadas,
         consumoOuAviamento: bom.gravar && (bom.flags.consumo || bom.flags.aviamentos),
-        resolucaoTrava,
+        resolucaoTrava, precosServidorPosRpc,
       };
     },
     onSuccess: async (result) => {
@@ -861,6 +926,18 @@ export function usePlanejamentoSave({
       if (savedDraft.origem === "importado") {
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string"
           && ((q.queryKey[0] as string).startsWith("produtos-importados") || q.queryKey[0] === "produto-importado-contagem-por-colecao") });
+        // Fix round 1 (M-5, review Task 22) — o mapa `["plan-importado-produtos", modeloIdsAll]` do card do Plan.
+        // Produto (n2, criacao.planejamento.tsx) não é coberto pelo predicate acima (não começa com
+        // "produtos-importados" nem é a key de contagem) e `modeloIdsAll` não muda quando a auto-criação do
+        // Produto Importado acontece NESTE Sheet (este `onSuccess`) — sem isto, editar o preço no card logo após
+        // trocar a origem pra "importado" (auto-criação neste MESMO save) caía em "Aguarde o produto importado
+        // carregar…" até um refetch por foco/remonte. `invalidateQueries` casa por PREFIXO de queryKey por
+        // padrão (TanStack Query) — `["plan-importado-produtos"]` sozinho já invalida
+        // `["plan-importado-produtos", modeloIdsAll]` sem precisar saber o array. Mesmo destino de
+        // `["plan-revenda-markups"]`, que a revenda invalida do PRÓPRIO mutation da tela (`criacao.planejamento.tsx`,
+        // `salvarPrecoVarejoRevenda.onSuccess`) — aqui a invalidação tem que sair do Sheet (é ele quem AUTO-CRIA
+        // o Produto Importado, não a mutation de preço do card).
+        qc.invalidateQueries({ queryKey: ["plan-importado-produtos"] });
       }
       // Fix T10 I1 — o UPDATE do header manda `tecidos_planejados` DERIVADO do BOM quando `bom.gravar`
       // (aplicarColunasFicha), mas `savedDraft` (congelado ANTES do payload ser montado) ainda carrega o
@@ -913,6 +990,17 @@ export function usePlanejamentoSave({
         setDraft((dPrev) => ({ ...dPrev, ...paraBaseDoMerge }));
       }
       if (avisos.length > 0) toast.warning(toastDescartadasPelaIntegracao(avisos));
+      // Fix round 1 (M-1, review Task 22) — `precosServidorPosRpc` (só não-null quando a RPC de preço fixo do
+      // IMPORTADO rodou nesta captura, n1 no mutationFn): os valores REAIS que ficaram em `modelos.preco_venda`/
+      // `preco_atacado` depois do recompute do servidor, lidos de volta na MESMA linha logo após a RPC. Entra
+      // por cima de `enviadoEfetivo` ANTES do `resetDraftBaseline`/`tocadosAposSalvar` abaixo — essa é a
+      // baseline REAL do "não salvo" (sem isto, limpar um preço que cai de volta pro markup deixaria o campo
+      // "sujo" pra sempre, porque o servidor nunca bateria com o `null` enviado). O draft VIVO só é
+      // sincronizado com o valor real MAIS ABAIXO (mesmo padrão de `tecidos_planejados`), depois que
+      // `tocadosAposSalvar` já decidiu se o campo CONTINUA divergindo do que o servidor de fato tem.
+      if (result?.precosServidorPosRpc) {
+        enviadoEfetivo = { ...enviadoEfetivo, ...result.precosServidorPosRpc };
+      }
       // F3.2 — FIX do save-em-voo (receita 2419d0f): base e baseline do "não salvo" = o que FOI ENVIADO
       // (`enviadoEfetivo` — o `d` CRU congelado no mutationFn, com `tecidos_planejados` corrigido pelo fix
       // I1 acima); campo editado durante o voo SEGUE tocado e o selo segue aceso até o próximo Salvar (o
@@ -941,6 +1029,10 @@ export function usePlanejamentoSave({
         tecidos_planejados: enviadoEfetivo.tecidos_planejados,
         proporcoes: enviadoEfetivo.proporcoes,
         custos_adicionais: enviadoEfetivo.custos_adicionais,
+        // Fix round 1 (M-1) — mesma razão de `tecidos_planejados` acima: `savedDraft.preco_venda`/`preco_atacado`
+        // são o valor ENVIADO (`d`), não o que o servidor de fato guardou após o recompute do importado — a base
+        // do merge tem que ser o real, senão o próximo refetch (mesmo sem edição nova) acusaria "alguém mudou".
+        ...(result?.precosServidorPosRpc ?? {}),
         ...paraBaseDoMerge,
       };
       baseRef.current = { draft: baseDoMerge };
@@ -952,6 +1044,23 @@ export function usePlanejamentoSave({
       if (enviadoEfetivo.tecidos_planejados !== savedDraft.tecidos_planejados && !touchedRef.current.has("tecidos_planejados")) {
         setDraft((d) => (d.tecidos_planejados === enviadoEfetivo.tecidos_planejados ? d : { ...d, tecidos_planejados: enviadoEfetivo.tecidos_planejados }));
         draftLiveRef.current = { ...draftLiveRef.current, tecidos_planejados: enviadoEfetivo.tecidos_planejados };
+      }
+      // Fix round 1 (M-1) — MESMO padrão do bloco `tecidos_planejados` acima: o draft VIVO só adota o valor
+      // REAL do servidor (`result.precosServidorPosRpc`, já dobrado em `enviadoEfetivo`/na base do merge acima)
+      // quando `tocadosAposSalvar` (já rodou, linha ~1019) decidiu que o campo NÃO diverge mais — ou seja, o
+      // valor local já bate com o que foi ENVIADO. Se o servidor recomputou um valor DIFERENTE do enviado
+      // (limpar caiu de volta pro markup), o campo CONTINUA touched de propósito (o usuário vê a divergência,
+      // não um valor trocado embaixo dele em silêncio) — só o "não salvo"/base do merge (acima) já refletem o
+      // real, prevenindo o falso banner no PRÓXIMO refetch (o objetivo do M-1).
+      if (result?.precosServidorPosRpc) {
+        if (enviadoEfetivo.preco_venda !== savedDraft.preco_venda && !touchedRef.current.has("preco_venda")) {
+          setDraft((d) => (d.preco_venda === enviadoEfetivo.preco_venda ? d : { ...d, preco_venda: enviadoEfetivo.preco_venda }));
+          draftLiveRef.current = { ...draftLiveRef.current, preco_venda: enviadoEfetivo.preco_venda };
+        }
+        if (enviadoEfetivo.preco_atacado !== savedDraft.preco_atacado && !touchedRef.current.has("preco_atacado")) {
+          setDraft((d) => (d.preco_atacado === enviadoEfetivo.preco_atacado ? d : { ...d, preco_atacado: enviadoEfetivo.preco_atacado }));
+          draftLiveRef.current = { ...draftLiveRef.current, preco_atacado: enviadoEfetivo.preco_atacado };
+        }
       }
       if (enviadoRef.current?.bom) {
         const { edicoesPerdidas } = fichaRef.current.aposSalvar({ bomEnviado: enviadoRef.current.bom });
@@ -1217,6 +1326,15 @@ export function usePlanejamentoSave({
         toast.error(enviadoRef.current?.bom?.gravar
           ? `Os tecidos foram salvos, mas o CAD não — salve de novo antes de fechar. (${detalhe})`
           : `O CAD não foi salvo — salve de novo antes de fechar. (${detalhe})`);
+        return;
+      }
+      // Fix round 1 (M-3, review Task 22) — n1 (preço fixo do importado) é o ÚLTIMO passo do mutationFn: quando
+      // falha, o header/BOM/MO do resto do card JÁ comitaram. Mesmo padrão do `etapaFalha === "cad"` acima —
+      // mensagem específica em vez do fallback genérico "Erro", pra o usuário saber que só o PREÇO ficou de fora
+      // (e não precisa refazer o resto do card, só salvar de novo pra regravar o preço).
+      if (e?.etapaFalha === "preco") {
+        const detalhe = mensagemErro(e, "erro desconhecido");
+        toast.error(`O card foi salvo, mas o preço NÃO — salve de novo antes de fechar. (${detalhe})`);
         return;
       }
       toast.error(mensagemErro(e, "Erro"));
