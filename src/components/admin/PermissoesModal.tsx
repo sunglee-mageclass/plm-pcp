@@ -181,21 +181,29 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       let perms = pageKeys
         .map((k) => ({ pagina: k, ...state[k] }))
         .filter((p) => p.pode_ver || p.pode_editar);
-      // I-1 (fix round 1): `set_user_permissions` faz DELETE de TODAS as linhas do usuário antes de
-      // reinserir o payload (não é um delta parcial). Para um alvo admin, `state` só reflete algo
-      // fora da Integração se já veio marcado por `isAdminRole` no `initial` — mas os checkboxes das
-      // OUTRAS páginas ficam desabilitados (o admin fura por role, não por linha), então NADA nelas
-      // passa por `toggle`. Se o alvo tiver uma linha de exceção pré-existente fora da Integração
-      // (residual de antes de virar admin, ou escrita por outra via), mandar só o delta da Integração
-      // apagaria essa linha em silêncio. Reenviamos `existing` (o que já está gravado, verbatim) +
-      // sobrepomos com a decisão da Integração tomada nesta tela — nunca perdemos dado que não foi
-      // tocado aqui.
+      // Fix round 2 (C-1 + H-1): a tentativa da rodada 1 (merge de `perms` com `existing` por
+      // página) estava ERRADA — `perms` já vinha com TODAS as ~66 páginas fora da Integração em
+      // `{true,true}` (o default visual `isAdminRole` do `initial`), então o merge nunca as
+      // filtrava: conceder a Integração gravava 66 linhas true/true por cima do que já existia
+      // (H-1), e desmarcar a Integração não revogava nada porque a linha "sobrevivia" no mapa
+      // vinda do próprio `perms` (C-1). Para um alvo admin, o payload correto é a UNIÃO de DOIS
+      // conjuntos DISJUNTOS por construção (nunca colidem em `pagina`):
+      //   - a decisão da Integração, exclusivamente do `state` desta tela (marcada = concede,
+      //     desmarcada = ausente do payload = `set_user_permissions` REVOGA, porque o DELETE
+      //     total roda antes do INSERT);
+      //   - as linhas de `existing` que NÃO são da Integração, reenviadas verbatim (o valor já
+      //     gravado no banco) — nunca o default visual `true/true` do bypass de admin, que é só
+      //     exibição (as caixas dessas páginas ficam desabilitadas, nunca passam por `toggle`).
+      // Nunca há duplicata de `pagina`: os dois lados são particionados por `ehChaveIntegracao`.
       if (isAdminRole) {
-        const porPagina = new Map(perms.map((p) => [p.pagina, p] as const));
-        for (const p of existing ?? []) {
-          if (!porPagina.has(p.pagina)) porPagina.set(p.pagina, { pagina: p.pagina, pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar });
-        }
-        perms = Array.from(porPagina.values()).filter((p) => p.pode_ver || p.pode_editar);
+        const decisaoIntegracao = pageKeys
+          .filter(ehChaveIntegracao)
+          .map((k) => ({ pagina: k, ...(state[k] ?? emptyPerm) }))
+          .filter((p) => p.pode_ver || p.pode_editar);
+        const preservadas = (existing ?? [])
+          .filter((p) => !ehChaveIntegracao(p.pagina))
+          .map((p) => ({ pagina: p.pagina, pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar }));
+        perms = [...preservadas, ...decisaoIntegracao];
       }
       if (mode === "super") {
         if (!user.tenant_id) throw new Error("Usuário sem loja");
@@ -352,7 +360,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || (isAdminRole && !viewerESuperAdmin)}>{submitting ? "Salvando…" : "Salvar"}</Button>
+        {/* M-1 (fix round 2): `isLoading`/`existing === undefined` cobre a mesma classe do P-57
+            ("salvar rápido" antes da hidratação) — sem o gate, um clique durante "Carregando…"
+            manda o payload do ramo admin SEM a linha de Integração (o `state`/`existing` ainda
+            não chegaram), revogando a permissão que o admin já tinha e reescrevendo as outras
+            linhas. Vale pros dois modos, não só pro ramo admin. */}
+        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isLoading || existing === undefined || (isAdminRole && !viewerESuperAdmin)}>{submitting ? "Salvando…" : "Salvar"}</Button>
       </div>
     </SheetContent>
     </Sheet>

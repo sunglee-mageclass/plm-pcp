@@ -359,21 +359,152 @@ describe("PermissoesModal (usuário) — linha Integração só para super admin
     }
   });
 
-  it("I-1: mode=super + alvo tenant_admin — marcar Integração e Salvar manda a permissão no payload (callSuper)", async () => {
+  // Fix round 2 (M-2a): payload EXATO com toEqual (não `find`) — pega a regressão H-1 (67 linhas,
+  // 66 delas true/true) que um `find` isolado nunca detectaria.
+  it("M-2a: mode=super + alvo tenant_admin SEM linhas — marcar Integração e Salvar manda EXATAMENTE [integracao] (callSuper)", async () => {
     const view = await montarPermissoesModal({ mode: "super", role: "tenant_admin", existing: [] });
+    try {
+      const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração")?.closest("div.grid");
+      const checkboxes = Array.from(linhaIntegracao!.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
+      const [checkboxVer, checkboxEditar] = checkboxes;
+      await act(async () => { checkboxVer.click(); });
+      await act(async () => { checkboxEditar.click(); });
+      const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      expect(botaoSalvar().hasAttribute("disabled"), "Salvar precisa estar habilitado pro super admin conceder").toBe(false);
+      await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+      expect(view.callSuperSpy).toHaveBeenCalledTimes(1);
+      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
+      expect(payload).toEqual([{ pagina: "integracao", pode_ver: true, pode_editar: true }]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // Fix round 2 (M-2b): REVOGAR (C-1) — existing já tem integracao marcada + uma linha
+  // cadastro_tecidos não-integração; desmarcar a Integração e salvar. O payload exato precisa ser
+  // só [cadastro_tecidos], SEM integracao (a ausência é o que revoga, via DELETE+INSERT).
+  it("M-2b: mode=super + alvo tenant_admin COM integracao marcada — desmarcar e Salvar manda EXATAMENTE [cadastro_tecidos] (revoga)", async () => {
+    const view = await montarPermissoesModal({
+      mode: "super",
+      role: "tenant_admin",
+      existing: [
+        { pagina: "integracao", pode_ver: true, pode_editar: true },
+        { pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false },
+      ],
+    });
+    try {
+      const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração")?.closest("div.grid");
+      const checkboxes = Array.from(linhaIntegracao!.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
+      const [checkboxVer, checkboxEditar] = checkboxes;
+      expect(checkboxVer.getAttribute("aria-checked")).toBe("true");
+      expect(checkboxEditar.getAttribute("aria-checked")).toBe("true");
+      // Desmarcar Editor primeiro (pode_editar=true força pode_ver=true — desmarcar só Ver com
+      // Editor ainda marcado reforçaria Ver de volta); desmarcar os dois revoga por completo.
+      await act(async () => { checkboxEditar.click(); });
+      await act(async () => { checkboxVer.click(); });
+      expect(checkboxVer.getAttribute("aria-checked")).toBe("false");
+      expect(checkboxEditar.getAttribute("aria-checked")).toBe("false");
+      const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+      expect(view.callSuperSpy).toHaveBeenCalledTimes(1);
+      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
+      expect(payload).toEqual([{ pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false }]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // Fix round 2 (M-2c): CONCEDER preservando existing — existing já tem cadastro_tecidos (não
+  // integração); marcar só "Leitor" da Integração e salvar. Payload exato: a linha existente
+  // verbatim + a nova linha da Integração, nunca as ~66 páginas do bypass visual.
+  it("M-2c: mode=super + alvo tenant_admin COM cadastro_tecidos — conceder Integração preserva a linha existente verbatim", async () => {
+    const view = await montarPermissoesModal({
+      mode: "super",
+      role: "tenant_admin",
+      existing: [{ pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false }],
+    });
     try {
       const linhaIntegracao = Array.from(document.body.querySelectorAll("label")).find((l) => l.textContent === "Integração")?.closest("div.grid");
       const checkboxes = Array.from(linhaIntegracao!.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
       const [checkboxVer] = checkboxes;
       await act(async () => { checkboxVer.click(); });
       const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
-      expect(botaoSalvar().hasAttribute("disabled"), "Salvar precisa estar habilitado pro super admin conceder").toBe(false);
       await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
-      expect(view.callSuperSpy).toHaveBeenCalledTimes(1);
-      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean }[];
-      const linha = payload.find((p) => p.pagina === "integracao");
-      expect(linha, "a linha integracao precisa estar no payload").toBeTruthy();
-      expect(linha!.pode_ver).toBe(true);
+      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
+      expect(payload).toEqual([
+        { pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false },
+        { pagina: "integracao", pode_ver: true, pode_editar: false },
+      ]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // Fix round 2 (M-2d): Salvar desabilitado enquanto `existing` ainda carrega (P-57, "salvar
+  // rápido"). A query de `existing` nunca resolve neste teste (Promise que não resolve), então o
+  // modal fica permanentemente em "Carregando…" — o Salvar precisa estar disabled o tempo todo.
+  it("M-2d: Salvar fica DESABILITADO enquanto existing ainda está carregando (P-57)", async () => {
+    vi.resetModules();
+    vi.doMock("@tanstack/react-router", () => ({ useBlocker: () => ({ status: "idle", proceed: vi.fn(), reset: vi.fn() }) }));
+    vi.doMock("@/integrations/supabase/client", () => ({
+      // eq() nunca resolve — simula a query pendente pra sempre (basta pro teste síncrono de disabled).
+      supabase: { from: () => ({ select: () => ({ eq: () => new Promise(() => {}) }) }) },
+    }));
+    vi.doMock("@tanstack/react-start", () => tanstackReactStartStub());
+    const { createElement } = await import("react");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { PermissoesModal } = await import("@/components/admin/PermissoesModal");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = await montar(
+      createElement(QueryClientProvider, { client: qc },
+        createElement(PermissoesModal, {
+          user: { id: "u1", nome: "Fulano", tenant_id: "t1", role: "tenant_admin", papel_id: null },
+          mode: "super",
+          onClose: () => {},
+        }),
+      ),
+    );
+    try {
+      expect(document.body.textContent).toContain("Carregando…");
+      const botaoSalvar = Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      expect(botaoSalvar.hasAttribute("disabled"), "Salvar não pode habilitar antes de existing carregar").toBe(true);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  // Fix round 2 (M-2e): regressão — usuário COMUM (não-admin) no modo super, e admin no modo
+  // tenant, continuam com o MESMO payload de antes desta correção (snapshot de um caso cada).
+  it("M-2e regressão: mode=super + usuário COMUM — payload continua íntegro (snapshot)", async () => {
+    const view = await montarPermissoesModal({
+      mode: "super",
+      role: "user",
+      existing: [{ pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false }],
+    });
+    try {
+      const botaoSalvar = () => Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      await act(async () => { botaoSalvar().click(); await new Promise((r) => setTimeout(r, 10)); });
+      const payload = view.callSuperSpy.mock.calls[0][0].data.perms as { pagina: string; pode_ver: boolean; pode_editar: boolean }[];
+      // Usuário comum: perms vem direto de `pageKeys × state`, sem o ramo `isAdminRole` — o loop
+      // de `existing` popula o `state` inicial 1:1 (nenhuma expansão de bypass aqui).
+      expect(payload).toEqual([{ pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false }]);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("M-2e regressão: mode=tenant + alvo admin — payload continua vazio (Salvar habilitado só p/ super, não altera nada)", async () => {
+    const view = await montarPermissoesModal({
+      mode: "tenant",
+      role: "tenant_admin",
+      existing: [{ pagina: "cadastro_tecidos", pode_ver: true, pode_editar: false }],
+    });
+    try {
+      // mode=tenant + isAdminRole: Salvar segue desabilitado (regra da rodada 1, inalterada) —
+      // não há ação possível aqui; a prova de regressão é justamente que o botão CONTINUA travado.
+      const botaoSalvar = Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Salvar") as HTMLButtonElement;
+      expect(botaoSalvar.hasAttribute("disabled")).toBe(true);
+      expect(view.callTenantSpy).not.toHaveBeenCalled();
     } finally {
       view.unmount();
     }
