@@ -66,9 +66,9 @@ export type ColunaDescartada = { coluna: string; rotulo: string };
 //
 // R-3 (Minor): o toast "X foi travado... não foi salva" antes disparava sempre que `d[k] ≠ servidor[k]`, o
 // que também é verdade para o cenário R-1 acima (canonização) — mas nesse caso a edição FOI salva (em forma
-// canônica) em um save ANTERIOR, então o aviso "não foi salva" é falso. Fix: o aviso (e a reversão do valor
-// no `enviadoEfetivo`/draft vivo) só considera colunas em `touched` (a pessoa editou NESTA sessão) — a base
-// do merge (R-1) continua incondicional, mas o "isso é uma EDIÇÃO perdida" (`avisos`) exige `touched`.
+// canônica) em um save ANTERIOR, então o aviso "não foi salva" é falso. Fix: SÓ o aviso exige `touched` (a
+// pessoa editou NESTA sessão); a reversão ao valor do servidor e a base do merge (R-1) valem para TODA coluna
+// travada que estava no payload (N-1 da re-revisão 3: o comentário anterior dizia que a reversão também exigia `touched`).
 //
 // R-4(a): o loop iterava `travaIntegracao` (o lock ATUAL, no momento do onSuccess) em vez do conjunto que
 // este save de fato omitiu — se o lock cresceu enquanto o save estava em voo, uma coluna que FOI enviada e

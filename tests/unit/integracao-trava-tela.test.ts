@@ -61,7 +61,7 @@ describe("trava vista pelas outras telas (F4)", () => {
 describe("F4 — Sheet do Planejamento espelha a trava", () => {
   const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
   it("estado do produto, REF/SKU/preço/fotos travados, selo e Excluir", () => {
-    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: true \}\);/);
+    expect(s).toMatch(/const estadoIntegracao = useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: isEdit \}\);/);
     expect(s).toMatch(/const refEditavel = isEdit && !devBloqueado && kanbanCard\.refVisivel && !travaIntegracao\.has\("ref"\);/);
     expect(s).toMatch(/podeEditarPlanejamento && !travaIntegracao\.has\("sku"\), \{/);
     expect(s).toMatch(/podeEditarSkus=\{podeEditarPlanejamento && !travaIntegracao\.has\("sku"\)\}/);
@@ -470,9 +470,9 @@ describe("Fix round 1 (m2/M-1) — refetch da trava ao abrir o Sheet e ao levar 
     expect(rpcSpy.mock.calls.filter(([n]) => n === "integracao_estado_modelos").length).toBeGreaterThan(0);
     v3.unmount();
   });
-  it("PlanejamentoDetail.tsx (único consumidor fora do hook) passa { sempreAoAbrir: true } — é o único que precisa da trava sempre fresca (bloqueia Salvar)", () => {
+  it("PlanejamentoDetail.tsx (único consumidor fora do hook) passa { sempreAoAbrir: isEdit } — só o card EXISTENTE força o refetch (o Dialog Novo card não — NF-2)", () => {
     const s = ler("src/components/planejamento/PlanejamentoDetail.tsx");
-    expect(s).toMatch(/useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: true \}\)/);
+    expect(s).toMatch(/useIntegracaoEstado\(isEdit \? modeloId : null, \{ sempreAoAbrir: isEdit \}\)/);
   });
   it("usePlanejamentoSave.ts invalida ['integracao-estado'] no onError quando o code é 42501 e a mensagem começa com integracao_travado:", () => {
     const s = ler("src/components/planejamento/planejamento-detail/usePlanejamentoSave.ts");

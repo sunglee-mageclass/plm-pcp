@@ -751,10 +751,11 @@ function PlanejamentoDetailConteudo({
   // Integração (F4, spec §6/§8): produto integrável/integrado = campos marcados travados. O BANCO recusa (gatilhos
   // trg_zz_integracao_trava); a tela só espelha — selo no cabeçalho, campos desabilitados, Excluir travado.
   // Fix round 3 (R-6 da re-revisão) — `sempreAoAbrir: true`: SÓ o Sheet do Planejamento (que de fato trava
-  // campos e bloqueia Salvar) força o refetch a cada abertura de card — os outros consumidores futuros
+  // campos e bloqueia Salvar) força o refetch a cada abertura de card EXISTENTE (`isEdit`; o Dialog "Novo card" usa
+  // este mesmo componente e não precisa — NF-2 da re-revisão 3) — os outros consumidores futuros
   // (card do Plan. Produto, Produto Acabado/Importado, slot do Plan.Tecido, Dialog "Novo card") usam o
   // default (staleTime 30s) e não pagam um RPC cheio por montagem.
-  const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null, { sempreAoAbrir: true });
+  const estadoIntegracao = useIntegracaoEstado(isEdit ? modeloId : null, { sempreAoAbrir: isEdit });
   const travaIntegracao = colunasTravadas(estadoIntegracao);
   // REF editável = a seção "Códigos" (F3.6) mostra o campo (etapa configurada) e os campos do Dev estão livres.
   const refEditavel = isEdit && !devBloqueado && kanbanCard.refVisivel && !travaIntegracao.has("ref");
