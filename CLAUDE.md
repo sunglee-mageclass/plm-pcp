@@ -679,7 +679,9 @@ e verifique** — o repo muda rápido.
     **Pós-plano (28/set):** qualquer método ≠ GET na API → `405 {"erro":"metodo_invalido"}` + `allow: GET` (HEAD rodaria a
     confirmação); parâmetro desconhecido/repetido → 400; banco no ar em produção desde 28/set 10h12 (backfill J1 = 53 PA da Ave
     Rara, P-103 A). Salvar de tela com campo travado: o campo é OMITIDO do payload (ou vai o valor do servidor), o rascunho volta
-    ao valor do servidor e o toast só aparece se a pessoa mexeu (`src/lib/integracao/trava.ts`); a base do merge usa o valor do
+    ao valor do servidor e o toast só aparece se a pessoa mexeu (`resolverColunasTravadas` em `usePlanejamentoSave.ts`;
+    `resolverTravaAcabado`/`resolverTravaImportado` nos `shared.ts` de Produto Acabado/Importado; textos em
+    `src/lib/integracao/trava.ts`); a base do merge usa o valor do
     servidor p/ não dar "outra pessoa mudou" falso.
 
 
