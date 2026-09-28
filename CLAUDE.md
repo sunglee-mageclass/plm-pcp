@@ -683,6 +683,10 @@ e verifique** — o repo muda rápido.
     `resolverTravaAcabado`/`resolverTravaImportado` nos `shared.ts` de Produto Acabado/Importado; textos em
     `src/lib/integracao/trava.ts`); a base do merge usa o valor do
     servidor p/ não dar "outra pessoa mudou" falso.
+    **Permissão (delta 7, P-107 A, 28/set, `20261008100000`):** a permissão `integracao` (e `integracao:*`) é dada POR USUÁRIO e
+    SÓ pelo super admin (`_integracao_pode` — admin da loja/tenant_admin NÃO passa sozinho); papéis NUNCA a carregam
+    (`trg_integracao_perm_papel`); escrita nessas linhas de `user_permissions` sem JWT de super admin (service_role, backfill,
+    admin da loja) é no-op SILENCIOSO (`trg_integracao_perm_user`) — um backfill precisa de `request.jwt.claims` de super admin.
 
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
