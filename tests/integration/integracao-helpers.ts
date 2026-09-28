@@ -89,7 +89,15 @@ export async function DEF(c: Client, sig: string): Promise<string> {
 
 // ─────────────────────────── usuários ───────────────────────────
 export type Perm = [pagina: string, ver: boolean, editar: boolean];
-/** Usuário novo da Loja Teste (txn), com as permissões dadas; vira o JWT da txn. */
+/**
+ * Usuário novo da Loja Teste (txn), com as permissões dadas; vira o JWT da txn.
+ * ⚠️ Delta 7 (`trg_integracao_perm_user`, `20261008100000`): uma linha `user_permissions.pagina LIKE 'integracao%'`
+ * só é gravada quando o JWT no momento do INSERT é de um SUPER ADMIN — de qualquer outro chamador o gatilho
+ * devolve RETURN NULL (a escrita é ignorada em silêncio, sem erro). Por isso as linhas de permissão são
+ * inseridas com o JWT trocado para USER_TESTE (super admin na cópia local — confirmado em user_roles) e SÓ
+ * DEPOIS o JWT volta a ser o `uid` alvo, espelhando `concedePeloSuper` de integracao-permissao-super.test.ts.
+ * Sem delta 7 aplicado (ou permissões que não são 'integracao%') isto é um no-op a mais, inócuo.
+ */
 export async function comoUsuarioCom(c: Client, uid: string, perms: Perm[], o: { tenantAdmin?: boolean } = {}): Promise<void> {
   await c.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [uid, `${uid}@teste`]);
   await c.query(
@@ -98,11 +106,17 @@ export async function comoUsuarioCom(c: Client, uid: string, perms: Perm[], o: {
     [uid, T, `${uid}@teste`, `Teste ${uid.slice(-4)}`],
   );
   if (o.tenantAdmin) await c.query(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'tenant_admin')`, [uid]);
-  for (const [pagina, ver, editar] of perms) {
-    await c.query(
-      `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1, $2, $3, $4, $5)`,
-      [uid, T, pagina, ver, editar],
-    );
+  if (perms.length > 0) {
+    const jwtAntes = (await c.query(`SELECT current_setting('request.jwt.claims', true) AS j`)).rows[0].j as string | null;
+    await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: USER_TESTE, role: "authenticated" })]);
+    for (const [pagina, ver, editar] of perms) {
+      await c.query(
+        `INSERT INTO public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar) VALUES ($1, $2, $3, $4, $5)`,
+        [uid, T, pagina, ver, editar],
+      );
+    }
+    // restaura o JWT anterior (se havia) antes de setar o do `uid` alvo — não deixa a chamada "vazar" o super admin.
+    await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [jwtAntes ?? ""]);
   }
   await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
 }

@@ -41,6 +41,12 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
   it("ACL #9: internas fechadas p/ PUBLIC/anon/authenticated; RPCs não executáveis por anon e executáveis por authenticated; rota executável por service_role", async () => {
     await withTx(async (c) => {
       await prepara(c, 6);
+      // Delta 7 (20261008100000_integracao_7_permissao_super.sql) soma +3 funções que casam nos mesmos padrões do
+      // "total" desta prova (_integracao_pode via `_integracao\_%`; fn_integracao_perm_user/_papel via `fn\_integracao\_%`)
+      // — 46 sem d7, 49 com d7 na cópia. `prepara(c,6)` não aplica nem desfaz o d7 (é uma frente separada), então o total
+      // esperado precisa refletir o que JÁ está na cópia, não o que esta suíte preparou.
+      const temD7 = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._integracao_pode(boolean)') IS NOT NULL AS ok`)).ok;
+      const totalEsperado = String(46 + (temD7 ? 3 : 0));
       const r = await um<{ internas: string; rpc_anon: string; rpc_auth: string; rota: string; total: string }>(c,
         `SELECT
            (SELECT count(*) FROM pg_proc p CROSS JOIN (VALUES ('public'), ('anon'), ('authenticated')) r(y)
@@ -56,7 +62,7 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
                OR p.proname LIKE 'integracao\\_%' OR p.proname LIKE 'fn\\_integracao\\_%' OR p.proname IN ('fn_modelo_espelho_nome_ref',
                'fn_espelho_modelo_nome_ref', 'salvar_precos_fixo_produto_importado', '_salvar_precos_fixo_produto_importado_core'))) AS total`,
         [RPCS, ROTA]);
-      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: "3", total: "46" });
+      expect(r).toEqual({ internas: "0", rpc_anon: "0", rpc_auth: String(RPCS.length), rota: "3", total: totalEsperado });
     });
   });
 
@@ -92,11 +98,25 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — ACL, ASCII e voltas", () => {
     });
   });
 
-  it.skipIf(!MIG_TXN)("round-trip: ida 1→6 (2×, idempotente) e volta 6→1 (2×) devolvem a cópia ao retrato de ANTES", async () => {
+  it.skipIf(!MIG_TXN)("round-trip: ida 1→6 (2×, idempotente) e volta 6→1 (2×) devolvem a cópia ao retrato de ANTES", async (ctx) => {
     await withTx(async (c) => {
       // o retrato "antes" é lido ANTES de aplicar; `aplica` chama exigeBancoLocal() (só a cópia)
       await c.query("SET LOCAL lock_timeout = '3s'");
       await c.query("SET LOCAL statement_timeout = '180s'");
+      // Delta 7 (20261008100000) exige as migrations 1..6 JÁ aplicadas (seu $guarda$ checa _integracao_ler) — então,
+      // numa cópia com d7 presente PERMANENTEMENTE (fora desta txn, ex.: copia-delta7.sh ida), as migrations 1..6
+      // também já estão lá pra sempre, e este round-trip (desenhado pra uma cópia "limpa", sem a Integração aplicada
+      // fora da txn) não tem como rodar: `antes.t` já seria "7", não "0", e os INVERSOS 6→1 desta suíte NUNCA
+      // removem as 3 funções/2 gatilhos do d7 (vivem em user_permissions/papel_permissoes, fora do escopo das 7
+      // tabelas da Integração — só o inverso PRÓPRIO do d7, 20261008100000_..._down.sql, os remove). Sem tocar SQL
+      // (rollback de 1-6 desfazer também o d7 misturaria as duas frentes), o caminho correto é pular explicitamente
+      // aqui (skip DINÂMICO — não dá pra saber em tempo de describe/it se a cópia tem d7) — ver "Concerns" #1 do
+      // relatório D7-testes e delta7-banco-report.md §9.
+      const temD7 = (await um<{ ok: boolean }>(c, `SELECT to_regprocedure('public._integracao_pode(boolean)') IS NOT NULL AS ok`)).ok;
+      if (temD7) {
+        ctx.skip(true, "d7 presente na cópia: round-trip 1..6 não cobre o d7 (fora de escopo sem mexer em SQL)");
+        return;
+      }
       const antes = await retratoBanco(c);
       expect(antes.t).toBe("0");
       expect(antes.md5).toBe(MD5_4_ANTES);

@@ -67,7 +67,16 @@ describe.skipIf(!hasDb || !LOCAL)("integracao — migration 6: configurações e
       expect(k.final).toBe(k.chave.slice(-4));
       const db = await um<{ hash: string; final: string }>(c, `SELECT hash, final FROM public.integracao_chaves WHERE id = $1`, [k.id]);
       expect(db).toEqual({ hash: sha(k.chave), final: k.final });
-      const log = await um<{ d: any }>(c, `SELECT detalhe AS d FROM public.integracao_log WHERE acao = 'chave_criar' AND tenant_id = $1`, [T]);
+      // PRÉ-EXISTENTE (fora do escopo do delta 7): a Loja Teste da cópia acumula linhas 'chave_criar' de QA anteriores
+      // (10 na cópia local — ver delta7-banco-report.md §9); sem filtrar pelo `final` desta chave (só authenticated/
+      // tenant), `um()` pegava QUALQUER linha antiga em vez da que este teste acabou de criar. `final` é o sufixo de
+      // 4 chars aleatórios da chave recém-gerada — não garante unicidade absoluta entre TODAS as chaves já criadas,
+      // mas junto com `criado_em DESC LIMIT 1` conta só a linha desta chave (a mais recente com este final).
+      const log = await um<{ d: any }>(c,
+        `SELECT detalhe AS d FROM public.integracao_log
+          WHERE acao = 'chave_criar' AND tenant_id = $1 AND detalhe ->> 'final' = $2
+          ORDER BY criado_em DESC LIMIT 1`,
+        [T, k.final]);
       expect(log.d).toEqual({ nome: "ERP Principal", final: k.final });
       expect(JSON.stringify((await um<{ r: any }>(c, `SELECT public.integracao_chaves_listar() AS r`)).r)).not.toContain(db.hash);
       await c.query(`SELECT public.integracao_chave_revogar($1)`, [k.id]);
