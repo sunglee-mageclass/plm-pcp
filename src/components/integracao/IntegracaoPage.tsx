@@ -14,10 +14,8 @@
 // rascunho foi descartado.
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Construction } from "lucide-react";
 import { toast } from "sonner";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -29,17 +27,15 @@ import { ProdutosAba } from "./ProdutosAba";
 import { CamposAba } from "./CamposAba";
 import { ApiAba } from "./ApiAba";
 import { ManualAba } from "./ManualAba";
+import { LogAba } from "./LogAba";
 
-function AbaPendente() {
-  return <EmptyState icon={Construction} title="Em construção" description="Esta aba chega nas próximas tasks do plano da Integração." />;
-}
 // Cada task da tela troca a sua entrada (Tasks 12b, 14, 15, 16 e 17).
 const CONTEUDO_ABA: Record<Aba, ComponentType> = {
   produtos: ProdutosAba,
   campos: CamposAba,
   api: ApiAba,
   manual: ManualAba,
-  log: AbaPendente,
+  log: LogAba,
 };
 
 /** Troca de loja DE VERDADE (anterior e nova não vazias e diferentes), com o que estava na tela logo antes dela. */
