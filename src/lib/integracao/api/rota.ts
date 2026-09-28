@@ -3,6 +3,14 @@
 // que registra a tentativa) → parâmetros → _integracao_ler (fase 1) → fotos: prefixo da loja (inv. #2) + links assinados
 // (validade_foto_dias) → _integracao_confirmar (fase 2) → responde SÓ os confirmados → limpeza de 90 dias FORA do caminho
 // (n4/D20). Erros: corpo ASCII mínimo; nunca a chave, nunca texto interno (nem em 500).
+// Fix round 1 (revisão Opus I1-I3 + code-reviewer M1-M10): guarda de caminho de foto fail-closed e sem travessia (I1/m1);
+// limpeza da fase de 90 dias isolada de qualquer exceção síncrona/assíncrona (I2/M3); parâmetro desconhecido/repetido
+// invalida a requisição (I3, em parametros.ts); status de confirmar fora de ok/chave_invalida/loja_inativa vira 500 (m2);
+// Retry-After sempre um inteiro são entre 1 e 3600 (m3/M4); IP só de cf-connecting-ip, nunca X-Forwarded-For (m4/M5);
+// contagem de fotos descartadas/ausentes sobre o mesmo conjunto de caminhos únicos (m7/M7); lookup de status por
+// Object.hasOwn, imune à cadeia do protótipo (m8/M8); modo devolvido pelo banco tem que bater com o pedido, senão 500
+// sem chamar confirmar (m9); headers x-content-type-options sempre, www-authenticate só no 401 (m10/M9). Nenhum log foi
+// adicionado (ruling M10): um 500 nunca despeja detalhe algum, para a chave jamais vazar por essa via.
 import { lerParametros } from "./parametros";
 import { CAMINHO_FOTO_EXEMPLO, caminhosFoto, montarResposta, type RespostaLer } from "./resposta";
 
@@ -18,20 +26,51 @@ export type DepsRota = {
   agora: () => Date;
   origem: string;
 };
-export const CABECALHOS_JSON = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } as const;
+export const CABECALHOS_JSON = {
+  "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff",
+} as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function respostaErro(status: number, erro: string, retryAfter?: number | null): Response {
   const h: Record<string, string> = { ...CABECALHOS_JSON };
-  if (retryAfter != null) h["retry-after"] = String(Math.max(1, Math.ceil(retryAfter)));
+  if (status === 429) h["retry-after"] = String(clampRetry(retryAfter ?? null));
+  if (status === 401) h["www-authenticate"] = "Bearer";
   return new Response(JSON.stringify({ erro }), { status, headers: h });
+}
+function clampRetry(x: number | null): number {
+  if (x == null || !Number.isFinite(x)) return 60;
+  return Math.min(3600, Math.max(1, Math.ceil(x)));
 }
 const HTTP: Record<string, number> = {
   parametro_invalido: 400, chave_invalida: 401, loja_inativa: 403, ip_bloqueado: 429, limite_excedido: 429,
 };
+function httpDe(status: string): { codigo: number; erro: string } {
+  if (Object.hasOwn(HTTP, status)) return { codigo: HTTP[status], erro: status };
+  return { codigo: 500, erro: "erro_interno" };
+}
+// I1/m1: só assina/entrega foto sob o prefixo CANÔNICO da própria loja — sem barra vazia, "." ou ".." em qualquer
+// segmento, sem "\", "%" ou caracteres de controle. tenant_id ausente/fora do formato uuid falha fechado (nada passa).
+function daLoja(caminho: string, tenantId: string | null | undefined): boolean {
+  if (typeof tenantId !== "string" || !UUID.test(tenantId)) return false;
+  const prefixo = `${tenantId}/`;
+  if (!caminho.startsWith(prefixo)) return false;
+  if (/[\\%\u0000-\u001f]/.test(caminho)) return false;
+  return caminho.slice(prefixo.length).split("/").every((s) => s !== "" && s !== "." && s !== "..");
+}
+// I2/M3: agenda a limpeza SEM nunca deixar uma exceção (síncrona ou assíncrona) tocar a resposta já decidida.
+function agendarLimpeza(deps: DepsRota, tenantId: string | null): void {
+  try {
+    deps.depois(Promise.resolve().then(() => deps.limpar(tenantId)).catch(() => undefined));
+  } catch {
+    // ignorado de propósito: limpeza nunca pode afetar a resposta (nem via depois, nem via limpar).
+  }
+}
 
 export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Response> {
   try {
-    const ip = (req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0] ?? "desconhecido").trim().slice(0, 64);
+    // m4 (ruling): só cf-connecting-ip (edge do Workers sempre define). Nunca X-Forwarded-For (controlável pelo cliente
+    // fora do Workers) — vazio ou ausente cai em "desconhecido", nunca em bucket compartilhado por string vazia.
+    const ip = (req.headers.get("cf-connecting-ip") ?? "").trim().slice(0, 64) || "desconhecido";
     if (!(await deps.tetoIp(ip))) return respostaErro(429, "limite_excedido", 60);
     const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "");
     const chave = m ? m[1] : "";
@@ -39,18 +78,21 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
     if (!p) return respostaErro(400, "parametro_invalido");
     const r = await deps.ler({ hash: await deps.hashChave(chave), incluir: p.incluir, cursor: p.cursor, limite: p.limite, modo: p.modo, ip });
     if (r.status !== "ok") {
-      deps.depois(deps.limpar(r.tenant_id ?? null));
-      return respostaErro(HTTP[r.status] ?? 500, HTTP[r.status] ? r.status : "erro_interno", r.retry_after ?? null);
+      agendarLimpeza(deps, r.tenant_id ?? null);
+      const { codigo, erro } = httpDe(r.status);
+      return respostaErro(codigo, erro, r.retry_after ?? null);
     }
+    // m9: o banco tem que devolver o MESMO modo pedido — um drift de contrato nunca deve rodar a fase 2 (confirmar,
+    // que integra produtos de verdade) por engano numa chamada modo=teste, nem vice-versa.
+    if (r.modo !== p.modo) throw new Error("modo divergente");
     const geradoEm = deps.agora().toISOString();
     if (r.modo === "teste") {
       const corpo = montarResposta(r, { geradoEm, foto: (c) => c.map(() => `${deps.origem}${CAMINHO_FOTO_EXEMPLO}`) });
-      deps.depois(deps.limpar(r.tenant_id ?? null));
+      agendarLimpeza(deps, r.tenant_id ?? null);
       return new Response(JSON.stringify(corpo), { status: 200, headers: CABECALHOS_JSON });
     }
-    // Fase 1½ — fotos: só caminhos da PRÓPRIA loja (inv. #2); o resto é descartado e contado.
+    // Fase 1½ — fotos: só caminhos CANÔNICOS da PRÓPRIA loja (inv. #2); o resto é descartado e contado (fail closed).
     const idxFoto = (r.chaves_colunas ?? []).indexOf("foto");
-    const prefixo = `${r.tenant_id}/`;
     let descartadas = 0;
     const validos: string[] = [];
     if (idxFoto >= 0) {
@@ -58,7 +100,7 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
         for (const l of pr.linhas) {
           if (l.tipo !== "produto") continue;
           for (const c of caminhosFoto(l.valores, idxFoto)) {
-            if (c.startsWith(prefixo)) validos.push(c);
+            if (daLoja(c, r.tenant_id)) validos.push(c);
             else descartadas += 1;
           }
         }
@@ -66,21 +108,32 @@ export async function tratarRequisicao(req: Request, deps: DepsRota): Promise<Re
     }
     const unicos = [...new Set(validos)];
     const links = unicos.length > 0 ? await deps.assinarFotos(unicos, (r.validade_foto_dias ?? 7) * 86400) : new Map<string, string | null>();
+    // m7: descartadas e ausentes contam sobre o MESMO conjunto (caminhos únicos válidos) — não mistura ocorrência bruta
+    // com contagem deduplicada.
     const ausentes = unicos.filter((c) => !links.get(c)).length;
     // Fase 2 — confirmar: marca integrado SÓ o que ainda está integrável com a MESMA assinatura.
     const conf = await deps.confirmar(r.chave_id ?? "", r.acesso_id ?? "", {
       produtos: (r.produtos ?? []).map((pr) => ({ modelo_id: pr.modelo_id, assinatura: pr.assinatura })),
       fotos_descartadas: descartadas, fotos_ausentes: ausentes,
     });
-    if (conf.status !== "ok") return respostaErro(HTTP[conf.status] ?? 500, HTTP[conf.status] ? conf.status : "erro_interno");
+    if (conf.status !== "ok") {
+      // m2 (ruling): só chave_invalida/loja_inativa são erro de CLIENTE; qualquer outro status de confirmar é uma
+      // inconsistência interna de protocolo (a rota monta o payload a partir do que ela mesma recebeu do banco) —
+      // nunca deve virar um 400 que manda o dev conferir parâmetros que já foram validados.
+      if (conf.status === "chave_invalida" || conf.status === "loja_inativa") {
+        const { codigo, erro } = httpDe(conf.status);
+        return respostaErro(codigo, erro);
+      }
+      return respostaErro(500, "erro_interno");
+    }
     const ok = new Map(conf.confirmados.map((c) => [c.modelo_id, c.integrado_em]));
     const corpo = montarResposta(r, {
       geradoEm,
-      foto: (c) => c.map((x) => (x.startsWith(prefixo) ? (links.get(x) ?? null) : null)),
+      foto: (c) => c.map((x) => (daLoja(x, r.tenant_id) ? (links.get(x) ?? null) : null)),
       incluir: (id) => ok.has(id),
       integradoEm: (id) => ok.get(id) ?? null,
     });
-    deps.depois(deps.limpar(r.tenant_id ?? null));
+    agendarLimpeza(deps, r.tenant_id ?? null);
     return new Response(JSON.stringify(corpo), { status: 200, headers: CABECALHOS_JSON });
   } catch {
     return respostaErro(500, "erro_interno");

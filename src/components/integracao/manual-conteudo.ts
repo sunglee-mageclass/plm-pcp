@@ -150,7 +150,7 @@ export function montarManual(origem: string): SecaoManual[] {
     { id: "s6", titulo: "Códigos de resposta", blocos: [
       { tipo: "tabela", cabecalho: ["Código", "O que fazer"], linhas: [
         ["200", "Ok — a resposta veio normal, use os dados."],
-        ["400", "Parâmetro inválido — confira modo, incluir_integrados, limite e cursor (ou cursor do outro modo: um cursor de modo=teste usado em modo=normal, e vice-versa, também dá 400)."],
+        ["400", "Parâmetro inválido — confira modo, incluir_integrados, limite e cursor (ou cursor do outro modo: um cursor de modo=teste usado em modo=normal, e vice-versa, também dá 400). Qualquer parâmetro fora desses quatro (ou repetido) também dá 400."],
         ["401", "Chave errada ou revogada — confira a chave; se foi revogada, peça uma nova ao super admin."],
         ["403", "Loja inativa — fale com o super admin."],
         ["429", "Limite excedido (ou IP bloqueado por chaves erradas) — espere o tempo indicado em Retry-After e tente de novo."],

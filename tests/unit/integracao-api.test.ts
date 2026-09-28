@@ -32,9 +32,11 @@ function deps(o: Partial<DepsRota> = {}) {
   };
   return { d, log };
 }
-const req = (q = "", auth: string | null = `Bearer ${CHAVE}`) =>
-  new Request(`https://site/api/integracao/v1/produtos${q}`, { headers: { ...(auth ? { authorization: auth } : {}), "cf-connecting-ip": "203.0.113.5" } });
+const req = (q = "", auth: string | null = `Bearer ${CHAVE}`, headers: Record<string, string> = {}) =>
+  new Request(`https://site/api/integracao/v1/produtos${q}`, { headers: { ...(auth ? { authorization: auth } : {}), "cf-connecting-ip": "203.0.113.5", ...headers } });
 const corpo = async (r: Response) => JSON.parse(await r.text());
+// small helper for a promise that never settles (used to prove non-blocking cleanup)
+const pendente = () => new Promise<void>(() => {});
 
 describe("parâmetros", () => {
   it("padrões e validação", () => {
@@ -44,6 +46,24 @@ describe("parâmetros", () => {
     for (const q of ["modo=xpto", "incluir_integrados=talvez", "limite=0", "limite=abc", "limite=99999", "cursor=%3Cscript%3E"]) {
       expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
     }
+  });
+  it("I3 (ruling): parâmetro desconhecido ou repetido => null; m5: valor vazio = ausente nos 4", () => {
+    for (const q of ["MODO=teste", "mode=teste", "modo=teste&modo=xpto", "limite=1&limite=abc", "_=123", "cursor=x&cursor=y", "incluir_integrados=1&incluir_integrados=1"]) {
+      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+    }
+    // m5: empty value = absent, for all 4 known params (não mais 400 pra modo=/incluir_integrados=)
+    expect(lerParametros(new URL("https://s/x?limite="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
+    expect(lerParametros(new URL("https://s/x?cursor="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
+    expect(lerParametros(new URL("https://s/x?modo="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
+    expect(lerParametros(new URL("https://s/x?incluir_integrados="))).toEqual({ modo: "normal", incluir: false, limite: null, cursor: null });
+  });
+  it("edge cases adicionais: negativo, 0, não-numérico, acima do máximo", () => {
+    for (const q of ["limite=-1", "limite=0", "limite=abc", "limite=99999"]) {
+      expect(lerParametros(new URL(`https://s/x?${q}`)), q).toBeNull();
+    }
+    // dentro do range de dígitos mas acima do "razoável" ainda é aceito localmente (o banco aplica least());
+    // só o formato é validado aqui.
+    expect(lerParametros(new URL("https://s/x?limite=999"))).toEqual({ modo: "normal", incluir: false, limite: 999, cursor: null });
   });
 });
 
@@ -67,13 +87,15 @@ describe("rota — códigos HTTP e corpo mínimo ASCII", () => {
     const c = deps();
     expect((await tratarRequisicao(req("?limite=abc"), c.d)).status).toBe(400);
     expect(c.d.ler).not.toHaveBeenCalled();
+    expect(c.d.hashChave).not.toHaveBeenCalled();
   });
-  it("teto do Workers (binding) estourado = 429 sem tocar no banco", async () => {
+  it("teto do Workers (binding) estourado = 429 sem tocar no banco nem no hash", async () => {
     const { d } = deps({ tetoIp: vi.fn(async () => false) });
     const r = await tratarRequisicao(req(), d);
     expect(r.status).toBe(429);
     expect(r.headers.get("retry-after")).toBe("60");
     expect(d.ler).not.toHaveBeenCalled();
+    expect(d.hashChave).not.toHaveBeenCalled();
   });
   it("erro inesperado = 500 com corpo ASCII mínimo; a chave nunca aparece", async () => {
     const { d } = deps({ ler: vi.fn(async () => { throw new Error(`boom ${CHAVE} relation "x" does not exist`); }) });
@@ -82,6 +104,177 @@ describe("rota — códigos HTTP e corpo mínimo ASCII", () => {
     const t = await r.text();
     expect(t).toBe('{"erro":"erro_interno"}');
     expect(t).not.toContain(CHAVE);
+  });
+  it("ip_bloqueado (banco) => 429 + Retry-After", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ status: "ip_bloqueado", retry_after: 42 }) as RespostaLer) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(429);
+    expect(r.headers.get("retry-after")).toBe("42");
+    expect(await corpo(r)).toEqual({ erro: "ip_bloqueado" });
+  });
+  it("ler devolve status desconhecido (nem no mapa) => 500 erro_interno", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ status: "algo_novo_do_banco" }) as unknown as RespostaLer) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+  });
+  it("m8: status com nome de propriedade do protótipo (constructor/toString/__proto__) => 500, não cai na cadeia do protótipo", async () => {
+    for (const s of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      const { d } = deps({ ler: vi.fn(async () => ({ status: s }) as unknown as RespostaLer) });
+      const r = await tratarRequisicao(req(), d);
+      expect(r.status, s).toBe(500);
+      expect(await corpo(r), s).toEqual({ erro: "erro_interno" });
+    }
+  });
+  it("m4 (ruling): ip = cf-connecting-ip trim/slice(64) || 'desconhecido'; X-Forwarded-For nunca é usado", async () => {
+    const { d } = deps();
+    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+      headers: { authorization: `Bearer ${CHAVE}`, "cf-connecting-ip": "  203.0.113.9  ", "x-forwarded-for": "9.9.9.9" },
+    }), d);
+    expect(vi.mocked(d.tetoIp).mock.calls[0][0]).toBe("203.0.113.9");
+    expect(vi.mocked(d.ler).mock.calls[0][0]).toMatchObject({ ip: "203.0.113.9" });
+
+    const { d: d2 } = deps();
+    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+      headers: { authorization: `Bearer ${CHAVE}`, "x-forwarded-for": "9.9.9.9" },
+    }), d2);
+    expect(vi.mocked(d2.tetoIp).mock.calls[0][0]).toBe("desconhecido");
+
+    const { d: d3 } = deps();
+    await tratarRequisicao(new Request("https://site/api/integracao/v1/produtos", {
+      headers: { authorization: `Bearer ${CHAVE}`, "cf-connecting-ip": "" },
+    }), d3);
+    expect(vi.mocked(d3.tetoIp).mock.calls[0][0]).toBe("desconhecido");
+  });
+  it("m9 (ruling): resposta do banco com modo diferente do pedido => 500, nunca chama confirmar", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ ...OK, modo: "teste" }) as RespostaLer) });
+    const r = await tratarRequisicao(req("?modo=normal"), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+    expect(d.confirmar).not.toHaveBeenCalled();
+  });
+  it("m10/M9: headers de segurança sempre presentes; WWW-Authenticate só no 401", async () => {
+    const { d } = deps();
+    const ok = await tratarRequisicao(req(), d);
+    expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
+    const { d: d401 } = deps({ ler: vi.fn(async () => ({ status: "chave_invalida" }) as RespostaLer) });
+    const r401 = await tratarRequisicao(req(), d401);
+    expect(r401.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r401.headers.get("www-authenticate")).toBe("Bearer");
+    const { d: d500 } = deps({ ler: vi.fn(async () => { throw new Error("boom"); }) });
+    const r500 = await tratarRequisicao(req(), d500);
+    expect(r500.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
+describe("rota — I1/m1: guarda de caminho de foto (fail closed, sem travessia)", () => {
+  it("tenant_id ausente/inválido => todas as fotos descartadas, nada assinado", async () => {
+    const semTenant: RespostaLer = { ...OK, tenant_id: undefined };
+    const { d } = deps({ ler: vi.fn(async () => semTenant) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    expect(d.assinarFotos).not.toHaveBeenCalled();
+    const j = await corpo(r);
+    expect(j.linhas[0].valores[1]).toEqual([null, null, null]);
+    expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
+  });
+  it("travessia (../), barra dupla e barra invertida são rejeitadas mesmo com o prefixo certo", async () => {
+    const comTravessia: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", [
+          `${T}/../outra-loja/fotos_modelo/x.jpg`,
+          `${T}//fotos_modelo/a.jpg`,
+          `${T}/a\\..\\b.jpg`,
+          `${T}/fotos_modelo/ok.jpg`,
+        ]] }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => comTravessia) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    // só o caminho canônico (sem .. , sem //, sem \) é assinado
+    expect(vi.mocked(d.assinarFotos).mock.calls[0][0]).toEqual([`${T}/fotos_modelo/ok.jpg`]);
+    const j = await corpo(r);
+    expect(j.linhas[0].valores[1]).toEqual([null, null, null, `https://s/${T}/fotos_modelo/ok.jpg?t=1`]);
+    expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 3 });
+  });
+});
+
+describe("rota — I2/M3: limpeza isolada da resposta", () => {
+  it("limpar lança de forma síncrona: a resposta ainda é 200 com as linhas", async () => {
+    const { d } = deps({ limpar: vi.fn(() => { throw new Error("boom sync"); }) as any });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    const j = await corpo(r);
+    expect(j.linhas.length).toBeGreaterThan(0);
+  });
+  it("limpar rejeita: a resposta ainda é 200 (a rejeição não vira unhandled)", async () => {
+    const { d } = deps({ limpar: vi.fn(async () => { throw new Error("boom async"); }) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+  });
+  it("limpar nunca resolve: o handler ainda retorna (não trava esperando)", async () => {
+    const { d } = deps({ limpar: vi.fn(() => pendente()) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+  });
+  it("depois lança de forma síncrona: ainda 200 com linhas", async () => {
+    const { d } = deps({ depois: vi.fn(() => { throw new Error("boom depois"); }) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    const j = await corpo(r);
+    expect(j.linhas.length).toBeGreaterThan(0);
+  });
+  it("prova de não-bloqueio: limpar NUNCA é aguardado pela resposta (mesmo pendente para sempre)", async () => {
+    let chamou = false;
+    const { d } = deps({ limpar: vi.fn(() => { chamou = true; return pendente(); }) });
+    const antes = Date.now();
+    const r = await tratarRequisicao(req(), d);
+    const depois = Date.now();
+    expect(r.status).toBe(200);
+    expect(chamou).toBe(true);
+    expect(depois - antes).toBeLessThan(1000); // se estivesse esperando `limpar`, isto nunca resolveria
+  });
+});
+
+describe("rota — m2 (ruling): confirmar com status diferente de ok/chave_invalida/loja_inativa", () => {
+  it("confirmar devolve loja_inativa => 403", async () => {
+    const { d } = deps({ confirmar: vi.fn(async () => ({ status: "loja_inativa", confirmados: [] })) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(403);
+  });
+  it("confirmar devolve parametro_invalido (inconsistência de protocolo interna) => 500, NÃO 400", async () => {
+    const { d } = deps({ confirmar: vi.fn(async () => ({ status: "parametro_invalido", confirmados: [] })) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+    expect(await corpo(r)).toEqual({ erro: "erro_interno" });
+  });
+  it("confirmar devolve outro status desconhecido => 500", async () => {
+    const { d } = deps({ confirmar: vi.fn(async () => ({ status: "limite_excedido", confirmados: [] })) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(500);
+  });
+});
+
+describe("rota — m3: Retry-After sempre sano em 429", () => {
+  it("retry_after não numérico do banco => cai para 60, nunca NaN", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ status: "limite_excedido", retry_after: Number.NaN }) as RespostaLer) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(429);
+    expect(r.headers.get("retry-after")).toBe("60");
+  });
+  it("429 sem retry_after nenhum ainda carrega o header (fallback 60)", async () => {
+    const { d } = deps({ ler: vi.fn(async () => ({ status: "ip_bloqueado" }) as RespostaLer) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(429);
+    expect(r.headers.get("retry-after")).toBe("60");
+  });
+  it("retry_after fora da faixa (0, negativo, gigante) é clampado entre 1 e 3600", async () => {
+    const { d: d0 } = deps({ ler: vi.fn(async () => ({ status: "limite_excedido", retry_after: 0 }) as RespostaLer) });
+    expect((await tratarRequisicao(req(), d0)).headers.get("retry-after")).toBe("1");
+    const { d: dneg } = deps({ ler: vi.fn(async () => ({ status: "limite_excedido", retry_after: -5 }) as RespostaLer) });
+    expect((await tratarRequisicao(req(), dneg)).headers.get("retry-after")).toBe("1");
+    const { d: dgig } = deps({ ler: vi.fn(async () => ({ status: "limite_excedido", retry_after: 999999 }) as RespostaLer) });
+    expect((await tratarRequisicao(req(), dgig)).headers.get("retry-after")).toBe("3600");
   });
 });
 
@@ -113,9 +306,65 @@ describe("rota — 2 fases (R7): ler → fotos → confirmar → só os confirma
     expect(j.modo).toBe("teste");
     expect(j.linhas[0].valores[1]).toEqual(["https://site/integracao/exemplo-produto.svg"]);
   });
-  it("confirmar diz chave inválida (revogada no meio) = 401 e nada sai", async () => {
+  it("confirmar diz chave inválida (revogada no meio) = 401, corpo exato e sem linhas", async () => {
     const { d } = deps({ confirmar: vi.fn(async () => ({ status: "chave_invalida", confirmados: [] })) });
     const r = await tratarRequisicao(req(), d);
     expect(r.status).toBe(401);
+    const j = await corpo(r);
+    expect(j).toEqual({ erro: "chave_invalida" });
+    expect(j.linhas).toBeUndefined();
+  });
+  it("m6/M8: ler recebe o HASH (nunca a chave crua)", async () => {
+    const { d } = deps();
+    await tratarRequisicao(req(), d);
+    expect(vi.mocked(d.ler).mock.calls[0][0].hash).toBe(`h(${CHAVE.length})`);
+    expect(JSON.stringify(vi.mocked(d.ler).mock.calls)).not.toContain(CHAVE);
+  });
+  it("m7: fotos_descartadas e fotos_ausentes contam sobre o MESMO conjunto (caminhos únicos)", async () => {
+    // 'a.jpg' duplicado (2x na mesma linha) + 'sumiu.jpg' ausente: unicos = {a.jpg, sumiu.jpg} = 2 caminhos válidos únicos
+    const comDuplicata: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", [
+          `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/a.jpg`, `${T}/fotos_modelo/sumiu.jpg`, `outra-loja/x.jpg`,
+        ]] }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => comDuplicata) });
+    await tratarRequisicao(req(), d);
+    // 1 caminho de outra loja descartado; sumiu.jpg é único e ausente
+    expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 1, fotos_ausentes: 1 });
+  });
+  it("sem coluna Foto (idxFoto < 0): não assina nada, confirma normalmente", async () => {
+    const semFoto: RespostaLer = { ...OK, chaves_colunas: ["nome"], colunas: ["Nome"] };
+    const { d } = deps({ ler: vi.fn(async () => semFoto) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    expect(d.assinarFotos).not.toHaveBeenCalled();
+    expect(vi.mocked(d.confirmar).mock.calls[0][2]).toMatchObject({ fotos_descartadas: 0, fotos_ausentes: 0 });
+  });
+  it("valor de foto null (coluna fora do retrato do produto): preservado como null, não tenta assinar", async () => {
+    const fotoNula: RespostaLer = { ...OK, produtos: [
+      { modelo_id: "m1", estado: "integravel", assinatura: "s1", integrado_em: null, linhas: [
+        { tipo: "produto", loja_nome: "Loja X", valores: ["Saia", null] }] },
+    ] };
+    const { d } = deps({ ler: vi.fn(async () => fotoNula) });
+    const r = await tratarRequisicao(req(), d);
+    expect(r.status).toBe(200);
+    expect(d.assinarFotos).not.toHaveBeenCalled();
+    const j = await corpo(r);
+    expect(j.linhas[0].valores[1]).toBeNull();
+  });
+  it("validade_foto_dias ausente: default de 7 dias é usado na assinatura", async () => {
+    const semValidade: RespostaLer = { ...OK, validade_foto_dias: undefined };
+    const { d } = deps({ ler: vi.fn(async () => semValidade) });
+    await tratarRequisicao(req(), d);
+    expect(vi.mocked(d.assinarFotos).mock.calls[0][1]).toBe(7 * 86400);
+  });
+  it("depois é chamado também no modo teste e nos caminhos de erro do banco", async () => {
+    const { d: dTeste } = deps({ ler: vi.fn(async () => ({ ...OK, modo: "teste" }) as RespostaLer) });
+    await tratarRequisicao(req("?modo=teste"), dTeste);
+    expect(dTeste.depois).toHaveBeenCalledTimes(1);
+    const { d: dErro } = deps({ ler: vi.fn(async () => ({ status: "loja_inativa", tenant_id: T }) as RespostaLer) });
+    await tratarRequisicao(req(), dErro);
+    expect(dErro.depois).toHaveBeenCalledTimes(1);
   });
 });
