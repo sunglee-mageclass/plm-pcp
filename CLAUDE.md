@@ -233,7 +233,15 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   de linhas históricas do audit_log) e as colunas `modelos.categoria_secundaria_id` / `categorias_produto.sla_oficina`
   / `tenant_config.etapas_acabamento` (têm dado ou leitor vivo). Se um laudo/doc antigo cita "Acabamento", é
   histórico. Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
-- **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
+- **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados. **Permissão
+  POR ABA (F5c, P-112 A):** Calendário=`financeiro_calendario`, OCs=`financeiro_parcelas`,
+  Resumo=`financeiro_resumo`, Serviços=`financeiro_servicos` (key nova; editar a aba Serviços =
+  `canEdit("financeiro_servicos")`, as outras seguem `parcelas||calendario`); a página abre com
+  qualquer uma; aba padrão = 1ª permitida; `?tab=` só se permitido; atalho do Calendário p/
+  Serviços só com a permissão. Calendário/Resumo continuam mostrando/somando serviços (P-114 A).
+  Backfill `20261009100000_financeiro_servicos_backfill.sql` roda LOGO DEPOIS do deploy (o front
+  antigo apaga a linha nova ao salvar permissões). ⚠️ Gates só na TELA (RLS de `parcelas`/
+  `parcelas_servico` = loja+módulo) — backlog do Reforço de segurança.
 - **dashboard**: 7 abas (coleção, estoque, produção, financeiro, custos, **comercial**,
   **leadtime**). *Comercial* = poder de venda/margem (Planejado vs Realizado, colunas
   agrupadas). *Leadtime* = tempo por etapa vs ideal, em ordem de FLUXO **Planejamento →
@@ -244,7 +252,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `dashboard_leadtime_itens`, tracking individual) sob **um filtro global** (coleção/subcol/semana).
   **SLA de Serviços por item**: `subcategorias1_produto.sla_oficina` (rótulo "SLA de Serviços") vira
   o prazo da etapa apontada por `slaServico`; opções = serviços de confecção (`src/lib/servico-
-  confeccao.ts`). Cada aba é permissão própria (`dashboard_comercial`/`_leadtime`)
+  confeccao.ts`). Hoje são 5 abas por gestor, cada uma com permissão própria
+  (`dashboard_desenvolvimento`/`_producao_qualidade`/`_comercial_colecao`/`_custo_financeiro`/
+  `_leadtime`); as 6 chaves de DADOS (`dashboard_colecao/estoque/producao/financeiro/custos/
+  comercial`) CONTINUAM (gates das RPCs + `_pode_ver_custos`) e no editor de permissões aparecem
+  agrupadas como "Dados: …" sob a aba que alimentam (F5c, P-112 A) — não renomear nem apagar.
 - **admin**: lojas (criar/editar/reset/excluir), usuarios, usuarios-loja, configuracoes
   (módulos, modos, fuso, card de Integração ERP)
 
@@ -814,7 +826,8 @@ Desenvolvimento" **SAIU** (abria um 2º editor do mesmo BOM por cima do card —
 seções do Dev). **O Sheet do Dev (`src/components/desenvolvimento/`, `ModeloDetailPanel.tsx`) fica
 INTACTO até a F5** (decisão 8 travada da campanha) — gate reproduzível: `git diff --name-only
 savepoint-pre-unificacao-2026-09-22 -- src/components/desenvolvimento/
-src/components/producao/cad/CadTecidosSection.tsx` dá vazio. Com **2 editores do mesmo BOM**
+src/components/producao/cad/CadTecidosSection.tsx` dava vazio até a F5 (a F5a mexeu no Dev só para
+o modo leitura — ver abaixo). Com **2 editores do mesmo BOM**
 agora possíveis (Sheet do Planejamento e Sheet do Dev, cada um aberto por uma pessoa), a proteção
 é a de sempre: `modelos.rev` otimista (P0409 se o outro salvou primeiro) + **conflito de SEÇÃO**
 (ex.: `secao:bom` — "manter meu" fecha o aviso, "usar o novo" descarta e recarrega do servidor).
@@ -825,10 +838,20 @@ do Dev aberto em paralelo não escuta; o Dev não recarrega o CAD sozinho. A eta
 ("Mover para…") fica **FORA do Salvar** — muda na hora, direto pela RPC do kanban. Campo novo
 `modelos.descricao_produto` (seção 1, migration `20260930180000`) editável nos dois Sheets.
 
-**Sheet do Dev OCULTO + trava por seção (P-53, set/2026, deploy 26/set):**
-`src/routes/_authenticated/criacao.desenvolvimento.tsx` tem `const SHEET_DEV_ATIVO = false` —
-esconde o Sheet antigo do Dev (reativar = trocar para `true`); o Sheet do Planejamento passou a
-ser o único editor de card em uso na prática. Com um só editor, `PlanejamentoDetail.tsx` decide
+**Sheet do Dev SÓ LEITURA + trava por seção (P-53 → F5a P-104/P-110/P-113, set/2026):**
+o Sheet antigo do Dev (`ModeloDetailPanel`) VOLTOU a abrir ao clicar no card do kanban do
+Desenvolvimento, mas SÓ PARA LEITURA: `criacao.desenvolvimento.tsx` passa
+`somenteLeitura` (`const SHEET_DEV_SOMENTE_LEITURA = true`; substitui o antigo
+`SHEET_DEV_ATIVO=false` que o escondia). Em modo leitura TODO caminho de escrita do Sheet é
+bloqueado na UI E no handler (save/BOM/CAD/MO/etiquetas/Enviar à Explosão/aprovar MO/Importar/
+uploads/Ajustes na Prova/Observações) — testes `tests/unit/f5-dev-somente-leitura*.test.ts`
+(inclui asserções de fonte que falham se uma guarda for apagada); a seção CAD re-carrega a cada
+mudança do servidor (não há rascunho a proteger). Rodapé = SÓ **Voltar · Imprimir · Ir para P.
+Produto** (`/criacao/planejamento?modelo=<id>`; some sem `canView("criacao_planejamento")`);
+Imprimir = mesma Ficha Técnica, só no computador (P-36 B) e só após Enviar à Explosão (P-113 A).
+O arraste/"Mover para…" do QUADRO seguem valendo (são ações do board, não do Sheet). Com
+`somenteLeitura=false` o componente é byte a byte o de antes. O Sheet do Planejamento é o ÚNICO
+editor de card. Com um só editor, `PlanejamentoDetail.tsx` decide
 POR SEÇÃO, pelas DUAS permissões (`criacao_planejamento`/`criacao_desenvolvimento`), o que cada
 usuário edita — não herda mais uma permissão só: preço de venda é seção à parte
 (`criacao_planejamento:preco_venda`); campos compartilhados (coleção/subcoleção/linha/semana/mês/
@@ -874,10 +897,12 @@ cor×loja×tamanho; célula calculada = `round(proporção×Base)`, corrigível 
 "↺ voltar ao calculado"); tamanhos mostrados = a grade filtrada pelo lado de `tamanho_tipo`. O
 total por cor preenche a quantidade de peças do card; resumo por modelo também aparece no
 Direcionamento. Card já **Enviado à Explosão** abre o dialog **SÓ LEITURA**. **A página antiga
-`/distribuicao` está OCULTA** (`src/routes/_authenticated/distribuicao.index.tsx`, `const
-PAGINA_ATIVA = false`, P-49 B) — fora do menu, mas as tabelas/RPCs antigas (`distribuicao_
-tabelas` + 3 RPCs) NÃO foram dropadas (guardadas para aposentar depois, em partes — ver
-`feedback_aposentar_ocultar_primeiro` na memória). Detalhe: `mapeamento-campos-calculos.md`
+`/distribuicao` foi APAGADA do código** (F5b, P-111 A: rota, `src/components/distribuicao/`,
+`src/lib/distribuicao.ts` e testes removidos; URL antiga cai no 404) — as tabelas/RPCs antigas
+(`distribuicao_tabelas` + `distribuicao_resumo`/`salvar_distribuicao_tabela`/
+`excluir_distribuicao_tabela` + `direcionamento_resumo_subcolecao` morta) SÓ saem do banco na
+parte 2, DEPOIS do deploy da F5 (backup + passo do dono; ajustar
+`tests/integration/distribuicao-produto.test.ts`) — ver `feedback_aposentar_ocultar_primeiro`. Detalhe: `mapeamento-campos-calculos.md`
 §17.5–§17.6.
 
 ## O que NÃO fazer
