@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -66,13 +66,21 @@ export function ModeloGradeSection({
   // com proporção > 0 OU com alguma quantidade lançada em QUALQUER variante — um solto do lado não-escolhido que já
   // tem dado real nunca desaparece (fica esmaecido). Sem `tamanhoTipo`, mostra TUDO (byte a byte o comportamento
   // de hoje) — `tamanhosVisiveis` só entra em jogo quando o card já sabe o "Tamanho em".
+  // Fix M-1 (review T3+T7) — `comValor` é ACUMULATIVO (ref, não recalculado do zero a cada render): um tamanho
+  // esmaecido que já entrou na sessão NUNCA sai dela, mesmo que a célula passe por 0 no meio da digitação (ex.:
+  // Backspace pra trocar "3" por "5" — o NumberInput emite 0 nesse instante). Sem isto, o tamanho saía de
+  // `comValor`, a coluna desmontava na hora (perda de foco, impossível terminar de digitar). A UNIÃO com o valor
+  // VIVO garante que um tamanho que ganha dado DEPOIS da montagem também entra (não é só o valor inicial).
+  const comValorAcumuladoRef = useRef<Set<string>>(new Set());
   const comValor = useMemo(() => {
-    const s = new Set<string>();
+    const s = comValorAcumuladoRef.current;
     for (const t of tamanhos) {
       if (Number(proporcoes?.[t]) > 0) { s.add(t); continue; }
       for (const g of grades) if (Number(g.grades?.[t]) > 0) { s.add(t); break; }
     }
-    return s;
+    // Devolve uma CÓPIA (nunca a ref viva) — `tamanhosVisiveis` não deve mutar o acumulador, e um consumidor
+    // guardando a referência não pode ver o acumulador crescer por baixo sem um novo cálculo.
+    return new Set(s);
   }, [tamanhos, proporcoes, grades]);
   const colunas = tamanhoTipo ? tamanhosVisiveis(tamanhos, tamanhoTipo, comValor) : tamanhos.map((t) => ({ chave: t, rotulo: t, esmaecido: false }));
 

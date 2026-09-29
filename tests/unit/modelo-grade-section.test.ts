@@ -6,10 +6,11 @@
 // que os handlers recebem (`onChangeProporcao`/`onChangeGradeCell`) continuam a chave cheia da grade — ressalva
 // #3 do G-plano: filtro de exibição nunca reduz o que é gravado.
 import { describe, it, expect, vi } from "vitest";
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { ModeloGradeSection } from "@/components/desenvolvimento/modelo-detail/ModeloGradeSection";
+import { ModeloGradeSection, type GradeVarianteInfo } from "@/components/desenvolvimento/modelo-detail/ModeloGradeSection";
+import type { GradeRow } from "@/components/desenvolvimento/modelo-detail/types";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -118,6 +119,62 @@ describe("ModeloGradeSection — com tamanhoTipo (relabela e filtra, mas preserv
     expect(labels).toContain("36");
     const label36 = Array.from(container.querySelectorAll("label")).find((l) => l.textContent === "36") as HTMLElement;
     expect(label36.parentElement?.className).toContain("opacity-50");
+    unmount();
+  });
+});
+
+describe("ModeloGradeSection — fix M-1: célula esmaecida não some no meio da digitação", () => {
+  // Wrapper controlado: dono do estado `grades`/`proporcoes` como uma tela real seria (o componente é
+  // controlado — não guarda o próprio valor). Simula exatamente o cenário do achado: "36" (solto do lado
+  // NÃO escolhido) chega com valor 3 (esmaecido); a pessoa aperta Backspace (o NumberInput emite 0 nesse
+  // instante — `qty: 0` — antes do próximo dígito) e depois digita "5". Sem a fix, o "0" tira "36" de
+  // `comValor`, a coluna desmonta e o foco se perde no meio do caminho.
+  function Wrapper({ onChangeGradeCell }: { onChangeGradeCell: (n: number, tam: string, qty: number) => void }) {
+    const [grades, setGrades] = useState<GradeRow[]>([{ variante_numero: 1, grades: { PP: 1, "36": 3 }, grade_total: 4 }]);
+    const handle = (n: number, tam: string, qty: number) => {
+      onChangeGradeCell(n, tam, qty);
+      setGrades((gs) => gs.map((g) => (g.variante_numero === n ? { ...g, grades: { ...g.grades, [tam]: qty } } : g)));
+    };
+    const variantes: GradeVarianteInfo[] = [{ numero: 1, label: "Marrom" }];
+    return createElement(ModeloGradeSection, {
+      tamanhos: ["PP", "36"],
+      proporcoes: { PP: 1, "36": 0 },
+      onChangeProporcao: vi.fn(),
+      grades,
+      onChangeGradeTotal: vi.fn(),
+      onChangeGradeCell: handle,
+      tecido1Variantes: variantes,
+      gradeAuto: false,
+      onToggleGradeAuto: vi.fn(),
+      tamanhoTipo: "letra",
+    } as any);
+  }
+
+  it("Backspace até 0 e digitar de novo: a célula NUNCA desmonta e o foco/valor sobrevive", () => {
+    const onChangeGradeCell = vi.fn();
+    const { container, unmount } = montar(createElement(Wrapper, { onChangeGradeCell }));
+    const inputSel = "input[data-colab-path='grade-cell:1:36']";
+    let input = container.querySelector(inputSel) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    act(() => { input.focus(); });
+    expect(document.activeElement).toBe(input);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    const digitar = (texto: string) => {
+      act(() => { setter.call(input, texto); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    };
+    // Backspace até vazio → o NumberInput normaliza pra "0" no onChange (linha 69 do componente).
+    digitar("");
+    expect(onChangeGradeCell).toHaveBeenLastCalledWith(1, "36", 0);
+    // A célula "36" continua no DOM (não desmontou) e ainda tem o foco — é exatamente o bug do M-1.
+    input = container.querySelector(inputSel) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+    // Continua a digitar o novo valor — sem a fix, o passo acima já teria perdido o campo.
+    digitar("5");
+    expect(onChangeGradeCell).toHaveBeenLastCalledWith(1, "36", 5);
+    input = container.querySelector(inputSel) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(document.activeElement).toBe(input);
     unmount();
   });
 });

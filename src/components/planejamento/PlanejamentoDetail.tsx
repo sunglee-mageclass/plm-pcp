@@ -460,6 +460,8 @@ function PlanejamentoDetailConteudo({
     travaDev: motivoTravaDev,
     // F3.3 — D2: o CAD só nasce depois da Ordem de Criação. Lê o SERVIDOR (o `enviada` local é declarado mais abaixo).
     ordemEnviada: !!(modeloData as any)?.ordem_criacao_enviada,
+    // Fix I-1 (review T3+T7) — a Grade Total sem proporção reparte só entre os tamanhos visíveis do "Tamanho em".
+    tamanhoTipo: draft.tamanho_tipo,
   });
   // F3.2 (Task 13) — espelho SÍNCRONO de `ficha` p/ o Duplicar: a `mutationFn` faz um `await` (busca da
   // versão máxima) ANTES de ler `ficha.carregado`/`ficha.estado` — mesma classe de risco que o `fichaRef`

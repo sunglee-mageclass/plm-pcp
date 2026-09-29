@@ -209,4 +209,78 @@ describe("TamanhoEmToggle — render", () => {
     expect(group?.getAttribute("title")).toBeNull();
     unmount();
   });
+
+  // Fix M-4 (revisão T3+T7) — o InfoHover não fica mais DENTRO do <Label> (um <label> sem `htmlFor` ativa o 1º
+  // elemento rotulável por baixo, que era o botão do InfoHover — clicar no TEXTO "Tamanho em" abria/fechava o
+  // tooltip). Clicar no texto do rótulo não deve mais alternar o InfoHover.
+  it("clicar no texto do rótulo 'Tamanho em' NÃO abre/fecha o InfoHover (fix M-4)", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, { value: "letra", onChange: vi.fn() }),
+    );
+    const label = Array.from(container.querySelectorAll("label")).find((l) => l.textContent?.startsWith("Tamanho em")) as HTMLElement;
+    expect(label).toBeTruthy();
+    const info = container.querySelector('button[aria-label="Sobre o Tamanho em"]') as HTMLButtonElement;
+    expect(info).toBeTruthy();
+    // Simula um clique de mouse no PRÓPRIO <label> (não no botão) — antes da fix, o label ativava o InfoHover
+    // por estar dentro dele; agora são irmãos, então o clique no label não tem efeito sobre o tooltip.
+    act(() => { label.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    // O tooltip content só monta quando `open` fica true (Radix) — como não há como consultar `open` direto,
+    // a prova é estrutural: o InfoHover não é descendente do <label> (não pode ser "ativado" por ele).
+    expect(label.contains(info)).toBe(false);
+    unmount();
+  });
+
+  // Fix M-4 (N-3) — opção desabilitada não mostra `cursor-pointer` (parecia clicável sem ser).
+  it("disabled: as opções (label) trocam cursor-pointer por cursor-not-allowed + opacidade", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, { value: "letra", onChange: vi.fn(), disabled: true }),
+    );
+    const opcoes = Array.from(container.querySelectorAll("label")).filter((l) => l.querySelector('input[type="radio"]'));
+    expect(opcoes.length).toBe(2);
+    for (const o of opcoes) {
+      expect(o.className).not.toContain("cursor-pointer");
+      expect(o.className).toContain("cursor-not-allowed");
+      expect(o.className).toContain("opacity-60");
+    }
+    unmount();
+  });
+
+  it("habilitado: as opções mantêm cursor-pointer (sem opacidade)", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, { value: "letra", onChange: vi.fn() }),
+    );
+    const opcoes = Array.from(container.querySelectorAll("label")).filter((l) => l.querySelector('input[type="radio"]'));
+    for (const o of opcoes) {
+      expect(o.className).toContain("cursor-pointer");
+      expect(o.className).not.toContain("cursor-not-allowed");
+    }
+    unmount();
+  });
+
+  // Fix M-4 — `tituloDesabilitado` novo (opcional): dá `title` ao grupo mesmo quando `motivoDesabilitado` é um
+  // ReactNode (não string) — sem o prop, mantém o comportamento de hoje (sem title, teste já existente acima).
+  it("motivoDesabilitado ReactNode + tituloDesabilitado: o grupo ganha o title explícito", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, {
+        value: "letra", onChange: vi.fn(), disabled: true,
+        motivoDesabilitado: createElement("span", { "data-testid": "selo-integracao" }, "Integrado em 26/09 — travado"),
+        tituloDesabilitado: "Integrado em 26/09 — travado",
+      }),
+    );
+    const group = container.querySelector('[role="radiogroup"]');
+    expect(group?.getAttribute("title")).toBe("Integrado em 26/09 — travado");
+    unmount();
+  });
+
+  it("motivoDesabilitado ReactNode SEM tituloDesabilitado: sem title (comportamento de sempre, API compatível)", () => {
+    const { container, unmount } = montar(
+      createElement(TamanhoEmToggle, {
+        value: "letra", onChange: vi.fn(), disabled: true,
+        motivoDesabilitado: createElement("span", null, "Integrado em 26/09 — travado"),
+      }),
+    );
+    const group = container.querySelector('[role="radiogroup"]');
+    expect(group?.getAttribute("title")).toBeNull();
+    unmount();
+  });
 });

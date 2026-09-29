@@ -17,6 +17,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { distribuiAncora, distribuiTotal, redistribuiPorEscala, somaGrade } from "@/lib/grade-proporcao";
+import { tamanhosVisiveis } from "@/lib/tamanho-exibicao";
+import type { TamanhoTipo } from "@/lib/tamanho";
 import {
   makeEmptyBlocks, recomputeAviamento, recomputeBlock, recomputeEtiqueta,
   remapGradesAposRemocao, removerVarianteDoBloco,
@@ -38,7 +40,7 @@ const FLAGS_ZERO: FlagsBom = { grade: false, consumo: false, aviamentos: false }
 
 export type ConfirmGrade = { msg: string; onConfirm: () => void } | null;
 
-export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado, aoMudarBloco, gradeExterna = false }: {
+export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, proporcoes, setDraftTracked, aoRecarregarComTocado, aoMudarBloco, gradeExterna = false, tamanhoTipo = null }: {
   modeloId: string | null;
   habilitada: boolean;
   dados: FichaDados;
@@ -51,6 +53,12 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   aoMudarBloco?: (tipo: string, numero: number, patch: PatchBlocoCad) => void;
   /** F3.4 — comprado: a grade é a cor × tamanho do produto (fora da ficha) — Tecido 1 e grade não se tocam. */
   gradeExterna?: boolean;
+  /** P-120 A (plano `2026-09-29-tamanho-em`, fix I-1) — `draft.tamanho_tipo`: quando presente, a Grade Total
+   *  digitada SEM proporção (`distribuiTotal` no ramo "divide igualmente") reparte só entre os tamanhos
+   *  VISÍVEIS (`tamanhosVisiveis`), não toda a grade da loja — a tela mostra só o lado escolhido, então
+   *  dividir por todos preenchia numerações ocultas por engano. Omitido/null = comportamento de sempre
+   *  (divide por TODOS os `tamanhos`, como antes desta fix). */
+  tamanhoTipo?: TamanhoTipo | null;
 }) {
   // Sempre a versão atual do callback (o efeito da carga não o tem nas dependências).
   const aoRecarregarRef = useRef(aoRecarregarComTocado);
@@ -243,6 +251,22 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
   const tamanhos = dados.tamanhos;
   const frozen = dados.frozenPrecos;
 
+  // Fix I-1 (review T3+T7) — tamanhos VISÍVEIS pro "Tamanho em" do card: `comValor` junta os com proporção > 0
+  // OU quantidade > 0 em QUALQUER variante da grade JÁ carregada (mesma regra do `ModeloGradeSection`, aqui
+  // recalculada sobre o estado do ficha em vez de props) — um tamanho oculto que já tem dado real entra também
+  // (não afeta a divisão igual: só entram no "alvo" os `tamanhosVisiveis` de fato, e um oculto com valor real
+  // JÁ é "visível" por definição do helper). Sem `tamanhoTipo`, `tamanhosVisiveisLista` fica igual a `tamanhos`
+  // (== o comportamento de sempre do `distribuiTotal`, sem o parâmetro `visiveis`).
+  const tamanhosVisiveisLista = useMemo(() => {
+    if (!tamanhoTipo) return tamanhos;
+    const comValor = new Set<string>();
+    for (const t of tamanhos) {
+      if (Number(proporcoes?.[t]) > 0) { comValor.add(t); continue; }
+      for (const g of grades) if (Number(g.grades?.[t]) > 0) { comValor.add(t); break; }
+    }
+    return tamanhosVisiveis(tamanhos, tamanhoTipo, comValor).map((v) => v.chave);
+  }, [tamanhos, tamanhoTipo, proporcoes, grades]);
+
   // ── Handlers (Dev :2435-2652) ──
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
     marcarTocado();
@@ -382,7 +406,9 @@ export function useFichaBom({ modeloId, habilitada, dados, tecidosPlanejados, pr
     marcarFlag("grade");
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
-      const next = { ...cur.grades, ...distribuiTotal(total, tamanhos, proporcoes ?? {}) };
+      // Fix I-1 — `visiveis` só entra em jogo no ramo "divide igualmente" (Σprop == 0) de `distribuiTotal`;
+      // com proporção definida, a conta é igual a antes (a proporção já decide quem recebe).
+      const next = { ...cur.grades, ...distribuiTotal(total, tamanhos, proporcoes ?? {}, tamanhosVisiveisLista) };
       const others = gs.filter((g) => g.variante_numero !== n);
       return [...others, { variante_numero: n, grades: next, grade_total: total }].sort((a, b) => a.variante_numero - b.variante_numero);
     });
